@@ -22,9 +22,9 @@ workflow be a later consideration only. The graph, feed, tiers and distribution 
 |---|---|---|---|
 | 0 | Feasibility & data sources | `01-feasibility.md`, `02-data-sources.md`, `data/sources.yaml`, `scripts/probe_sources.py`, probe evidence | **done 2026-09-12** |
 | 1 | Business plan & model | market sizing, pricing ladder, unit economics, GTM, legal entity/licensing plan, 24-month financial model, risk register | market + pricing + GTM done (`11`, `33`); legal register in progress; financial model and risk register outstanding |
-| 2 | Architecture & specifications | system spec, domain model + ERD, API spec (OpenAPI), ingestion/normalisation/resolution design, security & privacy design, DevOps (IaC, CI/CD, observability, backups), ADRs | `20`, `21`, `23`, six ADRs done; resolution prototype (`22`) in progress; OpenAPI YAML, DevOps design in Sprint 1 |
-| 3 | Product design | UX research, information architecture, UI system, public site, search/map/alerts, API docs, admin panel (users, customers, subscriptions, data ops), CRM/ERP integration as single source of truth, analytics/tracking plan | |
-| 4 | Build & launch MVP | Tier-1 ingestion, proposal graph, public delayed tier, Pro alerts, syndication, billing, launch runbook | |
+| 2 | Architecture & specifications | system spec, domain model + ERD, API spec (OpenAPI), ingestion/normalisation/resolution design, security & privacy design, DevOps (IaC, CI/CD, observability, backups), ADRs | **done** except DevOps design (blocked on ADR 0005 hosting decision): `20`, `21`, `22`, `23`, `api/openapi.yaml` (118 ops, validated), six ADRs |
+| 3 | Product design | UX research, information architecture, UI system, public site, search/map/alerts, API docs, admin panel (users, customers, subscriptions, data ops), CRM/ERP integration as single source of truth, analytics/tracking plan | design docs **done**: `30-design-references`, `30-design-ia`, `31-design-system`; screens are Sprint 2 build |
+| 4 | Build & launch MVP | Tier-1 ingestion, proposal graph, public delayed tier, Pro alerts, syndication, billing, launch runbook | ingestion **done** (`pipeline/connectors`, 10 sources, gated); store, API service, web app, alerts, syndication are Sprint 2+ |
 | 5 | Later consideration: deal workflow | project intake beyond the light MVP form, scoring, capital-partner routing, and any integration with the existing Bankable app. Not foundational; revisit after Phase 4 on evidence | deferred by owner |
 | 6 | Operations | SLAs, support, data QA ops, licence renewals, compliance calendar, content/social cadence | |
 
@@ -61,6 +61,28 @@ workflow be a later consideration only. The graph, feed, tiers and distribution 
 | 2026-09-12 | **Design must be distinctive, not the default AI look.** A custom package of typefaces, spacing scale and layouts, built from a documented study of the best interactive data products in and around the industry. Explicit anti-patterns are banned (generic sans on purple gradients, uniform rounded cards, three-tile hero, emoji bullets, stock illustration). Deliverable: `docs/30-design-references.md` before any screen is drawn | Owner request |
 | 2026-09-12 | ADRs 0001–0004 accepted as working decisions: Python 3.12 + FastAPI + SQLAlchemy; Postgres 16 with PostGIS + object storage for raw snapshots; Procrastinate (Postgres-backed) job queue. ADR 0005 (hosting) and 0006 (CRM/ERP adapter, HubSpot + Stripe recommended) remain proposed pending owner | `docs/adr/`; owner may overturn |
 | 2026-09-12 | Working defaults pending owner ratification: public-tier lag is 7 days for opportunities and 14 days for supply rows (per `docs/11` §3, resolves docs/21 C-4); restricted or unknown-terms sources (PJM, MISO, SPP, NYISO, ISO-NE until terms recorded) return nothing on any tier, including Pro and API, until legal-compliance records permission (resolves docs/21 C-3 on the safer reading) | Safer reading; reversible configuration |
+
+## Sprint 1 close-out (2026-09-12) and the decisions that gate Sprint 2
+
+Sprint 1 delivered: `04-standards` (126 rules), `12-naming` (three rounds; Infraqueue placeholder), `13-legal` ×2,
+`22-resolution` (measured), `30-design-references`, `30-design-ia`, `31-design-system`, `api/openapi.yaml`
+(118 operations, 44/44 stories, validates), `pipeline/connectors` (10 sources live, 208 tests, lint and strict
+types clean). Sprint 2 is the first *build* sprint: Postgres store and migrations from `docs/21`, the FastAPI
+service from `api/openapi.yaml`, the map-first public site from `docs/30`/`31`, change events end to end,
+alerts, and the first syndication channel. It is also the most expensive sprint in tokens.
+
+Decisions that should be made before Sprint 2 starts, in order of how much they constrain the build:
+
+| # | Decision | Default if the owner says nothing | Constrains |
+|---|---|---|---|
+| D1 | Hosting posture (ADR 0005): VMs + Compose + OpenTofu (solo/contractor) vs managed container platform (funded) | VMs + Compose | DevOps design, CI/CD, cost ceiling |
+| D2 | CRM/ERP system of record (ADR 0006): HubSpot + Stripe / Odoo / ERPNext / Twenty + Stripe | HubSpot + Stripe (adapter isolates the choice) | Admin panel, billing, Sprint 3 |
+| D3 | Ratify the five-family status colour system (`docs/30` §6.2, `docs/31` §1.2) | Adopted | Every status chip, map marker, legend |
+| D4 | Ratify keeping Newsreader + IBM Plex (`docs/30` §4) | Keep | Wordmark, all typography |
+| D5 | Metric M-1 recalibration (`docs/22`; late-stage link rate, 0.95/0.85 on 600 held-out labels, docket linkage) | Adopt recalibration | What "resolution good enough to publish merges" means |
+| D6 | Name: Infraqueue permanent, or Infrafeed, or keep placeholder through Sprint 2 | Placeholder through Sprint 2; register both .coms now | Wordmark timing, handle registration |
+| D7 | Legal actions (task #4): PJM licence enquiry, SPP authorisation, MISO terms in a browser, counsel brief on 22 items | Owner-only; nothing in Sprint 2 depends on them except PJM/SPP rows appearing | Launch coverage |
+| D8 | Free API keys to register: EIA v2, SAM.gov, NRC ADAMS, regulations.gov; LinkedIn MDP application; Bluesky account | Owner-only | Tier-2 connectors, syndication |
 
 ## Open questions for the owner (answers change Phase 1–3 work)
 
