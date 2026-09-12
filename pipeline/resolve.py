@@ -14,13 +14,14 @@ Writes  data/eval/matches.parquet   (pairwise, with score, components, rationale
         data/eval/clusters.parquet  (one row per cluster member)
 
 Usage:
-    python pipeline/resolve.py [--threshold 72] [--sweep] [--labels data/eval/labels.csv]
+    python pipeline/resolve.py [--threshold 75] [--sweep] [--labels data/eval/labels.csv]
 """
 from __future__ import annotations
 
 import argparse
 import itertools
 import pathlib
+import re
 import sys
 
 import pandas as pd
@@ -115,10 +116,38 @@ def _ratio(a, b, scorer: str = "token_set") -> float | None:
     return float(fuzz.token_set_ratio(a, b))
 
 
+PHASE_TOKEN = re.compile(r"(?<![A-Za-z0-9])(\d{1,3}|I{1,3}|IV|V|VI{1,3}|IX|X)(?![A-Za-z0-9])")
+ROMAN = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10}
+
+
+def phase_tokens(name) -> set[int]:
+    """Phase / unit numbers in a raw project name: 'Lazy U Solar 2' -> {2}, 'Solar Star III' -> {3}."""
+    if name is None or pd.isna(name):
+        return set()
+    return {ROMAN.get(t, None) or int(t) for t in PHASE_TOKEN.findall(str(name)) if t.isdigit() or t in ROMAN}
+
+
 def score_pair(l: dict, r: dict) -> dict:
     comp: dict[str, float | None] = {}
     comp["name"] = _ratio(l["name_norm"], r["name_norm"], NAME_SCORER)
     comp["sponsor"] = _ratio(l["sponsor_norm"], r["sponsor_norm"], NAME_SCORER)
+    flags = []
+
+    # Rule P: numbered phases. 'Lazy U Solar 1' vs 'Lazy U Solar 2' score 88 on tokens but are
+    # different interconnection requests. When both names carry phase numbers and the sets
+    # disagree, halve the name score. (6 of 10 false positives at threshold 72 before this rule.)
+    pl, pr = phase_tokens(l["name_canonical"]), phase_tokens(r["name_canonical"])
+    if comp["name"] is not None and pl and pr and pl != pr:
+        comp["name"] *= 0.5
+        flags.append("phase_conflict")
+
+    # Rule S: SPV-vs-developer sponsor naming. EIA reports the project SPV ('Freestone Solar LLC')
+    # where the ISO reports the developer (or vice versa). When the project name and county agree
+    # almost exactly, sponsor disagreement is uninformative, so the component is dropped.
+    if comp["sponsor"] is not None and comp["sponsor"] < 50 and (comp["name"] or 0) >= 90 \
+            and l["county_norm"] and r["county_norm"] and l["county_norm"] == r["county_norm"]:
+        comp["sponsor"] = None
+        flags.append("sponsor_ignored")
 
     lc, rc = l["county_norm"], r["county_norm"]
     comp["county"] = None if (lc is None or rc is None or pd.isna(lc) or pd.isna(rc)
@@ -144,9 +173,16 @@ def score_pair(l: dict, r: dict) -> dict:
     evidence = sum(WEIGHTS[k] for k in avail)
     score = (sum(WEIGHTS[k] * v for k, v in avail.items()) / evidence) if evidence else 0.0
 
+    # Rule V: vintage. A request withdrawn with a COD more than 5 years from the other side's COD
+    # is a different proposal even when the name matches ('SIENNA' 2018 vs 'Sienna Solar Farm' 2028).
+    if days is not None and days > 5 * 365 and "withdrawn" in (l["lifecycle_state"], r["lifecycle_state"]):
+        score *= 0.8
+        flags.append("stale_withdrawn")
+
     bits = [f"{k}={comp[k]:.0f}" for k in ("name", "sponsor", "county", "capacity", "cod")
             if comp[k] is not None]
-    rationale = f"{'; '.join(bits)}; evidence={evidence:.2f}"
+    rationale = f"{'; '.join(bits)}; evidence={evidence:.2f}" + (
+        f"; {','.join(flags)}" if flags else "")
     return {"score": round(score, 2), "name_score": comp["name"], "sponsor_score": comp["sponsor"],
             "county_score": comp["county"], "capacity_score": comp["capacity"],
             "cod_score": comp["cod"], "capacity_ratio": cap_ratio, "cod_days": days,
@@ -374,7 +410,7 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--threshold", type=float, default=72.0)
+    ap.add_argument("--threshold", type=float, default=75.0)
     ap.add_argument("--normalized", default=str(EVAL / "normalized.parquet"))
     ap.add_argument("--out", default=str(EVAL / "matches.parquet"))
     ap.add_argument("--labels", default=str(EVAL / "labels.csv"))
