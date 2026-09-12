@@ -1,0 +1,89 @@
+left_id,right_id,label,rationale
+eia860m:67676-GEN01,caiso:1728,1,"Zeta Solar & Storage / ZETA: same county (Merced), 75 MW both, COD 5 days apart"
+isone:8,isone:8,1,ANP Bellingham Unit 1 and Unit 2: two units of one plant under one ISO-NE queue id
+eia860m:68349-AVBS1,ercot:27INR0316,1,"Avant Prairie ESS/BESS: identical sponsor LLC, county, 200 vs 201.7 MW"
+isone:272,isone:272,0,"ISO-NE queue id 272 reused: 'Wind' in Somerset vs Oakfield II in Aroostook, different projects"
+isone:84,isone:84,0,Nantucket Sound Phase I vs Phase 3: different phases filed separately
+eia860m:68479-SHRT,ercot:24INR0201,1,"Short Creek Solar: same sponsor (Wichita Solar I), county, 606 vs 628 MW"
+eia860m:68852-HSBE1,ercot:24INR0365,1,"Hermes Storage: same sponsor (Bell 1 Storage), county, 100.4 vs 100.42 MW"
+eia860m:69982-3569,ercot:20INR0162,1,"Diamondback Solar: same sponsor LLC, Starr county, 200 vs 203.8 MW"
+isone:272,isone:272,-1,"ISO-NE id 272 reused; generic name 'Wind', same county, 150 vs 135.5 MW, 4 years apart: cannot tell"
+ercot:28INR0109,eia860m:69689-CT12,1,"Vast Sands Power II / Vast Sands Power: same sponsor (Permian Power I), Ward county, 440 MW both; EIA CT12 is a unit"
+nyiso:0774,eia860m:65051-TSEC,1,"Tracy Solar Energy Center: identical name, Jefferson county, 119 MW both"
+ercot:26INR0172,eia860m:68357-LUPV1,0,"Lazy U Solar 2 vs Lazy U Solar 1: numbered phases, separate LLCs"
+nyiso:1134,eia860m:65051-TSEC,-1,"Tracy Storage 5 MW (withdrawn) vs Tracy Solar Energy Center 119 MW: same sponsor and site, unclear if one project"
+ercot:23INR0249,eia860m:68853-LMWOD,1,"Limewood Solar / Limewood Bell Renewables Solar: same sponsor, Bell county, 204.6 vs 204 MW"
+eia860m:66682-NY10,nyiso:0804,1,"KCE NY 10: identical name, Erie county, 20 MW both"
+ercot:24INR0127,eia860m:66396-NDUAH,1,"Naduah Solar: identical name and sponsor (Gransolar Texas Fifteen), Limestone county"
+eia860m:62823-Q584,nyiso:0584,1,Dog Corners Solar: EIA generator id 'Q584' is the NYISO queue number 0584; same county and MW
+caiso:1323,eia860m:68240-SS3PV,0,SOLAR STAR 4 vs Solar Star 3: different numbered projects
+eia860m:66922-59957,ercot:24INR0532,1,"Timber Cove Solar (SLF): same sponsor (Freestone Solar), county, 100 vs 100.5 MW"
+caiso:1322,eia860m:68240-SS3BT,1,"SOLAR STAR 3 / Solar Star 3 (storage generator): same numbered project, Kern, 24 vs 23 MW"
+caiso:1632,eia860m:69956-S9,1,"SANBORN HYBRID 3 (1400 MW CAISO complex) / Sanborn Hybrid 3 generator S9: same named project, different granularity"
+ercot:26INR0144,eia860m:67568-WIGSP,1,"Wittig Solar / Wittig Solar Park: same sponsor (Greenalia), Wharton county"
+caiso:1632,eia860m:69956-S10PV,1,"SANBORN HYBRID 3 / Sanborn Hybrid 3 generator S10PV: same named project, different granularity"
+ercot:25INR0528,eia860m:66891-245BS,1,"Indigo Storage 2 / Indigo Solar & Storage BESS: same sponsor LLC (Innovative Solar 245), Fisher county, both storage"
+ercot:25INR0547,eia860m:66891-245BS,1,"Indigo solar 2 / Indigo Solar & Storage: same site and complex, Fisher county, 180 MW both"
+ercot:24INR0617,eia860m:67556-RIC97,1,"Serrano Storage / Serrano BESS: Maverick county, 185.59 vs 185.6 MW; sponsor names differ (SPV vs developer)"
+isone:1192,eia860m:68490-BLS,1,"Broadleaf Solar: identical name, Hartford county; 101 vs 200 MW (ISO-NE reports partial)"
+caiso:1949,eia860m:69663-IPD3B,1,"DARDEN (1150 MW CAISO) / Darden III Solar storage unit: component of the same named project, Fresno"
+ercot:27INR0298,eia860m:68175-SYMPV,1,"Symank Solar: identical name, Bosque county, 66.55 vs 66.6 MW; sponsor differs (SPV vs parent)"
+eia860m:67778-GR16P,ercot:28INR0048,1,"Findley PV and BESS / Findley BESS: 'Texas Sixteen' sponsor lineage, Limestone county, 50 vs 52 MW"
+caiso:1205,eia860m:64632-99MTB,0,"SIENNA (CAISO, withdrawn 2018, 66.7 MW) vs Sienna Solar Farm (200 MW, 2028): different vintage and size"
+caiso:1535,eia860m:68981-GRWF1,0,"GONZAGA RIDGE WIND FARM 3 (withdrawn) vs Gonzaga Ridge Wind Farm generator 1: numbers disagree, 117 vs 40 MW"
+nyiso:0477,eia860m:70242-216,0,"Riverhead Solar (Riverhead Solar Farm LLC, 20 MW) vs Riverhead - CVE (4 MW storage, CVE): different developer and asset"
+ercot:25INR0370,eia860m:68176-WILBA,1,"Willis Storage: identical name, Rains county, 176.13 vs 176.1 MW"
+eia860m:69027-SSBA,ercot:25INR0389,1,"Stoneridge Solar LLC (storage) / Stoneridge BESS: sponsor LLC name appears on the other side, Milam county, 100 vs 102 MW"
+caiso:1475,eia860m:68981-GRWF2,-1,"GONZAGA RIDGE WIND FARM 2 (withdrawn, 58.6 MW) vs Gonzaga Ridge Wind Farm generator 2 (34.6 MW): unclear"
+ercot:25INR0008,eia860m:plant-69566:gas_cc,1,"BasRanch / CPV Basin Ranch Energy Center: same sponsor (CPV Basin Ranch), Ward county, 1350 vs 1445 MW plant rollup"
+ercot:27INR0399,eia860m:69120-RESBS,1,"Resaca Oasis Storage: identical name, Cameron county, 200.7 MW both"
+caiso:523A,eia860m:69956-S9,0,"SANBORN SOLAR (19.9 MW, withdrawn 2010) vs Sanborn Hybrid 3: different project"
+caiso:1797,eia860m:66908-BZPV,1,"BONANZA SOLAR 2 (withdrawn) / Bonanza Solar and Storage Project: same name root, Clark NV, 300 MW both"
+nyiso:1023,eia860m:67839-NY31,0,KCE NY 27 vs KCE NY 31: different numbered KCE projects
+eia860m:62262-GEN1,nyiso:0520,1,"Rolling Upland Wind (Farm LLC): identical name, Madison county, 71.4 vs 72.6 MW"
+ercot:28INR0066,eia860m:68033-SRSEB,1,"Sunrose Renewable Energy Storage SLF / Sunrose Renewable Energy: same site, Austin county, both storage"
+eia860m:67782-GS22B,ercot:27INR0125,1,"RedSun PV and BESS / RedSun BESS: Burnet county, 84.0 vs 84.04 MW"
+eia860m:68033-SRSEB,ercot:28INR0061,1,"Sunrose Renewable Energy (storage) / Sunrose Renewable Energy Solar SLF: same named project, solar component"
+ercot:24INR0186,eia860m:65854-RDYBS,1,"Rowdy Creek Solar / Rowdy Creek Solar and BESS: Lamar county, 351.8 vs 350 MW"
+caiso:1790,eia860m:69956-S8,0,SANBORN HYBRID 4 vs Sanborn Hybrid 3: different numbered projects
+caiso:1114,eia860m:63653-SNDHC,0,SAND HILL WIND 2 (withdrawn) vs Sand Hill C: different phases
+eia860m:68090-WILLO,ercot:25INR0494,1,"Willow Beach Wind: identical name, Brazoria county, 200 vs 202.3 MW; sponsor differs (AES vs Capital Wind SPV)"
+ercot:25INR0247,eia860m:68082-BBP,1,"Bluebonnet Prairie Wind: identical name, Navarro county, 180 vs 170 MW"
+eia860m:64215-45MGA,caiso:996,0,"Aratina Solar Center 2 vs MARICOPA 4 SOLAR: different names, only county and MW agree"
+eia860m:64215-45MGA,caiso:2074,0,Aratina Solar Center 2 vs ALTA 1 STORAGE: different names and technologies
+eia860m:67552-ELMFL,ercot:26INR0130,1,"Elm Flats Solar (SLF): identical name, Navarro county, 125 vs 125.8 MW"
+eia860m:69605-TENN,ercot:21INR0253,1,"Tennyson Solar / Ulysses Solar: same sponsor LLC (BNB Tennyson Solar), Coke county, 150 vs 151 MW; renamed project"
+caiso:1402,eia860m:68323-ALT8B,0,ATLAS COMPLEX (3200 MW) vs Atlas VIII (172 MW): complex vs one numbered component; not one record
+nyiso:0030,eia860m:68191-HRTG,0,"Heritage Station (Sithe gas, 800 MW, withdrawn) vs Heritage Wind (126 MW): different projects"
+ercot:24INR0150,eia860m:66895-LP1BA,1,"Lupinus Solar 1 / Lupinus Solar 1, LLC (storage): same numbered project, Franklin county"
+ercot:24INR0154,eia860m:66896-LP2BA,1,"Lupinus Solar 2 / Lupinus Solar 2, LLC (storage): same numbered project, Franklin county"
+nyiso:0287,eia860m:69855-POMFR,0,"Pomfret (Horizon wind, 73.5 MW, withdrawn) vs Pomfret PV (3 MW solar): different projects"
+caiso:169,eia860m:68909-ISSPV,0,"IMPERIAL SOLEIL (gas, withdrawn 2011) vs Imperial Sun Solar: different projects"
+isone:1530,eia860m:67279-6572,0,EE 2024 SEMA/Cape ASO Group Study vs Borrego - Highland Ave: study placeholder vs named project
+caiso:114,eia860m:68932-OSPV,0,MOJAVE WINDS (2008) vs Overnight Solar: different technology and era
+caiso:468,eia860m:68328-ORCH1,0,AGUA CALIENTE vs Pioneer Clean Energy Center: different names
+isone:1526,eia860m:67279-6572,0,EE 2024 SEMA/Cape ASO Group Study vs Borrego - Highland Ave: study placeholder vs named project
+eia860m:68358-LUPV2,ercot:26INR0173,0,Lazy U Solar 2 vs Juniper Ridge BESS 1 (Lazy U ESS 1): co-located but separately named projects
+caiso:1398,eia860m:69956-S10BS,0,SANDRINI SOL 2 vs Sanborn Hybrid 3: different names
+nyiso:C24-233,eia860m:67378-MB,0,Shallow Seam BESS vs Mineral Basin Solar Power: different names and technologies
+nyiso:0514,eia860m:66663-EMPIR,0,Empire Wind (Rensselaer) vs Empire Solar (Chautauqua): different counties and technologies
+isone:1447,eia860m:64067-AUBPV,0,Leeds 115 kV substation study vs Auburn PV: different projects
+eia860m:63782-RH1,caiso:1800,0,"Rough Hat vs PURPLE SAGE ENERGY CENTER: different projects, only county and 400 MW agree"
+eia860m:64215-45MGB,caiso:1616,0,Aratina Solar Center 2 vs HIGHWIND ENERGY CENTER: different names
+caiso:42,eia860m:69663-IPD3B,0,WELLHEAD POWER MCCALL (gas) vs Darden III Solar: different projects
+nyiso:1407,eia860m:62823-Q584,0,Crane Brook Storage vs SunEast Dog Corners Solar: different names
+eia860m:63901-Q#865,nyiso:0694,0,SunEast Flat Hill Solar (Herkimer) vs Sunset Hill Solar (Albany): different county
+eia860m:68035-SYTOB,caiso:1327,0,Syracuse and Tours Renewable Energy vs CYCLONE SOLAR: different names
+eia860m:62895-Q581,nyiso:0613,0,SunEast Hills Solar (EIA gen id Q581 = NYISO 0581) vs Sugar Maple Solar (NYISO 0613): different queue positions
+eia860m:68360-PRESS,ercot:28INR0436,0,Prost ESS (Austin) vs Englehardt BESS (Comal): different county
+eia860m:68486-44STA,caiso:83,0,Sienna 2 Solar vs WEST FRY WIND: different names and technologies
+ercot:30INR0080,eia860m:66891-IS245,0,Indigo Quill Gas (Glasscock) vs Indigo Solar & Storage (Fisher): different county and technology
+caiso:1917,eia860m:68032-SKREB,0,STIRLING BRIDGE 2 ES vs Skylight Renewable Energy: different names and counties
+eia860m:68901-PVCLA,ercot:23INR0207,0,Cedar Range Solar (Hopkins) vs El Patrimonio Solar (Bexar): different county
+ercot:22INR0455,eia860m:64672-BLUJS,0,Blue Sky Sol (Crockett) vs Blue Jay Solar I (Grimes): different county
+ercot:24INR0440,eia860m:67995-PWS,0,Starling Solar (Gonzales) vs Piney Woods Solar (Walker): different county
+eia860m:69648-RSBA,caiso:2132,0,Rosamond South II (Kern) vs RANGER (Los Angeles): different county
+ercot:28INR0358,eia860m:69660-HS,0,Cherry Sage Solar 1 (Concho) vs El Patrimonio (Bexar): different county
+eia860m:66692-HOLY,ercot:23INR0194,0,Holly Branch Solar (Robertson) vs Pequin Energy Storage (Brazoria): different county
+eia860m:64037-Q#913,nyiso:0477,0,SunEast Manchester Solar (Ontario) vs Riverhead Solar (Suffolk): different county
+ercot:25INR0389,eia860m:68334-EVCRK,0,Stoneridge BESS (Milam) vs Evans Creek (Val Verde): different county

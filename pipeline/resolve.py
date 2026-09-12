@@ -228,33 +228,61 @@ def cluster(df: pd.DataFrame, accepted: pd.DataFrame) -> pd.Series:
 
 # ------------------------------------------------------------------ evaluation
 def evaluate(matches: pd.DataFrame, labels: pd.DataFrame, thresholds) -> pd.DataFrame:
-    m = matches.set_index(["left_id", "right_id"])
+    """Precision/recall on hand labels. Rows with label -1 (uncertain) are excluded.
+
+    Two views are reported: `sample_*` computed on the labelled pairs as they are, and
+    `weighted_*` where each labelled pair is weighted by (population pairs in its score band /
+    labelled pairs in that band), which corrects for the stratified sampling of labels.csv."""
+    labels = labels[labels["label"].isin([0, 1])].copy()
+    m = matches.drop_duplicates(subset=["left_id", "right_id"]).set_index(["left_id", "right_id"])
+    bands = [(95, 101), (88, 95), (82, 88), (76, 82), (72, 76), (66, 72), (60, 66), (50, 60),
+             (35, 50), (0, 35)]
+    pop = matches[matches["evidence"] >= MIN_EVIDENCE]
+
+    def band(sc):
+        for lo, hi in bands:
+            if lo <= sc < hi:
+                return (lo, hi)
+        return (0, 35)
+
+    found = []
+    for _, lab in labels.iterrows():
+        key = (lab["left_id"], lab["right_id"])
+        rev = (lab["right_id"], lab["left_id"])
+        row = m.loc[key] if key in m.index else (m.loc[rev] if rev in m.index else None)
+        if row is None:
+            found.append((None, 0.0, 0.0, False))
+        else:
+            found.append((row, float(row["score"]), float(row["evidence"]),
+                          bool(str(row["pass"]).startswith("D"))))
+    labels["score"] = [f[1] for f in found]
+    labels["evidence"] = [f[2] for f in found]
+    labels["det"] = [f[3] for f in found]
+    labels["band"] = labels["score"].map(band)
+    band_pop = pop["score"].map(band).value_counts()
+    band_n = labels["band"].value_counts()
+    labels["w"] = labels["band"].map(lambda b: band_pop.get(b, 0) / band_n.get(b, 1))
+    missing = int((labels["evidence"] == 0).sum())
+
     rows = []
     for t in thresholds:
-        tp = fp = fn = tn = 0
-        for _, lab in labels.iterrows():
-            key = (lab["left_id"], lab["right_id"])
-            rev = (lab["right_id"], lab["left_id"])
-            row = m.loc[key] if key in m.index else (m.loc[rev] if rev in m.index else None)
-            if row is None:
-                pred = False
-                sc, ev = 0.0, 0.0
-            else:
-                if isinstance(row, pd.DataFrame):
-                    row = row.iloc[0]
-                sc, ev = float(row["score"]), float(row["evidence"])
-                pred = bool(row["pass"].startswith("D") or (sc >= t and ev >= MIN_EVIDENCE))
-            truth = int(lab["label"]) == 1
-            tp += pred and truth
-            fp += pred and not truth
-            fn += (not pred) and truth
-            tn += (not pred) and (not truth)
+        pred = labels["det"] | ((labels["score"] >= t) & (labels["evidence"] >= MIN_EVIDENCE))
+        truth = labels["label"] == 1
+        tp, fp = int((pred & truth).sum()), int((pred & ~truth).sum())
+        fn, tn = int((~pred & truth).sum()), int((~pred & ~truth).sum())
+        w = labels["w"]
+        wtp, wfp = float(w[pred & truth].sum()), float(w[pred & ~truth].sum())
+        wfn = float(w[~pred & truth].sum())
         prec = tp / (tp + fp) if tp + fp else float("nan")
         rec = tp / (tp + fn) if tp + fn else float("nan")
-        f1 = 2 * prec * rec / (prec + rec) if prec and rec and prec + rec else float("nan")
+        wprec = wtp / (wtp + wfp) if wtp + wfp else float("nan")
+        wrec = wtp / (wtp + wfn) if wtp + wfn else float("nan")
+        f1 = (2 * prec * rec / (prec + rec)) if (prec + rec) else float("nan")
         rows.append({"threshold": t, "tp": tp, "fp": fp, "fn": fn, "tn": tn,
-                     "precision": round(prec, 3), "recall": round(rec, 3),
-                     "f1": round(f1, 3) if f1 == f1 else None, "n": len(labels)})
+                     "sample_precision": round(prec, 3), "sample_recall": round(rec, 3),
+                     "sample_f1": round(f1, 3), "weighted_precision": round(wprec, 3),
+                     "weighted_recall": round(wrec, 3), "n": len(labels),
+                     "unmatched_labels": missing})
     return pd.DataFrame(rows)
 
 
@@ -432,7 +460,8 @@ def main() -> int:
         ts = [50, 55, 60, 65, 70, 72, 75, 80, 85, 90] if args.sweep else [args.threshold]
         print(f"\nevaluation on {len(labels)} hand-labelled pairs "
               f"({int((labels['label'] == 1).sum())} positive / "
-              f"{int((labels['label'] == 0).sum())} negative)")
+              f"{int((labels['label'] == 0).sum())} negative / "
+              f"{int((labels['label'] == -1).sum())} uncertain, excluded)")
         print(evaluate(written, labels, ts).to_string(index=False))
     else:
         print(f"\n(no labels at {labels_path}; skipping precision/recall)")

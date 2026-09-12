@@ -392,6 +392,11 @@ def build(date: str, raw_dir: pathlib.Path = RAW) -> pd.DataFrame:
               "queue_id", "eia_plant_id", "eia_generator_id", "cross_refs", "iso"):
         out[c] = out[c].astype("string")
     out["status_conflict"] = out["status_conflict"].fillna(False).astype(bool)
+    # record_id must be unique. ISO-NE reuses queue ids (92 ids over 242 rows) and NYISO has 2
+    # duplicates, so suffix the 2nd, 3rd... occurrence with #2, #3 in file order.
+    dup_n = out.groupby("record_id").cumcount()
+    out.loc[dup_n > 0, "record_id"] = out["record_id"] + "#" + (dup_n + 1).astype(str)
+    assert out["record_id"].is_unique
     return out
 
 
