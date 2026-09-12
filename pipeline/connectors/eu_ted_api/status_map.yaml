@@ -1,0 +1,35 @@
+# eu.ted.api: eForms notice-type -> opportunity lifecycle (docs/21 §7.2).
+version: 1
+updated: 2026-09-12
+canonical_states: [unknown, announced, open, frozen, reinstated, closed, cancelled, awarded]
+sources:
+  ted:
+    field: Status
+    map:
+      pin-only: announced
+      pin-buyer: announced
+      pin-rtl: announced
+      pin-cfc-standard: announced
+      pin-cfc-social: announced
+      pin-tran: announced
+      cn-standard: open
+      cn-social: open
+      cn-desg: open
+      qu-sy: open
+      subco: open
+      can-standard: awarded
+      can-social: awarded
+      can-desg: awarded
+      can-modif: awarded
+      can-tran: awarded
+      veat: awarded
+      brin-eeig: announced
+      brin-ecs: announced
+    refine:
+      - id: ted.competition_deadline_passed
+        when: {form_type: competition, deadline_passed: "yes"}
+        then: closed
+        note: A contract notice whose receipt deadline is in the past is closed pending award.
+    caveats:
+      - Contract-award notices (can-*) are new records keyed by their own publication number; the
+        resolver links them to the originating contract notice later (docs/21 §3.3 identifiers).

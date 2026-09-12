@@ -1,0 +1,17 @@
+# us.grants_gov.search2: oppStatus -> opportunity lifecycle (docs/21 §7.2).
+version: 1
+updated: 2026-09-12
+canonical_states: [unknown, announced, open, frozen, reinstated, closed, cancelled, awarded]
+sources:
+  grants_gov:
+    field: Status
+    map:
+      forecasted: announced
+      posted: open
+      closed: closed
+      archived: closed
+    refine:
+      - id: grants_gov.posted_deadline_passed
+        when: {status_raw: posted, deadline_passed: "yes"}
+        then: closed
+        note: Grants.gov keeps some notices "posted" past their close date; the deadline wins.
