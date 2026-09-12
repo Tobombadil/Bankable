@@ -1,0 +1,26 @@
+# gb.find_a_tender: OCDS tender.status (+ release tag) -> opportunity lifecycle (docs/21 §7.2).
+version: 1
+updated: 2026-09-12
+canonical_states: [unknown, announced, open, frozen, reinstated, closed, cancelled, awarded]
+sources:
+  find_a_tender:
+    field: Status
+    map:
+      planning: announced
+      planned: announced
+      active: open
+      complete: closed
+      cancelled: cancelled
+      unsuccessful: cancelled
+      withdrawn: cancelled
+    refine:
+      - id: find_a_tender.awarded
+        when: {tag: award}
+        then: awarded
+        note: An award release closes the process with an outcome regardless of tender.status.
+      - id: find_a_tender.cancelled
+        when: {tag: tenderCancellation}
+        then: cancelled
+      - id: find_a_tender.active_deadline_passed
+        when: {status_raw: active, deadline_passed: "yes"}
+        then: closed

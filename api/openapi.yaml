@@ -7758,3 +7758,2831 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminLicence'
+
+    # ---------- Pro / API tier entities (docs/21 §3.12–§3.17, §4.4) ----------
+    RateLimitPolicy:
+      type: object
+      description: The caller's effective limits (docs/23 §6).
+      properties:
+        read_per_hour:
+          type: integer
+        search_per_hour:
+          type: integer
+        writes_per_hour:
+          type: integer
+        bulk_requests_per_hour:
+          type: [integer, 'null']
+        exports_per_day:
+          type: [integer, 'null']
+        export_rows_max:
+          type: [integer, 'null']
+        daily_cap:
+          type: [integer, 'null']
+    User:
+      type: object
+      description: docs/21 §3.12. Personal-data inventory columns — `email`, `name`, `last_login_at`, `sor_ref` — are admin-only outside `/v1/me`.
+      required: [user_id, account_id, role, status, auth_provider, mfa_enforced, marketing_consent, created_at]
+      properties:
+        user_id:
+          $ref: '#/components/schemas/UserPublicId'
+        account_id:
+          $ref: '#/components/schemas/AccountPublicId'
+        email:
+          type: [string, 'null']
+          format: email
+          description: Null after anonymisation.
+        email_verified_at:
+          type: [string, 'null']
+          format: date-time
+        name:
+          type: [string, 'null']
+        role:
+          $ref: '#/components/schemas/UserRole'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        auth_provider:
+          type: string
+          enum: [magic_link, google]
+        mfa_enforced:
+          type: boolean
+        marketing_consent:
+          type: boolean
+        consent_version:
+          type: [string, 'null']
+        tos_version:
+          type: [string, 'null']
+        last_login_at:
+          type: [string, 'null']
+          format: date-time
+        anonymised_at:
+          type: [string, 'null']
+          format: date-time
+        sor_ref:
+          type: [string, 'null']
+          description: Admin only — contact id in the system of record.
+        created_at:
+          type: string
+          format: date-time
+    Account:
+      type: object
+      description: The entitlement mirror (docs/21 §3.13) — authoritative for nothing.
+      required: [account_id, name, kind, entitlement, entitlement_source, entitlement_checked_at, entitlement_stale, seats, seats_used, status]
+      properties:
+        account_id:
+          $ref: '#/components/schemas/AccountPublicId'
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [personal, organization]
+        organization:
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationSummary'
+            - type: 'null'
+        entitlement:
+          $ref: '#/components/schemas/Entitlement'
+        entitlement_source:
+          type: string
+          enum: [sor, manual_grant, trial]
+        entitlement_checked_at:
+          type: string
+          format: date-time
+        entitlement_stale:
+          type: boolean
+        seats:
+          type: integer
+          minimum: 0
+        seats_used:
+          type: integer
+          minimum: 0
+        sor_kind:
+          type: [string, 'null']
+        sor_ref:
+          type: [string, 'null']
+          description: Admin only.
+        billing_ref:
+          type: [string, 'null']
+          description: Admin only.
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+    Subscription:
+      type: object
+      description: Mirror of the commercial record (docs/21 §3.14).
+      required: [subscription_id, account_id, sor_kind, plan_code, plan_tier, status, seats, current_period_start, current_period_end, currency, mirrored_at, drift_flag]
+      properties:
+        subscription_id:
+          $ref: '#/components/schemas/SubscriptionPublicId'
+        account_id:
+          $ref: '#/components/schemas/AccountPublicId'
+        sor_kind:
+          type: string
+          enum: [stripe, odoo, erpnext]
+        sor_ref:
+          type: [string, 'null']
+          description: Admin only.
+        plan_code:
+          type: string
+        plan_tier:
+          $ref: '#/components/schemas/PlanTier'
+        status:
+          $ref: '#/components/schemas/SubscriptionStatus'
+        seats:
+          type: integer
+        current_period_start:
+          type: string
+          format: date-time
+        current_period_end:
+          type: string
+          format: date-time
+        cancel_at:
+          type: [string, 'null']
+          format: date-time
+        mrr_amount:
+          type: [number, 'null']
+          description: Admin only.
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+        mirrored_at:
+          type: string
+          format: date-time
+        drift_flag:
+          type: boolean
+    MeResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [user, account, tier, limits, api_licence]
+              properties:
+                user:
+                  $ref: '#/components/schemas/User'
+                account:
+                  $ref: '#/components/schemas/Account'
+                tier:
+                  $ref: '#/components/schemas/Tier'
+                  description: Resolved for this request (`scopes ∩ plan_tier` when called with a key).
+                scopes:
+                  type: array
+                  description: Present when called with a key.
+                  items:
+                    $ref: '#/components/schemas/ApiKeyScope'
+                limits:
+                  $ref: '#/components/schemas/RateLimitPolicy'
+                saved_search_quota:
+                  type: object
+                  properties:
+                    limit:
+                      type: integer
+                    used:
+                      type: integer
+                api_licence:
+                  type: object
+                  required: [current_version, url]
+                  properties:
+                    current_version:
+                      type: string
+                      examples: [api-licence-1.0]
+                    url:
+                      type: string
+                      format: uri
+    AccountResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [account, subscriptions]
+              properties:
+                account:
+                  $ref: '#/components/schemas/Account'
+                subscriptions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Subscription'
+    SavedSearchQuery:
+      type: object
+      description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results.
+      additionalProperties: true
+      examples:
+        - kind: [storage]
+          jurisdiction: [US-TX]
+          'capacity_mw[gte]': 50
+          'capacity_mw[lte]': 500
+    SavedSearch:
+      type: object
+      description: docs/21 §3.15.
+      required: [saved_search_id, name, entity, query, delivery_mode, channels, watermark_seq, last_match_count, status, created_at, updated_at]
+      properties:
+        saved_search_id:
+          $ref: '#/components/schemas/SavedSearchPublicId'
+        name:
+          type: string
+          maxLength: 120
+        entity:
+          $ref: '#/components/schemas/SavedSearchEntity'
+        query:
+          $ref: '#/components/schemas/SavedSearchQuery'
+        delivery_mode:
+          $ref: '#/components/schemas/DeliveryMode'
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertChannel'
+        rss_url:
+          type: [string, 'null']
+          format: uri
+          description: Private live feed when `rss` is a channel (`/feeds/saved/{rss_token}`).
+        last_run_at:
+          type: [string, 'null']
+          format: date-time
+        watermark_seq:
+          type: integer
+          format: int64
+        last_match_count:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [active, paused]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SavedSearchCreate:
+      type: object
+      required: [name, entity, query]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        entity:
+          $ref: '#/components/schemas/SavedSearchEntity'
+        query:
+          $ref: '#/components/schemas/SavedSearchQuery'
+        delivery_mode:
+          $ref: '#/components/schemas/DeliveryMode'
+          default: daily
+        channels:
+          type: array
+          default: [email]
+          items:
+            $ref: '#/components/schemas/AlertChannel'
+    SavedSearchUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        query:
+          $ref: '#/components/schemas/SavedSearchQuery'
+        delivery_mode:
+          $ref: '#/components/schemas/DeliveryMode'
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertChannel'
+        status:
+          type: string
+          enum: [active, paused]
+    SavedSearchListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/SavedSearch'
+    SavedSearchDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SavedSearch'
+    SavedSearchPreviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                oneOf:
+                  - $ref: '#/components/schemas/Proposal'
+                  - $ref: '#/components/schemas/Opportunity'
+                  - $ref: '#/components/schemas/Event'
+                  - $ref: '#/components/schemas/Match'
+    Alert:
+      type: object
+      description: docs/21 §3.16. `recipient` is redacted after deletion; rows are aggregated after 12 months.
+      required: [alert_id, saved_search_id, channel, mode, window_start, window_end, event_seqs, status, created_at]
+      properties:
+        alert_id:
+          $ref: '#/components/schemas/AlertPublicId'
+        saved_search_id:
+          $ref: '#/components/schemas/SavedSearchPublicId'
+        channel:
+          $ref: '#/components/schemas/AlertChannel'
+        mode:
+          type: string
+          enum: [immediate, daily, weekly]
+        window_start:
+          type: string
+          format: date-time
+        window_end:
+          type: string
+          format: date-time
+        event_seqs:
+          type: array
+          items:
+            type: integer
+            format: int64
+        event_ids:
+          type: array
+          description: Detail responses only — resolved from `event_seqs`.
+          items:
+            $ref: '#/components/schemas/EventPublicId'
+        recipient:
+          type: [string, 'null']
+        subject:
+          type: [string, 'null']
+        provider_message_id:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/AlertStatus'
+        sent_at:
+          type: [string, 'null']
+          format: date-time
+        error:
+          type: [string, 'null']
+        created_at:
+          type: string
+          format: date-time
+    AlertListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Alert'
+    AlertDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Alert'
+    Export:
+      type: object
+      required: [export_id, entity, query, status, row_cap, created_at]
+      properties:
+        export_id:
+          $ref: '#/components/schemas/ExportPublicId'
+        entity:
+          $ref: '#/components/schemas/SavedSearchEntity'
+        query:
+          $ref: '#/components/schemas/SavedSearchQuery'
+        status:
+          $ref: '#/components/schemas/ExportStatus'
+        row_cap:
+          type: integer
+        row_count:
+          type: [integer, 'null']
+        truncated:
+          type: boolean
+          description: '`true` when the filtered set exceeded `row_cap`.'
+        download_url:
+          type: [string, 'null']
+          format: uri
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        error:
+          type: [string, 'null']
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: [string, 'null']
+          format: date-time
+    ExportCreate:
+      type: object
+      required: [entity, query]
+      properties:
+        entity:
+          $ref: '#/components/schemas/SavedSearchEntity'
+        query:
+          $ref: '#/components/schemas/SavedSearchQuery'
+        saved_search_id:
+          $ref: '#/components/schemas/SavedSearchPublicId'
+          description: Alternative to `query` — export a saved search's current results.
+        columns:
+          type: array
+          description: Optional column allowlist; provenance columns are always appended.
+          items:
+            type: string
+    ExportListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Export'
+    ExportDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Export'
+    ApiKey:
+      type: object
+      description: docs/21 §3.17. The secret is never stored or returned after creation.
+      required: [key_id, account_id, name, prefix, last4, scopes, tier, rate_limit_per_hour, licence_accepted_version, licence_accepted_at, created_at]
+      properties:
+        key_id:
+          $ref: '#/components/schemas/ApiKeyPublicId'
+        account_id:
+          $ref: '#/components/schemas/AccountPublicId'
+        created_by_user_id:
+          $ref: '#/components/schemas/UserPublicId'
+        name:
+          type: string
+        prefix:
+          $ref: '#/components/schemas/ApiKeyPrefix'
+        last4:
+          type: string
+          pattern: '^[0-9A-Za-z]{4}$'
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKeyScope'
+        tier:
+          type: string
+          enum: [public, pro, api]
+        rate_limit_per_hour:
+          type: integer
+        daily_quota:
+          type: [integer, 'null']
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        last_used_at:
+          type: [string, 'null']
+          format: date-time
+        last_used_ip:
+          type: [string, 'null']
+          description: Truncated to /24 or /48.
+        revoked_at:
+          type: [string, 'null']
+          format: date-time
+        licence_accepted_version:
+          type: string
+        licence_accepted_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    ApiKeyCreate:
+      type: object
+      required: [name, licence_accepted_version]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        prefix:
+          $ref: '#/components/schemas/ApiKeyPrefix'
+          default: bk_live
+        scopes:
+          type: array
+          description: Requested; intersected with the plan. `admin:*` is rejected with `400`.
+          default: ['read:public']
+          items:
+            type: string
+            enum: ['read:public', 'read:live', 'read:bulk', 'write:webhooks']
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        licence_accepted_version:
+          type: string
+          description: Must equal the current API licence version (`GET /v1/me` → `api_licence.current_version`).
+    AdminApiKeyCreate:
+      allOf:
+        - $ref: '#/components/schemas/ApiKeyCreate'
+        - type: object
+          required: [account_id, licence_acceptance_ref, reason]
+          properties:
+            account_id:
+              $ref: '#/components/schemas/AccountPublicId'
+            rate_limit_per_hour:
+              type: integer
+            daily_quota:
+              type: [integer, 'null']
+            licence_acceptance_ref:
+              type: string
+              description: Reference to the account owner's recorded acceptance (contract or ticket id).
+            reason:
+              type: string
+    ApiKeyCreatedResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/ApiKey'
+                - type: object
+                  required: [secret]
+                  properties:
+                    secret:
+                      type: string
+                      description: The full key, shown once.
+                      pattern: '^bk_(live|test)_[0-9A-Za-z]{43}$'
+    ApiKeyListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ApiKey'
+    WebhookEndpoint:
+      type: object
+      required: [webhook_id, url, types, query, status, consecutive_failures, created_at]
+      properties:
+        webhook_id:
+          $ref: '#/components/schemas/WebhookPublicId'
+        url:
+          type: string
+          format: uri
+          description: HTTPS only.
+        description:
+          type: [string, 'null']
+        types:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookType'
+        query:
+          $ref: '#/components/schemas/SavedSearchQuery'
+        entity:
+          $ref: '#/components/schemas/SavedSearchEntity'
+        status:
+          $ref: '#/components/schemas/WebhookEndpointStatus'
+        consecutive_failures:
+          type: integer
+        last_delivery_at:
+          type: [string, 'null']
+          format: date-time
+        last_success_at:
+          type: [string, 'null']
+          format: date-time
+        secret_rotated_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    WebhookEndpointCreate:
+      type: object
+      required: [url, types]
+      properties:
+        url:
+          type: string
+          format: uri
+          pattern: '^https://'
+        description:
+          type: string
+          maxLength: 200
+        types:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/WebhookType'
+        entity:
+          $ref: '#/components/schemas/SavedSearchEntity'
+          default: event
+        query:
+          $ref: '#/components/schemas/SavedSearchQuery'
+    WebhookEndpointCreatedResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEndpoint'
+                - type: object
+                  required: [secret]
+                  properties:
+                    secret:
+                      type: string
+                      description: Signing secret, shown once.
+    WebhookEndpointListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/WebhookEndpoint'
+    WebhookEndpointDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/WebhookEndpoint'
+    WebhookDelivery:
+      type: object
+      required: [delivery_id, webhook_id, type, attempt, status, created_at]
+      properties:
+        delivery_id:
+          $ref: '#/components/schemas/WebhookDeliveryPublicId'
+        webhook_id:
+          $ref: '#/components/schemas/WebhookPublicId'
+        type:
+          $ref: '#/components/schemas/WebhookType'
+        event_id:
+          oneOf:
+            - $ref: '#/components/schemas/EventPublicId'
+            - type: 'null'
+        event_seq:
+          type: [integer, 'null']
+          format: int64
+        attempt:
+          type: integer
+          minimum: 1
+          maximum: 5
+        status:
+          $ref: '#/components/schemas/WebhookDeliveryStatus'
+        response_status:
+          type: [integer, 'null']
+        response_body_excerpt:
+          type: [string, 'null']
+          maxLength: 1024
+        latency_ms:
+          type: [integer, 'null']
+        error_class:
+          type: [string, 'null']
+        next_attempt_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    WebhookDeliveryListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/WebhookDelivery'
+    WebhookDeliveryDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/WebhookDelivery'
+    WebhookReplayResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [webhook_id, since, queued_count]
+              properties:
+                webhook_id:
+                  $ref: '#/components/schemas/WebhookPublicId'
+                since:
+                  type: integer
+                  format: int64
+                queued_count:
+                  type: integer
+
+    # ---------- Admin entities (docs/21 §4, §3.9, §3.18; docs/20 §8) ----------
+    ReasonRequest:
+      type: object
+      description: Every admin write carries a reason; it lands on the audit event (US-905 AC3).
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 1000
+    AdminSource:
+      allOf:
+        - $ref: '#/components/schemas/Source'
+        - type: object
+          description: Registry row with runtime state (docs/21 §4.1) and the last run's counters (US-904 AC1).
+          required: [egress, schedule_cron, paused, health, consecutive_failures, enrichment_enabled, host, max_rps, max_concurrency]
+          properties:
+            effort:
+              type: [string, 'null']
+              enum: [S, M, L, null]
+            egress:
+              $ref: '#/components/schemas/SourceEgress'
+            connector:
+              type: [string, 'null']
+            schedule_cron:
+              type: string
+            next_run_at:
+              type: [string, 'null']
+              format: date-time
+            paused:
+              type: boolean
+            health:
+              $ref: '#/components/schemas/SourceHealth'
+            consecutive_failures:
+              type: integer
+            last_error:
+              type: [string, 'null']
+            last_error_at:
+              type: [string, 'null']
+              format: date-time
+            host:
+              type: string
+            max_rps:
+              type: number
+            max_concurrency:
+              type: integer
+            enrichment_enabled:
+              type: boolean
+            model_budget_usd_daily:
+              type: [number, 'null']
+            cost_per_changed_record_30d:
+              type: [number, 'null']
+            cost_flagged:
+              type: boolean
+              description: Above the configured threshold (default USD 0.50).
+            last_run:
+              oneOf:
+                - $ref: '#/components/schemas/SourceRun'
+                - type: 'null'
+            licence_detail:
+              $ref: '#/components/schemas/AdminLicence'
+            legal_evidence_url:
+              type: [string, 'null']
+              format: uri
+    AdminSourceCreate:
+      type: object
+      description: Curated issuer row (US-303 AC2).
+      required: [source_id, name, operator, url, access, cadence, licence_id, reason]
+      properties:
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        name:
+          type: string
+        jurisdiction:
+          type: [string, 'null']
+        category:
+          type: string
+          const: procurement
+          default: procurement
+        operator:
+          type: string
+        url:
+          type: string
+          format: uri
+        access:
+          type: string
+          enum: [html, rss, api]
+        cadence:
+          $ref: '#/components/schemas/SourceCadence'
+        licence_id:
+          $ref: '#/components/schemas/LicenceIdValue'
+        attribution_text:
+          type: [string, 'null']
+        issuer_org_id:
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationPublicId'
+            - type: 'null'
+          description: Marks the organization `is_curated_issuer = true`.
+        reason:
+          type: string
+    AdminSourceUpdate:
+      type: object
+      minProperties: 2
+      required: [reason]
+      properties:
+        schedule_cron:
+          type: string
+        lag_days:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 30
+        lag_overrides:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+            maximum: 30
+        paused:
+          type: boolean
+        enrichment_enabled:
+          type: boolean
+        model_budget_usd_daily:
+          type: [number, 'null']
+        egress:
+          $ref: '#/components/schemas/SourceEgress'
+        attribution_text:
+          type: [string, 'null']
+        reason:
+          type: string
+    AdminSourceRunRequest:
+      type: object
+      properties:
+        trigger:
+          type: string
+          enum: [manual, backfill]
+          default: manual
+        reason:
+          type: string
+    SourcePublishStateRequest:
+      type: object
+      required: [publish_state, reason]
+      properties:
+        publish_state:
+          $ref: '#/components/schemas/SourcePublishState'
+        reason:
+          type: string
+    AdminSourceListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminSource'
+    AdminSourceDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminSource'
+    SourceRun:
+      type: object
+      description: docs/21 §4.2.
+      required: [run_id, source_id, trigger, started_at, status, egress_class, rows_seen, rows_new, rows_changed, rows_gone, events_emitted, model_calls, cost_usd, worker_seconds, dq_status, dq, attempt, dead_lettered]
+      properties:
+        run_id:
+          $ref: '#/components/schemas/SourceRunPublicId'
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        trigger:
+          type: string
+          enum: [schedule, manual, backfill, retry]
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: [string, 'null']
+          format: date-time
+        status:
+          $ref: '#/components/schemas/SourceRunStatus'
+        snapshot_id:
+          oneOf:
+            - $ref: '#/components/schemas/SnapshotPublicId'
+            - type: 'null'
+        http_status:
+          type: [integer, 'null']
+        bytes:
+          type: [integer, 'null']
+        egress_class:
+          $ref: '#/components/schemas/SourceEgress'
+        rows_seen:
+          type: integer
+        rows_new:
+          type: integer
+        rows_changed:
+          type: integer
+        rows_gone:
+          type: integer
+        events_emitted:
+          type: integer
+        model_calls:
+          type: integer
+        cost_usd:
+          type: number
+        worker_seconds:
+          type: number
+        dq_status:
+          type: string
+          enum: [pass, warn, fail]
+        dq:
+          type: object
+          description: Row-count delta, vocabulary drift, null spikes, duplicate keys.
+          additionalProperties: true
+        error:
+          type: [string, 'null']
+        error_class:
+          type: [string, 'null']
+        attempt:
+          type: integer
+        dead_lettered:
+          type: boolean
+    SourceRunListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/SourceRun'
+    SourceRunDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SourceRun'
+    Snapshot:
+      type: object
+      description: docs/21 §4.3. Kept forever as evidence even after the object is compacted.
+      required: [snapshot_id, source_id, run_id, object_key, sha256, byte_size, content_type, fetched_url, http_status, retrieved_at, licence_id, retention_class]
+      properties:
+        snapshot_id:
+          $ref: '#/components/schemas/SnapshotPublicId'
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        run_id:
+          $ref: '#/components/schemas/SourceRunPublicId'
+        object_key:
+          type: string
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        byte_size:
+          type: integer
+        content_type:
+          type: string
+        fetched_url:
+          type: string
+          format: uri
+        http_status:
+          type: integer
+        retrieved_at:
+          type: string
+          format: date-time
+        licence_id:
+          $ref: '#/components/schemas/LicenceIdValue'
+        parser_version:
+          type: [string, 'null']
+        record_count:
+          type: [integer, 'null']
+        previous_snapshot_id:
+          oneOf:
+            - $ref: '#/components/schemas/SnapshotPublicId'
+            - type: 'null'
+        retention_class:
+          type: string
+          enum: [full, sampled, expired]
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+        download_url:
+          type: [string, 'null']
+          format: uri
+          description: Pre-signed, short-lived; null once `retention_class = expired`.
+    SnapshotDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Snapshot'
+    LicenceGateRequest:
+      type: object
+      required: [gate_flag, reason]
+      properties:
+        gate_flag:
+          type: boolean
+          description: '`false` clears the gate; `true` sets it.'
+        gate_name:
+          type: [string, 'null']
+          examples: [G-PJM]
+        reuse_class:
+          $ref: '#/components/schemas/ReuseClass'
+          description: Optional reclassification; creates a new licence row (invariant L2).
+        evidence_url:
+          type: string
+          format: uri
+        evidence_retrieved_at:
+          type: string
+          format: date-time
+        evidence_object_key:
+          type: [string, 'null']
+        classified_by:
+          type: string
+        contract_ref:
+          type: [string, 'null']
+        notes:
+          type: [string, 'null']
+        reason:
+          type: string
+    AdminProposal:
+      allOf:
+        - $ref: '#/components/schemas/Proposal'
+        - type: object
+          required: [publish_state, overrides]
+          properties:
+            publish_state:
+              $ref: '#/components/schemas/RecordPublishState'
+            overrides:
+              type: object
+              description: Fields pinned by a human decision (docs/21 §6.4).
+              additionalProperties:
+                type: object
+                properties:
+                  value: {}
+                  event_id:
+                    $ref: '#/components/schemas/EventPublicId'
+                  set_at:
+                    type: string
+                    format: date-time
+                  user_id:
+                    $ref: '#/components/schemas/UserPublicId'
+            last_admin_event_id:
+              oneOf:
+                - $ref: '#/components/schemas/EventPublicId'
+                - type: 'null'
+    AdminOpportunity:
+      allOf:
+        - $ref: '#/components/schemas/Opportunity'
+        - type: object
+          required: [publish_state, overrides]
+          properties:
+            publish_state:
+              $ref: '#/components/schemas/RecordPublishState'
+            overrides:
+              type: object
+              additionalProperties: true
+            last_admin_event_id:
+              oneOf:
+                - $ref: '#/components/schemas/EventPublicId'
+                - type: 'null'
+    AdminProposalUpdate:
+      type: object
+      description: Editable canonical fields; each becomes an override.
+      required: [reason]
+      minProperties: 2
+      properties:
+        name_canonical:
+          type: string
+        kind:
+          $ref: '#/components/schemas/ProposalKind'
+        technology:
+          type: [string, 'null']
+        capacity_mw:
+          type: [number, 'null']
+        storage_mwh:
+          type: [number, 'null']
+        jurisdiction:
+          type: string
+        iso:
+          type: [string, 'null']
+        lifecycle_state:
+          $ref: '#/components/schemas/LifecycleState'
+        sponsor_org_id:
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationPublicId'
+            - type: 'null'
+        proposed_online_date:
+          type: [string, 'null']
+          format: date
+        identifiers:
+          $ref: '#/components/schemas/ProposalIdentifiers'
+        location:
+          type: object
+          description: County or state placement set by hand (`geocoder = manual`).
+          properties:
+            county_fips:
+              type: [string, 'null']
+            state_code:
+              type: [string, 'null']
+            country:
+              type: string
+        clear_overrides:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+    AdminOpportunityUpdate:
+      type: object
+      required: [reason]
+      minProperties: 2
+      properties:
+        title:
+          type: string
+        kind:
+          $ref: '#/components/schemas/OpportunityKind'
+        issuer_org_id:
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationPublicId'
+            - type: 'null'
+        summary:
+          type: [string, 'null']
+        jurisdiction:
+          type: string
+        technologies:
+          type: array
+          items:
+            type: string
+        capacity_sought_mw:
+          type: [number, 'null']
+        budget_amount:
+          type: [number, 'null']
+        budget_currency:
+          type: [string, 'null']
+        open_at:
+          type: [string, 'null']
+          format: date
+        due_at:
+          type: [string, 'null']
+          format: date-time
+        status:
+          $ref: '#/components/schemas/OpportunityStatus'
+        identifiers:
+          $ref: '#/components/schemas/OpportunityIdentifiers'
+        clear_overrides:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+    AdminOrganizationUpdate:
+      type: object
+      required: [reason]
+      minProperties: 2
+      properties:
+        name_canonical:
+          type: string
+        type:
+          $ref: '#/components/schemas/OrganizationType'
+        country:
+          type: string
+        jurisdiction:
+          type: [string, 'null']
+        ids:
+          type: object
+          additionalProperties: true
+        website:
+          type: [string, 'null']
+          format: uri
+        is_curated_issuer:
+          type: boolean
+        reason:
+          type: string
+    AdminProposalDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminProposal'
+    AdminOpportunityDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminOpportunity'
+    MergeRequest:
+      type: object
+      required: [absorb_public_id, preview]
+      properties:
+        absorb_public_id:
+          $ref: '#/components/schemas/ProposalPublicId'
+        preview:
+          type: boolean
+          description: '`true` computes the result without writing.'
+        preview_token:
+          type: [string, 'null']
+          description: Required when `preview = false`; from the preview response.
+        field_choices:
+          type: object
+          description: Per-field pick where the two records disagree, `surviving` or `absorbed`.
+          additionalProperties:
+            type: string
+            enum: [surviving, absorbed]
+        reason:
+          type: string
+          description: Required when `preview = false`.
+    MergeResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [preview, surviving, absorbed, moved]
+              properties:
+                preview:
+                  type: boolean
+                preview_token:
+                  type: [string, 'null']
+                  description: Present on previews; valid 15 minutes.
+                surviving:
+                  $ref: '#/components/schemas/AdminProposal'
+                absorbed:
+                  $ref: '#/components/schemas/AdminProposal'
+                conflicts:
+                  type: array
+                  description: Fields where the two records disagree, with both values and their provenance.
+                  items:
+                    type: object
+                    required: [field, surviving_value, absorbed_value]
+                    properties:
+                      field:
+                        type: string
+                      surviving_value: {}
+                      absorbed_value: {}
+                      chosen:
+                        type: string
+                        enum: [surviving, absorbed]
+                moved:
+                  type: object
+                  properties:
+                    proposal_source_ids:
+                      type: array
+                      items:
+                        type: string
+                    match_ids:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/MatchPublicId'
+                    document_ids:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/DocumentPublicId'
+                event_id:
+                  oneOf:
+                    - $ref: '#/components/schemas/EventPublicId'
+                    - type: 'null'
+                  description: The `merged` event, on a real merge.
+    UnmergeRequest:
+      type: object
+      required: [merge_event_id, reason]
+      properties:
+        merge_event_id:
+          $ref: '#/components/schemas/EventPublicId'
+        reason:
+          type: string
+    UnmergeResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [surviving, restored, event_id]
+              properties:
+                surviving:
+                  $ref: '#/components/schemas/AdminProposal'
+                restored:
+                  $ref: '#/components/schemas/AdminProposal'
+                event_id:
+                  $ref: '#/components/schemas/EventPublicId'
+                  description: The `unmerged` event.
+    RecordPublishStateRequest:
+      type: object
+      required: [publish_state, reason]
+      properties:
+        publish_state:
+          $ref: '#/components/schemas/RecordPublishState'
+        takedown:
+          type: boolean
+          default: false
+          description: Records the change as a takedown (external request) rather than an editorial unpublish.
+        reason:
+          type: string
+    RecordPublishStateResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [record_type, public_id, publish_state, event_id, effective_within_seconds]
+              properties:
+                record_type:
+                  type: string
+                  enum: [proposals, opportunities, organizations]
+                public_id:
+                  $ref: '#/components/schemas/AnyPublicIdValue'
+                publish_state:
+                  $ref: '#/components/schemas/RecordPublishState'
+                event_id:
+                  $ref: '#/components/schemas/EventPublicId'
+                effective_within_seconds:
+                  type: integer
+                  description: The cache TTL bound (US-905 AC2).
+    ResolutionCandidate:
+      type: object
+      required: [candidate_id, subject_type, left, right, score, features, status, created_at]
+      properties:
+        candidate_id:
+          $ref: '#/components/schemas/CandidatePublicId'
+        subject_type:
+          type: string
+          enum: [proposal, opportunity, organization]
+        left:
+          type: object
+          required: [public_id, name]
+          properties:
+            public_id:
+              $ref: '#/components/schemas/AnyPublicIdValue'
+            name:
+              type: string
+            summary:
+              type: object
+              additionalProperties: true
+        right:
+          type: object
+          required: [public_id, name]
+          properties:
+            public_id:
+              $ref: '#/components/schemas/AnyPublicIdValue'
+            name:
+              type: string
+            summary:
+              type: object
+              additionalProperties: true
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+        features:
+          type: object
+          description: Resolver features in the order of docs/02 §5 keys.
+          additionalProperties: true
+        model_rationale:
+          type: [string, 'null']
+          description: The adjudicator's plain-language rationale; `model_alias` only, never a provider model id.
+        model_alias:
+          type: [string, 'null']
+          enum: [fast, careful, batch, null]
+        status:
+          type: string
+          enum: [pending, decided]
+        decision:
+          type: [string, 'null']
+          enum: [same, different, defer, null]
+        decided_by_user_id:
+          oneOf:
+            - $ref: '#/components/schemas/UserPublicId'
+            - type: 'null'
+        decided_at:
+          type: [string, 'null']
+          format: date-time
+        merge_event_id:
+          oneOf:
+            - $ref: '#/components/schemas/EventPublicId'
+            - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+    ResolutionDecisionRequest:
+      type: object
+      required: [decision, reason]
+      properties:
+        decision:
+          type: string
+          enum: [same, different, defer]
+        surviving_public_id:
+          oneOf:
+            - $ref: '#/components/schemas/AnyPublicIdValue'
+            - type: 'null'
+          description: On `same`, which side survives; default `left`.
+        reason:
+          type: string
+    ResolutionCandidateListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ResolutionCandidate'
+    ResolutionCandidateDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ResolutionCandidate'
+    Extraction:
+      type: object
+      description: docs/21 §3.9.
+      required: [extraction_id, subject_type, subject_id, purpose, payload, confidence, citations, status, source_id, licence_id, created_at]
+      properties:
+        extraction_id:
+          $ref: '#/components/schemas/ExtractionPublicId'
+        document_id:
+          oneOf:
+            - $ref: '#/components/schemas/DocumentPublicId'
+            - type: 'null'
+        subject_type:
+          type: string
+          enum: [proposal, opportunity, organization]
+        subject_id:
+          $ref: '#/components/schemas/AnyPublicIdValue'
+        purpose:
+          type: string
+          enum: [extract, adjudicate]
+        field_path:
+          type: [string, 'null']
+        payload:
+          type: object
+          additionalProperties: true
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        citations:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [document_id, page]
+            properties:
+              document_id:
+                $ref: '#/components/schemas/DocumentPublicId'
+              page:
+                type: integer
+              span_start:
+                type: integer
+              span_end:
+                type: integer
+              quote:
+                type: string
+        model_alias:
+          type: [string, 'null']
+          enum: [fast, careful, batch, null]
+        prompt_template_id:
+          type: [string, 'null']
+        prompt_version:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/ExtractionStatus'
+        accepted_by_user_id:
+          oneOf:
+            - $ref: '#/components/schemas/UserPublicId'
+            - type: 'null'
+        applied_event_id:
+          oneOf:
+            - $ref: '#/components/schemas/EventPublicId'
+            - type: 'null'
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        licence_id:
+          $ref: '#/components/schemas/LicenceIdValue'
+        cost_usd:
+          type: [number, 'null']
+        created_at:
+          type: string
+          format: date-time
+    ExtractionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Extraction'
+    ExtractionDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Extraction'
+    Post:
+      type: object
+      description: docs/21 §3.18.
+      required: [post_id, channel, event_id, subject_type, subject_id, template_id, template_version, body, link_url, credit_line, state, gate_checked_at, auto_published, metrics, cost_usd, created_at]
+      properties:
+        post_id:
+          $ref: '#/components/schemas/PostPublicId'
+        channel:
+          $ref: '#/components/schemas/PostChannel'
+        event_id:
+          $ref: '#/components/schemas/EventPublicId'
+        event:
+          $ref: '#/components/schemas/Event'
+        subject_type:
+          $ref: '#/components/schemas/SubjectType'
+        subject_id:
+          $ref: '#/components/schemas/AnyPublicIdValue'
+        subject:
+          type: object
+          properties:
+            public_id:
+              $ref: '#/components/schemas/AnyPublicIdValue'
+            name:
+              type: string
+            url:
+              type: string
+              format: uri
+        template_id:
+          type: string
+        template_version:
+          type: string
+        body:
+          type: string
+        link_url:
+          type: string
+          format: uri
+          description: Detail page with UTM parameters (US-803 AC2).
+        credit_line:
+          type: string
+        disclosure_label:
+          type: [string, 'null']
+        state:
+          $ref: '#/components/schemas/PostState'
+        gate_checked_at:
+          type: string
+          format: date-time
+        approved_by_user_id:
+          oneOf:
+            - $ref: '#/components/schemas/UserPublicId'
+            - type: 'null'
+        auto_published:
+          type: boolean
+        scheduled_for:
+          type: [string, 'null']
+          format: date-time
+        published_at:
+          type: [string, 'null']
+          format: date-time
+        external_post_id:
+          type: [string, 'null']
+        reject_reason:
+          type: [string, 'null']
+        metrics:
+          type: object
+          properties:
+            impressions:
+              type: [integer, 'null']
+            clicks:
+              type: [integer, 'null']
+            likes:
+              type: [integer, 'null']
+            reposts:
+              type: [integer, 'null']
+            fetched_at:
+              type: [string, 'null']
+              format: date-time
+        cost_usd:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+    PostUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        body:
+          type: string
+          maxLength: 3000
+        scheduled_for:
+          type: [string, 'null']
+          format: date-time
+        reason:
+          type: string
+    PostScheduleRequest:
+      type: object
+      required: [scheduled_for]
+      properties:
+        scheduled_for:
+          type: string
+          format: date-time
+        reason:
+          type: string
+    PostListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Post'
+    PostDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Post'
+    ChannelAutoPublishRequest:
+      type: object
+      required: [auto_publish, reason]
+      properties:
+        auto_publish:
+          type: boolean
+        disclosure_label_confirmed:
+          type: boolean
+          description: Required `true` when enabling.
+        daily_cap:
+          type: [integer, 'null']
+          description: Posts per day; X also has a budget cap in config.
+        reason:
+          type: string
+    ChannelConfigResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [channel, auto_publish, review_required, daily_cap, capabilities, event_id]
+              properties:
+                channel:
+                  $ref: '#/components/schemas/PostChannel'
+                auto_publish:
+                  type: boolean
+                review_required:
+                  type: boolean
+                  description: Always `!auto_publish`.
+                daily_cap:
+                  type: [integer, 'null']
+                budget_usd_monthly:
+                  type: [number, 'null']
+                disclosure_label:
+                  type: [string, 'null']
+                capabilities:
+                  type: array
+                  description: The only operations the integration layer exposes (US-804 AC1).
+                  items:
+                    type: string
+                    enum: [create_post, read_metrics]
+                changed_by_user_id:
+                  $ref: '#/components/schemas/UserPublicId'
+                event_id:
+                  $ref: '#/components/schemas/EventPublicId'
+    Task:
+      type: object
+      description: Admin work queue (docs/21 §4.4; US-907).
+      required: [task_id, type, status, created_at, updated_at]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/TaskPublicId'
+        type:
+          $ref: '#/components/schemas/TaskType'
+        subject_type:
+          oneOf:
+            - $ref: '#/components/schemas/SubjectType'
+            - type: 'null'
+        subject_id:
+          oneOf:
+            - $ref: '#/components/schemas/AnyPublicIdValue'
+            - type: 'null'
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        assignee_user_id:
+          oneOf:
+            - $ref: '#/components/schemas/UserPublicId'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+        issue_type:
+          oneOf:
+            - $ref: '#/components/schemas/ReportIssueType'
+            - type: 'null'
+          description: Report tasks.
+        description:
+          type: [string, 'null']
+          description: Submitter's free text.
+        contact:
+          oneOf:
+            - $ref: '#/components/schemas/IntakeContact'
+            - type: 'null'
+          description: Intake tasks — submitted personal data, admin only, redacted on deletion.
+        pending_record:
+          oneOf:
+            - $ref: '#/components/schemas/AdminProposal'
+            - $ref: '#/components/schemas/AdminOpportunity'
+            - type: 'null'
+        resolver_suggestions:
+          type: array
+          description: Intake tasks — candidate existing records with score and matched keys (US-1002 AC1).
+          items:
+            type: object
+            required: [public_id, name, score, matched_keys]
+            properties:
+              public_id:
+                $ref: '#/components/schemas/AnyPublicIdValue'
+              name:
+                type: string
+              score:
+                type: number
+              matched_keys:
+                type: array
+                items:
+                  type: string
+        due_at:
+          type: [string, 'null']
+          format: date-time
+          description: Deletion requests — 30-day SLA.
+        public_opt_in:
+          type: [boolean, 'null']
+        audit_event_ids:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventPublicId'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: [string, 'null']
+          format: date-time
+    TaskUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        assignee_user_id:
+          oneOf:
+            - $ref: '#/components/schemas/UserPublicId'
+            - type: 'null'
+        notes:
+          type: string
+        reason:
+          type: string
+    TaskListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Task'
+    TaskDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Task'
+    IntakeDecisionRequest:
+      type: object
+      required: [decision, reason]
+      properties:
+        decision:
+          type: string
+          enum: [approve, link, reject]
+        link_to_public_id:
+          oneOf:
+            - $ref: '#/components/schemas/AnyPublicIdValue'
+            - type: 'null'
+          description: Required on `link`.
+        publish_state:
+          $ref: '#/components/schemas/RecordPublishState'
+          description: On `approve`; `public` only if the submitter opted in.
+        create_lead:
+          type: boolean
+          default: true
+        add_curated_issuer:
+          type: boolean
+          default: true
+          description: Opportunity intake — register a new issuer as a source (US-1003 AC1).
+        reason:
+          type: string
+    IntakeDecisionResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [task, decision, matches_computed]
+              properties:
+                task:
+                  $ref: '#/components/schemas/Task'
+                decision:
+                  type: string
+                  enum: [approve, link, reject]
+                record:
+                  oneOf:
+                    - $ref: '#/components/schemas/AdminProposal'
+                    - $ref: '#/components/schemas/AdminOpportunity'
+                    - type: 'null'
+                matches_computed:
+                  type: integer
+                lead:
+                  oneOf:
+                    - $ref: '#/components/schemas/Lead'
+                    - type: 'null'
+                curated_issuer_source_id:
+                  oneOf:
+                    - $ref: '#/components/schemas/SourceIdValue'
+                    - type: 'null'
+    UserUpdate:
+      type: object
+      required: [reason]
+      minProperties: 2
+      properties:
+        role:
+          $ref: '#/components/schemas/UserRole'
+        status:
+          type: string
+          enum: [active, disabled]
+        reason:
+          type: string
+    UserAdminView:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            entitlement:
+              $ref: '#/components/schemas/Entitlement'
+            subscription_status:
+              oneOf:
+                - $ref: '#/components/schemas/SubscriptionStatus'
+                - type: 'null'
+              description: Read via the adapter (US-901 AC1).
+            account_name:
+              type: string
+    UserListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/UserAdminView'
+    UserDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserAdminView'
+    Customer:
+      type: object
+      description: An account with its system-of-record view read through the adapter (US-902).
+      required: [account, subscriptions, sor, open_in_crm_url]
+      properties:
+        account:
+          $ref: '#/components/schemas/Account'
+        subscriptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subscription'
+        users:
+          type: array
+          description: Detail only.
+          items:
+            $ref: '#/components/schemas/UserAdminView'
+        keys:
+          type: array
+          description: Detail only.
+          items:
+            $ref: '#/components/schemas/ApiKey'
+        sor:
+          type: object
+          description: Vendor-neutral read-through fields from the port.
+          required: [kind, ref, fetched_at, stale]
+          properties:
+            kind:
+              type: string
+            ref:
+              type: string
+            company_name:
+              type: [string, 'null']
+            owner:
+              type: [string, 'null']
+            lifecycle_stage:
+              type: [string, 'null']
+            fetched_at:
+              type: string
+              format: date-time
+            stale:
+              type: boolean
+        open_in_crm_url:
+          type: [string, 'null']
+          format: uri
+    CustomerCreate:
+      type: object
+      required: [name, kind, reason]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [personal, organization]
+        organization_id:
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationPublicId'
+            - type: 'null'
+        primary_contact_email:
+          type: string
+          format: email
+          description: Forwarded to the CRM through the port; stored on the resulting user row only.
+        entitlement_source:
+          type: string
+          enum: [sor, manual_grant, trial]
+          default: sor
+        reason:
+          type: string
+    CustomerListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Customer'
+    CustomerDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Customer'
+    SubscriptionCreate:
+      type: object
+      required: [account_id, plan_code, seats, reason]
+      properties:
+        account_id:
+          $ref: '#/components/schemas/AccountPublicId'
+        plan_code:
+          type: string
+        seats:
+          type: integer
+          minimum: 1
+        trial_days:
+          type: [integer, 'null']
+        reason:
+          type: string
+    SubscriptionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Subscription'
+    SubscriptionDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Subscription'
+    LeadCreate:
+      type: object
+      required: [match_id, reason]
+      properties:
+        match_id:
+          $ref: '#/components/schemas/MatchPublicId'
+        account_id:
+          oneOf:
+            - $ref: '#/components/schemas/AccountPublicId'
+            - type: 'null'
+          description: Optional customer to attach the lead to.
+        notes:
+          type: [string, 'null']
+        reason:
+          type: string
+    Lead:
+      type: object
+      required: [match_id, crm_lead_ref, sor_kind, created_at, event_id]
+      properties:
+        match_id:
+          $ref: '#/components/schemas/MatchPublicId'
+        crm_lead_ref:
+          type: string
+          description: The only lead data the app stores (US-403 AC1).
+        sor_kind:
+          type: string
+        open_in_crm_url:
+          type: [string, 'null']
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+        event_id:
+          $ref: '#/components/schemas/EventPublicId'
+          description: The `lead_created` event.
+    LeadResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Lead'
+    CostRow:
+      type: object
+      required: [day, cost_usd, model_calls, input_tokens, output_tokens]
+      properties:
+        day:
+          type: string
+          format: date
+        purpose:
+          type: [string, 'null']
+        source_id:
+          oneOf:
+            - $ref: '#/components/schemas/SourceIdValue'
+            - type: 'null'
+        model_alias:
+          type: [string, 'null']
+          enum: [fast, careful, batch, null]
+        cost_usd:
+          type: number
+        model_calls:
+          type: integer
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        cache_hit_rate:
+          type: [number, 'null']
+        records_changed:
+          type: [integer, 'null']
+        cost_per_changed_record:
+          type: [number, 'null']
+    CostReportResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [window, group_by, rows, totals, threshold_usd_per_changed_record, flagged_sources]
+              properties:
+                window:
+                  type: object
+                  properties:
+                    from:
+                      type: string
+                      format: date
+                    to:
+                      type: string
+                      format: date
+                group_by:
+                  type: array
+                  items:
+                    type: string
+                rows:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CostRow'
+                totals:
+                  $ref: '#/components/schemas/CostRow'
+                threshold_usd_per_changed_record:
+                  type: number
+                flagged_sources:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/SourceIdValue'
+
+  # ───────────────────────────── Examples (US-704 AC1) ─────────────────────────────
+  examples:
+    ProposalListPublic:
+      summary: Public tier, one CAISO-sourced record with raw fields withheld
+      value:
+        data:
+          - public_id: prop_01JBQ7Z8KD
+            slug: gemini-solar-bess-clark-nv
+            url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+            kind: storage
+            name_canonical: Gemini Solar + Storage
+            sponsor:
+              public_id: org_01JBQ8C4X1
+              slug: nextera-energy-resources
+              name_canonical: NextEra Energy Resources, LLC
+              type: developer
+              url: https://{{DOMAIN}}/organizations/nextera-energy-resources
+            technology: bess_li_ion
+            capacity_mw: 690
+            storage_mwh: 1380
+            jurisdiction: US-NV
+            iso: CAISO
+            location:
+              kind: county
+              geom:
+                type: Point
+                coordinates: [-115.0, 35.8]
+              precision: county_centroid
+              precision_reason: licence
+              county_fips: '32003'
+              county_name: Clark
+              state_code: US-NV
+              country: US
+              geocoder: census_tiger
+              provenance:
+                source_id: us.iso.caiso.gen_queue
+                source_name: CAISO Public Queue Report
+                source_url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
+                retrieved_at: '2026-08-28T05:00:00Z'
+                licence_id: caiso-tou
+                reuse_class: attribution
+                attribution_text: 'Source: California ISO'
+            lifecycle_state: studied
+            identifiers:
+              queue_ids:
+                - iso: CAISO
+                  id: Q1234
+            proposed_online_date: '2028-06-30'
+            first_seen: '2026-03-04T00:00:00Z'
+            last_changed: '2026-08-27T06:12:00Z'
+            public_at: '2026-03-18T07:00:00Z'
+            min_reuse_class: attribution
+            source_count: 2
+            created_by: pipeline
+            resolution_confidence: 0.94
+            merged_into: null
+            provenance:
+              - source_id: us.iso.caiso.gen_queue
+                source_name: CAISO Public Queue Report
+                source_record_id: Q1234
+                source_url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
+                retrieved_at: '2026-08-28T05:00:00Z'
+                licence_id: caiso-tou
+                reuse_class: attribution
+                attribution_text: 'Source: California ISO'
+                first_seen: '2026-03-04T05:00:00Z'
+                last_seen: '2026-08-28T05:00:00Z'
+                gone_at: null
+              - source_id: us.eia.860m
+                source_name: EIA-860M Monthly Generator Inventory
+                source_record_id: '64321-GEM1'
+                source_url: https://www.eia.gov/electricity/data/eia860m/
+                retrieved_at: '2026-08-25T09:00:00Z'
+                licence_id: us-public-domain
+                reuse_class: open
+                attribution_text: 'Source: U.S. Energy Information Administration (public domain)'
+                first_seen: '2026-07-01T09:00:00Z'
+                last_seen: '2026-08-25T09:00:00Z'
+                gone_at: null
+        page:
+          next_cursor: eyJzIjoxNjkyLCJpIjoicHJvcF8wMUpCIn0
+          prev_cursor: null
+          has_more: true
+        meta:
+          tier: public
+          lag_days: 14
+          data_as_of: '2026-08-29T05:00:00Z'
+          generated_at: '2026-09-12T09:00:00Z'
+          request_id: req_9f2c1a
+          terms_url: https://{{DOMAIN}}/legal/api-licence
+          total: 1834
+          total_is_estimate: false
+        licence_summary:
+          sources:
+            - source_id: us.iso.caiso.gen_queue
+              name: CAISO Public Queue Report
+              operator: California ISO
+              licence_id: caiso-tou
+              licence_name: CAISO Terms of Use
+              licence_url: https://www.caiso.com/about/legal/terms-of-use
+              reuse_class: attribution
+              attribution_text: 'Source: California ISO'
+              requires_link_back: true
+              record_count: 412
+              retrieved_at_max: '2026-08-28T05:00:00Z'
+            - source_id: us.eia.860m
+              name: EIA-860M Monthly Generator Inventory
+              operator: U.S. Energy Information Administration
+              licence_id: us-public-domain
+              licence_name: US federal public domain (17 U.S.C. §105)
+              licence_url: https://www.eia.gov/about/copyrights_reuse.php
+              reuse_class: open
+              attribution_text: 'Source: U.S. Energy Information Administration (public domain)'
+              requires_link_back: false
+              record_count: 1290
+              retrieved_at_max: '2026-08-25T09:00:00Z'
+          attribution_line: 'Sources: California ISO; U.S. Energy Information Administration (public domain).'
+          redistribution: 'derived fields under source terms; raw rows withheld for: us.iso.caiso.gen_queue'
+        redactions:
+          - public_id: prop_01JBQ7Z8KD
+            field: status_raw
+            reason: licence
+            source_id: us.iso.caiso.gen_queue
+          - public_id: prop_01JBQ7Z8KD
+            field: location.geom
+            reason: licence_precision
+            source_id: us.iso.caiso.gen_queue
+            note: county centroid returned
+    ProposalDetailPublic:
+      summary: Public detail rendered as of now − lag
+      value:
+        data:
+          public_id: prop_01JBQ7Z8KD
+          slug: gemini-solar-bess-clark-nv
+          url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+          kind: storage
+          name_canonical: Gemini Solar + Storage
+          sponsor:
+            public_id: org_01JBQ8C4X1
+            slug: nextera-energy-resources
+            name_canonical: NextEra Energy Resources, LLC
+            type: developer
+            url: https://{{DOMAIN}}/organizations/nextera-energy-resources
+          technology: bess_li_ion
+          capacity_mw: 690
+          storage_mwh: 1380
+          jurisdiction: US-NV
+          iso: CAISO
+          location:
+            kind: county
+            geom:
+              type: Point
+              coordinates: [-115.0, 35.8]
+            precision: county_centroid
+            precision_reason: licence
+            county_fips: '32003'
+            county_name: Clark
+            state_code: US-NV
+            country: US
+            geocoder: census_tiger
+            provenance:
+              source_id: us.iso.caiso.gen_queue
+              source_url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
+              retrieved_at: '2026-08-28T05:00:00Z'
+              licence_id: caiso-tou
+              reuse_class: attribution
+          lifecycle_state: studied
+          identifiers:
+            queue_ids:
+              - iso: CAISO
+                id: Q1234
+          proposed_online_date: '2028-06-30'
+          first_seen: '2026-03-04T00:00:00Z'
+          last_changed: '2026-08-27T06:12:00Z'
+          public_at: '2026-03-18T07:00:00Z'
+          min_reuse_class: attribution
+          source_count: 2
+          created_by: pipeline
+          resolution_confidence: 0.94
+          merged_into: null
+          provenance:
+            - source_id: us.iso.caiso.gen_queue
+              source_name: CAISO Public Queue Report
+              source_record_id: Q1234
+              source_url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
+              retrieved_at: '2026-08-28T05:00:00Z'
+              licence_id: caiso-tou
+              reuse_class: attribution
+              attribution_text: 'Source: California ISO'
+            - source_id: us.eia.860m
+              source_name: EIA-860M Monthly Generator Inventory
+              source_record_id: '64321-GEM1'
+              source_url: https://www.eia.gov/electricity/data/eia860m/
+              retrieved_at: '2026-08-25T09:00:00Z'
+              licence_id: us-public-domain
+              reuse_class: open
+              attribution_text: 'Source: U.S. Energy Information Administration (public domain)'
+          documents:
+            - document_id: doc_01JBQ8J9T3
+              title: Phase II Interconnection Study Report
+              doc_type: report
+              published_date: '2026-07-18'
+              url: https://api.{{DOMAIN}}/v1/documents/doc_01JBQ8J9T3
+              provenance:
+                source_id: us.iso.caiso.gen_queue
+                source_url: https://www.caiso.com/…
+                retrieved_at: '2026-07-19T05:00:00Z'
+                licence_id: caiso-tou
+                reuse_class: attribution
+        meta:
+          tier: public
+          lag_days: 14
+          data_as_of: '2026-08-29T05:00:00Z'
+          generated_at: '2026-09-12T09:00:00Z'
+          request_id: req_9f2c1b
+          terms_url: https://{{DOMAIN}}/legal/api-licence
+        licence_summary:
+          sources:
+            - source_id: us.iso.caiso.gen_queue
+              name: CAISO Public Queue Report
+              operator: California ISO
+              licence_id: caiso-tou
+              licence_name: CAISO Terms of Use
+              licence_url: https://www.caiso.com/about/legal/terms-of-use
+              reuse_class: attribution
+              attribution_text: 'Source: California ISO'
+              requires_link_back: true
+              record_count: 1
+              retrieved_at_max: '2026-08-28T05:00:00Z'
+            - source_id: us.eia.860m
+              name: EIA-860M Monthly Generator Inventory
+              operator: U.S. Energy Information Administration
+              licence_id: us-public-domain
+              licence_name: US federal public domain (17 U.S.C. §105)
+              licence_url: https://www.eia.gov/about/copyrights_reuse.php
+              reuse_class: open
+              attribution_text: 'Source: U.S. Energy Information Administration (public domain)'
+              requires_link_back: false
+              record_count: 1
+              retrieved_at_max: '2026-08-25T09:00:00Z'
+          attribution_line: 'Sources: California ISO; U.S. Energy Information Administration (public domain).'
+          redistribution: 'derived fields under source terms; raw rows withheld for: us.iso.caiso.gen_queue'
+        redactions:
+          - public_id: prop_01JBQ7Z8KD
+            field: status_raw
+            reason: licence
+            source_id: us.iso.caiso.gen_queue
+          - public_id: prop_01JBQ7Z8KD
+            field: location.geom
+            reason: licence_precision
+            source_id: us.iso.caiso.gen_queue
+            note: county centroid returned
+          - public_id: prop_01JBQ7Z8KD
+            field: events[0..1]
+            reason: tier
+            note: 2 events newer than the 14-day lag are visible on the live tier
+    OpportunityListPublic:
+      summary: Open opportunities sorted by due date
+      value:
+        data:
+          - public_id: opp_01JBQ8A2M0
+            slug: apsc-2027-all-source-rfp
+            url: https://{{DOMAIN}}/opportunities/apsc-2027-all-source-rfp
+            kind: rfp
+            issuer:
+              public_id: org_01JBQ8D7Y4
+              slug: arizona-public-service
+              name_canonical: Arizona Public Service Company
+              type: utility
+              url: https://{{DOMAIN}}/organizations/arizona-public-service
+            title: 2027 All-Source Request for Proposals
+            summary: Up to 1,200 MW of resources for delivery from 2028; storage, solar and wind eligible.
+            jurisdiction: US-AZ
+            technologies: [solar_pv, bess, wind]
+            capacity_sought_mw: 1200
+            budget_amount: null
+            budget_currency: null
+            open_at: '2026-10-01'
+            due_at: '2026-12-15T22:00:00Z'
+            status: open
+            location:
+              kind: service_territory
+              geom: null
+              precision: unknown
+              county_fips: null
+              county_name: null
+              state_code: US-AZ
+              country: US
+              provenance:
+                source_id: us.utility_rfps
+                source_url: https://www.aps.com/en/About/Doing-Business-with-APS/Request-for-Proposals
+                retrieved_at: '2026-09-04T12:00:00Z'
+                licence_id: curated-issuer-attribution
+                reuse_class: attribution
+            identifiers:
+              solicitation_number: APS-RFP-2027-AS
+            first_seen: '2026-09-04T12:00:00Z'
+            last_changed: '2026-09-04T12:00:00Z'
+            public_at: '2026-09-11T12:00:00Z'
+            min_reuse_class: attribution
+            source_count: 1
+            created_by: pipeline
+            merged_into: null
+            provenance:
+              - source_id: us.utility_rfps
+                source_name: Curated utility RFP issuers
+                source_record_id: APS-RFP-2027-AS
+                source_url: https://www.aps.com/en/About/Doing-Business-with-APS/Request-for-Proposals
+                retrieved_at: '2026-09-04T12:00:00Z'
+                licence_id: curated-issuer-attribution
+                reuse_class: attribution
+                attribution_text: 'Source: Arizona Public Service Company'
+        page:
+          next_cursor: null
+          prev_cursor: null
+          has_more: false
+        meta:
+          tier: public
+          lag_days: 7
+          data_as_of: '2026-09-05T05:00:00Z'
+          generated_at: '2026-09-12T09:00:00Z'
+          request_id: req_9f2c1c
+          terms_url: https://{{DOMAIN}}/legal/api-licence
+        licence_summary:
+          sources:
+            - source_id: us.utility_rfps
+              name: Curated utility RFP issuers
+              operator: null
+              licence_id: curated-issuer-attribution
+              licence_name: Issuer page terms (attribution)
+              licence_url: null
+              reuse_class: attribution
+              attribution_text: 'Source: Arizona Public Service Company'
+              requires_link_back: true
+              record_count: 1
+              retrieved_at_max: '2026-09-04T12:00:00Z'
+          attribution_line: 'Source: Arizona Public Service Company.'
+          redistribution: derived fields with credit and link back
+        redactions: []
+    EventList:
+      summary: Status change on the public tier
+      value:
+        data:
+          - id: evt_01JBQ8F0N2
+            seq: 4812993
+            subject_type: proposal
+            subject_id: prop_01JBQ7Z8KD
+            subject:
+              public_id: prop_01JBQ7Z8KD
+              name: Gemini Solar + Storage
+              url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+            event_type: status_change
+            headline: 'Entered study phase: Gemini Solar + Storage'
+            observed_at: '2026-08-27T00:00:00Z'
+            recorded_at: '2026-08-28T05:04:12Z'
+            public_at: '2026-09-11T05:04:12Z'
+            before:
+              lifecycle_state: filed
+            after:
+              lifecycle_state: studied
+            changed_keys: [lifecycle_state]
+            actor_type: pipeline
+            confidence: null
+            reverses_event_id: null
+            provenance:
+              source_id: us.iso.caiso.gen_queue
+              source_name: CAISO Public Queue Report
+              source_url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
+              retrieved_at: '2026-08-28T05:00:00Z'
+              licence_id: caiso-tou
+              reuse_class: attribution
+              attribution_text: 'Source: California ISO'
+        page:
+          next_cursor: eyJzIjo0ODEyOTkzLCJpIjoiZXZ0XzAxSkJROEYwTjIifQ
+          prev_cursor: null
+          has_more: true
+        meta:
+          tier: public
+          lag_days: 14
+          data_as_of: '2026-08-29T05:00:00Z'
+          generated_at: '2026-09-12T09:00:00Z'
+          request_id: req_9f2c1d
+          terms_url: https://{{DOMAIN}}/legal/api-licence
+        licence_summary:
+          sources:
+            - source_id: us.iso.caiso.gen_queue
+              name: CAISO Public Queue Report
+              operator: California ISO
+              licence_id: caiso-tou
+              licence_name: CAISO Terms of Use
+              licence_url: https://www.caiso.com/about/legal/terms-of-use
+              reuse_class: attribution
+              attribution_text: 'Source: California ISO'
+              requires_link_back: true
+              record_count: 1
+              retrieved_at_max: '2026-08-28T05:00:00Z'
+          attribution_line: 'Source: California ISO.'
+          redistribution: 'derived fields under source terms; raw rows withheld for: us.iso.caiso.gen_queue'
+        redactions: []
+    GeoClusters:
+      summary: One cluster and one county-centroid marker at zoom 6
+      value:
+        data:
+          type: FeatureCollection
+          bbox: [-106.6, 25.8, -93.5, 36.5]
+          features:
+            - type: Feature
+              id: cluster:6:912
+              geometry:
+                type: Point
+                coordinates: [-97.74, 30.27]
+              properties:
+                feature_kind: cluster
+                cluster_id: '6:912'
+                count: 1284
+                lifecycle_state_counts:
+                  filed: 803
+                  studied: 341
+                  contracted: 96
+                  under_construction: 44
+                technology_counts:
+                  solar_pv: 611
+                  bess_li_ion: 498
+                  wind_onshore: 175
+                capacity_mw_sum: 187430.5
+                dominant_lifecycle_state: filed
+                dominant_technology: solar_pv
+                bbox: [-99.1, 28.9, -96.2, 31.8]
+                precision: mixed
+                expands_to_zoom: 9
+            - type: Feature
+              id: prop_01JBQ7Z8KD
+              geometry:
+                type: Point
+                coordinates: [-115.0, 35.8]
+              properties:
+                feature_kind: proposal
+                public_id: prop_01JBQ7Z8KD
+                name: Gemini Solar + Storage
+                url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+                kind: storage
+                technology: bess_li_ion
+                lifecycle_state: studied
+                capacity_mw: 690
+                county_name: Clark
+                state_code: US-NV
+                precision: county_centroid
+                precision_reason: licence
+                precision_note: location shown at county level (source licence)
+                last_changed: '2026-08-27T06:12:00Z'
+                provenance:
+                  - source_id: us.iso.caiso.gen_queue
+                    source_name: CAISO Public Queue Report
+                    source_url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
+                    retrieved_at: '2026-08-28T05:00:00Z'
+                    licence_id: caiso-tou
+                    reuse_class: attribution
+                    attribution_text: 'Source: California ISO'
+          totals:
+            records: 1285
+            clustered: true
+            lifecycle_state_counts:
+              filed: 803
+              studied: 342
+              contracted: 96
+              under_construction: 44
+            technology_counts:
+              solar_pv: 611
+              bess_li_ion: 499
+              wind_onshore: 175
+        meta:
+          tier: public
+          lag_days: 14
+          data_as_of: '2026-08-29T05:00:00Z'
+          generated_at: '2026-09-12T09:00:00Z'
+          request_id: req_9f2c1e
+          terms_url: https://{{DOMAIN}}/legal/api-licence
+          unplaced_count: 37
+        licence_summary:
+          sources:
+            - source_id: us.iso.ercot.gen_queue
+              name: ERCOT GIS Report
+              operator: ERCOT
+              licence_id: ercot-website-user-agreement
+              licence_name: ERCOT Website User Agreement
+              licence_url: https://www.ercot.com/about/legal
+              reuse_class: open
+              attribution_text: 'Source: ERCOT'
+              requires_link_back: false
+              record_count: 1284
+              retrieved_at_max: '2026-08-28T06:00:00Z'
+            - source_id: us.iso.caiso.gen_queue
+              name: CAISO Public Queue Report
+              operator: California ISO
+              licence_id: caiso-tou
+              licence_name: CAISO Terms of Use
+              licence_url: https://www.caiso.com/about/legal/terms-of-use
+              reuse_class: attribution
+              attribution_text: 'Source: California ISO'
+              requires_link_back: true
+              record_count: 1
+              retrieved_at_max: '2026-08-28T05:00:00Z'
+          attribution_line: 'Sources: ERCOT; California ISO.'
+          redistribution: 'derived fields under source terms; exact coordinates withheld for: us.iso.caiso.gen_queue'
+        redactions:
+          - public_id: prop_01JBQ7Z8KD
+            field: geometry
+            reason: licence_precision
+            source_id: us.iso.caiso.gen_queue
+            note: county centroid returned
+    MatchList:
+      summary: Pro tier match with rationale
+      value:
+        data:
+          - match_id: mat_01JBQ8H5R7
+            proposal:
+              public_id: prop_01JBQ7Z8KD
+              name_canonical: Gemini Solar + Storage
+              url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+            opportunity:
+              public_id: opp_01JBQ8A2M0
+              title: 2027 All-Source Request for Proposals
+              due_at: '2026-12-15T22:00:00Z'
+              url: https://{{DOMAIN}}/opportunities/apsc-2027-all-source-rfp
+            score: 0.82
+            rationale:
+              rules_passed: [technology, jurisdiction_adjacent, size_window, timing]
+              rules_failed: []
+              features:
+                days_to_due: 94
+                capacity_ratio: 0.575
+            rationale_text: storage, AZ/NV adjacent, 50–1,200 MW window, due in 94 days
+            rule_set_version: match-rules@v2
+            created_by: rule
+            status: active
+            first_matched_at: '2026-09-11T05:06:00Z'
+            last_evaluated_at: '2026-09-12T05:06:00Z'
+            removed_at: null
+            dismissed_by_me: false
+        page:
+          next_cursor: null
+          prev_cursor: null
+          has_more: false
+        meta:
+          tier: pro
+          lag_days: 0
+          data_as_of: '2026-09-12T08:58:00Z'
+          generated_at: '2026-09-12T09:00:00Z'
+          request_id: req_9f2c1f
+          terms_url: https://{{DOMAIN}}/legal/api-licence
+        licence_summary:
+          sources:
+            - source_id: us.iso.caiso.gen_queue
+              name: CAISO Public Queue Report
+              operator: California ISO
+              licence_id: caiso-tou
+              licence_name: CAISO Terms of Use
+              licence_url: https://www.caiso.com/about/legal/terms-of-use
+              reuse_class: attribution
+              attribution_text: 'Source: California ISO'
+              requires_link_back: true
+              record_count: 1
+              retrieved_at_max: '2026-09-11T05:00:00Z'
+            - source_id: us.utility_rfps
+              name: Curated utility RFP issuers
+              operator: null
+              licence_id: curated-issuer-attribution
+              licence_name: Issuer page terms (attribution)
+              licence_url: null
+              reuse_class: attribution
+              attribution_text: 'Source: Arizona Public Service Company'
+              requires_link_back: true
+              record_count: 1
+              retrieved_at_max: '2026-09-04T12:00:00Z'
+          attribution_line: 'Sources: California ISO; Arizona Public Service Company.'
+          redistribution: derived fields with credit and link back
+        redactions: []
+    ApiKeyCreated:
+      summary: Key shown once
+      value:
+        data:
+          key_id: key_01JBQ9C3D4
+          account_id: acc_01JBQ9E5F6
+          created_by_user_id: usr_01JBQ9G7H8
+          name: production-etl
+          prefix: bk_live
+          last4: f31a
+          scopes: ['read:live', 'read:bulk']
+          tier: api
+          rate_limit_per_hour: 6000
+          daily_quota: 50000
+          expires_at: null
+          last_used_at: null
+          last_used_ip: null
+          revoked_at: null
+          licence_accepted_version: api-licence-1.0
+          licence_accepted_at: '2026-09-12T09:00:00Z'
+          created_at: '2026-09-12T09:00:00Z'
+          secret: bk_live_7Hq3mZp9Xk2LwT4vN8bR1cD5yF6gJ0aS3eU2iO9pK7lM4nB
+        meta:
+          tier: api
+          lag_days: 0
+          data_as_of: '2026-09-12T09:00:00Z'
+          generated_at: '2026-09-12T09:00:00Z'
+          request_id: req_9f2c20
+          terms_url: https://{{DOMAIN}}/legal/api-licence
+        licence_summary:
+          sources: []
+          attribution_line: ''
+          redistribution: n/a
+        redactions: []
+    JsonFeedExample:
+      summary: JSON Feed 1.1 item with the platform extension
+      value:
+        version: https://jsonfeed.org/version/1.1
+        title: Proposals — Public feed, 14 days delayed — live in Pro
+        home_page_url: https://{{DOMAIN}}/proposals?technology=bess_li_ion&jurisdiction=US-NV
+        feed_url: https://{{DOMAIN}}/feeds/proposals.json?technology=bess_li_ion&jurisdiction=US-NV
+        description: Published changes to matching proposals, 14 days after the live tier. Source credit in every item.
+        items:
+          - id: evt_01JBQ8F0N2
+            url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+            title: 'Entered study phase: Gemini Solar + Storage'
+            content_text: 'Gemini Solar + Storage (storage, 690 MW / 1,380 MWh, Clark County, NV) moved from filed to studied. Source: California ISO. Data as of 2026-08-29.'
+            date_published: '2026-09-11T05:04:12Z'
+            tags: [status_change, storage]
+            _platform:
+              event_type: status_change
+              subject:
+                public_id: prop_01JBQ7Z8KD
+                name: Gemini Solar + Storage
+                url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+              provenance:
+                source_id: us.iso.caiso.gen_queue
+                source_url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
+                retrieved_at: '2026-08-28T05:00:00Z'
+                licence_id: caiso-tou
+                reuse_class: attribution
+                attribution_text: 'Source: California ISO'
+              licence_summary:
+                sources:
+                  - source_id: us.iso.caiso.gen_queue
+                    name: CAISO Public Queue Report
+                    operator: California ISO
+                    licence_id: caiso-tou
+                    licence_name: CAISO Terms of Use
+                    licence_url: https://www.caiso.com/about/legal/terms-of-use
+                    reuse_class: attribution
+                    attribution_text: 'Source: California ISO'
+                    requires_link_back: true
+                    record_count: 1
+                    retrieved_at_max: '2026-08-28T05:00:00Z'
+                attribution_line: 'Source: California ISO.'
+                redistribution: 'derived fields under source terms; raw rows withheld for: us.iso.caiso.gen_queue'
+              data_as_of: '2026-08-29T05:00:00Z'
+    WebhookEventPublished:
+      summary: event.published delivery
+      value:
+        id: whd_01JBQ9A1B2
+        type: event.published
+        created_at: '2026-09-11T05:04:13Z'
+        api_version: v1
+        data:
+          event:
+            id: evt_01JBQ8F0N2
+            seq: 4812993
+            subject_type: proposal
+            subject_id: prop_01JBQ7Z8KD
+            event_type: status_change
+            observed_at: '2026-09-10T00:00:00Z'
+            recorded_at: '2026-09-11T05:04:12Z'
+            published_at: '2026-09-11T05:04:12Z'
+            public_at: '2026-09-25T05:04:12Z'
+            before:
+              lifecycle_state: filed
+            after:
+              lifecycle_state: studied
+            changed_keys: [lifecycle_state]
+            actor_type: pipeline
+            provenance:
+              source_id: us.iso.caiso.gen_queue
+              source_url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
+              retrieved_at: '2026-09-11T05:00:00Z'
+              licence_id: caiso-tou
+              reuse_class: attribution
+              attribution_text: 'Source: California ISO'
+          subject:
+            public_id: prop_01JBQ7Z8KD
+            name_canonical: Gemini Solar + Storage
+            url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+        meta:
+          tier: api
+          lag_days: 0
+          data_as_of: '2026-09-11T05:04:12Z'
+          generated_at: '2026-09-11T05:04:13Z'
+          request_id: req_9f2c21
+          terms_url: https://{{DOMAIN}}/legal/api-licence
+        licence_summary:
+          sources:
+            - source_id: us.iso.caiso.gen_queue
+              name: CAISO Public Queue Report
+              operator: California ISO
+              licence_id: caiso-tou
+              licence_name: CAISO Terms of Use
+              licence_url: https://www.caiso.com/about/legal/terms-of-use
+              reuse_class: attribution
+              attribution_text: 'Source: California ISO'
+              requires_link_back: true
+              record_count: 1
+              retrieved_at_max: '2026-09-11T05:00:00Z'
+          attribution_line: 'Source: California ISO.'
+          redistribution: 'derived fields under source terms; raw rows withheld for: us.iso.caiso.gen_queue'
+        redactions: []
