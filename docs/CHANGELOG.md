@@ -12,4 +12,3 @@
 - 2026-09-12 market-researcher: added `docs/11-market-and-competition.md` (competitor teardown, bottom-up sizing, pricing ladder with delay schedule, demand-side counts, discovery guide).
 - 2026-09-12 product-manager (coordinator): PRD US-104 elevated to map-first navigation per owner; US-901 and US-1001 amended for docs/21 corrections C-5 and C-7.
 - 2026-09-12 coordinator: owner direction applied — existing Bankable workflow is a later consideration, not foundational (PLAN, CLAUDE.md, README, PRD v0.1, agent briefs, addenda on 01 and 11).
-- 2026-09-12 legal-compliance: added `docs/13-legal-data-rights.md` and `docs/13-legal-outreach-and-social.md`; sources.yaml licence fields updated where clauses were retrieved.
