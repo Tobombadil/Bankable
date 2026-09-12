@@ -19,7 +19,7 @@ standalone listings site. See `01-feasibility.md` §5.
 | # | Phase | Deliverables | Status |
 |---|---|---|---|
 | 0 | Feasibility & data sources | `01-feasibility.md`, `02-data-sources.md`, `data/sources.yaml`, `scripts/probe_sources.py`, probe evidence | **done 2026-09-12** |
-| 1 | Business plan & model | market sizing, pricing ladder, unit economics, GTM, legal entity/licensing plan, 24-month financial model, risk register | Sprint 0 in progress (market, legal, GTM) |
+| 1 | Business plan & model | market sizing, pricing ladder, unit economics, GTM, legal entity/licensing plan, 24-month financial model, risk register | market + pricing + GTM done (`11`, `33`); legal register in progress; financial model and risk register outstanding |
 | 2 | Architecture & specifications | system spec, domain model + ERD, API spec (OpenAPI), ingestion/normalisation/resolution design, security & privacy design, DevOps (IaC, CI/CD, observability, backups), ADRs | Sprint 0 in progress (architecture, ERD, ADRs, resolution prototype) |
 | 3 | Product design | UX research, information architecture, UI system, public site, search/map/alerts, API docs, admin panel (users, customers, subscriptions, data ops), CRM/ERP integration as single source of truth, analytics/tracking plan | |
 | 4 | Build & launch MVP | Tier-1 ingestion, proposal graph, public delayed tier, Pro alerts, syndication, billing, launch runbook | |
@@ -47,6 +47,7 @@ standalone listings site. See `01-feasibility.md` §5.
 | 2026-09-12 | Social at launch = Bluesky + LinkedIn (+ X on capped budget); owned RSS/email is the primary channel | Media lens |
 | 2026-09-12 | No new repo: `tobombadil/bankable` (one worker commit) becomes the platform monorepo; the Cloudflare worker moves to `infra/` later | Empty repo already carries the brand; a second repo would split history and access |
 | 2026-09-12 | Build-time agent team lives in `.claude/agents/`; the run-time loop is a conventional pipeline that calls models only where judgement is needed; humans send all outbound messages until a channel is explicitly enabled | `docs/03-agent-operating-model.md` |
+| 2026-09-12 | **Owner confirmed the Phase 0 reframe**: build the fused proposal graph feeding Bankable's route-to-capital workflow, with the public listings site as the free delayed tier and audience engine, not as the main event | Owner, in session. Settles the branch point that architecture and pricing both depend on |
 
 ## Open questions for the owner (answers change Phase 1–3 work)
 
@@ -74,6 +75,12 @@ docs/00-PLAN.md            this file
 docs/01-feasibility.md     Phase 0 feasibility study
 docs/02-data-sources.md    Phase 0 source catalogue, legal register, schema seed, ingestion order
 docs/03-agent-operating-model.md  build-time agent team vs run-time pipeline; roster, hand-offs, human gates
+docs/10-prd-mvp.md         MVP requirements: 44 user stories, scope gates, metrics
+docs/11-market-and-competition.md  competitors, bottom-up sizing, pricing ladder, delay schedule
+docs/20-architecture.md    run-time system specification
+docs/32-social-operating-playbook.md  channels, account checklist, editorial, post pipeline
+docs/33-gtm-and-sales-playbook.md     ICPs, outreach, partnerships, automation boundary
+pipeline/                  ingestion and resolution code; status_map.yaml is versioned data
 .claude/agents/            agent role definitions (invoke via the Agent tool or /agents)
 CLAUDE.md                  instructions every session/agent loads first
 data/sources.yaml          machine-readable source registry (connector manifest)
