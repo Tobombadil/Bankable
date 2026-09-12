@@ -46,7 +46,7 @@ def _s(v):
 def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame,
                    observed_at: str | None = None) -> pd.DataFrame:
     """Deterministic, model-free diff of two snapshots keyed by record_id."""
-    observed_at = observed_at or dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    observed_at = observed_at or dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     b = before.drop_duplicates(KEY).set_index(KEY)
     a = after.drop_duplicates(KEY).set_index(KEY)
     events: list[dict] = []
