@@ -21,4 +21,14 @@
 - 2026-09-12 coordinator: added the `legal` user role to docs/21 §3.12 — US-905 AC1 needs it to clear a source gate flag; unblocks the API gate endpoint (api/README.md open decision 2).
 - 2026-09-12 coordinator (inline, no subagent): round two of naming appended to docs/12 — ten single-word candidates knocked out on live collisions; Gridslate recommended as placeholder, Siteplot as fallback.
 - 2026-09-12 coordinator (inline): round three of naming — owner's `infra-` suggestion checked; infraqueue.com found unregistered with a free handle and no collisions; recommended as placeholder, infrafeed as fallback.
+- 2026-09-12 product-designer: added `docs/30-design-ia.md` (three sitemaps as Mermaid — public/Pro/admin; nav
+  model with map and search as co-equal entries per D-8..D-14 and US-104 AC1-5; page inventory tracing every
+  page to PRD story ids, API reads and tier-gated elements; six core-job flows as Mermaid flowcharts; five
+  wireframes — map-first home, proposal detail + drawer, opportunity list, Pro alerts, admin source health —
+  with a state inventory per screen for empty/loading/error/delayed/restricted-precision/unplaced).
+- 2026-09-12 product-designer: added `docs/31-design-system.md` (tokens with hex/role/contrast carried forward
+  from `docs/30` §6, five-family status system marked adopted-pending-ratification; type/spacing/grid scales
+  with 400px breakpoint; 13-component inventory with anatomy and states incl. status chip, provenance panel,
+  map marker/cluster, detail drawer, filter bar, source health card, post review card; data-display, WCAG 2.2 AA
+  and motion rules; a full `docs/04` §2 rule-to-implementation checklist).
 - 2026-09-12 product-designer: added `docs/30-design-references.md` (D-6 study; andrewtgibson.com plus 15 products — the required Electricity Maps/Grid Status/Interconnection.fyi/Felt/Kepler.gl/Observable/FT/The Pudding/Linear/Stripe docs/Ember set (Ember and several live apps blocked, noted not invented) and four found independently — Flightradar24, OpenInfraMap, Global Energy Monitor, Vercel; synthesis table citing a docs/04 §2 rule per borrow/adapt/reject; typeface decision keep Newsreader+IBM Plex Sans/Mono with variable-font and OFL licence confirmed; type/spacing scale matching D-22; a proposed five-family status-colour system extending D-20/D-25 with WCAG contrast computed, not guessed, for every token incl. new success/danger/progress hues; map interaction model, motion rules and a banned-patterns checklist for D-7). Needs owner/PM ratification on the new status-colour families (REF-2) before docs/31 treats them as canon.
