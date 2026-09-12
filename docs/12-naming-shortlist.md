@@ -390,3 +390,56 @@ Checked and taken or ambiguous: gridplot, plotgrid, buildmap, mapworks, siteatla
 three of those checks hit transport timeouts and should be re-run before relying on them).
 Rejected on meaning before checking: Sitemap (web jargon), Pipeline (collides with gas pipelines in our own
 subject matter), Horizon and Compass (generic finance), Trailhead (Salesforce), Landgrid (live parcel-data firm).
+
+---
+
+# Round three — the `infra-` family (owner suggestion, 2026-09-12)
+
+The owner proposed "infrafeed or something like that". This is a better-shaped idea than either earlier round:
+`infra-` reads as *infrastructure* on sight, is broader than `grid-` (it covers pipelines, transmission, data
+centres, storage and CCS, all of which are in scope per `docs/00-PLAN.md`), and the second element can carry the
+product's actual mechanic rather than a metaphor.
+
+Checks run 2026-09-12, same method: Verisign RDAP for `.com` registration (with `google.com` → 200 and a nonsense
+string → 404 as live controls on every batch), an HTTPS fetch to see whether a registered domain actually serves
+anything, the Bluesky public API for the handle, and search-engine indexing for companies and marks.
+
+| Name | `.com` registration | `.com` serves? | Bluesky | Collisions | Verdict |
+|---|---|---|---|---|---|
+| **Infraqueue** | **404 — UNREGISTERED** (confirmed 3×) | — | **free** | **none found**: no company, no USPTO mark indexed | **Strongest result of all three rounds** |
+| **Infrafeed** | registered | **no response — parked** | **free** | none found | Strong; `.com` is an acquisition enquiry |
+| Infradeck | registered | no response — parked | free | none found | Viable, weaker meaning |
+| Inframap | registered | live | free | **InfraMap Corp.** — subsurface utility mapping since 1987; also InfraMappa (facility digital twins) | Dead |
+| Infratrack | registered | no response | free | **InfraTrack** — infrastructure project management platform with real-time mapping | Dead |
+| Infragrid, Infraline, Infraplot, Infraatlas | registered | **live** | free | in use | Dead |
+| Infraslate | registered | live | **taken** | in use | Dead |
+
+Alternate TLDs: `infraqueue.io`, `infraqueue.co`, `infrafeed.io` all returned 404 from the IANA bootstrap
+resolver, but that resolver produced false 404s for known-registered `.io` domains in round one, so these are
+**unverified**. `.energy` returned a redirect for both and is likewise unverified.
+
+## Assessment
+
+**Infraqueue.** An unregistered, pronounceable, meaningful `.com` is rare, and this one is also clear on Bluesky
+with no company or mark found. The meaning is strong: *queue* is the single most industry-native word in this
+subject — the interconnection queue is the object the platform was conceived around — and it generalises
+honestly, because everything the platform tracks is something waiting for a decision: grid access, money,
+a permit, an award. `infra-` then widens it past electricity without losing the sector.
+
+Two costs, stated plainly. First, *queue* is the most commonly misspelled short word in American English, which
+is a real penalty for a name people will hear at a conference and type later; the `.com` being free mitigates
+this only partly, because typo variants are not. Second, it can read as narrower than the product: a buyer might
+assume interconnection queues only and miss the funding and procurement half.
+
+**Infrafeed.** Weaker sector-specific meaning but no spelling risk, and *feed* names the mechanic that actually
+distinguishes the product (`docs/00-PLAN.md`: "the product is the feed, not the table"). The `.com` is registered
+but dead, so it is an enquiry rather than a blocker.
+
+## Recommendation
+
+Adopt **Infraqueue** as the placeholder, which unblocks the design references study today at the cost of a `.com`
+registration. **Infrafeed** is the fallback if the spelling penalty is judged too high, and the two are not
+mutually exclusive: registering both costs little and defers the decision until the design work has a view.
+
+Before adoption as the permanent name: counsel knock-out search in classes 9, 35 and 42; re-check `.io`, `.co`
+and `.energy` against an authoritative registry; and register the obvious typo variants if Infraqueue is chosen.

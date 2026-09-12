@@ -20,11 +20,10 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
-from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
+from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot
+from pipeline.connectors.canonical import harmonise_status
 from pipeline.connectors.opportunity import classify_technologies, deadline_passed, technologies_str, to_utc
-from pipeline.normalize import harmonise_status
 
 API_URL = "https://api.grants.gov/v1/api/search2"
 DETAIL_URL = "https://www.grants.gov/search-results-detail/{id}"

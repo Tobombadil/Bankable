@@ -21,10 +21,16 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
-from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot, content_hash
-from pipeline.normalize import classify_tech, harmonise_status, norm_name, norm_org, to_date, to_float
+from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, content_hash
+from pipeline.connectors.canonical import (
+    classify_tech,
+    harmonise_status,
+    norm_name,
+    norm_org,
+    to_date,
+    to_float,
+)
 
 PACKAGE_URL = "https://api.neso.energy/api/3/action/package_show?id=transmission-entry-capacity-tec-register"
 DATASET_PAGE = "https://www.neso.energy/data-portal/transmission-entry-capacity-tec-register"
@@ -93,7 +99,10 @@ class Connector(BaseConnector):
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
         n = len(rows)
-        g = lambda k: [r.get(k) for r in rows]  # noqa: E731
+
+        def g(key: str) -> list[Any]:
+            return [r.get(key) for r in rows]
+
         tech = [classify_tech(v) for v in g("Plant Type")]
         harmonised = [
             harmonise_status(self.status_key, {"status_raw": s}, self.status_map) for s in g("Project Status")

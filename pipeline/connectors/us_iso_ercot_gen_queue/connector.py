@@ -16,9 +16,8 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
-from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
+from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot
 from pipeline.connectors.iso_queue import gridstatus_rows, normalize_iso_rows
 
 DOC_LIST = "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"

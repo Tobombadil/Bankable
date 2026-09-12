@@ -20,10 +20,9 @@ from urllib.parse import urljoin
 
 import pandas as pd
 
-from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
-from pipeline.normalize import normalize_eia
+from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot
+from pipeline.connectors.canonical import normalize_eia
 
 INDEX_URL = "https://www.eia.gov/electricity/data/eia860m/"
 LINK_RE = re.compile(r'href="([^"]+?generator\d{4}\.xlsx)"', re.I)

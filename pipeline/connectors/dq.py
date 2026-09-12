@@ -105,22 +105,23 @@ def run_gates(
     prev = history[-1] if history else None
 
     # 1. row-count drift
-    if prev and prev.get("rows_fetched", prev.get("rows")):
-        base = int(prev.get("rows_fetched", prev.get("rows")))
-        delta = (n - base) / base * 100.0
+    previous_rows = int(prev.get("rows_fetched") or prev.get("rows") or 0) if prev else 0
+    if previous_rows:
+        base = previous_rows
+        drift = (n - base) / base * 100.0
         level = (
             "hold"
-            if abs(delta) > t["row_drift_hold_pct"]
+            if abs(drift) > t["row_drift_hold_pct"]
             else "warn"
-            if abs(delta) >= t["row_drift_warn_pct"]
+            if abs(drift) >= t["row_drift_warn_pct"]
             else "pass"
         )
         checks.append(
             Check(
                 "row_count_drift",
                 level,
-                f"{base} -> {n} rows ({delta:+.1f} %)",
-                {"previous": base, "current": n, "delta_pct": round(delta, 2)},
+                f"{base} -> {n} rows ({drift:+.1f} %)",
+                {"previous": base, "current": n, "delta_pct": round(drift, 2)},
             )
         )
     else:
@@ -176,8 +177,8 @@ def run_gates(
                 )
             )
             continue
-        base = float(median(hist))
-        delta = rate - base
+        baseline = float(median(hist))
+        delta = rate - baseline
         level = (
             "hold"
             if delta >= t["null_spike_hold_pp"]
@@ -189,8 +190,8 @@ def run_gates(
             Check(
                 f"null_rate:{col}",
                 level,
-                f"{rate:.1f} % null vs median {base:.1f} % ({delta:+.1f} pp)",
-                {"rate_pct": round(rate, 2), "baseline_pct": round(base, 2), "delta_pp": round(delta, 2)},
+                f"{rate:.1f} % null vs median {baseline:.1f} % ({delta:+.1f} pp)",
+                {"rate_pct": round(rate, 2), "baseline_pct": round(baseline, 2), "delta_pp": round(delta, 2)},
             )
         )
 
