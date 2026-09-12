@@ -7,3 +7,7 @@ pyyaml>=6
 openpyxl>=3.1
 rapidfuzz>=3.9
 pytest>=8
+
+# lint and type gates (docs/04 E-5)
+ruff>=0.6
+mypy>=1.11

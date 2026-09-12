@@ -9,7 +9,8 @@ cost in §9, which is labelled as an estimate from list prices.
 ## 1. Inputs and the commands that produced every number here
 
 ```
-.venv/bin/python pipeline/pull.py                       # already run; manifest: data/eval/raw/manifest.2026-09-12.json
+.venv/bin/python -m pipeline.connectors run --all       # replaced pipeline/pull.py (Sprint 1); the evaluation
+                                                       # inputs here came from the 2026-09-12 pull: data/eval/raw/manifest.2026-09-12.json
 .venv/bin/python pipeline/normalize.py                  # -> data/eval/normalized.parquet
 .venv/bin/python pipeline/resolve.py --sweep            # -> data/eval/matches.parquet, clusters.parquet; P/R vs labels.csv
 .venv/bin/python pipeline/diff.py --demo                # -> data/eval/normalized.perturbed.parquet, events.parquet

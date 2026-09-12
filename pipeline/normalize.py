@@ -2,7 +2,8 @@
 """Normalise the five reachable ISO interconnection queues and the EIA-860M "Planned" sheet
 into one canonical proposal table (docs/02 §5, docs/20 §3.4).
 
-Reads   data/eval/raw/<source>.<date>.parquet   (written by pipeline/pull.py)
+Reads   data/eval/raw/<source>.<date>.parquet   (evaluation set; re-create with
+        `python -m pipeline.connectors run --all`, which replaced the Phase 2 pull.py)
 Writes  data/eval/normalized.parquet
 Status harmonisation lives in pipeline/status_map.yaml, not here.
 
