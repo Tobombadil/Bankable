@@ -1,4 +1,39 @@
 {
+ "eia860m": {
+  "path": "data/eval/raw/eia860m.2026-09-12.parquet",
+  "rows": 2343,
+  "cols": [
+   "Entity ID",
+   "Entity Name",
+   "Plant ID",
+   "Plant Name",
+   "Google Map",
+   "Bing Map",
+   "Plant State",
+   "County",
+   "Balancing Authority Code",
+   "Sector",
+   "Generator ID",
+   "Unit Code",
+   "Nameplate Capacity (MW)",
+   "Net Summer Capacity (MW)",
+   "Net Winter Capacity (MW)",
+   "Technology",
+   "Energy Source Code",
+   "Prime Mover Code",
+   "Planned Operation Month",
+   "Planned Operation Year",
+   "Status",
+   "Latitude",
+   "Longitude"
+  ],
+  "bytes": 154223,
+  "sampled": false,
+  "ok": true,
+  "url": "https://www.eia.gov/electricity/data/eia860m/xls/july_generator2026.xlsx",
+  "secs": 4.8,
+  "retrieved_at": "2026-09-12T16:37:06.286941Z"
+ },
  "caiso": {
   "path": "data/eval/raw/caiso.2026-09-12.parquet",
   "rows": 2278,
@@ -43,8 +78,8 @@
   "bytes": 159472,
   "sampled": false,
   "ok": true,
-  "secs": 4.5,
-  "retrieved_at": "2026-09-12T16:35:41.727051Z"
+  "secs": 2.8,
+  "retrieved_at": "2026-09-12T16:37:21.763939Z"
  },
  "ercot": {
   "path": "data/eval/raw/ercot.2026-09-12.parquet",
@@ -89,8 +124,8 @@
   "bytes": 182998,
   "sampled": false,
   "ok": true,
-  "secs": 2.2,
-  "retrieved_at": "2026-09-12T16:35:43.930705Z"
+  "secs": 2.5,
+  "retrieved_at": "2026-09-12T16:37:24.306109Z"
  },
  "spp": {
   "path": "data/eval/raw/spp.2026-09-12.parquet",
@@ -124,8 +159,8 @@
   "bytes": 140798,
   "sampled": false,
   "ok": true,
-  "secs": 1.3,
-  "retrieved_at": "2026-09-12T16:35:45.233249Z"
+  "secs": 1.1,
+  "retrieved_at": "2026-09-12T16:37:25.397664Z"
  },
  "nyiso": {
   "path": "data/eval/raw/nyiso.2026-09-12.parquet",
@@ -159,8 +194,8 @@
   "bytes": 125595,
   "sampled": false,
   "ok": true,
-  "secs": 1.8,
-  "retrieved_at": "2026-09-12T16:35:47.020531Z"
+  "secs": 2.0,
+  "retrieved_at": "2026-09-12T16:37:27.399048Z"
  },
  "isone": {
   "path": "data/eval/raw/isone.2026-09-12.parquet",
@@ -202,11 +237,7 @@
   "bytes": 152396,
   "sampled": false,
   "ok": true,
-  "secs": 6.5,
-  "retrieved_at": "2026-09-12T16:35:53.530515Z"
- },
- "eia860m": {
-  "ok": false,
-  "err": "RuntimeError(\"https://www.eia.gov/electricity/data/eia860m/xls/december_generator2026.xlsx did not return an xlsx (first bytes b'<!doctype html>\\\\r\\\\n<ht')\")"
+  "secs": 7.3,
+  "retrieved_at": "2026-09-12T16:37:34.654862Z"
  }
 }

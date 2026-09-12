@@ -39,15 +39,25 @@ def pull_iso(key: str) -> pd.DataFrame:
 
 
 def find_eia860m_xlsx(session: requests.Session) -> str:
-    """The index page links the latest month as .../xls/<month_name>_generatorYYYY.xlsx.
-    Guessed names return a 200 HTML page, so scrape the real link (docs/02 §7)."""
+    """The index page links months as .../xls/<month>_generatorYYYY.xlsx, but it also lists
+    *future* months as placeholders that 301 to an HTML page (observed 2026-09-12: december_/
+    october_generator2026 redirect; july_generator2026 is the real latest). Guessed names likewise
+    return HTML with a 200 (docs/02 §7). So: take links in page order and return the first whose
+    first bytes are a zip ("PK")."""
     html = session.get(EIA_INDEX, timeout=30).text
-    links = re.findall(r'href="([^"]+?\.xlsx)"', html, flags=re.I)
-    links = [l for l in links if "generator" in l.lower() and "archive" not in l.lower()]
-    if not links:
-        raise RuntimeError("no generator xlsx link found on EIA-860M index page")
-    href = links[0]
-    return href if href.startswith("http") else requests.compat.urljoin(EIA_INDEX, href)
+    links = re.findall(r'href="([^"]+?generator\d{4}\.xlsx)"', html, flags=re.I)
+    seen: list[str] = []
+    for href in links:
+        url = href if href.startswith("http") else requests.compat.urljoin(EIA_INDEX, href)
+        if url in seen:
+            continue
+        seen.append(url)
+        r = session.get(url, headers={"Range": "bytes=0-3"}, timeout=30, allow_redirects=True)
+        if r.content[:2] == b"PK":
+            return url
+        if len(seen) >= 6:
+            break
+    raise RuntimeError(f"no real xlsx among first EIA-860M links: {seen}")
 
 
 def pull_eia860m(session: requests.Session) -> tuple[pd.DataFrame, str]:
@@ -86,7 +96,8 @@ def main() -> int:
     args = ap.parse_args()
     RAW.mkdir(parents=True, exist_ok=True)
     only = set(args.only.split(",")) if args.only else None
-    manifest: dict[str, dict] = {}
+    mpath = RAW / f"manifest.{args.date}.json"
+    manifest: dict[str, dict] = json.loads(mpath.read_text()) if mpath.exists() else {}
     session = requests.Session()
     session.headers.update({"User-Agent": UA, "Accept": "*/*"})
 
@@ -111,7 +122,7 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             manifest["eia860m"] = {"ok": False, "err": repr(e)[:300]}
         print("eia860m", manifest["eia860m"].get("rows"), manifest["eia860m"].get("err", ""))
-    (RAW / f"manifest.{args.date}.json").write_text(json.dumps(manifest, indent=1, default=str))
+    mpath.write_text(json.dumps(manifest, indent=1, default=str))
     return 0
 
 
