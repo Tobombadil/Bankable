@@ -178,7 +178,7 @@ def to_date(v):
         return pd.NaT
     try:
         ts = pd.to_datetime(v, errors="coerce")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return pd.NaT
     if pd.isna(ts):
         return pd.NaT
@@ -255,6 +255,12 @@ def _blank(n: int):
     return pd.Series([None] * n, dtype="object")
 
 
+def _identity_hash(text: str) -> str:
+    """Short content hash used as a source_record_id when the source gives none (docs/20 §3.1).
+    Not a security primitive."""
+    return hashlib.sha1(text.encode()).hexdigest()[:12]  # noqa: S324
+
+
 def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict,
                   retrieved_at: str) -> pd.DataFrame:
     iso, url, licence = SOURCE_META[source_id]
@@ -285,7 +291,7 @@ def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict,
                           "st": get("Status").astype("string")}).fillna("").agg("|".join, axis=1)
     srid = qid.copy()
     no_id = srid.isna() | (srid == "")
-    srid[no_id] = "h" + ident[no_id].map(lambda t: hashlib.sha1(t.encode()).hexdigest()[:12])
+    srid[no_id] = "h" + ident[no_id].map(_identity_hash)
 
     out = pd.DataFrame({
         "source_id": source_id,
@@ -303,7 +309,8 @@ def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict,
         "capacity_mw": pd.array(
             [capacity(a, b, c) for a, b, c in zip(get("Capacity (MW)"),
                                                   get("Summer Capacity (MW)"),
-                                                  get("Winter Capacity (MW)"))], dtype="Float64"),
+                                                  get("Winter Capacity (MW)"),
+                                                  strict=True)], dtype="Float64"),
         "storage_mwh": pd.array([None] * n, dtype="Float64"),
         "iso": iso,
         "state": [norm_state(v) for v in get("State")],
@@ -364,7 +371,7 @@ def normalize_eia(df: pd.DataFrame, status_map: dict, retrieved_at: str) -> pd.D
         "technology_raw": get("Technology").astype("string"),
         "capacity_mw": pd.array(
             [capacity(a, b) for a, b in zip(get("Nameplate Capacity (MW)"),
-                                            get("Net Summer Capacity (MW)"))], dtype="Float64"),
+                                            get("Net Summer Capacity (MW)"), strict=True)], dtype="Float64"),
         "storage_mwh": pd.array([None] * n, dtype="Float64"),
         "iso": get("Balancing Authority Code").astype("string"),
         "state": [norm_state(v) for v in get("Plant State")],
@@ -376,7 +383,7 @@ def normalize_eia(df: pd.DataFrame, status_map: dict, retrieved_at: str) -> pd.D
         "status_conflict": False,
         "queue_date": pd.array([pd.NaT] * n, dtype="datetime64[ns]"),
         "proposed_cod": list(map(cod, zip(get("Planned Operation Year"),
-                                          get("Planned Operation Month")))),
+                                          get("Planned Operation Month"), strict=True))),
         "queue_id": pd.array([None] * n, dtype="string"),
         "eia_plant_id": plant,
         "eia_generator_id": gen,
@@ -413,7 +420,8 @@ def build(date: str, raw_dir: pathlib.Path = RAW) -> pd.DataFrame:
     # duplicates, so suffix the 2nd, 3rd... occurrence with #2, #3 in file order.
     dup_n = out.groupby("record_id").cumcount()
     out.loc[dup_n > 0, "record_id"] = out["record_id"] + "#" + (dup_n + 1).astype(str)
-    assert out["record_id"].is_unique
+    if not out["record_id"].is_unique:  # noqa: S101 replaced by an explicit check
+        raise ValueError("record_id is not unique after duplicate suffixing")
     return out
 
 

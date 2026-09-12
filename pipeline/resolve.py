@@ -86,7 +86,7 @@ def block_name_token(df: pd.DataFrame, tag: str = "B3_state_nametoken") -> pd.Da
 
 
 def block(df: pd.DataFrame, keys: list[str], tag: str) -> pd.DataFrame:
-    usable = df.dropna(subset=keys + ["capacity_mw"])
+    usable = df.dropna(subset=[*keys, "capacity_mw"])
     usable = usable[usable["capacity_mw"] > 0]
     rows: list[tuple[int, int]] = []
     for _, grp in usable.groupby(keys, dropna=True, observed=True):
