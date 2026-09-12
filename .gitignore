@@ -4,3 +4,10 @@ __pycache__/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Per-run connector outputs: regenerable, churn on every run, would bloat history.
+# Evaluation sets (data/eval) and probe evidence (data/probes) stay versioned.
+data/snapshots/
+data/normalized/
+data/runs/
+data/held/
