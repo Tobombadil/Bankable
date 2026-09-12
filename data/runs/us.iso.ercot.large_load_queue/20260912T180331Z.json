@@ -1,0 +1,125 @@
+{
+ "id": "6955d240-ae58-4016-a19d-4511236c2860",
+ "source_id": "us.iso.ercot.large_load_queue",
+ "trigger": "manual",
+ "started_at": "2026-09-12T18:03:30.254524+00:00",
+ "finished_at": "2026-09-12T18:03:31.168671+00:00",
+ "status": "ok",
+ "egress_class": "plain",
+ "reuse_class": "open",
+ "licence_id": "us.iso.ercot.large_load_queue#86d4e73e00",
+ "publishable": true,
+ "parser_version": "us.iso.ercot.large_load_queue@1.0.0",
+ "attempt": 1,
+ "dead_lettered": false,
+ "http_status": 200,
+ "bytes": 320767,
+ "snapshot": {
+  "object_key": "/home/user/Bankable/data/snapshots/us.iso.ercot.large_load_queue/20260912T180331Z.json",
+  "sha256": "68ddabaedc13d10169fa1b40bd4cf298cfa9d52309b36dd2a5a65eea7aa7d464",
+  "byte_size": 320767,
+  "content_type": "application/json",
+  "fetched_url": "https://www.ercot.com/api/1/services/read/common/filter-emil-items-search.json?keyword=large%20load",
+  "http_status": 200,
+  "retrieved_at": "2026-09-12T18:03:31Z",
+  "licence_id": "us.iso.ercot.large_load_queue#86d4e73e00",
+  "parser_version": "us.iso.ercot.large_load_queue@1.0.0",
+  "record_count": 0,
+  "requests_made": 1,
+  "redacted": false,
+  "meta": {
+   "registry_product_id_checked": "NP3-990-CD",
+   "registry_product_found": false,
+   "catalogue_items": 141
+  },
+  "previous_run_id": null
+ },
+ "rows_seen": 0,
+ "rows_fetched": 0,
+ "rows_new": 0,
+ "rows_changed": 0,
+ "rows_gone": 0,
+ "events_emitted": 0,
+ "model_calls": 0,
+ "cost_usd": 0.0,
+ "worker_seconds": 0.91,
+ "dq_status": "pass",
+ "dq": {
+  "status": "pass",
+  "checks": [
+   {
+    "check": "row_count_drift",
+    "level": "info",
+    "detail": "no baseline; 0 rows",
+    "data": {
+     "current": 0
+    }
+   },
+   {
+    "check": "vocabulary_drift",
+    "level": "info",
+    "detail": "no new values",
+    "data": {}
+   },
+   {
+    "check": "null_rate:name_canonical",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "duplicate_keys",
+    "level": "pass",
+    "detail": "none",
+    "data": {}
+   },
+   {
+    "check": "provenance",
+    "level": "pass",
+    "detail": "quartet present on every row",
+    "data": {
+     "missing_cells": 0
+    }
+   },
+   {
+    "check": "schema_drift",
+    "level": "info",
+    "detail": "0 source columns recorded",
+    "data": {}
+   }
+  ],
+  "stats": {
+   "rows": 0,
+   "null_rates_pct": {
+    "name_canonical": 0.0
+   },
+   "vocabulary": {
+    "status_raw": [],
+    "technology_raw": [],
+    "kind": []
+   },
+   "source_columns": [],
+   "rows_fetched": 0
+  }
+ },
+ "stats": {
+  "rows": 0,
+  "null_rates_pct": {
+   "name_canonical": 0.0
+  },
+  "vocabulary": {
+   "status_raw": [],
+   "technology_raw": [],
+   "kind": []
+  },
+  "source_columns": [],
+  "rows_fetched": 0
+ },
+ "error": null,
+ "error_class": null,
+ "outputs": {
+  "normalized": "/home/user/Bankable/data/normalized/us.iso.ercot.large_load_queue/20260912T180331Z.parquet"
+ }
+}

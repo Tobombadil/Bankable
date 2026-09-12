@@ -1,0 +1,342 @@
+{
+ "id": "e4230a0c-ad29-4a11-ab48-aa0a52b0b71a",
+ "source_id": "gb.neso.tec_register",
+ "trigger": "manual",
+ "started_at": "2026-09-12T18:04:08.302121+00:00",
+ "finished_at": "2026-09-12T18:04:13.009227+00:00",
+ "status": "partial",
+ "egress_class": "plain",
+ "reuse_class": "attribution",
+ "licence_id": "gb.neso.tec_register#6664adc59b",
+ "publishable": true,
+ "parser_version": "gb.neso.tec_register@1.0.0",
+ "attempt": 1,
+ "dead_lettered": false,
+ "http_status": 200,
+ "bytes": 439595,
+ "snapshot": {
+  "object_key": "/home/user/Bankable/data/snapshots/gb.neso.tec_register/20260912T180412Z.csv",
+  "sha256": "a827c6f6052d1c8f613b526be0ddb6b29ec48855b878004ac4163e91dc2b0486",
+  "byte_size": 439595,
+  "content_type": "application/octet-stream",
+  "fetched_url": "https://api.neso.energy/dataset/cbd45e54-e6e2-4a38-99f1-8de6fd96d7c1/resource/17becbab-e3e8-473f-b303-3806f43a6a10/download/tec-register-11-september-2026.csv",
+  "http_status": 200,
+  "retrieved_at": "2026-09-12T18:04:12Z",
+  "licence_id": "gb.neso.tec_register#6664adc59b",
+  "parser_version": "gb.neso.tec_register@1.0.0",
+  "record_count": 2198,
+  "requests_made": 2,
+  "redacted": false,
+  "meta": {
+   "resource_id": "17becbab-e3e8-473f-b303-3806f43a6a10",
+   "last_modified": "2026-09-11T13:13:22.426570",
+   "licence": "NESO Open Data Licence",
+   "dataset_page": "https://www.neso.energy/data-portal/transmission-entry-capacity-tec-register"
+  },
+  "previous_run_id": null
+ },
+ "rows_seen": 2198,
+ "rows_fetched": 2198,
+ "rows_new": 0,
+ "rows_changed": 0,
+ "rows_gone": 0,
+ "events_emitted": 0,
+ "model_calls": 0,
+ "cost_usd": 0.0,
+ "worker_seconds": 4.71,
+ "dq_status": "fail",
+ "dq": {
+  "status": "hold",
+  "checks": [
+   {
+    "check": "row_count_drift",
+    "level": "info",
+    "detail": "no baseline; 2198 rows",
+    "data": {
+     "current": 2198
+    }
+   },
+   {
+    "check": "vocabulary_unmapped",
+    "level": "pass",
+    "detail": "0 rows (0.0 %) with unmapped lifecycle_state",
+    "data": {
+     "share": 0.0,
+     "values": []
+    }
+   },
+   {
+    "check": "vocabulary_drift",
+    "level": "info",
+    "detail": "no new values",
+    "data": {}
+   },
+   {
+    "check": "null_rate:name_canonical",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "null_rate:sponsor_name",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "null_rate:capacity_mw",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "null_rate:technology_raw",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "duplicate_keys",
+    "level": "hold",
+    "detail": "1 duplicate record_id values",
+    "data": {
+     "count": 1
+    }
+   },
+   {
+    "check": "provenance",
+    "level": "pass",
+    "detail": "quartet present on every row",
+    "data": {
+     "missing_cells": 0
+    }
+   },
+   {
+    "check": "schema_drift",
+    "level": "info",
+    "detail": "15 source columns recorded",
+    "data": {}
+   }
+  ],
+  "stats": {
+   "rows": 2198,
+   "null_rates_pct": {
+    "name_canonical": 0.0,
+    "sponsor_name": 0.0,
+    "capacity_mw": 0.0,
+    "technology_raw": 0.0
+   },
+   "vocabulary": {
+    "status_raw": [
+     "Awaiting Consents",
+     "Built",
+     "Consents Approved",
+     "Scoping",
+     "Under Construction/Commissioning"
+    ],
+    "technology_raw": [
+     "Biomass",
+     "Biomass;Demand",
+     "CCGT (Combined Cycle Gas Turbine)",
+     "CCGT (Combined Cycle Gas Turbine);Demand",
+     "CCGT (Combined Cycle Gas Turbine);Demand;Energy Storage System;Hydrogen;OCGT (Open Cycle Gas Turbine)",
+     "CCGT (Combined Cycle Gas Turbine);Energy Storage System",
+     "CCGT (Combined Cycle Gas Turbine);Energy Storage System;OCGT (Open Cycle Gas Turbine)",
+     "CCGT (Combined Cycle Gas Turbine);Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore",
+     "CCGT (Combined Cycle Gas Turbine);Reactive Compensation",
+     "CHP (Combined Heat and Power)",
+     "CHP (Combined Heat and Power);Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore",
+     "Coal",
+     "Demand;Energy Storage System",
+     "Demand;Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore",
+     "Demand;Energy Storage System;PV Array (Photo Voltaic/solar)",
+     "Demand;Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation",
+     "Demand;Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore",
+     "Demand;Energy Storage System;Reactive Compensation",
+     "Demand;Energy Storage System;Wind Onshore",
+     "Demand;Hydrogen",
+     "Demand;LAES (Liquid Air Energy Storage)",
+     "Demand;PV Array (Photo Voltaic/solar)",
+     "Demand;Wind Offshore",
+     "Demand;Wind Onshore",
+     "Energy Storage System",
+     "Energy Storage System;Gas Reciprocating",
+     "Energy Storage System;Hydro;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore",
+     "Energy Storage System;Hydrogen;PV Array (Photo Voltaic/solar);Wind Onshore",
+     "Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Reactive Compensation;Wind Onshore",
+     "Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore",
+     "Energy Storage System;OCGT (Open Cycle Gas Turbine)",
+     "Energy Storage System;PV Array (Photo Voltaic/solar)",
+     "Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation",
+     "Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation;Wind Onshore",
+     "Energy Storage System;PV Array (Photo Voltaic/solar);Wind Offshore",
+     "Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore",
+     "Energy Storage System;Pump Storage;Thermal",
+     "Energy Storage System;Reactive Compensation",
+     "Energy Storage System;Tidal",
+     "Energy Storage System;Wind Offshore",
+     "Energy Storage System;Wind Onshore",
+     "Gas Reciprocating",
+     "Hydro",
+     "Hydrogen",
+     "Interconnector;Wind Offshore",
+     "Nuclear",
+     "OCGT (Open Cycle Gas Turbine)",
+     "Oil & AGT (Advanced Gas Turbine)",
+     "PV Array (Photo Voltaic/solar)",
+     "PV Array (Photo Voltaic/solar);Wind Onshore",
+     "Pump Storage",
+     "Pump Storage;Wind Onshore",
+     "Reactive Compensation",
+     "Substation;Wind Onshore",
+     "Thermal",
+     "Tidal",
+     "Waste",
+     "Wind Offshore",
+     "Wind Onshore"
+    ],
+    "kind": [
+     "generation",
+     "other",
+     "storage"
+    ]
+   },
+   "source_columns": [
+    "Project Name",
+    "Customer Name",
+    "Connection Site",
+    "Stage",
+    "MW Connected",
+    "MW Increase / Decrease",
+    "Cumulative Total Capacity (MW)",
+    "MW Effective From",
+    "Project Status",
+    "Agreement Type",
+    "HOST TO",
+    "Plant Type",
+    "Project ID",
+    "Project Number",
+    "Gate"
+   ],
+   "rows_fetched": 2198
+  }
+ },
+ "stats": {
+  "rows": 2198,
+  "null_rates_pct": {
+   "name_canonical": 0.0,
+   "sponsor_name": 0.0,
+   "capacity_mw": 0.0,
+   "technology_raw": 0.0
+  },
+  "vocabulary": {
+   "status_raw": [
+    "Awaiting Consents",
+    "Built",
+    "Consents Approved",
+    "Scoping",
+    "Under Construction/Commissioning"
+   ],
+   "technology_raw": [
+    "Biomass",
+    "Biomass;Demand",
+    "CCGT (Combined Cycle Gas Turbine)",
+    "CCGT (Combined Cycle Gas Turbine);Demand",
+    "CCGT (Combined Cycle Gas Turbine);Demand;Energy Storage System;Hydrogen;OCGT (Open Cycle Gas Turbine)",
+    "CCGT (Combined Cycle Gas Turbine);Energy Storage System",
+    "CCGT (Combined Cycle Gas Turbine);Energy Storage System;OCGT (Open Cycle Gas Turbine)",
+    "CCGT (Combined Cycle Gas Turbine);Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore",
+    "CCGT (Combined Cycle Gas Turbine);Reactive Compensation",
+    "CHP (Combined Heat and Power)",
+    "CHP (Combined Heat and Power);Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore",
+    "Coal",
+    "Demand;Energy Storage System",
+    "Demand;Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore",
+    "Demand;Energy Storage System;PV Array (Photo Voltaic/solar)",
+    "Demand;Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation",
+    "Demand;Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore",
+    "Demand;Energy Storage System;Reactive Compensation",
+    "Demand;Energy Storage System;Wind Onshore",
+    "Demand;Hydrogen",
+    "Demand;LAES (Liquid Air Energy Storage)",
+    "Demand;PV Array (Photo Voltaic/solar)",
+    "Demand;Wind Offshore",
+    "Demand;Wind Onshore",
+    "Energy Storage System",
+    "Energy Storage System;Gas Reciprocating",
+    "Energy Storage System;Hydro;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore",
+    "Energy Storage System;Hydrogen;PV Array (Photo Voltaic/solar);Wind Onshore",
+    "Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Reactive Compensation;Wind Onshore",
+    "Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore",
+    "Energy Storage System;OCGT (Open Cycle Gas Turbine)",
+    "Energy Storage System;PV Array (Photo Voltaic/solar)",
+    "Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation",
+    "Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation;Wind Onshore",
+    "Energy Storage System;PV Array (Photo Voltaic/solar);Wind Offshore",
+    "Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore",
+    "Energy Storage System;Pump Storage;Thermal",
+    "Energy Storage System;Reactive Compensation",
+    "Energy Storage System;Tidal",
+    "Energy Storage System;Wind Offshore",
+    "Energy Storage System;Wind Onshore",
+    "Gas Reciprocating",
+    "Hydro",
+    "Hydrogen",
+    "Interconnector;Wind Offshore",
+    "Nuclear",
+    "OCGT (Open Cycle Gas Turbine)",
+    "Oil & AGT (Advanced Gas Turbine)",
+    "PV Array (Photo Voltaic/solar)",
+    "PV Array (Photo Voltaic/solar);Wind Onshore",
+    "Pump Storage",
+    "Pump Storage;Wind Onshore",
+    "Reactive Compensation",
+    "Substation;Wind Onshore",
+    "Thermal",
+    "Tidal",
+    "Waste",
+    "Wind Offshore",
+    "Wind Onshore"
+   ],
+   "kind": [
+    "generation",
+    "other",
+    "storage"
+   ]
+  },
+  "source_columns": [
+   "Project Name",
+   "Customer Name",
+   "Connection Site",
+   "Stage",
+   "MW Connected",
+   "MW Increase / Decrease",
+   "Cumulative Total Capacity (MW)",
+   "MW Effective From",
+   "Project Status",
+   "Agreement Type",
+   "HOST TO",
+   "Plant Type",
+   "Project ID",
+   "Project Number",
+   "Gate"
+  ],
+  "rows_fetched": 2198
+ },
+ "error": null,
+ "error_class": null,
+ "outputs": {
+  "held": "/home/user/Bankable/data/held/gb.neso.tec_register/20260912T180412Z.parquet"
+ },
+ "hold_reasons": [
+  "duplicate_keys: 1 duplicate record_id values"
+ ]
+}

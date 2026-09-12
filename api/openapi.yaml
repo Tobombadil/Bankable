@@ -1627,7 +1627,7 @@ paths:
       operationId: getExport
       tags: [Exports]
       summary: Export status and download link
-      description: `status` moves `queued → running → ready | failed`; `download_url` is a pre-signed link valid until `expires_at`.
+      description: '`status` moves `queued → running → ready | failed`; `download_url` is a pre-signed link valid until `expires_at`.'
       x-tier: pro
       x-status: planned
       x-sprint: 3
@@ -2871,7 +2871,7 @@ paths:
       operationId: adminDecideResolutionCandidate
       tags: [Admin — records]
       summary: Record a human decision on a candidate pair
-      description: `same` merges (through the merge path, so the event is reversible), `different` records a negative decision that wins over later automated adjudication, `defer` leaves it in the queue. Audited with `reason`.
+      description: '`same` merges (through the merge path, so the event is reversible), `different` records a negative decision that wins over later automated adjudication, `defer` leaves it in the queue. Audited with `reason`.'
       x-tier: admin
       x-status: planned
       x-sprint: 2
@@ -3081,7 +3081,7 @@ paths:
       operationId: adminUpdatePost
       tags: [Admin — social]
       summary: Edit a draft
-      description: `body` and `scheduled_for` only, on `draft` or `approved` posts (edit-then-approve, US-802 AC1). The link, credit line and disclosure label are template-owned and cannot be removed by an edit; a body that drops them is `400 validation_error`.
+      description: '`body` and `scheduled_for` only, on `draft` or `approved` posts (edit-then-approve, US-802 AC1). The link, credit line and disclosure label are template-owned and cannot be removed by an edit; a body that drops them is `400 validation_error`.'
       x-tier: admin
       x-status: planned
       x-sprint: 2
@@ -3155,7 +3155,7 @@ paths:
       operationId: adminRejectPost
       tags: [Admin — social]
       summary: Reject a draft with a reason
-      description: `reject_reason` is mandatory and reported weekly (US-802 AC3).
+      description: '`reject_reason` is mandatory and reported weekly (US-802 AC3).'
       x-tier: admin
       x-status: planned
       x-sprint: 2
@@ -3275,7 +3275,7 @@ paths:
       operationId: adminListTasks
       tags: [Admin — tasks]
       summary: Task queue
-      description: Reported problems, intake submissions, deletion requests and resolution disputes in one queue: type, subject, status, assignee, notes (US-907 AC1). Deletion-request tasks carry the 30-day SLA `due_at`.
+      description: 'Reported problems, intake submissions, deletion requests and resolution disputes in one queue: type, subject, status, assignee, notes (US-907 AC1). Deletion-request tasks carry the 30-day SLA `due_at`.'
       x-tier: admin
       x-status: planned
       x-sprint: 3
@@ -3332,7 +3332,7 @@ paths:
       operationId: adminUpdateTask
       tags: [Admin — tasks]
       summary: Assign, progress, close or reject a task
-      description: `status` ∈ `open | in_progress | done | rejected`, `assignee_user_id`, `notes`. Completing a `deletion_request` task runs the redaction procedure (docs/21 §6.6) and writes a `personal_data_redacted` event (US-910 AC1). Audited.
+      description: '`status` ∈ `open | in_progress | done | rejected`, `assignee_user_id`, `notes`. Completing a `deletion_request` task runs the redaction procedure (docs/21 §6.6) and writes a `personal_data_redacted` event (US-910 AC1). Audited.'
       x-tier: admin
       x-status: planned
       x-sprint: 3
@@ -3473,7 +3473,7 @@ paths:
       operationId: adminUpdateUser
       tags: [Admin — customers]
       summary: Change role or disable
-      description: `role` and `status` (`active` | `disabled`). Promoting to `operator`/`owner` sets `mfa_enforced = true`. Audit-logged with before/after (US-901 AC2). Only an `owner` may grant `owner`.
+      description: '`role` and `status` (`active` | `disabled`). Promoting to `operator`/`owner` sets `mfa_enforced = true`. Audit-logged with before/after (US-901 AC2). Only an `owner` may grant `owner`.'
       x-tier: admin
       x-status: planned
       x-sprint: 3
@@ -3679,7 +3679,7 @@ paths:
       operationId: adminCreateSubscription
       tags: [Admin — customers]
       summary: Create a subscription through the adapter
-      description: As `POST /admin/v1/customers`: adapter write, mirror refreshed from read-back (US-902 AC2). Entitlement changes propagate within the 15-minute TTL (US-602 AC1).
+      description: 'As `POST /admin/v1/customers`: adapter write, mirror refreshed from read-back (US-902 AC2). Entitlement changes propagate within the 15-minute TTL (US-602 AC1).'
       x-tier: admin
       x-status: planned
       x-sprint: 3
@@ -6890,7 +6890,7 @@ components:
           description: Override of the class default; null = default.
         lag_overrides:
           type: object
-          description: Per-event-type lag, e.g. `{"withdrawn": 0}`.
+          description: 'Per-event-type lag, e.g. `{"withdrawn": 0}`.'
           additionalProperties:
             type: integer
             minimum: 0
