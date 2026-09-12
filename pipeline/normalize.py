@@ -84,7 +84,7 @@ TECH_RULES: list[tuple[str, str, str]] = [
     # ERCOT spells out exclusions: "... Turbine, but not part of a Combined-Cycle" (52 rows),
     # "Steam Turbine other than Combined-Cycle" (3 rows). Those must not hit the CC rule.
     (r"steam\s*turbine.*(other than|not part of).*combined", "gas_steam", "generation"),
-    (r"(combustion|gas)\s*turbine.*(other than|not part of).*combined", "gas_ct", "generation"),
+    (r"(combustion|gas)[\s()a-z]*turbine.*(other than|not part of).*combined", "gas_ct", "generation"),
     (r"combined[\s-]*cycle|\bcc\b", "gas_cc", "generation"),
     (r"(combustion|gas)\s*turbine|\bct\b|\bgt\b", "gas_ct", "generation"),
     (r"internal\s*combustion|reciprocating|\bice\b", "gas_ice", "generation"),
