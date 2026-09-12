@@ -22,6 +22,7 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
+from pipeline.connectors.base import Kind, SnapshotMode
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
 from pipeline.connectors.opportunity import classify_technologies, deadline_passed, technologies_str, to_utc
@@ -69,10 +70,10 @@ def strip_contacts(package: dict[str, Any]) -> dict[str, Any]:
 
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "gb.find_a_tender"
-    kind: ClassVar[str] = "opportunity"
+    kind: ClassVar[Kind] = "opportunity"
     ext: ClassVar[str] = "json"
     honour_robots: ClassVar[bool] = False
-    snapshot_mode: ClassVar[str] = "incremental"
+    snapshot_mode: ClassVar[SnapshotMode] = "incremental"
     status_key: ClassVar[str] = "find_a_tender"
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("status_map.yaml")
     personal_data_columns: ClassVar[tuple[str, ...]] = ("contactPoint",)

@@ -15,6 +15,7 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
+from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, RawSnapshot
 from pipeline.connectors.iso_queue import gridstatus_rows, normalize_iso_rows
@@ -24,7 +25,7 @@ URL = "https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx"
 
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "us.iso.caiso.gen_queue"
-    kind: ClassVar[str] = "proposal"
+    kind: ClassVar[Kind] = "proposal"
     ext: ClassVar[str] = "xlsx"
     status_key: ClassVar[str] = "caiso"
     key_source_columns: ClassVar[tuple[str, ...]] = (

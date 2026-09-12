@@ -26,7 +26,7 @@ def gridstatus_rows(iso_name: str, raw: RawSnapshot) -> list[dict[str, Any]]:
     iso.get_raw_interconnection_queue = lambda *a, **k: io.BytesIO(content)  # type: ignore[method-assign]  # inject bytes
     df: pd.DataFrame = iso.get_interconnection_queue()
     df.columns = [str(c) for c in df.columns]
-    return [dict(r) for r in df.to_dict("records")]
+    return [{str(k): v for k, v in r.items()} for r in df.to_dict("records")]
 
 
 def normalize_iso_rows(

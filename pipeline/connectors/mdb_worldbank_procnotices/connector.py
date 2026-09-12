@@ -23,6 +23,7 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
+from pipeline.connectors.base import Kind, SnapshotMode
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
 from pipeline.connectors.opportunity import (
@@ -93,10 +94,10 @@ WINDOW_DAYS = 14
 
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "mdb.worldbank.procnotices"
-    kind: ClassVar[str] = "opportunity"
+    kind: ClassVar[Kind] = "opportunity"
     ext: ClassVar[str] = "json"
     honour_robots: ClassVar[bool] = False
-    snapshot_mode: ClassVar[str] = "incremental"
+    snapshot_mode: ClassVar[SnapshotMode] = "incremental"
     status_key: ClassVar[str] = "worldbank"
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("status_map.yaml")
     key_source_columns: ClassVar[tuple[str, ...]] = (

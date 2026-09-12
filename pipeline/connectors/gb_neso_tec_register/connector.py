@@ -21,6 +21,7 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
+from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot, content_hash
 from pipeline.normalize import classify_tech, harmonise_status, norm_name, norm_org, to_date, to_float
@@ -31,7 +32,7 @@ DATASET_PAGE = "https://www.neso.energy/data-portal/transmission-entry-capacity-
 
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "gb.neso.tec_register"
-    kind: ClassVar[str] = "proposal"
+    kind: ClassVar[Kind] = "proposal"
     ext: ClassVar[str] = "csv"
     honour_robots: ClassVar[bool] = False  # CKAN API + signed object-storage URL
     status_key: ClassVar[str] = "neso_tec"
