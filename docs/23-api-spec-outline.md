@@ -45,9 +45,9 @@ that generation must produce; where the two disagree, the generated document is 
 | Task | `/admin/v1/tasks` | `task` | admin only |
 | Intake | `/intake/proposals`, `/intake/opportunities` | `task` + pending `proposal`/`opportunity` | public (write-only) |
 
-## 3. Endpoints
+## 3. Public, Pro and API endpoints
 
-Every endpoint below returns the envelope of §10 and enforces the visibility predicate of `docs/21` §5.4. "Tier"
+Every endpoint in §3 and §4 returns the envelope of §10 and enforces the visibility predicate of `docs/21` §5.4. "Tier"
 is the minimum entitlement; a higher tier sees the same shape with `lag = 0` and more fields.
 
 ### 3.1 Public — delayed, no key required
@@ -93,7 +93,7 @@ Everything in §3.1 with `lag = 0`, plus:
 | `GET /v1/webhooks` · `POST` · `DELETE /{id}` · `POST /{id}/test` | Webhook endpoints and secrets | api (`write:webhooks`) | US-703 |
 | `GET /v1/webhooks/{id}/deliveries` | Delivery attempts and responses for debugging | api | — |
 
-### 3.3 Admin — `admin.` hostname, role `operator` or `owner`
+## 4. Admin endpoints — `admin.` hostname, role `operator` or `owner`
 
 | Method & path | Purpose | Stories |
 |---|---|---|
@@ -118,7 +118,7 @@ Everything in §3.1 with `lag = 0`, plus:
 | `GET /admin/v1/costs` | Model spend by purpose, source and day; cost per changed record | US-909, `docs/20` §6 |
 | `GET /admin/v1/audit` | `event` filtered to `actor_type = user` | US-901 AC2 |
 
-## 4. Authentication and key scopes
+## 5. Authentication and key scopes
 
 | Credential | Used by | Mechanism |
 |---|---|---|
@@ -142,7 +142,25 @@ the entitlement mirror (`docs/21` §3.13, US-701 AC3). Entitlement changes take 
 TTL (US-602 AC1). Missing or invalid credentials fall back to the public tier rather than failing — a public read
 is always available — except on Pro/API/admin-only paths, which return `401`.
 
-## 5. Pagination, filtering and sorting
+## 6. Rate limits and quotas
+
+Two layers (`docs/20` §7): Cloudflare edge rules for anonymous abuse per IP, and an application sliding window
+per key or session in Postgres. Defaults, configurable per plan and per key (US-702 AC1, assumption A-8 in
+`docs/10` §7):
+
+| Tier | Read endpoints | Search (`q=`) | Bulk / export | Writes | Daily cap |
+|---|---|---|---|---|---|
+| Public (no key), per IP | 60 / hour | 20 / hour | — | 5 / hour (intake, reports) | 1,000 |
+| Free account (session) | 300 / hour | 60 / hour | — | 10 / hour | 3,000 |
+| Pro (session or key) | 600 / hour | 120 / hour | 5 exports / day, 10,000 rows each | 60 / hour | 10,000 |
+| API plan (key) | 6,000 / hour | 600 / hour | 20 bulk requests / hour | 600 / hour | 50,000 |
+| Admin (operator session) | 1,200 / hour | — | — | — | — |
+
+Headers on every response: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (delta-seconds), and
+`RateLimit-Policy` naming the window. On breach: `429` with `Retry-After` and the problem body of §8
+(US-702 AC2). Feeds (`/feeds/*`) are edge-cached and counted per IP at 120/hour. Every request is logged with
+key id, endpoint, status and latency — the source for metric M-7 (US-702 AC3).
+## 7. Pagination, filtering and sorting
 
 **Pagination is cursor-based.** Offset pagination is not offered: ingestion inserts continuously and offsets
 would duplicate or skip rows under concurrent writes (US-101 AC2).
@@ -183,21 +201,187 @@ the same tier (US-102 AC2).
 `last_changed`, `budget_amount`), events (`seq`, `observed_at`), matches (`score`, `first_matched_at`). Defaults:
 proposals `-last_changed` (US-101 AC1), opportunities `due_at` with `status=open` (US-301 AC2), events `-seq`.
 
-## 6. Rate limits and quotas
 
-Two layers (`docs/20` §7): Cloudflare edge rules for anonymous abuse per IP, and an application sliding window
-per key or session in Postgres. Defaults, configurable per plan and per key (US-702 AC1, assumption A-8 in
-`docs/10` §7):
+## 8. Error model
 
-| Tier | Read endpoints | Search (`q=`) | Bulk / export | Writes | Daily cap |
-|---|---|---|---|---|---|
-| Public (no key), per IP | 60 / hour | 20 / hour | — | 5 / hour (intake, reports) | 1,000 |
-| Free account (session) | 300 / hour | 60 / hour | — | 10 / hour | 3,000 |
-| Pro (session or key) | 600 / hour | 120 / hour | 5 exports / day, 10,000 rows each | 60 / hour | 10,000 |
-| API plan (key) | 6,000 / hour | 600 / hour | 20 bulk requests / hour | 600 / hour | 50,000 |
-| Admin (operator session) | 1,200 / hour | — | — | — | — |
+Errors are RFC 9457 problem details, `Content-Type: application/problem+json`, with a stable machine-readable
+`code`. No stack traces, no internal ids, no source payloads in error bodies.
 
-Headers on every response: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (delta-seconds), and
-`RateLimit-Policy` naming the window. On breach: `429` with `Retry-After` and the problem body of §7
-(US-702 AC2). Feeds (`/feeds/*`) are edge-cached and counted per IP at 120/hour. Every request is logged with
-key id, endpoint, status and latency — the source for metric M-7 (US-702 AC3).
+```json
+{
+  "type": "https://api.bankablehq.com/errors/licence_gated",
+  "title": "Field withheld under source licence",
+  "status": 403,
+  "code": "licence_gated",
+  "detail": "Raw fields from source us.iso.caiso.gen_queue are not redistributable; derived fields are returned.",
+  "instance": "/v1/proposals/prop_01JBQ7Z8KD/sources",
+  "request_id": "req_9f2c1a",
+  "errors": [{"field": "capacity_mw[gte]", "message": "must be a number"}],
+  "docs": "https://bankablehq.com/docs/api/errors#licence_gated"
+}
+```
+
+| HTTP | `code` | When |
+|---|---|---|
+| 400 | `validation_error` | Bad body or parameter; `errors[]` lists fields |
+| 400 | `unknown_parameter` | Unrecognised filter — never silently ignored (§7) |
+| 400 | `invalid_cursor` | Expired or malformed cursor |
+| 401 | `unauthenticated` | Pro/API/admin path without a valid credential |
+| 403 | `forbidden_tier` | Credential valid but plan does not include the endpoint or scope; body names the required tier |
+| 403 | `licence_gated` | Requested representation withheld by licence; the response may still carry the derived view |
+| 403 | `seat_limit` | Concurrent sessions above the seat count (US-602 AC2) |
+| 404 | `not_found` | No such public id, or the record is not visible to this tier (indistinguishable by design — a 403 on a gated record would disclose its existence, `docs/21` §8 item 3) |
+| 301 | — | Merged record: `Location` points at the surviving public id (US-201 AC3) |
+| 410 | `unpublished` | Record withdrawn by takedown or unpublish; the id is reserved, nothing is returned |
+| 409 | `conflict` | Idempotency-key reuse with a different body; merge preview stale |
+| 422 | `gate_unmet` | Admin attempt to publish a source whose licence gate is unmet (US-905 AC1); body names the gate |
+| 429 | `rate_limited` | Sliding window exceeded; `Retry-After` set (§6) |
+| 429 | `quota_exceeded` | Daily cap exhausted; `Retry-After` to midnight UTC |
+| 503 | `sor_unavailable` | CRM/ERP adapter down and no cached value acceptable (US-902 AC3) |
+| 503 | `unavailable` | Maintenance; public reads keep serving from the edge cache |
+
+Partial redaction is not an error. When a record is returned with fields withheld, the envelope's
+`redactions[]` (§10) says which and why, and the status is `200`.
+
+## 9. Webhooks and feeds
+
+### 9.1 Webhooks (API tier, scope `write:webhooks`)
+
+One endpoint per subscription, up to 10 per account, each with a filter of the same shape as a saved-search
+`query` (`docs/21` §3.15) so that a webhook is literally a saved search with a URL as its channel.
+
+```json
+{
+  "id": "whd_01JBQ9…",
+  "type": "event.published",
+  "created_at": "2026-09-11T05:04:13Z",
+  "api_version": "v1",
+  "data": {
+    "event": { "id": "evt_01JBQ8…", "seq": 4812993, "subject_type": "proposal", "subject_id": "prop_01JBQ7Z8KD",
+               "event_type": "status_change", "observed_at": "2026-09-10T00:00:00Z",
+               "before": {"lifecycle_state": "filed"}, "after": {"lifecycle_state": "studied"},
+               "provenance": {"source_id": "us.iso.caiso.gen_queue", "source_url": "…", "retrieved_at": "…", "licence_id": "caiso-tou"} },
+    "subject": { "public_id": "prop_01JBQ7Z8KD", "name_canonical": "Gemini Solar + Storage", "url": "https://bankablehq.com/p/gemini-solar-bess-clark-nv" }
+  },
+  "licence_summary": { "…as §10…" }
+}
+```
+
+- Types: `event.published`, `match.added`, `match.removed`, `record.unpublished`, `webhook.test`.
+- Delivery: `POST`, JSON, `X-Bankable-Signature` (§5), `X-Bankable-Delivery-Id`, `X-Bankable-Event-Seq`.
+  A `2xx` within 10 s is success. Retries: 5 attempts over ~6 hours with exponential backoff and jitter; then
+  the delivery is marked `failed` and, after 24 consecutive failures, the endpoint is paused and the account
+  emailed. `POST /v1/webhooks/{id}/replay?since=<seq>` resends from a cursor.
+- Ordering is by `seq` per endpoint but not guaranteed across retries; consumers dedupe on `data.event.id`.
+- The payload is tier-filtered and licence-gated exactly like a `GET` on the same key: a webhook cannot deliver
+  what the key could not read (`docs/21` §5.4).
+
+### 9.2 RSS and JSON Feed (public, delayed)
+
+Every public list URL has a feed twin (US-503 AC1): append `.rss` or `.json`, or use `/feeds/<resource>` with
+the same query string. Pro users get private live feeds at `/feeds/saved/<rss_token>` (`docs/21` §3.15).
+
+| Feed | Format | Item content |
+|---|---|---|
+| `/feeds/proposals.rss?…` · `/feeds/opportunities.rss?…` · `/feeds/events.rss?…` | RSS 2.0 with `atom:link rel="self"`, `dc:creator` = source credit, `pubDate` = `public_at` | Title = event headline (`Permit issued: Gemini Solar + Storage`), link = detail page, description = derived fields + the credit line (US-503 AC3), `guid` = `evt_…`, `category` = event type and kind |
+| Same paths with `.json` | JSON Feed 1.1 | `id`, `url`, `title`, `content_text`, `date_published` (= `public_at`), `tags`, `_bankable` extension with `event_type`, `subject`, `provenance`, `licence_summary` |
+| `/sitemap.xml`, `/sitemaps/proposals-{n}.xml` | Sitemap protocol | Detail pages visible on the public tier only; regenerated hourly with the delayed view |
+
+Feed rules: items appear at the public lag, never earlier; every item carries the source credit line and the
+`data_as_of` date; feeds for a filter that returns only gated sources are empty, not `404`; the feed `<title>`
+states "Public feed, N days delayed — live in Pro" (US-604). Social posts link to the detail page, which offers
+the feed and the alert sign-up (US-503 AC2).
+
+## 10. Attribution and licence fields on every response
+
+Every response — list, detail, feed item, export row, webhook delivery — carries the same envelope. Rendering
+attribution is not a client concern; the API states it and the web app, RSS, CSV and post templates print it.
+
+```json
+{
+  "data": { "…resource or array…" },
+  "page": { "next_cursor": "…", "prev_cursor": null, "has_more": true },
+  "meta": {
+    "tier": "public",
+    "lag_days": 14,
+    "data_as_of": "2026-08-29T05:00:00Z",
+    "generated_at": "2026-09-12T09:00:00Z",
+    "request_id": "req_9f2c1a",
+    "terms_url": "https://bankablehq.com/legal/api-licence",
+    "total": 1834, "total_is_estimate": false
+  },
+  "licence_summary": {
+    "sources": [
+      { "source_id": "us.iso.caiso.gen_queue", "name": "CAISO Public Queue Report", "operator": "California ISO",
+        "licence_id": "caiso-tou", "licence_name": "CAISO Terms of Use", "licence_url": "https://www.caiso.com/…",
+        "reuse_class": "attribution", "attribution_text": "Source: California ISO", "requires_link_back": true,
+        "record_count": 412, "retrieved_at_max": "2026-09-11T05:00:00Z" }
+    ],
+    "attribution_line": "Sources: California ISO; ERCOT; U.S. Energy Information Administration (public domain).",
+    "redistribution": "derived fields under source terms; raw rows withheld for: us.iso.caiso.gen_queue"
+  },
+  "redactions": [
+    { "public_id": "prop_01JBQ7Z8KD", "field": "sources[0].raw", "reason": "licence", "source_id": "us.iso.caiso.gen_queue" },
+    { "public_id": "prop_01JBQ7Z8KD", "field": "location.geom", "reason": "licence_precision", "note": "county centroid returned" }
+  ]
+}
+```
+
+Per-record fields, always present:
+
+| Field | On | Meaning |
+|---|---|---|
+| `provenance[]` | proposal, opportunity, organization | One entry per visible source row: `source_id`, `source_name`, `source_record_id` (where the licence allows), `source_url`, `retrieved_at`, `licence_id`, `reuse_class`, `attribution_text` (`docs/21` §3.2) |
+| `provenance` | event, document, alias, extraction | The single provenance quartet |
+| `field_provenance` | detail responses on Pro+ | Which source and snapshot each canonical field came from (`docs/21` §3.1) |
+| `licence_summary` | every envelope | As above; the list of distinct sources present in the payload, so a list page renders one credit line per source (US-105 AC1) |
+| `redactions[]` | every envelope | What was withheld and why — the record exists, the field does not travel (`docs/21` §8) |
+| `data_as_of`, `lag_days`, `tier` | every envelope | Public messaging and the "live in Pro" banner (US-604, US-201 AC4) |
+
+CSV exports carry `source_id`, `source_url`, `retrieved_at`, `licence` as columns on every row and a leading
+`#` comment block with the licence summary and the attribution line (US-105 AC2, US-603 AC2).
+
+## 11. Story map: endpoint groups to PRD user stories
+
+| Endpoint group | Section | Stories satisfied |
+|---|---|---|
+| Proposals list, filters, search, geo | §3.1 | US-101, US-102, US-103, US-104, US-105 |
+| Proposal detail, events, sources, matches | §3.1 | US-201, US-202, US-203; US-204 via `/reports` |
+| Opportunities list and detail; sources registry (curated issuers are sources) | §3.1 | US-301, US-302, US-303 |
+| Matches (read), dismiss | §3.1, §3.2 | US-401, US-402 |
+| Saved searches, alerts, preview | §3.2 | US-501, US-502, US-504 |
+| Feeds (RSS, JSON Feed, sitemaps) | §9.2 | US-503, US-604 |
+| Visibility predicate on every read path; `meta.tier`, `lag_days`, `data_as_of` | §3, §10 | US-601, US-604 |
+| `/me`, entitlement from the mirror, seat check | §3.2, §5 | US-602 |
+| Exports | §3.2, §10 | US-603 |
+| Keys, scopes, licence acceptance | §3.2, §5 | US-701, US-704 |
+| Rate limits, headers, request log | §6 | US-702 |
+| Read endpoints, events `since` cursor, bulk, webhooks, versioning | §3.1, §3.2, §7, §9.1 | US-703 |
+| Admin posts, channels auto-publish, no reply/DM endpoints exist | §4 | US-801, US-802, US-803, US-804 |
+| Admin users, customers/subscriptions via adapter, leads | §4 | US-901, US-902, US-903, US-403 |
+| Admin sources, runs, snapshots, publish state, gates | §4 | US-904, US-905, US-906 |
+| Admin tasks, costs, audit, user delete → redaction | §4 | US-907, US-909, US-910; US-908 is a release gate, not an endpoint |
+| Intake submissions and their review | §3.1, §4 | US-1001, US-1002, US-1003 |
+
+All 44 stories (US-101…US-1003) map to at least one row; US-908 (launch checklist) is satisfied by tests over the
+endpoints above, not by an endpoint.
+
+## 12. The OpenAPI document (Sprint 1 deliverable)
+
+`api/openapi.yaml` — OpenAPI 3.1, generated from the FastAPI application at build time and committed, with a CI
+check that the committed file equals the generated one. Sprint 1 scope (`docs/10` §6): all §3.1 read endpoints,
+`/v1/events` with `since`, `/v1/sources`, `/v1/licences`, the envelope of §10, the error schema of §8, security
+schemes of §5, rate-limit headers of §6, and every §3.2 and §4 path stubbed with its request/response schema and
+marked `x-status: planned` until its sprint. Every operation carries `x-stories: [US-…]` from §11, an example
+response (US-704 AC1), and `x-tier: public|pro|api|admin`. The generated Redoc page at `/docs` is the public API
+documentation; key creation links to the API licence version it requires (US-704 AC2).
+
+## 13. Assumptions
+
+| Id | Assumption | Depends on |
+|---|---|---|
+| P-1 | Rate-limit defaults as in §6, from `docs/10` A-8 | Phase 1 pricing; configuration only |
+| P-2 | Public lag shown as 14 days in examples (`docs/21` D-1) | Owner decision on `docs/20` A-8 vs `docs/10` A-7 |
+| P-3 | Hostnames `api.` and `admin.` under bankablehq.com; the Lovable app consumes `/v1` read-only | **[A-1]** |
+| P-4 | Restricted and unknown-terms sources return nothing on Pro/API, not derived aggregates (`docs/21` C-3) | Owner and legal-compliance |
+| P-5 | Intake endpoints are public but captcha-gated and rate-limited at 5/hour per IP | product-designer flow |
