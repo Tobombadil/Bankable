@@ -38,7 +38,9 @@ from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ParseError, RawSnapshot
 from pipeline.normalize import harmonise_status, norm_name
 
-CATALOGUE_URL = "https://www.ercot.com/api/1/services/read/common/filter-emil-items-search.json?keyword=large%20load"
+CATALOGUE_URL = (
+    "https://www.ercot.com/api/1/services/read/common/filter-emil-items-search.json?keyword=large%20load"
+)
 PRODUCT_PAGE = "https://www.ercot.com/mp/data-products/data-product-details?id={emil}"
 PATTERN = re.compile(r"large[\s-]*load.*interconnection|load[\s-]*interconnection[\s-]*status", re.I | re.S)
 
@@ -64,10 +66,17 @@ class Connector(BaseConnector):
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()
         r = self.http.get(CATALOGUE_URL, honour_robots=False, timeout=120)
-        return RawSnapshot(content=r.content, content_type=r.headers.get("Content-Type", ""), url=CATALOGUE_URL,
-                           retrieved_at=dt.datetime.now(dt.UTC), http_status=r.status_code, ext="json",
-                           headers=dict(r.headers), elapsed_s=round(time.monotonic() - t0, 2),
-                           meta={"registry_product_id_checked": "NP3-990-CD", "registry_product_found": False})
+        return RawSnapshot(
+            content=r.content,
+            content_type=r.headers.get("Content-Type", ""),
+            url=CATALOGUE_URL,
+            retrieved_at=dt.datetime.now(dt.UTC),
+            http_status=r.status_code,
+            ext="json",
+            headers=dict(r.headers),
+            elapsed_s=round(time.monotonic() - t0, 2),
+            meta={"registry_product_id_checked": "NP3-990-CD", "registry_product_found": False},
+        )
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
         try:
@@ -77,36 +86,56 @@ class Connector(BaseConnector):
         if not isinstance(items, list):
             raise ParseError("EMIL catalogue shape changed (expected a list)")
         raw.meta["catalogue_items"] = len(items)
-        keep = ("emilId_s", "reportTypeId_i", "productName_s", "productDescription_s", "securityClassification_s",
-                "status_s", "lastUpdatedDate_dt", "firstRunDate_dt", "generationFrequency_o", "fileType_o",
-                "dataPortalUrl_s")
+        keep = (
+            "emilId_s",
+            "reportTypeId_i",
+            "productName_s",
+            "productDescription_s",
+            "securityClassification_s",
+            "status_s",
+            "lastUpdatedDate_dt",
+            "firstRunDate_dt",
+            "generationFrequency_o",
+            "fileType_o",
+            "dataPortalUrl_s",
+        )
         return [{k: it.get(k) for k in keep} for it in items if is_large_load_product(it)]
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
-        harmonised = [harmonise_status(self.status_key, {"status_raw": r.get("status_s")}, self.status_map)
-                      for r in rows]
-        df = pd.DataFrame({
-            "source_record_id": [str(r.get("emilId_s") or "").lower() for r in rows],
-            "source_url": [PRODUCT_PAGE.format(emil=str(r.get("emilId_s") or "").upper()) for r in rows],
-            "kind": "load",
-            "name_canonical": [r.get("productName_s") for r in rows],
-            "name_norm": [norm_name(r.get("productName_s")) for r in rows],
-            "sponsor_name": "ERCOT",
-            "sponsor_norm": "ERCOT",
-            "technology": "load",
-            "technology_raw": "Large Load",
-            "capacity_mw": pd.array([None] * len(rows), dtype="Float64"),
-            "storage_mwh": pd.array([None] * len(rows), dtype="Float64"),
-            "iso": "ERCOT",
-            "state": "TX",
-            "county": None, "county_norm": None,
-            "lifecycle_state": [s for s, _ in harmonised],
-            "status_raw": [r.get("status_s") for r in rows],
-            "status_rule": [rule for _, rule in harmonised],
-            "status_conflict": False,
-            "queue_date": [pd.to_datetime(r.get("firstRunDate_dt"), errors="coerce", utc=True) for r in rows],
-            "proposed_cod": pd.NaT,
-            "queue_id": [r.get("reportTypeId_i") for r in rows],
-            "eia_plant_id": None, "eia_generator_id": None, "cross_refs": "",
-        }, index=range(len(rows)))
+        harmonised = [
+            harmonise_status(self.status_key, {"status_raw": r.get("status_s")}, self.status_map)
+            for r in rows
+        ]
+        df = pd.DataFrame(
+            {
+                "source_record_id": [str(r.get("emilId_s") or "").lower() for r in rows],
+                "source_url": [PRODUCT_PAGE.format(emil=str(r.get("emilId_s") or "").upper()) for r in rows],
+                "kind": "load",
+                "name_canonical": [r.get("productName_s") for r in rows],
+                "name_norm": [norm_name(r.get("productName_s")) for r in rows],
+                "sponsor_name": "ERCOT",
+                "sponsor_norm": "ERCOT",
+                "technology": "load",
+                "technology_raw": "Large Load",
+                "capacity_mw": pd.array([None] * len(rows), dtype="Float64"),
+                "storage_mwh": pd.array([None] * len(rows), dtype="Float64"),
+                "iso": "ERCOT",
+                "state": "TX",
+                "county": None,
+                "county_norm": None,
+                "lifecycle_state": [s for s, _ in harmonised],
+                "status_raw": [r.get("status_s") for r in rows],
+                "status_rule": [rule for _, rule in harmonised],
+                "status_conflict": False,
+                "queue_date": [
+                    pd.to_datetime(r.get("firstRunDate_dt"), errors="coerce", utc=True) for r in rows
+                ],
+                "proposed_cod": pd.NaT,
+                "queue_id": [r.get("reportTypeId_i") for r in rows],
+                "eia_plant_id": None,
+                "eia_generator_id": None,
+                "cross_refs": "",
+            },
+            index=range(len(rows)),
+        )
         return self.finalize(df, rows, raw)

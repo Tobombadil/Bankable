@@ -1,0 +1,39 @@
+Project Name,Customer Name,Connection Site,Stage,MW Connected,MW Increase / Decrease,Cumulative Total Capacity (MW),MW Effective From,Project Status,Agreement Type,HOST TO,Plant Type,Project ID,Project Number,Gate
+012 NEP Coventry West,NEW ENERGY PARTNERSHIP LIMITED,Berkswell GSP,,0.00,92.40,92.40,2034-10-31,Scoping,Embedded,NGET,Energy Storage System,a0l8e000000f3zXAAQ,PRO-003804,
+014 NEP Bransholme,NEW ENERGY PARTNERSHIP LIMITED,North Humber Connection Node C 132kV Substation,,0.00,40.00,40.00,2035-10-30,Scoping,Embedded,NGET,Energy Storage System,a0l8e000001HntMAAS,PRO-004043,
+17 Acres and BESS,AEUK BATTERY PROJECT II LTD,17 ACRES BESS 275KV SUBSTATION,,0.00,95.76,95.76,2032-06-30,Scoping,Direct Connection,SHET,Energy Storage System,a0l8e0000012ezRAAQ,PRO-004392,1
+50MW BESS Connagill,Cerulisia Ltd,New Connagill 275/132kV Substation,,0.00,50.00,50.00,2031-10-31,Scoping,Direct Connection,SHET,Energy Storage System,a0lJ9000000blmDIAQ,PRO-004938,1
+Abedare,UK POWER RESERVE LIMITED,Upperboat 132kV Substation,,10.00,0.00,10.00,,Built,Embedded,NGET,CCGT (Combined Cycle Gas Turbine),a0l4L0000005iWRQAY,PRO-000001,
+Aberarder Extension Wind Farm,Renewable Energy Systems Limited,Aberarder Extension Wind Farm 132/33kV Substation,,0.00,138.00,138.00,2031-04-30,Scoping,Direct Connection,SHET,Energy Storage System;Wind Onshore,a0l8e0000010wQ0AAI,PRO-002589,1
+Aberarder Wind Farm,ABERARDER WIND FARM LLP,Aberarder Wind Farm 132/33kV Substation,,0.00,49.99,49.99,2026-08-31,Consents Approved,Direct Connection,SHET,Wind Onshore,a0l4L0000005ilHQAQ,PRO-000368,
+Aberdeen Offshore Wind Farm,ABERDEEN OFFSHORE WIND FARM LIMITED,Aberdeen Bay 132kV Substation,,95.50,0.00,95.50,,Built,Direct Connection,SHET,Wind Offshore,a0l4L0000005itBQAQ,PRO-000002,
+Aberthaw (Tertiary),Aberthaw Green Limited,Aberthaw 275kV Substation,,0.00,57.00,57.00,2029-10-31,Scoping,Direct Connection,NGET,Energy Storage System;PV Array (Photo Voltaic/solar),a0l4L0000005ixjQAA,PRO-000376,1
+Aberthaw BESS,REWE 7 LIMITED,Aberthaw B 275/132kV Substation,,0.00,240.00,240.00,2037-10-15,Scoping,Direct Connection,NGET,Energy Storage System,a0l8e000000f65FAAQ,PRO-003954,1
+Aberthaw Energy,ABERTHAW ENERGY LIMITED,Aberthaw 275kV Substation,,0.00,249.00,249.00,2028-10-30,Scoping,Direct Connection,NGET,Energy Storage System,a0l4L0000005ietQAA,PRO-001697,1
+Aberthaw PV & BESS Generation,REWE 12 Limited,Aberthaw 275kV Substation,,0.00,200.00,200.00,2029-06-30,Scoping,Direct Connection,NGET,Energy Storage System,a0l4L0000005ikSQAQ,PRO-001815,
+Abhainn Dubh Wind Farm,E Power Limited,Abhainn Dubh Wind Farm 132kV Substation,,0.00,75.00,75.00,2029-05-31,Scoping,Direct Connection,SHET,Wind Onshore,a0l4L0000005ivFQAQ,PRO-002272,1
+Achanalt Battery Storage,ADTEK LIMITED,Grudie Bridge GSP,,0.00,49.90,49.90,2027-10-31,Scoping,Embedded,SHET,Energy Storage System,a0l8e000001HrmUAAS,PRO-004221,1
+Achany Extension Wind Farm,SSE GENERATION LIMITED,ACHANY EXTENSION WIND FARM 132/33KV Substation,,0.00,105.00,105.00,2028-03-30,Scoping,Direct Connection,SHET,Wind Onshore,a0l4L0000005iiYQAQ,PRO-001555,
+Acheilidh Wind Farm,ENERGYFARM UK ACHEILIDH LTD,Acheilidh Wind farm 132kV Substation,,0.00,84.20,84.20,2033-10-31,Scoping,Direct Connection,SHET,Energy Storage System;Wind Onshore,a0lJ9000000PDsuIAG,PRO-005042,
+Achies BESS,IGP ENERGY STORAGE 5 LIMITED,New Spittal 275kV Substation,,0.00,200.00,200.00,2037-10-31,Scoping,Direct Connection,SHET,Energy Storage System,a0lJ9000000POVhIAO,PRO-006050,1
+A'Chruach Wind Farm,A'CHRUACH WIND FARM LIMITED,A'Chruach Wind Farm 275kV Substation,,43.00,0.00,43.00,,Built,Direct Connection,SHET,Wind Onshore,a0l4L0000005itEQAQ,PRO-000005,
+Achrugan Wind Farm,Statkraft Windco 1 Limited,Achrugan 132kV Substation,,0.00,149.00,149.00,2030-07-31,Scoping,Direct Connection,SHET,Energy Storage System;Wind Onshore,a0l4L0000005ivEQAQ,PRO-002267,1
+Acton Reynald,SOLAR 2 LIMITED,Staffordshire Connection Node D 132kV Substation,,0.00,150.00,150.00,2037-10-31,Scoping,Embedded,NGET,Energy Storage System;PV Array (Photo Voltaic/solar),a0l8e0000012gbtAAA,PRO-004437,1
+Afan Wind Farm and BESS,TRYDAN GWYRDD CYMRU (Welsh Government) Ltd,SOUTH WALES WEST CONNECTION NODE A 132KV SUBSTATION,,0.00,150.00,150.00,2036-12-06,Scoping,Embedded,NGET,Energy Storage System;Wind Onshore,a0l8e0000012i2aAAA,PRO-004588,
+Afon Ddaw,LIGHTSOURCE SPV 214 LIMITED,Aberthaw 275kV Substation,,0.00,249.00,249.00,2029-10-31,Scoping,Direct Connection,NGET,Energy Storage System;PV Array (Photo Voltaic/solar),a0l4L0000005ikYQAQ,PRO-001775,
+Afton Wind Farm,AFTON WIND FARM LIMITED,Blackhill 132/33kV,,50.00,0.00,50.00,,Built,Direct Connection,SPT,Wind Onshore,a0l4L0000005ipiQAA,PRO-000558,
+AGS Calderside PV Solar,Advance Grid Solutions Limited,Clydesmill 275/33kV,,0.00,63.00,63.00,2027-05-31,Scoping,Embedded,SPT,PV Array (Photo Voltaic/solar),a0l8e000001Hrv4AAC,PRO-004225,
+AGS Coatbridge,Advance Grid Solutions Limited,Coatbridge GSP,,0.00,60.00,60.00,2033-04-30,Scoping,Embedded,SPT,Energy Storage System,a0l8e0000012hpwAAA,PRO-004544,
+AGS Harestonhill BESS,AGS Harestonhill Ltd,AGS Harestonhill BESS 400kV Substation,,0.00,500.00,500.00,2030-10-31,Scoping,Direct Connection,SPT,Energy Storage System,a0l8e000000ewOTAAY,PRO-003656,1
+AGS Inverclyde BESS,SLATE ISLAND DEVELOPMENTS LIMITED,Braeside IDNO 132/33kV substation,,0.00,99.00,99.00,2031-10-31,Scoping,Embedded,SPT,Energy Storage System,a0l8e000000f4OeAAI,PRO-003840,1
+AGS Nerston 2 BESS,Advance Grid Solutions Limited,East Kilbride B 275/33kV Substation,,0.00,55.00,55.00,2033-10-31,Scoping,Embedded,SPT,Energy Storage System,a0l8e000001Hrv9AAC,PRO-004226,1
+AGS Nerston 3 BESS,Advance Grid Solutions Limited,East Kilbride B 275/33kV Substation,,0.00,55.00,55.00,2033-10-31,Scoping,Embedded,SPT,Energy Storage System,a0l8e000001HrvEAAS,PRO-004227,1
+AGS Nerston BESS,Advance Grid Solutions Limited,East Kilbride B 275/33kV Substation,,0.00,50.00,50.00,2033-10-31,Scoping,Embedded,SPT,Energy Storage System,a0l8e000001HrhsAAC,PRO-004216,
+Aigas (part of the Beauly Cascade),SSE GENERATION LIMITED,Aigas Hydro 132kV Substation,,20.00,0.00,20.00,,Built,Direct Connection,SHET,Hydro,a0l4L0000005itFQAQ,PRO-000006,
+Aikengall II Windfarm,AIKENGALL II COMMUNITY WIND COMPANY LIMITED,Wester Dod 132kV,,63.80,0.00,63.80,,Built,Direct Connection,SPT,Wind Onshore,a0l4L0000005itGQAQ,PRO-000007,
+Aikengall IIA Wind Farm,AIK2A SUSTAINABLE ENERGY LTD,Wester Dod 132kV,,81.20,0.00,81.20,,Built,Direct Connection,SPT,Wind Onshore,a0l4L0000005iphQAA,PRO-000559,
+Airds Hill Wind Farm,ONPATH ENERGY LIMITED,Airds Hill WindFarm 132kV Substation,,0.00,80.00,80.00,2031-05-30,Scoping,Direct Connection,SPT,Energy Storage System;Wind Onshore,a0l8e0000011ymbAAA,PRO-003545,1
+Immingham,VPI IMMINGHAM LLP,Humber Refinery 400kV Substation,,0.00,50.00,1318.00,2027-07-01,Scoping,Direct Connection,NGET,Energy Storage System;Gas Reciprocating,a0l4L0000005im7QAA,PRO-000053,1
+Immingham,VPI IMMINGHAM LLP,Humber Refinery 400kV Substation,,1268.00,0.00,1268.00,,Built,Direct Connection,NGET,Energy Storage System;Gas Reciprocating,a0l4L0000005im7QAA,PRO-000053,
+AGS Calderside Battery Energy Storage System,Advance Grid Solutions Limited,AGS CALDERSIDE 275KV  SUBSTATION,1.00,0.00,300.00,300.00,2029-10-31,Scoping,Direct Connection,SPT,Energy Storage System,a0l8e0000010wexAAA,PRO-002752-1,1
+AGS Calderside Battery Energy Storage System,Advance Grid Solutions Limited,AGS CALDERSIDE 275KV  SUBSTATION,2.00,0.00,200.00,500.00,2033-10-31,Scoping,Direct Connection,SPT,Energy Storage System,a0l8e0000010wexAAA,PRO-002752-2,

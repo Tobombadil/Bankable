@@ -29,7 +29,9 @@ def gridstatus_rows(iso_name: str, raw: RawSnapshot) -> list[dict[str, Any]]:
     return [dict(r) for r in df.to_dict("records")]
 
 
-def normalize_iso_rows(connector: Connector, key: str, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
+def normalize_iso_rows(
+    connector: Connector, key: str, rows: list[dict[str, Any]], raw: RawSnapshot
+) -> pd.DataFrame:
     df = normalize_iso(pd.DataFrame(rows), key, connector.status_map, raw.retrieved_at_iso)
     df = df.drop(columns=["source_url"])  # finalize stamps the fetched file URL
     return connector.finalize(df, rows, raw)

@@ -1,0 +1,47 @@
+# Tooling configuration for docs/04 §3 (E-3, E-5, E-6). Dependency pinning with hashes is a
+# separate Sprint 1 task; requirements.txt remains the install list until then.
+[project]
+name = "bankable"
+version = "0.2.0"
+description = "Energy and infrastructure proposal/opportunity intelligence pipeline"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["data", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "S", "C4", "DTZ", "T20", "RUF"]
+# RUF001-003: verbatim source text, licence quotes and doc references carry en dashes.
+# N818: docs/04 E-17 names the typed exceptions per layer (ConnectorError, ParseError,
+# GateViolation, ...); the standard's spelling wins over the suffix convention.
+ignore = ["RUF001", "RUF002", "RUF003", "N818"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]                       # asserts are the point
+"pipeline/connectors/**/test_connector.py" = ["S101"]
+"conftest.py" = ["E402"]                    # sys.path must be set before the pipeline imports
+"pipeline/normalize.py" = ["T20"]           # prototype CLI reporting, superseded by the runner
+"pipeline/resolve.py" = ["T20"]
+"pipeline/diff.py" = ["T20"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["pipeline"]
+strict = true
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["gridstatus.*", "pandas.*", "yaml.*", "openpyxl.*", "requests.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Prototype modules from the Phase 2 evaluation; typed in the Sprint 2 store/resolve work.
+module = ["pipeline.normalize", "pipeline.resolve", "pipeline.diff"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "pipeline"]
+addopts = "-q"
+filterwarnings = ["ignore::FutureWarning", "ignore::UserWarning"]

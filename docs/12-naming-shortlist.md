@@ -314,3 +314,79 @@ the Bluesky account on the domain handle and reserve a LinkedIn slug; (d) verify
 17:34–17:37  WebSearch collision queries ×3–4 per finalist; targeted WebFetch switchyardai.com, platformdc.io/switchyard-1
 17:39  Wiktionary busbar, plat; Wikipedia Isoline (disambiguation); WordReference → 418
 ```
+
+---
+
+# Round two — "an infrastructure map and project/proposals tracker"
+
+**Run 2026-09-12, inline (no subagent). Brief from the owner:** Switchyard was the right register — concrete,
+industry-native — but too oblique. The name should let a lender, a utility procurement lead or a data-centre
+siting manager guess within two seconds that this is a map of infrastructure projects you can track over time.
+
+## 7. What round two learned, before the candidates
+
+The two-second test and single dictionary words are close to incompatible in 2026. Every word that fuses *map*
+and *register* cleanly is already an operating software company, and several sit in adjacent sectors where a
+buyer would confuse them with us. Checked and knocked out, with the collision:
+
+| Candidate | Why it was knocked out | Evidence |
+|---|---|---|
+| Buildout | Buildout Inc., commercial-real-estate software, ~50,000 brokers, Riverside portfolio company | buildout.com |
+| Cadastre / Cadastral | Cadastral Inc., AI software for CRE, raised $9.5M late 2025 (JLL Spark, AvalonBay) | press, 2026 |
+| Plotline | Plotline, customer-engagement SaaS, founded 2021, $2.6M raised | pitchbook, capterra |
+| Gridline | Gridline Energy Group, Gridline Energy Solutions Ltd (UK), Gridline Power — **same sector** | companies house, linkedin |
+| Wayfinder | Wayfinder Energy (advisory), Wayfinder Resources (upstream O&G), Sofar Ocean Wayfinder — **same sector** | wayfinder-energy.com |
+| Groundwork | GroundWork Open Source (IT monitoring), Groundwork contractor sales software | gwos.com, hellogroundwork.com |
+| Siteline | Siteline, construction billing software, founded 2019 | siteline.com |
+| Grid Atlas | gridatlas.com live (Canadian land mapping), gridatlas.org, a UK "GridAtlas" tracking renewable projects from planning registers — **near-identical product** | round-two first pass |
+| Waymark | a16z-backed healthcare software marks | round-two first pass |
+| Prospect | PVcase Prospect / Anderson Optimization — **direct competitor** | `docs/11` §1 |
+
+The conclusion is not that no name exists. It is that a *compound* is now the honest path: two short words whose
+combination is self-explaining and whose collision surface is far smaller than either word alone.
+
+## 8. Round-two candidates, checked
+
+`.com` is registered for every pronounceable English compound; that is normal and not informative on its own.
+What matters is whether the `.com` **resolves to a live product**, and whether the handle and the register are clear.
+Method as round one: Verisign RDAP for `.com` registration, an HTTPS fetch to test whether it is actually in use,
+the Bluesky public API for the handle, and search-engine indexing for collisions and preliminary marks.
+Checks run 2026-09-12.
+
+| Name | Reads as | `.com` live? | Bluesky | Collisions found | Verdict |
+|---|---|---|---|---|---|
+| **Gridslate** | the slate of projects on the grid | **no response — parked/dead** | **free** | none in software; "grid slate" returns wallpaper and craft products only | **Cleanest of the set** |
+| **Siteplot** | plotting project sites | **no response — parked/dead** | **free** | none found in energy, construction or data | Clean, less evocative |
+| **Gridmap** | a map of the grid | no response — parked/dead | free | no single owner, but the phrase is a generic technical term | Descriptiveness risk; hard to protect |
+| Platmap | a parcel map | **live** | free | platmap.app (free plat maps and property records), platmap.com "coming soon", PlatWidget, Plat Mapper AI — crowded in real-estate plat mapping | Too crowded |
+| Siteatlas | an atlas of sites | **live** | **taken** | siteatlas.co.uk live, @SiteAtlas on X | Dead |
+| Projectmap | literal | no response | **taken** | — | Handle gone |
+
+Alternate TLD results are **unusable for this round**: the Identity Digital RDAP endpoint rate-limited
+(HTTP 429 on every query including the controls), so `.energy` and `.io` status for these six is **unverified**
+and must be re-checked before adoption.
+
+## 9. Recommendation, round two
+
+**Gridslate** is the only candidate that is simultaneously clear, uncrowded and available. "Slate" is ordinary
+English for a set of things scheduled or proposed — *a slate of projects* — which is precisely what the platform
+tracks, and it is a word a lender uses without translation. "Grid" supplies the sector. The `.com` is registered
+but parked with no service behind it, so it is an acquisition enquiry rather than a blocker, and the Bluesky
+handle is free. Its weakness is that it carries the *tracker* half of the brief better than the *map* half; the
+map has to be shown, not named.
+
+**Siteplot** is the fallback: equally clean, carries the map half better ("plot" is both a parcel and the act of
+placing something on a map), but "site" is weaker than "grid" at naming the sector and the word is flatter.
+
+Neither is recommended for adoption before: `.energy` and `.io` re-checked once the registry stops rate-limiting;
+a counsel knock-out search in classes 9, 35 and 42; and an enquiry on the parked `.com`. Both are safe to use
+immediately as the **placeholder** that unblocks the design references study, which is all that is needed today.
+
+## 10. Longlist tested in round two
+
+Checked and free on Bluesky, not shortlisted: buildwatch, gridledger, buildledger, projectledger, gridroster,
+plotworks, gridcanvas, buildatlas, powerplat, siteplot, gridslate, gridmap, platmap, projectmap.
+Checked and taken or ambiguous: gridplot, plotgrid, buildmap, mapworks, siteatlas (all returned taken, though
+three of those checks hit transport timeouts and should be re-run before relying on them).
+Rejected on meaning before checking: Sitemap (web jargon), Pipeline (collides with gas pipelines in our own
+subject matter), Horizon and Compass (generic finance), Trailhead (Salesforce), Landgrid (live parcel-data firm).

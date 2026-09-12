@@ -11,3 +11,5 @@ data/snapshots/
 data/normalized/
 data/runs/
 data/held/
+data/events/
+data/quarantine/
