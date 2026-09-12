@@ -178,12 +178,19 @@ EIA plant ID so I can find a specific project.
 - AC3: Results return in under 500 ms p95 for the MVP dataset size (tens of thousands of records,
   `docs/01` §3.4) on the production environment; measured in CI against a seeded database.
 
-**US-104 Map/geographic view.** As a data-centre operator (S6), I want proposals plotted or grouped by
-county/state so I can look at a candidate region.
-- AC1: Records with a point or county are shown on a map; records with state only are listed under the state.
-- AC2: Map respects the active filters and tier rules of US-101/102.
+**US-104 Map as a primary navigation surface.** As any user (S0–S6), I want to browse every proposal and
+opportunity on a map with the same filters as search, so that geography is a first-class way in, not a
+secondary view (owner decision 2026-09-12, `docs/00-PLAN.md`).
+- AC1: Records with a point or county are shown on a map; records with state only are listed under the state
+  and shown as a state-level aggregate marker.
+- AC2: Map respects the active filters and tier rules of US-101/102; filter state is shared and URL-addressable
+  between map and list views.
 - AC3: Where a source's terms allow only derived data, no raw coordinates from a restricted source are exposed;
   county centroid is used. Legal-compliance confirms which sources this applies to.
+- AC4: Markers cluster by lifecycle state and technology at low zoom; opportunities with a service territory or
+  jurisdiction render as polygons; selecting a marker opens a detail drawer with provenance and attribution.
+- AC5: Renders 20,000+ markers within the performance budget set in `docs/04-standards.md`; map content is
+  reachable by keyboard and screen reader (a list equivalent is always available).
 
 **US-105 Attribution on lists.** As the owner, I need every list and export to carry attribution so licences
 are honoured automatically.
@@ -372,9 +379,10 @@ recorded.
 ### 4.9 Admin (US-9xx) — S0
 
 **US-901 Users.** As an admin, I want to see and manage application users.
-- AC1: List users with email, role (public, pro, api, admin), created_at, last_login, subscription status
-  (read via adapter); actions: change role, disable, delete (deletion also runs the personal-data deletion
-  process, US-910).
+- AC1: List users with email, `user.role` (viewer, member, operator, owner per `docs/20` §5) and
+  `account.entitlement` (public, pro, api, admin per `docs/21`; the two are distinct, see `docs/21` §10 C-5),
+  created_at, last_login, subscription status (read via adapter); actions: change role, disable, delete
+  (deletion also runs the personal-data deletion process, US-910).
 - AC2: Admin actions are audit-logged (who, what, when, before/after).
 
 **US-902 Customers and subscriptions are read from the CRM/ERP.** As the owner, the app is not the system of
@@ -443,7 +451,9 @@ opportunities and capital.
   organisation, contact name and email, free-text description (≤ 2,000 chars), consent checkbox linking to the
   privacy notice and terms. No file upload in MVP.
 - AC2: Submission creates a proposal with `created_by = user`, publish state `pending_review`, not visible on
-  any public, Pro or API surface, and a task (US-907).
+  any public, Pro or API surface, and a task (US-907). The contact name and email are stored on the task and
+  in the CRM through the adapter, never on `organization`; they are *submitted* personal data (consented,
+  deletable), distinct from *scraped* filer contacts, which are never stored (`docs/21` §10 C-7).
 - AC3: The submitter gets one confirmation email (transactional, not marketing); no other automated outbound.
 
 **US-1002 Intake review and matching.** As the routing team (S0), I want to review, link and match a submission.
