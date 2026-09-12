@@ -7,12 +7,14 @@ decision is made or a phase closes. Read it first when resuming.
 
 A platform that continuously discovers active energy and related-infrastructure **proposals** (supply) and
 **opportunities** (demand: RFPs, funding, tenders) from public registers, dockets and the web; publishes them
-with a delayed free tier and live paid/API tiers; syndicates to social channels; and grows into the existing
-Bankable product (bankablehq.com: analyse → improve → certify → route → fund) where sponsors submit projects
-tailored to specific opportunities and capital partners.
+with a delayed free tier and live paid/API tiers; and syndicates to social channels. It stands on its own as a
+product. The existing Bankable deal workflow at bankablehq.com (analyse → certify → route → fund) is a **later
+consideration** for integration, referenced where relevant, not a foundation of this platform (owner, 2026-09-12).
 
-Feasibility verdict (Phase 0): **proceed, reframed** as Bankable's proposal graph and lead engine rather than a
-standalone listings site. See `01-feasibility.md` §5.
+Feasibility verdict (Phase 0): **proceed** as a fused proposal-and-opportunity graph with a change feed, not a
+bare listings site (`01-feasibility.md` §5). The feasibility study framed the graph as a lead engine for the
+existing Bankable workflow; the owner has since directed that the platform stand alone and that the Bankable
+workflow be a later consideration only. The graph, feed, tiers and distribution are unchanged by that.
 
 ## Phases
 
@@ -23,7 +25,7 @@ standalone listings site. See `01-feasibility.md` §5.
 | 2 | Architecture & specifications | system spec, domain model + ERD, API spec (OpenAPI), ingestion/normalisation/resolution design, security & privacy design, DevOps (IaC, CI/CD, observability, backups), ADRs | `20`, `21`, `23`, six ADRs done; resolution prototype (`22`) in progress; OpenAPI YAML, DevOps design in Sprint 1 |
 | 3 | Product design | UX research, information architecture, UI system, public site, search/map/alerts, API docs, admin panel (users, customers, subscriptions, data ops), CRM/ERP integration as single source of truth, analytics/tracking plan | |
 | 4 | Build & launch MVP | Tier-1 ingestion, proposal graph, public delayed tier, Pro alerts, syndication, billing, launch runbook | |
-| 5 | Bankable marketplace | project submission, opportunity matching, scoring/certification, capital-partner routing; merge with the current Lovable app or replace it | |
+| 5 | Later consideration: deal workflow | project intake beyond the light MVP form, scoring, capital-partner routing, and any integration with the existing Bankable app. Not foundational; revisit after Phase 4 on evidence | deferred by owner |
 | 6 | Operations | SLAs, support, data QA ops, licence renewals, compliance calendar, content/social cadence | |
 
 ## Standing architecture principles (to be honoured in Phase 2)
@@ -50,6 +52,7 @@ standalone listings site. See `01-feasibility.md` §5.
 | 2026-09-12 | **Owner confirmed the Phase 0 reframe**: build the fused proposal graph feeding Bankable's route-to-capital workflow, with the public listings site as the free delayed tier and audience engine, not as the main event | Owner, in session. Settles the branch point that architecture and pricing both depend on |
 | 2026-09-12 | **Map is a primary navigation surface**, not a secondary view: every proposal and opportunity with a point, county or service territory is browsable on a map with the same filters and tier rules as search (elevates PRD US-104) | Owner request |
 | 2026-09-12 | Sprint 1 adds `docs/04-standards.md`: the cross-discipline best-practice standard the whole team follows (design system and accessibility, engineering and testing, data modelling and provenance, API design, security/privacy, DevOps, GTM and content). Owned jointly by product-manager, solutions-architect, product-designer; every later deliverable is reviewed against it | Owner request |
+| 2026-09-12 | **The existing Bankable workflow is not foundational.** The platform is designed, priced and built to stand alone; the analyse → certify → route → fund workflow at bankablehq.com is a later consideration referenced only where a hook is cheap (the light intake form, a CRM lead hand-off). Supersedes the wording of the reframe row above; the graph-plus-feed product is unchanged | Owner direction |
 | 2026-09-12 | **Design must be distinctive, not the default AI look.** A custom package of typefaces, spacing scale and layouts, built from a documented study of the best interactive data products in and around the industry. Explicit anti-patterns are banned (generic sans on purple gradients, uniform rounded cards, three-tile hero, emoji bullets, stock illustration). Deliverable: `docs/30-design-references.md` before any screen is drawn | Owner request |
 | 2026-09-12 | ADRs 0001–0004 accepted as working decisions: Python 3.12 + FastAPI + SQLAlchemy; Postgres 16 with PostGIS + object storage for raw snapshots; Procrastinate (Postgres-backed) job queue. ADR 0005 (hosting) and 0006 (CRM/ERP adapter, HubSpot + Stripe recommended) remain proposed pending owner | `docs/adr/`; owner may overturn |
 | 2026-09-12 | Working defaults pending owner ratification: public-tier lag is 7 days for opportunities and 14 days for supply rows (per `docs/11` §3, resolves docs/21 C-4); restricted or unknown-terms sources (PJM, MISO, SPP, NYISO, ISO-NE until terms recorded) return nothing on any tier, including Pro and API, until legal-compliance records permission (resolves docs/21 C-3 on the safer reading) | Safer reading; reversible configuration |

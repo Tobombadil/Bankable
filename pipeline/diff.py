@@ -127,10 +127,11 @@ def perturb(df: pd.DataFrame, seed: int = 0, n_new: int = 50, n_status: int = 80
     # withdrawn
     sel = take(n_withdrawn)
     out.loc[sel, "lifecycle_state"] = "withdrawn"
-    # capacity_change: +20 %, guaranteeing a non-null capacity first
+    # capacity_change: +20 % or +1 MW, whichever is larger, so the change clears the diff's
+    # noise floor (CAP_ABS_MW / CAP_REL) on small records too; null capacities are filled first
     sel = take(n_capacity)
-    cap = pd.to_numeric(out.loc[sel, "capacity_mw"], errors="coerce").fillna(100.0)
-    out.loc[sel, "capacity_mw"] = (cap * 1.2).round(2).to_numpy()
+    cap = pd.to_numeric(out.loc[sel, "capacity_mw"], errors="coerce").fillna(100.0).astype(float)
+    out.loc[sel, "capacity_mw"] = np.maximum(cap * 1.2, cap + 1.0).round(2).to_numpy()
     # cod_change: +180 days, filling missing CODs first
     sel = take(n_cod)
     cod = pd.to_datetime(out.loc[sel, "proposed_cod"], errors="coerce").fillna(pd.Timestamp("2028-01-01"))

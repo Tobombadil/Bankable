@@ -13,7 +13,7 @@ A continuously updated graph of energy and infrastructure proposals (supply) fus
 competitor's queue position changing, an RFP opening in a footprint they can serve, a funding award being cancelled
 or reinstated, a large-load request landing in a service territory. Free delayed tier for reach; Pro for the
 individual originator; Team/API for the desk that needs it in their own tools. Downstream, the same events feed
-Bankable's route-to-capital workflow (`01-feasibility.md` §5). The TAM is narrow (on the order of 1,000–2,000 US
+a possible later deal workflow (`01-feasibility.md` §5; the owner has since made that a later consideration, not a foundation). The TAM is narrow (on the order of 1,000–2,000 US
 organisations that develop, finance, build or advise on utility-scale projects, §3.4), so this is an account-based
 motion, not a funnel.
 

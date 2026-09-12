@@ -1163,9 +1163,10 @@ Numbered, in the order they block work.
 
 ## 8. What changed in the repo as a result
 
-- `data/sources.yaml`: `license`, `reuse` and `notes` updated for the eleven sources where a verbatim clause
-  was obtained (CAISO, ERCOT ×2, SPP, NYISO, ISO-NE, PJM, MISO, LBNL, TED, NESO, GEM, Google News RSS, wires).
-  No other fields touched.
+- `data/sources.yaml`: `license`, `reuse` and `notes` updated for the twelve sources where a verbatim licence
+  clause was obtained (CAISO, ERCOT ×2, SPP, NYISO, ISO-NE, PJM, TED, NESO, GEM, Google News RSS, wires); `notes`
+  only for MISO (verbatim robots.txt content-signal; terms still unknown) and LBNL (verbatim DOE contract notice;
+  CC BY claim left in place but marked unverified). No other fields touched.
 - `01-feasibility.md` §3.2 is now partly superseded: PJM's terms are more permissive than recorded and SPP's
   are far less. That section should be annotated by whoever next edits it; I have not edited another agent's
   document.

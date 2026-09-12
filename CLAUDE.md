@@ -7,7 +7,8 @@ Then read the document for the phase you are working in. Do not re-derive what t
 A platform that continuously discovers energy and infrastructure **proposals** (supply: interconnection queues,
 permits, dockets, announcements) and **opportunities** (demand: RFPs, funding, tenders, large-load requests),
 fuses them into one lifecycle record per real-world project, publishes them (delayed free / live paid / API),
-syndicates to social channels, and feeds the Bankable analyse → certify → route → fund workflow.
+and syndicates to social channels. It stands alone; the existing Bankable deal workflow at bankablehq.com is a
+later consideration for integration, not a foundation (owner, 2026-09-12).
 
 ## Non-negotiable guardrails
 - Never scrape private aggregators (Interconnection.fyi, Cleanview, Energy Adepto, BidNet, Halcyon, Enverus).

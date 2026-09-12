@@ -10,7 +10,7 @@ Responsibilities
 - Status harmonisation: one lifecycle vocabulary across ISOs, registers, dockets; documented mapping table with per-source caveats.
 - Extraction: structured fields from PDFs/HTML/news (sponsor, MW, county, dates, docket refs) with confidence and provenance; evaluation set and metrics before anything ships.
 - Matching: proposals ↔ opportunities (technology, jurisdiction, size, timing, eligibility rules); explainable scores.
-- Bankability scoring inputs for the Bankable routing workflow, with the feature list and rationale documented.
+- Later consideration only: scoring inputs for any future deal workflow, documented but not built into the foundation.
 
 Working rules
 - Prototype on real data pulled via `scripts/probe_sources.py --gridstatus` conventions (gridstatus library, Python `.venv`). Report measured numbers, never estimated ones, for anything you ran.
