@@ -81,6 +81,11 @@ sources:
       SPECIAL STUDY: studied
       ERAS: studied
       ICS: studied
+    # used only when "Status (Original)" is blank; keys are gridstatus's harmonised vocabulary
+    fallback_map:
+      Active: studied
+      Completed: built
+      Withdrawn: withdrawn
     refine:
       - id: spp.suspended
         when: {status_original: IA FULLY EXECUTED/ON SUSPENSION}
