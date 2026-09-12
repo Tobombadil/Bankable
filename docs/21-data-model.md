@@ -944,7 +944,10 @@ stateDiagram-v2
   filed --> permitted: permit precedes study evidence
   permitted --> contracted: IA or offtake executed
   studied --> contracted: IA executed without separate permit evidence
-  contracted --> built: in service / commercial operation
+  contracted --> under_construction: construction start observed (EIA-860M "U"/"V", permit notice, news)
+  under_construction --> built: in service / commercial operation
+  contracted --> built: in service observed without a construction signal
+  under_construction --> cancelled: abandoned during construction
   filed --> withdrawn: request withdrawn or row disappears from the register
   studied --> withdrawn
   permitted --> withdrawn
