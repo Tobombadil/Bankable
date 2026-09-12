@@ -66,9 +66,17 @@ def _source_columns(rows: list[dict[str, Any]]) -> list[str]:
     return list(seen)
 
 
-def run(source_id: str, *, registry: Registry | None = None, store: Store | None = None,
-        allow_restricted: bool = False, trigger: str = "manual", http: PoliteSession | None = None,
-        raw: RawSnapshot | None = None, now: dt.datetime | None = None) -> RunResult:
+def run(
+    source_id: str,
+    *,
+    registry: Registry | None = None,
+    store: Store | None = None,
+    allow_restricted: bool = False,
+    trigger: str = "manual",
+    http: PoliteSession | None = None,
+    raw: RawSnapshot | None = None,
+    now: dt.datetime | None = None,
+) -> RunResult:
     """Run one connector end to end and persist everything the run produced.
 
     `raw` injects a recorded snapshot (tests, replays) so `fetch()` is skipped.
@@ -88,13 +96,36 @@ def run(source_id: str, *, registry: Registry | None = None, store: Store | None
     t0 = time.monotonic()
     run_id = str(uuid.uuid4())
     record: dict[str, Any] = {
-        "id": run_id, "source_id": source_id, "trigger": trigger, "started_at": started.isoformat(),
-        "finished_at": None, "status": "running", "egress_class": connector.egress,
-        "reuse_class": source.reuse, "licence_id": source.licence_id, "publishable": st.publishable,
-        "parser_version": f"{source_id}@{connector.parser_version}", "attempt": 1, "dead_lettered": False,
-        "http_status": None, "bytes": None, "snapshot": None, "rows_seen": 0, "rows_fetched": 0, "rows_new": 0,
-        "rows_changed": 0, "rows_gone": 0, "events_emitted": 0, "model_calls": 0, "cost_usd": 0.0,
-        "worker_seconds": 0.0, "dq_status": None, "dq": None, "stats": None, "error": None, "error_class": None,
+        "id": run_id,
+        "source_id": source_id,
+        "trigger": trigger,
+        "started_at": started.isoformat(),
+        "finished_at": None,
+        "status": "running",
+        "egress_class": connector.egress,
+        "reuse_class": source.reuse,
+        "licence_id": source.licence_id,
+        "publishable": st.publishable,
+        "parser_version": f"{source_id}@{connector.parser_version}",
+        "attempt": 1,
+        "dead_lettered": False,
+        "http_status": None,
+        "bytes": None,
+        "snapshot": None,
+        "rows_seen": 0,
+        "rows_fetched": 0,
+        "rows_new": 0,
+        "rows_changed": 0,
+        "rows_gone": 0,
+        "events_emitted": 0,
+        "model_calls": 0,
+        "cost_usd": 0.0,
+        "worker_seconds": 0.0,
+        "dq_status": None,
+        "dq": None,
+        "stats": None,
+        "error": None,
+        "error_class": None,
         "outputs": {},
     }
     result = RunResult(run=record)
@@ -109,8 +140,16 @@ def run(source_id: str, *, registry: Registry | None = None, store: Store | None
         ts = record.get("_ts") or ts_token(started)
         record.pop("_ts", None)
         result.paths["run"] = st.write_run(source_id, ts, record)
-        log.info("run finished", extra={"source_id": source_id, "run_id": run_id, "status": status,
-                                        "rows": record["rows_seen"], "dq": record["dq_status"]})
+        log.info(
+            "run finished",
+            extra={
+                "source_id": source_id,
+                "run_id": run_id,
+                "status": status,
+                "rows": record["rows_seen"],
+                "dq": record["dq_status"],
+            },
+        )
         return result
 
     # 1. fetch ------------------------------------------------------------
@@ -128,10 +167,19 @@ def run(source_id: str, *, registry: Registry | None = None, store: Store | None
     snap.content = content
     record["bytes"] = len(content)
     record["snapshot"] = {
-        "object_key": None, "sha256": snap.sha256, "byte_size": len(content), "content_type": snap.content_type,
-        "fetched_url": snap.url, "http_status": snap.http_status, "retrieved_at": snap.retrieved_at_iso,
-        "licence_id": source.licence_id, "parser_version": record["parser_version"], "record_count": None,
-        "requests_made": snap.requests_made, "redacted": snap.redacted, "meta": snap.meta,
+        "object_key": None,
+        "sha256": snap.sha256,
+        "byte_size": len(content),
+        "content_type": snap.content_type,
+        "fetched_url": snap.url,
+        "http_status": snap.http_status,
+        "retrieved_at": snap.retrieved_at_iso,
+        "licence_id": source.licence_id,
+        "parser_version": record["parser_version"],
+        "record_count": None,
+        "requests_made": snap.requests_made,
+        "redacted": snap.redacted,
+        "meta": snap.meta,
     }
 
     # 2. snapshot (unchanged short-circuit, docs/20 §3.2) ------------------
@@ -161,10 +209,16 @@ def run(source_id: str, *, registry: Registry | None = None, store: Store | None
     record["snapshot"]["previous_run_id"] = prev_run_id
 
     # 4. DQ gates ---------------------------------------------------------
-    dq = run_gates(df, connector.kind, source_columns, st.dq_history(source_id),
-                   required=connector.dq_required_fields, key_source_columns=connector.key_source_columns,
-                   duplicates_resolved=int(df.attrs.get("duplicates_resolved", 0)),
-                   rows_fetched=record["rows_fetched"])
+    dq = run_gates(
+        df,
+        connector.kind,
+        source_columns,
+        st.dq_history(source_id),
+        required=connector.dq_required_fields,
+        key_source_columns=connector.key_source_columns,
+        duplicates_resolved=int(df.attrs.get("duplicates_resolved", 0)),
+        rows_fetched=record["rows_fetched"],
+    )
     result.dq = dq
     record["dq_status"] = dq.dq_status
     record["dq"] = dq.to_dict()
@@ -180,14 +234,17 @@ def run(source_id: str, *, registry: Registry | None = None, store: Store | None
     if prev_df is not None:
         events = diff_snapshots(_diff_view(prev_df), _diff_view(df), observed_at=snap.retrieved_at_iso)
     else:
-        events = pd.DataFrame(columns=["event_type", "record_id", "source_id", "field", "before", "after",
-                                       "observed_at"])
+        events = pd.DataFrame(
+            columns=["event_type", "record_id", "source_id", "field", "before", "after", "observed_at"]
+        )
         events["event_type"] = pd.Categorical(events["event_type"], categories=EVENT_TYPES)
     counts = events["event_type"].value_counts()
     record["rows_new"] = int(counts.get("new", 0)) if prev_df is not None else len(df)
     record["rows_gone"] = int(counts.get("removed", 0))
-    record["rows_changed"] = int(events.loc[~events["event_type"].isin(["new", "removed"]), "record_id"].nunique())
-    record["events_emitted"] = int(len(events))
+    record["rows_changed"] = int(
+        events.loc[~events["event_type"].isin(["new", "removed"]), "record_id"].nunique()
+    )
+    record["events_emitted"] = len(events)
     result.events = events
 
     # 6. store (publishable outputs only from a publishable store) ---------

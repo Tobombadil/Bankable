@@ -40,7 +40,9 @@ NEVER_INGEST_NAMES = ("interconnection.fyi", "cleanview", "energy adepto", "bidn
 
 # docs/02 §7 host limits (requests per second). Everything else defaults to 1 rps.
 HOST_DEFAULT_RPS: dict[str, float] = {
-    "elibrary.ferc.gov": 0.5, "ecollection.ferc.gov": 0.5, "www.ferc.gov": 0.5,
+    "elibrary.ferc.gov": 0.5,
+    "ecollection.ferc.gov": 0.5,
+    "www.ferc.gov": 0.5,
     "api.gdeltproject.org": 0.2,
     "api.pjm.com": 0.1,
     "www.ercot.com": 0.5,
@@ -102,9 +104,11 @@ class SourceEntry:
     @property
     def never_ingest(self) -> bool:
         low = f"{self.name} {self.url} {self.notes}".lower()
-        return (self.id in NEVER_INGEST
-                or (self.category == "aggregator" and self.reuse == "restricted")
-                or any(n in low for n in NEVER_INGEST_NAMES) and self.category == "aggregator")
+        return (
+            self.id in NEVER_INGEST
+            or (self.category == "aggregator" and self.reuse == "restricted")
+            or (any(n in low for n in NEVER_INGEST_NAMES) and self.category == "aggregator")
+        )
 
     @property
     def module_name(self) -> str:
@@ -118,15 +122,25 @@ class SourceEntry:
     def from_yaml(cls, entry: dict[str, Any]) -> SourceEntry:
         e = dict(entry)
         src = cls(
-            id=str(e["id"]), name=str(e.get("name", "")), url=str(e.get("url", "")),
-            category=str(e.get("category", "")), access=str(e.get("access", "")),
-            reuse=str(e.get("reuse", "unknown")), cadence=str(e.get("cadence", "")),
-            jurisdiction=str(e.get("jurisdiction", "")), operator=str(e.get("operator", "")),
-            format=str(e.get("format", "")), tier=int(e.get("tier", 3) or 3),
-            effort=str(e.get("effort", "")), license=str(e.get("license", "")),
-            notes=str(e.get("notes", "")), connector=str(e.get("connector", "")),
-            verified=dict(e.get("verified") or {}), probe=dict(e.get("probe") or {}),
-            egress=str(e.get("egress") or _default_egress(str(e.get("access", "")))), raw=e,
+            id=str(e["id"]),
+            name=str(e.get("name", "")),
+            url=str(e.get("url", "")),
+            category=str(e.get("category", "")),
+            access=str(e.get("access", "")),
+            reuse=str(e.get("reuse", "unknown")),
+            cadence=str(e.get("cadence", "")),
+            jurisdiction=str(e.get("jurisdiction", "")),
+            operator=str(e.get("operator", "")),
+            format=str(e.get("format", "")),
+            tier=int(e.get("tier", 3) or 3),
+            effort=str(e.get("effort", "")),
+            license=str(e.get("license", "")),
+            notes=str(e.get("notes", "")),
+            connector=str(e.get("connector", "")),
+            verified=dict(e.get("verified") or {}),
+            probe=dict(e.get("probe") or {}),
+            egress=str(e.get("egress") or _default_egress(str(e.get("access", "")))),
+            raw=e,
         )
         src.max_rps = _rate_limit(src, e)
         return src
@@ -179,10 +193,26 @@ class Registry:
         """One row per source for the admin view: implemented / unimplemented / gated / excluded."""
         rows = []
         for s in self.sources.values():
-            state = ("excluded" if s.never_ingest else "gated" if s.gated
-                     else "implemented" if s.implemented else "unimplemented")
-            rows.append({"id": s.id, "state": state, "reuse": s.reuse, "implemented": s.implemented,
-                         "egress": s.egress, "max_rps": s.max_rps, "cadence": s.cadence})
+            state = (
+                "excluded"
+                if s.never_ingest
+                else "gated"
+                if s.gated
+                else "implemented"
+                if s.implemented
+                else "unimplemented"
+            )
+            rows.append(
+                {
+                    "id": s.id,
+                    "state": state,
+                    "reuse": s.reuse,
+                    "implemented": s.implemented,
+                    "egress": s.egress,
+                    "max_rps": s.max_rps,
+                    "cadence": s.cadence,
+                }
+            )
         return rows
 
     def connector_class(self, source_id: str) -> type[Connector]:
@@ -205,6 +235,7 @@ class Registry:
         if src.gated and not allow_restricted:
             raise GateViolation(
                 f"{source_id} has reuse={src.reuse!r}; runs are refused without allow_restricted=True "
-                "and never write publishable output (docs/21 §8, CLAUDE.md)")
+                "and never write publishable output (docs/21 §8, CLAUDE.md)"
+            )
         cls = self.connector_class(source_id)
         return cls(src, **kwargs)

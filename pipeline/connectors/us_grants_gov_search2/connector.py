@@ -38,7 +38,14 @@ class Connector(BaseConnector):
     honour_robots: ClassVar[bool] = False  # JSON API (its robots.txt answers 403)
     status_key: ClassVar[str] = "grants_gov"
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("status_map.yaml")
-    key_source_columns: ClassVar[tuple[str, ...]] = ("id", "number", "title", "agency", "oppStatus", "closeDate")
+    key_source_columns: ClassVar[tuple[str, ...]] = (
+        "id",
+        "number",
+        "title",
+        "agency",
+        "oppStatus",
+        "closeDate",
+    )
     keyword: ClassVar[str] = "energy"
     statuses: ClassVar[str] = "forecasted|posted"
 
@@ -47,7 +54,12 @@ class Connector(BaseConnector):
         pages: list[dict[str, Any]] = []
         start = 0
         while len(pages) < MAX_PAGES:
-            body = {"keyword": self.keyword, "oppStatuses": self.statuses, "rows": PAGE, "startRecordNum": start}
+            body = {
+                "keyword": self.keyword,
+                "oppStatuses": self.statuses,
+                "rows": PAGE,
+                "startRecordNum": start,
+            }
             r = self.http.post(API_URL, json=body, timeout=90)
             if r.status_code != 200:
                 raise ConnectorError(f"POST {API_URL} -> HTTP {r.status_code}")
@@ -58,12 +70,21 @@ class Connector(BaseConnector):
             start += len(hits)
             if not hits or start >= int(data.get("hitCount", 0)):
                 break
-        payload = json.dumps({"request": {"keyword": self.keyword, "oppStatuses": self.statuses}, "pages": pages},
-                             ensure_ascii=False).encode("utf-8")
-        return RawSnapshot(content=payload, content_type="application/json", url=API_URL,
-                           retrieved_at=dt.datetime.now(dt.UTC), http_status=200, ext="json",
-                           elapsed_s=round(time.monotonic() - t0, 2), requests_made=len(pages),
-                           meta={"hit_count": (pages[0].get("data") or {}).get("hitCount"), "pages": len(pages)})
+        payload = json.dumps(
+            {"request": {"keyword": self.keyword, "oppStatuses": self.statuses}, "pages": pages},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        return RawSnapshot(
+            content=payload,
+            content_type="application/json",
+            url=API_URL,
+            retrieved_at=dt.datetime.now(dt.UTC),
+            http_status=200,
+            ext="json",
+            elapsed_s=round(time.monotonic() - t0, 2),
+            requests_made=len(pages),
+            meta={"hit_count": (pages[0].get("data") or {}).get("hitCount"), "pages": len(pages)},
+        )
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
         doc = json.loads(raw.content)
@@ -87,21 +108,33 @@ class Connector(BaseConnector):
             ctx = {"status_raw": r.get("oppStatus"), "deadline_passed": deadline_passed(due, now)}
             state, rule = harmonise_status(self.status_key, ctx, self.status_map)
             title = html.unescape(str(r.get("title") or "")).strip()
-            recs.append({
-                "source_record_id": str(r.get("id")),
-                "source_url": DETAIL_URL.format(id=r.get("id")),
-                "kind": "foa",
-                "issuer": (r.get("agency") or r.get("agencyCode") or "").strip() or None,
-                "title": title or None,
-                "summary": None,
-                "jurisdiction": "US",
-                "technologies": technologies_str(classify_technologies(title)),
-                "capacity_sought_mw": None, "budget_amount": None, "budget_currency": None,
-                "open_at": to_utc(r.get("openDate"), "%m/%d/%Y"),
-                "due_at": due,
-                "status": state, "status_raw": r.get("oppStatus"), "status_rule": rule,
-                "identifiers": json.dumps({"grants_gov_number": r.get("number"), "grants_gov_id": r.get("id"),
-                                           "agency_code": r.get("agencyCode"), "aln": r.get("cfdaList") or []}),
-            })
+            recs.append(
+                {
+                    "source_record_id": str(r.get("id")),
+                    "source_url": DETAIL_URL.format(id=r.get("id")),
+                    "kind": "foa",
+                    "issuer": (r.get("agency") or r.get("agencyCode") or "").strip() or None,
+                    "title": title or None,
+                    "summary": None,
+                    "jurisdiction": "US",
+                    "technologies": technologies_str(classify_technologies(title)),
+                    "capacity_sought_mw": None,
+                    "budget_amount": None,
+                    "budget_currency": None,
+                    "open_at": to_utc(r.get("openDate"), "%m/%d/%Y"),
+                    "due_at": due,
+                    "status": state,
+                    "status_raw": r.get("oppStatus"),
+                    "status_rule": rule,
+                    "identifiers": json.dumps(
+                        {
+                            "grants_gov_number": r.get("number"),
+                            "grants_gov_id": r.get("id"),
+                            "agency_code": r.get("agencyCode"),
+                            "aln": r.get("cfdaList") or [],
+                        }
+                    ),
+                }
+            )
         df = pd.DataFrame(recs, columns=list(recs[0]) if recs else ["source_record_id"])
         return self.finalize(df, rows, raw)

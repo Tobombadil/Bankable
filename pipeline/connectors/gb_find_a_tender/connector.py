@@ -93,10 +93,20 @@ class Connector(BaseConnector):
             if not page.get("releases"):
                 break
             url = (page.get("links") or {}).get("next")
-        payload = json.dumps({"request": {"updatedFrom": since}, "pages": pages}, ensure_ascii=False).encode("utf-8")
-        return RawSnapshot(content=payload, content_type="application/json", url=API_URL, retrieved_at=now,
-                           http_status=200, ext="json", elapsed_s=round(time.monotonic() - t0, 2),
-                           requests_made=len(pages), meta={"updated_from": since, "pages": len(pages)})
+        payload = json.dumps({"request": {"updatedFrom": since}, "pages": pages}, ensure_ascii=False).encode(
+            "utf-8"
+        )
+        return RawSnapshot(
+            content=payload,
+            content_type="application/json",
+            url=API_URL,
+            retrieved_at=now,
+            http_status=200,
+            ext="json",
+            elapsed_s=round(time.monotonic() - t0, 2),
+            requests_made=len(pages),
+            meta={"updated_from": since, "pages": len(pages)},
+        )
 
     def redact(self, content: bytes) -> bytes:
         doc = json.loads(content)
@@ -118,12 +128,33 @@ class Connector(BaseConnector):
                     continue
                 tender = rel.get("tender") or {}
                 row = {
-                    "ocid": ocid, "id": rel.get("id"), "tag": list(rel.get("tag") or []), "date": rel.get("date"),
-                    "buyer": (rel.get("buyer") or {}).get("name"), "cpv": codes,
-                    "tender": {k: tender.get(k) for k in ("id", "title", "description", "status", "value",
-                                                          "tenderPeriod", "mainProcurementCategory")},
-                    "awards": [{"id": a.get("id"), "status": a.get("status"), "value": a.get("value"),
-                                "date": a.get("date")} for a in rel.get("awards") or []],
+                    "ocid": ocid,
+                    "id": rel.get("id"),
+                    "tag": list(rel.get("tag") or []),
+                    "date": rel.get("date"),
+                    "buyer": (rel.get("buyer") or {}).get("name"),
+                    "cpv": codes,
+                    "tender": {
+                        k: tender.get(k)
+                        for k in (
+                            "id",
+                            "title",
+                            "description",
+                            "status",
+                            "value",
+                            "tenderPeriod",
+                            "mainProcurementCategory",
+                        )
+                    },
+                    "awards": [
+                        {
+                            "id": a.get("id"),
+                            "status": a.get("status"),
+                            "value": a.get("value"),
+                            "date": a.get("date"),
+                        }
+                        for a in rel.get("awards") or []
+                    ],
                 }
                 prev = latest.get(ocid)
                 if prev is None or str(row["date"]) >= str(prev["date"]):
@@ -136,30 +167,50 @@ class Connector(BaseConnector):
         for r in rows:
             t = r.get("tender") or {}
             tags = r.get("tag") or []
-            tag = "award" if "award" in tags else "tenderCancellation" if "tenderCancellation" in tags else tags[0] if tags else ""
+            tag = (
+                "award"
+                if "award" in tags
+                else "tenderCancellation"
+                if "tenderCancellation" in tags
+                else tags[0]
+                if tags
+                else ""
+            )
             period = t.get("tenderPeriod") or {}
             due = to_utc(period.get("endDate"))
             ctx = {"status_raw": t.get("status"), "tag": tag, "deadline_passed": deadline_passed(due, now)}
             state, rule = harmonise_status(self.status_key, ctx, self.status_map)
             value = t.get("value") or {}
             title = t.get("title")
-            recs.append({
-                "source_record_id": r["ocid"],
-                "source_url": NOTICE_URL.format(notice_id=r.get("id")),
-                "kind": "procurement_notice" if tag in ("planning", "planningUpdate") else "tender",
-                "issuer": r.get("buyer"),
-                "title": title,
-                "summary": None,
-                "jurisdiction": "GB",
-                "technologies": technologies_str(classify_technologies(title, t.get("description"))),
-                "capacity_sought_mw": None,
-                "budget_amount": float(value["amount"]) if isinstance(value.get("amount"), int | float) else None,
-                "budget_currency": value.get("currency"),
-                "open_at": to_utc(period.get("startDate") or r.get("date")),
-                "due_at": due,
-                "status": state, "status_raw": t.get("status"), "status_rule": rule,
-                "identifiers": json.dumps({"ocid": r["ocid"], "fts_notice_id": r.get("id"), "cpv": r.get("cpv"),
-                                           "tender_id": t.get("id")}),
-            })
+            recs.append(
+                {
+                    "source_record_id": r["ocid"],
+                    "source_url": NOTICE_URL.format(notice_id=r.get("id")),
+                    "kind": "procurement_notice" if tag in ("planning", "planningUpdate") else "tender",
+                    "issuer": r.get("buyer"),
+                    "title": title,
+                    "summary": None,
+                    "jurisdiction": "GB",
+                    "technologies": technologies_str(classify_technologies(title, t.get("description"))),
+                    "capacity_sought_mw": None,
+                    "budget_amount": float(value["amount"])
+                    if isinstance(value.get("amount"), int | float)
+                    else None,
+                    "budget_currency": value.get("currency"),
+                    "open_at": to_utc(period.get("startDate") or r.get("date")),
+                    "due_at": due,
+                    "status": state,
+                    "status_raw": t.get("status"),
+                    "status_rule": rule,
+                    "identifiers": json.dumps(
+                        {
+                            "ocid": r["ocid"],
+                            "fts_notice_id": r.get("id"),
+                            "cpv": r.get("cpv"),
+                            "tender_id": t.get("id"),
+                        }
+                    ),
+                }
+            )
         df = pd.DataFrame(recs, columns=list(recs[0]) if recs else ["source_record_id"])
         return self.finalize(df, rows, raw)

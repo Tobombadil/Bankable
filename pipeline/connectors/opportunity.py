@@ -8,7 +8,16 @@ from typing import Any
 
 import pandas as pd
 
-OPPORTUNITY_STATES = ("unknown", "announced", "open", "frozen", "reinstated", "closed", "cancelled", "awarded")
+OPPORTUNITY_STATES = (
+    "unknown",
+    "announced",
+    "open",
+    "frozen",
+    "reinstated",
+    "closed",
+    "cancelled",
+    "awarded",
+)
 KINDS = ("rfp", "foa", "tender", "auction", "loan_program", "procurement_notice", "program")
 
 # Ordered keyword rules over notice titles/descriptions -> normalised technology tokens.
@@ -26,7 +35,11 @@ TECH_KEYWORDS: list[tuple[str, str]] = [
     (r"biomass|biogas|biomethane|biométhane|biogaz|anaerobic", "biomass"),
     (r"carbon capture|\bccs\b|\bccus\b|carbon dioxide removal", "ccs"),
     (r"natural gas|\bgas\b|gaz naturel|erdgas|combined[\s-]cycle|\blng\b|gasoduc|pipeline", "gas"),
-    (r"transmission|substation|grid|\bhv\b|high[\s-]voltage|électrique|sieci|netz|interconnect|distribution line", "transmission"),
+    (
+        r"transmission|substation|grid|\bhv\b|high[\s-]voltage|électrique|sieci|netz|interconnect"
+        r"|distribution line",
+        "transmission",
+    ),
     (r"district heat|heat network|chaleur|fernwärme|heat pump|ciepł", "heat"),
     (r"electric vehicle|\bev\b|charging|recharge|ładowa", "ev_charging"),
     (r"energy efficien|efficacité énergétique|retrofit|insulation|termomodern", "efficiency"),
@@ -36,18 +49,67 @@ TECH_KEYWORDS: list[tuple[str, str]] = [
 
 # ISO 3166-1 alpha-3 -> alpha-2 for the buyer countries TED and MDB notices use.
 ISO3_TO_ISO2: dict[str, str] = {
-    "AUT": "AT", "BEL": "BE", "BGR": "BG", "HRV": "HR", "CYP": "CY", "CZE": "CZ", "DNK": "DK", "EST": "EE",
-    "FIN": "FI", "FRA": "FR", "DEU": "DE", "GRC": "GR", "HUN": "HU", "IRL": "IE", "ITA": "IT", "LVA": "LV",
-    "LTU": "LT", "LUX": "LU", "MLT": "MT", "NLD": "NL", "POL": "PL", "PRT": "PT", "ROU": "RO", "SVK": "SK",
-    "SVN": "SI", "ESP": "ES", "SWE": "SE", "NOR": "NO", "ISL": "IS", "LIE": "LI", "CHE": "CH", "GBR": "GB",
-    "UKR": "UA", "MDA": "MD", "SRB": "RS", "MKD": "MK", "MNE": "ME", "ALB": "AL", "BIH": "BA", "TUR": "TR",
-    "GEO": "GE", "ARM": "AM", "USA": "US", "CAN": "CA", "AUS": "AU", "NZL": "NZ", "JPN": "JP", "KOR": "KR",
-    "IND": "IN", "CHN": "CN", "BRA": "BR", "ZAF": "ZA", "XKX": "XK", "1A0": "XK",
+    "AUT": "AT",
+    "BEL": "BE",
+    "BGR": "BG",
+    "HRV": "HR",
+    "CYP": "CY",
+    "CZE": "CZ",
+    "DNK": "DK",
+    "EST": "EE",
+    "FIN": "FI",
+    "FRA": "FR",
+    "DEU": "DE",
+    "GRC": "GR",
+    "HUN": "HU",
+    "IRL": "IE",
+    "ITA": "IT",
+    "LVA": "LV",
+    "LTU": "LT",
+    "LUX": "LU",
+    "MLT": "MT",
+    "NLD": "NL",
+    "POL": "PL",
+    "PRT": "PT",
+    "ROU": "RO",
+    "SVK": "SK",
+    "SVN": "SI",
+    "ESP": "ES",
+    "SWE": "SE",
+    "NOR": "NO",
+    "ISL": "IS",
+    "LIE": "LI",
+    "CHE": "CH",
+    "GBR": "GB",
+    "UKR": "UA",
+    "MDA": "MD",
+    "SRB": "RS",
+    "MKD": "MK",
+    "MNE": "ME",
+    "ALB": "AL",
+    "BIH": "BA",
+    "TUR": "TR",
+    "GEO": "GE",
+    "ARM": "AM",
+    "USA": "US",
+    "CAN": "CA",
+    "AUS": "AU",
+    "NZL": "NZ",
+    "JPN": "JP",
+    "KOR": "KR",
+    "IND": "IN",
+    "CHN": "CN",
+    "BRA": "BR",
+    "ZAF": "ZA",
+    "XKX": "XK",
+    "1A0": "XK",
 }
 
 
 def classify_technologies(*texts: Any) -> list[str]:
-    blob = " ".join(str(t) for t in texts if t is not None and not (isinstance(t, float) and pd.isna(t))).lower()
+    blob = " ".join(
+        str(t) for t in texts if t is not None and not (isinstance(t, float) and pd.isna(t))
+    ).lower()
     found: list[str] = []
     for pattern, token in TECH_KEYWORDS:
         if re.search(pattern, blob) and token not in found:

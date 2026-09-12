@@ -37,8 +37,9 @@ DOMAIN_PLACEHOLDER = "domain-placeholder.invalid"
 
 def user_agent(domain: str | None = None) -> str:
     """Render the UA: browser-like, names the platform, carries a contact URL (docs/20 §4.3)."""
-    return USER_AGENT_TEMPLATE.replace("{{DOMAIN}}", domain or os.environ.get("BANKABLE_DOMAIN")
-                                       or DOMAIN_PLACEHOLDER)
+    return USER_AGENT_TEMPLATE.replace(
+        "{{DOMAIN}}", domain or os.environ.get("BANKABLE_DOMAIN") or DOMAIN_PLACEHOLDER
+    )
 
 
 USER_AGENT = user_agent()
@@ -56,9 +57,15 @@ class HttpFailed(Exception):
 
 
 class PoliteSession:
-    def __init__(self, rate_limits: dict[str, float] | None = None, default_rps: float = DEFAULT_RPS,
-                 max_attempts: int = 4, timeout: float = 60.0, sleep: Any = time.sleep,
-                 session: requests.Session | None = None) -> None:
+    def __init__(
+        self,
+        rate_limits: dict[str, float] | None = None,
+        default_rps: float = DEFAULT_RPS,
+        max_attempts: int = 4,
+        timeout: float = 60.0,
+        sleep: Any = time.sleep,
+        session: requests.Session | None = None,
+    ) -> None:
         self.rate_limits = dict(rate_limits or {})
         self.default_rps = default_rps
         self.max_attempts = max_attempts
@@ -104,7 +111,9 @@ class PoliteSession:
         return True if rp is None else rp.can_fetch(USER_AGENT, url)
 
     # ------------------------------------------------------------------ requests
-    def request(self, method: str, url: str, *, honour_robots: bool = True, **kwargs: Any) -> requests.Response:
+    def request(
+        self, method: str, url: str, *, honour_robots: bool = True, **kwargs: Any
+    ) -> requests.Response:
         if honour_robots and method.upper() == "GET" and not self.allowed_by_robots(url):
             raise HttpBlocked(f"robots.txt disallows {url}")
         host = urlsplit(url).netloc

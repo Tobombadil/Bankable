@@ -1,0 +1,13 @@
+{
+ "request": {
+  "keyword": "energy",
+  "oppStatuses": "forecasted|posted"
+ },
+ "pages": [
+  {
+   "errorcode": 1,
+   "msg": "Webservice Failed: invalid request",
+   "data": null
+  }
+ ]
+}

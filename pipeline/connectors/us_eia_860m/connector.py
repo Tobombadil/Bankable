@@ -44,8 +44,15 @@ class Connector(BaseConnector):
     kind: ClassVar[str] = "proposal"
     ext: ClassVar[str] = "xlsx"
     status_key: ClassVar[str] = "eia860m"
-    key_source_columns: ClassVar[tuple[str, ...]] = ("Plant ID", "Generator ID", "Plant Name", "Status",
-                                                     "Technology", "Nameplate Capacity (MW)", "Plant State")
+    key_source_columns: ClassVar[tuple[str, ...]] = (
+        "Plant ID",
+        "Generator ID",
+        "Plant Name",
+        "Status",
+        "Technology",
+        "Nameplate Capacity (MW)",
+        "Plant State",
+    )
     max_candidates: ClassVar[int] = 6
 
     def fetch(self) -> RawSnapshot:
@@ -58,13 +65,28 @@ class Connector(BaseConnector):
         for url in links[: self.max_candidates]:
             r = self.http.get(url, timeout=300)
             ok = r.status_code == 200 and r.content.startswith(XLSX_MAGIC)
-            tried.append({"url": url, "status": r.status_code, "content_type": r.headers.get("Content-Type", ""),
-                          "bytes": len(r.content), "xlsx": ok})
+            tried.append(
+                {
+                    "url": url,
+                    "status": r.status_code,
+                    "content_type": r.headers.get("Content-Type", ""),
+                    "bytes": len(r.content),
+                    "xlsx": ok,
+                }
+            )
             if ok:
-                return RawSnapshot(content=r.content, content_type=r.headers.get("Content-Type", ""), url=url,
-                                   retrieved_at=dt.datetime.now(dt.UTC), http_status=r.status_code, ext="xlsx",
-                                   headers=dict(r.headers), elapsed_s=round(time.monotonic() - t0, 2),
-                                   requests_made=1 + len(tried), meta={"index_url": INDEX_URL, "candidates": tried})
+                return RawSnapshot(
+                    content=r.content,
+                    content_type=r.headers.get("Content-Type", ""),
+                    url=url,
+                    retrieved_at=dt.datetime.now(dt.UTC),
+                    http_status=r.status_code,
+                    ext="xlsx",
+                    headers=dict(r.headers),
+                    elapsed_s=round(time.monotonic() - t0, 2),
+                    requests_made=1 + len(tried),
+                    meta={"index_url": INDEX_URL, "candidates": tried},
+                )
         raise ConnectorError(f"no real xlsx among the first {len(tried)} EIA-860M links: {tried}")
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:

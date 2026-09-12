@@ -27,6 +27,7 @@ from pipeline.connectors.registry import ROOT
 
 DATA_DIR = ROOT / "data"
 PUBLISHABLE_SUBDIRS = ("normalized", "events")
+QUARANTINE_DIR = "quarantine"
 
 
 def ts_token(t: dt.datetime) -> str:
@@ -56,15 +57,25 @@ class Store:
         return self.root / "runs" / source_id / f"{ts}.json"
 
     # writes --------------------------------------------------------------
+    def guard(self, path: pathlib.Path) -> None:
+        """Every write stays inside this store's root; a non-publishable store's root is the
+        quarantine tree, so a gated source can never reach `data/normalized` or `data/events`."""
+        try:
+            path.relative_to(self.root)
+        except ValueError:
+            raise RuntimeError(f"refusing to write {path} outside the store root {self.root}") from None
+        if not self.publishable and QUARANTINE_DIR not in path.parts:
+            raise RuntimeError(f"refusing to write publishable output {path} from a non-publishable store")
+
     def write_snapshot(self, source_id: str, ts: str, ext: str, content: bytes) -> pathlib.Path:
         p = self.snapshot_path(source_id, ts, ext)
+        self.guard(p)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(content)
         return p
 
     def write_parquet(self, path: pathlib.Path, df: pd.DataFrame) -> pathlib.Path:
-        if path.parts[len(self.root.parts)] in PUBLISHABLE_SUBDIRS and not self.publishable:
-            raise RuntimeError(f"refusing to write publishable output {path} from a non-publishable store")
+        self.guard(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         to_parquet_safe(df).to_parquet(path, index=False)
         return path
@@ -114,4 +125,4 @@ class QuarantineStore(Store):
     publishable = False
 
     def __init__(self, root: pathlib.Path = DATA_DIR) -> None:
-        super().__init__(root / "quarantine")
+        super().__init__(root / QUARANTINE_DIR)

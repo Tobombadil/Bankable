@@ -18,16 +18,39 @@ from pipeline.connectors.registry import RegistrationError, Registry
 from pipeline.connectors.runner import run
 from pipeline.connectors.store import DATA_DIR, Store
 
-_STD = {"name", "msg", "args", "levelname", "levelno", "pathname", "filename", "module", "exc_info", "exc_text",
-        "stack_info", "lineno", "funcName", "created", "msecs", "relativeCreated", "thread", "threadName",
-        "processName", "process", "message", "taskName"}
+_STD = {
+    "name",
+    "msg",
+    "args",
+    "levelname",
+    "levelno",
+    "pathname",
+    "filename",
+    "module",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "lineno",
+    "funcName",
+    "created",
+    "msecs",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "processName",
+    "process",
+    "message",
+    "taskName",
+}
 
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "ts": dt.datetime.fromtimestamp(record.created, tz=dt.UTC).isoformat(timespec="milliseconds"),
-            "level": record.levelname.lower(), "event": record.getMessage(), "service": "pipeline",
+            "level": record.levelname.lower(),
+            "event": record.getMessage(),
+            "service": "pipeline",
         }
         payload.update({k: v for k, v in record.__dict__.items() if k not in _STD and not k.startswith("_")})
         if record.exc_info:
@@ -51,8 +74,11 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("run", help="run one or more connectors")
     rp.add_argument("source_ids", nargs="*")
     rp.add_argument("--all", action="store_true", help="every implemented, non-gated source")
-    rp.add_argument("--allow-restricted", action="store_true",
-                    help="run a reuse=restricted/unknown source into the quarantine store")
+    rp.add_argument(
+        "--allow-restricted",
+        action="store_true",
+        help="run a reuse=restricted/unknown source into the quarantine store",
+    )
     rp.add_argument("--data-dir", default=str(DATA_DIR))
     args = ap.parse_args(argv)
     log = _setup_logging()
@@ -82,12 +108,23 @@ def main(argv: list[str] | None = None) -> int:
             rc = 2
             continue
         r = res.run
-        log.info("result", extra={"source_id": sid, "run_id": r["id"], "status": r["status"],
-                                  "rows_seen": r["rows_seen"], "rows_fetched": r["rows_fetched"],
-                                  "rows_new": r["rows_new"], "rows_changed": r["rows_changed"],
-                                  "rows_gone": r["rows_gone"], "dq_status": r["dq_status"],
-                                  "hold_reasons": r.get("hold_reasons"), "error": r.get("error"),
-                                  "run_path": str(res.paths.get("run"))})
+        log.info(
+            "result",
+            extra={
+                "source_id": sid,
+                "run_id": r["id"],
+                "status": r["status"],
+                "rows_seen": r["rows_seen"],
+                "rows_fetched": r["rows_fetched"],
+                "rows_new": r["rows_new"],
+                "rows_changed": r["rows_changed"],
+                "rows_gone": r["rows_gone"],
+                "dq_status": r["dq_status"],
+                "hold_reasons": r.get("hold_reasons"),
+                "error": r.get("error"),
+                "run_path": str(res.paths.get("run")),
+            },
+        )
         if r["status"] in ("failed", "blocked"):
             rc = 1
     return rc

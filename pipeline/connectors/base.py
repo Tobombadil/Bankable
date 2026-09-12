@@ -42,10 +42,28 @@ PROPOSAL_COLUMNS: list[str] = [c if c != "licence" else "licence_id" for c in _P
 # docs/21 §3.3 opportunity fields (kind, issuer, title, jurisdiction, technologies, open_at,
 # due_at, status) plus identity, provenance and the audit columns every record carries.
 OPPORTUNITY_COLUMNS: list[str] = [
-    "record_id", "source_id", "source_record_id", "source_url", "retrieved_at", "licence_id",
-    "kind", "issuer", "title", "summary", "jurisdiction", "technologies",
-    "capacity_sought_mw", "budget_amount", "budget_currency",
-    "open_at", "due_at", "status", "status_raw", "status_rule", "identifiers", "raw",
+    "record_id",
+    "source_id",
+    "source_record_id",
+    "source_url",
+    "retrieved_at",
+    "licence_id",
+    "kind",
+    "issuer",
+    "title",
+    "summary",
+    "jurisdiction",
+    "technologies",
+    "capacity_sought_mw",
+    "budget_amount",
+    "budget_currency",
+    "open_at",
+    "due_at",
+    "status",
+    "status_raw",
+    "status_rule",
+    "identifiers",
+    "raw",
 ]
 
 
@@ -94,12 +112,24 @@ class RawSnapshot:
         return self.retrieved_at.astimezone(dt.UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
     @classmethod
-    def from_file(cls, path: pathlib.Path, url: str, content_type: str = "application/octet-stream",
-                  retrieved_at: dt.datetime | None = None, **meta: Any) -> RawSnapshot:
+    def from_file(
+        cls,
+        path: pathlib.Path,
+        url: str,
+        content_type: str = "application/octet-stream",
+        retrieved_at: dt.datetime | None = None,
+        **meta: Any,
+    ) -> RawSnapshot:
         """Build a snapshot from a recorded fixture (tests only; `fetch` never runs in CI)."""
-        return cls(content=path.read_bytes(), content_type=content_type, url=url,
-                   retrieved_at=retrieved_at or dt.datetime(2026, 9, 12, tzinfo=dt.UTC),
-                   http_status=200, ext=path.suffix.lstrip("."), meta=meta)
+        return cls(
+            content=path.read_bytes(),
+            content_type=content_type,
+            url=url,
+            retrieved_at=retrieved_at or dt.datetime(2026, 9, 12, tzinfo=dt.UTC),
+            http_status=200,
+            ext=path.suffix.lstrip("."),
+            meta=meta,
+        )
 
 
 def utcnow() -> dt.datetime:
@@ -240,6 +270,15 @@ def to_parquet_safe(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for c in out.columns:
         if out[c].dtype == object:
-            out[c] = out[c].map(lambda v: json.dumps(v, default=json_default) if isinstance(v, (list, dict))
-                                else (None if _isna(v) else str(v))).astype("string")
+            out[c] = (
+                out[c]
+                .map(
+                    lambda v: (
+                        json.dumps(v, default=json_default)
+                        if isinstance(v, (list, dict))
+                        else (None if _isna(v) else str(v))
+                    )
+                )
+                .astype("string")
+            )
     return out

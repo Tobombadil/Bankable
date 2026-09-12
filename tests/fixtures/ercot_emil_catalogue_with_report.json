@@ -1,0 +1,797 @@
+[
+ {
+  "audience_o": {
+   "item": [
+    {
+     "key": "LSE"
+    },
+    {
+     "key": "TSP"
+    },
+    {
+     "key": "DSP"
+    },
+    {
+     "key": "QSE"
+    },
+    {
+     "key": "CRRAH"
+    },
+    {
+     "key": "CP"
+    },
+    {
+     "key": "RE"
+    },
+    {
+     "key": "IMRE"
+    }
+   ]
+  },
+  "reportTypeId_i": "27128",
+  "emilId_s": "pg3-4821-m",
+  "topics_o": {
+   "item": [
+    {
+     "topics_s": "Regional Planning Group Projects(RPG)"
+    },
+    {
+     "topics_s": "Regional Planning"
+    },
+    {
+     "topics_s": "Transmission Planning"
+    }
+   ]
+  },
+  "lastUpdatedDate_dt": "2025-12-22T20:08:12.620Z",
+  "market_s": "Nodal",
+  "misDisplayDuration_i": "2555",
+  "productDescription_s": "Data for projects that have undergone Regional Planning Group Review.",
+  "channel_o": {
+   "item": [
+    {
+     "value_smv": "Secure"
+    },
+    {
+     "value_smv": "EWS"
+    }
+   ]
+  },
+  "productName_s": "STEC Medina County Large Load Project",
+  "postingType_s": "Document",
+  "misLinks_o": {
+   "item": {
+    "component": {
+     "createdDate_dt": "2025-12-19T15:54:10.886Z",
+     "type_s": "ICE Data Product",
+     "subCategories_o": {
+      "item": {
+       "subCategory_s": "RPG Project"
+      },
+      "item-list": "true"
+     },
+     "lastModifiedDate": "2025-12-19T15:54:10.886Z",
+     "url_s": "27128",
+     "internal-name": "STEC Medina County Large Load Project",
+     "genre_s": "Grid",
+     "objectGroupId": "4755",
+     "dataClassification_s": "Secure",
+     "eMILID_o": {
+      "item": {
+       "include": "/site/data/data-products/pg3-4821-m.xml",
+       "datasource": "dataproducts",
+       "value": "STEC Medina County Large Load Project",
+       "disableFlattening": "false",
+       "key": "/site/data/data-products/pg3-4821-m.xml"
+      },
+      "item-list": "true"
+     },
+     "createdDate": "2025-12-19T15:54:10.886Z",
+     "lastModifiedDate_dt": "2025-12-19T15:54:10.886Z",
+     "category_s": "Regional Planning",
+     "merge-strategy": "inherit-levels",
+     "content-type": "/component/mis-link",
+     "display-template": "/templates/web/components/mis-link.ftl",
+     "file-name": "ad6a12af-be8a-46e2-b8bf-81bac022b09f.xml",
+     "roles_o": {
+      "item": [
+       {
+        "include": "/site/data/roles/99.xml",
+        "component": {
+         "createdDate_dt": "2021-02-08T13:38:34.027Z",
+         "lastModifiedDate": "2021-02-08T13:38:34.027Z",
+         "internal-name": "ICE_E_ADMIN_ECEII",
+         "market_s": "No",
+         "objectGroupId": "36b8",
+         "displayName_s": "ICE_E_ADMIN_ECEII",
+         "createdDate": "2021-02-08T13:38:34.027Z",
+         "roleID_s": "ICE_E_ADMIN_ECEII",
+         "lastModifiedDate_dt": "2021-02-08T13:38:34.027Z",
+         "merge-strategy": "inherit-levels",
+         "content-type": "/component/role",
+         "file-name": "99.xml",
+         "id_s": "99"
+        },
+        "value": "ICE_E_ADMIN_ECEII",
+        "disableFlattening": "false",
+        "key": "/site/data/roles/99.xml"
+       },
+       {
+        "include": "/site/data/roles/100.xml",
+        "component": {
+         "createdDate_dt": "2021-04-22T17:02:43.101Z",
+         "lastModifiedDate": "2021-04-22T17:02:43.101Z",
+         "internal-name": "ICE_M_VIEW_ECEII",
+         "market_s": "Yes",
+         "objectGroupId": "3c86",
+         "displayName_s": "ICE_M_VIEW_ECEII",
+         "roleID_s": "ICE_M_VIEW_ECEII",
+         "createdDate": "2021-04-22T17:02:43.101Z",
+         "lastModifiedDate_dt": "2021-04-22T17:02:43.101Z",
+         "merge-strategy": "inherit-levels",
+         "content-type": "/component/role",
+         "file-name": "100.xml",
+         "objectId": "3c865c31-9781-41d4-e3cf-57c16a848bb5",
+         "id_s": "100"
+        },
+        "value": "ICE_M_VIEW_ECEII",
+        "disableFlattening": "false",
+        "key": "/site/data/roles/100.xml"
+       },
+       {
+        "include": "/site/data/roles/61.xml",
+        "component": {
+         "createdDate_dt": "2021-02-08T13:38:33.989Z",
+         "lastModifiedDate": "2021-02-08T13:38:33.989Z",
+         "internal-name": "MDT_G_VIEW",
+         "market_s": "No",
+         "objectGroupId": "36b8",
+         "displayName_s": "MDT_G_VIEW",
+         "createdDate": "2021-02-08T13:38:33.989Z",
+         "roleID_s": "MDT_G_VIEW",
+         "lastModifiedDate_dt": "2021-02-08T13:38:33.989Z",
+         "merge-strategy": "inherit-levels",
+         "content-type": "/component/role",
+         "file-name": "61.xml",
+         "id_s": "61"
+        },
+        "value": "MDT_G_VIEW",
+        "disableFlattening": "false",
+        "key": "/site/data/roles/61.xml"
+       }
+      ],
+      "item-list": "true"
+     },
+     "objectId": "ad6a12af-be8a-46e2-b8bf-81bac022b09f"
+    }
+   }
+  },
+  "securityClassification_s": "Secure",
+  "generationFrequency_o": {
+   "item": {
+    "value_smv": "Event - As Needed"
+   }
+  },
+  "fileType_o": {
+   "item": [
+    {
+     "value_smv": "doc"
+    },
+    {
+     "value_smv": "pdf"
+    },
+    {
+     "value_smv": "xls"
+    },
+    {
+     "value_smv": "zip"
+    }
+   ]
+  },
+  "traceability_o": {
+   "item": {
+    "component": {
+     "description_s": "PG3.1.5(1)(i)"
+    }
+   }
+  },
+  "eceii_s": "Yes",
+  "status_s": "Active",
+  "firstRunDate_dt": "2025-12-19T06:00:00.000Z"
+ },
+ {
+  "audience_o": {
+   "item": [
+    {
+     "key": "LSE"
+    },
+    {
+     "key": "TSP"
+    },
+    {
+     "key": "DSP"
+    },
+    {
+     "key": "QSE"
+    },
+    {
+     "key": "CRRAH"
+    },
+    {
+     "key": "CP"
+    },
+    {
+     "key": "RE"
+    },
+    {
+     "key": "IMRE"
+    }
+   ]
+  },
+  "reportTypeId_i": "26212",
+  "emilId_s": "pg3-4628-m",
+  "topics_o": {
+   "item": [
+    {
+     "topics_s": "Regional Planning Group Projects(RPG)"
+    },
+    {
+     "topics_s": "Regional Planning"
+    },
+    {
+     "topics_s": "Transmission Planning"
+    }
+   ]
+  },
+  "lastUpdatedDate_dt": "2025-06-30T20:17:40.107Z",
+  "market_s": "Nodal",
+  "misDisplayDuration_i": "2555",
+  "productDescription_s": "Data for projects that have undergone Regional Planning Group Review.",
+  "channel_o": {
+   "item": [
+    {
+     "value_smv": "Secure"
+    },
+    {
+     "value_smv": "EWS"
+    }
+   ]
+  },
+  "productName_s": "CPS Energy Large Load Additions Project",
+  "postingType_s": "Document",
+  "misLinks_o": {
+   "item": {
+    "component": {
+     "createdDate_dt": "2025-06-26T14:33:00.534Z",
+     "type_s": "ICE Data Product",
+     "subCategories_o": {
+      "item": {
+       "subCategory_s": "RPG Project"
+      },
+      "item-list": "true"
+     },
+     "lastModifiedDate": "2025-06-26T14:33:00.534Z",
+     "url_s": "26212",
+     "internal-name": "CPS Energy Large Load Additions Project",
+     "genre_s": "Grid",
+     "objectGroupId": "4755",
+     "dataClassification_s": "Secure",
+     "eMILID_o": {
+      "item": {
+       "include": "/site/data/data-products/pg3-4628-m.xml",
+       "datasource": "dataproducts",
+       "value": "CPS Energy Large Load Additions Project",
+       "disableFlattening": "false",
+       "key": "/site/data/data-products/pg3-4628-m.xml"
+      },
+      "item-list": "true"
+     },
+     "createdDate": "2025-06-26T14:33:00.534Z",
+     "lastModifiedDate_dt": "2025-06-26T14:33:00.534Z",
+     "category_s": "Regional Planning",
+     "merge-strategy": "inherit-levels",
+     "content-type": "/component/mis-link",
+     "display-template": "/templates/web/components/mis-link.ftl",
+     "file-name": "973a37d5-af95-4068-9467-b4cc50551b68.xml",
+     "roles_o": {
+      "item": [
+       {
+        "include": "/site/data/roles/99.xml",
+        "component": {
+         "createdDate_dt": "2021-02-08T13:38:34.027Z",
+         "lastModifiedDate": "2021-02-08T13:38:34.027Z",
+         "internal-name": "ICE_E_ADMIN_ECEII",
+         "market_s": "No",
+         "objectGroupId": "36b8",
+         "displayName_s": "ICE_E_ADMIN_ECEII",
+         "createdDate": "2021-02-08T13:38:34.027Z",
+         "roleID_s": "ICE_E_ADMIN_ECEII",
+         "lastModifiedDate_dt": "2021-02-08T13:38:34.027Z",
+         "merge-strategy": "inherit-levels",
+         "content-type": "/component/role",
+         "file-name": "99.xml",
+         "id_s": "99"
+        },
+        "value": "ICE_E_ADMIN_ECEII",
+        "disableFlattening": "false",
+        "key": "/site/data/roles/99.xml"
+       },
+       {
+        "include": "/site/data/roles/100.xml",
+        "component": {
+         "createdDate_dt": "2021-04-22T17:02:43.101Z",
+         "lastModifiedDate": "2021-04-22T17:02:43.101Z",
+         "internal-name": "ICE_M_VIEW_ECEII",
+         "market_s": "Yes",
+         "objectGroupId": "3c86",
+         "displayName_s": "ICE_M_VIEW_ECEII",
+         "roleID_s": "ICE_M_VIEW_ECEII",
+         "createdDate": "2021-04-22T17:02:43.101Z",
+         "lastModifiedDate_dt": "2021-04-22T17:02:43.101Z",
+         "merge-strategy": "inherit-levels",
+         "content-type": "/component/role",
+         "file-name": "100.xml",
+         "objectId": "3c865c31-9781-41d4-e3cf-57c16a848bb5",
+         "id_s": "100"
+        },
+        "value": "ICE_M_VIEW_ECEII",
+        "disableFlattening": "false",
+        "key": "/site/data/roles/100.xml"
+       },
+       {
+        "include": "/site/data/roles/61.xml",
+        "component": {
+         "createdDate_dt": "2021-02-08T13:38:33.989Z",
+         "lastModifiedDate": "2021-02-08T13:38:33.989Z",
+         "internal-name": "MDT_G_VIEW",
+         "market_s": "No",
+         "objectGroupId": "36b8",
+         "displayName_s": "MDT_G_VIEW",
+         "createdDate": "2021-02-08T13:38:33.989Z",
+         "roleID_s": "MDT_G_VIEW",
+         "lastModifiedDate_dt": "2021-02-08T13:38:33.989Z",
+         "merge-strategy": "inherit-levels",
+         "content-type": "/component/role",
+         "file-name": "61.xml",
+         "id_s": "61"
+        },
+        "value": "MDT_G_VIEW",
+        "disableFlattening": "false",
+        "key": "/site/data/roles/61.xml"
+       }
+      ],
+      "item-list": "true"
+     },
+     "objectId": "973a37d5-af95-4068-9467-b4cc50551b68"
+    }
+   }
+  },
+  "securityClassification_s": "Secure",
+  "generationFrequency_o": {
+   "item": {
+    "value_smv": "Event - As Needed"
+   }
+  },
+  "fileType_o": {
+   "item": [
+    {
+     "value_smv": "doc"
+    },
+    {
+     "value_smv": "pdf"
+    },
+    {
+     "value_smv": "xls"
+    },
+    {
+     "value_smv": "zip"
+    }
+   ]
+  },
+  "traceability_o": {
+   "item": {
+    "component": {
+     "description_s": "PG3.1.5(1)(i)"
+    }
+   }
+  },
+  "eceii_s": "Yes",
+  "status_s": "Active",
+  "firstRunDate_dt": "2025-06-30T05:00:00.000Z"
+ },
+ {
+  "audience_o": {
+   "item": [
+    {
+     "key": "LSE"
+    },
+    {
+     "key": "TSP"
+    },
+    {
+     "key": "DSP"
+    },
+    {
+     "key": "QSE"
+    },
+    {
+     "key": "CRRAH"
+    },
+    {
+     "key": "CP"
+    },
+    {
+     "key": "RE"
+    },
+    {
+     "key": "IMRE"
+    }
+   ]
+  },
+  "reportTypeId_i": "23121",
+  "emilId_s": "pg3-3282-m",
+  "topics_o": {
+   "item": [
+    {
+     "topics_s": "Regional Planning Group Projects(RPG)"
+    },
+    {
+     "topics_s": "Regional Planning"
+    },
+    {
+     "topics_s": "Transmission Planning"
+    }
+   ]
+  },
+  "lastUpdatedDate_dt": "2023-11-27T23:20:10.187Z",
+  "market_s": "Nodal",
+  "misDisplayDuration_i": "2555",
+  "productDescription_s": "Data for projects that have undergone Regional Planning Group Review.",
+  "channel_o": {
+   "item": [
+    {
+     "value_smv": "Secure"
+    },
+    {
+     "value_smv": "EWS"
+    }
+   ]
+  },
+  "productName_s": "GVEC Eagle Ford Large Load Interconnection Project",
+  "postingType_s": "Document",
+  "misLinks_o": {
+   "item": [
+    {
+     "component": {
+      "createdDate_dt": "2023-11-27T22:37:58.346Z",
+      "type_s": "ICE Data Product",
+      "subCategories_o": {
+       "item": [
+        {
+         "subCategory_s": "RPG Project"
+        }
+       ]
+      },
+      "lastModifiedDate": "2023-11-27T22:37:58.346Z",
+      "url_s": "23121",
+      "internal-name": "GVEC Eagle Ford Large Load Interconnection Project",
+      "genre_s": "Grid",
+      "objectGroupId": "4755",
+      "dataClassification_s": "Secure",
+      "eMILID_o": {
+       "item": [
+        {
+         "include": "/site/data/data-products/pg3-3282-m.xml",
+         "value": "GVEC Eagle Ford Large Load Interconnection Project",
+         "disableFlattening": "false",
+         "key": "/site/data/data-products/pg3-3282-m.xml"
+        }
+       ]
+      },
+      "createdDate": "2023-11-27T22:37:58.346Z",
+      "lastModifiedDate_dt": "2023-11-27T22:37:58.346Z",
+      "category_s": "Regional Planning",
+      "merge-strategy": "inherit-levels",
+      "content-type": "/component/mis-link",
+      "display-template": "/templates/web/components/mis-link.ftl",
+      "file-name": "7929c316-c629-448c-91c4-507f643070ec.xml",
+      "roles_o": {
+       "item": [
+        {
+         "include": "/site/data/roles/99.xml",
+         "component": {
+          "createdDate_dt": "2021-02-08T13:38:34.027Z",
+          "lastModifiedDate": "2021-02-08T13:38:34.027Z",
+          "internal-name": "ICE_E_ADMIN_ECEII",
+          "market_s": "No",
+          "objectGroupId": "36b8",
+          "displayName_s": "ICE_E_ADMIN_ECEII",
+          "createdDate": "2021-02-08T13:38:34.027Z",
+          "roleID_s": "ICE_E_ADMIN_ECEII",
+          "lastModifiedDate_dt": "2021-02-08T13:38:34.027Z",
+          "merge-strategy": "inherit-levels",
+          "content-type": "/component/role",
+          "file-name": "99.xml",
+          "id_s": "99"
+         },
+         "value": "ICE_E_ADMIN_ECEII",
+         "disableFlattening": "false",
+         "key": "/site/data/roles/99.xml"
+        },
+        {
+         "include": "/site/data/roles/100.xml",
+         "component": {
+          "createdDate_dt": "2021-04-22T17:02:43.101Z",
+          "lastModifiedDate": "2021-04-22T17:02:43.101Z",
+          "internal-name": "ICE_M_VIEW_ECEII",
+          "market_s": "Yes",
+          "objectGroupId": "3c86",
+          "displayName_s": "ICE_M_VIEW_ECEII",
+          "roleID_s": "ICE_M_VIEW_ECEII",
+          "createdDate": "2021-04-22T17:02:43.101Z",
+          "lastModifiedDate_dt": "2021-04-22T17:02:43.101Z",
+          "merge-strategy": "inherit-levels",
+          "content-type": "/component/role",
+          "file-name": "100.xml",
+          "objectId": "3c865c31-9781-41d4-e3cf-57c16a848bb5",
+          "id_s": "100"
+         },
+         "value": "ICE_M_VIEW_ECEII",
+         "disableFlattening": "false",
+         "key": "/site/data/roles/100.xml"
+        },
+        {
+         "include": "/site/data/roles/61.xml",
+         "component": {
+          "createdDate_dt": "2021-02-08T13:38:33.989Z",
+          "lastModifiedDate": "2021-02-08T13:38:33.989Z",
+          "internal-name": "MDT_G_VIEW",
+          "market_s": "No",
+          "objectGroupId": "36b8",
+          "displayName_s": "MDT_G_VIEW",
+          "createdDate": "2021-02-08T13:38:33.989Z",
+          "roleID_s": "MDT_G_VIEW",
+          "lastModifiedDate_dt": "2021-02-08T13:38:33.989Z",
+          "merge-strategy": "inherit-levels",
+          "content-type": "/component/role",
+          "file-name": "61.xml",
+          "id_s": "61"
+         },
+         "value": "MDT_G_VIEW",
+         "disableFlattening": "false",
+         "key": "/site/data/roles/61.xml"
+        }
+       ]
+      },
+      "objectId": "7929c316-c629-448c-91c4-507f643070ec"
+     }
+    }
+   ]
+  },
+  "securityClassification_s": "Secure",
+  "generationFrequency_o": {
+   "item": {
+    "value_smv": "Event - As Needed"
+   }
+  },
+  "fileType_o": {
+   "item": [
+    {
+     "value_smv": "doc"
+    },
+    {
+     "value_smv": "pdf"
+    },
+    {
+     "value_smv": "xls"
+    },
+    {
+     "value_smv": "zip"
+    }
+   ]
+  },
+  "traceability_o": {
+   "item": [
+    {
+     "component": {
+      "description_s": "PG3.1.5(1)(i)"
+     }
+    }
+   ]
+  },
+  "eceii_s": "Yes",
+  "status_s": "Active",
+  "firstRunDate_dt": "2022-12-22T06:00:00.000Z"
+ },
+ {
+  "audience_o": {
+   "item": [
+    {
+     "key": "LSE"
+    },
+    {
+     "key": "TSP"
+    },
+    {
+     "key": "DSP"
+    },
+    {
+     "key": "QSE"
+    },
+    {
+     "key": "CRRAH"
+    },
+    {
+     "key": "CP"
+    },
+    {
+     "key": "RE"
+    },
+    {
+     "key": "IMRE"
+    }
+   ]
+  },
+  "reportTypeId_i": "99999",
+  "emilId_s": "np3-990-xx",
+  "topics_o": {
+   "item": [
+    {
+     "topics_s": "Regional Planning Group Projects(RPG)"
+    },
+    {
+     "topics_s": "Regional Planning"
+    },
+    {
+     "topics_s": "Transmission Planning"
+    }
+   ]
+  },
+  "lastUpdatedDate_dt": "2026-09-01T00:00:00.000Z",
+  "market_s": "Nodal",
+  "misDisplayDuration_i": "2555",
+  "productDescription_s": "Monthly aggregated status of Large Load Interconnection requests published under Nodal Protocol Section 3.2.7.",
+  "channel_o": {
+   "item": [
+    {
+     "value_smv": "Secure"
+    },
+    {
+     "value_smv": "EWS"
+    }
+   ]
+  },
+  "productName_s": "Large Load Interconnection Status Report",
+  "postingType_s": "Document",
+  "misLinks_o": {
+   "item": {
+    "component": {
+     "createdDate_dt": "2025-12-19T15:54:10.886Z",
+     "type_s": "ICE Data Product",
+     "subCategories_o": {
+      "item": {
+       "subCategory_s": "RPG Project"
+      },
+      "item-list": "true"
+     },
+     "lastModifiedDate": "2025-12-19T15:54:10.886Z",
+     "url_s": "27128",
+     "internal-name": "STEC Medina County Large Load Project",
+     "genre_s": "Grid",
+     "objectGroupId": "4755",
+     "dataClassification_s": "Secure",
+     "eMILID_o": {
+      "item": {
+       "include": "/site/data/data-products/pg3-4821-m.xml",
+       "datasource": "dataproducts",
+       "value": "STEC Medina County Large Load Project",
+       "disableFlattening": "false",
+       "key": "/site/data/data-products/pg3-4821-m.xml"
+      },
+      "item-list": "true"
+     },
+     "createdDate": "2025-12-19T15:54:10.886Z",
+     "lastModifiedDate_dt": "2025-12-19T15:54:10.886Z",
+     "category_s": "Regional Planning",
+     "merge-strategy": "inherit-levels",
+     "content-type": "/component/mis-link",
+     "display-template": "/templates/web/components/mis-link.ftl",
+     "file-name": "ad6a12af-be8a-46e2-b8bf-81bac022b09f.xml",
+     "roles_o": {
+      "item": [
+       {
+        "include": "/site/data/roles/99.xml",
+        "component": {
+         "createdDate_dt": "2021-02-08T13:38:34.027Z",
+         "lastModifiedDate": "2021-02-08T13:38:34.027Z",
+         "internal-name": "ICE_E_ADMIN_ECEII",
+         "market_s": "No",
+         "objectGroupId": "36b8",
+         "displayName_s": "ICE_E_ADMIN_ECEII",
+         "createdDate": "2021-02-08T13:38:34.027Z",
+         "roleID_s": "ICE_E_ADMIN_ECEII",
+         "lastModifiedDate_dt": "2021-02-08T13:38:34.027Z",
+         "merge-strategy": "inherit-levels",
+         "content-type": "/component/role",
+         "file-name": "99.xml",
+         "id_s": "99"
+        },
+        "value": "ICE_E_ADMIN_ECEII",
+        "disableFlattening": "false",
+        "key": "/site/data/roles/99.xml"
+       },
+       {
+        "include": "/site/data/roles/100.xml",
+        "component": {
+         "createdDate_dt": "2021-04-22T17:02:43.101Z",
+         "lastModifiedDate": "2021-04-22T17:02:43.101Z",
+         "internal-name": "ICE_M_VIEW_ECEII",
+         "market_s": "Yes",
+         "objectGroupId": "3c86",
+         "displayName_s": "ICE_M_VIEW_ECEII",
+         "roleID_s": "ICE_M_VIEW_ECEII",
+         "createdDate": "2021-04-22T17:02:43.101Z",
+         "lastModifiedDate_dt": "2021-04-22T17:02:43.101Z",
+         "merge-strategy": "inherit-levels",
+         "content-type": "/component/role",
+         "file-name": "100.xml",
+         "objectId": "3c865c31-9781-41d4-e3cf-57c16a848bb5",
+         "id_s": "100"
+        },
+        "value": "ICE_M_VIEW_ECEII",
+        "disableFlattening": "false",
+        "key": "/site/data/roles/100.xml"
+       },
+       {
+        "include": "/site/data/roles/61.xml",
+        "component": {
+         "createdDate_dt": "2021-02-08T13:38:33.989Z",
+         "lastModifiedDate": "2021-02-08T13:38:33.989Z",
+         "internal-name": "MDT_G_VIEW",
+         "market_s": "No",
+         "objectGroupId": "36b8",
+         "displayName_s": "MDT_G_VIEW",
+         "createdDate": "2021-02-08T13:38:33.989Z",
+         "roleID_s": "MDT_G_VIEW",
+         "lastModifiedDate_dt": "2021-02-08T13:38:33.989Z",
+         "merge-strategy": "inherit-levels",
+         "content-type": "/component/role",
+         "file-name": "61.xml",
+         "id_s": "61"
+        },
+        "value": "MDT_G_VIEW",
+        "disableFlattening": "false",
+        "key": "/site/data/roles/61.xml"
+       }
+      ],
+      "item-list": "true"
+     },
+     "objectId": "ad6a12af-be8a-46e2-b8bf-81bac022b09f"
+    }
+   }
+  },
+  "securityClassification_s": "Public",
+  "generationFrequency_o": {
+   "item": {
+    "value_smv": "Chron - Monthly"
+   }
+  },
+  "fileType_o": {
+   "item": [
+    {
+     "value_smv": "xlsx"
+    }
+   ]
+  },
+  "traceability_o": {
+   "item": {
+    "component": {
+     "description_s": "PG3.1.5(1)(i)"
+    }
+   }
+  },
+  "eceii_s": "Yes",
+  "status_s": "Active",
+  "firstRunDate_dt": "2026-09-01T00:00:00.000Z"
+ }
+]
