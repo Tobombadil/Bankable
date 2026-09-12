@@ -75,7 +75,7 @@ legal-compliance ──▶      │                      │                  ba
 
 - Sprint 0 (now): PRD v0, market and competition, legal register and outreach rules, architecture and ERD v0,
   entity-resolution prototype on real data, social playbook, GTM playbook.
-- Sprint 1: ADRs, OpenAPI, design system and IA, connector framework with the five live ISO queues.
+- Sprint 1: ADRs, OpenAPI, design system and IA (map-first), `docs/04-standards.md` (cross-discipline best practices), connector framework with the five live ISO queues.
 - Sprint 2: proposal graph, change events, public delayed pages, alerts, first syndication channel.
 - Each sprint ends with QA sign-off and an owner review of `docs/00-PLAN.md`.
 
