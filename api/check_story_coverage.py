@@ -4,9 +4,10 @@
 Checks, in order:
   1. the document parses and every internal $ref resolves;
   2. every operation carries x-tier, x-prd-stories, x-status and a summary;
-  3. every PRD story id (US-1xx…US-10xx) is claimed by at least one operation, and every
+  3. every named example validates against the schema it illustrates (docs/04 E-8);
+  4. every PRD story id (US-1xx…US-10xx) is claimed by at least one operation, and every
      claimed id exists in the PRD;
-  4. prints the story -> operation mapping and the operation / schema counts.
+  5. prints the story -> operation mapping and the operation / schema counts.
 
 Usage:  python api/check_story_coverage.py [--quiet]
 Exit code 0 when every story is covered, 1 otherwise.
@@ -18,6 +19,9 @@ import sys
 from pathlib import Path
 
 import yaml
+from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = ROOT / "api" / "openapi.yaml"
@@ -29,6 +33,20 @@ HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "tra
 NOTE = {
     "US-908": "release gate (docs/23 §11) — exposed as launch-checklist probes on GET /v1/health",
 }
+
+# components.examples name -> the components.schemas name it illustrates.
+EXAMPLE_SCHEMAS = {
+    "ProposalListPublic": "ProposalListResponse",
+    "ProposalDetailPublic": "ProposalDetailResponse",
+    "OpportunityListPublic": "OpportunityListResponse",
+    "EventList": "EventListResponse",
+    "GeoClusters": "GeoResponse",
+    "MatchList": "MatchListResponse",
+    "ApiKeyCreated": "ApiKeyCreatedResponse",
+    "JsonFeedExample": "JsonFeed",
+    "WebhookEventPublished": "WebhookEventPublished",
+}
+BASE_URI = "https://spec.local/openapi.yaml"
 
 
 def prd_story_ids(text: str) -> list[str]:
@@ -60,6 +78,44 @@ def resolve(doc, ref: str):
     return node
 
 
+def check_examples(doc) -> list[str]:
+    """Validate every named example, and every inline problem example, against its schema."""
+    registry = Registry().with_resource(
+        uri=BASE_URI, resource=Resource(contents=doc, specification=DRAFT202012)
+    )
+
+    def errors_for(schema_name: str, instance) -> list[str]:
+        validator = Draft202012Validator(
+            {"$id": BASE_URI + "#inline", "$ref": f"{BASE_URI}#/components/schemas/{schema_name}"},
+            registry=registry,
+        )
+        return [
+            f"{'/'.join(str(p) for p in e.path) or '<root>'}: {e.message}"
+            for e in sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
+        ]
+
+    found: list[str] = []
+    for name, example in (doc.get("components", {}).get("examples") or {}).items():
+        schema_name = EXAMPLE_SCHEMAS.get(name)
+        if schema_name is None:
+            found.append(f"example {name}: not listed in EXAMPLE_SCHEMAS, so it is never validated")
+            continue
+        found += [f"example {name} vs {schema_name}: {m}" for m in errors_for(schema_name, example["value"])]
+
+    for resp_name, response in (doc.get("components", {}).get("responses") or {}).items():
+        body = (response.get("content") or {}).get("application/problem+json")
+        if not body:
+            continue
+        instances = {}
+        if "example" in body:
+            instances[resp_name] = body["example"]
+        for ex_name, ex in (body.get("examples") or {}).items():
+            instances[f"{resp_name}.{ex_name}"] = ex["value"]
+        for label, instance in instances.items():
+            found += [f"problem example {label}: {m}" for m in errors_for("Problem", instance)]
+    return found
+
+
 def operations(doc):
     """(method, path, operation) for both `paths` and `webhooks`."""
     for group in ("paths", "webhooks"):
@@ -79,7 +135,10 @@ def main() -> int:
     broken = sorted({ref for ref, _ in walk_refs(doc) if resolve(doc, ref) is None})
     problems += [f"unresolved $ref: {ref}" for ref in broken]
 
-    # 2. required extensions on every operation
+    # 2. every example validates against the schema it illustrates
+    problems += check_examples(doc)
+
+    # 3. required extensions on every operation
     coverage: dict[str, list[str]] = {s: [] for s in stories}
     unknown_claims: set[str] = set()
     op_ids: list[str] = []
@@ -112,7 +171,8 @@ def main() -> int:
         print(f"PRD           : {PRD.relative_to(ROOT)} §4")
         print(f"Operations    : {len(op_ids)}   Schemas: {len(schemas)}   "
               f"Parameters: {len(doc.get('components', {}).get('parameters', {}))}   "
-              f"Responses: {len(doc.get('components', {}).get('responses', {}))}")
+              f"Responses: {len(doc.get('components', {}).get('responses', {}))}   "
+              f"Examples: {len(doc.get('components', {}).get('examples', {}))}")
         print(f"PRD stories   : {len(stories)}")
         print()
         print(f"{'Story':<9} {'Ops':>3}  Operations")

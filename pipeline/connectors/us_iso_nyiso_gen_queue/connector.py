@@ -1,10 +1,12 @@
 """us.iso.nyiso.gen_queue — NYISO Interconnection Queue workbook.
 
 Parse: gridstatus.NYISO's parser over the active, cluster, withdrawn and in-service sheets (the
-workbook's "Load Projects" sheet is a separate large-load register, not ingested here).
-source_record_id: "Queue Pos." where present; 1,350 withdrawn rows carry no position and get a
-content hash of name/county/state/MW/date/status (docs/20 §3.1). Two positions are duplicated in
-the source file, so `dedupe_strategy = "suffix"` (#2 in file order) and the run records a warning.
+workbook's "Load Projects" sheet is a separate large-load register, not ingested here). The
+Withdrawn sheets are padded with 1,350 rows that carry no queue position, no name, no county and
+no date — only the sheet's implied status; they are dropped, because a row with no identity is
+not an observation and hashing them would produce 1,350 identical ids.
+source_record_id: "Queue Pos."; the two positions that appear twice in the workbook are suffixed
+`#2` in file order (`dedupe_strategy = "suffix"`) and the run records a DQ warning.
 Reuse: attribution (derived-only until counsel sign-off, docs/13 §1.5).
 """
 
@@ -42,7 +44,17 @@ class Connector(BaseConnector):
                            headers=dict(r.headers), elapsed_s=round(time.monotonic() - t0, 2))
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
-        return gridstatus_rows("NYISO", raw)
+        rows = gridstatus_rows("NYISO", raw)
+        return [r for r in rows if _identified(r)]
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
         return normalize_iso_rows(self, "nyiso", rows, raw)
+
+
+def _identified(row: dict[str, Any]) -> bool:
+    """A queue row needs a position or at least a project name to be an observation."""
+    return any(not _blank(row.get(c)) for c in ("Queue ID", "Project Name"))
+
+
+def _blank(v: Any) -> bool:
+    return v is None or (isinstance(v, float) and pd.isna(v)) or str(v).strip() in ("", "nan", "NaT")

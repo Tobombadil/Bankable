@@ -23,6 +23,7 @@ sources:
       can-modif: awarded
       can-tran: awarded
       veat: awarded
+      pmc: announced
       brin-eeig: announced
       brin-ecs: announced
     refine:
@@ -31,5 +32,8 @@ sources:
         then: closed
         note: A contract notice whose receipt deadline is in the past is closed pending award.
     caveats:
+      - >-
+        `pmc` is a preliminary market consultation (form-type `consultation`): the buyer is
+        testing the market before a procurement exists, so it is `announced`, not `open`.
       - Contract-award notices (can-*) are new records keyed by their own publication number; the
         resolver links them to the originating contract notice later (docs/21 §3.3 identifiers).

@@ -10471,7 +10471,7 @@ components:
           licence_accepted_version: api-licence-1.0
           licence_accepted_at: '2026-09-12T09:00:00Z'
           created_at: '2026-09-12T09:00:00Z'
-          secret: bk_live_7Hq3mZp9Xk2LwT4vN8bR1cD5yF6gJ0aS3eU2iO9pK7lM4nB
+          secret: bk_live_7Hq3mZp9Xk2LwT4vN8bR1cD5yF6gJ0aS3eU2iO9f31a
         meta:
           tier: api
           lag_days: 0
