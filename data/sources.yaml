@@ -677,7 +677,7 @@ sources:
   cadence: realtime
   license: OGL v3
   reuse: attribution
-  tier: 2
+  tier: 1
   effort: S
   probe: {method: GET, url: "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?updatedFrom=2026-09-10T00:00:00"}
   verified: {date: 2026-09-12, result: ok, note: "100 releases per page; filter CPV 09*/31*/45231*/71314*"}
