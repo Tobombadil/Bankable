@@ -420,7 +420,7 @@ def build(date: str, raw_dir: pathlib.Path = RAW) -> pd.DataFrame:
     # duplicates, so suffix the 2nd, 3rd... occurrence with #2, #3 in file order.
     dup_n = out.groupby("record_id").cumcount()
     out.loc[dup_n > 0, "record_id"] = out["record_id"] + "#" + (dup_n + 1).astype(str)
-    if not out["record_id"].is_unique:  # noqa: S101 replaced by an explicit check
+    if not out["record_id"].is_unique:
         raise ValueError("record_id is not unique after duplicate suffixing")
     return out
 
