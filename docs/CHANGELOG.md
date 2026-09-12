@@ -1,5 +1,7 @@
 # Changelog (one line per material doc/code change, newest first)
 
+- 2026-09-12 legal-compliance: added `docs/13-legal-outreach-and-social.md` (CAN-SPAM, PECR/GDPR, TCPA, CASL, LinkedIn/X/Bluesky/Meta/Reddit rules, AI disclosure incl. AI Act Art. 50 and CA B.O.T. Act, human-sends L0–L4 rule set, suppression/record-keeping, channel gate, 10 counsel items).
+- 2026-09-12 legal-compliance: added `docs/13-legal-data-rights.md` (verbatim ISO/licence/news terms with URLs and dates; PJM three-document conflict, SPP commercial-use bar, Google News robots Disallow, GEM CC BY-NC trap; scraping law, EU database right + DSM Art. 4 signals, personal-data rules, publication matrix, 12 counsel items) and updated `license`/`reuse`/`notes` in `data/sources.yaml` for 14 sources with verbatim clauses.
 - 2026-09-12 solutions-architect: added `docs/21-data-model.md` (ERD, 22 entities field-level, event log with reversible merges, lifecycle state machines, reuse-class gating, corrections C-1..C-7 to docs/20), `docs/23-api-spec-outline.md` (endpoints by tier mapped to all 44 stories, auth/scopes, rate limits, errors, feeds/webhooks, attribution envelope; OpenAPI YAML due Sprint 1), `docs/adr/0001`–`0006` (0005 hosting and 0006 CRM/ERP proposed pending owner).
 - 2026-09-12 Added `docs/10-prd-mvp.md`: MVP PRD v0 (problem/thesis, six segments + routing team JTBD, scope with PJM/MISO gates, 44 user stories with acceptance criteria, 13 metrics, Sprint 1–3 plan, assumptions A-1..A-13, definitions of done for Sprint 0 deliverables) — product-manager.
 - 2026-09-12 sales-bd: added `docs/33-gtm-and-sales-playbook.md` (ICPs, research/scoring, outreach sequences, discovery plan, partnerships, pricing, CRM, automation boundary).
@@ -9,3 +11,5 @@
 - 2026-09-12 content-social: added `docs/32-social-operating-playbook.md` (channels, account checklist, editorial, post pipeline, KPIs).
 - 2026-09-12 market-researcher: added `docs/11-market-and-competition.md` (competitor teardown, bottom-up sizing, pricing ladder with delay schedule, demand-side counts, discovery guide).
 - 2026-09-12 product-manager (coordinator): PRD US-104 elevated to map-first navigation per owner; US-901 and US-1001 amended for docs/21 corrections C-5 and C-7.
+- 2026-09-12 coordinator: owner direction applied — existing Bankable workflow is a later consideration, not foundational (PLAN, CLAUDE.md, README, PRD v0.1, agent briefs, addenda on 01 and 11).
+- 2026-09-12 legal-compliance: added `docs/13-legal-data-rights.md` and `docs/13-legal-outreach-and-social.md`; sources.yaml licence fields updated where clauses were retrieved.

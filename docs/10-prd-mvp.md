@@ -1,6 +1,9 @@
 # PRD — Bankable MVP (proposal graph + change feed)
 
-**Status:** Sprint 0 deliverable, v0 · 2026-09-12 · owner: product-manager · reviewed by: owner
+**Status:** Sprint 0 deliverable, v0.1 · 2026-09-12 · owner: product-manager · reviewed by: owner
+**Owner direction 2026-09-12:** the existing Bankable workflow (analyse → certify → route → fund) is a later
+consideration, not a foundation. Wording below that treated it as the destination has been softened; the product
+(graph, feed, tiers, alerts, syndication) is unchanged. "Operations team (S0)" replaces "routing team".
 **Depends on:** `docs/00-PLAN.md` (vision, decisions, open questions), `docs/01-feasibility.md` (reframing, price
 anchors, validation plan), `docs/02-data-sources.md` (source tiers, legal register, schema seed, ingestion
 order), `docs/03-agent-operating-model.md` (roster, run-time loop, sprint cadence), `data/sources.yaml`.
@@ -41,9 +44,9 @@ proposals platform is the **top of that funnel and its data asset**, not a stand
    is the wedge and it is exactly what makes a project "bankable".
 4. **Three tiers.** Delayed free (attribution, SEO, social feed), live Pro (alerts, filters, exports), Team/API.
    Price anchors and the tier ladder are in `docs/01-feasibility.md` §3.4; the numbers are set in Phase 1.
-5. **Route-to-capital hooks.** A light "submit a project" intake and an internal routing view so the Bankable
-   team can take a matched proposal into the existing analyse → certify → route workflow. Scoring and
-   certification themselves are Phase 5.
+5. **Light intake and lead hand-off (later-consideration hooks).** A light "submit a project" intake and a
+   CRM lead hand-off for matched pairs. Any deeper deal workflow, including integration with the existing
+   Bankable app, is a later consideration, not part of this platform's foundation.
 
 ### 1.3 What we are betting on
 
@@ -51,7 +54,7 @@ proposals platform is the **top of that funnel and its data asset**, not a stand
   moderate-high).
 - The demand side is thin but valuable in 2026 precisely because it is volatile (`docs/01` §3.6).
 - The free delayed tier and Bluesky/LinkedIn feed are marketing spend with a measured CAC for the paid tiers and
-  for Bankable's routing fees (`docs/01` §4).
+  for any later deal-workflow revenue (`docs/01` §4; later consideration).
 
 The kill signals for each bet are the validation plan in `docs/01-feasibility.md` §6 and are restated as MVP
 targets in §5 below.
@@ -72,7 +75,7 @@ serves it; a feature that serves no job below is out of scope.
 | S4 | **EPC / OEM** (build and equipment pipeline) | (a) Find proposals entering the stage where EPC/equipment is contracted. (b) Track a technology class (storage, gas, nuclear) across ISOs. (c) Alert on awards and permits. | Browse with technology/stage filters (US-1xx), alerts (US-5xx) |
 | S5 | **Advisors / law firms** (transaction, regulatory, siting counsel) | (a) Spot new dockets, filings and RFPs in my practice area as they appear. (b) Reference a single provenance-backed record in client work. (c) Export and cite. | Detail with provenance (US-2xx), alerts (US-5xx), exports (US-6xx) |
 | S6 | **Data-centre / large-load operators** | (a) Find where large-load capacity is being requested and granted (ERCOT large-load queue first, per `data/sources.yaml` `us.iso.ercot.large_load_queue`). (b) Track utility and ISO large-load rules and dockets. (c) Find generation/storage proposals near candidate sites that could co-locate or supply. | Browse with kind=load (US-1xx), detail (US-2xx), matches (US-4xx) |
-| S0 | **Bankable routing team** (internal) | (a) Turn a matched proposal + opportunity into a lead in the CRM. (b) Review intake submissions. (c) Keep sources healthy and the publish gate honest. (d) Approve social posts until channels are trusted. | Admin (US-9xx), social review queue (US-8xx), intake review (US-10xx), lead events written to CRM (§4.9) |
+| S0 | **Operations team** (internal) | (a) Turn a matched proposal + opportunity into a lead in the CRM. (b) Review intake submissions. (c) Keep sources healthy and the publish gate honest. (d) Approve social posts until channels are trusted. | Admin (US-9xx), social review queue (US-8xx), intake review (US-10xx), lead events written to CRM (§4.9) |
 
 Segments S1 and S2 are the pre-sell targets in `docs/01-feasibility.md` §6 (weeks 6–8) and drive the Pro
 tier design. S3–S6 are served by the same features with filters; they are not given bespoke features in MVP.
@@ -105,7 +108,7 @@ tier design. S3–S6 are served by the same features with filters; they are not 
 | **PJM rows on any public or Pro surface** | `reuse: restricted`; redistribution prohibited without a PJM Redistribution License (`docs/01` §3.2, `docs/02` §4). Ingestion may be built and tested behind the gate; **publication is gated on a signed licence recorded in `sources.yaml`.** | Gated (§3.3) |
 | **MISO rows on any public or Pro surface** | Terms unknown (`reuse: unknown`) and access blocked by Cloudflare. **Publication is gated on (a) terms read and recorded and (b) a compliant egress method approved by legal-compliance.** | Gated (§3.3) |
 | **Private aggregators** (Interconnection.fyi, Cleanview, Energy Adepto, BidNet, Halcyon, Enverus) | Never scraped, in any phase. EU database right and ToS (`CLAUDE.md`, `docs/02` §4). Partner or buy only. | **Never** |
-| Bankability scoring, certification, capital-partner routing logic | Phase 5 (`docs/00-PLAN.md`). MVP only emits the lead. | Later |
+| Scoring, certification, capital-partner routing, integration with the existing Bankable app | Later consideration (`docs/00-PLAN.md` Phase 5). MVP only emits the lead. | Later |
 | Full opportunity submission by issuers, sponsor self-service editing of records | Needs identity verification and moderation; MVP takes intake submissions only. | Later |
 | Non-ISO utility OASIS queues, state siting boards, BLM/BOEM/USACE, NRC, EPA Class VI, gas/LNG/nuclear/CCS document pipelines | Ingestion order steps 6–7 (`docs/02` §6). | Later |
 | State PUC dockets | Partner with or buy from Halcyon later (`docs/01` §5). | Later |
@@ -132,7 +135,7 @@ a source to public while its gate is unmet.
 2. State siting boards; large-load dockets beyond ERCOT.
 3. Gas/LNG/pipeline/nuclear/CCS document extraction.
 4. Issuer self-service opportunity posting; sponsor record claims.
-5. Scoring, certification, routing (Phase 5); merge with bankablehq.com app.
+5. Later consideration: scoring, routing, any merge with the bankablehq.com app.
 6. Additional international feeds by customer pull; GridTracker/Cleanview partnership if owner appetite (question 5).
 
 ---
@@ -243,7 +246,7 @@ provenance.
   documents (title + link; no article bodies or copied PDFs, per `docs/02` §4 news/personal-data rules).
 - AC2: Status changes such as frozen → cancelled → reinstated are events with source and date, not overwrites.
 
-**US-303 Curated issuer registry.** As the routing team (S0), I need the 50-issuer RFP list to be a first-class
+**US-303 Curated issuer registry.** As the operations team (S0), I need the 50-issuer RFP list to be a first-class
 source so its records carry provenance like any other.
 - AC1: Each curated issuer is a row in the source registry with `source_id`, URL, cadence, `licence:
   attribution`; records ingested from it carry those fields.
@@ -264,7 +267,7 @@ source so its records carry provenance like any other.
 - AC1: Each match renders the rationale in plain language ("storage, TX, 50–500 MW, due in 45 days").
 - AC2: A user on Pro can dismiss a match; dismissal is stored per user and does not alter the global match.
 
-**US-403 Routing hand-off.** As the routing team (S0), I want a matched pair to become a lead.
+**US-403 Lead hand-off.** As the operations team (S0), I want a matched pair to become a lead.
 - AC1: An admin action "create lead" writes a lead to the CRM through the adapter (US-903) with proposal id,
   opportunity id, score, rationale and a link back; the app stores only the CRM lead id.
 - AC2: Sponsor activity events (status_change, filed) on a proposal with an existing lead update the lead's
@@ -356,7 +359,7 @@ the editorial templates so I only review, not write.
   US-503 AC2), the source credit, and the disclosure text where the channel requires it.
 - AC3: A draft is never created from a record of a gated or restricted source (§3.3).
 
-**US-802 Review queue.** As the routing team (S0), I want to approve, edit, reject or schedule each draft.
+**US-802 Review queue.** As the operations team (S0), I want to approve, edit, reject or schedule each draft.
 - AC1: Queue shows drafts by channel and event type with the underlying event and record; actions: approve,
   edit-then-approve, reject (with reason), schedule.
 - AC2: Nothing is published from a channel unless the owner has set that channel to "auto-publish" in admin;
@@ -400,7 +403,7 @@ record for commercial data (`docs/00-PLAN.md` standing principles).
   fake used by tests.
 - AC2: Swapping implementations is a configuration change; the test suite passes against the fake.
 
-**US-904 Source health.** As the routing team (S0), I want to see each source's status and act on it.
+**US-904 Source health.** As the operations team (S0), I want to see each source's status and act on it.
 - AC1: Per source: last_success_at, last_error, schedule, rows in last run, rows changed, events emitted,
   model cost per record in last run (`docs/03` §6), tier/publish state, licence class, legal evidence link.
 - AC2: Actions: run now, pause, resume, edit cadence, edit lag (US-601 AC2), add curated issuer (US-303 AC2).
@@ -421,7 +424,7 @@ record for commercial data (`docs/00-PLAN.md` standing principles).
 - AC1: An integration test seeds one record per publish state and asserts visibility on web, RSS, API, export
   and post drafts matches the state.
 
-**US-907 Task queue.** As the routing team (S0), I want reported problems, intake submissions and resolution
+**US-907 Task queue.** As the operations team (S0), I want reported problems, intake submissions and resolution
 disputes in one queue.
 - AC1: Tasks have type, subject record, status (open, in progress, done, rejected), assignee, notes; actions
   from a task (unmerge, edit status, publish/unpublish) are audit-logged.
@@ -444,8 +447,8 @@ disputes in one queue.
 
 ### 4.10 Submit-a-project intake, light (US-10xx) — S1, S3, S0
 
-**US-1001 Intake form.** As a developer (S1), I want to submit my project so Bankable can match it to
-opportunities and capital.
+**US-1001 Intake form.** As a developer (S1), I want to submit my project so it can be matched to
+opportunities.
 - AC1: Fields: project name, kind, technology, capacity_mw, storage_mwh (optional), jurisdiction, state, county,
   lifecycle_state (self-declared), existing identifiers (queue id, EIA id, docket) optional, sponsor
   organisation, contact name and email, free-text description (≤ 2,000 chars), consent checkbox linking to the
@@ -456,7 +459,7 @@ opportunities and capital.
   deletable), distinct from *scraped* filer contacts, which are never stored (`docs/21` §10 C-7).
 - AC3: The submitter gets one confirmation email (transactional, not marketing); no other automated outbound.
 
-**US-1002 Intake review and matching.** As the routing team (S0), I want to review, link and match a submission.
+**US-1002 Intake review and matching.** As the operations team (S0), I want to review, link and match a submission.
 - AC1: From the task, an admin can: link the submission to an existing proposal (resolution suggestions shown
   using the same keys as the resolver), approve as a new proposal, or reject with reason.
 - AC2: On approve or link, matches (US-401) are computed and a CRM lead is created via US-403.

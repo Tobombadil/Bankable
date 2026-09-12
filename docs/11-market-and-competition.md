@@ -5,6 +5,10 @@
 date 2026-09-12 unless stated. Facts are marked **F**; inferences are marked **I** with a confidence level.
 Raw API responses are in the session scratchpad, not committed.
 
+> **Addendum 2026-09-12 (owner direction):** where this document treats the existing Bankable workflow
+> (analyse → certify → route → fund) as the destination or the reason to build, read it as a *later
+> consideration*. The platform stands alone; the analysis of the graph, feed, tiers and market is unchanged.
+
 ## 1. Competitor teardown
 
 ### 1.1 Summary table

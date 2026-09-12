@@ -2,6 +2,10 @@
 
 **Status:** Phase 0 deliverable · 2026-09-12 · evidence in `data/sources.yaml` and `data/probes/2026-09-12.json`
 
+> **Addendum 2026-09-12 (owner direction):** where this document treats the existing Bankable workflow
+> (analyse → certify → route → fund) as the destination or the reason to build, read it as a *later
+> consideration*. The platform stands alone; the analysis of the graph, feed, tiers and market is unchanged.
+
 ## 1. The question, and a reframing
 
 The brief: build a platform that scrapes the internet and public databases for active energy and related

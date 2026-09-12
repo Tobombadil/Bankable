@@ -30,13 +30,17 @@ sources:
   auth: none
   format: xlsx
   cadence: weekly
-  license: CAISO Terms of Use — credit CAISO; no republishing except as authorised
+  license: 'CAISO Terms of Use (rev. 2025-05-14), retrieved 2026-09-12 — "No material or information from this Website ... may be copied, reproduced, republished ... except (i) as authorized in these Terms of Use"; and "may be used by you provided that you keep intact all copyright ... notices and that you credit the California ISO"'
   reuse: attribution
   tier: 1
   effort: S
   connector: gridstatus.CAISO.get_interconnection_queue
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 2278, note: "265 active / 251 completed / 1762 withdrawn"}
+  notes: >-
+    Public Records Act material; render credit "California ISO" on every derived record. API Terms bar using
+    the API to monitor CAISO system availability or performance. Publish derived-only until counsel resolves
+    the tension between the two clauses. See docs/13-legal-data-rights.md section 1.2.
 
 - id: us.iso.ercot.gen_queue
   name: ERCOT GIS Report (Generator Interconnection Status)
@@ -48,14 +52,17 @@ sources:
   auth: none (public MIS document listing → xlsx download)
   format: xlsx
   cadence: monthly
-  license: ERCOT Terms of Use — raw public data "may be used, reproduced, and redistributed in compilations, charts, and analyses"
+  license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — "raw data provided in public portions of this website may be used, reproduced, and redistributed in compilations, charts, and analyses without maintaining such notices"'
   reuse: open
   tier: 1
   effort: S
   connector: gridstatus.Ercot.get_interconnection_queue
   probe: {method: GET, url: "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"}
   verified: {date: 2026-09-12, result: ok, rows: 1778, note: "1198 active / 580 completed"}
-  notes: Most permissive ISO terms. ERCOT Public API (api.ercot.com) needs free registration; not required for GIS report.
+  notes: >-
+    Most permissive ISO terms; raw-ok. Clause 6 bars use that degrades ERCOT systems (rate-limit). Clause 8
+    bars using the ERCOT list server for marketing. ERCOT Public API (api.ercot.com) needs free registration
+    (clickwrap); not required for the GIS report. See docs/13-legal-data-rights.md section 1.1.
 
 - id: us.iso.ercot.large_load_queue
   name: ERCOT Large Load Interconnection Status Report
@@ -67,13 +74,15 @@ sources:
   auth: none
   format: xlsx
   cadence: monthly
-  license: ERCOT Terms of Use
+  license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — raw public data "may be used, reproduced, and redistributed in compilations, charts, and analyses"'
   reuse: open
   tier: 1
   effort: S
   probe: {method: GET}
   verified: {date: 2026-09-12, result: unverified, note: "product id to confirm; 438–474 GW of large-load requests reported by ERCOT in 2026, ~90% data centres"}
-  notes: The single most newsworthy queue in the country right now. Batch Zero process approved by PUCT June 2026.
+  notes: >-
+    The single most newsworthy queue in the country right now. Batch Zero process approved by PUCT June 2026.
+    Same clause-5 permission as the GIS report; raw-ok.
 
 - id: us.iso.spp.gen_queue
   name: SPP Generator Interconnection Active/Withdrawn/Completed Requests
@@ -85,13 +94,18 @@ sources:
   auth: none
   format: csv
   cadence: daily
-  license: SPP Terms & Conditions (page 503 at probe time — re-check)
-  reuse: unknown
+  license: 'SPP Terms & Conditions (Copyright), retrieved 2026-09-12 — "Permission is implicitly granted to copy and distribute ... EXCEPT when such materials will be used, in whole or in part, within a commercial publication ... Any commercial use of these materials requires prior, express written authorization from the author(s) or a duly authorized officer of SPP"'
+  reuse: restricted
   tier: 1
   effort: S
   connector: gridstatus.SPP.get_interconnection_queue
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 3074}
+  notes: >-
+    Commercial use requires written SPP authorisation on the face of the text; "Links to SPP website from
+    other websites are permitted and encouraged". Link-out-only until authorisation or a counsel opinion that
+    normalised facts fall outside the clause. Acceptable Use Policy PDF (spp.org/Documents/22819/...) not yet
+    read. See docs/13-legal-data-rights.md section 1.4.
 
 - id: us.iso.nyiso.gen_queue
   name: NYISO Interconnection Queue
@@ -103,13 +117,16 @@ sources:
   auth: none
   format: xlsx
   cadence: weekly
-  license: NYISO Legal Notice (no warranty; page 404 at probe time — re-check)
-  reuse: unknown
+  license: 'NYISO Legal Notice, retrieved 2026-09-12 — only express prohibition is "Downloading, republishing, retransmitting, reproducing, or other use of any image or video on this website as a stand-alone file is strictly prohibited"; otherwise reserves rights; no assent clause; no data-reuse restriction'
+  reuse: attribution
   tier: 1
   effort: S
   connector: gridstatus.NYISO.get_interconnection_queue
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 3164}
+  notes: >-
+    Queue xlsx is not an image or video; no clause restricts its reuse. Derived-only at launch with credit
+    "NYISO"; raw-ok candidate after counsel sign-off. See docs/13-legal-data-rights.md section 1.5.
 
 - id: us.iso.isone.gen_queue
   name: ISO-NE Interconnection Request Tracking Tool (IRTT) public report
@@ -121,13 +138,18 @@ sources:
   auth: none
   format: xlsx
   cadence: daily
-  license: ISO-NE Terms of Use (page 403 to non-browser clients — re-check)
-  reuse: unknown
+  license: 'ISO-NE Legal and Privacy, retrieved 2026-09-12 with a browser user-agent (403 to plain clients) — "By using this website, you signify your assent to these Terms and Conditions" and "Any duplication of the Content or non-personal use may violate copyright, trademark, and other laws"'
+  reuse: restricted
   tier: 1
   effort: S
   connector: gridstatus.ISONE.get_interconnection_queue
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 1751}
+  notes: >-
+    Assent-by-use clause plus broad copyright warning; explicit IP-based throttling for excessive bandwidth,
+    concurrent requests or invalid URLs. Link-out-only until counsel sign-off or written permission
+    (info@iso-ne.com). Connector rules - serial requests, conditional GET, no 404 retries. See
+    docs/13-legal-data-rights.md section 1.6.
 
 - id: us.iso.pjm.gen_queue
   name: PJM New Services Queue (Queue Point / Data Miner)
@@ -139,17 +161,19 @@ sources:
   auth: api_key (free PJM Tools account)
   format: json
   cadence: daily
-  license: '"Data Miner 2 data is for internal use only; redistribution prohibited without a PJM-issued Redistribution License"'
+  license: 'Three documents retrieved 2026-09-12. Data Miner 2 Terms of Use PDF — "Members may republish data, however non-members are specifically prohibited from republishing data". apiportal.pjm.com — "for internal use only and redistribution ... is strictly prohibited without an effective PJM-issued Redistribution License". pjm.com Legal & Privacy (governs planning pages) — reserves rights, contains no redistribution clause'
   reuse: restricted
   tier: 1
   effort: M
   connector: gridstatus.PJM.get_interconnection_queue (PJM_API_KEY)
   probe: {method: GET, url: "https://api.pjm.com/api/v1/"}
   verified: {date: 2026-09-12, result: needs_key, note: "401 without key; gridstatus raised 'api_key must be provided'"}
-  notes: >
-    Largest US queue and the one with the most explicit redistribution restriction. Non-members limited to 6
-    connections/min. Action: obtain PJM Tools key now; request Redistribution License terms/pricing before
-    launch. Fallback: publish derived/aggregated fields only, link to PJM for raw records.
+  notes: >-
+    Data Miner 2 / API portal are restricted; non-members 6 connections/min; Pennsylvania law, Montgomery
+    County forum; clause 9 indemnity extends to customer use of derivatives. The New Services Queue on pjm.com
+    planning pages (serial-service-request-status) links only to the site-wide Legal & Privacy notice, which
+    has no redistribution prohibition — counsel question 1 in docs/13-legal-data-rights.md section 7. Until
+    answered: link-out-only, and do not accept the Data Miner ToU for the queue connector.
 
 - id: us.iso.miso.gen_queue
   name: MISO Generator Interconnection Queue
@@ -168,7 +192,12 @@ sources:
   connector: gridstatus.MISO.get_interconnection_queue
   probe: {method: GET, url: "https://www.misoenergy.org/api/giqueue/getprojects"}
   verified: {date: 2026-09-12, result: blocked, note: "403 'Just a moment...' Cloudflare challenge from datacentre IP; worked for gridstatus historically"}
-  notes: Needs residential egress or headless browser, or a data agreement with MISO. Do not attempt challenge bypass without confirming terms.
+  notes: >-
+    Terms page not retrievable on 2026-09-12 (Cloudflare managed challenge, HTTP 403; no Wayback snapshot).
+    robots.txt retrieved 2026-09-12 declares "Content-Signal: search=yes,ai-train=no,use=reference" as an
+    express DSM Art. 4 reservation — never train on MISO content. No MISO row is published in any tier until a
+    human reads the terms in a browser and records them here. Do not attempt challenge bypass. See
+    docs/13-legal-data-rights.md section 1.7.
 
 - id: us.lbnl.queued_up
   name: LBNL / GridTracker "Queued Up" project-level dataset
@@ -186,10 +215,13 @@ sources:
   effort: S
   probe: {method: GET}
   verified: {date: 2026-09-12, result: blocked_403_html, note: "site blocks non-browser UA; file itself is public"}
-  notes: >
-    Best backfill and normalisation reference. ~8,200 active projects, 1,312 GW generation + 749 GW storage
-    at end-2025. Includes codebook. Annual cadence only — useless for freshness, essential for history and
-    status taxonomy.
+  notes: >-
+    Best backfill and normalisation reference. ~8,200 active projects, 1,312 GW generation + 749 GW storage at
+    end-2025. Includes codebook. Annual cadence only. The CC BY 4.0 claim above is UNVERIFIED as of 2026-09-12
+    (emp.lbl.gov returns 403 behind Cloudflare); the 2024 slide-deck PDF carries only the DOE contract notice
+    ("funded by the U.S. Department of Energy under Contract No. DE-AC02-05CH11231"), no Creative Commons
+    statement. Derived-only with credit "Lawrence Berkeley National Laboratory and GridTracker" until
+    verified. See docs/13-legal-data-rights.md section 2.1.
 
 - id: us.gridtracker.interconnection_fyi
   name: Interconnection.fyi (GridTracker)
@@ -640,13 +672,18 @@ sources:
   auth: none (CKAN)
   format: csv/json
   cadence: twice weekly
-  license: NESO Open Data Licence
+  license: 'National Energy SO Open Data Licence v1.0 (based on OGL v3), retrieved 2026-09-12 — free to "exploit the Information commercially and non-commercially"; must "Acknowledge NESO as the source of the Information by including the following attribution statement: Supported by National Energy SO Open Data"'
   reuse: attribution
   tier: 1
   effort: S
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, note: "CKAN package_show returns CSV resource dated 11 Sep 2026; Gate 1/Gate 2 column present"}
-  notes: Add Interconnector Register and Embedded Register (same portal). DNO queues via nationalgrid connecteddata / SSEN opendatasoft.
+  notes: >-
+    Mandatory exact attribution string "Supported by National Energy SO Open Data"; rights end automatically
+    on breach; datasets are licensed individually — check the TEC Register licence field at ingest. Licence
+    URL https://www.neso.energy/data-portal/neso-open-licence (the nationalgrideso.com path now returns 403).
+    Add Interconnector Register and Embedded Register (same portal). DNO queues via nationalgrid connecteddata
+    / SSEN opendatasoft.
 
 - id: gb.pins.nsip
   name: UK Planning Inspectorate — Find a National Infrastructure Project
@@ -692,12 +729,15 @@ sources:
   auth: none for published notices
   format: json (eForms)
   cadence: daily
-  license: EU reuse policy (Decision 2011/833/EU) — free reuse with attribution
+  license: 'TED legal notice (Copyright notice), retrieved 2026-09-12 — "Unless otherwise noted, the procurement notices published in the Supplement to the Official Journal of the European Union can be freely reused, for commercial or non-commercial purposes" (Decision 2011/833/EU); editorial content CC BY 4.0; system metadata CC0 1.0'
   reuse: attribution
   tier: 1
   effort: S
   probe: {method: POST, body: '{"query":"classification-cpv=09* AND publication-date>=20260901","limit":3,"fields":["publication-number","notice-title"]}'}
   verified: {date: 2026-09-12, result: ok, note: "785 energy-CPV notices since 1 Sep 2026"}
+  notes: >-
+    Raw-ok. Credit the source; do not distort; the TED logo is not licensed; strip contracting-authority
+    personal contact data at ingest (docs/13-legal-data-rights.md section 5).
 
 - id: eu.entsoe.tyndp
   name: ENTSO-E TYNDP 2026 project portfolio (199 transmission + 69 storage)
@@ -952,13 +992,18 @@ sources:
   auth: email registration for download
   format: xlsx
   cadence: semi-annual/quarterly
-  license: CC BY 4.0
+  license: 'GEM Download Data page, retrieved 2026-09-12 — "When the data set is being shared or adapted and our Creative Commons CC BY 4.0 International license applies, please read the license for attribution requirements"; records carrying a TZ ID are "Distributed under a Creative Commons Attribution-Non-Commercial 4.0 International License (CC BY-NC 4.0)"'
   reuse: attribution
   tier: 1
   effort: S
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok}
-  notes: Best free global backbone for announced/pre-construction projects outside the US. Lags months; use as spine, not feed.
+  notes: >-
+    Best free global backbone for announced/pre-construction projects outside the US. Lags months; use as
+    spine, not feed. Use the recommended citation per tracker and release. DROP at ingest any row whose Other
+    IDs (unit/phase) column carries a TZ ID (TransitionZero, CC BY-NC) — non-commercial rows cannot go in a
+    commercial product. gem.wiki prose is CC BY-NC-SA and is never ingested. See docs/13-legal-data-rights.md
+    section 2.2.
 
 - id: global.iea.demo_projects
   name: IEA Clean Energy Demonstration Projects Database
@@ -1005,12 +1050,16 @@ sources:
   auth: none
   format: rss
   cadence: continuous
-  license: Google ToS — links + snippets only; do not republish article bodies
+  license: 'news.google.com/robots.txt, retrieved 2026-09-12 — "User-agent: *" / "Disallow: /" with Allow only for /, /home, /nwshp, /topics/, /publications/, /stories/, /swg/, /about; the /rss/ path is NOT allowed'
   reuse: restricted
   tier: 2
   effort: S
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok}
+  notes: >-
+    Polling /rss/search is contrary to robots.txt. Recommendation: drop this connector; use GDELT DOC, issuer
+    and publisher RSS, and curated trade-press feeds instead. Counsel item 4 in docs/13-legal-data-rights.md
+    section 7.
 
 - id: news.wires
   name: Business Wire / PR Newswire / GlobeNewswire energy RSS feeds
@@ -1022,12 +1071,17 @@ sources:
   auth: none
   format: rss
   cadence: continuous
-  license: press releases are issuer-owned; headline+link+summary reuse is customary; full text needs care
-  reuse: attribution
+  license: 'PR Newswire Terms of Use, retrieved 2026-09-12 — may not "reproduce, distribute, frame, mirror, scrape, republish or retransmit information or content ... without the express prior written permission of PR Newswire"; no "robot, spider, site search/retrieval application, or other manual or automatic device or process to access, search, download, retrieve, index or data mine"; PR Newswire Materials may not be used "in full, in part, in full text or in abstract" beyond personal non-commercial use. Business Wire terms NOT retrieved (Akamai HTTP 403 on 2026-09-12)'
+  reuse: restricted
   tier: 2
   effort: S
   probe: {method: GET, url: "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeEFpRVQ=="}
   verified: {date: 2026-09-12, result: ok}
+  notes: >-
+    Link-out-only: headline, timestamp, link. No abstracts of PR Newswire-hosted releases; extracted facts
+    attributed to the issuing company are acceptable. Business Wire terms must be read before any wire
+    connector ships. Prefer issuers' own newsroom RSS feeds. See docs/13-legal-data-rights.md sections
+    2.7-2.8.
 
 - id: news.trade_press
   name: Trade press RSS (Utility Dive, pv magazine, Energy-Storage.News, RTO Insider, Canary, Latitude)
