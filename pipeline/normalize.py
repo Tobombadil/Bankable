@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import pathlib
 import re
@@ -269,10 +270,20 @@ def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict,
     qid = get("Queue ID").astype("string").str.strip()
     name = get("Project Name")
     sponsor = get("Interconnecting Entity")
+    # docs/20 §3.1: when the source gives no id (NYISO: 1,350 withdrawn rows have no queue
+    # position) the source_record_id is a content hash of the identifying columns.
+    ident = pd.DataFrame({"n": name.astype("string"), "c": get("County").astype("string"),
+                          "s": get("State").astype("string"),
+                          "m": get("Capacity (MW)").astype("string"),
+                          "d": get("Queue Date").astype("string"),
+                          "st": get("Status").astype("string")}).fillna("").agg("|".join, axis=1)
+    srid = qid.copy()
+    no_id = srid.isna() | (srid == "")
+    srid[no_id] = "h" + ident[no_id].map(lambda t: hashlib.sha1(t.encode()).hexdigest()[:12])
 
     out = pd.DataFrame({
         "source_id": source_id,
-        "source_record_id": qid,
+        "source_record_id": srid,
         "source_url": url,
         "retrieved_at": retrieved_at,
         "licence": licence,
