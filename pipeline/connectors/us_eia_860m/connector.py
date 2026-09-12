@@ -20,6 +20,7 @@ from urllib.parse import urljoin
 
 import pandas as pd
 
+from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
 from pipeline.normalize import normalize_eia
@@ -41,7 +42,7 @@ def find_xlsx_links(html: str, base: str = INDEX_URL) -> list[str]:
 
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "us.eia.860m"
-    kind: ClassVar[str] = "proposal"
+    kind: ClassVar[Kind] = "proposal"
     ext: ClassVar[str] = "xlsx"
     status_key: ClassVar[str] = "eia860m"
     key_source_columns: ClassVar[tuple[str, ...]] = (
@@ -97,7 +98,7 @@ class Connector(BaseConnector):
         if "Plant ID" not in df.columns:
             raise ParseError(f"Planned sheet layout changed: {list(df.columns)[:8]}")
         df = df[df["Plant ID"].notna()]
-        return [dict(r) for r in df.to_dict("records")]
+        return [{str(k): v for k, v in r.items()} for r in df.to_dict("records")]
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
         df = normalize_eia(pd.DataFrame(rows), self.status_map, raw.retrieved_at_iso)

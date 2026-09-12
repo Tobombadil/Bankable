@@ -34,6 +34,7 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
+from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ParseError, RawSnapshot
 from pipeline.normalize import harmonise_status, norm_name
@@ -55,7 +56,7 @@ def is_large_load_product(item: dict[str, Any]) -> bool:
 
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "us.iso.ercot.large_load_queue"
-    kind: ClassVar[str] = "proposal"
+    kind: ClassVar[Kind] = "proposal"
     ext: ClassVar[str] = "json"
     honour_robots: ClassVar[bool] = False  # JSON API behind the data-products page
     status_key: ClassVar[str] = "ercot_large_load"

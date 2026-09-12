@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import datetime as dt
 import time
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import pandas as pd
 
+from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, RawSnapshot
 from pipeline.connectors.iso_queue import gridstatus_rows, normalize_iso_rows
@@ -27,10 +28,10 @@ URL = "https://www.nyiso.com/documents/20142/1407078/NYISO-Interconnection-Queue
 
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "us.iso.nyiso.gen_queue"
-    kind: ClassVar[str] = "proposal"
+    kind: ClassVar[Kind] = "proposal"
     ext: ClassVar[str] = "xlsx"
     status_key: ClassVar[str] = "nyiso"
-    dedupe_strategy: ClassVar[str] = "suffix"
+    dedupe_strategy: ClassVar[Literal["hold", "suffix"]] = "suffix"
     key_source_columns: ClassVar[tuple[str, ...]] = (
         "Queue ID",
         "Project Name",

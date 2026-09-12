@@ -20,6 +20,7 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
+from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
 from pipeline.connectors.opportunity import classify_technologies, deadline_passed, technologies_str, to_utc
@@ -33,7 +34,7 @@ MAX_PAGES = 20
 
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "us.grants_gov.search2"
-    kind: ClassVar[str] = "opportunity"
+    kind: ClassVar[Kind] = "opportunity"
     ext: ClassVar[str] = "json"
     honour_robots: ClassVar[bool] = False  # JSON API (its robots.txt answers 403)
     status_key: ClassVar[str] = "grants_gov"

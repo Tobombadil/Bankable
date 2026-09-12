@@ -30,6 +30,9 @@ ignore = ["RUF001", "RUF002", "RUF003", "N818"]
 python_version = "3.11"
 files = ["pipeline"]
 strict = true
+# Test modules use pytest fixtures whose types are supplied by the plugin, not annotations;
+# they are covered by the suite itself (docs/04 E-6), not by the strict type gate.
+exclude = ["test_connector\\.py$"]
 warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
