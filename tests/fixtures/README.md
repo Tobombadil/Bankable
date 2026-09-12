@@ -19,6 +19,9 @@ personal data, no rows from a `restricted`/`unknown` source). `parse()` runs aga
 | `ted_search.json` | `eu.ted.api` | `POST https://api.ted.europa.eu/v3/notices/search` | 13 notices across 6 notice types; 24-language title maps cut to English + source language; no contact fields are requested from the API |
 | `find_a_tender_ocds.json` | `gb.find_a_tender` | `https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages` | 8 energy-CPV releases + 3 non-energy (the CPV filter must reject those); `contactPoint` already stripped by the connector's `redact()` (docs/13 §5.4) |
 | `worldbank_procnotices.json` | `mdb.worldbank.procnotices` | `https://search.worldbank.org/api/v2/procnotices` with `sector.sector_code=LU^LH^…` | 9 notices across 4 notice types; `contact_*` fields other than `contact_organization` are never requested |
+| `ferc_elibrary_search.json` | `us.ferc.elibrary` | `POST https://elibrary.ferc.gov/eLibrarywebapi/api/Search/AdvancedSearch` | 5 pages (ER26/CP26 docket-number search plus 3 description-term searches), 23 unique accessions before the window/docket-class filter, 17 survive it |
+| `ferc_elibrary_search_error.json` | `us.ferc.elibrary` | same endpoint, `sortBy: "filed_date"` | a real captured `success: false` response (the docs/02 §7 "HTTP 200 with an error body" case) — this exact `sortBy` value 500s server-side, which is why the connector always sends `sortBy: ""` |
+| `permits_dashboard_projects.csv` | `us.permits_dashboard` | `https://data.permits.performance.gov/api/views/mcm3-xbid/rows.csv?accessType=DOWNLOAD` | 224 milestone rows across 12 projects (10 in the six energy/transmission sectors the connector keeps, 2 out of scope — Aviation and Surface Transportation — to exercise the sector filter) |
 
 No fixture contains a row from a `restricted` or `unknown` source: SPP, ISO-NE, PJM and MISO have no
 connector this sprint, and the gate tests use a stub rather than their data.

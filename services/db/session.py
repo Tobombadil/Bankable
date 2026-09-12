@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from services.db.base import Base
 
@@ -22,11 +23,17 @@ DEFAULT_SQLITE_URL = "sqlite+pysqlite:///:memory:"
 
 def get_engine(url: str | None = None) -> Engine:
     url = url or os.environ.get("DATABASE_URL", DEFAULT_SQLITE_URL)
-    connect_args = {}
+    connect_args: dict[str, object] = {}
+    kwargs: dict[str, object] = {}
     made = make_url(url)
     if made.get_backend_name() == "sqlite":
         connect_args["check_same_thread"] = False
-    engine = create_engine(url, future=True, connect_args=connect_args)
+        if made.database in (None, "", ":memory:"):
+            # A bare in-memory SQLite database is per-connection; pin the engine to one
+            # connection so every session in a process (and this sprint's tests) sees the
+            # same schema and data.
+            kwargs["poolclass"] = StaticPool
+    engine = create_engine(url, future=True, connect_args=connect_args, **kwargs)
     if made.get_backend_name() == "sqlite":
         from sqlalchemy import event as sa_event
 
@@ -47,6 +54,8 @@ def init_db(engine: Engine) -> None:
     """Create every table from the ORM metadata. Test/dev convenience only — the canonical,
     reviewable schema change process for Postgres is the Alembic migration under
     services/db/migrations/versions (docs/04 E-11)."""
+    import services.db.models  # noqa: F401 — registers tables on Base.metadata
+
     Base.metadata.create_all(engine)
 
 

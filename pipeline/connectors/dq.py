@@ -31,12 +31,17 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "null_spike_hold_pp": 10.0,
     "null_history_runs": 5,
 }
-STATUS_COL = {"proposal": "lifecycle_state", "opportunity": "status"}
+STATUS_COL = {"proposal": "lifecycle_state", "opportunity": "status", "document": "lifecycle_state"}
 DEFAULT_REQUIRED = {
     "proposal": ("name_canonical", "capacity_mw", "technology_raw", "state"),
     "opportunity": ("title", "issuer", "jurisdiction", "due_at"),
+    "document": ("title", "accession_number", "docket_refs", "published_date"),
 }
-VOCAB_COLS = {"proposal": ("status_raw", "technology_raw", "kind"), "opportunity": ("status_raw", "kind")}
+VOCAB_COLS = {
+    "proposal": ("status_raw", "technology_raw", "kind"),
+    "opportunity": ("status_raw", "kind"),
+    "document": ("status_raw", "document_class"),
+}
 
 
 @dataclass

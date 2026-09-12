@@ -1,0 +1,248 @@
+# Sprint 2 backend — services/db, services/ingest, services/api
+
+Public tier only, per the Sprint 2 backend brief. Pro, API-key and admin surfaces are not built
+here. Read `docs/20-architecture.md`, `docs/21-data-model.md`, `docs/adr/0002-0004`,
+`api/openapi.yaml` and `docs/04-standards.md` §3-§5 before changing anything in this tree — this
+file explains how to run what those documents specify, not what the design is.
+
+## Postgres vs SQLite — read this first
+
+**`which postgres pg_ctl initdb` all fail in this environment: Postgres is not installed.**
+
+- `services/db/migrations/versions/0001_initial_schema.py` is the **canonical schema**: real
+  Postgres 16 types (`UUID`, `JSONB`, `ARRAY(Text)`, `geography(Point,4326)` via PostGIS,
+  `TIMESTAMP(timezone=True)`), the `postgis`/`pg_trgm`/`btree_gin`/`pgcrypto` extensions, the
+  `CHECK` vocabularies, and the indexes docs/21 §5.2 calls out that are feasible in one migration
+  (GIN on `identifiers`/trigram columns, GiST on `location.geom`, the publish-state/public_at
+  BTREEs). **It has not been executed against a live database** — there is no Postgres to run it
+  against here. It has been checked for internal consistency (`alembic history` resolves the
+  revision graph; `python -m py_compile` / AST-parses cleanly) but not applied. Before it is
+  trusted in an environment with Postgres, run `alembic -c services/db/migrations/alembic.ini
+  upgrade head` (with `DATABASE_URL` pointing at a real Postgres 16 + PostGIS instance) and fix
+  whatever that surfaces.
+- **The test suite (`services/db/test_models.py`, `services/ingest/test_loader.py`,
+  `services/api/test_routes.py`, `tests/test_api_contract.py`) runs the same SQLAlchemy ORM
+  models against SQLite**, because that's what's available. `services/db/types.py` supplies
+  dialect-aware fallbacks (`GUID`, `JSONVariant`, `TextArray`, `GeographyPoint`) so the ORM layer
+  produces working tables on both backends; the migration does not use these — it writes the
+  literal Postgres types. The two are deliberately not the same code path: the migration is the
+  spec, the ORM+SQLite pair is this sprint's test double for it.
+- Consequence: geospatial bounding-box queries (`ST_Intersects`, GiST) are **not exercised** by
+  this test suite — `services/api/geo.py`'s clustering is a pure-Python lon/lat grid that works
+  identically on both backends, at the cost of not proving PostGIS-specific query performance or
+  correctness. `event` is a normal table here, not the monthly-partitioned one docs/21 §5.3
+  specifies (also called out as a known gap in the migration's docstring).
+
+## Run the tests
+
+```bash
+cd /home/user/Bankable
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m pytest services/db services/ingest services/api tests/test_api_contract.py -v
+```
+
+Verbatim output from this sprint's run:
+
+```
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/user/Bankable
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collected 59 items
+
+services/db/test_models.py ............                                  [ 20%]
+services/ingest/test_loader.py .........                                 [ 35%]
+services/api/test_routes.py ..................                           [ 66%]
+tests/test_api_contract.py ....................                          [100%]
+
+=============================== warnings summary ===============================
+../.../starlette/testclient.py:37: DeprecationWarning: The anyio.abc.BlockingPortal alias is
+  deprecated, use anyio.from_thread.BlockingPortal instead.
+tests/test_api_contract.py: 19 warnings
+  jsonschema.RefResolver is deprecated as of v4.18.0, in favor of the referencing library.
+  (Kept anyway: it is the simplest way to resolve api/openapi.yaml's internal $refs against the
+  whole document as one schema store; revisit if RefResolver is actually removed upstream.)
+
+======================= 59 passed, 20 warnings in 2.92s ========================
+```
+
+Branch coverage (`coverage run --branch -m pytest ... && coverage report --include="services/*"`):
+**83% overall** (2223 statements). `services/api/visibility.py` (the tier/licence predicate) is
+**100%** lines and branches — docs/04 E-7 requires 100% branch coverage on the visibility
+predicate and licence-gate modules; the gate-raising paths in `services/ingest/loader.py`
+(`GateRefused` from both `_assert_not_gated` and the "both must hold" re-check inside
+`upsert_licence_and_source`) are covered by dedicated tests
+(`test_gate_refused_for_reuse_value_outside_the_known_vocabulary`,
+`test_gate_refused_when_stored_licence_is_gated_even_if_the_manifest_now_says_open`). The
+remaining loader.py gap is field-mapping edge cases (odd date/number shapes from connector rows)
+that fall under the general 80% floor, not the stricter gate-module bar.
+
+## Lint and types
+
+```bash
+.venv/bin/ruff check services/db services/ingest services/api services/ids.py tests/test_api_contract.py
+.venv/bin/ruff format --check services/db services/ingest services/api services/ids.py tests/test_api_contract.py
+.venv/bin/mypy services/db services/ingest services/api services/ids.py
+```
+
+Verbatim:
+
+```
+--- ruff check ---
+All checks passed!
+--- ruff format --check ---
+27 files already formatted
+--- mypy --strict ---
+Success: no issues found in 21 source files
+```
+
+`pyproject.toml` was extended to add `"services"` to `[tool.mypy] files` and
+`[tool.pytest.ini_options] testpaths`, plus per-file ruff ignores for the FastAPI `Depends(...)`
+default-argument idiom (`B008`), test-file asserts (`S101`), and the Alembic `env.py`'s
+sys-path-before-import ordering (`E402`) — the same conventions already used for `pipeline/` and
+`web/` in that file.
+
+## Layout
+
+```
+services/db/
+  models.py          SQLAlchemy 2.0 ORM models for the 13 public-tier entities
+  types.py           Dialect-aware GUID/JSONB/text[]/geography TypeDecorators (see caveat above)
+  base.py            Declarative Base + naming convention
+  session.py         Engine/session factory (DATABASE_URL from environment; SQLite default)
+  test_models.py     Schema tests: provenance quartet, CHECK vocabularies, uniqueness, seq
+  migrations/        Alembic; versions/0001_initial_schema.py is the canonical Postgres DDL
+
+services/ingest/
+  loader.py          Idempotent parquet+events -> store loader; the licence/reuse-class gate
+  lag.py             public_at = published_at + lag(kind) (14d supply / 7d opportunities)
+  test_loader.py     Idempotency, gate refusal (both independent checks), lag computation
+
+services/ids.py      Crockford-base32 public ids (prop_/opp_/org_/evt_) and slugify()
+
+services/api/
+  app.py             FastAPI app: every implemented route (see below)
+  schemas live only in api/openapi.yaml — serialize.py builds dicts validated against it
+  serialize.py       Envelope/meta/licence_summary/provenance + per-entity dict builders
+  visibility.py       The public-tier predicate (docs/21 §5.4) — 100% branch coverage
+  pagination.py      Generic keyset cursor pagination
+  geo.py             GeoJSON FeatureCollection + grid clustering for /v1/*/geo
+  feeds.py           RSS 2.0 / JSON Feed 1.1 rendering
+  errors.py          RFC 9457 problem details
+  params.py          Filter-grammar allowlist ("unknown parameter" is always 400, never dropped)
+  deps.py            DB session FastAPI dependency
+  conftest.py        Shared test fixtures (also imported by tests/test_api_contract.py)
+  test_routes.py     Functional tests: envelope shape, tier/gate visibility, pagination, feeds
+
+tests/test_api_contract.py   Loads api/openapi.yaml, validates real responses against its
+                              schemas with jsonschema (docs/04 E-8)
+```
+
+## Endpoints implemented vs the spec
+
+All `x-tier: public` in `api/openapi.yaml`. 25 operations implemented:
+
+| Group | Operations |
+|---|---|
+| Proposals | `listProposals`, `getProposalsGeo`, `getProposal`, `listProposalEvents`, `listProposalSources` |
+| Opportunities | `listOpportunities`, `getOpportunitiesGeo`, `getOpportunity`, `listOpportunityEvents`, `listOpportunitySources` |
+| Organizations | `listOrganizations`, `getOrganization`, `listOrganizationProposals`, `listOrganizationOpportunities` |
+| Events | `listEvents`, `getEvent` |
+| Sources & licences | `listSources`, `getSource`, `listLicences`, `getLicence` |
+| Meta | `getVocabularies`, `getHealth` |
+| Feeds | `feedProposals`, `feedOpportunities`, `feedEvents` (RSS + JSON Feed) |
+
+**Not implemented this sprint** (each is a deliberate scope cut, not an oversight):
+
+- `listProposalMatches`, `listOpportunityMatches`, `listMatches`, `getMatch` — `api/openapi.yaml`
+  marks these `x-sprint: 3`, and no writer for the `match` table exists yet (`pipeline/resolve.py`
+  and a matching stage are later, data-scientist-owned work). The `match` **model** is
+  implemented per the task brief; only the read endpoints are deferred.
+- `getDocument` — the task's entity list for this sprint (`proposal` through `licence`, 13
+  tables) does not include `document`, and no document ingestion pipeline exists yet.
+- `/v1/intake/*`, `/v1/reports` — `x-sprint: 3` in the spec.
+- Sitemaps, `/feeds/saved/{token}` — the first is a `web/` concern (`docs/23` §9.2 open decision
+  11 says so explicitly); the second needs a Pro-tier `saved_search`, out of scope.
+- Pro, API-key and admin surfaces — explicitly excluded by the task brief.
+
+## Open decisions made this sprint
+
+Recorded here rather than silently assumed, per `docs/04-standards.md` P-6/P-7. None of these
+are architecture changes; all are bounded follow-ups.
+
+1. **No cross-source entity resolution.** `pipeline/resolve.py` (fusing the same real-world
+   project seen by multiple sources into one `proposal`/`opportunity` row) is a later,
+   data-scientist-owned stage. The loader creates one record per `(source_id,
+   source_record_id)` 1:1. The `field_provenance`/`min_reuse_class`/mixed-provenance machinery
+   (docs/21 §8) is still exercised — it just has one source per record until resolve.py lands.
+2. **No geocoding.** `location.geom` is left null; `precision` is `county_centroid` /
+   `state_centroid` from the state/county strings a connector already parsed. The restricted
+   -precision rule (docs/04 D-9) and the map's clustering both work correctly on null geometry
+   (features are counted as "unplaced" rather than dropped, docs/04 D-8) but nothing plots on a
+   real map yet without a geocoder.
+3. **Record `publish_state` defaults to `public`.** Per-record admin publish/unpublish (US-905)
+   is out of scope this sprint. Since the loader already refuses any source whose licence isn't
+   `open`/`attribution` before a row is ever written, every record that reaches the store is, by
+   construction, from a publishable source — so it is loaded straight to `public` rather than
+   sitting in `pending_review` forever with no admin surface to move it. Once admin ships, it
+   gains the ability to demote individual records without a loader change.
+4. **Public lag default: 14 days supply / 7 days opportunities**, per this task's brief and
+   `docs/04-standards.md` §10 pick 1. `docs/20-architecture.md` A-8 (7 days flat) and
+   `docs/21-data-model.md` §9 D-1 (14 days flat) disagree with each other and with this; that
+   three-way conflict already exists in `docs/21` §10 (correction C-4) and is not resolved here —
+   this sprint follows the more specific, later standards document rather than picking a third
+   answer.
+5. **Source-level gate for the public tier requires `publish_state = 'public'` exactly**, not
+   `api_only` (docs/21 §5.4's `source_permits`). The loader's own default for a newly-seen source
+   is `api_only` (open decision 3's flip side: a source is publishable-by-licence before an
+   operator has necessarily reviewed it for the public surface specifically). This means freshly
+   ingested data needs one more step — a real admin `publish_state` flip — before the public API
+   shows it; `services/api/test_routes.py::test_source_gate_refusal_hides_records_from_public_api`
+   asserts this boundary explicitly so it isn't loosened by accident later.
+6. **Single-field sort, forward-only cursor pagination.** `sort=a,b` (multi-field) is parsed but
+   only the first field is applied; `page.prev_cursor` is always `null` (reverse iteration is not
+   implemented). Both are honestly represented in the response shape (no fabricated cursor, no
+   silently-ignored second sort key beyond dropping it) rather than pretended-complete.
+7. **Filter coverage is a named subset, not the full grammar.** Every filter parameter this
+   service *declares* as allowed is real, tested and effective; parameters `api/openapi.yaml`
+   lists but this sprint does not implement (e.g. `changed_key`, `updated_since`, `county_fips`,
+   `sponsor_id`/`issuer_id`, `budget_amount[gte]`, `capacity_sought_mw[gte]`) are **not** in this
+   service's allowlist and so answer `400 unknown_parameter` rather than being silently accepted
+   and ignored — docs/04 API-3 treats a silently-dropped filter as a licence-sensitive leak, and
+   an honest 400 is safer than a filter that looks like it works and doesn't.
+8. **Geo clustering is a pure-Python lon/lat grid**, not PostGIS `ST_ClusterKMeans`/
+   `ST_SnapToGrid` — see the Postgres/SQLite section above. Correct on both backends; not
+   representative of production query performance at the `docs/04` D-13 budget (≤400 ms p95,
+   ≥20,000 records).
+9. **`event.seq`** is assigned by an ORM `before_insert` listener (`MAX(seq)+1` in the current
+   transaction) rather than a database `IDENTITY` column, because a Postgres `bigint identity`
+   default has no SQLite equivalent this sprint's test target can exercise. The canonical
+   migration still declares a real Postgres `IDENTITY` column; a production deployment should
+   prefer that default over the ORM-side assignment (documented in `services/db/models.py`'s
+   `Event.seq` docstring, including the one operational caveat: events must be flushed one at a
+   time, not batched into a single multi-row INSERT, for the listener's `MAX()` read to be
+   correct).
+10. **Rate-limit headers are static**, per the task brief ("rate-limit headers (static values for
+    now)") — `RateLimit-Limit: 60`, `RateLimit-Remaining: 59` on every response, not a real
+    sliding-window counter. `docs/23` §6's actual per-tier/per-key limits are a follow-up once
+    Pro/API auth exists.
+11. **Licence flags are derived generically from `reuse_class`**, not read from
+    `data/sources.yaml`'s free-text `license` field. `allows_raw_publication` is `True` for every
+    ingested source this sprint (all are `open`/`attribution` by the gate), so the CAISO-style
+    "attribution licence that still withholds raw rows" case from docs/21 §8 is not yet
+    distinguished from a plain attribution licence — the schema and the API's raw-gating code
+    path both support it (`Licence.allows_raw_publication`, `provenance_row`'s check), it just
+    needs the per-source override wired from the registry (a data-engineer task, not a backend
+    typing/logic gap).
+
+## Migrations
+
+```bash
+# Canonical (requires a real Postgres 16 + PostGIS instance; not run in this sandbox):
+DATABASE_URL=postgresql+psycopg://user:pass@host/db \
+  .venv/bin/alembic -c services/db/migrations/alembic.ini upgrade head
+
+# Sanity-check the revision graph without a database:
+.venv/bin/alembic -c services/db/migrations/alembic.ini history
+```
