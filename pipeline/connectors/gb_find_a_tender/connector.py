@@ -22,11 +22,10 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
-from pipeline.connectors.base import Kind, SnapshotMode
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
+from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, SnapshotMode
+from pipeline.connectors.canonical import harmonise_status
 from pipeline.connectors.opportunity import classify_technologies, deadline_passed, technologies_str, to_utc
-from pipeline.normalize import harmonise_status
 
 API_URL = "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages"
 NOTICE_URL = "https://www.find-tender.service.gov.uk/Notice/{notice_id}"

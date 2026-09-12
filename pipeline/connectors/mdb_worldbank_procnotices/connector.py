@@ -23,9 +23,9 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
-from pipeline.connectors.base import Kind, SnapshotMode
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
+from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, SnapshotMode
+from pipeline.connectors.canonical import harmonise_status
 from pipeline.connectors.opportunity import (
     classify_technologies,
     deadline_passed,
@@ -33,7 +33,6 @@ from pipeline.connectors.opportunity import (
     technologies_str,
     to_utc,
 )
-from pipeline.normalize import harmonise_status
 
 API_URL = "https://search.worldbank.org/api/v2/procnotices"
 NOTICE_URL = "https://projects.worldbank.org/en/projects-operations/procurement-detail/{notice_id}"
@@ -133,7 +132,8 @@ class Connector(BaseConnector):
             notices = _notices(page)
             if not notices:
                 break
-            oldest = min((to_utc(n.get("noticedate"), "%d-%b-%Y") for n in notices), default=None)
+            dates = [d for d in (to_utc(n.get("noticedate"), "%d-%b-%Y") for n in notices) if d is not None]
+            oldest = min(dates) if dates else None
             if oldest is not None and oldest < pd.Timestamp(cutoff):
                 break
         url = r.url if pages else API_URL

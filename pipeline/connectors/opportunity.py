@@ -138,7 +138,8 @@ def to_utc(v: Any, fmt: str | None = None) -> pd.Timestamp | None:
         return None
     if ts.tzinfo is None:
         ts = ts.tz_localize("UTC")
-    return ts.tz_convert("UTC")
+    utc: pd.Timestamp = ts.tz_convert("UTC")
+    return utc
 
 
 def deadline_passed(due: pd.Timestamp | None, now: dt.datetime) -> str:

@@ -34,10 +34,9 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
-from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ParseError, RawSnapshot
-from pipeline.normalize import harmonise_status, norm_name
+from pipeline.connectors.base import Kind, ParseError, RawSnapshot
+from pipeline.connectors.canonical import harmonise_status, norm_name, to_date
 
 CATALOGUE_URL = (
     "https://www.ercot.com/api/1/services/read/common/filter-emil-items-search.json?keyword=large%20load"
@@ -128,9 +127,7 @@ class Connector(BaseConnector):
                 "status_raw": [r.get("status_s") for r in rows],
                 "status_rule": [rule for _, rule in harmonised],
                 "status_conflict": False,
-                "queue_date": [
-                    pd.to_datetime(r.get("firstRunDate_dt"), errors="coerce", utc=True) for r in rows
-                ],
+                "queue_date": [to_date(r.get("firstRunDate_dt")) for r in rows],
                 "proposed_cod": pd.NaT,
                 "queue_id": [r.get("reportTypeId_i") for r in rows],
                 "eia_plant_id": None,

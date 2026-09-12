@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from pipeline.connectors.base import Connector, ParseError, RawSnapshot
-from pipeline.normalize import normalize_iso
+from pipeline.connectors.canonical import normalize_iso
 
 XLSX_MAGIC = b"PK"
 

@@ -24,10 +24,10 @@ from typing import Any, ClassVar, Literal
 
 import pandas as pd
 
+from pipeline.connectors.canonical import CANONICAL_COLUMNS as _PROPOSAL_BASE
+from pipeline.connectors.canonical import load_status_map
 from pipeline.connectors.http import PoliteSession
 from pipeline.connectors.registry import SourceEntry
-from pipeline.normalize import CANONICAL_COLUMNS as _PROPOSAL_BASE
-from pipeline.normalize import load_status_map
 
 Kind = Literal["proposal", "opportunity"]
 Egress = Literal["plain", "browser", "residential", "api_key"]

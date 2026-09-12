@@ -15,9 +15,8 @@ from typing import Any, ClassVar
 
 import pandas as pd
 
-from pipeline.connectors.base import Kind
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, RawSnapshot
+from pipeline.connectors.base import ConnectorError, Kind, RawSnapshot
 from pipeline.connectors.iso_queue import gridstatus_rows, normalize_iso_rows
 
 URL = "https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx"
