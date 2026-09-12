@@ -501,7 +501,7 @@ so that a personal action never mutates global data.
 | `email` | citext | Yes | Login identity; null after anonymisation | `ana@example.com` |
 | `email_verified_at` | timestamptz | Yes | Magic-link or OAuth verification | `2026-09-01T10:00:00Z` |
 | `name` | text | Yes | Display name; optional, minimum personal data (`CLAUDE.md`) | `Ana Ruiz` |
-| `role` | text | No | `viewer \| member \| operator \| owner` (`docs/20` §7) | `member` |
+| `role` | text | No | `viewer \| member \| operator \| legal \| owner` (`docs/20` §7; `legal` added 2026-09-12 — US-905 AC1 requires a distinct role to clear a source gate flag, and conflating it with `owner` would make the licence gate unenforceable for anyone but the founder) | `member` |
 | `status` | text | No | `active \| disabled \| anonymised` | `active` |
 | `auth_provider` | text | No | `magic_link \| google` | `google` |
 | `mfa_enforced` | boolean | No | True for `operator`/`owner` (**[A-10]**) | `false` |
