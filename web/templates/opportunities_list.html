@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Opportunities -- Infraqueue (placeholder){% endblock %}
+{% block meta_description %}Grants, tenders and procurement notices for energy and infrastructure from grants.gov, TED, Find a Tender and the World Bank.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Opportunities</h1>
+  <p>Demand-side records: grants, tenders and procurement notices. Default view shows open opportunities, soonest deadline first.</p>
+</div>
+{{ m.delayed_banner(delayed, "demand") }}
+
+<form id="filters" class="filter-bar" method="get" action="/opportunities" hx-get="/opportunities" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
+  <div class="filter-field">
+    <label for="f-kind">Kind</label>
+    <select id="f-kind" name="kind">
+      <option value="">All</option>
+      {% for k in kinds %}<option value="{{ k }}" {% if filters.get('kind') == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-status">Status</label>
+    <select id="f-status" name="status">
+      <option value="all" {% if filters.get('status') == 'all' %}selected{% endif %}>All</option>
+      {% for s in statuses %}<option value="{{ s }}" {% if filters.get('status') == s %}selected{% endif %}>{{ s | replace('_',' ') }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-jurisdiction">Jurisdiction</label>
+    <select id="f-jurisdiction" name="jurisdiction">
+      <option value="">All</option>
+      {% for j in jurisdictions %}<option value="{{ j }}" {% if filters.get('jurisdiction') == j %}selected{% endif %}>{{ j }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-technology">Technology</label>
+    <select id="f-technology" name="technology">
+      <option value="">All</option>
+      {% for t in technologies %}<option value="{{ t }}" {% if filters.get('technology') == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="filter-bar__submit" type="submit">Apply filters</button>
+  {% if filters.get('kind') or filters.get('jurisdiction') or filters.get('technology') or (filters.get('status') and filters.get('status') != 'open') %}
+  <a class="filter-bar__clear" href="/opportunities">Clear all</a>
+  {% endif %}
+</form>
+
+<div id="result-rows">
+  {% include "partials/_opportunity_rows.html" %}
+</div>
+{% endblock %}

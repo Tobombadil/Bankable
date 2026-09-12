@@ -1,0 +1,39 @@
+{% import "_macros.html" as m %}
+<p class="result-count" aria-live="polite">{{ total }} proposal{{ 's' if total != 1 }} match{{ 'es' if total == 1 }} these filters.</p>
+{% if records %}
+<div class="table-scroll">
+<table class="record-table">
+  <caption class="visually-hidden">Proposals matching the current filters, sorted by capacity descending by default.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Status</th>
+      <th scope="col">Name</th>
+      <th scope="col">Technology</th>
+      <th scope="col" class="num">Capacity (MW)</th>
+      <th scope="col">Jurisdiction</th>
+      <th scope="col">County</th>
+      <th scope="col">Source</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td data-label="Status">{{ m.status_chip(r.lifecycle_state, r.lifecycle_family, r.status_raw) }}</td>
+      <td data-label="Name"><a class="row-link" href="/proposals/{{ r.slug }}">{{ r.name }}</a></td>
+      <td data-label="Technology">{{ r.technology or '—' }}</td>
+      <td data-label="Capacity (MW)" class="num">{{ '%.1f'|format(r.capacity_mw) if r.capacity_mw is not none else '—' }}</td>
+      <td data-label="Jurisdiction">{{ r.state or (r.jurisdiction or '—') }}</td>
+      <td data-label="County">{{ r.county or '—' }}{% if r.restricted_precision %} <span class="visually-hidden">(county-level location; source licence)</span>{% endif %}</td>
+      <td data-label="Source" class="mono"><a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_id }}</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{{ m.pager(prev_cursor, next_cursor, querystring, "/proposals") }}
+{% else %}
+<div class="empty-state">
+  <p>No proposals match these filters.</p>
+  <p><a href="/proposals">Clear all filters</a></p>
+</div>
+{% endif %}

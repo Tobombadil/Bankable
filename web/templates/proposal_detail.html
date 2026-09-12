@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ record.name }} -- Infraqueue (placeholder){% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.technology or record.kind }} proposal, {{ record.capacity_mw ~ ' MW, ' if record.capacity_mw }}{{ record.county ~ ', ' if record.county }}{{ record.state or record.jurisdiction or '' }}.{% endblock %}
+{% block canonical %}<link rel="canonical" href="/proposals/{{ record.slug }}">{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/proposals">Proposals</a> / {{ record.name }}</nav>
+<div class="detail-header">
+  <h1>{{ record.name }}</h1>
+  {{ m.status_chip(record.lifecycle_state, record.lifecycle_family, record.status_raw) }}
+</div>
+{{ m.delayed_banner(delayed, "supply") }}
+
+<dl class="field-grid">
+  <div><dt>Kind</dt><dd>{{ record.kind or '—' }}</dd></div>
+  <div><dt>Technology</dt><dd>{{ record.technology or '—' }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="visually-hidden">(source value: {{ record.technology_raw }})</span>{% endif %}</dd></div>
+  <div><dt>Capacity (MW)</dt><dd>{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}</dd></div>
+  <div><dt>Storage (MWh)</dt><dd>{{ '%.1f'|format(record.storage_mwh) if record.storage_mwh is not none else '—' }}</dd></div>
+  <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
+  <div><dt>County</dt><dd>{{ record.county or '—' }}{% if record.restricted_precision %} <span class="reuse-badge">county level (source licence)</span>{% elif record.location_precision == 'county_centroid' %} <span class="reuse-badge">county centroid</span>{% endif %}</dd></div>
+  <div><dt>ISO / operator</dt><dd>{{ record.iso or '—' }}</dd></div>
+  <div><dt>Sponsor</dt><dd>{{ record.sponsor or '—' }}</dd></div>
+  <div><dt>Queue ID</dt><dd class="mono">{{ record.queue_id or '—' }}</dd></div>
+  <div><dt>EIA plant / generator ID</dt><dd class="mono">{{ (record.eia_plant_id ~ ' / ' ~ record.eia_generator_id) if record.eia_plant_id else '—' }}</dd></div>
+</dl>
+
+{{ m.provenance_panel(record) }}
+
+<section aria-label="Lifecycle timeline">
+  <h2>Lifecycle timeline</h2>
+  <p class="attribution-line">Built from this record&rsquo;s single most recent source snapshot -- the current state and the dates the source provides, not a full change history (docs/21 §6.5 rebuilds that from repeated runs).</p>
+  <ul class="timeline">
+    <li>
+      <time datetime="{{ record.retrieved_at }}">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown date' }}</time>
+      Observed as <strong>{{ record.lifecycle_state | replace('_',' ') }}</strong> in {{ record.source_name }}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.
+    </li>
+    {% if record.queue_date %}
+    <li><time datetime="{{ record.queue_date }}">{{ record.queue_date }}</time> Interconnection request / queue entry date, as filed with the source.</li>
+    {% endif %}
+    {% if record.proposed_online_date %}
+    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date }}</time> Proposed commercial-operation date (source-stated; not a commitment).</li>
+    {% endif %}
+  </ul>
+</section>
+
+{% if record.allows_raw and record.raw_fields %}
+<details class="raw-fields-details">
+  <summary>Raw source fields ({{ record.source_name }})</summary>
+  <pre class="raw-fields">{{ record.raw_fields | tojson(indent=2) }}</pre>
+</details>
+{% endif %}
+
+<p><a href="mailto:?subject=Report%20a%20problem%20with%20{{ record.name | urlencode }}">Report a problem with this record &rarr;</a> (prototype: opens a mail draft; the built product logs an admin task, US-204.)</p>
+
+{{ m.attribution_line(record) }}
+{% endblock %}
