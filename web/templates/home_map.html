@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Infraqueue (placeholder){% endblock %}
+{% block extra_head %}
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Map</h1>
+  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO. Filters apply to the map and the list together; the URL always reflects the current view.</p>
+</div>
+{{ m.delayed_banner(delayed, "supply") }}
+
+<form id="map-filters" class="filter-bar" aria-label="Map filters">
+  <div class="filter-field">
+    <label for="mf-technology">Technology</label>
+    <select id="mf-technology" name="technology">
+      <option value="">All</option>
+      {% for t in technologies %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="mf-lifecycle">Lifecycle state</label>
+    <select id="mf-lifecycle" name="lifecycle_state">
+      <option value="">All</option>
+      {% for s in lifecycle_states %}<option value="{{ s }}">{{ s | replace('_',' ') }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="mf-jurisdiction">Jurisdiction (state)</label>
+    <select id="mf-jurisdiction" name="jurisdiction">
+      <option value="">All</option>
+      {% for j in jurisdictions %}<option value="{{ j }}">{{ j }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="filter-bar__submit" type="button" id="mf-clear">Clear all</button>
+  <a class="filter-bar__clear" href="/proposals" id="mf-view-list">View as list &rarr;</a>
+</form>
+
+<p class="result-count" id="map-result-count" aria-hidden="true">Loading proposals&hellip;</p>
+
+<div class="map-layout">
+  <div>
+    <div class="map-controls" role="group" aria-label="Map zoom">
+      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" id="zoom-out" aria-label="Zoom out">&minus;</button>
+      <button type="button" id="zoom-reset" aria-label="Reset view">Reset</button>
+    </div>
+    <div id="map" role="application" aria-label="Map of proposal locations. Use the in-view list for a keyboard- and screen-reader-accessible equivalent."></div>
+    <div class="legend" aria-hidden="true">
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-neutral-text)"></span> Neutral</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-progress-text)"></span> Progress</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-committed-text)"></span> Committed</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-success-text)"></span> Success</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-danger-text)"></span> Danger</span>
+    </div>
+    <p class="map-attribution">Basemap &copy; <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a> contributors, ODbL. Proposal data: <span id="map-sources-line">see About &amp; sources.</span></p>
+  </div>
+  <aside class="map-side" aria-label="Proposals in view">
+    <a id="in-view-list" tabindex="-1"></a>
+    <h2>In view</h2>
+    <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
+    <ul class="in-view-list" id="in-view-items"></ul>
+    <div id="unplaced-container"></div>
+  </aside>
+</div>
+
+<template id="in-view-item-template">
+  <li>
+    <span class="chip-slot"></span>
+    <a href="#" class="name-link"></a>
+    <span class="meta"></span>
+  </li>
+</template>
+{% endblock %}
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="/static/js/map.js"></script>
+{% endblock %}

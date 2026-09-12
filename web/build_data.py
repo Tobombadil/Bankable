@@ -74,6 +74,7 @@ FAMILY_LABEL: dict[Family, str] = {
     "danger": "Danger",
 }
 
+
 # The five proposal + four opportunity sources this Sprint 2 task names, mapped to the policy
 # facts a page must render (attribution text, whether raw fields may reach a public surface).
 # `allows_raw` mirrors docs/21 §8's field-class table: CAISO and NYISO are attribution sources
@@ -103,7 +104,9 @@ SOURCE_POLICY: dict[str, SourcePolicy] = {
         "docs/00-PLAN.md legal register outcome 2026-09-12: 'NYISO derived-only with credit'; "
         "sources.yaml notes 'Derived-only at launch with credit NYISO'",
     ),
-    "us.eia.860m": SourcePolicy("U.S. Energy Information Administration", True, "US federal public domain work"),
+    "us.eia.860m": SourcePolicy(
+        "U.S. Energy Information Administration", True, "US federal public domain work"
+    ),
     "gb.neso.tec_register": SourcePolicy(
         "Supported by National Energy SO Open Data",
         True,
@@ -146,9 +149,7 @@ EVAL_SHORT_ID_MAP: dict[str, str] = {
     # "spp" and "isone" deliberately absent: restricted sources are excluded, not remapped.
 }
 
-_COUNTY_SUFFIX_RE = re.compile(
-    r"\b(COUNTY|PARISH|BOROUGH|CENSUS AREA|MUNICIPALITY|CITY AND BOROUGH|CITY)\b"
-)
+_COUNTY_SUFFIX_RE = re.compile(r"\b(COUNTY|PARISH|BOROUGH|CENSUS AREA|MUNICIPALITY|CITY AND BOROUGH|CITY)\b")
 _NON_ALNUM_RE = re.compile(r"[^A-Z0-9 ]")
 
 # NYISO's free-text `county` field names NYC boroughs and carries a handful of misspellings
@@ -232,12 +233,15 @@ def slugify(text: str) -> str:
 
 
 def public_id(prefix: str, record_id: str) -> str:
-    digest = hashlib.sha1(record_id.encode("utf-8")).hexdigest()[:10]
+    # Not a security context: a short, stable id derived from the source's own record_id
+    # (docs/21 §1 `public_id`). sha256 avoids the weak-hash lint rather than needing a
+    # per-call suppression.
+    digest = hashlib.sha256(record_id.encode("utf-8")).hexdigest()[:10]
     return f"{prefix}_{digest}"
 
 
 def make_slug(name: str, record_id: str) -> str:
-    digest = hashlib.sha1(record_id.encode("utf-8")).hexdigest()[:6]
+    digest = hashlib.sha256(record_id.encode("utf-8")).hexdigest()[:6]
     return f"{slugify(name)}-{digest}"
 
 
@@ -314,9 +318,7 @@ class BuildStats:
     sources: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
-def build_source_meta(
-    source_id: str, registry: dict[str, dict[str, Any]], kind: str
-) -> dict[str, Any]:
+def build_source_meta(source_id: str, registry: dict[str, dict[str, Any]], kind: str) -> dict[str, Any]:
     entry = registry.get(source_id, {})
     policy = SOURCE_POLICY[source_id]
     return {
@@ -349,12 +351,16 @@ def _load_source_frame(
         if "raw" not in frame.columns:
             frame["raw"] = None
         return frame
-    assert data_dir is not None
+    if data_dir is None:
+        # `--eval-parquet` mode: the combined fallback covers proposals only (`pipeline/README.md`
+        # prototype stages), so an opportunity source simply has no rows here rather than an error.
+        log.warning("no data source configured for source", extra={"source_id": source_id})
+        return None
     path = latest_parquet(data_dir, source_id)
     if path is None:
         log.warning("no normalised parquet found", extra={"source_id": source_id})
         return None
-    return cast(pd.DataFrame, pd.read_parquet(path))
+    return pd.read_parquet(path)
 
 
 def _extract_eia_latlon(raw_fields: dict[str, Any] | None) -> tuple[float, float] | None:
@@ -404,7 +410,7 @@ def build_proposals(
         total += len(df)
         visible_here = 0
         for row in df.to_dict(orient="records"):
-            retrieved_at_raw = row.get("retrieved_at")
+            retrieved_at_raw: Any = row.get("retrieved_at")
             retrieved_ts = pd.to_datetime(retrieved_at_raw, utc=True, errors="coerce")
             if pd.isna(retrieved_ts) or retrieved_ts.to_pydatetime() > cutoff:
                 continue
@@ -592,7 +598,8 @@ def build_opportunities(
         total += len(df)
         visible_here = 0
         for row in df.to_dict(orient="records"):
-            retrieved_ts = pd.to_datetime(row.get("retrieved_at"), utc=True, errors="coerce")
+            retrieved_at_raw: Any = row.get("retrieved_at")
+            retrieved_ts = pd.to_datetime(retrieved_at_raw, utc=True, errors="coerce")
             if pd.isna(retrieved_ts) or retrieved_ts.to_pydatetime() > cutoff:
                 continue
             retrieved_iso = iso(retrieved_ts)
@@ -605,9 +612,7 @@ def build_opportunities(
             family = LIFECYCLE_FAMILY.get(status, "neutral")
             raw_fields = load_raw_json(row.get("raw")) if policy.allows_raw else None
             technologies_raw = row.get("technologies")
-            technologies = (
-                [t for t in str(technologies_raw).split("|") if t] if technologies_raw else []
-            )
+            technologies = [t for t in str(technologies_raw).split("|") if t] if technologies_raw else []
 
             item = {
                 "public_id": public_id("opp", record_id),
@@ -671,7 +676,7 @@ def build_all(
     now = now or dt.datetime.now(dt.UTC)
     registry = load_sources_yaml(sources_yaml)
     gaz = CountyGazetteer.load(COUNTY_CENTROID_TSV)
-    eval_df = cast(pd.DataFrame, pd.read_parquet(eval_parquet)) if eval_parquet else None
+    eval_df = pd.read_parquet(eval_parquet) if eval_parquet else None
 
     features, stats = build_proposals(
         registry=registry, gaz=gaz, data_dir=data_dir, eval_df=eval_df, now=now, no_lag=no_lag
@@ -760,7 +765,7 @@ def main(argv: list[str] | None = None) -> int:
         out_dir=args.out_dir,
         no_lag=args.no_lag,
     )
-    print(  # noqa: T201 -- CLI summary output, not application logging
+    print(  # CLI summary output, not application logging (T20 ignored for this file)
         f"proposals: {stats.proposals_visible}/{stats.proposals_total} visible | "
         f"opportunities: {stats.opportunities_visible}/{stats.opportunities_total} visible | "
         f"no_lag={stats.no_lag}"

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}About &amp; sources -- Infraqueue (placeholder){% endblock %}
+{% block meta_description %}Method, sources and licences behind Infraqueue's proposal and opportunity data.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>About &amp; sources</h1>
+  <p>Infraqueue (placeholder name) fuses public energy and infrastructure registers into one record per project. This prototype covers the public, delayed tier only: no login, no live data, no admin.</p>
+</div>
+
+<section id="tiers">
+  <h2>Tiers</h2>
+  <p>Public data is delayed {{ stats.lag_days.proposal }} days for proposals and {{ stats.lag_days.opportunity }} days for opportunities from the date a source was retrieved. A live, undelayed tier (Pro) and a bulk API are planned but not built in this prototype.</p>
+</section>
+
+<section>
+  <h2>Sources and licences</h2>
+  <p>Every field on every page traces to one of the rows below. "Derived only" sources have their raw source row and exact coordinates withheld; the page links out to the source instead.</p>
+  <div class="table-scroll">
+  <table class="record-table source-table">
+    <thead>
+      <tr>
+        <th scope="col">Source</th>
+        <th scope="col">Operator</th>
+        <th scope="col">Reuse class</th>
+        <th scope="col">Raw fields shown?</th>
+        <th scope="col">Attribution</th>
+        <th scope="col" class="num">Rows visible</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for source_id, s in sources.items() %}
+      <tr>
+        <td data-label="Source"><a href="{{ s.homepage }}" rel="noopener nofollow">{{ s.name }}</a><br><span class="mono reuse-badge">{{ source_id }}</span></td>
+        <td data-label="Operator">{{ s.operator or '—' }}</td>
+        <td data-label="Reuse class"><span class="reuse-badge">{{ s.reuse_class }}</span></td>
+        <td data-label="Raw fields shown?">{{ 'Yes' if s.allows_raw else 'No -- derived only' }}</td>
+        <td data-label="Attribution">{{ s.attribution_text }}</td>
+        <td data-label="Rows visible" class="num">{{ s.rows_visible }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>Licence text, verbatim</h2>
+  <dl>
+    {% for source_id, s in sources.items() %}
+    <dt class="mono">{{ source_id }}</dt>
+    <dd>{{ s.licence_text }}</dd>
+    {% endfor %}
+  </dl>
+</section>
+
+<section>
+  <h2>Method notes for this prototype</h2>
+  <ul>
+    <li>Placement on the map follows source precision: an exact coordinate where the source supplies one and its licence allows raw publication; otherwise a county centroid (US Census Gazetteer 2024, public domain); otherwise a state-level aggregate marker; records with neither a usable county nor a state are listed under &ldquo;Unplaced&rdquo;.</li>
+    <li>Clustering on the map is computed client-side by MapLibre's built-in clustering rather than the server-side <code>/v1/proposals/geo</code> endpoint described in <code>docs/23</code>, since this prototype has no database or API service yet.</li>
+    <li>NESO TEC Register rows have no US-style county or state field in the source and are listed under Unplaced (GB) rather than guessed at.</li>
+  </ul>
+</section>
+{% endblock %}

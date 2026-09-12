@@ -1,0 +1,47 @@
+{% macro status_chip(state, family, raw=None) -%}
+<span class="chip chip--{{ family }}">
+  <svg class="chip__icon" aria-hidden="true" width="12" height="12"><use href="#icon-{{ family }}"></use></svg>
+  <span class="chip__label">{{ state | replace('_', ' ') }}</span>
+  {%- if raw and raw != state %}<span class="visually-hidden"> (source status: {{ raw }})</span>{% endif -%}
+</span>
+{%- endmacro %}
+
+{% macro delayed_banner(delayed, subject) -%}
+<p class="delayed-notice" role="status">
+  Public data is {{ delayed.lag_days }} days delayed{% if delayed.data_as_of %} (as of {{ delayed.data_as_of[:10] }}){% endif %}. <a href="/about#tiers">Live in Pro &rarr;</a>
+  {%- if delayed.no_lag_demo %}<span class="delayed-notice__demo"> Prototype note: shown without the lag applied so today&rsquo;s connector run is visible; the notice above states the configured lag ({{ subject }}), not today&rsquo;s actual age.</span>{% endif -%}
+</p>
+{%- endmacro %}
+
+{% macro attribution_line(record) -%}
+<p class="attribution-line">Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text or record.source_name }}</a>{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved {{ record.retrieved_at[:10] if record.retrieved_at else 'unknown' }}.</p>
+{%- endmacro %}
+
+{% macro provenance_panel(record) -%}
+<section class="provenance-panel" aria-label="Sources">
+  <h2>Sources</h2>
+  <ul class="provenance-panel__list">
+    <li>
+      <span class="provenance-panel__name">{{ record.source_name }}</span>
+      <span class="provenance-panel__licence">{{ record.reuse_class }}</span>
+      <span class="provenance-panel__date">retrieved {{ record.retrieved_at[:10] if record.retrieved_at else 'unknown' }}</span>
+      <a class="provenance-panel__link" href="{{ record.source_url }}" rel="noopener nofollow">View at source &rarr;</a>
+      {% if not record.allows_raw -%}
+      <p class="provenance-panel__note">Derived fields only; raw source row withheld under licence. {% if record.restricted_precision %}Location shown at county level (source licence).{% endif %}</p>
+      {%- endif %}
+    </li>
+  </ul>
+  <p class="provenance-panel__licence-text">{{ record.licence_text }}</p>
+</section>
+{%- endmacro %}
+
+{% macro pager(prev_cursor, next_cursor, querystring, base_path) -%}
+<nav class="pager" aria-label="Pagination">
+  {% if prev_cursor is not none -%}
+  <a href="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ prev_cursor }}" hx-get="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ prev_cursor }}" hx-target="#result-rows" hx-push-url="true">&larr; Previous</a>
+  {%- else -%}<span class="pager__disabled">&larr; Previous</span>{%- endif %}
+  {% if next_cursor is not none -%}
+  <a href="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ next_cursor }}" hx-get="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ next_cursor }}" hx-target="#result-rows" hx-push-url="true">Next &rarr;</a>
+  {%- else -%}<span class="pager__disabled">Next &rarr;</span>{%- endif %}
+</nav>
+{%- endmacro %}

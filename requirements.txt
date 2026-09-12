@@ -8,6 +8,22 @@ openpyxl>=3.1
 rapidfuzz>=3.9
 pytest>=8
 
+# services/db, services/ingest, services/api (Sprint 2 backend)
+sqlalchemy>=2.0,<2.1
+alembic>=1.13,<1.14
+geoalchemy2>=0.15,<0.16       # canonical Postgres migration only; the SQLite test target has a
+                               # pure-Python fallback (services/db/types.py) and does not need it
+fastapi>=0.115,<0.116
+pydantic>=2.7,<3
+uvicorn>=0.30,<0.31
+httpx>=0.27,<0.28             # FastAPI TestClient
+jsonschema>=4.22,<5           # tests/test_api_contract.py
+
+# web/ (Sprint 2 public-site prototype: FastAPI + Jinja2 + htmx, docs/20 §15)
+jinja2>=3.1,<4
+python-multipart>=0.0.9,<0.1  # form parsing for FastAPI/Starlette
+playwright>=1.47              # web/test_e2e.py smoke path (docs/04 E-10); browsers pre-installed
+
 # lint and type gates (docs/04 E-5)
 ruff>=0.6
 mypy>=1.11
