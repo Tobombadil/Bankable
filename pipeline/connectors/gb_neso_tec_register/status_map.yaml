@@ -1,0 +1,19 @@
+# gb.neso.tec_register: TEC register "Project Status" -> canonical proposal lifecycle (docs/04 DA-5).
+version: 1
+updated: 2026-09-12
+canonical_states: [announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled, unknown]
+sources:
+  neso_tec:
+    field: Status
+    map:
+      Scoping: filed
+      Awaiting Consents: studied
+      Consents Approved: permitted
+      Under Construction/Commissioning: under_construction
+      Built: built
+    caveats:
+      - >-
+        Every TEC row has a signed connection agreement (that is what TEC is), so the register
+        never shows a pre-contract state; "Scoping" is kept at `filed` rather than `contracted`
+        because the connection date is often a decade out and the project may not exist yet.
+      - Withdrawn projects leave the register; withdrawal is a `removed` diff event only.
