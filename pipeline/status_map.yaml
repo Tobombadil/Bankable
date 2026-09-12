@@ -1,0 +1,155 @@
+# Status harmonisation: per-source raw status -> canonical lifecycle state.
+# Versioned data, not code (docs/20 §3.4). Revised by data-scientist without a code change.
+# Canonical vocabulary follows docs/02 §1 (announced -> filed -> studied -> permitted ->
+# contracted -> built -> withdrawn/cancelled) plus one documented extension, `under_construction`,
+# which sits between `contracted` and `built`. EIA-860M distinguishes it explicitly and collapsing
+# it into either neighbour would lose the single most commercially useful signal in the file.
+version: 2
+updated: 2026-09-12
+
+canonical_states:
+  - announced          # sponsor has declared intent; no regulatory process started
+  - filed              # request lodged with the ISO/regulator, study not started or pending
+  - studied            # in a cluster/system-impact/facilities study
+  - permitted          # regulatory approvals received, not yet contracted or building
+  - contracted         # interconnection agreement executed (or tendered and signed)
+  - under_construction # physical construction under way, not yet in commercial operation
+  - built              # in commercial operation / in service
+  - withdrawn          # sponsor withdrew the request
+  - cancelled          # terminated by the operator or the process
+  - unknown            # source gives no status, or a value not in the map
+
+# `field` names the raw column each base mapping keys off.
+# `refine` rules are evaluated in order BEFORE the base map; first match wins.
+# Rule condition fields are the normalised inputs built by pipeline/normalize.py:
+#   status_raw, status_original, ia_status, project_status, ia_signed ("yes"/"no")
+sources:
+
+  caiso:
+    field: Status
+    map:
+      ACTIVE: studied
+      COMPLETED: built
+      WITHDRAWN: withdrawn
+    refine:
+      - id: caiso.active_ia_executed
+        when: {status_raw: ACTIVE, ia_status: Executed}
+        then: contracted
+        note: >-
+          CAISO's public queue has only three status values. 214 of 265 ACTIVE rows carry an
+          executed Large Generator Interconnection Agreement, which is a materially later
+          lifecycle point than "in study" and is the state buyers care about.
+      - id: caiso.active_ia_filed
+        when: {status_raw: ACTIVE, ia_status: Filed Unexecuted}
+        then: permitted
+        note: LGIA filed at FERC but unexecuted; past study, short of contracted.
+    caveats:
+      - 65 WITHDRAWN rows carry an executed IA. Withdrawal wins; the pair is flagged
+        status_conflict for review (a withdrawal after an executed IA is itself a strong signal).
+      - CAISO publishes no sponsor/interconnecting-entity column, so no sponsor key exists here.
+
+  ercot:
+    field: Status
+    map:
+      Active: studied
+      Completed: built
+    refine:
+      - id: ercot.energized
+        when: {status_raw: Active, approved_for_energization: "yes"}
+        then: under_construction
+        note: ERCOT approves energisation only once plant is physically being commissioned.
+    caveats:
+      - >-
+        ERCOT's GIS report carries no withdrawn rows at all: withdrawn projects are dropped from
+        the file. Withdrawal in ERCOT is therefore only observable as a `removed` diff event
+        (pipeline/diff.py), never as a status value. This is the clearest case for snapshot diffing.
+      - Status=Completed is exactly coextensive with a non-null "IA Signed" date (580/580).
+
+  spp:
+    # gridstatus's harmonised SPP `Status` collapses three distinct states into "Completed";
+    # we key off the raw SPP value instead and keep gridstatus's only as a fallback.
+    field: Status (Original)
+    map:
+      WITHDRAWN: withdrawn
+      TERMINATED: cancelled
+      IA FULLY EXECUTED/COMMERCIAL OPERATION: built
+      IA FULLY EXECUTED/ON SCHEDULE: contracted
+      IA FULLY EXECUTED/ON SUSPENSION: contracted
+      IA PENDING: studied
+      DISIS STAGE: studied
+      FACILITY STUDY STAGE: studied
+      SPECIAL STUDY: studied
+      ERAS: studied
+      ICS: studied
+    refine:
+      - id: spp.suspended
+        when: {status_original: IA FULLY EXECUTED/ON SUSPENSION}
+        then: contracted
+        note: Contract stands, build paused. Kept in `contracted` with a suspension flag.
+    caveats:
+      - >-
+        327 SPP rows (302 ON SCHEDULE + 25 ON SUSPENSION) are labelled "Completed" by the
+        gridstatus harmonisation but have an executed IA and no commercial-operation date.
+        Treating them as built would overstate SPP completions by 49.5% (327/660).
+      - 34 rows have neither a raw nor an original status -> `unknown`.
+      - SPP publishes no project name and no sponsor at all (3,074/3,074 null on both).
+
+  nyiso:
+    field: Status
+    map:
+      Active: studied
+      Completed: built
+      Withdrawn: withdrawn
+    caveats:
+      - >-
+        The SGIA Tender Date column exists but is empty in every one of the 3,164 rows, so no
+        `contracted` refinement is possible for NYISO from this feed.
+      - 1,350 rows carry no project name and 1,433 no county; almost all are withdrawn rows.
+
+  isone:
+    field: Status
+    map:
+      Active: studied
+      Completed: built
+      Withdrawn: withdrawn
+    refine:
+      - id: isone.withdrawn_wins
+        when: {status_raw: Withdrawn}
+        then: withdrawn
+        note: >-
+          Tab membership (the withdrawn sheet of the IRTT) is authoritative over the stale
+          per-row Project Status field. 220 rows conflict; all are flagged status_conflict.
+      - id: isone.in_service
+        when: {project_status: In Service}
+        then: built
+      - id: isone.under_construction
+        when: {project_status: Under Construction}
+        then: under_construction
+      - id: isone.suspended
+        when: {project_status: Suspended}
+        then: contracted
+      - id: isone.ia_executed
+        when: {status_raw: Active, ia_status: Executed}
+        then: contracted
+    caveats:
+      - 214 rows sit on the withdrawn sheet with Project Status "Under Study" and 1 with "In Service".
+      - The Dev column is a two-letter developer *class* code (PD/BL/CD), not a sponsor name.
+
+  eia860m:
+    field: Status
+    map:
+      "(P) Planned for installation, but regulatory approvals not initiated": announced
+      "(L) Regulatory approvals pending. Not under construction": filed
+      "(T) Regulatory approvals received. Not under construction": permitted
+      "(U) Under construction, less than or equal to 50 percent complete": under_construction
+      "(V) Under construction, more than 50 percent complete": under_construction
+      "(TS) Construction complete, but not yet in commercial operation": under_construction
+    caveats:
+      - >-
+        (TS) is construction-complete but pre-commercial-operation. It is NOT `built`: the unit
+        has no commercial operation date yet. 152 rows.
+      - >-
+        The Planned sheet is a forward-looking register only. A unit that reaches commercial
+        operation leaves this sheet for the Operating sheet, so `built` never appears here and
+        completion is observable only as a `removed` diff event.
+      - 2 rows carry no status and no technology (trailing notes rows in the sheet).
