@@ -1052,7 +1052,7 @@ sources:
   cadence: continuous
   license: 'news.google.com/robots.txt, retrieved 2026-09-12 — "User-agent: *" / "Disallow: /" with Allow only for /, /home, /nwshp, /topics/, /publications/, /stories/, /swg/, /about; the /rss/ path is NOT allowed'
   reuse: restricted
-  tier: 2
+  tier: 3
   effort: S
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok}
@@ -1060,6 +1060,7 @@ sources:
     Polling /rss/search is contrary to robots.txt. Recommendation: drop this connector; use GDELT DOC, issuer
     and publisher RSS, and curated trade-press feeds instead. Counsel item 4 in docs/13-legal-data-rights.md
     section 7.
+  notes: 'DO NOT BUILD (legal-compliance 2026-09-12): /rss/ is disallowed by news.google.com/robots.txt. Use GDELT or publisher feeds as lookup triggers instead.'
 
 - id: news.wires
   name: Business Wire / PR Newswire / GlobeNewswire energy RSS feeds
