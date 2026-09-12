@@ -3,9 +3,10 @@
 Fetch: CKAN `package_show` names the current CSV resource (renamed each publication, e.g.
 `tec-register-11-september-2026.csv`), which redirects to object storage.
 Parse: CSV with a UTF-8 BOM; 15 columns including "Project ID", "Project Number", "Stage".
-source_record_id: `<Project ID>` plus `/<Stage>` when the project is split into MW stages (144
-projects have 2–5 stage rows with different effective dates). The pair is unique in the
-2026-09-11 register.
+source_record_id: `<Project ID>/<Stage>` where the project is split into MW stages (144 projects
+have 2–5 stage rows with different effective dates), else `<Project ID>/<hash>` over the capacity,
+effective date and status of the row — one project (a0l4L0000005im7QAA, VPI Immingham) files a
+built row and an unstaged future increase under the same id, so the project id alone is not a key.
 Reuse: NESO Open Data Licence v1.0 — attribution "Supported by National Energy SO Open Data".
 """
 
@@ -21,7 +22,7 @@ from typing import Any, ClassVar
 import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
+from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot, content_hash
 from pipeline.normalize import classify_tech, harmonise_status, norm_name, norm_org, to_date, to_float
 
 PACKAGE_URL = "https://api.neso.energy/api/3/action/package_show?id=transmission-entry-capacity-tec-register"
@@ -70,7 +71,9 @@ class Connector(BaseConnector):
         tech = [classify_tech(v) for v in g("Plant Type")]
         harmonised = [harmonise_status(self.status_key, {"status_raw": s}, self.status_map) for s in g("Project Status")]
         stage = [str(s or "").strip() for s in g("Stage")]
-        srid = [f"{pid}/{st}" if st else str(pid) for pid, st in zip(g("Project ID"), stage, strict=True)]
+        srid = [f"{pid}/{st}" if st else
+                f"{pid}/{content_hash(r.get('MW Effective From'), r.get('Project Status'), r.get('MW Connected'), r.get('MW Increase / Decrease'))}"
+                for pid, st, r in zip(g("Project ID"), stage, rows, strict=True)]
         cap = [to_float(c) or to_float(i) for c, i in zip(g("Cumulative Total Capacity (MW)"), g("MW Increase / Decrease"), strict=True)]
         df = pd.DataFrame({
             "source_record_id": srid,

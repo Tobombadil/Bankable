@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import os
 import random
 import time
 import urllib.robotparser
@@ -22,10 +23,25 @@ from urllib.parse import urlsplit
 
 import requests
 
-USER_AGENT = (
+#: The platform has no name or domain yet, so the contact URL carries the `{{DOMAIN}}` placeholder
+#: of docs/04 §0 item 6. It is rendered DNS-safe before it goes on the wire: braces in a header
+#: value are rejected by at least one host we ingest (search.worldbank.org answered 403 to the
+#: literal `{{DOMAIN}}` form and 200 to this one, measured 2026-09-12). Set `BANKABLE_DOMAIN` once
+#: the owner names the product and the placeholder disappears with no code change.
+USER_AGENT_TEMPLATE = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 "
     "Bankable/0.2 (+https://{{DOMAIN}}/bot; contact https://{{DOMAIN}}/contact)"
 )
+DOMAIN_PLACEHOLDER = "domain-placeholder.invalid"
+
+
+def user_agent(domain: str | None = None) -> str:
+    """Render the UA: browser-like, names the platform, carries a contact URL (docs/20 §4.3)."""
+    return USER_AGENT_TEMPLATE.replace("{{DOMAIN}}", domain or os.environ.get("BANKABLE_DOMAIN")
+                                       or DOMAIN_PLACEHOLDER)
+
+
+USER_AGENT = user_agent()
 DEFAULT_RPS = 1.0
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 CHALLENGE_MARKERS = (b"Just a moment", b"cf-chl-", b"__cf_chl", b"Attention Required! | Cloudflare")
