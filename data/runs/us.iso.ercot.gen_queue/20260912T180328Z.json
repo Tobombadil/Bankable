@@ -1,0 +1,277 @@
+{
+ "id": "bd312459-895a-42e5-97d4-a138e1e506f8",
+ "source_id": "us.iso.ercot.gen_queue",
+ "trigger": "manual",
+ "started_at": "2026-09-12T18:03:26.092047+00:00",
+ "finished_at": "2026-09-12T18:03:30.249226+00:00",
+ "status": "ok",
+ "egress_class": "plain",
+ "reuse_class": "open",
+ "licence_id": "us.iso.ercot.gen_queue#59c5de49c6",
+ "publishable": true,
+ "parser_version": "us.iso.ercot.gen_queue@1.0.0",
+ "attempt": 1,
+ "dead_lettered": false,
+ "http_status": 200,
+ "bytes": 675108,
+ "snapshot": {
+  "object_key": "/home/user/Bankable/data/snapshots/us.iso.ercot.gen_queue/20260912T180328Z.xlsx",
+  "sha256": "75543fb2772367aad3ca3f1ee6786e7ab1457c8c2f2e3cb76513ded2b419d5fb",
+  "byte_size": 675108,
+  "content_type": "",
+  "fetched_url": "https://www.ercot.com/misdownload/servlets/mirDownload?doclookupId=1269363208",
+  "http_status": 200,
+  "retrieved_at": "2026-09-12T18:03:28Z",
+  "licence_id": "us.iso.ercot.gen_queue#59c5de49c6",
+  "parser_version": "us.iso.ercot.gen_queue@1.0.0",
+  "record_count": 1778,
+  "requests_made": 2,
+  "redacted": false,
+  "meta": {
+   "doc_id": "1269363208",
+   "friendly_name": "GIS_Report_August2026",
+   "publish_date": "2026-09-01T14:38:04-05:00",
+   "product": "PG7-200-ER"
+  },
+  "previous_run_id": null
+ },
+ "rows_seen": 1778,
+ "rows_fetched": 1778,
+ "rows_new": 1778,
+ "rows_changed": 0,
+ "rows_gone": 0,
+ "events_emitted": 0,
+ "model_calls": 0,
+ "cost_usd": 0.0,
+ "worker_seconds": 4.16,
+ "dq_status": "pass",
+ "dq": {
+  "status": "pass",
+  "checks": [
+   {
+    "check": "row_count_drift",
+    "level": "info",
+    "detail": "no baseline; 1778 rows",
+    "data": {
+     "current": 1778
+    }
+   },
+   {
+    "check": "vocabulary_unmapped",
+    "level": "pass",
+    "detail": "0 rows (0.0 %) with unmapped lifecycle_state",
+    "data": {
+     "share": 0.0,
+     "values": []
+    }
+   },
+   {
+    "check": "vocabulary_drift",
+    "level": "info",
+    "detail": "no new values",
+    "data": {}
+   },
+   {
+    "check": "null_rate:name_canonical",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "null_rate:capacity_mw",
+    "level": "info",
+    "detail": "4.4 % null (no baseline)",
+    "data": {
+     "rate_pct": 4.44
+    }
+   },
+   {
+    "check": "null_rate:technology_raw",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "null_rate:state",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "duplicate_keys",
+    "level": "pass",
+    "detail": "none",
+    "data": {}
+   },
+   {
+    "check": "provenance",
+    "level": "pass",
+    "detail": "quartet present on every row",
+    "data": {
+     "missing_cells": 0
+    }
+   },
+   {
+    "check": "schema_drift",
+    "level": "info",
+    "detail": "35 source columns recorded",
+    "data": {}
+   }
+  ],
+  "stats": {
+   "rows": 1778,
+   "null_rates_pct": {
+    "name_canonical": 0.0,
+    "capacity_mw": 4.443194600674916,
+    "technology_raw": 0.0,
+    "state": 0.0
+   },
+   "vocabulary": {
+    "status_raw": [
+     "Active",
+     "Completed"
+    ],
+    "technology_raw": [
+     "Fuel Oil - Other",
+     "Gas - Combined-Cycle",
+     "Gas - Combustion (gas) Turbine, but not part of a Combined-Cycle",
+     "Gas - Internal Combustion Engine, eg. Reciprocating",
+     "Gas - Steam Turbine other than Combined-Cycle",
+     "Hydrogen - Other",
+     "Nuclear - Steam Turbine other than Combined-Cycle",
+     "Other - Battery Energy Storage",
+     "Other - Other",
+     "Solar - Photovoltaic Solar",
+     "Water - Other",
+     "Wind - Wind Turbine"
+    ],
+    "kind": [
+     "generation",
+     "other",
+     "storage"
+    ]
+   },
+   "source_columns": [
+    "Queue ID",
+    "Project Name",
+    "Interconnecting Entity",
+    "County",
+    "State",
+    "Interconnection Location",
+    "Transmission Owner",
+    "Generation Type",
+    "Capacity (MW)",
+    "Summer Capacity (MW)",
+    "Winter Capacity (MW)",
+    "Queue Date",
+    "Status",
+    "Proposed Completion Date",
+    "Withdrawn Date",
+    "Withdrawal Comment",
+    "Actual Completion Date",
+    "Fuel",
+    "Technology",
+    "GIM Study Phase",
+    "Screening Study Started",
+    "Screening Study Complete",
+    "FIS Requested",
+    "FIS Approved",
+    "Economic Study Required",
+    "IA Signed",
+    "Air Permit",
+    "GHG Permit",
+    "Water Availability",
+    "Meets Planning",
+    "Meets All Planning",
+    "CDR Reporting Zone",
+    "Approved for Energization",
+    "Approved for Synchronization",
+    "Comment"
+   ],
+   "rows_fetched": 1778
+  }
+ },
+ "stats": {
+  "rows": 1778,
+  "null_rates_pct": {
+   "name_canonical": 0.0,
+   "capacity_mw": 4.443194600674916,
+   "technology_raw": 0.0,
+   "state": 0.0
+  },
+  "vocabulary": {
+   "status_raw": [
+    "Active",
+    "Completed"
+   ],
+   "technology_raw": [
+    "Fuel Oil - Other",
+    "Gas - Combined-Cycle",
+    "Gas - Combustion (gas) Turbine, but not part of a Combined-Cycle",
+    "Gas - Internal Combustion Engine, eg. Reciprocating",
+    "Gas - Steam Turbine other than Combined-Cycle",
+    "Hydrogen - Other",
+    "Nuclear - Steam Turbine other than Combined-Cycle",
+    "Other - Battery Energy Storage",
+    "Other - Other",
+    "Solar - Photovoltaic Solar",
+    "Water - Other",
+    "Wind - Wind Turbine"
+   ],
+   "kind": [
+    "generation",
+    "other",
+    "storage"
+   ]
+  },
+  "source_columns": [
+   "Queue ID",
+   "Project Name",
+   "Interconnecting Entity",
+   "County",
+   "State",
+   "Interconnection Location",
+   "Transmission Owner",
+   "Generation Type",
+   "Capacity (MW)",
+   "Summer Capacity (MW)",
+   "Winter Capacity (MW)",
+   "Queue Date",
+   "Status",
+   "Proposed Completion Date",
+   "Withdrawn Date",
+   "Withdrawal Comment",
+   "Actual Completion Date",
+   "Fuel",
+   "Technology",
+   "GIM Study Phase",
+   "Screening Study Started",
+   "Screening Study Complete",
+   "FIS Requested",
+   "FIS Approved",
+   "Economic Study Required",
+   "IA Signed",
+   "Air Permit",
+   "GHG Permit",
+   "Water Availability",
+   "Meets Planning",
+   "Meets All Planning",
+   "CDR Reporting Zone",
+   "Approved for Energization",
+   "Approved for Synchronization",
+   "Comment"
+  ],
+  "rows_fetched": 1778
+ },
+ "error": null,
+ "error_class": null,
+ "outputs": {
+  "normalized": "/home/user/Bankable/data/normalized/us.iso.ercot.gen_queue/20260912T180328Z.parquet"
+ }
+}

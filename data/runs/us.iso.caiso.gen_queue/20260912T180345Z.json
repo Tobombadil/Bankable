@@ -1,0 +1,334 @@
+{
+ "id": "59928fb2-8acd-40a3-9e0f-db913dc27e3f",
+ "source_id": "us.iso.caiso.gen_queue",
+ "trigger": "manual",
+ "started_at": "2026-09-12T18:03:38.198877+00:00",
+ "finished_at": "2026-09-12T18:03:47.366809+00:00",
+ "status": "ok",
+ "egress_class": "plain",
+ "reuse_class": "attribution",
+ "licence_id": "us.iso.caiso.gen_queue#91102e0e70",
+ "publishable": true,
+ "parser_version": "us.iso.caiso.gen_queue@1.0.0",
+ "attempt": 1,
+ "dead_lettered": false,
+ "http_status": 200,
+ "bytes": 384823,
+ "snapshot": {
+  "object_key": "/home/user/Bankable/data/snapshots/us.iso.caiso.gen_queue/20260912T180345Z.xlsx",
+  "sha256": "1e8bc79c2d77c4a52a35c3105b5fe26b73572f3a50d92613039d89ac79ce9acd",
+  "byte_size": 384823,
+  "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "fetched_url": "https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx",
+  "http_status": 200,
+  "retrieved_at": "2026-09-12T18:03:45Z",
+  "licence_id": "us.iso.caiso.gen_queue#91102e0e70",
+  "parser_version": "us.iso.caiso.gen_queue@1.0.0",
+  "record_count": 2278,
+  "requests_made": 1,
+  "redacted": false,
+  "meta": {},
+  "previous_run_id": null
+ },
+ "rows_seen": 2278,
+ "rows_fetched": 2278,
+ "rows_new": 2278,
+ "rows_changed": 0,
+ "rows_gone": 0,
+ "events_emitted": 0,
+ "model_calls": 0,
+ "cost_usd": 0.0,
+ "worker_seconds": 9.17,
+ "dq_status": "pass",
+ "dq": {
+  "status": "pass",
+  "checks": [
+   {
+    "check": "row_count_drift",
+    "level": "info",
+    "detail": "no baseline; 2278 rows",
+    "data": {
+     "current": 2278
+    }
+   },
+   {
+    "check": "vocabulary_unmapped",
+    "level": "pass",
+    "detail": "0 rows (0.0 %) with unmapped lifecycle_state",
+    "data": {
+     "share": 0.0,
+     "values": []
+    }
+   },
+   {
+    "check": "vocabulary_drift",
+    "level": "info",
+    "detail": "no new values",
+    "data": {}
+   },
+   {
+    "check": "null_rate:name_canonical",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "null_rate:capacity_mw",
+    "level": "info",
+    "detail": "0.3 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.26
+    }
+   },
+   {
+    "check": "null_rate:technology_raw",
+    "level": "info",
+    "detail": "0.0 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.0
+    }
+   },
+   {
+    "check": "null_rate:state",
+    "level": "info",
+    "detail": "0.2 % null (no baseline)",
+    "data": {
+     "rate_pct": 0.18
+    }
+   },
+   {
+    "check": "duplicate_keys",
+    "level": "pass",
+    "detail": "none",
+    "data": {}
+   },
+   {
+    "check": "provenance",
+    "level": "pass",
+    "detail": "quartet present on every row",
+    "data": {
+     "missing_cells": 0
+    }
+   },
+   {
+    "check": "schema_drift",
+    "level": "info",
+    "detail": "36 source columns recorded",
+    "data": {}
+   }
+  ],
+  "stats": {
+   "rows": 2278,
+   "null_rates_pct": {
+    "name_canonical": 0.0,
+    "capacity_mw": 0.2633889376646181,
+    "technology_raw": 0.0,
+    "state": 0.17559262510974538
+   },
+   "vocabulary": {
+    "status_raw": [
+     "ACTIVE",
+     "COMPLETED",
+     "WITHDRAWN"
+    ],
+    "technology_raw": [
+     "Cogeneration",
+     "Combined Cycle",
+     "Combined Cycle + Combined Cycle",
+     "Combined Cycle + Storage",
+     "Combustion Turbine",
+     "Combustion Turbine + Photovoltaic",
+     "Combustion Turbine + Storage",
+     "Combustion Turbine + Storage + Steam Turbine",
+     "Gas Turbine",
+     "Gas Turbine + Storage",
+     "Hydro",
+     "Other",
+     "Photovoltaic",
+     "Photovoltaic + Combustion Turbine",
+     "Photovoltaic + Steam Turbine",
+     "Photovoltaic + Storage",
+     "Photovoltaic + Storage + Combustion Turbine",
+     "Photovoltaic + Wind Turbine",
+     "Photovoltaic + Wind Turbine + Storage",
+     "Reciprocating Engine",
+     "Solar Thermal",
+     "Steam Turbine",
+     "Steam Turbine + Steam Turbine",
+     "Steam Turbine + Storage",
+     "Storage",
+     "Storage + Combustion Turbine",
+     "Storage + Gas Turbine",
+     "Storage + Other",
+     "Storage + Photovoltaic",
+     "Storage + Photovoltaic + Wind Turbine",
+     "Storage + Solar Thermal",
+     "Storage + Steam Turbine + Combustion Turbine",
+     "Storage + Storage",
+     "Storage + Wind Turbine",
+     "Storage + Wind Turbine + Photovoltaic",
+     "Wind Turbine",
+     "Wind Turbine + Photovoltaic",
+     "Wind Turbine + Photovoltaic + Storage",
+     "Wind Turbine + Storage",
+     "Wind Turbine + Storage + Photovoltaic",
+     "Wind Turbine + Storage + Storage"
+    ],
+    "kind": [
+     "generation",
+     "other",
+     "storage"
+    ]
+   },
+   "source_columns": [
+    "Queue ID",
+    "Project Name",
+    "Interconnecting Entity",
+    "County",
+    "State",
+    "Interconnection Location",
+    "Transmission Owner",
+    "Generation Type",
+    "Capacity (MW)",
+    "Summer Capacity (MW)",
+    "Winter Capacity (MW)",
+    "Queue Date",
+    "Status",
+    "Proposed Completion Date",
+    "Withdrawn Date",
+    "Withdrawal Comment",
+    "Actual Completion Date",
+    "Type-1",
+    "Type-2",
+    "Type-3",
+    "Fuel-1",
+    "Fuel-2",
+    "Fuel-3",
+    "MW-1",
+    "MW-2",
+    "MW-3",
+    "Interconnection Request Receive Date",
+    "Interconnection Agreement Status",
+    "Study Process",
+    "Proposed On-line Date (as filed with IR)",
+    "System Impact Study or Phase I Cluster Study",
+    "Facilities Study (FAS) or Phase II Cluster Study",
+    "Optional Study (OS)",
+    "Full Capacity, Partial or Energy Only (FC/P/EO)",
+    "Off-Peak Deliverability and Economic Only",
+    "Feasibility Study or Supplemental Review"
+   ],
+   "rows_fetched": 2278
+  }
+ },
+ "stats": {
+  "rows": 2278,
+  "null_rates_pct": {
+   "name_canonical": 0.0,
+   "capacity_mw": 0.2633889376646181,
+   "technology_raw": 0.0,
+   "state": 0.17559262510974538
+  },
+  "vocabulary": {
+   "status_raw": [
+    "ACTIVE",
+    "COMPLETED",
+    "WITHDRAWN"
+   ],
+   "technology_raw": [
+    "Cogeneration",
+    "Combined Cycle",
+    "Combined Cycle + Combined Cycle",
+    "Combined Cycle + Storage",
+    "Combustion Turbine",
+    "Combustion Turbine + Photovoltaic",
+    "Combustion Turbine + Storage",
+    "Combustion Turbine + Storage + Steam Turbine",
+    "Gas Turbine",
+    "Gas Turbine + Storage",
+    "Hydro",
+    "Other",
+    "Photovoltaic",
+    "Photovoltaic + Combustion Turbine",
+    "Photovoltaic + Steam Turbine",
+    "Photovoltaic + Storage",
+    "Photovoltaic + Storage + Combustion Turbine",
+    "Photovoltaic + Wind Turbine",
+    "Photovoltaic + Wind Turbine + Storage",
+    "Reciprocating Engine",
+    "Solar Thermal",
+    "Steam Turbine",
+    "Steam Turbine + Steam Turbine",
+    "Steam Turbine + Storage",
+    "Storage",
+    "Storage + Combustion Turbine",
+    "Storage + Gas Turbine",
+    "Storage + Other",
+    "Storage + Photovoltaic",
+    "Storage + Photovoltaic + Wind Turbine",
+    "Storage + Solar Thermal",
+    "Storage + Steam Turbine + Combustion Turbine",
+    "Storage + Storage",
+    "Storage + Wind Turbine",
+    "Storage + Wind Turbine + Photovoltaic",
+    "Wind Turbine",
+    "Wind Turbine + Photovoltaic",
+    "Wind Turbine + Photovoltaic + Storage",
+    "Wind Turbine + Storage",
+    "Wind Turbine + Storage + Photovoltaic",
+    "Wind Turbine + Storage + Storage"
+   ],
+   "kind": [
+    "generation",
+    "other",
+    "storage"
+   ]
+  },
+  "source_columns": [
+   "Queue ID",
+   "Project Name",
+   "Interconnecting Entity",
+   "County",
+   "State",
+   "Interconnection Location",
+   "Transmission Owner",
+   "Generation Type",
+   "Capacity (MW)",
+   "Summer Capacity (MW)",
+   "Winter Capacity (MW)",
+   "Queue Date",
+   "Status",
+   "Proposed Completion Date",
+   "Withdrawn Date",
+   "Withdrawal Comment",
+   "Actual Completion Date",
+   "Type-1",
+   "Type-2",
+   "Type-3",
+   "Fuel-1",
+   "Fuel-2",
+   "Fuel-3",
+   "MW-1",
+   "MW-2",
+   "MW-3",
+   "Interconnection Request Receive Date",
+   "Interconnection Agreement Status",
+   "Study Process",
+   "Proposed On-line Date (as filed with IR)",
+   "System Impact Study or Phase I Cluster Study",
+   "Facilities Study (FAS) or Phase II Cluster Study",
+   "Optional Study (OS)",
+   "Full Capacity, Partial or Energy Only (FC/P/EO)",
+   "Off-Peak Deliverability and Economic Only",
+   "Feasibility Study or Supplemental Review"
+  ],
+  "rows_fetched": 2278
+ },
+ "error": null,
+ "error_class": null,
+ "outputs": {
+  "normalized": "/home/user/Bankable/data/normalized/us.iso.caiso.gen_queue/20260912T180345Z.parquet"
+ }
+}
