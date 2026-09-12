@@ -1,13 +1,13 @@
 left_id,right_id,label,rationale
 eia860m:67676-GEN01,caiso:1728,1,"Zeta Solar & Storage / ZETA: same county (Merced), 75 MW both, COD 5 days apart"
-isone:8,isone:8,1,ANP Bellingham Unit 1 and Unit 2: two units of one plant under one ISO-NE queue id
+isone:8#3,isone:8#4,1,ANP Bellingham Unit 1 and Unit 2: two units of one plant under one ISO-NE queue id
 eia860m:68349-AVBS1,ercot:27INR0316,1,"Avant Prairie ESS/BESS: identical sponsor LLC, county, 200 vs 201.7 MW"
-isone:272,isone:272,0,"ISO-NE queue id 272 reused: 'Wind' in Somerset vs Oakfield II in Aroostook, different projects"
-isone:84,isone:84,0,Nantucket Sound Phase I vs Phase 3: different phases filed separately
+isone:272#3,isone:272#5,0,"ISO-NE queue id 272 reused: 'Wind' in Somerset vs Oakfield II in Aroostook, different projects"
+isone:84,isone:84#5,0,Nantucket Sound Phase I vs Phase 3: different phases filed separately
 eia860m:68479-SHRT,ercot:24INR0201,1,"Short Creek Solar: same sponsor (Wichita Solar I), county, 606 vs 628 MW"
 eia860m:68852-HSBE1,ercot:24INR0365,1,"Hermes Storage: same sponsor (Bell 1 Storage), county, 100.4 vs 100.42 MW"
 eia860m:69982-3569,ercot:20INR0162,1,"Diamondback Solar: same sponsor LLC, Starr county, 200 vs 203.8 MW"
-isone:272,isone:272,-1,"ISO-NE id 272 reused; generic name 'Wind', same county, 150 vs 135.5 MW, 4 years apart: cannot tell"
+isone:272#4,isone:272#5,-1,"ISO-NE id 272 reused; generic name 'Wind', same county, 150 vs 135.5 MW, 4 years apart: cannot tell"
 ercot:28INR0109,eia860m:69689-CT12,1,"Vast Sands Power II / Vast Sands Power: same sponsor (Permian Power I), Ward county, 440 MW both; EIA CT12 is a unit"
 nyiso:0774,eia860m:65051-TSEC,1,"Tracy Solar Energy Center: identical name, Jefferson county, 119 MW both"
 ercot:26INR0172,eia860m:68357-LUPV1,0,"Lazy U Solar 2 vs Lazy U Solar 1: numbered phases, separate LLCs"

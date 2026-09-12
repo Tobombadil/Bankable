@@ -178,12 +178,16 @@ def deterministic(df: pd.DataFrame) -> pd.DataFrame:
             rejected += 1
             continue
         for a, b in itertools.combinations(grp.index, 2):
+            ca, cb = df.at[a, "county_norm"], df.at[b, "county_norm"]
+            if pd.notna(ca) and pd.notna(cb) and ca != cb:   # same id, different county
+                rejected += 1
+                continue
             la, lb = df.at[a, "name_norm"], df.at[b, "name_norm"]
             if pd.notna(la) and pd.notna(lb) and la and lb and \
                     fuzz.token_set_ratio(str(la), str(lb)) < 60:
                 rejected += 1
                 continue
-            out.append((a, b, "D2_queue_id", 100.0, "iso + queue id equal, state consistent"))
+            out.append((a, b, "D2_queue_id", 100.0, "iso + queue id equal, state/county consistent"))
     if rejected:
         print(f"  D2 groups/pairs rejected as queue-id reuse: {rejected}", file=sys.stderr)
 
