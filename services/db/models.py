@@ -29,7 +29,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from services.db.base import Base
-from services.db.types import GeographyPoint, GUID, JSONVariant, TextArray, uuid7
+from services.db.types import GUID, GeographyPoint, JSONVariant, TextArray, uuid7
 
 # ---------------------------------------------------------------------------------------------
 # Vocabularies enforced as CHECK constraints (docs/21 §1, §7). Kept here so the DB layer, the API
@@ -78,7 +78,9 @@ def new_uuid() -> _uuid.UUID:
 
 
 class TimestampMixin:
-    created_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=utcnow, nullable=False
+    )
     updated_at: Mapped[dt.datetime] = mapped_column(
         sa.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )
@@ -217,7 +219,9 @@ class SourceRun(Base):
     error_class: Mapped[str | None] = mapped_column(sa.Text)
     attempt: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
     dead_lettered: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
-    created_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=utcnow, nullable=False
+    )
 
     __table_args__ = (
         sa.CheckConstraint(f"status IN {SOURCE_RUN_STATUSES!r}", name="status_vocab"),
@@ -264,8 +268,12 @@ class Organization(Base, TimestampMixin):
     ids: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     website: Mapped[str | None] = mapped_column(sa.Text)
     is_curated_issuer: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
-    first_seen: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
-    last_changed: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
+    first_seen: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    last_changed: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
     merged_into_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("organization.id"))
 
 
@@ -274,7 +282,9 @@ class OrganizationAlias(Base):
     __tablename__ = "organization_alias"
 
     id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
-    organization_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("organization.id"), nullable=False)
+    organization_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("organization.id"), nullable=False
+    )
     alias: Mapped[str] = mapped_column(sa.Text, nullable=False)
     alias_normalised: Mapped[str] = mapped_column(sa.Text, nullable=False)
     kind: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -285,9 +295,7 @@ class OrganizationAlias(Base):
     confidence: Mapped[float] = mapped_column(sa.Numeric(4, 3), nullable=False, default=1.0)
     created_by: Mapped[str] = mapped_column(sa.Text, nullable=False, default="pipeline")
 
-    __table_args__ = (
-        sa.UniqueConstraint("organization_id", "alias_normalised", name="one_alias_per_org"),
-    )
+    __table_args__ = (sa.UniqueConstraint("organization_id", "alias_normalised", name="one_alias_per_org"),)
 
 
 # ================================================================================= location (§3.7)
@@ -310,6 +318,9 @@ class Location(Base):
     source_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
     retrieved_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
+
+    source: Mapped[Source] = relationship(lazy="joined")
+    licence: Mapped[Licence] = relationship(lazy="joined")
 
     __table_args__ = (
         sa.CheckConstraint(f"kind IN {LOCATION_KINDS!r}", name="kind_vocab"),
@@ -338,8 +349,12 @@ class Proposal(Base, TimestampMixin):
     status_raw: Mapped[str | None] = mapped_column(sa.Text)
     identifiers: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     proposed_online_date: Mapped[dt.date | None] = mapped_column(sa.Date)
-    first_seen: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
-    last_changed: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
+    first_seen: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    last_changed: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
     publish_state: Mapped[str] = mapped_column(sa.Text, nullable=False, default="pending_review")
     published_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     public_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
@@ -353,6 +368,11 @@ class Proposal(Base, TimestampMixin):
 
     sponsor: Mapped[Organization | None] = relationship(lazy="joined")
     location: Mapped[Location | None] = relationship(lazy="joined")
+    sources: Mapped[list[ProposalSource]] = relationship(
+        primaryjoin="Proposal.id == ProposalSource.proposal_id",
+        foreign_keys="ProposalSource.proposal_id",
+        viewonly=True,
+    )
 
     __table_args__ = (
         sa.CheckConstraint(f"lifecycle_state IN {LIFECYCLE_STATES!r}", name="lifecycle_state_vocab"),
@@ -378,13 +398,17 @@ class ProposalSource(Base):
     raw: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     normalised: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     status_raw: Mapped[str | None] = mapped_column(sa.Text)
-    first_seen: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
+    first_seen: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
     last_seen: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
     gone_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     link_method: Mapped[str] = mapped_column(sa.Text, nullable=False, default="deterministic_key")
     link_confidence: Mapped[float] = mapped_column(sa.Numeric(4, 3), nullable=False, default=1.0)
     link_event_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("event.id"))
     active: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
+
+    source: Mapped[Source] = relationship(lazy="joined")
 
     __table_args__ = (
         sa.CheckConstraint(f"link_method IN {LINK_METHODS!r}", name="link_method_vocab"),
@@ -421,8 +445,12 @@ class Opportunity(Base, TimestampMixin):
     status_raw: Mapped[str | None] = mapped_column(sa.Text)
     location_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("location.id"))
     identifiers: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
-    first_seen: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
-    last_changed: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
+    first_seen: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    last_changed: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
     publish_state: Mapped[str] = mapped_column(sa.Text, nullable=False, default="pending_review")
     published_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     public_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
@@ -435,6 +463,11 @@ class Opportunity(Base, TimestampMixin):
 
     issuer: Mapped[Organization | None] = relationship(lazy="joined")
     location: Mapped[Location | None] = relationship(lazy="joined")
+    sources: Mapped[list[OpportunitySource]] = relationship(
+        primaryjoin="Opportunity.id == OpportunitySource.opportunity_id",
+        foreign_keys="OpportunitySource.opportunity_id",
+        viewonly=True,
+    )
 
     __table_args__ = (
         sa.CheckConstraint(f"status IN {OPPORTUNITY_STATUSES!r}", name="status_vocab"),
@@ -449,7 +482,9 @@ class OpportunitySource(Base):
     __tablename__ = "opportunity_source"
 
     id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
-    opportunity_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("opportunity.id"), nullable=False)
+    opportunity_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("opportunity.id"), nullable=False
+    )
     source_id: Mapped[str] = mapped_column(sa.ForeignKey("source.id"), nullable=False)
     source_record_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
     source_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
@@ -459,13 +494,17 @@ class OpportunitySource(Base):
     raw: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     normalised: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     status_raw: Mapped[str | None] = mapped_column(sa.Text)
-    first_seen: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
+    first_seen: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
     last_seen: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
     gone_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     link_method: Mapped[str] = mapped_column(sa.Text, nullable=False, default="deterministic_key")
     link_confidence: Mapped[float] = mapped_column(sa.Numeric(4, 3), nullable=False, default=1.0)
     link_event_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("event.id"))
     active: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
+
+    source: Mapped[Source] = relationship(lazy="joined")
 
     __table_args__ = (
         sa.CheckConstraint(f"link_method IN {LINK_METHODS!r}", name="link_method_vocab"),
@@ -488,12 +527,23 @@ class Event(Base):
     __tablename__ = "event"
 
     id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
-    seq: Mapped[int] = mapped_column(sa.BigInteger, sa.Identity(always=False), nullable=False, unique=True)
+    #: `bigint identity` in the canonical Postgres migration (docs/21 §3.10). The ORM leaves this
+    #: unmanaged and a `before_insert` listener below assigns the next value transactionally —
+    #: portable across Postgres and this sprint's SQLite test target, where a real `IDENTITY`
+    #: column is not available. Production inserts against Postgres should prefer the DB
+    #: identity default; the loader (services/ingest/loader.py) never sets `seq` itself.
+    #: Caveat: the listener reads `MAX(seq)` from rows already *inserted* in the current
+    #: transaction, so events must be flushed one at a time (as the loader does) rather than
+    #: batched into one multi-row INSERT, or several rows in the same batch would compute the
+    #: same MAX() and collide on the `seq` unique constraint.
+    seq: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, unique=True)
     subject_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     subject_id: Mapped[_uuid.UUID] = mapped_column(GUID(), nullable=False)
     event_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     observed_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
-    recorded_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
+    recorded_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
     published_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     public_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     source_id: Mapped[str | None] = mapped_column(sa.ForeignKey("source.id"))
@@ -513,11 +563,24 @@ class Event(Base):
     job_id: Mapped[str | None] = mapped_column(sa.Text)
     idempotency_key: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
 
+    source: Mapped[Source | None] = relationship(lazy="joined")
+    licence: Mapped[Licence | None] = relationship(lazy="joined")
+
     __table_args__ = (
         sa.CheckConstraint(f"actor_type IN {ACTOR_TYPES!r}", name="actor_type_vocab"),
         sa.Index("ix_event_subject_observed", "subject_type", "subject_id", sa.text("observed_at DESC")),
         sa.Index("ix_event_public_at", "public_at"),
     )
+
+
+@sa.event.listens_for(Event, "before_insert")
+def _assign_event_seq(mapper: Any, connection: sa.Connection, target: Event) -> None:
+    """Portable stand-in for the canonical Postgres `bigint identity` column (see the `seq`
+    docstring above): the next value within the current transaction, so ordering is exact
+    even across a batch of events committed together (docs/20 §3.7)."""
+    if target.seq is None:
+        current_max = connection.execute(sa.select(sa.func.max(Event.__table__.c.seq))).scalar()
+        target.seq = (current_max or 0) + 1
 
 
 # ===================================================================================== match (§3.11)
@@ -526,14 +589,18 @@ class Match(Base):
 
     id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
     proposal_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("proposal.id"), nullable=False)
-    opportunity_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("opportunity.id"), nullable=False)
+    opportunity_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("opportunity.id"), nullable=False
+    )
     score: Mapped[float] = mapped_column(sa.Numeric(4, 3), nullable=False)
     rationale: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     rationale_text: Mapped[str] = mapped_column(sa.Text, nullable=False)
     rule_set_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_by: Mapped[str] = mapped_column(sa.Text, nullable=False, default="rule")
     status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="active")
-    first_matched_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
+    first_matched_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
     last_evaluated_at: Mapped[dt.datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=utcnow
     )

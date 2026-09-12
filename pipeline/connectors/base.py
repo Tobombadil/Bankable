@@ -29,7 +29,7 @@ from pipeline.connectors.canonical import load_status_map
 from pipeline.connectors.http import PoliteSession
 from pipeline.connectors.registry import SourceEntry
 
-Kind = Literal["proposal", "opportunity"]
+Kind = Literal["proposal", "opportunity", "document"]
 Egress = Literal["plain", "browser", "residential", "api_key"]
 SnapshotMode = Literal["full", "incremental"]
 
@@ -63,6 +63,40 @@ OPPORTUNITY_COLUMNS: list[str] = [
     "status_raw",
     "status_rule",
     "identifiers",
+    "raw",
+]
+
+# docs/21 §3.8 `document` entity — the stage-evidence shape for docket/filing feeds (docs/22 §10
+# "docket linkage"). A connector of this kind ingests filings, not lifecycle entities: `raw`
+# carries the source-shaped hit, and the three fields below exist only so this kind can flow
+# through the same DQ-gate/diff machinery as proposal and opportunity rows (`docs/20` §3.3):
+# `lifecycle_state` is a constant ("filed") since a filing does not change state once accessioned,
+# and `capacity_mw`/`proposed_cod` stay null. Subject linkage (`subject_type`/`subject_id`),
+# object storage and text extraction are populated by a later enrichment stage, not the connector.
+DOCUMENT_COLUMNS: list[str] = [
+    "record_id",
+    "source_id",
+    "source_record_id",
+    "source_url",
+    "retrieved_at",
+    "licence_id",
+    "doc_type",
+    "title",
+    "published_date",
+    "accession_number",
+    "docket_refs",
+    "filer",
+    "affiliations",
+    "document_class",
+    "document_type",
+    "project_name_hint",
+    "state_hint",
+    "identifiers",
+    "lifecycle_state",
+    "status_raw",
+    "status_rule",
+    "capacity_mw",
+    "proposed_cod",
     "raw",
 ]
 
@@ -228,7 +262,11 @@ class Connector:
 
     @property
     def columns(self) -> list[str]:
-        return PROPOSAL_COLUMNS if self.kind == "proposal" else OPPORTUNITY_COLUMNS
+        if self.kind == "proposal":
+            return PROPOSAL_COLUMNS
+        if self.kind == "opportunity":
+            return OPPORTUNITY_COLUMNS
+        return DOCUMENT_COLUMNS
 
     def finalize(self, df: pd.DataFrame, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
         """Stamp provenance, build record_id, attach `raw`, order columns, resolve duplicates.

@@ -1,0 +1,32 @@
+# us.permits_dashboard: "Project Status" -> proposal lifecycle (docs/21 §7.1).
+# `field: Status` is the only literal pipeline.normalize.harmonise_status recognises (its
+# field_key lookup is `{"Status": "status_raw", "Status (Original)": "status_original"}`), so the
+# connector puts the raw "Project Status" value under ctx["status_raw"] before calling it — the
+# same convention us.grants_gov.search2 and gb.neso.tec_register use for their own status fields.
+version: 1
+updated: 2026-09-12
+canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
+sources:
+  permits_dashboard:
+    field: Status
+    map:
+      Planned: announced
+      In Progress: studied
+      Class of Action Changed: filed
+      Paused: studied
+      Complete: permitted
+      Cancelled: cancelled
+    caveats:
+      - Complete means every tracked permitting action (NEPA reviews, agency consultations) is
+        complete, not that the physical project is built — this dataset has no construction or
+        commercial-operation milestone, so permitted is the correct ceiling, not built.
+      - Paused and In Progress both map to studied since the dataset has no canonical state for
+        a stalled review, and demoting to filed or promoting to permitted would misstate
+        progress in either direction. Project Pause Start/Project Pause End (in raw) carry
+        the actual pause evidence for anyone who needs it.
+      - Class of Action Changed (the project's environmental review track changed, e.g. EA to
+        EIS) maps to filed since the review restarted under a new track, which is closer to a
+        fresh filing than to any later state. Rare (542/24,007 milestone rows dataset-wide on
+        2026-09-12; 0 in the six energy/transmission sectors this connector keeps).
+      - This dataset carries no explicit withdrawn status distinct from Cancelled; both raw
+        outcomes collapse to cancelled.

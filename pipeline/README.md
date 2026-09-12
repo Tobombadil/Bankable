@@ -54,8 +54,29 @@ withdrawn` events.
 | `eu.ted.api` | opportunity | TED search, energy CPV, rolling 3-day window |
 | `gb.find_a_tender` | opportunity | OCDS release packages, energy CPV, rolling 2-day window |
 | `mdb.worldbank.procnotices` | opportunity | Procurement notices, `sector.sector_code` energy codes, 14-day window |
+| `us.ferc.elibrary` | document | eLibrary `AdvancedSearch` JSON backend, ER/CP docket filings, 30-day window |
+| `us.permits_dashboard` | proposal | FAST-41 Permitting Dashboard full milestone CSV, energy/transmission sectors |
 
 SPP, ISO-NE, PJM and MISO are deliberately **not** implemented this sprint (`docs/13` §6).
+
+`us.ferc.elibrary` is the first `kind = "document"` connector (`docs/21` §3.8): a filing, not a
+lifecycle entity, so `lifecycle_state`/`capacity_mw`/`proposed_cod` are placeholders that exist
+only so it flows through the same DQ-gate/diff machinery as `proposal` and `opportunity` (see
+`base.DOCUMENT_COLUMNS` and the connector's own docstring for why).
+
+## Docket linkage
+
+`pipeline/link_dockets.py` proposes links between `us.ferc.elibrary` documents and
+`us.iso.*.gen_queue` records (explicit queue-id/name match, and a sponsor-vs-filer rapidfuzz
+match), writing `data/eval/docket_links.parquet`. It is the first measurement of the "FERC docket
+linkage" resolution key `docs/22-entity-resolution-and-change-detection.md` §10 proposes adding to
+the M-1 recalibration — read that script's module docstring before changing the matching rules,
+several of them (stripping "INTERCONNECTION", stripping US state names) exist because an earlier,
+looser version measurably false-matched on shared boilerplate words:
+
+```
+.venv/bin/python pipeline/link_dockets.py [--threshold 85] [--out data/eval/docket_links.parquet]
+```
 
 ## Writing a connector
 

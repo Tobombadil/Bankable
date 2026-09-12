@@ -330,7 +330,7 @@ sources:
   tier: 1
   effort: M
   probe: {method: POST, body: '{"searchText":"interconnection agreement","searchDescription":true,"searchFullText":false,"searchDocketNumber":false,"resultsPerPage":3,"curPage":1,"sortBy":"","groupBy":"DOCKET","filterDate":{"dateType":"filed_date","startDate":"09/01/2026","endDate":"09/12/2026"},"docketNumbers":[],"documentClasses":[],"documentTypes":[],"availability":"P","categories":[],"idList":[],"accessionNumber":"","libraryTypes":[],"filedBy":"","affiliations":""}'}
-  verified: {date: 2026-09-12, result: ok, note: "returns searchHits/totalHits; endpoint undocumented, proxy intermittently 5xx; keep ≤0.5 rps"}
+  verified: {date: 2026-09-12, result: ok, rows: 131, note: "connector run: 30-day window, docket-number substring search (ER26/CP26) plus description terms, 131 documents, DQ pass. filterDate has no measured effect (totalHits identical across every date window and dateType tried); the connector filters filed_date client-side instead. sortBy anything other than empty string (e.g. filed_date) returns HTTP 200 success:false with a null-reference errorMessage - treated as error, so sortBy is always sent empty. Full detail in pipeline/connectors/us_ferc_elibrary/connector.py docstring."}
   notes: >
     Docket prefixes of interest: ER (electric rate/IA filings incl. LGIAs), CP (gas pipeline & LNG
     certificates), P (hydro), EL, RM. eSubscription email alerts are the officially supported channel.
@@ -389,7 +389,7 @@ sources:
   jurisdiction: US
   category: permit
   operator: Federal Permitting Improvement Steering Council
-  url: https://data.permits.performance.gov/api/views/q7va-8c67/rows.csv?accessType=DOWNLOAD
+  url: https://data.permits.performance.gov/api/views/mcm3-xbid/rows.csv?accessType=DOWNLOAD
   access: api
   auth: none for bulk CSV; SODA token optional
   format: csv/json
@@ -399,8 +399,14 @@ sources:
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok}
-  notes: Milestone-level rows for large projects (transmission, pipelines, offshore wind, mines). Excellent stage-tracking signal.
+  verified: {date: 2026-09-12, result: ok, rows: 104, note: "connector run: 104 energy/transmission projects (of 458 total) grouped from milestone rows, DQ pass. The original resource id q7va-8c67 in this url (probed 2026-09-12, 24,008 bytes) is RETIRED: its Socrata view metadata reports zero columns and /resource/q7va-8c67.json returns empty rows - the 24,008 bytes probed earlier were newline padding, not data. /api/views.json?id=q7va-8c67 resolves to a different asset (cdh7-hgu4, a map visualization) whose modifyingViewUid names the live source table, mcm3-xbid (\"Permitting Dashboard Full Dataset\", 74 columns, ~24,000 milestone rows) - this url is updated to that id. Full detail in pipeline/connectors/us_permits_dashboard/connector.py docstring."}
+  notes: >
+    Milestone-level rows for large projects (transmission, pipelines, offshore wind, mines). Excellent
+    stage-tracking signal. The connector keeps only Project Sector in {Renewable Energy Production,
+    Electricity Transmission, Pipelines, Energy Storage, Conventional Energy Production, Carbon Capture
+    and Sequestration} — Mining, Aviation, Surface Transportation, Broadband, Water Resources,
+    Manufacturing, Ports and Waterways, and the two data-centre/compute sectors are out of this
+    connector's scope (see connector docstring for the full rationale).
 
 - id: us.blm.eplanning
   name: BLM National NEPA Register (ePlanning)

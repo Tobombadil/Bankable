@@ -1,0 +1,39 @@
+{
+  "pages": [
+    {
+      "request": {
+        "searchText": "ER26",
+        "searchDescription": false,
+        "searchFullText": false,
+        "searchDocketNumber": true,
+        "resultsPerPage": 5,
+        "curPage": 1,
+        "sortBy": "filed_date",
+        "groupBy": "DOCKET",
+        "filterDate": {
+          "dateType": "filed_date",
+          "startDate": "08/13/2026",
+          "endDate": "09/12/2026"
+        },
+        "docketNumbers": [],
+        "documentClasses": [],
+        "documentTypes": [],
+        "availability": "P",
+        "categories": [],
+        "idList": [],
+        "accessionNumber": "",
+        "libraryTypes": [],
+        "filedBy": "",
+        "affiliations": ""
+      },
+      "response": {
+        "searchHits": null,
+        "totalHits": 0,
+        "numHits": 0,
+        "success": false,
+        "errorMessage": "Object reference not set to an instance of an object.",
+        "searchResultId": null
+      }
+    }
+  ]
+}
