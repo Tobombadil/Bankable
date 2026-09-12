@@ -36,7 +36,7 @@ sources:
   effort: S
   connector: gridstatus.CAISO.get_interconnection_queue
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok, rows: 2278, note: "265 active / 251 completed / 1762 withdrawn"}
+  verified: {date: 2026-09-12, result: ok, rows: 2278, note: 'connector run: 384,823 bytes, DQ pass; 3 sheets (queued/completed/withdrawn)'}
   notes: >-
     Public Records Act material; render credit "California ISO" on every derived record. API Terms bar using
     the API to monitor CAISO system availability or performance. Publish derived-only until counsel resolves
@@ -58,7 +58,7 @@ sources:
   effort: S
   connector: gridstatus.Ercot.get_interconnection_queue
   probe: {method: GET, url: "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"}
-  verified: {date: 2026-09-12, result: ok, rows: 1778, note: "1198 active / 580 completed"}
+  verified: {date: 2026-09-12, result: ok, rows: 1778, note: 'connector run: GIS_Report_August2026 via MIS doclookupId, 675,108 bytes, DQ pass'}
   notes: >-
     Most permissive ISO terms; raw-ok. Clause 6 bars use that degrades ERCOT systems (rate-limit). Clause 8
     bars using the ERCOT list server for marketing. ERCOT Public API (api.ercot.com) needs free registration
@@ -69,20 +69,30 @@ sources:
   jurisdiction: US-TX
   category: load_queue
   operator: ERCOT
-  url: https://www.ercot.com/mp/data-products/data-product-details?id=NP3-990-CD
-  access: bulk_file
+  url: https://www.ercot.com/services/rq/large-load-integration
+  access: api
   auth: none
-  format: xlsx
+  format: json (EMIL catalogue watch) / xlsx expected once the report is published
   cadence: monthly
   license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — raw public data "may be used, reproduced, and redistributed in compilations, charts, and analyses"'
   reuse: open
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: unverified, note: "product id to confirm; 438–474 GW of large-load requests reported by ERCOT in 2026, ~90% data centres"}
+  verified: {date: 2026-09-12, result: not_published, rows: 0, note: 'registry id NP3-990-CD does not exist (EMIL answers Product Not Found); no large-load status report in the 5,837-product EMIL catalogue or the 184 public MIS report types; NPRR1267 section 3.2.7 (PUCT-approved 2025-07-31) requires a monthly report but what is published is a PDF slide deck to TAC/LLWG, per-project status going to TSPs only pending the Large Load Portal. Connector watches the EMIL catalogue and emits a change event when the product appears.'}
   notes: >-
     The single most newsworthy queue in the country right now. Batch Zero process approved by PUCT June 2026.
-    Same clause-5 permission as the GIS report; raw-ok.
+    Same clause-5 permission as the GIS report; raw-ok. The product id NP3-990-CD recorded here in Phase 0 was
+    wrong: it resolves to "Product Not Found" and NP3-990-EX is the 60-Day SASM Disclosure report. Verified
+    2026-09-12 against the full public EMIL catalogue (api/1/services/read/common/all-emil-items-search.json,
+    5,837 products), the public MIS report-type list (IceRepListJsonWS, 184 types) and the GIS Report document
+    list: no machine-readable large-load register exists yet. NPRR1267 adds Nodal Protocol 3.2.7, "ERCOT must
+    publish a Large Load Interconnection status report each month to the ERCOT website" with aggregation across
+    location, Load Zone, TSP, load type, request date, energisation date and size range; today that obligation is
+    met by a monthly PDF slide deck to TAC and the Large Load Working Group, and ERCOT's April 2026 board update
+    says per-project status reports go to TSPs only, ahead of a Large Load Portal "currently in development".
+    The connector therefore watches the EMIL catalogue for the product and emits a change event when it appears;
+    the row parser is written then, against the real file.
 
 - id: us.iso.spp.gen_queue
   name: SPP Generator Interconnection Active/Withdrawn/Completed Requests
@@ -123,7 +133,7 @@ sources:
   effort: S
   connector: gridstatus.NYISO.get_interconnection_queue
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok, rows: 3164}
+  verified: {date: 2026-09-12, result: ok, rows: 1814, note: 'connector run: 1,814 identified rows (1,350 padding rows with no queue position, name, county or date are dropped); DQ warn: 2 queue positions duplicated in the workbook, suffixed'}
   notes: >-
     Queue xlsx is not an image or video; no clause restricts its reuse. Derived-only at launch with credit
     "NYISO"; raw-ok candidate after counsel sign-off. See docs/13-legal-data-rights.md section 1.5.
@@ -260,7 +270,7 @@ sources:
   effort: S
   connector: PUDL (catalyst.coop) or direct xlsx parse; gridstatus.io mirrors it
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok, note: "index page lists xls/<month>_generator<year>.xlsx; file link must be scraped from the index, guessed names return HTML"}
+  verified: {date: 2026-09-12, result: ok, rows: 2341, note: 'connector run: index scrape tried 6 links, july_generator2026.xlsx is the first real zip (december/october/september/november/august return HTML with a 200); Planned sheet, DQ pass'}
   notes: Authoritative for planned units ≥1 MW with plant IDs — the spine for entity resolution against queue records.
 
 - id: us.eia.api
@@ -583,7 +593,7 @@ sources:
   tier: 1
   effort: S
   probe: {method: POST, body: '{"keyword":"energy","oppStatuses":"forecasted|posted","rows":5}'}
-  verified: {date: 2026-09-12, result: ok, note: "151 hits for keyword energy (forecasted|posted)"}
+  verified: {date: 2026-09-12, result: ok, rows: 151, note: 'connector run: keyword energy, oppStatuses forecasted|posted, 151 hits over 2 pages, DQ pass'}
   notes: Filter by agency (DOE-*, USDA-RD, EPA, DOT) and CFDA/ALN. Also fetchOpportunity endpoint for details.
 
 - id: us.sam_gov.opportunities
@@ -677,7 +687,7 @@ sources:
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok, note: "CKAN package_show returns CSV resource dated 11 Sep 2026; Gate 1/Gate 2 column present"}
+  verified: {date: 2026-09-12, result: ok, rows: 2198, note: 'connector run: CKAN resource tec-register-11-september-2026.csv, 2,198 rows, DQ pass'}
   notes: >-
     Mandatory exact attribution string "Supported by National Energy SO Open Data"; rights end automatically
     on breach; datasets are licensed individually — check the TEC Register licence field at ingest. Licence
@@ -717,7 +727,7 @@ sources:
   tier: 1
   effort: S
   probe: {method: GET, url: "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?updatedFrom=2026-09-10T00:00:00"}
-  verified: {date: 2026-09-12, result: ok, note: "100 releases per page; filter CPV 09*/31*/45231*/71314*"}
+  verified: {date: 2026-09-12, result: ok, rows: 11, note: 'connector run: 2-day updatedFrom window, 6 pages of OCDS releases, 11 with an energy CPV, DQ pass; contactPoint stripped at ingest'}
 
 - id: eu.ted.api
   name: EU Tenders Electronic Daily (TED) API v3
@@ -734,7 +744,7 @@ sources:
   tier: 1
   effort: S
   probe: {method: POST, body: '{"query":"classification-cpv=09* AND publication-date>=20260901","limit":3,"fields":["publication-number","notice-title"]}'}
-  verified: {date: 2026-09-12, result: ok, note: "785 energy-CPV notices since 1 Sep 2026"}
+  verified: {date: 2026-09-12, result: ok, rows: 698, note: 'connector run: CPV 09*/31*/45231*/71314*, 3-day publication window, 698 notices over 7 pages, DQ pass'}
   notes: >-
     Raw-ok. Credit the source; do not distort; the TED logo is not licensed; strip contracting-authority
     personal contact data at ingest (docs/13-legal-data-rights.md section 5).
@@ -947,7 +957,7 @@ sources:
   tier: 1
   effort: S
   probe: {method: GET, url: "https://search.worldbank.org/api/v2/procnotices?format=json&rows=2"}
-  verified: {date: 2026-09-12, result: ok, note: "sector filter param name to confirm; 'sector_exact=Energy' returned 0"}
+  verified: {date: 2026-09-12, result: ok, rows: 100, note: 'sector filter confirmed: sector.sector_code=LU^LH^LW^LB^LI^LN^LT^LZ^LP^LE (33,950 notices); sector_exact=Energy returns 0. Connector run: newest 100 notices in a 14-day window, DQ pass'}
 
 - id: mdb.worldbank.projects
   name: World Bank Projects API (pipeline & active projects, sector = Energy & Extractives)

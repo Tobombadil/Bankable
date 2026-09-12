@@ -127,16 +127,16 @@ def phase_tokens(name) -> set[int]:
     return {ROMAN.get(t, None) or int(t) for t in PHASE_TOKEN.findall(str(name)) if t.isdigit() or t in ROMAN}
 
 
-def score_pair(l: dict, r: dict) -> dict:
+def score_pair(left: dict, r: dict) -> dict:
     comp: dict[str, float | None] = {}
-    comp["name"] = _ratio(l["name_norm"], r["name_norm"], NAME_SCORER)
-    comp["sponsor"] = _ratio(l["sponsor_norm"], r["sponsor_norm"], NAME_SCORER)
+    comp["name"] = _ratio(left["name_norm"], r["name_norm"], NAME_SCORER)
+    comp["sponsor"] = _ratio(left["sponsor_norm"], r["sponsor_norm"], NAME_SCORER)
     flags = []
 
     # Rule P: numbered phases. 'Lazy U Solar 1' vs 'Lazy U Solar 2' score 88 on tokens but are
     # different interconnection requests. When both names carry phase numbers and the sets
     # disagree, halve the name score. (6 of 10 false positives at threshold 72 before this rule.)
-    pl, pr = phase_tokens(l["name_canonical"]), phase_tokens(r["name_canonical"])
+    pl, pr = phase_tokens(left["name_canonical"]), phase_tokens(r["name_canonical"])
     if comp["name"] is not None and pl and pr and pl != pr:
         comp["name"] *= 0.5
         flags.append("phase_conflict")
@@ -145,16 +145,16 @@ def score_pair(l: dict, r: dict) -> dict:
     # where the ISO reports the developer (or vice versa). When the project name and county agree
     # almost exactly, sponsor disagreement is uninformative, so the component is dropped.
     if comp["sponsor"] is not None and comp["sponsor"] < 50 and (comp["name"] or 0) >= 90 \
-            and l["county_norm"] and r["county_norm"] and l["county_norm"] == r["county_norm"]:
+            and left["county_norm"] and r["county_norm"] and left["county_norm"] == r["county_norm"]:
         comp["sponsor"] = None
         flags.append("sponsor_ignored")
 
-    lc, rc = l["county_norm"], r["county_norm"]
+    lc, rc = left["county_norm"], r["county_norm"]
     comp["county"] = None if (lc is None or rc is None or pd.isna(lc) or pd.isna(rc)
                               or not lc or not rc) else (
         100.0 if lc == rc else (80.0 if (lc in rc or rc in lc) else 0.0))
 
-    lm, rm = l["capacity_mw"], r["capacity_mw"]
+    lm, rm = left["capacity_mw"], r["capacity_mw"]
     if pd.notna(lm) and pd.notna(rm) and lm and rm and max(lm, rm) > 0:
         ratio = min(lm, rm) / max(lm, rm)
         comp["capacity"] = max(0.0, 100.0 * (ratio - (1 - CAP_TOL)) / CAP_TOL)
@@ -162,7 +162,7 @@ def score_pair(l: dict, r: dict) -> dict:
     else:
         comp["capacity"], cap_ratio = None, None
 
-    ld, rd = l["proposed_cod"], r["proposed_cod"]
+    ld, rd = left["proposed_cod"], r["proposed_cod"]
     if pd.notna(ld) and pd.notna(rd):
         days = abs((ld - rd).days)
         comp["cod"] = max(0.0, 100.0 - days / 3.65)
@@ -175,7 +175,7 @@ def score_pair(l: dict, r: dict) -> dict:
 
     # Rule V: vintage. A request withdrawn with a COD more than 5 years from the other side's COD
     # is a different proposal even when the name matches ('SIENNA' 2018 vs 'Sienna Solar Farm' 2028).
-    if days is not None and days > 5 * 365 and "withdrawn" in (l["lifecycle_state"], r["lifecycle_state"]):
+    if days is not None and days > 5 * 365 and "withdrawn" in (left["lifecycle_state"], r["lifecycle_state"]):
         score *= 0.8
         flags.append("stale_withdrawn")
 
@@ -261,7 +261,7 @@ def cluster(df: pd.DataFrame, accepted: pd.DataFrame) -> pd.Series:
         if ra != rb:
             parent[ra] = rb
 
-    for a, b in zip(accepted["li"], accepted["ri"]):
+    for a, b in zip(accepted["li"], accepted["ri"], strict=True):
         union(int(a), int(b))
     return pd.Series({i: find(i) for i in df.index if i in parent})
 
@@ -378,7 +378,7 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True
     print(f"  candidate pairs from blocking: {len(cand):,}", file=sys.stderr)
 
     recs = df.to_dict("index")
-    scored = [score_pair(recs[int(a)], recs[int(b)]) for a, b in zip(cand["li"], cand["ri"])]
+    scored = [score_pair(recs[int(a)], recs[int(b)]) for a, b in zip(cand["li"], cand["ri"], strict=True)]
     fuzzy = pd.concat([cand.reset_index(drop=True), pd.DataFrame(scored)], axis=1)
     fuzzy["pass"] = "F_fuzzy:" + fuzzy["block"]
     fuzzy["rationale"] = fuzzy["block"] + "; " + fuzzy["rationale"]
