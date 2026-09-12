@@ -61,29 +61,35 @@ def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame,
         emit(rid, "removed", "lifecycle_state", b.at[rid, "lifecycle_state"], None, b.at[rid, "source_id"])
 
     common = a.index.intersection(b.index)
-    ab, aa = b.loc[common], a.loc[common]
+    ab, aa = b.loc[common].copy(), a.loc[common].copy()
+    ab.index.name = aa.index.name = KEY
 
-    bs, as_ = ab["lifecycle_state"].astype("string"), aa["lifecycle_state"].astype("string")
-    changed = (bs.fillna("") != as_.fillna(""))
-    for rid in common[changed.to_numpy()]:
+    bs = ab["lifecycle_state"].astype("string").fillna("").to_numpy()
+    as_ = aa["lifecycle_state"].astype("string").fillna("").to_numpy()
+    changed = bs != as_
+    for rid in common[changed]:
         new_state = aa.at[rid, "lifecycle_state"]
         etype = "withdrawn" if new_state in TERMINAL and ab.at[rid, "lifecycle_state"] not in TERMINAL \
             else "status_change"
         emit(rid, etype, "lifecycle_state", ab.at[rid, "lifecycle_state"], new_state, aa.at[rid, "source_id"])
 
-    bc = pd.to_numeric(ab["capacity_mw"], errors="coerce").astype(float)
-    ac = pd.to_numeric(aa["capacity_mw"], errors="coerce").astype(float)
-    delta = (ac - bc).abs()
-    rel = delta / np.maximum(bc.abs(), ac.abs()).replace(0, np.nan)
-    cap_changed = ((delta > CAP_ABS_MW) & (rel > CAP_REL)) | (bc.isna() ^ ac.isna())
-    for rid in common[cap_changed.fillna(False).to_numpy()]:
-        emit(rid, "capacity_change", "capacity_mw", bc.at[rid], ac.at[rid], aa.at[rid, "source_id"])
+    bc = pd.to_numeric(ab["capacity_mw"], errors="coerce").astype(float).to_numpy()
+    ac = pd.to_numeric(aa["capacity_mw"], errors="coerce").astype(float).to_numpy()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        delta = np.abs(ac - bc)
+        rel = delta / np.maximum(np.abs(bc), np.abs(ac))
+    cap_changed = ((delta > CAP_ABS_MW) & (rel > CAP_REL)) | (np.isnan(bc) ^ np.isnan(ac))
+    for i in np.flatnonzero(cap_changed):
+        rid = common[i]
+        emit(rid, "capacity_change", "capacity_mw", bc[i], ac[i], aa.at[rid, "source_id"])
 
-    bd = pd.to_datetime(ab["proposed_cod"], errors="coerce")
-    ad = pd.to_datetime(aa["proposed_cod"], errors="coerce")
-    cod_changed = (bd != ad) & ~(bd.isna() & ad.isna())
-    for rid in common[cod_changed.to_numpy()]:
-        emit(rid, "cod_change", "proposed_cod", bd.at[rid], ad.at[rid], aa.at[rid, "source_id"])
+    bd = pd.to_datetime(ab["proposed_cod"], errors="coerce").to_numpy()
+    ad = pd.to_datetime(aa["proposed_cod"], errors="coerce").to_numpy()
+    cod_changed = (bd != ad) & ~(pd.isna(bd) & pd.isna(ad))
+    for i in np.flatnonzero(cod_changed):
+        rid = common[i]
+        emit(rid, "cod_change", "proposed_cod", pd.Timestamp(bd[i]) if not pd.isna(bd[i]) else None,
+             pd.Timestamp(ad[i]) if not pd.isna(ad[i]) else None, aa.at[rid, "source_id"])
 
     cols = ["event_type", "record_id", "source_id", "field", "before", "after", "observed_at"]
     out = pd.DataFrame(events, columns=cols)
