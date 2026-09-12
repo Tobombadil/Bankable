@@ -6,3 +6,4 @@
 - 2026-09-12 Phase 0: feasibility, source registry, probe script, master plan.
 - 2026-09-12 solutions-architect: added `docs/20-architecture.md` (system spec v0). Companions 21/23/ADRs pending after agent interruption.
 - 2026-09-12 content-social: added `docs/32-social-operating-playbook.md` (channels, account checklist, editorial, post pipeline, KPIs).
+- 2026-09-12 market-researcher: added `docs/11-market-and-competition.md` (competitor teardown, bottom-up sizing, pricing ladder with delay schedule, demand-side counts, discovery guide).
