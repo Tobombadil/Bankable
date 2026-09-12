@@ -108,7 +108,8 @@ NAME_NOISE = re.compile(
     r"generating|generation|station|plant|llc|inc|lp|phase|site|hybrid|expansion)\b")
 
 # Cross-ISO references embedded in project names, e.g. "Chazy Lake BESS (NYISO-C24-308)".
-XREF = re.compile(r"\b(NYISO|ISO-?NE|ISONE|PJM|MISO|SPP|CAISO|ERCOT)[\s:-]+([A-Z0-9][A-Z0-9\-]{2,})",
+# The id part must contain a digit, otherwise ordinary prose ("PJM Rainey") is picked up as a ref.
+XREF = re.compile(r"\b(NYISO|ISO-?NE|ISONE|PJM|MISO|SPP|CAISO|ERCOT)[\s:-]+([A-Z0-9\-]*\d[A-Z0-9\-]*)",
                   re.I)
 
 
@@ -179,6 +180,19 @@ def to_date(v):
     if getattr(ts, "tzinfo", None) is not None:
         ts = ts.tz_convert("UTC").tz_localize(None)
     return ts.normalize()
+
+
+def capacity(*vals):
+    """First positive capacity among (nameplate, summer, winter).
+
+    A reported 0.0 MW is treated as missing, not as a zero-MW project: ERCOT publishes 0.0 for
+    75 co-located "SLF" storage additions and repowers, and NYISO for 1,541 mostly-withdrawn rows.
+    Treating those as 0 would put them in their own capacity block and make them unmatchable."""
+    for v in vals:
+        f = to_float(v)
+        if f is not None and f > 0:
+            return f
+    return None
 
 
 def to_float(v):
@@ -269,7 +283,10 @@ def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict,
         "sponsor_norm": [norm_org(v) for v in sponsor],
         "technology": [t for t, _ in tech],
         "technology_raw": get("Generation Type").astype("string"),
-        "capacity_mw": pd.array([to_float(v) for v in get("Capacity (MW)")], dtype="Float64"),
+        "capacity_mw": pd.array(
+            [capacity(a, b, c) for a, b, c in zip(get("Capacity (MW)"),
+                                                  get("Summer Capacity (MW)"),
+                                                  get("Winter Capacity (MW)"))], dtype="Float64"),
         "storage_mwh": pd.array([None] * n, dtype="Float64"),
         "iso": iso,
         "state": [norm_state(v) for v in get("State")],
@@ -328,7 +345,9 @@ def normalize_eia(df: pd.DataFrame, status_map: dict, retrieved_at: str) -> pd.D
         "sponsor_norm": [norm_org(v) for v in get("Entity Name")],
         "technology": [t for t, _ in tech],
         "technology_raw": get("Technology").astype("string"),
-        "capacity_mw": pd.array([to_float(v) for v in get("Nameplate Capacity (MW)")], dtype="Float64"),
+        "capacity_mw": pd.array(
+            [capacity(a, b) for a, b in zip(get("Nameplate Capacity (MW)"),
+                                            get("Net Summer Capacity (MW)"))], dtype="Float64"),
         "storage_mwh": pd.array([None] * n, dtype="Float64"),
         "iso": get("Balancing Authority Code").astype("string"),
         "state": [norm_state(v) for v in get("Plant State")],
