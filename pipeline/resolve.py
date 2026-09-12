@@ -61,6 +61,29 @@ def _pairs_within_capacity(sub: pd.DataFrame, tol: float = CAP_TOL) -> list[tupl
     return out
 
 
+def block_name_token(df: pd.DataFrame, tag: str = "B3_state_nametoken") -> pd.DataFrame:
+    """Block on state + the first >=4-character token of the normalised name, with NO capacity
+    constraint. B1/B2 both require capacity within +/-10%; measured against a name-only oracle
+    that band is the single biggest recall limiter, because ISO queue MW (point of
+    interconnection) and EIA nameplate MW frequently disagree by 20-60%, and because 1,774
+    records carry no usable capacity at all."""
+    d = df.dropna(subset=["state", "name_norm"]).copy()
+    d["tok"] = d["name_norm"].astype(str).str.split().str[0]
+    d = d[d["tok"].str.len() >= 4]
+    rows: list[tuple[int, int]] = []
+    for _, grp in d.groupby(["state", "tok"]):
+        if len(grp) < 2 or grp["source_id"].nunique() < 2 or len(grp) > 60:
+            continue
+        idx, src = grp.index.to_numpy(), grp["source_id"].to_numpy()
+        for a in range(len(idx)):
+            for b in range(a + 1, len(idx)):
+                if src[a] != src[b]:
+                    rows.append((min(idx[a], idx[b]), max(idx[a], idx[b])))
+    out = pd.DataFrame(rows, columns=["li", "ri"])
+    out["block"] = tag
+    return out
+
+
 def block(df: pd.DataFrame, keys: list[str], tag: str) -> pd.DataFrame:
     usable = df.dropna(subset=keys + ["capacity_mw"])
     usable = usable[usable["capacity_mw"] > 0]
@@ -75,23 +98,35 @@ def block(df: pd.DataFrame, keys: list[str], tag: str) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------ scoring
-def _ratio(a, b) -> float | None:
-    if not a or not b or pd.isna(a) or pd.isna(b):
+NAME_SCORER = "mean"   # token_set | token_sort | mean; set by main() / tests
+
+
+def _ratio(a, b, scorer: str = "token_set") -> float | None:
+    if a is None or b is None or pd.isna(a) or pd.isna(b) or not a or not b:
         return None
-    return float(fuzz.token_set_ratio(str(a), str(b)))
+    a, b = str(a), str(b)
+    if scorer == "token_sort":
+        return float(fuzz.token_sort_ratio(a, b))
+    if scorer == "mean":
+        # token_set_ratio returns 100 whenever one name's tokens are a subset of the other's
+        # ("SANDOW" vs "SANDOW LAKES"), which over-merges. token_sort_ratio penalises the extra
+        # tokens. The mean keeps abbreviation tolerance without the subset blind spot.
+        return (float(fuzz.token_set_ratio(a, b)) + float(fuzz.token_sort_ratio(a, b))) / 2
+    return float(fuzz.token_set_ratio(a, b))
 
 
 def score_pair(l: dict, r: dict) -> dict:
     comp: dict[str, float | None] = {}
-    comp["name"] = _ratio(l["name_norm"], r["name_norm"])
-    comp["sponsor"] = _ratio(l["sponsor_norm"], r["sponsor_norm"])
+    comp["name"] = _ratio(l["name_norm"], r["name_norm"], NAME_SCORER)
+    comp["sponsor"] = _ratio(l["sponsor_norm"], r["sponsor_norm"], NAME_SCORER)
 
     lc, rc = l["county_norm"], r["county_norm"]
-    comp["county"] = None if (not lc or not rc or pd.isna(lc) or pd.isna(rc)) else (
+    comp["county"] = None if (lc is None or rc is None or pd.isna(lc) or pd.isna(rc)
+                              or not lc or not rc) else (
         100.0 if lc == rc else (80.0 if (lc in rc or rc in lc) else 0.0))
 
     lm, rm = l["capacity_mw"], r["capacity_mw"]
-    if lm and rm and not pd.isna(lm) and not pd.isna(rm) and max(lm, rm) > 0:
+    if pd.notna(lm) and pd.notna(rm) and lm and rm and max(lm, rm) > 0:
         ratio = min(lm, rm) / max(lm, rm)
         comp["capacity"] = max(0.0, 100.0 * (ratio - (1 - CAP_TOL)) / CAP_TOL)
         cap_ratio = ratio
@@ -134,16 +169,23 @@ def deterministic(df: pd.DataFrame) -> pd.DataFrame:
     # snapshot: ISO-NE reuses queue ids across unrelated projects (92 ids over 242 rows, 27 of
     # them spanning more than one state), so an unguarded D2 would hard-merge different plants.
     d = df.dropna(subset=["queue_id", "iso"])
-    dupe_rate = d.groupby("source_id")["queue_id"].apply(lambda s: s.duplicated().any())
-    unsafe = set(dupe_rate[dupe_rate].index)
-    if unsafe:
-        print(f"  D2 disabled for non-unique queue ids: {sorted(unsafe)}", file=sys.stderr)
-    d = d[~d["source_id"].isin(unsafe)]
     key = d["iso"].astype(str) + "|" + d["queue_id"].astype(str).str.upper().str.strip()
+    rejected = 0
     for _, grp in d.groupby(key):
-        if len(grp) > 1:
-            for a, b in itertools.combinations(grp.index, 2):
-                out.append((a, b, "D2_queue_id", 100.0, "iso + queue id equal"))
+        if len(grp) < 2:
+            continue
+        if grp["state"].nunique(dropna=True) > 1:      # same id, different states -> id reuse
+            rejected += 1
+            continue
+        for a, b in itertools.combinations(grp.index, 2):
+            la, lb = df.at[a, "name_norm"], df.at[b, "name_norm"]
+            if pd.notna(la) and pd.notna(lb) and la and lb and \
+                    fuzz.token_set_ratio(str(la), str(lb)) < 60:
+                rejected += 1
+                continue
+            out.append((a, b, "D2_queue_id", 100.0, "iso + queue id equal, state consistent"))
+    if rejected:
+        print(f"  D2 groups/pairs rejected as queue-id reuse: {rejected}", file=sys.stderr)
 
     # D3 - queue id quoted inside another source's project name, e.g. "(NYISO-C24-308)"
     lookup: dict[str, list[int]] = {}
@@ -250,6 +292,9 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True
         extra = eia_plant_rollup(df)
         if len(extra):
             extra["is_rollup"] = True
+            extra = extra.reindex(columns=df.columns).astype(
+                {c: t for c, t in df.dtypes.items() if c in extra.columns and t.name != "object"},
+                errors="ignore")
             df = pd.concat([df, extra], ignore_index=True)
             print(f"  EIA plant-level rollup records added: {len(extra):,}", file=sys.stderr)
     df.index = range(len(df))
@@ -258,6 +303,7 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True
     cand = pd.concat([
         block(df, ["state", "technology"], "B1_state_tech_cap"),
         block(df, ["state", "county_norm"], "B2_state_county_cap"),
+        block_name_token(df),
     ], ignore_index=True)
     cand = (cand.groupby(["li", "ri"])["block"].apply(lambda s: "+".join(sorted(set(s))))
             .reset_index())
@@ -301,12 +347,14 @@ def main() -> int:
     ap.add_argument("--out", default=str(EVAL / "matches.parquet"))
     ap.add_argument("--labels", default=str(EVAL / "labels.csv"))
     ap.add_argument("--sweep", action="store_true")
+    ap.add_argument("--name-scorer", default="mean", choices=["token_set", "token_sort", "mean"])
     ap.add_argument("--no-eia-rollup", action="store_true",
                     help="disable the EIA plant-level rollup blocking view")
     ap.add_argument("--max-rows", type=int, default=400_000,
                     help="cap on rows written to matches.parquet (keeps the file under 20 MB)")
     args = ap.parse_args()
 
+    globals()["NAME_SCORER"] = args.name_scorer
     matches, clusters = run(args.threshold, pathlib.Path(args.normalized),
                             rollup=not args.no_eia_rollup)
 

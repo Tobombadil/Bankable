@@ -682,3 +682,416 @@ observation row so that a later licence change cannot retroactively rewrite what
 
 **Invariant L2:** `licence_id` on an observation row is immutable. Re-classifying a source writes a new `licence`
 row and future observations point at it; historical rows keep the licence that applied when they were fetched.
+
+## 4. Operational entities
+
+These carry the pipeline's own state. They are as much a part of the product as the graph: source health,
+cost per record and snapshot evidence are admin surfaces (`docs/20` §8) and licence-dispute evidence (§3.2).
+
+### 4.1 `source` — the runtime mirror of `data/sources.yaml`
+
+`data/sources.yaml` remains the editable manifest and the connector registry (`docs/20` §3.1). This table is
+its loaded form plus mutable runtime state. A manifest load is idempotent: fields marked *manifest* are
+overwritten from YAML on every boot, fields marked *runtime* are never touched by the loader.
+
+| Field | Type | Null | Origin | Meaning | Example |
+|---|---|---|---|---|---|
+| `id` | text | No | manifest | `sources.yaml` id, primary key | `us.iso.caiso.gen_queue` |
+| `name` | text | No | manifest | Display name | `CAISO Public Queue Report` |
+| `jurisdiction` | text | Yes | manifest | ISO 3166-2 | `US-CA` |
+| `category` | text | No | manifest | `generation_queue \| load_queue \| permit \| regulatory_docket \| funding \| procurement \| registry \| planning \| news \| aggregator \| social_channel` | `generation_queue` |
+| `operator` | text | Yes | manifest | Publishing body | `California ISO` |
+| `url` | text | No | manifest | Entry point | `https://www.caiso.com/…` |
+| `access` | text | No | manifest | `api \| bulk_file \| html \| js_app \| pdf \| rss \| email \| wsdl` | `bulk_file` |
+| `format` | text | Yes | manifest | Payload format | `xlsx` |
+| `cadence` | text | No | manifest | `15-min \| daily \| weekly \| twice_weekly \| monthly \| quarterly \| annual \| realtime \| continuous` | `weekly` |
+| `tier` | int | No | manifest | 1 = MVP, 2, 3 | `1` |
+| `effort` | text | Yes | manifest | `S \| M \| L` | `S` |
+| `egress` | text | No | manifest | `plain \| browser \| residential \| api_key` (`docs/20` §4.3; new YAML field proposed there) | `plain` |
+| `connector` | text | Yes | manifest | Dotted path or gridstatus symbol | `gridstatus.CAISO.get_interconnection_queue` |
+| `implemented` | boolean | No | runtime | False = manifest entry only, shown as "unimplemented" in admin | `true` |
+| `licence_id` | text | No | manifest | FK `licence` | `caiso-tou` |
+| `publish_state` | text | No | runtime | `ingest_only \| api_only \| public` (US-905 AC1) | `public` |
+| `lag_days` | int | Yes | runtime | Override of the global public lag (US-601 AC2) | `null` |
+| `lag_overrides` | jsonb | No | runtime | Per-event-type lag, e.g. `{"withdrawn":0}` | `{}` |
+| `schedule_cron` | text | No | runtime | Derived from cadence, editable in admin | `0 6 * * 1` |
+| `next_run_at` | timestamptz | Yes | runtime | Scheduler state | `2026-09-14T06:00:00Z` |
+| `paused` | boolean | No | runtime | Operator pause (US-904 AC2) | `false` |
+| `health` | text | No | runtime | `ok \| degraded \| failing \| blocked \| paused` | `ok` |
+| `consecutive_failures` | int | No | runtime | Flag at 3 (US-904 AC3), dead-letter at 5 (`docs/20` §4.2) | `0` |
+| `last_success_at` | timestamptz | Yes | runtime | Last `ok`/`unchanged` run | `2026-09-11T05:00:00Z` |
+| `last_error` / `last_error_at` | text / timestamptz | Yes | runtime | Latest failure | `null` |
+| `host` | text | No | manifest | Rate-limit bucket key | `www.caiso.com` |
+| `max_rps` | numeric(6,3) | No | manifest | Host politeness limit (`docs/02` §7) | `0.500` |
+| `max_concurrency` | int | No | manifest | Parallel fetches allowed | `1` |
+| `enrichment_enabled` | boolean | No | runtime | Model enrichment on/off per source (`docs/20` §3.6) | `true` |
+| `model_budget_usd_daily` | numeric(10,2) | Yes | runtime | Per-source daily budget (`docs/20` §4.5) | `2.00` |
+| `cost_per_changed_record_30d` | numeric(10,4) | Yes | runtime | Rolling metric; threshold default USD 0.50 **[A-9]** | `0.0312` |
+| `attribution_text` | text | Yes | manifest | Overrides `licence.attribution_text` where a source demands its own wording | `null` |
+| `manifest_hash` | char(64) | No | runtime | Hash of the YAML entry; a change is an audited `source` event | `4b1e…` |
+
+Guard: a connector whose source resolves to `category = aggregator` with `reuse = restricted` fails to register
+(`docs/20` §4.3). Private aggregators therefore cannot be ingested even by accident.
+
+### 4.2 `source_run`
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `id` | uuid | No | Run identifier, carried on every log line and event | `018f39…` |
+| `source_id` | text | No | FK `source` | `us.iso.caiso.gen_queue` |
+| `trigger` | text | No | `schedule \| manual \| backfill \| retry` | `schedule` |
+| `started_at` / `finished_at` | timestamptz | No / Yes | Wall clock | `2026-09-11T05:00:00Z` |
+| `status` | text | No | `running \| ok \| unchanged \| partial \| failed \| blocked \| budget` (`docs/20` §3.2, §4.5, §12) | `ok` |
+| `snapshot_id` | uuid | Yes | FK `snapshot` produced by this run | `018f41…` |
+| `http_status` | int | Yes | Final HTTP status | `200` |
+| `bytes` | bigint | Yes | Payload size | `1842019` |
+| `egress_class` | text | No | Which pool ran it | `plain` |
+| `rows_seen` / `rows_new` / `rows_changed` / `rows_gone` | int | No | Diff outcome (US-904 AC1) | `2278 / 12 / 31 / 4` |
+| `events_emitted` | int | No | Events written downstream | `43` |
+| `model_calls` | int | No | Gateway calls attributed to the run | `6` |
+| `cost_usd` | numeric(10,4) | No | Model cost for the run (`docs/20` §6) | `0.1240` |
+| `worker_seconds` | numeric(10,2) | No | Compute attribution | `41.20` |
+| `dq_status` | text | No | `pass \| warn \| fail` | `pass` |
+| `dq` | jsonb | No | Warning list: row-count delta, vocabulary drift, null spikes, duplicate keys (`docs/20` §10) | `{"row_delta_pct":-0.4}` |
+| `error` / `error_class` | text | Yes | Failure detail and classification | `null` |
+| `attempt` | int | No | Retry counter | `1` |
+| `dead_lettered` | boolean | No | Five failures (`docs/20` §4.2) | `false` |
+
+### 4.3 `snapshot`
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `id` | uuid | No | Snapshot identifier | `018f41…` |
+| `source_id` | text | No | FK `source` | `us.iso.caiso.gen_queue` |
+| `source_run_id` | uuid | No | FK `source_run` | `018f39…` |
+| `object_key` | text | No | `raw/{source_id}/{yyyy}/{mm}/{dd}/{sha256}.{ext}` (`docs/20` §3.2) | `raw/us.iso.caiso.gen_queue/2026/09/11/9f2c….xlsx` |
+| `sha256` | char(64) | No | Content hash; equal to previous ⇒ run recorded `unchanged` | `9f2c…` |
+| `byte_size` | bigint | No | Size | `1842019` |
+| `content_type` | text | No | MIME as served | `application/vnd.openxmlformats-…` |
+| `fetched_url` | text | No | Final URL after redirects | `https://www.caiso.com/…` |
+| `http_status` | int | No | Status | `200` |
+| `retrieved_at` | timestamptz | No | Fetch time — the `retrieved_at` copied onto every derived row | `2026-09-11T05:00:00Z` |
+| `licence_id` | text | No | Licence in force at fetch time | `caiso-tou` |
+| `parser_version` | text | Yes | Connector/parser version that read it | `caiso@1.4.0` |
+| `record_count` | int | Yes | Parsed record count | `2278` |
+| `previous_snapshot_id` | uuid | Yes | Diff baseline | `018f2f…` |
+| `retention_class` | text | No | `full \| sampled \| expired` — 24 months full, then monthly samples **[A-7]** | `full` |
+| `expires_at` | timestamptz | Yes | Object-storage lifecycle date | `2028-09-11` |
+
+`snapshot` rows are kept forever even when the object is compacted; the row is the evidence that a fetch
+happened, under which licence, and what it contained (`docs/20` §3.2, §12 licence dispute).
+
+### 4.4 Supporting tables (named here, specified in the migration)
+
+| Table | Purpose | Key fields |
+|---|---|---|
+| `job` | Postgres-backed queue (ADR 0004) | `id, type, key, payload, run_after, attempts, status, locked_by` |
+| `model_call` | One row per gateway call (`docs/20` §4.5, US-909) | `id, purpose, subject_type, subject_id, source_id, alias, prompt_template_id, prompt_version, input_tokens, output_tokens, cost_usd, latency_ms, cache_hit, error` |
+| `rate_bucket` | `UNLOGGED` sliding-window counters per key/IP (`docs/20` §7) | `bucket_key, window_start, count` |
+| `session` | Revocable server-side sessions | `id, user_id, created_at, expires_at, revoked_at, ip_prefix` |
+| `task` | Admin work queue (US-907, US-204, US-910, US-1001) | `id, type, subject_type, subject_id, status, assignee_user_id, notes` |
+| `match_dismissal` | Per-user match dismissal (US-402 AC2) | `user_id, match_id, dismissed_at` |
+| `webhook_endpoint` / `webhook_delivery` | API-tier webhooks (`docs/23` §9) | `url, secret_hash, events[], status` / `attempt, response_status` |
+| `export` | CSV export jobs and their audit trail (US-603 AC3) | `id, user_id, query, row_count, object_key, expires_at` |
+| `slug_history` | Old slugs → surviving entity, for 301s (US-201 AC3) | `slug, subject_type, subject_id` |
+| `vocabulary` | Editable enum vocabularies and source-status mappings (§7.4) | `domain, value, label, sort_order, active` |
+
+## 5. Keys, indexes and constraints
+
+### 5.1 Uniqueness
+
+| Constraint | Rationale |
+|---|---|
+| `proposal_source (source_id, source_record_id) WHERE active` | One live link per source record; the resolver's idempotency anchor |
+| `opportunity_source (source_id, source_record_id) WHERE active` | Same |
+| `event (idempotency_key)` | Re-running a stage cannot duplicate history (`docs/20` §3) |
+| `snapshot (source_id, sha256)` | Unchanged fetches do not create new objects |
+| `organization_alias (organization_id, alias_normalised)` | Alias set stays clean |
+| `match (proposal_id, opportunity_id) WHERE status = 'active'` | One active match per pair |
+| `api_key (key_hash)`, `user (email) WHERE status <> 'anonymised'`, `saved_search (user_id, name)` | Obvious |
+| `proposal (public_id)`, `opportunity (public_id)`, `organization (public_id)`, and each `slug` | Stable URLs |
+
+### 5.2 Indexes that the product depends on
+
+| Index | Serves |
+|---|---|
+| `GIN (search_tsv)` on `proposal`, `opportunity`, `organization` | Free-text search, US-103 AC3 (< 500 ms p95) |
+| `GIN (name_normalised gin_trgm_ops)` on `organization`, `organization_alias` | Fuzzy sponsor resolution (`docs/02` §5 key 5) |
+| `GIN (identifiers jsonb_path_ops)` on `proposal`, `opportunity` | Exact queue-id / docket / EIA-id lookup, US-103 AC1 |
+| `GIST (geom)` on `location` | Map bounding box, US-104 |
+| `BTREE (publish_state, public_at DESC)` on `proposal`, `opportunity` | The public list query, US-101 |
+| `BTREE (subject_type, subject_id, observed_at DESC)` on `event` | Detail-page timeline, US-202 |
+| `BTREE (seq)` on `event` | API cursor and alert watermark, US-703 AC1 |
+| `BTREE (public_at) WHERE published_at IS NOT NULL` on `event` | Public feed and RSS, US-503 |
+| `BTREE (source_id, started_at DESC)` on `source_run` | Source health, US-904 |
+| `BTREE (state, channel, created_at)` on `post` | Review queue, US-802 |
+
+### 5.3 Partitioning
+
+`event` is range-partitioned monthly on `observed_at` from day one (`docs/20` §13 step 5 assumes the key is
+already there; creating the partitioned table later is a rewrite). `model_call` and `webhook_delivery` are
+partitioned monthly on `created_at` and dropped by retention policy.
+
+### 5.4 The visibility predicate
+
+One function, used by every read path (US-601 AC1). Pseudocode over an entity or event row `r` for tier `t`:
+
+```
+visible(r, t, now) :=
+      r.publish_state = 'public'                                    -- record-level gate (US-905)
+  AND source_permits(r.source_id, t)                                -- source.publish_state ⊇ t
+  AND licence_permits(r.licence_id, t, field_class)                 -- §8
+  AND (t = 'public' ? r.public_at IS NOT NULL AND r.public_at <= now
+                    : r.published_at IS NOT NULL AND r.published_at <= now)
+```
+
+`public_at` is materialised at write time from `lag(source_id, event_type)` so that the public query is an index
+scan on one column rather than a join against configuration. Changing a lag value is a configuration change
+(US-601 AC2) that enqueues a `relag` job to recompute `public_at` for that source; no deploy, no schema change.
+The trade-off — a lag change is not instantaneous across historical rows — is accepted and must be stated in the
+admin UI. The alternative (evaluating lag at query time) was rejected because it puts a configuration join on
+the hottest public path.
+
+## 6. The event log
+
+### 6.1 Append-only, enforced
+
+- No role except `migration` holds `UPDATE`/`DELETE` on `event`. A `BEFORE UPDATE OR DELETE` trigger raises
+  unless the session sets `bankable.redaction = on`, which only the redaction procedure (§6.6) does.
+- Writes are transactional with the entity update and the outbound job inserts (`docs/20` §3.7): one commit
+  gives a changed entity, its events and the alert/post/webhook/CRM jobs.
+- `idempotency_key` makes re-running a stage a no-op, which is what allows any stage to be replayed from its
+  snapshot (`docs/20` §3).
+
+### 6.2 `before` / `after` payloads
+
+- Both are objects keyed by **canonical field name**, never raw source columns. `changed_keys` lists the keys.
+- Values are gated the same way as the entity: an event whose `after` touches a field whose provenance is a
+  `restricted` source is not published to any tier that may not see that field (§8). The publisher computes the
+  event's field classes at commit, not at read.
+- Creation events carry `before = null`; `removed`/`gone` events carry `after = null` but never delete anything.
+- `before` for a status change carries the prior value *and* the prior evidence pointer
+  (`{lifecycle_state: "filed", _provenance: {source_id, snapshot_id}}`) so that a reversal restores provenance
+  as well as value.
+
+### 6.3 Reversible merges
+
+Merging proposal B into surviving proposal A writes **one** `merged` event on A with:
+
+```json
+{
+  "event_type": "merged",
+  "subject_type": "proposal", "subject_id": "A",
+  "before": { "surviving": { "...changed canonical fields of A before the merge..." },
+              "absorbed":  { "id": "B", "public_id": "prop_…", "slug": "…",
+                             "entity": { "...full row of B..." },
+                             "proposal_source_ids": ["…","…"],
+                             "match_ids": ["…"], "document_ids": ["…"] } },
+  "after":  { "surviving": { "...canonical fields of A after the merge..." } },
+  "actor_type": "model", "confidence": 0.86
+}
+```
+
+B is **not deleted**. `B.merged_into_id = A` and `B.publish_state = 'unpublished'`; its `proposal_source` rows are
+re-pointed to A with `link_event_id` set to the merge event. `slug_history` gains B's slug pointing at A so old
+URLs 301 (US-201 AC3).
+
+`unmerge` is therefore mechanical and total: create an `unmerge` event with `reverses_event_id` = the merge
+event, clear `B.merged_into_id`, restore `B.publish_state`, move the listed `proposal_source` ids back, restore
+A's fields from `before.surviving`, recompute both entities' `field_provenance`, `min_reuse_class` and matches,
+and remove B's slug from `slug_history`. Invariant **M1**: every `merged` event must contain enough state to
+execute this without reading any other row; a merge that cannot satisfy it is rejected in code and in tests.
+
+### 6.4 Human decisions win
+
+An event with `actor_type = user` on field *f* writes `entity.overrides[f] = {value, event_id, set_at, user_id}`.
+The normaliser and the enricher skip overridden fields until a user clears the override. Resolver decisions made
+by a human on a candidate pair are recorded in `resolution_decision` (supporting table) and short-circuit later
+automated adjudication of the same pair (`docs/20` §3.5).
+
+### 6.5 Rebuild and replay
+
+The entity tables are a fold of `event`; `event` is derivable from `snapshot` + parser + resolver version. Two
+recovery levels: **replay** (re-fold events into entity tables — always safe, used after a bad deploy) and
+**reprocess** (re-parse snapshots into events — used after a parser fix, and it writes new events rather than
+rewriting old ones, so history keeps the mistake and the correction). Derived artefacts (search index, matches,
+feeds, alerts watermarks) are rebuildable from either.
+
+### 6.6 Redaction (the single exception)
+
+A completed deletion request (US-910) runs a procedure that replaces personal-data values inside historical
+`before`/`after` payloads with `"[redacted]"`, nulls `user.email`/`name`, revokes sessions and keys, suppresses
+alerts, issues the system-of-record deletion through the port, and writes a `personal_data_redacted` event
+carrying only an opaque subject id. Event ids, timestamps and structure survive so the audit chain is unbroken.
+
+## 7. Lifecycle state machines
+
+### 7.1 Proposal lifecycle
+
+Vocabulary from `docs/02` §1 plus `unknown` for unmappable source values (`docs/10` §4, 216 blank SPP rows).
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> unknown: first observation, no mappable status
+  [*] --> announced: press release, news, intake
+  [*] --> filed: appears in a queue or docket
+  unknown --> announced
+  unknown --> filed
+  announced --> filed: interconnection request or application filed
+  filed --> studied: study phase entered (feasibility, SIS, facilities)
+  studied --> permitted: siting or federal permit issued
+  filed --> permitted: permit precedes study evidence
+  permitted --> contracted: IA or offtake executed
+  studied --> contracted: IA executed without separate permit evidence
+  contracted --> built: in service / commercial operation
+  filed --> withdrawn: request withdrawn or row disappears from the register
+  studied --> withdrawn
+  permitted --> withdrawn
+  contracted --> withdrawn
+  announced --> cancelled: sponsor or agency cancels
+  filed --> cancelled
+  studied --> cancelled
+  permitted --> cancelled
+  withdrawn --> filed: re-entered the queue (new request, same project)
+  cancelled --> announced: revived
+  built --> [*]
+  withdrawn --> [*]
+  cancelled --> [*]
+```
+
+Rules: the state is always the `after` value of the latest `status_change` event, or `unknown` (US-202 AC3, with
+a nightly consistency check). Backward transitions are legal and common — a re-entered queue position is a
+`filed` event, not a data error. Terminal states are absorbing only for the purpose of alerting; a later event
+reopens them.
+
+### 7.2 Opportunity lifecycle
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  [*] --> unknown: notice found, status unmappable
+  [*] --> announced: intent to issue published
+  announced --> open: notice opens for responses
+  unknown --> open
+  open --> frozen: issuer pauses the solicitation
+  frozen --> reinstated: solicitation resumes
+  reinstated --> open
+  open --> closed: deadline passed
+  frozen --> cancelled
+  open --> cancelled: withdrawn by the issuer
+  announced --> cancelled
+  cancelled --> reinstated: re-issued under the same notice id
+  closed --> awarded: award published
+  closed --> cancelled: closed then cancelled without award
+  awarded --> [*]
+  cancelled --> [*]
+```
+
+`reinstated` is retained as a state because US-301 AC1 lists it among the displayed statuses; it is transient and
+resolves to `open` on the next observation. `closed` means "deadline passed, outcome unknown" and is the default
+terminal state for the many notices that never publish an award (`docs/02` §4 news rules mean we rarely learn).
+
+### 7.3 Event-type vocabulary
+
+| Group | Types |
+|---|---|
+| Identity | `created`, `source_linked`, `source_unlinked`, `merged`, `unmerged`, `alias_added` |
+| Proposal lifecycle | `status_change`, `filed`, `studied`, `permitted`, `contracted`, `built`, `withdrawn`, `cancelled` |
+| Opportunity lifecycle | `announced`, `opened`, `closed`, `frozen`, `reinstated`, `cancelled`, `awarded`, `due_date_changed` |
+| Field-level | `field_changed`, `capacity_changed`, `sponsor_changed`, `location_changed`, `extraction_accepted` |
+| Matching | `match_added`, `match_removed`, `lead_created` |
+| Publication | `published`, `unpublished`, `gate_cleared`, `licence_reclassified` |
+| Operational | `source_health_changed`, `admin_edit`, `personal_data_redacted`, `key_issued`, `key_revoked` |
+
+### 7.4 Source status → lifecycle mapping
+
+Mappings live in versioned YAML next to each connector (`docs/20` §3.4) and are mirrored into `vocabulary` so the
+admin panel can show them. The seed for the ISO queues:
+
+| Source value | Maps to | Note |
+|---|---|---|
+| `ACTIVE`, `Active`, `In Progress` | `filed`, promoted to `studied` when a study document or milestone field is present | Most queue rows sit here |
+| `COMPLETED`, `Completed`, `In Service` | `built` | gridstatus normalises the ISO variants |
+| `WITHDRAWN`, `Withdrawn` | `withdrawn` | Also emitted when a row disappears (`docs/20` §3.3) |
+| `SUSPENDED`, `On Hold` | `filed` with `status_raw` preserved | No separate state; the raw value is shown |
+| blank / null | `unknown` | 216 SPP rows (`docs/01` §3.3); raises a DQ warning, not an error |
+| Anything unmapped | `unknown` + DQ vocabulary-drift warning | Never silently coerced |
+
+## 8. Licence and reuse-class gating
+
+Gating is **orthogonal to tier and stricter** (`docs/20` §5). Tier answers "how old must this be"; licence
+answers "may this leave the building at all, and in what form". Both are evaluated in the store layer; the public
+API code path cannot construct a query without them, and a CI fixture containing a `restricted` source proves it
+(`docs/20` §11).
+
+Field classes, used by the predicate:
+
+| Class | Fields |
+|---|---|
+| **derived** | `name_canonical`, `kind`, `technology`, `capacity_mw`, `storage_mwh`, `jurisdiction`, `iso`, `lifecycle_state`, `first_seen`, `last_changed`, counts and aggregates |
+| **identifying** | `proposal_source.source_record_id` (queue id, docket number), `identifiers.*` |
+| **raw** | `proposal_source.raw`, `opportunity_source.raw`, `status_raw`, `location.raw_place`, `event.before`/`after` whose only evidence is that source |
+| **precise_geo** | `location.geom` where `precision = exact` |
+| **document** | `document.object_key`, stored bytes, extracted text |
+
+Behaviour by `licence.reuse_class`, for a source whose gate is clear:
+
+| Class | Example sources | Public (delayed) | Pro / API (live) | Export & bulk | RSS & social |
+|---|---|---|---|---|---|
+| `open` | ERCOT, all US federal, EIA, grants.gov | everything, at lag | everything | everything | everything |
+| `attribution` | LBNL, GEM, NESO, TED, World Bank, curated issuers | everything, at lag, with the credit line rendered | everything + credit | everything + licence header row | credit line in every item and post |
+| `attribution`, raw withheld | **CAISO** (`allows_raw_publication = false`) | derived + identifying; **no raw**, no `status_raw`, no exact coordinates — county centroid only; "view at source" link | same as public but live | derived columns only | derived only, credit CAISO, link out |
+| `restricted` | **PJM** until a Redistribution License exists | **nothing** — no record, no event, no aggregate, no count | **nothing** (see §10, correction C-3) | nothing | nothing |
+| `unknown` | **MISO, SPP, NYISO, ISO-NE** until terms are read and recorded | treated exactly as `restricted` (`CLAUDE.md`) | treated as `restricted` | nothing | nothing |
+
+What the public tier may **not** show for a `restricted` or `unknown` source, stated as the implementation
+checklist:
+
+1. No row in `proposal`, `opportunity` or `organization` whose `min_reuse_class` is `restricted`/`unknown`.
+2. No `event` whose `licence_id` resolves to such a licence, including in the global feed, RSS and webhooks.
+3. No `proposal_source.raw`, `source_record_id`, `source_url`, `retrieved_at` from such a source — the Sources
+   panel omits the row entirely rather than showing a greyed placeholder, because the existence of the row is
+   itself a disclosure of the underlying register's contents.
+4. No aggregate, count, map cluster or "N sources" number that includes it — `source_count` is computed over
+   visible sources only.
+5. No `post` draft (US-801 AC3) and no CSV row.
+6. No `extraction` derived from a document supplied by that source.
+
+The **mixed-provenance case** is the one that matters in practice: a proposal seen in both ERCOT (`open`) and PJM
+(`restricted`) is published on the strength of the ERCOT evidence, with the PJM `proposal_source` row and every
+field whose `field_provenance` points only at PJM removed from the response, and `min_reuse_class` computed over
+**visible** sources. This is exactly why provenance is per field (§3.1) rather than per record. An entity whose
+*only* evidence is restricted is invisible, full stop.
+
+For `attribution` sources the credit line is not optional and not a UI concern: the API returns it
+(`docs/23` §10), the page renders it, the CSV carries it as columns plus a header line (US-105 AC2, US-603 AC2),
+the RSS item carries it (US-503 AC3) and the social post carries it (US-801 AC2). A response that omits the
+attribution for a source present in the payload is a bug that fails the launch checklist (US-908).
+
+## 9. Assumptions in this document
+
+| Id | Assumption | Depends on | Effect if wrong |
+|---|---|---|---|
+| D-1 | Public lag default **14 days**, per-source and per-event-type override, bounded 7–30 | `docs/10` A-7 vs `docs/20` A-8 (7 days) — owner decides with pricing | Configuration only; `public_at` recomputed by the `relag` job |
+| D-2 | `restricted` and `unknown` sources are invisible on **every** non-admin surface, Pro included | `docs/10` §3.2/§3.3 (stricter) vs `docs/20` §5 (allows derived aggregates to Pro/API) | If the owner and legal-compliance accept derived aggregates for Pro, the §8 table gains a row; the mechanism already supports it |
+| D-3 | `uuid` v7 keys with separate public ids | none | Cosmetic |
+| D-4 | `event` partitioned monthly on `observed_at` from the first migration | `docs/20` §13 | Rewrite later if skipped |
+| D-5 | Personal data is limited to `user` columns, `alert.recipient`, intake contact fields and `document.personal_data_flag` | legal-compliance inventory (`docs/10` §8.2) | Inventory grows; schema check (US-910 AC2) enforces it |
+| D-6 | The app stores only `crm_lead_ref`, `sor_ref`, `billing_ref` from the system of record | `docs/20` §9, **[A-4]** | Adapter change only |
+| D-7 | `location.geom` for restricted-source projects is always a county centroid, never an exact point | US-104 AC3, legal-compliance to confirm which sources | Precision field already carries the distinction |
+
+## 10. Corrections to `docs/20`
+
+These are contradictions found while writing this model. None is silently resolved here; each names what this
+document did and what should change in `docs/20`.
+
+| Id | Where | Contradiction | What this document assumed | Fix needed in `docs/20` |
+|---|---|---|---|---|
+| C-1 | `docs/20` §1, §2 boundary rule, §7 | Cross-references the CRM/ERP system of record as "§11"; the CRM/ERP section is **§9** and §11 is Security and privacy | Referenced §9 | Renumber the three references to §9 |
+| C-2 | `docs/20` §4.1, §4.4, §7, §12 | Refer to "the scaling path in §15"; the scaling path is **§13** and §15 is Technology recommendations | Referenced §13 | Renumber four references to §13 |
+| C-3 | `docs/20` §5 vs `docs/10` §3.2, §3.3, `CLAUDE.md` | §5 says PJM rows are "returned to `pro`/`api` only as derived aggregates with a link out"; the PRD puts PJM rows out of scope for **any public or Pro surface** until the licence is signed, and `CLAUDE.md` says PJM rows are not public until a licence exists | Took the stricter reading (D-2): invisible everywhere except admin | Either restate §5 to match the PRD, or have legal-compliance and the owner record explicitly that derived aggregates are permitted under PJM terms, with the evidence in `licence.evidence_url` |
+| C-4 | `docs/20` A-8 vs `docs/10` A-7 | Default public lag is 7 days in `docs/20`, 14 days in the PRD | Used 14 (D-1) and made it configuration | Align the two docs once pricing (Phase 1) settles the number |
+| C-5 | `docs/20` §5 table vs `docs/10` US-901 AC1 | `docs/20` roles are `viewer \| member \| operator \| owner`; the PRD lists user "role" as `public \| pro \| api \| admin`, which are entitlements, not roles | Kept `docs/20`'s roles on `user.role` and put `public \| pro \| api \| admin` on `account.entitlement` | Note in the PRD that US-901 AC1's "role" column renders `user.role` + `account.entitlement` |
+| C-6 | `docs/20` §3.4 / §4.3 | `egress` is described as a field the data-engineer will add to `data/sources.yaml`, but the topology already routes on it | Modelled `source.egress` as manifest-sourced with a default derived from `access` until the YAML field exists | No change to §4.3; the YAML change is a data-engineer task with a deadline in Sprint 1 |
+| C-7 | `docs/20` §11 (personal data) vs US-1001 | §11 says filer contacts are never stored as contact records; the intake form deliberately collects a contact name and email | Intake contact fields live on `task` + the CRM through the port, never on `organization`, and are in the personal-data inventory | Add one sentence to §11 distinguishing *scraped* contacts (never stored) from *submitted* contacts (stored with consent, deletable) |
