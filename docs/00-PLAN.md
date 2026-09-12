@@ -48,6 +48,8 @@ standalone listings site. See `01-feasibility.md` §5.
 | 2026-09-12 | No new repo: `tobombadil/bankable` (one worker commit) becomes the platform monorepo; the Cloudflare worker moves to `infra/` later | Empty repo already carries the brand; a second repo would split history and access |
 | 2026-09-12 | Build-time agent team lives in `.claude/agents/`; the run-time loop is a conventional pipeline that calls models only where judgement is needed; humans send all outbound messages until a channel is explicitly enabled | `docs/03-agent-operating-model.md` |
 | 2026-09-12 | **Owner confirmed the Phase 0 reframe**: build the fused proposal graph feeding Bankable's route-to-capital workflow, with the public listings site as the free delayed tier and audience engine, not as the main event | Owner, in session. Settles the branch point that architecture and pricing both depend on |
+| 2026-09-12 | **Map is a primary navigation surface**, not a secondary view: every proposal and opportunity with a point, county or service territory is browsable on a map with the same filters and tier rules as search (elevates PRD US-104) | Owner request |
+| 2026-09-12 | Sprint 1 adds `docs/04-standards.md`: the cross-discipline best-practice standard the whole team follows (design system and accessibility, engineering and testing, data modelling and provenance, API design, security/privacy, DevOps, GTM and content). Owned jointly by product-manager, solutions-architect, product-designer; every later deliverable is reviewed against it | Owner request |
 
 ## Open questions for the owner (answers change Phase 1–3 work)
 
