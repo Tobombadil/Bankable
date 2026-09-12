@@ -19,8 +19,8 @@ standalone listings site. See `01-feasibility.md` §5.
 | # | Phase | Deliverables | Status |
 |---|---|---|---|
 | 0 | Feasibility & data sources | `01-feasibility.md`, `02-data-sources.md`, `data/sources.yaml`, `scripts/probe_sources.py`, probe evidence | **done 2026-09-12** |
-| 1 | Business plan & model | market sizing, pricing ladder, unit economics, GTM, legal entity/licensing plan, 24-month financial model, risk register | next |
-| 2 | Architecture & specifications | system spec, domain model + ERD, API spec (OpenAPI), ingestion/normalisation/resolution design, security & privacy design, DevOps (IaC, CI/CD, observability, backups), ADRs | |
+| 1 | Business plan & model | market sizing, pricing ladder, unit economics, GTM, legal entity/licensing plan, 24-month financial model, risk register | Sprint 0 in progress (market, legal, GTM) |
+| 2 | Architecture & specifications | system spec, domain model + ERD, API spec (OpenAPI), ingestion/normalisation/resolution design, security & privacy design, DevOps (IaC, CI/CD, observability, backups), ADRs | Sprint 0 in progress (architecture, ERD, ADRs, resolution prototype) |
 | 3 | Product design | UX research, information architecture, UI system, public site, search/map/alerts, API docs, admin panel (users, customers, subscriptions, data ops), CRM/ERP integration as single source of truth, analytics/tracking plan | |
 | 4 | Build & launch MVP | Tier-1 ingestion, proposal graph, public delayed tier, Pro alerts, syndication, billing, launch runbook | |
 | 5 | Bankable marketplace | project submission, opportunity matching, scoring/certification, capital-partner routing; merge with the current Lovable app or replace it | |
@@ -45,6 +45,8 @@ standalone listings site. See `01-feasibility.md` §5.
 | 2026-09-12 | US-first; three international API feeds (TED, FTS, NESO) in MVP to prove multi-market model | Engineering vs market lens resolution |
 | 2026-09-12 | Never scrape private aggregators; PJM only after licence; MISO only after terms + compliant egress | Legal lens |
 | 2026-09-12 | Social at launch = Bluesky + LinkedIn (+ X on capped budget); owned RSS/email is the primary channel | Media lens |
+| 2026-09-12 | No new repo: `tobombadil/bankable` (one worker commit) becomes the platform monorepo; the Cloudflare worker moves to `infra/` later | Empty repo already carries the brand; a second repo would split history and access |
+| 2026-09-12 | Build-time agent team lives in `.claude/agents/`; the run-time loop is a conventional pipeline that calls models only where judgement is needed; humans send all outbound messages until a channel is explicitly enabled | `docs/03-agent-operating-model.md` |
 
 ## Open questions for the owner (answers change Phase 1–3 work)
 
@@ -71,6 +73,9 @@ standalone listings site. See `01-feasibility.md` §5.
 docs/00-PLAN.md            this file
 docs/01-feasibility.md     Phase 0 feasibility study
 docs/02-data-sources.md    Phase 0 source catalogue, legal register, schema seed, ingestion order
+docs/03-agent-operating-model.md  build-time agent team vs run-time pipeline; roster, hand-offs, human gates
+.claude/agents/            agent role definitions (invoke via the Agent tool or /agents)
+CLAUDE.md                  instructions every session/agent loads first
 data/sources.yaml          machine-readable source registry (connector manifest)
 data/probes/<date>.json    evidence from scripts/probe_sources.py
 scripts/probe_sources.py   reproducible reachability + gridstatus check
