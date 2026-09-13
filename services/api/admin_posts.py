@@ -558,20 +558,71 @@ def _channel_subject_id(channel: str) -> _uuid.UUID:
     return _uuid.uuid5(_uuid.NAMESPACE_DNS, f"channel_config:{channel}")
 
 
+def _latest_channel_event_public_id(db: Session, channel: str) -> str | None:
+    """The most recent `admin_edit` audit event for this channel's synthetic `subject_id`
+    (`_channel_subject_id`), or `None` for a channel that has never been changed — used by both
+    the PUT response (always has one, just written) and the GET listing (may have none)."""
+    event = db.scalar(
+        select(Event)
+        .where(Event.subject_type == "channel_config", Event.subject_id == _channel_subject_id(channel))
+        .order_by(Event.seq.desc())
+        .limit(1)
+    )
+    return public_id("evt", event.id) if event else None
+
+
 def serialize_channel_config(
-    config: ChannelConfig, *, changed_by_public_id: str, event_public_id: str
+    channel: str,
+    config: ChannelConfig | None,
+    *,
+    changed_by_user_id: str | None,
+    event_id: str | None,
 ) -> dict[str, Any]:
+    """Shared by `PUT .../auto-publish` and `GET /admin/v1/channels` (coordinator follow-up: the
+    admin UI needs to read state before toggling it) so the two never drift apart — see
+    `api/fragments/channels.yaml`'s `ChannelConfig` schema. `config is None` is a channel with no
+    `channel_config` row yet: the all-defaults state (`auto_publish: false`, everything else
+    `null`, `review_required: true`)."""
     return {
-        "channel": config.channel,
-        "auto_publish": config.auto_publish,
-        "review_required": not config.auto_publish,
-        "daily_cap": config.daily_cap,
+        "channel": channel,
+        "auto_publish": config.auto_publish if config else False,
+        "review_required": not (config.auto_publish if config else False),
+        "daily_cap": config.daily_cap if config else None,
         "budget_usd_monthly": None,
-        "disclosure_label": config.disclosure_label,
+        "disclosure_label": config.disclosure_label if config else None,
         "capabilities": list(_CHANNEL_CAPABILITIES),
-        "changed_by_user_id": changed_by_public_id,
-        "event_id": event_public_id,
+        "changed_by_user_id": changed_by_user_id,
+        "event_id": event_id,
+        "updated_at": iso(config.updated_at) if config else None,
     }
+
+
+@router.get("/admin/v1/channels")
+def admin_list_channels(
+    db: Annotated[Session, Depends(get_db)],
+    _ctx: Annotated[AuthContext, Depends(require_admin())],
+) -> Any:
+    """`GET /admin/v1/channels` (coordinator follow-up, `api/fragments/channels.yaml`): one row per
+    `POST_CHANNELS` entry so the admin UI can read auto-publish state before an owner toggles it —
+    the spec previously had only the `PUT`. Any operator/owner may read; only an owner may write
+    (`admin_set_channel_auto_publish`'s own `roles=("owner",)`)."""
+    data = []
+    for channel in POST_CHANNELS:
+        config = db.get(ChannelConfig, channel)
+        changed_by_user_id = None
+        if config is not None and config.updated_by_user_id is not None:
+            changed_by_user_id = _user_public_id(db, config.updated_by_user_id)
+        event_id = _latest_channel_event_public_id(db, channel) if config is not None else None
+        view = serialize_channel_config(
+            channel, config, changed_by_user_id=changed_by_user_id, event_id=event_id
+        )
+        data.append(view)
+    return build_list_envelope(
+        data,
+        meta=build_meta(lag_days=0, tier="admin"),
+        licence_summary=build_licence_summary([]),
+        page=build_page(None, None, False),
+    )
 
 
 @router.put("/admin/v1/channels/{channel}/auto-publish")
@@ -639,7 +690,7 @@ def admin_set_channel_auto_publish(
         },
     )
     data = serialize_channel_config(
-        config, changed_by_public_id=user.public_id, event_public_id=public_id("evt", event.id)
+        channel, config, changed_by_user_id=user.public_id, event_id=public_id("evt", event.id)
     )
     return _post_envelope(data)
 

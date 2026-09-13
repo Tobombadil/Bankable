@@ -1,11 +1,15 @@
 # `services/api/admin_posts.py` — social review queue, channel switches, admin keys, public intake/reports
 
-Sprint 3 item 3. Implements, to `api/openapi.yaml`'s schemas exactly (all still `x-status: planned`;
-the coordinator flips that flag):
+Sprint 3 item 3. Implements, to `api/openapi.yaml`'s schemas exactly (the coordinator has since
+flipped `adminListPosts`/`adminGetPost`/`adminUpdatePost`/`adminApprovePost`/`adminRejectPost`/
+`adminSchedulePost`/`adminSetChannelAutoPublish` to `x-status: live` in the committed spec;
+`GET /admin/v1/channels` below is new this pass and ships only in `api/fragments/channels.yaml`
+until the coordinator merges it):
 
 - `GET/PATCH /admin/v1/posts[/{post_id}]`, `POST .../approve|reject|schedule` — the social review
   queue (US-801–804).
-- `PUT /admin/v1/channels/{channel}/auto-publish` — owner-only channel graduation switch.
+- `GET /admin/v1/channels`, `PUT /admin/v1/channels/{channel}/auto-publish` — read and (owner-only)
+  toggle the per-channel auto-publish switch.
 - `GET/POST /admin/v1/keys`, `DELETE /admin/v1/keys/{key_id}` — admin-issued API keys (US-701).
 - `POST /v1/intake/proposals`, `POST /v1/intake/opportunities`, `POST /v1/reports` — public,
   unauthenticated write endpoints that feed the task queue (US-1001, US-1003, US-204).
@@ -106,6 +110,31 @@ untouched — nothing in this module calls a social platform; these routes only 
     constraint. The key is only included in the constructor kwargs when present in the request
     body, so the model's own default applies otherwise.
 
+12. **Coordinator follow-up: `GET /admin/v1/channels`.** The admin UI needs to read auto-publish
+    state before an owner toggles it; the spec had only the `PUT`. Added `GET /admin/v1/channels`
+    (`operationId adminListChannels`, `security: AdminSession[operator, owner]` — any admin session
+    may *read*; only `owner` may still *write*, unchanged on the `PUT`) returning one row per
+    `POST_CHANNELS` entry: the stored `channel_config` row if one exists, else the all-defaults
+    state (`auto_publish: false`, `disclosure_label`/`daily_cap`/`changed_by_user_id`/`event_id`/
+    `updated_at` all `null`, `review_required: true`). `serialize_channel_config` is now shared by
+    both operations (refactored from the PUT-only helper it used to be, same output shape) so the
+    two can never drift apart — verified directly in
+    `test_admin_list_channels_shows_the_stored_row_after_a_put`, which asserts the `GET` row for a
+    just-`PUT` channel equals the `PUT` response field-for-field. `event_id` is resolved by finding
+    the latest `admin_edit` audit event whose `subject_id` is that channel's deterministic `uuid5`
+    (decision 5) — there is no `event_id` column on `channel_config` itself, so a never-configured
+    channel's `event_id` and `changed_by_user_id` are `null` rather than a real value.
+
+    `api/openapi.yaml` cannot be edited directly per this task's rules, so the new operation and
+    its two schemas (`ChannelConfig` — the shared per-channel object shape, extracted as a named
+    schema since `ChannelConfigResponse.data` was inline — and `ChannelConfigListResponse`, a
+    `ListEnvelope` of it) live in **`api/fragments/channels.yaml`** for the coordinator to merge,
+    with a merge note asking them to also refactor `ChannelConfigResponse.data` to `$ref` the new
+    `ChannelConfig` schema so the `PUT`'s contract test keeps validating against the same
+    definition `GET` uses (no behavioural change: `serialize_channel_config` already emits this
+    exact shape for the `PUT`, including the new `updated_at` field, which is a backward-compatible
+    addition since the current inline schema has no `additionalProperties: false`).
+
 ## Deferred (follow-ups, not silent gaps)
 
 - **Captcha provider.** No provider (hCaptcha, Turnstile, reCAPTCHA, ...) is integrated; `captcha_token`
@@ -159,7 +188,9 @@ untouched — nothing in this module calls a social platform; these routes only 
 __all__ = ["router"]
 ```
 
-`tests/test_api_admin_posts.py` (last lines):
+`tests/test_api_admin_posts.py` (last lines, unchanged by this follow-up — the new
+`test_admin_list_channels_*` tests were inserted earlier in the file, under the existing
+`# channel switches` section):
 
 ```python
 def test_create_report_replays_on_same_idempotency_key(client, db):
@@ -178,11 +209,25 @@ def test_create_report_replays_on_same_idempotency_key(client, db):
     assert db.query(Task).filter_by(type="report").count() == 1
 ```
 
+`api/fragments/channels.yaml` (last lines):
+
+```yaml
+    ChannelConfigListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ChannelConfig'
+```
+
 ## Test run
 
 ```
 .venv/bin/python -m pytest tests/test_api_admin_posts.py
-73 passed
+75 passed
 ```
 
 ```
@@ -190,14 +235,14 @@ def test_create_report_replays_on_same_idempotency_key(client, db):
 .venv/bin/python -m coverage report -m
 Name                          Stmts   Miss  Cover   Missing
 -----------------------------------------------------------
-services/api/admin_posts.py     461      0   100%
+services/api/admin_posts.py     476      0   100%
 -----------------------------------------------------------
-TOTAL                           461      0   100%
+TOTAL                           476      0   100%
 ```
 
 ```
-.venv/bin/python -m pytest tests/test_api_contract.py services/api tests/test_api_pro_keys.py
-58 passed
+.venv/bin/python -m pytest tests/test_api_contract.py services/api tests/test_api_pro_keys.py tests/test_api_admin_posts.py
+133 passed
 ```
 
 `ruff check`, `ruff format --check` and
@@ -211,8 +256,12 @@ both `services/api/admin_posts.py` and `tests/test_api_admin_posts.py`.
   `billing_router`). `tests/test_api_admin_posts.py` mounts it onto the shared `app` object itself
   at import time (guarded against double-mounting) purely so its own `TestClient` calls have
   something to hit; this does not touch `app.py`.
-- `x-status: planned` on every operation in `api/openapi.yaml` is untouched — flipping it to `live`
-  is the coordinator's job per the task brief.
+- `GET /admin/v1/channels` is **not in the committed `api/openapi.yaml`** — it exists only in
+  `api/fragments/channels.yaml` for the coordinator to merge (this follow-up's hard rule: do not
+  edit `api/openapi.yaml`). `tests/test_api_admin_posts.py`'s `assert_valid_fragment_schema` helper
+  validates its response against a copy of the committed spec with the fragment's two new schemas
+  merged in, exactly the pattern `assert_valid` uses for everything already committed.
 - No changes to `services/db/models.py`, migrations, `services/social/*`, `api/openapi.yaml`,
   `app.py`, `pro.py`, or any conftest file — confirmed by `git status`-equivalent review of what
-  this task touched (only the four paths named in the "Write ONLY" rule).
+  this task touched (only the four paths named in the original "Write ONLY" rule, plus
+  `api/fragments/channels.yaml` this follow-up explicitly added to that list).
