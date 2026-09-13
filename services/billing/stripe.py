@@ -33,6 +33,7 @@ from services.sor.ports import (
     PortalSession,
     SorRejected,
     SorUnavailable,
+    SubscriptionCreate,
     SubscriptionState,
     entitlement_for,
 )
@@ -259,6 +260,41 @@ class StripeBillingAdapter:
             idempotency_key=f"portal:{billing_ref}:{self._today()}",
         )
         return PortalSession(url=str(session["url"]))
+
+    def create_subscription(self, request: SubscriptionCreate) -> SubscriptionState:
+        """`POST /v1/subscriptions` (US-902: an operator creates a subscription through the admin
+        console rather than the customer self-serving through Checkout). Invoice-based collection
+        (`collection_method=send_invoice`, `days_until_due=30`) rather than
+        `charge_automatically`: an operator-created subscription has no payment method on file yet
+        (services/billing/README.md "collection_method / days_until_due" — `collection_method` is
+        confirmed as a real Stripe subscription field from the saved vendor pages' own changelog
+        reference; `days_until_due`'s exact behavior is not independently verified there and is
+        kept, marked unverified, as Stripe's documented invoice-collection field). The mirror row
+        is refreshed from this call's read-back (`_subscription_state_from_object`), never from
+        `request` itself (US-902 AC2)."""
+        if request.plan not in self.price_ids:
+            raise SorRejected(f"unknown plan {request.plan!r}: no configured Stripe price id")
+
+        params: dict[str, Any] = {
+            "customer": request.billing_ref,
+            "items": [{"price": self.price_ids[request.plan], "quantity": request.seats}],
+            "collection_method": "send_invoice",
+            "days_until_due": 30,
+        }
+        if request.trial_days is not None:
+            params["trial_period_days"] = request.trial_days
+        metadata: dict[str, str] = {}
+        if request.account_public_id:
+            metadata["account_public_id"] = request.account_public_id
+        metadata["plan"] = request.plan
+        params["metadata"] = metadata
+
+        obj = self._post(
+            "/v1/subscriptions",
+            params,
+            idempotency_key=f"subscription:{request.billing_ref}:{request.plan}:{self._today()}",
+        )
+        return self._subscription_state_from_object(obj)
 
     def get_subscription(self, ref: str) -> SubscriptionState | None:
         obj = self._get(f"/v1/subscriptions/{ref}", not_found_returns_none=True)
