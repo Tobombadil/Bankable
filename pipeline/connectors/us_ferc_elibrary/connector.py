@@ -48,6 +48,18 @@ Rate limit: 0.5 rps (docs/02 §7, `registry.HOST_DEFAULT_RPS["elibrary.ferc.gov"
 issues up to ~18 POSTs (2 docket classes x up to 2 years x 3 pages, plus 3 description terms x 2
 pages), so a run takes roughly half a minute; acceptable at the `cadence: realtime` polling window
 this feeds (a scheduler, not this module, decides how often to run it).
+
+Window override (Sprint 3 item 5, docs/00-PLAN.md "a full-text or filer-name backfill over years,
+not 30 days, is the honest next test before docket linkage is counted in M-1"): setting the
+instance attribute `.window` to an explicit `(start, end)` date pair replaces the "last
+WINDOW_DAYS" window for both `fetch()` (request shape: which `ER<yy>`/`CP<yy>` years are queried,
+and the `filterDate` sent — still a no-op server-side, kept for the record) and `parse()` (the
+client-side `filedDate` filter), so `pipeline/backfill_ferc.py` can run this connector over years
+instead of days without touching the default 30-day cadence a bare `Connector(source)` still gets
+(`.window` defaults to `None`; every existing call site and test is unaffected). A wider window
+touches more `ER<yy>`/`CP<yy>` query years, each paged up to `MAX_PAGES_DOCKET`/
+`MAX_PAGES_DESCRIPTION` times — `pipeline/backfill_ferc.py` measures pages and requests per year
+since `filterDate`'s no-op-ness (finding 1) means that cost is real, not narrowed server-side.
 """
 
 from __future__ import annotations
@@ -63,6 +75,8 @@ import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, SnapshotMode
+from pipeline.connectors.http import PoliteSession
+from pipeline.connectors.registry import SourceEntry
 from pipeline.normalize import US_STATES
 
 API_URL = "https://elibrary.ferc.gov/eLibrarywebapi/api/Search/AdvancedSearch"
@@ -174,29 +188,25 @@ class Connector(BaseConnector):
     MAX_PAGES_DOCKET: ClassVar[int] = 3
     MAX_PAGES_DESCRIPTION: ClassVar[int] = 2
 
-    def _post(self, body: dict[str, Any]) -> dict[str, Any]:
-        """POST with retry-with-backoff on `success: false` (docs/02 §7); 5xx/429/connection
-        errors are already retried inside `self.http.post`."""
-        last_error = ""
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            r = self.http.post(API_URL, json=body, timeout=90)
-            if r.status_code != 200:
-                raise ConnectorError(f"POST {API_URL} -> HTTP {r.status_code}")
-            doc: dict[str, Any] = r.json()
-            if doc.get("success", True):
-                return doc
-            last_error = str(doc.get("errorMessage"))
-            if attempt < MAX_ATTEMPTS:
-                time.sleep(2.0**attempt)
-        raise ConnectorError(f"FERC eLibrary success:false after {MAX_ATTEMPTS} attempts: {last_error}")
+    def __init__(self, source: SourceEntry, http: PoliteSession | None = None) -> None:
+        super().__init__(source, http)
+        #: explicit (start, end) override replacing "last WINDOW_DAYS" for both fetch() and
+        #: parse() (module docstring, "Window override"). None keeps the default 30-day cadence
+        #: behaviour: unset by every call site except `pipeline/backfill_ferc.py`.
+        self.window: tuple[dt.date, dt.date] | None = None
 
-    def fetch(self) -> RawSnapshot:
-        t0 = time.monotonic()
-        now = dt.datetime.now(dt.UTC)
-        start = (now - dt.timedelta(days=self.WINDOW_DAYS)).date()
-        end = now.date()
-        years = sorted({f"{start.year % 100:02d}", f"{end.year % 100:02d}"})
+    def _effective_window(self, now: dt.datetime) -> tuple[dt.date, dt.date]:
+        """(start, end) dates fetch/parse use: `self.window` when set, else the last
+        `WINDOW_DAYS` ending `now` — the unchanged default cadence behaviour."""
+        if self.window is not None:
+            return self.window
+        return (now - dt.timedelta(days=self.WINDOW_DAYS)).date(), now.date()
 
+    def _build_queries(self, start: dt.date, end: dt.date) -> list[dict[str, Any]]:
+        """Docket-number-substring queries for every two-digit year `[start.year, end.year]`
+        spans (a multi-year window touches more than the two years the original 30-day-window
+        code assumed), plus the fixed description-term queries."""
+        years = sorted({f"{y % 100:02d}" for y in range(start.year, end.year + 1)})
         docket_queries = [
             {
                 "text": f"{cls}{yy}",
@@ -216,7 +226,29 @@ class Connector(BaseConnector):
             }
             for term in self.DESCRIPTION_TERMS
         ]
-        queries: list[dict[str, Any]] = docket_queries + description_queries
+        return docket_queries + description_queries
+
+    def _post(self, body: dict[str, Any]) -> dict[str, Any]:
+        """POST with retry-with-backoff on `success: false` (docs/02 §7); 5xx/429/connection
+        errors are already retried inside `self.http.post`."""
+        last_error = ""
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            r = self.http.post(API_URL, json=body, timeout=90)
+            if r.status_code != 200:
+                raise ConnectorError(f"POST {API_URL} -> HTTP {r.status_code}")
+            doc: dict[str, Any] = r.json()
+            if doc.get("success", True):
+                return doc
+            last_error = str(doc.get("errorMessage"))
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(2.0**attempt)
+        raise ConnectorError(f"FERC eLibrary success:false after {MAX_ATTEMPTS} attempts: {last_error}")
+
+    def fetch(self) -> RawSnapshot:
+        t0 = time.monotonic()
+        now = dt.datetime.now(dt.UTC)
+        start, end = self._effective_window(now)
+        queries: list[dict[str, Any]] = self._build_queries(start, end)
 
         pages: list[dict[str, Any]] = []
         for q in queries:
@@ -244,13 +276,22 @@ class Connector(BaseConnector):
             ext="json",
             elapsed_s=round(time.monotonic() - t0, 2),
             requests_made=len(pages),
-            meta={"queries": len(queries), "pages": len(pages), "window_days": self.WINDOW_DAYS},
+            meta={
+                "queries": len(queries),
+                "pages": len(pages),
+                "window_days": self.WINDOW_DAYS,
+                "window_start": start.isoformat(),
+                "window_end": end.isoformat(),
+            },
         )
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
         doc = json.loads(raw.content)
-        window_start = raw.retrieved_at.date() - dt.timedelta(days=self.WINDOW_DAYS)
-        window_end = raw.retrieved_at.date()
+        if self.window is not None:
+            window_start, window_end = self.window
+        else:
+            window_start = raw.retrieved_at.date() - dt.timedelta(days=self.WINDOW_DAYS)
+            window_end = raw.retrieved_at.date()
         seen: dict[str, dict[str, Any]] = {}
         for page in doc.get("pages", []):
             resp = page["response"]

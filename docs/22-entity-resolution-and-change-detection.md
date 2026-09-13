@@ -444,3 +444,168 @@ loader; both are recorded in full, with the exact failing case, in `services/res
   different queue ids from the same source. This departs from this task's literal wording; the
   measured justification is §13.2 above. Owner should confirm; `services/resolve/merge.py`'s
   module docstring and `services/resolve/README.md` carry the same argument for any future review.
+
+## 14. FERC filer-name backfill (Sprint 3)
+
+**Status:** measured 2026-09-13, live against FERC eLibrary and the three reachable ISO queues (ERCOT,
+CAISO, NYISO — SPP/ISO-NE/PJM/MISO stay gated or unimplemented, `data/sources.yaml`, `CLAUDE.md`), code in
+`pipeline/connectors/us_ferc_elibrary/connector.py` (`.window` override), `pipeline/link_dockets.py` (filer
+index, per-docket dedupe, `ER` docket-year filter), `pipeline/backfill_ferc.py` (the runner), evidence in
+`data/probes/ferc-backfill-2026-09-13.json`. This is the "full-text or filer-name backfill over years, not 30
+days" the 2026-09-12 "Docket linkage measured" decision row (`docs/00-PLAN.md`) called for before docket
+linkage is counted in M-1.
+
+### 14.1 What ran
+
+```
+.venv/bin/python -m pipeline.backfill_ferc --years 3
+```
+
+| Source | Rows | Requests | Elapsed |
+|---|---|---|---|
+| ERCOT GIS report (live) | 1,778 | 2 | 3.3 s |
+| CAISO public queue (live) | 2,278 | 2 | 2.3 s |
+| NYISO queue (live) | 1,814 | 2 | 1.7 s |
+| **ISO total** | **5,870** | **6** | **7.3 s** |
+| FERC eLibrary, 2025-09-13→2026-09-13 | 895 | 18 (18 pages) | 126.0 s |
+| FERC eLibrary, 2024-09-13→2025-09-13 | 311 | 18 (18 pages) | 35.8 s |
+| FERC eLibrary, 2023-09-14→2024-09-13 | 87 | 18 (18 pages) | 127.4 s |
+| **FERC total (deduped across windows)** | **1,290** | **54** | **289.2 s** |
+| **Grand total** | | **60 requests** | **301.6 s wall time** |
+
+No window was skipped: three years fetched inside the ~20-minute time-box with headroom to spare (301.6 s
+used of a 1,200 s budget). `.window` replaced the connector's default 30-day cadence for each of the three
+one-year sub-windows in turn; the 18 requests/window figure (2 docket classes × 2 calendar years touched by
+a rolling 365-day window × up to 3 pages, plus 3 description terms × 2 pages) is exactly what
+`pipeline/connectors/us_ferc_elibrary/connector.py`'s "Window override" docstring predicted — `filterDate`
+still does nothing server-side (confirmed again in passing: `totalHits` did not move with the window), so
+every one of those 54 requests was a real page fetched, not a narrowed one.
+
+### 14.2 Link rate
+
+`pipeline.link_dockets.run` (both methods active: explicit `name_or_queue_id` and the filer-name method,
+`sponsor_fuzzy`, threshold 85) over the 1,290 FERC documents and 5,870 ISO queue records produced **81
+links** (20 explicit, 61 filer-name; none by both methods this run).
+
+| | Linked | Active | Rate | 30-day test (2026-09-12) |
+|---|---|---|---|---|
+| **All active (non-terminal) records** | 21 | 1,673 | **1.26%** | 1 / 1,673 = 0.06% |
+| **`contracted` / `under_construction` only** (recalibrated M-1 bar) | 3 | 216 | **1.39%** | not measured |
+
+Per-ISO (active, non-terminal):
+
+| ISO | Linked | Active | Rate |
+|---|---|---|---|
+| ERCOT | 17 | 1,198 | 1.42% |
+| CAISO | 3 | 265 | 1.13% |
+| NYISO | 1 | 210 | 0.48% |
+
+`contracted`/`under_construction` per-ISO: CAISO 3/214 (1.40%), ERCOT 0/2 (0%); NYISO carries no active record
+in either of those two states today, so it is absent from that breakdown rather than reported as 0/0.
+
+The multi-year, filer-name-primary backfill moved the link rate from 0.06% to 1.26% — a genuine ~21×
+increase, and it is the *same* 1,673-record active denominator as the 30-day test (ERCOT/CAISO/NYISO did
+not materially change size in the intervening day), so the two rates are directly comparable, not an
+artefact of a different queue snapshot.
+
+### 14.3 Precision: 50-link hand review
+
+A random sample of 50 of the 81 links (`pipeline.backfill_ferc.precision_sample`, `random_state=20260913`,
+proportion by method preserved: 13 explicit / 37 filer-name, matching the 20/61 population split) was
+inspected by hand against the `rationale`, `ferc_title` and `docket_refs` fields recorded for each link in
+`data/probes/ferc-backfill-2026-09-13.json` — this is a hand read of the recorded text, not a fresh lookup
+against FERC eLibrary or the ISO queue websites, and is recorded here as such a limitation, not as a
+certified label set (`docs/22` §10's 600-label protocol is the certified version of this exercise).
+
+| Method | n | Correct | Precision |
+|---|---|---|---|
+| `name_or_queue_id` (explicit) | 13 | 10 | 76.9% |
+| `sponsor_fuzzy` (filer-name) | 37 | 14 | 37.8% |
+| **Overall** | **50** | **24** | **48.0%** |
+
+Every verdict and its one-line reasoning is in `data/probes/ferc-backfill-2026-09-13.json`'s
+`precision_sample[].verdict` (each row also carries `precision_review` with the table above). The 26
+incorrect links are not scattered noise; 21 of them (81% of all errors, 42% of the whole sample) are three
+already-diagnosed, narrow patterns:
+
+- **Degenerate two-letter residual ("S S" from "S&S Renewables, LLC")** — 10/50 rows. `_distinctive` strips
+  "Renewables"/"LLC" from "S&S Renewables, LLC" down to "S S", which is two single-character tokens; the
+  `MIN_SPONSOR_WORDS = 2` gate counts tokens, not token length, so "S S" passes as "distinctive" and then
+  `token_set_ratio`s to 100 against an unrelated filer ("Maryland Office of People's Counsel",
+  "TransAlta Energy Marketing (U.S.) Inc.") on no real shared content.
+- **Numbered shell-company siblings ("Fresh Air Energy II" vs "Fresh Air Energy XXIII")** — 4/50 rows, all
+  four different ERCOT storage queue records (`Borderland ESC`, `Lincoln ESC`, `Moffitt ESC`,
+  `Caracara Energy Storage Center`) matched to the same one filing from a *different* numbered entity in
+  the same shelf-company family. `token_set_ratio` treats "II" and "XXIII" as ordinary tokens with no
+  numeric comparison, so two siblings that share every word except the roman numeral score as a strong
+  match.
+- **Generic marketing-entity residual ("E Marketing" from "Electric E Power Marketing")** — 7/50 rows, all
+  against different real companies (TransAlta, Brookfield, TransGrid, Sempra) whose only shared text is the
+  word "Marketing" plus a single stray letter.
+
+The remaining 5 incorrect rows are `name_or_queue_id` bugs, both narrower than the sponsor-fuzzy patterns
+above: two are **word-boundary-free substring matches** ("Alden Solar" found inside "**W**alden Solar PA
+Jefferson LLC"; "Diamond Solar" found inside "Black **Diamond Solar** Power, LLC", an unrelated ComEd-area
+project), and one is a **docket-class gap** — `_explicit_matches` has no ER-only restriction the way
+`_sponsor_matches` does, so a NYISO record literally named "Greene County" (a placeholder name, not a real
+project name) matched an unrelated `CP`-class gas-well filing in Greene County, Pennsylvania. The remaining
+one (`Ash Creek Project` vs `Willow Creek Wind Project`, a coincidental shared "Creek Project") is a case of
+the same class as the marketing-residual pattern, just too small a sample to name its own bucket (1 row).
+
+The 24 correct links split further: 8 are exact self-references (a project's own tariff filing, or an
+executed interconnection agreement naming it directly — the strongest possible evidence), 2 are the same
+site's sibling phase named in an "et al." notice, and the remaining 14 are same-real-company sponsor
+matches (Consolidated Edison ×9, Orsted ×2, Calpine ×2, Avangrid ×1) where the filing itself is a
+company-wide rate schedule or administrative filing, not evidence for the specific queue project — correct
+about the sponsor, weaker as project-level evidence.
+
+### 14.4 The honest read
+
+**Recall:** the "over years, not days" hypothesis in the 2026-09-12 decision row is confirmed — a 3-year,
+filer-name-primary backfill moved the active link rate from 0.06% to 1.26%, a ~21× increase on the same
+denominator, at a modest cost (60 requests, 5 minutes wall time, no time-box breach). The filer-name method
+(`sponsor_fuzzy`) is now the majority of links (61 of 81, 75%), which is what "filer-name backfill" as the
+next test was supposed to establish.
+
+**Precision:** 48.0% measured on a 50-link hand sample is far below the `docs/22` §10 bar (≥0.95 on accepted
+pairs) for a signal counted with confidence, and even the stronger explicit method alone (76.9%) does not
+clear it. **Docket linkage does not clear a bar worth counting toward M-1 today**, as tuned. This is not,
+however, evidence that the filer-name approach is unsound: 81% of the sampled errors trace to three narrow,
+already-diagnosed defects (a token-length gap in the sponsor-residual gate, no numeral-awareness against
+shell-company families, and a docket-class gap in the explicit method) rather than to the method being
+wrong in general — every one of the 24 correct links is a link an EIA-plant-id-only or queue-id-only
+resolution path could never have produced, which is the whole point of adding a document-kind source.
+
+### 14.5 Next step and request budget
+
+**Next step (not done here — this task's scope was the measurement, `docs/00-PLAN.md`):**
+
+1. In `_sponsor_matches`/`_distinctive`, require each surviving "distinctive" token to be at least 3
+   characters (kills the "S S" bug, 10/50 of this sample's errors) and detect a trailing-numeral-only
+   difference between two otherwise-identical distinctive strings as a *reason to refuse*, not accept, a
+   pair (kills the "Fresh Air II/XXIII" bug, 4/50). Both are narrow, targeted changes to the existing gate,
+   not a new scoring method.
+2. Restrict `_explicit_matches` to `ER`-class dockets the way `_sponsor_matches` already is (kills the
+   "Greene County" bug, 1/50), and require the substring to start at a word boundary (kills "Alden"-inside-
+   "Walden" and "Diamond Solar"-inside-"Black Diamond Solar Power", 2/50).
+3. Re-run `pipeline/backfill_ferc.py` unchanged after those fixes and recount; removing 3 of the 4 known
+   false-positive patterns (17/26 of this sample's errors, all in an already-small threshold change) is the
+   single highest-leverage next measurement, not a full 600-label programme — that stays the right target
+   for the *held-out* number `docs/22` §10 asks for once a signal clears this bar.
+4. The 14 "correct but company-level, not project-level" sponsor matches (§14.3) are a real signal but a
+   weaker one than an exact self-reference; whether the platform should surface them differently (e.g. a
+   lower-confidence `sponsor_only` tag) is a product question for the owner, not a data question this
+   backfill resolves.
+
+**Request budget:** 60 requests total (6 ISO + 54 FERC), 301.6 s wall time, 2026-09-13 — well inside the
+polite rate limits (`data/sources.yaml`: FERC eLibrary 0.5 rps, ERCOT 0.5 rps, CAISO/NYISO default 1 rps)
+and the ~20-minute time-box; no throttling, no `success: false` retries, no window skipped.
+
+### 14.6 Assumption recorded
+
+- A-22-6: the 50-link precision sample (§14.3) was graded by reading the `rationale`/`ferc_title`/
+  `docket_refs` text already captured in `data/probes/ferc-backfill-2026-09-13.json`, not by an independent
+  lookup against FERC eLibrary or the ISO queue sites. Treat 48.0% as a directionally reliable estimate from
+  the evidence on hand, not a certified precision number — `docs/22` §10's two-person, held-out labelling
+  protocol is what turns an estimate like this into one quotable externally. Owner/data-scientist should
+  confirm before this number is cited outside this document.
