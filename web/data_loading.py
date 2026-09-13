@@ -20,13 +20,14 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeline.connectors.registry import Registry
+from services.api.common import ensure_aware
 from services.db.models import (
     Event,
     Location,
@@ -76,11 +77,21 @@ def load_real_normalized_sources(
     data_root: Path = DEFAULT_DATA_ROOT,
     sources_yaml: Path = DEFAULT_SOURCES_YAML,
     source_ids: Iterable[str] | None = None,
+    sample_per_state: int | None = None,
 ) -> dict[str, str]:
     """Load the latest per-source parquet under `data_root/normalized/<source_id>/` for each id in
     `source_ids` (default: the five proposal + four opportunity sources this site has always
     served) via `services.ingest.loader.load_from_files` -- the same function a real scheduled
     ingestion run would call. Returns `{source_id: "loaded" | "missing" | "skipped: <reason>"}`.
+
+    `sample_per_state`, when given, loads only `_stratified_sample`'s per-lifecycle-state/status
+    cap instead of the whole file (bypassing `load_from_files` to call
+    `services.ingest.loader.load_dataframe` directly on the sampled frame -- the same upsert
+    function either way, just skipping the whole-file read). See web/README.md "Missing from the
+    API": `services/api/visibility.py`'s per-row correlated-EXISTS predicate measures at 30-75s
+    over this site's real ~10,400-row proposal set in SQLite, which is unusable for an interactive
+    smoke test -- `web/test_e2e.py` samples for exactly this reason. `web/dev_up.py` leaves this
+    unsampled by default and exposes `--sample-per-state` as the same workaround.
     """
     registry = Registry(sources_yaml)
     ids = list(source_ids) if source_ids is not None else [*PROPOSAL_SOURCE_IDS, *OPPORTUNITY_SOURCE_IDS]
@@ -91,9 +102,12 @@ def load_real_normalized_sources(
         if not files:
             status[source_id] = "missing"
             continue
-        ts = files[-1].stem
+        path = files[-1]
         try:
-            load_from_files(session, source_id, ts, data_root=data_root, registry=registry)
+            if sample_per_state is None:
+                load_from_files(session, source_id, path.stem, data_root=data_root, registry=registry)
+            else:
+                _load_sampled_parquet(session, source_id, path, registry, sample_per_state)
         except GateRefused as exc:
             status[source_id] = f"skipped: {exc}"
             continue
@@ -103,15 +117,48 @@ def load_real_normalized_sources(
     return status
 
 
+def _load_sampled_parquet(
+    session: Session, source_id: str, path: Path, registry: Registry, sample_per_state: int
+) -> None:
+    frame = pd.read_parquet(path)
+    state_column = "lifecycle_state" if "lifecycle_state" in frame.columns else "status"
+    is_proposal = state_column == "lifecycle_state"
+    kind: Literal["proposal", "opportunity"] = "proposal" if is_proposal else "opportunity"
+    sampled = _stratified_sample(frame, per_state=sample_per_state, column=state_column)
+    entry = registry.get(source_id)
+    source = upsert_licence_and_source(session, entry, registry.version)
+    load_dataframe(session, source, kind, sampled, None)
+
+
+def _stratified_sample(
+    frame: pd.DataFrame, *, per_state: int, column: str = "lifecycle_state"
+) -> pd.DataFrame:
+    """Up to `per_state` rows per distinct value of `column`, so a capped sample still exercises
+    every state actually present (in particular: both active and withdrawn/cancelled rows for the
+    product defect A tests) rather than whatever a plain `.head()` happens to contain."""
+    if frame.empty:
+        return frame
+    groups = [group.head(per_state) for _, group in frame.groupby(column, sort=False)]
+    return pd.concat(groups, ignore_index=True)
+
+
 def load_eval_fixture(
     session: Session,
     *,
     eval_parquet: Path = DEFAULT_EVAL_PARQUET,
     sources_yaml: Path = DEFAULT_SOURCES_YAML,
+    sample_per_state: int | None = None,
 ) -> dict[str, int]:
     """Load `data/eval/normalized.parquet` (proposals only) into `session`, restricted to
     `web.build_data.EVAL_SHORT_ID_MAP` -- SPP and ISO-NE rows are dropped, never remapped, per
     CLAUDE.md's guardrail and the legal register. Returns `{source_id: rows_created}`.
+
+    `sample_per_state`, when given, caps each source to `_stratified_sample`'s per-lifecycle-state
+    sample instead of the full ~9,500-row set -- `services/ingest/loader.py` upserts row by row
+    (no bulk path; each row is several flushes, docs/21 §6.1's idempotency design), which measures
+    at roughly 100 rows/second in this environment, so loading the full fixture costs about 90s.
+    The pytest suite (tests/test_web_default_view.py) passes a small cap to stay fast; a full,
+    unsampled load is still one call away for anything that needs the real volume.
     """
     df = pd.read_parquet(eval_parquet)
     registry = Registry(sources_yaml)
@@ -120,6 +167,8 @@ def load_eval_fixture(
         frame = df[df["source_id"] == short_id].copy()
         if frame.empty:
             continue
+        if sample_per_state is not None:
+            frame = _stratified_sample(frame, per_state=sample_per_state)
         entry = registry.get(source_id)
         source = upsert_licence_and_source(session, entry, registry.version)
         _flip_publish_state_public(session, source_id)
@@ -204,9 +253,7 @@ def backfill_eia_exact_points(session: Session, *, source_id: str = "us.eia.860m
     return updated
 
 
-def apply_preview_lag_override(
-    session: Session, *, source_ids: Iterable[str] | None = None
-) -> int:
+def apply_preview_lag_override(session: Session, *, source_ids: Iterable[str] | None = None) -> int:
     """Dev/test-only: pull `public_at` back to "now" for rows whose real `public_at` (computed by
     the loader as `published_at + lag_days`, `services/ingest/lag.py`) is still in the future,
     because they were just ingested. Docs/00-PLAN.md task item 5: "add a dev-only override flag so
@@ -225,23 +272,23 @@ def apply_preview_lag_override(
     opportunity_stmt = select(Opportunity)
     if source_ids is not None:
         ids = list(source_ids)
-        proposal_stmt = proposal_stmt.join(
-            ProposalSource, ProposalSource.proposal_id == Proposal.id
-        ).where(ProposalSource.source_id.in_(ids))
+        proposal_stmt = proposal_stmt.join(ProposalSource, ProposalSource.proposal_id == Proposal.id).where(
+            ProposalSource.source_id.in_(ids)
+        )
         opportunity_stmt = opportunity_stmt.join(
             OpportunitySource, OpportunitySource.opportunity_id == Opportunity.id
         ).where(OpportunitySource.source_id.in_(ids))
 
     for proposal in session.scalars(proposal_stmt):
-        if proposal.public_at is not None and proposal.public_at > now:
+        if proposal.public_at is not None and ensure_aware(proposal.public_at) > now:
             proposal.public_at = grace
             updated += 1
     for opportunity in session.scalars(opportunity_stmt):
-        if opportunity.public_at is not None and opportunity.public_at > now:
+        if opportunity.public_at is not None and ensure_aware(opportunity.public_at) > now:
             opportunity.public_at = grace
             updated += 1
     for event in session.scalars(select(Event)):
-        if event.public_at is not None and event.public_at > now:
+        if event.public_at is not None and ensure_aware(event.public_at) > now:
             event.public_at = grace
             updated += 1
     session.commit()
@@ -254,10 +301,19 @@ def load_dev_database(
     data_root: Path = DEFAULT_DATA_ROOT,
     sources_yaml: Path = DEFAULT_SOURCES_YAML,
     preview: bool = False,
+    sample_per_state: int | None = None,
 ) -> dict[str, Any]:
     """Everything `web/dev_up.py` needs: the nine real sources, the two data-layer corrections
-    above, and (only with `preview=True`) the lag override."""
-    status = load_real_normalized_sources(session, data_root=data_root, sources_yaml=sources_yaml)
+    above, and (only with `preview=True`) the lag override.
+
+    `sample_per_state` defaults to `None` (the full, real ~10,400-row dataset) -- pass a small cap
+    to work around the `services/api/visibility.py` performance gap documented in
+    `load_real_normalized_sources` and web/README.md "Missing from the API" if the full set makes
+    the site unusably slow in your environment (measured at 30-75s per page in this one).
+    """
+    status = load_real_normalized_sources(
+        session, data_root=data_root, sources_yaml=sources_yaml, sample_per_state=sample_per_state
+    )
     licence_rows_stamped = apply_derived_only_licence_correction(session)
     locations_backfilled = backfill_locations(session)
     eia_exact_points = backfill_eia_exact_points(session)
@@ -278,13 +334,23 @@ def load_test_database(
     sources_yaml: Path = DEFAULT_SOURCES_YAML,
     data_root: Path = DEFAULT_DATA_ROOT,
     include_opportunities: bool = True,
+    sample_per_state: int | None = 60,
 ) -> dict[str, Any]:
     """What `tests/test_web_*.py` calls: `data/eval/normalized.parquet` for proposals (task item
     6's named fixture) plus the real opportunity sources for provenance/detail-page coverage, both
     corrected the same way `load_dev_database` is, and always with the preview override applied
     (the eval fixture's `retrieved_at` is "today", so nothing would be visible otherwise).
+
+    `sample_per_state` defaults to a small per-lifecycle-state cap (see `load_eval_fixture`) so the
+    suite loads in a few seconds instead of the ~90s the full ~9,500-row fixture costs through
+    `services/ingest/loader.py`'s row-at-a-time upsert; pass `None` for an unsampled load.
     """
-    proposal_counts = load_eval_fixture(session, eval_parquet=eval_parquet, sources_yaml=sources_yaml)
+    proposal_counts = load_eval_fixture(
+        session,
+        eval_parquet=eval_parquet,
+        sources_yaml=sources_yaml,
+        sample_per_state=sample_per_state,
+    )
     opportunity_status = (
         load_real_normalized_sources(
             session,
