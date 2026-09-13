@@ -47,6 +47,15 @@ class Transport(Protocol):
         json: Mapping[str, Any] | None = None,
         cookies: dict[str, str] | None = None,
     ) -> httpx.Response: ...
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> httpx.Response: ...
     def close(self) -> None: ...
 
 
@@ -121,6 +130,21 @@ class ApiClient:
         cookies: dict[str, str] | None = None,
     ) -> ApiResult:
         response = self._transport.post(path, json=json, cookies=cookies)
+        return _to_result(response)
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> ApiResult:
+        """Any method with a non-raising result — the admin pages' PATCH/PUT/DELETE writes
+        (`web/admin/shell.py` `AdminApi`); `get`/`post` above stay as they are for existing callers."""
+        clean = {k: v for k, v in (params or {}).items() if v is not None}
+        response = self._transport.request(method, path, json=json, params=clean, cookies=cookies)
         return _to_result(response)
 
     def close(self) -> None:

@@ -1,0 +1,44 @@
+/* Admin chrome and shared admin components (Sprint 3 item 3). Tokens only, from styles.css
+   (docs/31 §1, D-19); tables stay tables at every width and scroll inside their own container
+   rather than turning into card grids (docs/31 D-1/D-7). Page modules may add
+   /static/css/admin-<area>.css through the extra_head block; nothing here is page-specific. */
+.admin-body { background: var(--bg); color: var(--text); font-family: var(--font-body); margin: 0; }
+.admin-header { border-bottom: 1px solid var(--border); background: var(--surface); }
+.admin-header__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4) var(--space-6); padding: var(--space-3) var(--space-5); }
+.admin-header__tag { font-family: var(--font-mono); font-size: var(--text-1); color: var(--text-muted); margin-left: var(--space-2); }
+.admin-header__who { margin-left: auto; display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-1); }
+.admin-nav { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.admin-nav a { color: var(--text); text-decoration: none; font-size: var(--text-2); padding: var(--space-1) 0; border-bottom: 2px solid transparent; }
+.admin-nav a:hover, .admin-nav a:focus-visible { color: var(--link); border-bottom-color: currentColor; }
+.admin-nav a[aria-current="page"] { border-bottom-color: var(--color-copper); font-weight: 600; }
+.admin-linkbutton { background: none; border: 0; padding: 0; color: var(--link); font: inherit; cursor: pointer; text-decoration: underline; }
+.admin-main { padding: var(--space-5); max-width: 1400px; margin: 0 auto; }
+.admin-footer { padding: var(--space-4) var(--space-5); color: var(--text-muted); font-size: var(--text-1); border-top: 1px solid var(--border); }
+.admin-muted { color: var(--text-muted); }
+.admin-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; margin: var(--space-4) 0; }
+.admin-toolbar .field { min-width: 10rem; }
+.admin-toolbar select, .admin-toolbar input { font: inherit; padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface); color: var(--text); }
+.admin-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.admin-actions form { display: inline; }
+.admin-button { font: inherit; padding: var(--space-1) var(--space-3); border: 1px solid var(--color-ink); border-radius: var(--radius-2); background: var(--surface); color: var(--text); cursor: pointer; min-height: 24px; }
+.admin-button:hover, .admin-button:focus-visible { border-color: var(--link); color: var(--link); }
+.admin-button--primary { background: var(--color-ink); color: var(--color-paper); }
+.admin-button--primary:hover, .admin-button--primary:focus-visible { background: var(--link); border-color: var(--link); color: var(--color-paper); }
+.admin-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface); }
+.admin-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: var(--text-2); }
+.admin-table th, .admin-table td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); vertical-align: top; }
+.admin-table th { font-size: var(--text-1); color: var(--text-muted); font-weight: 600; letter-spacing: 0.02em; }
+.admin-table tr:last-child td { border-bottom: 0; }
+.admin-table .num { text-align: right; }
+.admin-table .mono { font-family: var(--font-mono); font-size: var(--text-1); }
+.admin-empty { padding: var(--space-6); text-align: center; color: var(--text-muted); }
+.admin-form { display: grid; gap: var(--space-3); max-width: 40rem; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface); }
+.admin-form textarea, .admin-form select { font: inherit; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface); color: var(--text); }
+.admin-form textarea:focus-visible, .admin-form select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.admin-cols { display: grid; gap: var(--space-5); grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
+.admin-pager { display: flex; gap: var(--space-3); margin: var(--space-4) 0; }
+.chip--gated { background: var(--family-danger-fill); color: var(--family-danger-text); font-weight: 600; }
+@media (max-width: 719px) {
+  .admin-main { padding: var(--space-3); }
+  .admin-header__who { margin-left: 0; }
+}
