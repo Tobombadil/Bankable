@@ -3481,6 +3481,35 @@ paths:
           $ref: '#/components/responses/Conflict'
         <<: *common_errors
 
+  /admin/v1/channels:
+    servers: *admin_servers
+    get:
+      operationId: adminListChannels
+      tags: [Admin — social]
+      summary: Channel auto-publish configuration
+      description: |
+        One row per channel in `PostChannel` (bluesky, linkedin, x): the stored `channel_config` row when the
+        owner has set one, otherwise the defaults (`auto_publish: false`, `disclosure_label: null`, `daily_cap:
+        null`, `changed_by_user_id: null`, `event_id: null`, `updated_at: null`) — so the admin UI can read state
+        before an owner toggles it with `PUT .../auto-publish` (US-802 AC2, US-804 AC1). Same per-channel object
+        shape that operation returns (`ChannelConfig`).
+      x-tier: admin
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-802, US-804]
+      security: *sec_admin
+      responses:
+        '200':
+          description: One entry per channel, in `PostChannel` order.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConfigListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        <<: *common_errors
+
   /admin/v1/channels/{channel}/auto-publish:
     servers: *admin_servers
     parameters:
@@ -9841,32 +9870,58 @@ components:
         - type: object
           properties:
             data:
-              type: object
-              required: [channel, auto_publish, review_required, daily_cap, capabilities, event_id]
-              properties:
-                channel:
-                  $ref: '#/components/schemas/PostChannel'
-                auto_publish:
-                  type: boolean
-                review_required:
-                  type: boolean
-                  description: Always `!auto_publish`.
-                daily_cap:
-                  type: [integer, 'null']
-                budget_usd_monthly:
-                  type: [number, 'null']
-                disclosure_label:
-                  type: [string, 'null']
-                capabilities:
-                  type: array
-                  description: The only operations the integration layer exposes (US-804 AC1).
-                  items:
-                    type: string
-                    enum: [create_post, read_metrics]
-                changed_by_user_id:
-                  $ref: '#/components/schemas/UserPublicId'
-                event_id:
-                  $ref: '#/components/schemas/EventPublicId'
+              $ref: '#/components/schemas/ChannelConfig'
+    ChannelConfig:
+      type: object
+      description: |
+        One channel's publishing-switch state (docs/20 §8 item 5; docs/32 §6), shared by `GET
+        /admin/v1/channels` and `PUT /admin/v1/channels/{channel}/auto-publish` (merge note 3 above).
+        `changed_by_user_id`/`event_id`/`updated_at` are null for a channel with no `channel_config` row yet
+        (never toggled away from its default) and populated after the first `PUT`.
+      required: [channel, auto_publish, review_required, daily_cap, capabilities]
+      properties:
+        channel:
+          $ref: '#/components/schemas/PostChannel'
+        auto_publish:
+          type: boolean
+        review_required:
+          type: boolean
+          description: Always `!auto_publish`.
+        daily_cap:
+          type: [integer, 'null']
+          description: Posts per day; X also has a budget cap in config.
+        budget_usd_monthly:
+          type: [number, 'null']
+        disclosure_label:
+          type: [string, 'null']
+        capabilities:
+          type: array
+          description: The only operations the integration layer exposes (US-804 AC1).
+          items:
+            type: string
+            enum: [create_post, read_metrics]
+        changed_by_user_id:
+          oneOf:
+            - $ref: '#/components/schemas/UserPublicId'
+            - type: 'null'
+        event_id:
+          oneOf:
+            - $ref: '#/components/schemas/EventPublicId'
+            - type: 'null'
+          description: The audit event for the most recent change to this channel.
+        updated_at:
+          type: [string, 'null']
+          format: date-time
+          description: '`channel_config.updated_at`.'
+    ChannelConfigListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ChannelConfig'
     Task:
       type: object
       description: Admin work queue (docs/21 §4.4; US-907).

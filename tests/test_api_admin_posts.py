@@ -8,6 +8,7 @@ mounts it once every Sprint 3 agent's module lands); this file mounts it once at
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import pathlib
 
@@ -17,12 +18,13 @@ import yaml
 from services.api.admin_posts import router as admin_posts_router
 from services.api.app import app
 from services.api.conftest import make_event, make_open_licence, make_public_source, make_visible_proposal
-from services.db.models import ApiKey, Event, Post, Task
+from services.db.models import ApiKey, ChannelConfig, Event, Post, Task
 from tests.conftest import login, make_account, make_user
 
 UTC = dt.UTC
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPENAPI_PATH = REPO_ROOT / "api" / "openapi.yaml"
+CHANNELS_FRAGMENT_PATH = REPO_ROOT / "api" / "fragments" / "channels.yaml"
 
 if admin_posts_router not in getattr(app, "_admin_posts_mounted", []):
     app.include_router(admin_posts_router)
@@ -31,10 +33,34 @@ if admin_posts_router not in getattr(app, "_admin_posts_mounted", []):
 with OPENAPI_PATH.open(encoding="utf-8") as _fh:
     SPEC = yaml.safe_load(_fh)
 
+# `api/fragments/channels.yaml`'s `paths:` section uses the `*admin_servers`/`*sec_admin`/
+# `*std_headers`/`*common_errors` aliases defined in `api/openapi.yaml` (lines 195-262) — it is a
+# merge fragment, not a standalone document, so `yaml.safe_load`-ing the whole file raises on the
+# undefined aliases. Its `components: schemas:` section uses only `$ref` (no aliases) and is the
+# only part this test needs, so it is sliced out by finding the top-level `components:` line
+# (the fragment's last section) and parsed on its own.
+_fragment_text = CHANNELS_FRAGMENT_PATH.read_text(encoding="utf-8")
+_components_start = _fragment_text.index("\ncomponents:\n") + 1
+CHANNELS_FRAGMENT_SCHEMAS = yaml.safe_load(_fragment_text[_components_start:])["components"]["schemas"]
+
 
 def assert_valid(schema_name: str, instance: object) -> None:
     schema = SPEC["components"]["schemas"][schema_name]
     resolver = jsonschema.validators.RefResolver.from_schema(SPEC)
+    validator_cls = jsonschema.validators.validator_for(schema)
+    validator = validator_cls(schema, resolver=resolver)
+    errors = sorted(validator.iter_errors(instance), key=str)
+    assert not errors, "\n".join(f"{schema_name}: {e.message} at {list(e.absolute_path)}" for e in errors)
+
+
+def assert_valid_fragment_schema(schema_name: str, instance: object) -> None:
+    """Like `assert_valid`, but resolves against `api/openapi.yaml` with
+    `api/fragments/channels.yaml`'s new schemas merged in — for `GET /admin/v1/channels`, which
+    isn't in the committed spec yet (the coordinator merges the fragment on review)."""
+    merged = copy.deepcopy(SPEC)
+    merged["components"]["schemas"].update(CHANNELS_FRAGMENT_SCHEMAS)
+    schema = merged["components"]["schemas"][schema_name]
+    resolver = jsonschema.validators.RefResolver.from_schema(merged)
     validator_cls = jsonschema.validators.validator_for(schema)
     validator = validator_cls(schema, resolver=resolver)
     errors = sorted(validator.iter_errors(instance), key=str)
@@ -573,6 +599,83 @@ def test_admin_schedule_post_conflict_when_not_approved(client, db):
 
 
 # ============================================================================== channel switches
+def test_admin_list_channels_requires_auth(client, db):
+    resp = client.get("/admin/v1/channels")
+    assert resp.status_code == 401
+
+
+def test_admin_list_channels_operator_may_read(client, db):
+    """Reading is `require_admin()` (operator or owner); only the `PUT` is owner-only."""
+    operator = _make_operator(db, role="operator", email="ops-channels-read@example.com")
+    db.commit()
+    login(client, db, operator)
+    resp = client.get("/admin/v1/channels")
+    assert resp.status_code == 200
+
+
+def test_admin_list_channels_defaults_for_unconfigured_channels(client, db):
+    operator = _make_operator(db, email="ops-channels-defaults@example.com")
+    db.commit()
+    login(client, db, operator)
+
+    resp = client.get("/admin/v1/channels")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert_valid_fragment_schema("ChannelConfigListResponse", body)
+
+    by_channel = {row["channel"]: row for row in body["data"]}
+    assert set(by_channel) == {"bluesky", "linkedin", "x"}
+    for row in by_channel.values():
+        assert row["auto_publish"] is False
+        assert row["review_required"] is True
+        assert row["daily_cap"] is None
+        assert row["disclosure_label"] is None
+        assert row["changed_by_user_id"] is None
+        assert row["event_id"] is None
+        assert row["updated_at"] is None
+        assert row["capabilities"] == ["create_post", "read_metrics"]
+
+    assert db.query(ChannelConfig).count() == 0, "reading the list must not create rows"
+
+
+def test_admin_list_channels_shows_the_stored_row_after_a_put(client, db):
+    owner = _make_operator(db, role="owner", email="owner-list@example.com")
+    db.commit()
+    login(client, db, owner)
+
+    put_resp = client.put(
+        "/admin/v1/channels/bluesky/auto-publish",
+        json={
+            "auto_publish": True,
+            "disclosure_label_confirmed": True,
+            "daily_cap": 15,
+            "reason": "graduated after 200 posts",
+        },
+    )
+    assert put_resp.status_code == 200
+    put_body = put_resp.json()["data"]
+
+    listing = client.get("/admin/v1/channels")
+    assert listing.status_code == 200
+    body = listing.json()
+    assert_valid_fragment_schema("ChannelConfigListResponse", body)
+
+    by_channel = {row["channel"]: row for row in body["data"]}
+    bluesky = by_channel["bluesky"]
+    # Same per-channel shape the PUT already returned (decision: GET and PUT share one view).
+    assert bluesky["auto_publish"] == put_body["auto_publish"] is True
+    assert bluesky["daily_cap"] == put_body["daily_cap"] == 15
+    assert bluesky["disclosure_label"] == put_body["disclosure_label"]
+    assert bluesky["review_required"] == put_body["review_required"] is False
+    assert bluesky["event_id"] == put_body["event_id"]
+    assert bluesky["changed_by_user_id"] == put_body["changed_by_user_id"] == owner.public_id
+    assert bluesky["updated_at"] is not None
+
+    # The channels never touched by the PUT are still at their defaults.
+    assert by_channel["linkedin"]["auto_publish"] is False
+    assert by_channel["linkedin"]["event_id"] is None
+
+
 def test_admin_set_channel_auto_publish_requires_owner(client, db):
     operator = _make_operator(db, role="operator", email="op2@example.com")
     db.commit()
