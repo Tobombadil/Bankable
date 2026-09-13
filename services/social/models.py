@@ -71,9 +71,7 @@ class ValidationResult:
 
     passed: bool
     failures: tuple[str, ...] = ()
-    checked_at: dt.datetime = dataclasses.field(
-        default_factory=lambda: dt.datetime.now(dt.UTC)
-    )
+    checked_at: dt.datetime = dataclasses.field(default_factory=lambda: dt.datetime.now(dt.UTC))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -95,9 +93,7 @@ class ValidationResult:
 class ReviewMetadata:
     """Human review trail for one draft (docs/32 §4.4)."""
 
-    drafted_at: dt.datetime = dataclasses.field(
-        default_factory=lambda: dt.datetime.now(dt.UTC)
-    )
+    drafted_at: dt.datetime = dataclasses.field(default_factory=lambda: dt.datetime.now(dt.UTC))
     reviewed_at: dt.datetime | None = None
     reviewer: str | None = None
     decision: str | None = None  # "approved" | "rejected" | "edited" | "expired"
@@ -160,17 +156,11 @@ class PostDraft:
     status: str = "draft"
     validation: ValidationResult | None = None
     review: ReviewMetadata = dataclasses.field(default_factory=ReviewMetadata)
-    gate_checked_at: dt.datetime = dataclasses.field(
-        default_factory=lambda: dt.datetime.now(dt.UTC)
-    )
+    gate_checked_at: dt.datetime = dataclasses.field(default_factory=lambda: dt.datetime.now(dt.UTC))
     scheduled_for: dt.datetime | None = None
     id: str = dataclasses.field(default_factory=lambda: uuid.uuid4().hex)
-    created_at: dt.datetime = dataclasses.field(
-        default_factory=lambda: dt.datetime.now(dt.UTC)
-    )
-    updated_at: dt.datetime = dataclasses.field(
-        default_factory=lambda: dt.datetime.now(dt.UTC)
-    )
+    created_at: dt.datetime = dataclasses.field(default_factory=lambda: dt.datetime.now(dt.UTC))
+    updated_at: dt.datetime = dataclasses.field(default_factory=lambda: dt.datetime.now(dt.UTC))
 
     def __post_init__(self) -> None:
         if self.channel not in CHANNELS:
@@ -227,12 +217,8 @@ class PostDraft:
             dedupe_key=data["dedupe_key"],
             cost_estimate_usd=float(data.get("cost_estimate_usd", 0.0)),
             status=data.get("status", "draft"),
-            validation=ValidationResult.from_dict(data["validation"])
-            if data.get("validation")
-            else None,
-            review=ReviewMetadata.from_dict(data["review"])
-            if data.get("review")
-            else ReviewMetadata(),
+            validation=ValidationResult.from_dict(data["validation"]) if data.get("validation") else None,
+            review=ReviewMetadata.from_dict(data["review"]) if data.get("review") else ReviewMetadata(),
             gate_checked_at=_parse_dt(data.get("gate_checked_at")) or dt.datetime.now(dt.UTC),
             scheduled_for=_parse_dt(data.get("scheduled_for")),
             created_at=_parse_dt(data.get("created_at")) or dt.datetime.now(dt.UTC),

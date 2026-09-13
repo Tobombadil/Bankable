@@ -136,7 +136,8 @@ def _parse_retrieved_at(value: Any) -> dt.datetime:
     ts = pd.Timestamp(value)
     if ts.tzinfo is None:
         ts = ts.tz_localize("UTC")
-    return ts.to_pydatetime()
+    resolved: dt.datetime = ts.to_pydatetime()
+    return resolved
 
 
 def build_link_index(session: Session) -> dict[tuple[str, str], _uuid.UUID]:

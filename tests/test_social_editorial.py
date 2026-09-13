@@ -199,6 +199,7 @@ FIXTURE: dict[str, SocialEvent] = {
 
 # --------------------------------------------------------------------------------- eligibility
 
+
 class TestEligibility:
     @pytest.mark.parametrize("event_type", sorted(editorial.POSTABLE_EVENT_TYPES))
     def test_every_postable_event_type_earns_at_least_one_channel(self, event_type: str) -> None:
@@ -307,6 +308,7 @@ class TestEligibility:
 
 # --------------------------------------------------------------------------------- templates
 
+
 class TestTemplates:
     @pytest.mark.parametrize("event_type", sorted(editorial.POSTABLE_EVENT_TYPES))
     def test_every_channel_fits_its_limit(self, event_type: str) -> None:
@@ -408,7 +410,9 @@ class TestTemplates:
             body, *_ = editorial.render(event, channel)
             body = body + " cc @someone"
             result = editorial.validate_draft(
-                body, event, channel,
+                body,
+                event,
+                channel,
                 attribution_line=editorial.attribution_line_for(event),
                 disclosure_text=editorial.DISCLOSURE_TEXT[channel],
                 delayed_tier_notice=editorial.delayed_tier_notice_for(event, channel),
@@ -421,7 +425,9 @@ class TestTemplates:
         body, *_ = editorial.render(event, "bluesky")
         body = body + " see also https://evil.example/"
         result = editorial.validate_draft(
-            body, event, "bluesky",
+            body,
+            event,
+            "bluesky",
             attribution_line=editorial.attribution_line_for(event),
             disclosure_text=editorial.DISCLOSURE_TEXT["bluesky"],
             delayed_tier_notice=editorial.delayed_tier_notice_for(event, "bluesky"),
@@ -434,7 +440,9 @@ class TestTemplates:
         body, *_ = editorial.render(event, "bluesky")
         body = body.replace("250 MW", "999 MW")
         result = editorial.validate_draft(
-            body, event, "bluesky",
+            body,
+            event,
+            "bluesky",
             attribution_line=editorial.attribution_line_for(event),
             disclosure_text=editorial.DISCLOSURE_TEXT["bluesky"],
             delayed_tier_notice=editorial.delayed_tier_notice_for(event, "bluesky"),
@@ -446,7 +454,9 @@ class TestTemplates:
         event = proposal_new(reuse_class="restricted")
         body, *_ = editorial.render(event, "bluesky")
         result = editorial.validate_draft(
-            body, event, "bluesky",
+            body,
+            event,
+            "bluesky",
             attribution_line=editorial.attribution_line_for(event),
             disclosure_text=editorial.DISCLOSURE_TEXT["bluesky"],
             delayed_tier_notice=editorial.delayed_tier_notice_for(event, "bluesky"),
@@ -458,7 +468,9 @@ class TestTemplates:
         event = proposal_new()
         body, *_ = editorial.render(event, "bluesky")
         result = editorial.validate_draft(
-            body, event, "bluesky",
+            body,
+            event,
+            "bluesky",
             attribution_line=editorial.attribution_line_for(event),
             disclosure_text="",
             delayed_tier_notice=editorial.delayed_tier_notice_for(event, "bluesky"),
@@ -468,6 +480,7 @@ class TestTemplates:
 
 
 # --------------------------------------------------------------------------------- formatting
+
 
 class TestFormatting:
     def test_fmt_mw_no_decimal_at_or_above_10(self) -> None:
@@ -492,6 +505,7 @@ class TestFormatting:
 
 
 # --------------------------------------------------------------------------------- dedupe
+
 
 class TestDedupeAndPriority:
     def test_idempotency_key_stable_for_identical_inputs(self) -> None:
@@ -523,33 +537,61 @@ class TestDedupeAndPriority:
 
 # --------------------------------------------------------------------------------- diff.py adapter
 
+
 class TestFromDiffRow:
     def test_capacity_change_and_cod_change_are_dropped(self) -> None:
         for diff_type in ("capacity_change", "cod_change", "removed"):
             row = {
-                "event_type": diff_type, "record_id": "caiso:1", "source_id": "us.iso.caiso.gen_queue",
-                "field": "capacity_mw", "before": "100.0", "after": "120.0",
+                "event_type": diff_type,
+                "record_id": "caiso:1",
+                "source_id": "us.iso.caiso.gen_queue",
+                "field": "capacity_mw",
+                "before": "100.0",
+                "after": "120.0",
                 "observed_at": "2026-09-10T00:00:00+00:00",
             }
-            assert editorial.from_diff_row(
-                row, record=None, source_name="CAISO", source_url="https://x", reuse_class="attribution",
-                page_url="https://{{DOMAIN}}/proposals/caiso:1", lag_days=14,
-            ) is None
+            assert (
+                editorial.from_diff_row(
+                    row,
+                    record=None,
+                    source_name="CAISO",
+                    source_url="https://x",
+                    reuse_class="attribution",
+                    page_url="https://{{DOMAIN}}/proposals/caiso:1",
+                    lag_days=14,
+                )
+                is None
+            )
 
     def test_new_row_joins_the_canonical_record(self) -> None:
         row = {
-            "event_type": "new", "record_id": "caiso:1", "source_id": "us.iso.caiso.gen_queue",
-            "field": "lifecycle_state", "before": None, "after": "filed",
+            "event_type": "new",
+            "record_id": "caiso:1",
+            "source_id": "us.iso.caiso.gen_queue",
+            "field": "lifecycle_state",
+            "before": None,
+            "after": "filed",
             "observed_at": "2026-09-10T00:00:00+00:00",
         }
         record = {
-            "name_canonical": "Solar One", "technology": "solar", "capacity_mw": 250.0,
-            "county": "Kern", "state": "CA", "iso": "CAISO", "queue_id": "Q1234",
-            "sponsor_name": "Acme Solar LLC", "retrieved_at": "2026-09-10T12:00:00+00:00",
+            "name_canonical": "Solar One",
+            "technology": "solar",
+            "capacity_mw": 250.0,
+            "county": "Kern",
+            "state": "CA",
+            "iso": "CAISO",
+            "queue_id": "Q1234",
+            "sponsor_name": "Acme Solar LLC",
+            "retrieved_at": "2026-09-10T12:00:00+00:00",
         }
         event = editorial.from_diff_row(
-            row, record=record, source_name="CAISO", source_url="https://x", reuse_class="attribution",
-            page_url="https://{{DOMAIN}}/proposals/caiso:1", lag_days=14,
+            row,
+            record=record,
+            source_name="CAISO",
+            source_url="https://x",
+            reuse_class="attribution",
+            page_url="https://{{DOMAIN}}/proposals/caiso:1",
+            lag_days=14,
         )
         assert event is not None
         assert event.event_type == "proposal.new"
@@ -558,13 +600,22 @@ class TestFromDiffRow:
 
     def test_new_row_without_a_record_has_no_size_fields_and_never_posts(self) -> None:
         row = {
-            "event_type": "new", "record_id": "caiso:1", "source_id": "us.iso.caiso.gen_queue",
-            "field": "lifecycle_state", "before": None, "after": "filed",
+            "event_type": "new",
+            "record_id": "caiso:1",
+            "source_id": "us.iso.caiso.gen_queue",
+            "field": "lifecycle_state",
+            "before": None,
+            "after": "filed",
             "observed_at": "2026-09-10T00:00:00+00:00",
         }
         event = editorial.from_diff_row(
-            row, record=None, source_name="CAISO", source_url="https://x", reuse_class="attribution",
-            page_url="https://{{DOMAIN}}/proposals/caiso:1", lag_days=14,
+            row,
+            record=None,
+            source_name="CAISO",
+            source_url="https://x",
+            reuse_class="attribution",
+            page_url="https://{{DOMAIN}}/proposals/caiso:1",
+            lag_days=14,
         )
         assert event is not None
         assert event.capacity_mw is None

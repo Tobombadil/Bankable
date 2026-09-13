@@ -10,12 +10,22 @@ The script is deliberately gentle: one request per source, a browser-like User-A
 and no retries. It records HTTP status, bytes, elapsed time and a short classification. `--gridstatus`
 additionally pulls the seven ISO queues through the gridstatus library and records row counts.
 """
-import argparse, datetime, json, pathlib, sys, time
-import requests, yaml
+
+import argparse
+import datetime
+import json
+import pathlib
+import sys
+import time
+
+import requests
+import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-      "Chrome/128.0 Safari/537.36 BankableProbe/0.1 (+https://www.bankablehq.com)")
+UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/128.0 Safari/537.36 BankableProbe/0.1 (+https://www.bankablehq.com)"
+)
 
 
 def classify(status, body):
@@ -47,25 +57,38 @@ def probe(src):
         else:
             r = requests.get(url, headers=headers, timeout=25, allow_redirects=True)
         status, body = r.status_code, r.content
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         status, body = 0, repr(e).encode()
-    return {"id": src["id"], "url": url, "method": method, "status": status,
-            "bytes": len(body), "secs": round(time.time() - t, 2),
-            "result": classify(status, body)}
+    return {
+        "id": src["id"],
+        "url": url,
+        "method": method,
+        "status": status,
+        "bytes": len(body),
+        "secs": round(time.time() - t, 2),
+        "result": classify(status, body),
+    }
 
 
 def probe_gridstatus():
-    import gridstatus  # noqa: WPS433
+    import gridstatus
+
     out = {}
     for name in ["CAISO", "PJM", "MISO", "Ercot", "SPP", "NYISO", "ISONE"]:
         t = time.time()
         try:
             df = getattr(gridstatus, name)().get_interconnection_queue()
-            out[name] = {"ok": True, "rows": int(len(df)), "secs": round(time.time() - t, 1),
-                         "status_counts": {str(k): int(v) for k, v in
-                                           df["Status"].astype(str).value_counts().head(8).items()}
-                         if "Status" in df else None}
-        except Exception as e:  # noqa: BLE001
+            out[name] = {
+                "ok": True,
+                "rows": len(df),
+                "secs": round(time.time() - t, 1),
+                "status_counts": {
+                    str(k): int(v) for k, v in df["Status"].astype(str).value_counts().head(8).items()
+                }
+                if "Status" in df
+                else None,
+            }
+        except Exception as e:
             out[name] = {"ok": False, "err": repr(e)[:300], "secs": round(time.time() - t, 1)}
     return out
 
@@ -85,12 +108,16 @@ def main():
         results.append(res)
         print(f"{res['result']:<18} {res['status']:>3} {res['bytes']:>9}B {res['secs']:>6}s  {res['id']}")
         time.sleep(1.0)
-    out = {"date": datetime.date.today().isoformat(), "registry_version": str(reg.get("version")),
-           "http": results}
+    out = {
+        "date": datetime.datetime.now(datetime.UTC).date().isoformat(),
+        "registry_version": str(reg.get("version")),
+        "http": results,
+    }
     if args.gridstatus:
         out["gridstatus"] = probe_gridstatus()
         for k, v in out["gridstatus"].items():
-            print(f"gridstatus {k:<6} {'OK' if v['ok'] else 'FAIL'} {v.get('rows', '')} {v.get('err', '')[:120]}")
+            status = "OK" if v["ok"] else "FAIL"
+            print(f"gridstatus {k:<6} {status} {v.get('rows', '')} {v.get('err', '')[:120]}")
     path = ROOT / "data" / "probes" / f"{out['date']}.json"
     path.write_text(json.dumps(out, indent=1))
     print("wrote", path.relative_to(ROOT))

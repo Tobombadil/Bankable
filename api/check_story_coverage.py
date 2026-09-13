@@ -12,6 +12,7 @@ Checks, in order:
 Usage:  python api/check_story_coverage.py [--quiet]
 Exit code 0 when every story is covered, 1 otherwise.
 """
+
 from __future__ import annotations
 
 import re
@@ -169,10 +170,12 @@ def main() -> int:
     if not quiet:
         print(f"Specification : {SPEC.relative_to(ROOT)}")
         print(f"PRD           : {PRD.relative_to(ROOT)} §4")
-        print(f"Operations    : {len(op_ids)}   Schemas: {len(schemas)}   "
-              f"Parameters: {len(doc.get('components', {}).get('parameters', {}))}   "
-              f"Responses: {len(doc.get('components', {}).get('responses', {}))}   "
-              f"Examples: {len(doc.get('components', {}).get('examples', {}))}")
+        print(
+            f"Operations    : {len(op_ids)}   Schemas: {len(schemas)}   "
+            f"Parameters: {len(doc.get('components', {}).get('parameters', {}))}   "
+            f"Responses: {len(doc.get('components', {}).get('responses', {}))}   "
+            f"Examples: {len(doc.get('components', {}).get('examples', {}))}"
+        )
         print(f"PRD stories   : {len(stories)}")
         print()
         print(f"{'Story':<9} {'Ops':>3}  Operations")
@@ -189,11 +192,15 @@ def main() -> int:
         print(f"FAIL stories with no operation: {', '.join(uncovered)}")
 
     if problems or uncovered:
-        print(f"\nRESULT: FAIL — {len(problems)} problem(s), "
-              f"{len(stories) - len(uncovered)}/{len(stories)} stories covered")
+        print(
+            f"\nRESULT: FAIL — {len(problems)} problem(s), "
+            f"{len(stories) - len(uncovered)}/{len(stories)} stories covered"
+        )
         return 1
-    print(f"RESULT: PASS — {len(stories)}/{len(stories)} PRD stories covered by "
-          f"{len(op_ids)} operations; all $refs resolve")
+    print(
+        f"RESULT: PASS — {len(stories)}/{len(stories)} PRD stories covered by "
+        f"{len(op_ids)} operations; all $refs resolve"
+    )
     return 0
 
 

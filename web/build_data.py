@@ -264,14 +264,14 @@ def iso(ts: Any) -> str | None:
         timestamp = timestamp.tz_localize("UTC")
     else:
         timestamp = timestamp.tz_convert("UTC")
-    return timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return str(timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
 
 def date_only(ts: Any) -> str | None:
     if ts is None or pd.isna(ts):
         return None
     timestamp = cast(pd.Timestamp, ts)
-    return timestamp.strftime("%Y-%m-%d")
+    return str(timestamp.strftime("%Y-%m-%d"))
 
 
 def none_if_nan(value: Any) -> Any:

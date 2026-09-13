@@ -86,13 +86,13 @@ named `Connector` that subclasses `pipeline.connectors.base.Connector`:
 ```python
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "us.example.thing"
-    kind: ClassVar[Kind] = "proposal"          # or "opportunity"
+    kind: ClassVar[Kind] = "proposal"  # or "opportunity"
     ext: ClassVar[str] = "csv"
 
-    def fetch(self) -> RawSnapshot: ...        # network; never runs in CI
-    def parse(self, raw) -> list[dict]: ...    # source-shaped rows; no network
+    def fetch(self) -> RawSnapshot: ...  # network; never runs in CI
+    def parse(self, raw) -> list[dict]: ...  # source-shaped rows; no network
     def normalize(self, rows, raw) -> DataFrame:
-        return self.finalize(df, rows, raw)    # stamps provenance, record_id and `raw`
+        return self.finalize(df, rows, raw)  # stamps provenance, record_id and `raw`
 ```
 
 `finalize()` supplies `source_id`, `source_url`, `retrieved_at`, `licence_id`, `record_id` and the

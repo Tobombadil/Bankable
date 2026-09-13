@@ -16,6 +16,7 @@ Writes  data/eval/matches.parquet   (pairwise, with score, components, rationale
 Usage:
     python pipeline/resolve.py [--threshold 75] [--sweep] [--labels data/eval/labels.csv]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -40,7 +41,7 @@ ISO_SOURCES = ["caiso", "ercot", "spp", "nyiso", "isone"]
 # name-less sources (SPP: 0/3,074 names, 0/3,074 sponsors) being merged on geography alone.
 WEIGHTS = {"name": 0.40, "sponsor": 0.25, "county": 0.20, "capacity": 0.10, "cod": 0.05}
 MIN_EVIDENCE = 0.50
-CAP_TOL = 0.10        # +/-10% capacity band for blocking (docs/02 §5)
+CAP_TOL = 0.10  # +/-10% capacity band for blocking (docs/02 §5)
 
 
 # ------------------------------------------------------------------ candidate generation
@@ -57,7 +58,7 @@ def _pairs_within_capacity(sub: pd.DataFrame, tol: float = CAP_TOL) -> list[tupl
         while caps[j] < lo:
             j += 1
         for k in range(j, i):
-            if src[k] != src[i]:                      # cross-source only
+            if src[k] != src[i]:  # cross-source only
                 out.append((idx[k], idx[i]))
     return out
 
@@ -99,7 +100,7 @@ def block(df: pd.DataFrame, keys: list[str], tag: str) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------ scoring
-NAME_SCORER = "mean"   # token_set | token_sort | mean; set by main() / tests
+NAME_SCORER = "mean"  # token_set | token_sort | mean; set by main() / tests
 
 
 def _ratio(a, b, scorer: str = "token_set") -> float | None:
@@ -144,15 +145,23 @@ def score_pair(left: dict, r: dict) -> dict:
     # Rule S: SPV-vs-developer sponsor naming. EIA reports the project SPV ('Freestone Solar LLC')
     # where the ISO reports the developer (or vice versa). When the project name and county agree
     # almost exactly, sponsor disagreement is uninformative, so the component is dropped.
-    if comp["sponsor"] is not None and comp["sponsor"] < 50 and (comp["name"] or 0) >= 90 \
-            and left["county_norm"] and r["county_norm"] and left["county_norm"] == r["county_norm"]:
+    if (
+        comp["sponsor"] is not None
+        and comp["sponsor"] < 50
+        and (comp["name"] or 0) >= 90
+        and left["county_norm"]
+        and r["county_norm"]
+        and left["county_norm"] == r["county_norm"]
+    ):
         comp["sponsor"] = None
         flags.append("sponsor_ignored")
 
     lc, rc = left["county_norm"], r["county_norm"]
-    comp["county"] = None if (lc is None or rc is None or pd.isna(lc) or pd.isna(rc)
-                              or not lc or not rc) else (
-        100.0 if lc == rc else (80.0 if (lc in rc or rc in lc) else 0.0))
+    comp["county"] = (
+        None
+        if (lc is None or rc is None or pd.isna(lc) or pd.isna(rc) or not lc or not rc)
+        else (100.0 if lc == rc else (80.0 if (lc in rc or rc in lc) else 0.0))
+    )
 
     lm, rm = left["capacity_mw"], r["capacity_mw"]
     if pd.notna(lm) and pd.notna(rm) and lm and rm and max(lm, rm) > 0:
@@ -179,14 +188,22 @@ def score_pair(left: dict, r: dict) -> dict:
         score *= 0.8
         flags.append("stale_withdrawn")
 
-    bits = [f"{k}={comp[k]:.0f}" for k in ("name", "sponsor", "county", "capacity", "cod")
-            if comp[k] is not None]
-    rationale = f"{'; '.join(bits)}; evidence={evidence:.2f}" + (
-        f"; {','.join(flags)}" if flags else "")
-    return {"score": round(score, 2), "name_score": comp["name"], "sponsor_score": comp["sponsor"],
-            "county_score": comp["county"], "capacity_score": comp["capacity"],
-            "cod_score": comp["cod"], "capacity_ratio": cap_ratio, "cod_days": days,
-            "evidence": round(evidence, 2), "rationale": rationale}
+    bits = [
+        f"{k}={comp[k]:.0f}" for k in ("name", "sponsor", "county", "capacity", "cod") if comp[k] is not None
+    ]
+    rationale = f"{'; '.join(bits)}; evidence={evidence:.2f}" + (f"; {','.join(flags)}" if flags else "")
+    return {
+        "score": round(score, 2),
+        "name_score": comp["name"],
+        "sponsor_score": comp["sponsor"],
+        "county_score": comp["county"],
+        "capacity_score": comp["capacity"],
+        "cod_score": comp["cod"],
+        "capacity_ratio": cap_ratio,
+        "cod_days": days,
+        "evidence": round(evidence, 2),
+        "rationale": rationale,
+    }
 
 
 # ------------------------------------------------------------------ deterministic passes
@@ -210,17 +227,16 @@ def deterministic(df: pd.DataFrame) -> pd.DataFrame:
     for _, grp in d.groupby(key):
         if len(grp) < 2:
             continue
-        if grp["state"].nunique(dropna=True) > 1:      # same id, different states -> id reuse
+        if grp["state"].nunique(dropna=True) > 1:  # same id, different states -> id reuse
             rejected += 1
             continue
         for a, b in itertools.combinations(grp.index, 2):
             ca, cb = df.at[a, "county_norm"], df.at[b, "county_norm"]
-            if pd.notna(ca) and pd.notna(cb) and ca != cb:   # same id, different county
+            if pd.notna(ca) and pd.notna(cb) and ca != cb:  # same id, different county
                 rejected += 1
                 continue
             la, lb = df.at[a, "name_norm"], df.at[b, "name_norm"]
-            if pd.notna(la) and pd.notna(lb) and la and lb and \
-                    fuzz.token_set_ratio(str(la), str(lb)) < 60:
+            if pd.notna(la) and pd.notna(lb) and la and lb and fuzz.token_set_ratio(str(la), str(lb)) < 60:
                 rejected += 1
                 continue
             out.append((a, b, "D2_queue_id", 100.0, "iso + queue id equal, state/county consistent"))
@@ -237,8 +253,7 @@ def deterministic(df: pd.DataFrame) -> pd.DataFrame:
         for ref in str(refs).split("|"):
             for j in lookup.get(ref, []):
                 if j != i and df.at[i, "source_id"] != df.at[j, "source_id"]:
-                    out.append((min(i, j), max(i, j), "D3_xref", 100.0,
-                                f"project name cites {ref}"))
+                    out.append((min(i, j), max(i, j), "D3_xref", 100.0, f"project name cites {ref}"))
 
     cols = ["li", "ri", "pass", "score", "rationale"]
     res = pd.DataFrame(out, columns=cols)
@@ -275,8 +290,18 @@ def evaluate(matches: pd.DataFrame, labels: pd.DataFrame, thresholds) -> pd.Data
     labelled pairs in that band), which corrects for the stratified sampling of labels.csv."""
     labels = labels[labels["label"].isin([0, 1])].copy()
     m = matches.drop_duplicates(subset=["left_id", "right_id"]).set_index(["left_id", "right_id"])
-    bands = [(95, 101), (88, 95), (82, 88), (76, 82), (72, 76), (66, 72), (60, 66), (50, 60),
-             (35, 50), (0, 35)]
+    bands = [
+        (95, 101),
+        (88, 95),
+        (82, 88),
+        (76, 82),
+        (72, 76),
+        (66, 72),
+        (60, 66),
+        (50, 60),
+        (35, 50),
+        (0, 35),
+    ]
     pop = matches[matches["evidence"] >= MIN_EVIDENCE]
 
     def band(sc):
@@ -293,8 +318,9 @@ def evaluate(matches: pd.DataFrame, labels: pd.DataFrame, thresholds) -> pd.Data
         if row is None:
             found.append((None, 0.0, 0.0, False))
         else:
-            found.append((row, float(row["score"]), float(row["evidence"]),
-                          bool(str(row["pass"]).startswith("D"))))
+            found.append(
+                (row, float(row["score"]), float(row["evidence"]), bool(str(row["pass"]).startswith("D")))
+            )
     labels["score"] = [f[1] for f in found]
     labels["evidence"] = [f[2] for f in found]
     labels["det"] = [f[3] for f in found]
@@ -318,11 +344,22 @@ def evaluate(matches: pd.DataFrame, labels: pd.DataFrame, thresholds) -> pd.Data
         wprec = wtp / (wtp + wfp) if wtp + wfp else float("nan")
         wrec = wtp / (wtp + wfn) if wtp + wfn else float("nan")
         f1 = (2 * prec * rec / (prec + rec)) if (prec + rec) else float("nan")
-        rows.append({"threshold": t, "tp": tp, "fp": fp, "fn": fn, "tn": tn,
-                     "sample_precision": round(prec, 3), "sample_recall": round(rec, 3),
-                     "sample_f1": round(f1, 3), "weighted_precision": round(wprec, 3),
-                     "weighted_recall": round(wrec, 3), "n": len(labels),
-                     "unmatched_labels": missing})
+        rows.append(
+            {
+                "threshold": t,
+                "tp": tp,
+                "fp": fp,
+                "fn": fn,
+                "tn": tn,
+                "sample_precision": round(prec, 3),
+                "sample_recall": round(rec, 3),
+                "sample_f1": round(f1, 3),
+                "weighted_precision": round(wprec, 3),
+                "weighted_recall": round(wrec, 3),
+                "n": len(labels),
+                "unmatched_labels": missing,
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -341,19 +378,22 @@ def eia_plant_rollup(df: pd.DataFrame) -> pd.DataFrame:
             continue
         first = g.iloc[0]
         states = [s for s in g["lifecycle_state"] if s in order]
-        rows.append({**first.to_dict(),
-                     "record_id": f"eia860m:plant-{pid}:{tech}",
-                     "source_record_id": f"plant-{pid}",
-                     "capacity_mw": float(g["capacity_mw"].sum()),
-                     "eia_generator_id": None,
-                     "proposed_cod": g["proposed_cod"].max(),
-                     "lifecycle_state": max(states, key=order.index) if states else "unknown",
-                     "status_rule": "eia860m.plant_rollup"})
+        rows.append(
+            {
+                **first.to_dict(),
+                "record_id": f"eia860m:plant-{pid}:{tech}",
+                "source_record_id": f"plant-{pid}",
+                "capacity_mw": float(g["capacity_mw"].sum()),
+                "eia_generator_id": None,
+                "proposed_cod": g["proposed_cod"].max(),
+                "lifecycle_state": max(states, key=order.index) if states else "unknown",
+                "status_rule": "eia860m.plant_rollup",
+            }
+        )
     return pd.DataFrame(rows)
 
 
-def run(threshold: float, normalized: pathlib.Path, rollup: bool = True
-        ) -> tuple[pd.DataFrame, pd.DataFrame]:
+def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = pd.read_parquet(normalized)
     df["is_rollup"] = False
     if rollup:
@@ -362,19 +402,22 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True
             extra["is_rollup"] = True
             extra = extra.reindex(columns=df.columns).astype(
                 {c: t for c, t in df.dtypes.items() if c in extra.columns and t.name != "object"},
-                errors="ignore")
+                errors="ignore",
+            )
             df = pd.concat([df, extra], ignore_index=True)
             print(f"  EIA plant-level rollup records added: {len(extra):,}", file=sys.stderr)
     df.index = range(len(df))
 
     det = deterministic(df)
-    cand = pd.concat([
-        block(df, ["state", "technology"], "B1_state_tech_cap"),
-        block(df, ["state", "county_norm"], "B2_state_county_cap"),
-        block_name_token(df),
-    ], ignore_index=True)
-    cand = (cand.groupby(["li", "ri"])["block"].apply(lambda s: "+".join(sorted(set(s))))
-            .reset_index())
+    cand = pd.concat(
+        [
+            block(df, ["state", "technology"], "B1_state_tech_cap"),
+            block(df, ["state", "county_norm"], "B2_state_county_cap"),
+            block_name_token(df),
+        ],
+        ignore_index=True,
+    )
+    cand = cand.groupby(["li", "ri"])["block"].apply(lambda s: "+".join(sorted(set(s)))).reset_index()
     print(f"  candidate pairs from blocking: {len(cand):,}", file=sys.stderr)
 
     recs = df.to_dict("index")
@@ -388,7 +431,8 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True
     matches = matches.sort_values("score", ascending=False).drop_duplicates(subset=["li", "ri"])
 
     matches["accepted"] = matches["pass"].str.startswith("D") | (
-        (matches["score"] >= threshold) & (matches["evidence"] >= MIN_EVIDENCE))
+        (matches["score"] >= threshold) & (matches["evidence"] >= MIN_EVIDENCE)
+    )
 
     accepted = matches[matches["accepted"]]
     roots = cluster(df, accepted)
@@ -396,10 +440,18 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True
 
     for side in ("l", "r"):
         i = matches[f"{side}i"].astype(int)
-        for col, out in [("record_id", "id"), ("source_id", "source"), ("name_canonical", "name"),
-                         ("sponsor_name", "sponsor"), ("state", "state"), ("county", "county"),
-                         ("technology", "tech"), ("capacity_mw", "mw"),
-                         ("lifecycle_state", "state_lc"), ("proposed_cod", "cod")]:
+        for col, out in [
+            ("record_id", "id"),
+            ("source_id", "source"),
+            ("name_canonical", "name"),
+            ("sponsor_name", "sponsor"),
+            ("state", "state"),
+            ("county", "county"),
+            ("technology", "tech"),
+            ("capacity_mw", "mw"),
+            ("lifecycle_state", "state_lc"),
+            ("proposed_cod", "cod"),
+        ]:
             matches[f"{'left' if side == 'l' else 'right'}_{out}"] = df[col].reindex(i).to_numpy()
 
     clusters = df.copy()
@@ -416,38 +468,76 @@ def main() -> int:
     ap.add_argument("--labels", default=str(EVAL / "labels.csv"))
     ap.add_argument("--sweep", action="store_true")
     ap.add_argument("--name-scorer", default="mean", choices=["token_set", "token_sort", "mean"])
-    ap.add_argument("--no-eia-rollup", action="store_true",
-                    help="disable the EIA plant-level rollup blocking view")
-    ap.add_argument("--max-rows", type=int, default=400_000,
-                    help="cap on rows written to matches.parquet (keeps the file under 20 MB)")
+    ap.add_argument(
+        "--no-eia-rollup", action="store_true", help="disable the EIA plant-level rollup blocking view"
+    )
+    ap.add_argument(
+        "--max-rows",
+        type=int,
+        default=400_000,
+        help="cap on rows written to matches.parquet (keeps the file under 20 MB)",
+    )
     args = ap.parse_args()
 
     globals()["NAME_SCORER"] = args.name_scorer
-    matches, clusters = run(args.threshold, pathlib.Path(args.normalized),
-                            rollup=not args.no_eia_rollup)
+    matches, clusters = run(args.threshold, pathlib.Path(args.normalized), rollup=not args.no_eia_rollup)
 
     out = pathlib.Path(args.out)
-    keep = ["left_id", "right_id", "pass", "score", "evidence", "accepted", "cluster_id",
-            "name_score", "sponsor_score", "county_score", "capacity_score", "cod_score",
-            "capacity_ratio", "cod_days", "rationale",
-            "left_source", "right_source", "left_name", "right_name", "left_sponsor",
-            "right_sponsor", "left_state", "right_state", "left_county", "right_county",
-            "left_tech", "right_tech", "left_mw", "right_mw", "left_state_lc", "right_state_lc",
-            "left_cod", "right_cod"]
+    keep = [
+        "left_id",
+        "right_id",
+        "pass",
+        "score",
+        "evidence",
+        "accepted",
+        "cluster_id",
+        "name_score",
+        "sponsor_score",
+        "county_score",
+        "capacity_score",
+        "cod_score",
+        "capacity_ratio",
+        "cod_days",
+        "rationale",
+        "left_source",
+        "right_source",
+        "left_name",
+        "right_name",
+        "left_sponsor",
+        "right_sponsor",
+        "left_state",
+        "right_state",
+        "left_county",
+        "right_county",
+        "left_tech",
+        "right_tech",
+        "left_mw",
+        "right_mw",
+        "left_state_lc",
+        "right_state_lc",
+        "left_cod",
+        "right_cod",
+    ]
     written = matches[keep]
     sampled = False
     if len(written) > args.max_rows:
-        written = pd.concat([written[written["accepted"]],
-                             written[~written["accepted"]].sample(
-                                 n=max(0, args.max_rows - int(written["accepted"].sum())),
-                                 random_state=0)])
+        written = pd.concat(
+            [
+                written[written["accepted"]],
+                written[~written["accepted"]].sample(
+                    n=max(0, args.max_rows - int(written["accepted"].sum())), random_state=0
+                ),
+            ]
+        )
         sampled = True
     written.to_parquet(out, index=False)
     clusters.to_parquet(EVAL / "clusters.parquet", index=False)
 
-    print(f"pairs scored: {len(matches):,}   written: {len(written):,}"
-          f"{' (SAMPLED: rejected pairs down-sampled)' if sampled else ''}"
-          f" -> {out} ({out.stat().st_size/1e6:.2f} MB)")
+    print(
+        f"pairs scored: {len(matches):,}   written: {len(written):,}"
+        f"{' (SAMPLED: rejected pairs down-sampled)' if sampled else ''}"
+        f" -> {out} ({out.stat().st_size / 1e6:.2f} MB)"
+    )
     print("\npairs by pass")
     print(matches["pass"].str.split(":").str[0].value_counts().to_string())
     print(f"\naccepted pairs at threshold {args.threshold}: {int(matches['accepted'].sum()):,}")
@@ -458,8 +548,9 @@ def main() -> int:
 
     ncl = clusters["cluster_id"].nunique()
     sizes = clusters.groupby("cluster_id").size()
-    print(f"\nclusters: {ncl:,} covering {len(clusters):,} records "
-          f"(max size {int(sizes.max()) if ncl else 0})")
+    print(
+        f"\nclusters: {ncl:,} covering {len(clusters):,} records (max size {int(sizes.max()) if ncl else 0})"
+    )
     print("cluster size distribution:", sizes.value_counts().sort_index().to_dict() if ncl else {})
     multi = clusters.groupby("cluster_id")["source_id"].nunique()
     print(f"clusters spanning >1 source: {int((multi > 1).sum()):,}")
@@ -477,31 +568,41 @@ def main() -> int:
     n_act = len(active)
     n_link = active["record_id"].isin(linked_ids).sum()
     print(f"\nACTIVE (non-terminal lifecycle) ISO queue records: {n_act:,}")
-    print(f"  linked to >=1 EIA-860M planned unit: {n_link:,} ({100*n_link/n_act:.1f}%)")
-    per = (active.assign(linked=active["record_id"].isin(linked_ids))
-           .groupby("source_id")["linked"].agg(["sum", "count"]))
+    print(f"  linked to >=1 EIA-860M planned unit: {n_link:,} ({100 * n_link / n_act:.1f}%)")
+    per = (
+        active.assign(linked=active["record_id"].isin(linked_ids))
+        .groupby("source_id")["linked"]
+        .agg(["sum", "count"])
+    )
     per["rate_%"] = (100 * per["sum"] / per["count"]).round(1)
     print(per.to_string())
     raw_active = iso[iso["status_raw"].str.upper() == "ACTIVE"]
     nra = len(raw_active)
     nrl = raw_active["record_id"].isin(linked_ids).sum()
-    print(f"raw-status ACTIVE rows: {nra:,}; linked: {nrl:,} ({100*nrl/nra:.1f}%)")
+    print(f"raw-status ACTIVE rows: {nra:,}; linked: {nrl:,} ({100 * nrl / nra:.1f}%)")
 
     # --- cross-source duplicate counts
-    print("\ncross-source duplicate pairs (accepted, different sources): "
-          f"{int((acc['left_source'] != acc['right_source']).sum()):,}")
-    iso_only = acc[(acc["left_source"] != acc["right_source"]) &
-                   (acc["left_source"] != "eia860m") & (acc["right_source"] != "eia860m")]
+    print(
+        "\ncross-source duplicate pairs (accepted, different sources): "
+        f"{int((acc['left_source'] != acc['right_source']).sum()):,}"
+    )
+    iso_only = acc[
+        (acc["left_source"] != acc["right_source"])
+        & (acc["left_source"] != "eia860m")
+        & (acc["right_source"] != "eia860m")
+    ]
     print(f"  of which ISO-to-ISO (double-queued projects): {len(iso_only):,}")
 
     labels_path = pathlib.Path(args.labels)
     if labels_path.exists():
         labels = pd.read_csv(labels_path)
         ts = [50, 55, 60, 65, 70, 72, 75, 80, 85, 90] if args.sweep else [args.threshold]
-        print(f"\nevaluation on {len(labels)} hand-labelled pairs "
-              f"({int((labels['label'] == 1).sum())} positive / "
-              f"{int((labels['label'] == 0).sum())} negative / "
-              f"{int((labels['label'] == -1).sum())} uncertain, excluded)")
+        print(
+            f"\nevaluation on {len(labels)} hand-labelled pairs "
+            f"({int((labels['label'] == 1).sum())} positive / "
+            f"{int((labels['label'] == 0).sum())} negative / "
+            f"{int((labels['label'] == -1).sum())} uncertain, excluded)"
+        )
         print(evaluate(written, labels, ts).to_string(index=False))
     else:
         print(f"\n(no labels at {labels_path}; skipping precision/recall)")

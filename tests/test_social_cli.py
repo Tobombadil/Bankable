@@ -16,14 +16,22 @@ def diff_events_parquet(tmp_path: pathlib.Path) -> pathlib.Path:
     events = pd.DataFrame(
         [
             {
-                "event_type": "new", "record_id": "caiso:1", "source_id": "us.iso.caiso.gen_queue",
-                "field": "lifecycle_state", "before": None, "after": "filed",
+                "event_type": "new",
+                "record_id": "caiso:1",
+                "source_id": "us.iso.caiso.gen_queue",
+                "field": "lifecycle_state",
+                "before": None,
+                "after": "filed",
                 "observed_at": "2026-09-10T00:00:00+00:00",
             },
             {
                 # below the proposal.new threshold -- should not earn a draft
-                "event_type": "new", "record_id": "caiso:2", "source_id": "us.iso.caiso.gen_queue",
-                "field": "lifecycle_state", "before": None, "after": "filed",
+                "event_type": "new",
+                "record_id": "caiso:2",
+                "source_id": "us.iso.caiso.gen_queue",
+                "field": "lifecycle_state",
+                "before": None,
+                "after": "filed",
                 "observed_at": "2026-09-10T00:00:00+00:00",
             },
         ]
@@ -38,15 +46,30 @@ def records_parquet(tmp_path: pathlib.Path) -> pathlib.Path:
     records = pd.DataFrame(
         [
             {
-                "record_id": "caiso:1", "source_id": "us.iso.caiso.gen_queue", "name_canonical": "Solar One",
-                "technology": "solar", "capacity_mw": 250.0, "county": "Kern", "state": "CA", "iso": "CAISO",
-                "queue_id": "Q1234", "sponsor_name": "Acme Solar LLC",
+                "record_id": "caiso:1",
+                "source_id": "us.iso.caiso.gen_queue",
+                "name_canonical": "Solar One",
+                "technology": "solar",
+                "capacity_mw": 250.0,
+                "county": "Kern",
+                "state": "CA",
+                "iso": "CAISO",
+                "queue_id": "Q1234",
+                "sponsor_name": "Acme Solar LLC",
                 "retrieved_at": "2026-09-10T12:00:00+00:00",
             },
             {
-                "record_id": "caiso:2", "source_id": "us.iso.caiso.gen_queue", "name_canonical": "Tiny Solar",
-                "technology": "solar", "capacity_mw": 3.0, "county": "Kern", "state": "CA", "iso": "CAISO",
-                "queue_id": "Q9999", "sponsor_name": "Small Co", "retrieved_at": "2026-09-10T12:00:00+00:00",
+                "record_id": "caiso:2",
+                "source_id": "us.iso.caiso.gen_queue",
+                "name_canonical": "Tiny Solar",
+                "technology": "solar",
+                "capacity_mw": 3.0,
+                "county": "Kern",
+                "state": "CA",
+                "iso": "CAISO",
+                "queue_id": "Q9999",
+                "sponsor_name": "Small Co",
+                "retrieved_at": "2026-09-10T12:00:00+00:00",
             },
         ]
     )
@@ -57,14 +80,22 @@ def records_parquet(tmp_path: pathlib.Path) -> pathlib.Path:
 
 class TestDraftCommand:
     def test_draft_reads_diff_shaped_parquet_and_queues_eligible_drafts(
-        self, tmp_path: pathlib.Path, diff_events_parquet: pathlib.Path, records_parquet: pathlib.Path,
+        self,
+        tmp_path: pathlib.Path,
+        diff_events_parquet: pathlib.Path,
+        records_parquet: pathlib.Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         queue_path = tmp_path / "queue.json"
         rc = main(
             [
-                "--queue-path", str(queue_path), "draft",
-                "--events", str(diff_events_parquet), "--records", str(records_parquet),
+                "--queue-path",
+                str(queue_path),
+                "draft",
+                "--events",
+                str(diff_events_parquet),
+                "--records",
+                str(records_parquet),
             ]
         )
         assert rc == 0
@@ -80,12 +111,20 @@ class TestDraftCommand:
             assert "{{DOMAIN}}" in d.link_url  # placeholder hostname convention preserved verbatim
 
     def test_draft_is_idempotent_on_rerun(
-        self, tmp_path: pathlib.Path, diff_events_parquet: pathlib.Path, records_parquet: pathlib.Path,
+        self,
+        tmp_path: pathlib.Path,
+        diff_events_parquet: pathlib.Path,
+        records_parquet: pathlib.Path,
     ) -> None:
         queue_path = tmp_path / "queue.json"
         args = [
-            "--queue-path", str(queue_path), "draft",
-            "--events", str(diff_events_parquet), "--records", str(records_parquet),
+            "--queue-path",
+            str(queue_path),
+            "draft",
+            "--events",
+            str(diff_events_parquet),
+            "--records",
+            str(records_parquet),
         ]
         main(args)
         main(args)  # re-running the same events must not double-queue
@@ -95,14 +134,22 @@ class TestDraftCommand:
 
 class TestReviewCommands:
     def test_list_approve_reject_round_trip(
-        self, tmp_path: pathlib.Path, diff_events_parquet: pathlib.Path, records_parquet: pathlib.Path,
+        self,
+        tmp_path: pathlib.Path,
+        diff_events_parquet: pathlib.Path,
+        records_parquet: pathlib.Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         queue_path = tmp_path / "queue.json"
         main(
             [
-                "--queue-path", str(queue_path), "draft",
-                "--events", str(diff_events_parquet), "--records", str(records_parquet),
+                "--queue-path",
+                str(queue_path),
+                "draft",
+                "--events",
+                str(diff_events_parquet),
+                "--records",
+                str(records_parquet),
             ]
         )
         capsys.readouterr()
@@ -115,20 +162,38 @@ class TestReviewCommands:
         bluesky_draft = next(d for d in q.list_drafts() if d.channel == "bluesky")
         x_draft = next(d for d in q.list_drafts() if d.channel == "x")
 
-        assert main(
-            [
-                "--queue-path", str(queue_path), "review", "approve", bluesky_draft.id,
-                "--reviewer", "andrew@example.com",
-            ]
-        ) == 0
+        assert (
+            main(
+                [
+                    "--queue-path",
+                    str(queue_path),
+                    "review",
+                    "approve",
+                    bluesky_draft.id,
+                    "--reviewer",
+                    "andrew@example.com",
+                ]
+            )
+            == 0
+        )
         assert ReviewQueue(queue_path).get(bluesky_draft.id).status == "approved"
 
-        assert main(
-            [
-                "--queue-path", str(queue_path), "review", "reject", x_draft.id,
-                "--reviewer", "andrew@example.com", "--reason", "not_newsworthy",
-            ]
-        ) == 0
+        assert (
+            main(
+                [
+                    "--queue-path",
+                    str(queue_path),
+                    "review",
+                    "reject",
+                    x_draft.id,
+                    "--reviewer",
+                    "andrew@example.com",
+                    "--reason",
+                    "not_newsworthy",
+                ]
+            )
+            == 0
+        )
         assert ReviewQueue(queue_path).get(x_draft.id).status == "rejected"
 
     def test_reject_rejects_an_unknown_reason_code_at_the_argparse_level(
@@ -138,30 +203,50 @@ class TestReviewCommands:
         with pytest.raises(SystemExit):
             parser.parse_args(
                 [
-                    "--queue-path", str(tmp_path / "q.json"), "review", "reject", "abc",
-                    "--reviewer", "a", "--reason", "nope",
+                    "--queue-path",
+                    str(tmp_path / "q.json"),
+                    "review",
+                    "reject",
+                    "abc",
+                    "--reviewer",
+                    "a",
+                    "--reason",
+                    "nope",
                 ]
             )
 
 
 class TestDryRunCommand:
     def test_dry_run_previews_approved_drafts_without_publishing(
-        self, tmp_path: pathlib.Path, diff_events_parquet: pathlib.Path, records_parquet: pathlib.Path,
+        self,
+        tmp_path: pathlib.Path,
+        diff_events_parquet: pathlib.Path,
+        records_parquet: pathlib.Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         queue_path = tmp_path / "queue.json"
         main(
             [
-                "--queue-path", str(queue_path), "draft",
-                "--events", str(diff_events_parquet), "--records", str(records_parquet),
+                "--queue-path",
+                str(queue_path),
+                "draft",
+                "--events",
+                str(diff_events_parquet),
+                "--records",
+                str(records_parquet),
             ]
         )
         q = ReviewQueue(queue_path)
         bluesky_draft = next(d for d in q.list_drafts() if d.channel == "bluesky")
         main(
             [
-                "--queue-path", str(queue_path), "review", "approve", bluesky_draft.id,
-                "--reviewer", "a@example.com",
+                "--queue-path",
+                str(queue_path),
+                "review",
+                "approve",
+                bluesky_draft.id,
+                "--reviewer",
+                "a@example.com",
             ]
         )
         capsys.readouterr()
@@ -191,8 +276,13 @@ class TestReportCommand:
         assert rc == 0
         out = capsys.readouterr().out
         for heading in (
-            "## Headline", "## Per channel", "## Review queue", "## Budget",
-            "## Incidents", "## Graduation status", "## Recommendations",
+            "## Headline",
+            "## Per channel",
+            "## Review queue",
+            "## Budget",
+            "## Incidents",
+            "## Graduation status",
+            "## Recommendations",
         ):
             assert heading in out
         assert "Bluesky" in out and "Linkedin" in out and "| X |" in out

@@ -92,10 +92,19 @@ class TestPostDraft:
 class TestPost:
     def test_round_trip(self) -> None:
         post = Post(
-            draft_id="d1", channel="x", event_id="e1", subject_type="proposal", subject_id="caiso:1",
-            template_id="t", template_version="v1", body="hello https://x Source: CAISO",
-            link_url="https://x", attribution_line="Source: CAISO", disclosure_text="disclosed",
-            state="published", cost_usd=0.207,
+            draft_id="d1",
+            channel="x",
+            event_id="e1",
+            subject_type="proposal",
+            subject_id="caiso:1",
+            template_id="t",
+            template_version="v1",
+            body="hello https://x Source: CAISO",
+            link_url="https://x",
+            attribution_line="Source: CAISO",
+            disclosure_text="disclosed",
+            state="published",
+            cost_usd=0.207,
         )
         restored = Post.from_dict(post.to_dict())
         assert restored.channel == "x"

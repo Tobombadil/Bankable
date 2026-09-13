@@ -86,17 +86,57 @@ BANNED_WORDS: tuple[str, ...] = (
 #: short formats use the two-letter code already on the record. An unmapped code falls back to
 #: itself rather than guessing.
 US_STATE_NAMES: dict[str, str] = {
-    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
-    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "DC": "District of Columbia",
-    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
-    "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana",
-    "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
-    "MS": "Mississippi", "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
-    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
-    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon",
-    "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
-    "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia",
-    "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+    "AL": "Alabama",
+    "AK": "Alaska",
+    "AZ": "Arizona",
+    "AR": "Arkansas",
+    "CA": "California",
+    "CO": "Colorado",
+    "CT": "Connecticut",
+    "DE": "Delaware",
+    "DC": "District of Columbia",
+    "FL": "Florida",
+    "GA": "Georgia",
+    "HI": "Hawaii",
+    "ID": "Idaho",
+    "IL": "Illinois",
+    "IN": "Indiana",
+    "IA": "Iowa",
+    "KS": "Kansas",
+    "KY": "Kentucky",
+    "LA": "Louisiana",
+    "ME": "Maine",
+    "MD": "Maryland",
+    "MA": "Massachusetts",
+    "MI": "Michigan",
+    "MN": "Minnesota",
+    "MS": "Mississippi",
+    "MO": "Missouri",
+    "MT": "Montana",
+    "NE": "Nebraska",
+    "NV": "Nevada",
+    "NH": "New Hampshire",
+    "NJ": "New Jersey",
+    "NM": "New Mexico",
+    "NY": "New York",
+    "NC": "North Carolina",
+    "ND": "North Dakota",
+    "OH": "Ohio",
+    "OK": "Oklahoma",
+    "OR": "Oregon",
+    "PA": "Pennsylvania",
+    "RI": "Rhode Island",
+    "SC": "South Carolina",
+    "SD": "South Dakota",
+    "TN": "Tennessee",
+    "TX": "Texas",
+    "UT": "Utah",
+    "VT": "Vermont",
+    "VA": "Virginia",
+    "WA": "Washington",
+    "WV": "West Virginia",
+    "WI": "Wisconsin",
+    "WY": "Wyoming",
 }
 
 CHANNEL_LIMITS: dict[str, int] = {"bluesky": 300, "linkedin": 3000, "x": 280}
@@ -302,8 +342,10 @@ def from_diff_row(
         else dt.datetime.now(dt.UTC)
     )
 
-    canonical_type = "proposal.new" if diff_type == "new" else (
-        "proposal.withdrawn" if diff_type == "withdrawn" else "proposal.status_changed"
+    canonical_type = (
+        "proposal.new"
+        if diff_type == "new"
+        else ("proposal.withdrawn" if diff_type == "withdrawn" else "proposal.status_changed")
     )
     if subject_type == "opportunity":
         # diff.py has no opportunity-specific lifecycle awareness yet; map the closest
@@ -370,6 +412,7 @@ def _as_date(value: Any) -> dt.date | None:
 
 # --------------------------------------------------------------------------------- eligibility
 
+
 def _tech_is_high_volume(technology: str | None, config: EditorialConfig) -> bool:
     return technology is not None and technology.strip().lower() in config.high_volume_technologies
 
@@ -407,9 +450,7 @@ def meets_linkedin_size_threshold(event: SocialEvent, config: EditorialConfig = 
     return False
 
 
-def channels_for_event(
-    event: SocialEvent, config: EditorialConfig = DEFAULT_CONFIG
-) -> tuple[str, ...]:
+def channels_for_event(event: SocialEvent, config: EditorialConfig = DEFAULT_CONFIG) -> tuple[str, ...]:
     """Which channels (of `services.social.models.CHANNELS`) this event earns a post on, per
     docs/32 §3.1. Returns `()` for anything not itemised there (default-deny), for a gated
     source, or for a proposal event below its size threshold."""
@@ -509,6 +550,7 @@ def outranks(new_event_type: str, existing_event_type: str) -> bool:
 
 # --------------------------------------------------------------------------------- formatting
 
+
 def fmt_mw(value: float | None, unit: str = "MW") -> str:
     if value is None:
         return ""
@@ -554,6 +596,7 @@ def strip_trailing_zero(text: str) -> str:
 
 # --------------------------------------------------------------------------------- templates
 
+
 def _size_tech(event: SocialEvent) -> str:
     """`{capacity_mw} MW {technology}`, or just the capacity when technology is unrecorded."""
     if event.technology:
@@ -581,9 +624,7 @@ def render_proposal_new(event: SocialEvent, channel: str) -> str:
     place = c["place"]
     if channel in ("bluesky", "x"):
         head = (
-            f"New in {event.iso_rto} queue: {c['size_tech']}"
-            if event.iso_rto
-            else f"New: {c['size_tech']}"
+            f"New in {event.iso_rto} queue: {c['size_tech']}" if event.iso_rto else f"New: {c['size_tech']}"
         )
         head += f", {place}." if place else "."
         parts = [head]
@@ -660,9 +701,7 @@ def render_proposal_withdrawn(event: SocialEvent, channel: str) -> str:
     place = _place(event, full_state=full)
     size_tech = _size_tech(event)
     head = (
-        f"Withdrawn from {event.iso_rto} queue: {size_tech}"
-        if event.iso_rto
-        else f"Withdrawn: {size_tech}"
+        f"Withdrawn from {event.iso_rto} queue: {size_tech}" if event.iso_rto else f"Withdrawn: {size_tech}"
     )
     if place:
         head += f", {place}"
@@ -836,6 +875,7 @@ def _join_and_fit(
 
 # --------------------------------------------------------------------------------- validation
 
+
 def _numbers_in(text: str) -> set[str]:
     return {m.replace(",", "") for m in _NUMBER_RE.findall(text)}
 
@@ -983,6 +1023,7 @@ def validate_draft(
 
 # --------------------------------------------------------------------------------- drafting
 
+
 def event_to_json_safe(event: SocialEvent) -> dict[str, Any]:
     """`fields_snapshot` must round-trip through `json.dump` (queue.py's store), so dates and
     datetimes are serialised to ISO 8601 strings rather than left as objects."""
@@ -1035,9 +1076,7 @@ def build_draft(event: SocialEvent, channel: str, config: EditorialConfig = DEFA
     )
 
 
-def draft_events(
-    events: list[SocialEvent], config: EditorialConfig = DEFAULT_CONFIG
-) -> list[PostDraft]:
+def draft_events(events: list[SocialEvent], config: EditorialConfig = DEFAULT_CONFIG) -> list[PostDraft]:
     """The `event -> draft` pipeline stage (docs/32 §4.1): for every event, for every channel it
     earns per `channels_for_event`, render and validate a draft."""
     drafts = []
