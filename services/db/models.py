@@ -1226,3 +1226,19 @@ class Task(Base, TimestampMixin):
         sa.Index("ix_task_queue", "status", "type", "created_at"),
         sa.Index("ix_task_subject", "subject_type", "subject_id"),
     )
+
+
+# ======================================================================== worker watermarks (Sprint 3)
+class WorkerWatermark(Base):
+    """One row per scheduled worker that scans the event log (`services/social/worker.py` today):
+    the highest `event.seq` it has already examined, so a run of events that earn nothing (gated,
+    duplicate, ineligible) is never rescanned on every tick and can never starve newer events
+    behind a page limit. Written in the worker's own transaction at the end of each tick."""
+
+    __tablename__ = "worker_watermark"
+
+    name: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    seq: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, default=0)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
