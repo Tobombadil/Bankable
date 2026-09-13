@@ -20,9 +20,9 @@ shape, should something else need that specific fixture; nothing in `web/` or `t
 calls them any more now that the real `data/normalized/*` load is fast enough to test against
 directly.
 
-One correction remains on top of what the loader writes -- the other two this module used to apply
-are gone (see below, and `services/README.md`'s "Sprint 2 fixes" -> "`web/data_loading.py`
-overrides this makes unnecessary" for the backend's own verdict on the same three):
+No correction remains on top of what the loader writes -- all four this module used to apply are
+gone (see below, and `services/README.md`'s "Sprint 2 fixes" / "EIA exact-point promotion" for the
+backend's own verdict on each):
 
 - **Geocoding, CAISO/NYISO's derived-only licence flag and `precision_reason`, and source
   `publish_state`** are now all done correctly by `services/ingest/loader.py` itself (it geocodes
@@ -32,11 +32,16 @@ overrides this makes unnecessary" for the backend's own verdict on the same thre
   functions that used to patch around those three gaps from this side are removed, not merely
   unused, because re-running them would now be redundant work over a store the loader already got
   right.
-- **`backfill_eia_exact_points()` stays.** EIA-860M's raw `Latitude`/`Longitude` promotion to
-  `exact` location precision is explicitly out of `services/ingest/loader.py`'s scope this sprint
-  (`services/README.md` "Sprint 2 fixes" says so directly) -- the loader's own geocoder only ever
-  produces `county_centroid`/`state_centroid`/`unknown`. This function stays a real, documented
-  frontend-side correction until the loader promotes EIA-860M's exact points itself.
+- **`backfill_eia_exact_points()` is gone too (Sprint 3).** `services/ingest/loader.py` now
+  promotes a row's raw `Latitude`/`Longitude` (EIA-860M today, any other source the same way should
+  its raw payload carry the same keys) to `exact` location precision itself, at ingest time,
+  respecting the same docs/04 D-9 derived-only gate the county/state path already honoured --
+  `services/README.md`'s "EIA exact-point promotion" section has the before/after loader
+  measurement. Re-running this function on top would now be a redundant no-op over a store the
+  loader already got right, exactly like the other three; `load_dev_database`'s report dropped the
+  `eia_exact_points` key along with it (no test asserts that key -- checked
+  `tests/test_web_default_view.py`, `web/test_e2e.py`, and every `tests/test_web_*.py`/`web/*.py`
+  reference to `load_dev_database`'s return value).
 """
 
 from __future__ import annotations
@@ -175,29 +180,6 @@ def load_eval_fixture(
 # idempotent no-op against this sprint's loader before the fix landed.
 
 
-def backfill_eia_exact_points(session: Session, *, source_id: str = "us.eia.860m") -> int:
-    """EIA-860M's `raw` JSON (stored on `proposal_source.raw` by the loader) carries an exact
-    `Latitude`/`Longitude` pair the loader does not project onto `location.geom`. Promote it here
-    so EIA-860M keeps the `exact` placement precedence (docs/04 D-8) `build_data.py`'s prototype
-    gave it, instead of falling back to a county centroid like every other source.
-    """
-    updated = 0
-    rows = session.scalars(select(ProposalSource).where(ProposalSource.source_id == source_id))
-    for row in rows:
-        raw: dict[str, Any] = row.raw or {}
-        lat, lon = raw.get("Latitude"), raw.get("Longitude")
-        if not isinstance(lat, int | float) or not isinstance(lon, int | float):
-            continue
-        proposal = session.get(Proposal, row.proposal_id)
-        if proposal is None or proposal.location is None:
-            continue
-        proposal.location.geom = (float(lon), float(lat))
-        proposal.location.precision = "exact"
-        updated += 1
-    session.commit()
-    return updated
-
-
 def apply_preview_lag_override(session: Session, *, source_ids: Iterable[str] | None = None) -> int:
     """Dev/test-only: pull `public_at` back to "now" for rows whose real `public_at` (computed by
     the loader as `published_at + lag_days`, `services/ingest/lag.py`) is still in the future,
@@ -249,10 +231,10 @@ def load_dev_database(
     sample_per_state: int | None = None,
 ) -> dict[str, Any]:
     """Everything `web/dev_up.py`, `web/test_e2e.py` and `tests/test_web_default_view.py` need: the
-    nine real sources under `data/normalized/*` through the real loader (which now geocodes and
-    derives licence/publish-state correctly on its own, per the module docstring above), the one
-    remaining frontend-side correction (`backfill_eia_exact_points`), and (only with
-    `preview=True`) the lag override.
+    nine real sources under `data/normalized/*` through the real loader (which now geocodes,
+    promotes EIA-860M's exact points, and derives licence/publish-state correctly on its own, per
+    the module docstring above), and (only with `preview=True`) the lag override. No frontend-side
+    correction remains on top (Sprint 3 removed the last one, `backfill_eia_exact_points`).
 
     `sample_per_state` defaults to `None` -- the full, real ~11,400-row set across all nine
     sources, viable now that `services/api/visibility.py`'s query-time gap is fixed
@@ -263,11 +245,9 @@ def load_dev_database(
     status = load_real_normalized_sources(
         session, data_root=data_root, sources_yaml=sources_yaml, sample_per_state=sample_per_state
     )
-    eia_exact_points = backfill_eia_exact_points(session)
     preview_rows_advanced = apply_preview_lag_override(session) if preview else 0
     return {
         "sources": status,
-        "eia_exact_points": eia_exact_points,
         "preview_rows_advanced": preview_rows_advanced,
     }
 

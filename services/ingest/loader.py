@@ -32,9 +32,20 @@ null for every row, `web/data_loading.py::backfill_locations` was a frontend-sid
 a connector-parsed county name geocodes to its US Census Gazetteer centroid (`county_centroid`); a
 county that doesn't resolve (misspelling, multi-county span, non-US) falls back to a state centroid
 (`state_centroid`) when a state is present; otherwise the location is `unknown` — counted as
-unplaced, never dropped (docs/04 D-8). Never `exact`: that precision tier needs real coordinates
-from the source itself (e.g. EIA-860M's raw `Latitude`/`Longitude`), which this module does not
-promote — a documented follow-up, not silently done here.
+unplaced, never dropped (docs/04 D-8).
+
+Exact-point promotion (Sprint 3, `services/README.md` "EIA exact-point promotion"): before falling
+back to the county/state geocoder above, `_get_or_create_location` looks for a real coordinate pair
+on the row's raw payload (EIA-860M's `Latitude`/`Longitude` today — `_extract_exact_point` is a
+plain key lookup, so any other source whose raw payload already carries the same keys is promoted
+the same way with no further loader change). A validated pair (numeric, inside world bounds, not
+the `(0, 0)` placeholder) wins outright per docs/04 D-8's placement precedence and is stored at
+`precision = "exact"`, `kind = "point"`, `geocoder = "source_provided"` — this used to be
+`web/data_loading.py::backfill_eia_exact_points`'s job, a frontend-side correction applied after
+the fact; it is now the loader's own job, at ingest time, for every source, not just EIA-860M's
+prototype special case. `derived_only` sources (below) never get this promotion regardless of what
+their raw payload carries (docs/04 D-9: an exact coordinate is a raw field, withheld exactly like
+any other raw field for those sources) — they keep falling through to the county/state centroid.
 
 Fixed since `services/resolve/README.md` first observed them (both without changing the public
 functions below):
@@ -155,6 +166,7 @@ class LoadResult:
     events_created: int = 0
     events_skipped_idempotent: int = 0
     locations_created: int = 0
+    locations_exact_promoted: int = 0
     organizations_created: int = 0
     warnings: list[str] = field(default_factory=list)
 
@@ -564,6 +576,47 @@ def _jurisdiction(state: str | None, source_jurisdiction: str) -> str:
     return source_jurisdiction or "US"
 
 
+#: World bounds a real coordinate must fall inside (docs/21 §3.7 `exact`: a real point, not merely
+#: a numeric-looking one) -- `(0, 0)` is excluded separately below since it is the common
+#: placeholder an unset/blank source field serialises to, not a real location off the coast of
+#: West Africa.
+_WORLD_LAT_RANGE = (-90.0, 90.0)
+_WORLD_LON_RANGE = (-180.0, 180.0)
+
+
+def _extract_exact_point(raw_payload: Mapping[str, Any]) -> tuple[float, float] | None:
+    """A real coordinate pair straight from the source's own raw payload (docs/04 D-8: `exact`
+    outranks a county/state centroid) -- EIA-860M's raw `Latitude`/`Longitude` keys today, verified
+    against `pipeline/connectors/us_eia_860m/connector.py`'s `parse()` output (the Planned sheet's
+    own column names, carried through unchanged onto `raw` by `Connector.finalize`). Written as a
+    plain key lookup rather than an EIA-specific branch so any other source whose normalised frame
+    already carries the same two raw keys is promoted identically with no further loader change --
+    none does yet (checked across `pipeline/connectors/*` this sprint).
+
+    Returns `None` (falls through to county/state geocoding) unless both values are present,
+    numeric, inside `_WORLD_LAT_RANGE`/`_WORLD_LON_RANGE`, and not the `(0, 0)` placeholder --
+    `docs/21` §3.7's `exact` tier means a real point, not a coordinate that merely parses as one.
+    """
+    lat_raw = raw_payload.get("Latitude")
+    lon_raw = raw_payload.get("Longitude")
+    if lat_raw is None or lon_raw is None:
+        return None
+    try:
+        lat = float(lat_raw)
+        lon = float(lon_raw)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(lat) or pd.isna(lon):
+        return None
+    if lat == 0.0 and lon == 0.0:
+        return None
+    if not (_WORLD_LAT_RANGE[0] <= lat <= _WORLD_LAT_RANGE[1]):
+        return None
+    if not (_WORLD_LON_RANGE[0] <= lon <= _WORLD_LON_RANGE[1]):
+        return None
+    return (lon, lat)
+
+
 def _get_or_create_location(
     session: Session,
     *,
@@ -572,25 +625,34 @@ def _get_or_create_location(
     source: Source,
     retrieved_at: dt.datetime,
     derived_only: bool,
+    raw_payload: Mapping[str, Any] | None = None,
     gaz: CountyGazetteer | None = None,
 ) -> Location | None:
-    """Geocode a connector-parsed state/county pair (docs/21 §3.7; docs/04 D-8): a resolvable
-    county centroid, else a resolvable state centroid, else unplaced -- `services/ingest/geocode.py`
-    does the lookup against the vendored public-domain county-centroid table so this no longer
-    depends on `web/`'s copy of the same geocoder (services/README.md open decision #2).
+    """A row's `Location`: a real coordinate from its raw payload when one validates (`exact`,
+    docs/04 D-8), else a geocoded county centroid, else a state centroid, else unplaced
+    (docs/21 §3.7) -- `services/ingest/geocode.py` does that county/state lookup against the
+    vendored public-domain county-centroid table so this no longer depends on `web/`'s copy of the
+    same geocoder (services/README.md open decision #2).
 
     `derived_only` (the source's licence withholds raw/exact geo, docs/21 §8's "attribution, raw
-    withheld" row, `_is_derived_only_override` above): stamps `precision_reason = "licence"`
-    (docs/04 D-9) so the API can render the restricted-precision note. This never *upgrades* a
-    location -- this module's geocoder only ever produces `county_centroid`/`state_centroid`/
-    `unknown`, never `exact`, so there is nothing to downgrade from yet; the reason is recorded
-    now so a future `exact`-capable geocoder (e.g. EIA-860M's raw `Latitude`/`Longitude`) does not
-    silently start leaking an exact point for these sources without this check already in place.
+    withheld" row, `_is_derived_only_override` above) is checked *before* `_extract_exact_point`
+    runs at all: docs/04 D-9 is explicit that an exact coordinate is a raw field like any other, so
+    a derived-only source never gets promoted regardless of what its raw payload carries, and keeps
+    falling through to the county/state centroid with `precision_reason = "licence"` stamped (so
+    the API can render the restricted-precision note) exactly as before this promotion existed.
     """
-    if not state and not county:
-        return None
-    kind = "county" if county else "state"
-    point, precision = geocode(state, county, gaz=gaz)
+    exact_point = None if derived_only else _extract_exact_point(raw_payload or {})
+    if exact_point is not None:
+        kind = "point"
+        point: tuple[float, float] | None = exact_point
+        precision = "exact"
+        geocoder = "source_provided"
+    else:
+        if not state and not county:
+            return None
+        kind = "county" if county else "state"
+        point, precision = geocode(state, county, gaz=gaz)
+        geocoder = None
     loc = Location(
         id=new_uuid(),
         kind=kind,
@@ -600,6 +662,7 @@ def _get_or_create_location(
         county_name=county or None,
         state_code=(f"US-{state.upper()}" if state else None),
         country="US",
+        geocoder=geocoder,
         source_id=source.id,
         source_url=source.url,
         retrieved_at=retrieved_at,
@@ -864,11 +927,14 @@ def load_dataframe(
                         source=source,
                         retrieved_at=retrieved_at,
                         derived_only=not source.licence.allows_raw_publication,
+                        raw_payload=raw_payload,
                         gaz=cache.gaz,
                     )
                     if loc is not None:
                         entity.location_id = loc.id
                         result.locations_created += 1
+                        if loc.precision == "exact":
+                            result.locations_exact_promoted += 1
                 entity.field_provenance = {
                     k: {
                         "source_id": source.id,
