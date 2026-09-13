@@ -1,0 +1,81 @@
+{% extends "admin/base.html" %}
+{% block title %}Extractions -- Infraqueue admin{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Extractions</h1></div>
+{% include "admin/_notice.html" %}
+<form class="admin-toolbar" method="get" action="/admin/extractions">
+  <div class="field">
+    <label for="f-status">Status</label>
+    <select id="f-status" name="status">
+      <option value="">All</option>
+      {% for v in status_values %}
+      <option value="{{ v }}"{% if filters.status == v %} selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-subject">Subject type</label>
+    <select id="f-subject" name="subject_type">
+      <option value="">All</option>
+      {% for v in ["proposal", "opportunity", "organization"] %}
+      <option value="{{ v }}"{% if filters.subject_type == v %} selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button class="admin-button" type="submit">Apply</button>
+  {% if filters.status or filters.subject_type %}<a class="admin-button" href="/admin/extractions">Clear all</a>{% endif %}
+</form>
+{% if extractions %}
+<div class="admin-table-wrap">
+<table class="admin-table">
+  <thead>
+    <tr>
+      <th scope="col">Subject</th>
+      <th scope="col">Field</th>
+      <th scope="col">Payload</th>
+      <th scope="col" class="num">Confidence</th>
+      <th scope="col" class="num">Citations</th>
+      <th scope="col">Decide</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in extractions %}
+    <tr>
+      <td class="mono">{{ e.subject_type }}<br>{{ e.subject_id }}</td>
+      <td class="mono">{{ e.field_path or "&mdash;" }}</td>
+      <td class="mono">{{ e.payload }}</td>
+      <td class="num">{{ "%.2f"|format(e.confidence) }}</td>
+      <td class="num">{{ count_citations(e) }}</td>
+      <td>
+        {% if e.status == "proposed" %}
+        <div class="admin-actions">
+          <form method="post" action="/admin/extractions/{{ e.extraction_id }}/accept">
+            <label for="accept-reason-{{ e.extraction_id }}">Reason (optional)</label>
+            <input id="accept-reason-{{ e.extraction_id }}" type="text" name="reason">
+            <button class="admin-button admin-button--primary" type="submit">Accept</button>
+          </form>
+          <form method="post" action="/admin/extractions/{{ e.extraction_id }}/reject">
+            <label for="reject-reason-{{ e.extraction_id }}">Reason</label>
+            <input id="reject-reason-{{ e.extraction_id }}" type="text" name="reason" required>
+            <button class="admin-button" type="submit">Reject</button>
+          </form>
+        </div>
+        {% else %}
+        <span class="admin-muted">{{ e.status }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="admin-empty">
+  {% if filters.status or filters.subject_type %}No extractions match
+  {% if filters.status %} status={{ filters.status }}{% endif %}
+  {% if filters.subject_type %} subject_type={{ filters.subject_type }}{% endif %}.
+  <a href="/admin/extractions">Clear all</a>.
+  {% else %}No extractions are awaiting review.{% endif %}
+</p>
+{% endif %}
+{% endblock %}

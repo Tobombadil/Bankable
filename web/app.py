@@ -66,8 +66,12 @@ from web.admin.shell import router as admin_shell_router  # noqa: E402
 app.add_exception_handler(NotAnOperator, not_an_operator_handler)
 app.include_router(admin_shell_router)
 from web.admin.posts import router as admin_posts_router  # noqa: E402
+from web.admin.records import router as admin_records_router  # noqa: E402
+from web.admin.sources import router as admin_sources_router  # noqa: E402
 from web.admin.tasks import router as admin_tasks_router  # noqa: E402
 
+app.include_router(admin_sources_router)
+app.include_router(admin_records_router)
 app.include_router(admin_tasks_router)
 app.include_router(admin_posts_router)
 

@@ -1,0 +1,35 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ organization.name_canonical if organization else "Organization" }} -- Infraqueue admin{% endblock %}
+{% block content %}
+{% if organization is none %}
+<div class="page-header"><h1>Organization</h1></div>
+{% include "admin/_notice.html" %}
+<p><a href="/admin/records">Back to record lookup</a></p>
+{% else %}
+<div class="page-header">
+  <h1>{{ organization.name_canonical }} <span class="admin-muted mono">{{ organization.public_id }}</span></h1>
+  {% if organization.is_curated_issuer %}<span class="chip chip--neutral">curated issuer</span>{% endif %}
+</div>
+{% include "admin/_notice.html" %}
+<table class="admin-table">
+  <tbody>
+    <tr><th scope="row">Type</th><td>{{ organization.type }}</td></tr>
+    <tr><th scope="row">Country</th><td>{{ organization.country }}</td></tr>
+    <tr><th scope="row">Jurisdiction</th><td>{{ organization.jurisdiction or "&mdash;" }}</td></tr>
+    <tr><th scope="row">Website</th><td>{% if organization.website %}<a href="{{ organization.website }}">{{ organization.website }}</a>{% else %}&mdash;{% endif %}</td></tr>
+    <tr><th scope="row">Proposals sponsored</th><td>{{ organization.proposal_count if organization.proposal_count is not none else "&mdash;" }}</td></tr>
+    <tr><th scope="row">Opportunities issued</th><td>{{ organization.opportunity_count if organization.opportunity_count is not none else "&mdash;" }}</td></tr>
+    <tr><th scope="row">First seen</th><td>{{ organization.first_seen }}</td></tr>
+    <tr><th scope="row">Last changed</th><td>{{ organization.last_changed }}</td></tr>
+  </tbody>
+</table>
+
+<h2>Edit</h2>
+<form class="admin-form" method="post" action="/admin/records/organizations/{{ organization.public_id }}/edit">
+  <div class="field"><label for="name_canonical">Name</label><input id="name_canonical" name="name_canonical" value="{{ organization.name_canonical }}"></div>
+  <div class="field"><label for="website">Website</label><input id="website" name="website" type="url" value="{{ organization.website or '' }}"></div>
+  <div class="field"><label for="edit-reason">Reason</label><input id="edit-reason" name="reason" required></div>
+  <button class="admin-button admin-button--primary" type="submit">Save</button>
+</form>
+{% endif %}
+{% endblock %}

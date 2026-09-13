@@ -1,0 +1,25 @@
+{% extends "admin/base.html" %}
+{% block title %}Snapshot -- Infraqueue admin{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Snapshot</h1></div>
+{% include "admin/_notice.html" %}
+{% if snapshot %}
+<table class="admin-table">
+  <tbody>
+    <tr><th scope="row">Snapshot id</th><td class="mono">{{ snapshot.snapshot_id }}</td></tr>
+    <tr><th scope="row">Source</th><td class="mono"><a href="/admin/sources/{{ snapshot.source_id }}">{{ snapshot.source_id }}</a></td></tr>
+    <tr><th scope="row">Run</th><td class="mono"><a href="/admin/source-runs/{{ snapshot.run_id }}">{{ snapshot.run_id }}</a></td></tr>
+    <tr><th scope="row">Fetched URL</th><td class="mono">{{ snapshot.fetched_url }}</td></tr>
+    <tr><th scope="row">HTTP status</th><td>{{ snapshot.http_status }}</td></tr>
+    <tr><th scope="row">Retrieved at</th><td>{{ snapshot.retrieved_at }}</td></tr>
+    <tr><th scope="row">Licence</th><td class="mono">{{ snapshot.licence_id }}</td></tr>
+    <tr><th scope="row">Content type</th><td>{{ snapshot.content_type }}</td></tr>
+    <tr><th scope="row">Byte size</th><td>{{ snapshot.byte_size }}</td></tr>
+    <tr><th scope="row">SHA-256</th><td class="mono">{{ snapshot.sha256 }}</td></tr>
+    <tr><th scope="row">Record count</th><td>{{ snapshot.record_count if snapshot.record_count is not none else "&mdash;" }}</td></tr>
+    <tr><th scope="row">Retention class</th><td>{{ snapshot.retention_class }}</td></tr>
+    <tr><th scope="row">Download</th><td>{% if snapshot.download_url %}<a href="{{ snapshot.download_url }}">Download raw object</a>{% else %}not available (object storage pre-signing not yet wired){% endif %}</td></tr>
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
