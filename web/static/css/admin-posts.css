@@ -1,0 +1,11 @@
+/* Posts screens (Sprint 3 item 3): the post body block and shared definition-list layout. Tokens
+   only (docs/31 §1, D-19); `.admin-dl`/`.admin-pre` match web/static/css/admin-tasks.css's naming
+   so the two screen areas read as one system, without either file importing the other. */
+.admin-dl { display: grid; grid-template-columns: 12rem 1fr; gap: var(--space-2) var(--space-4); margin: var(--space-3) 0 var(--space-5); }
+.admin-dl dt { color: var(--text-muted); font-size: var(--text-1); }
+.admin-dl dd { margin: 0; }
+.admin-pre { margin: 0; padding: var(--space-2); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-2); font-family: var(--font-mono); font-size: var(--text-1); overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+.post-body { max-width: 40rem; }
+@media (max-width: 719px) {
+  .admin-dl { grid-template-columns: 1fr; }
+}
