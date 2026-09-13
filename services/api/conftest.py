@@ -44,9 +44,16 @@ def db(db_sessionmaker: sessionmaker[Session]) -> Session:
 @pytest.fixture()
 def client(db_sessionmaker: sessionmaker[Session]):
     def _override():
+        # Mirrors services/api/deps.py's `get_db` (commit on a clean return, rollback on
+        # exception) now that services/api/pro.py adds write endpoints — see that module's
+        # docstring for why a plain `finally: s.close()` would silently discard writes.
         s = db_sessionmaker()
         try:
             yield s
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
         finally:
             s.close()
 

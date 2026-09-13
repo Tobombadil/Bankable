@@ -45,6 +45,10 @@ def client(db_sessionmaker: sessionmaker[Session]) -> TestClient:
         s = db_sessionmaker()
         try:
             yield s
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
         finally:
             s.close()
 

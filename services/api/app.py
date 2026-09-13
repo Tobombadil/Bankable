@@ -427,15 +427,24 @@ def get_proposal(
 
 
 @app.get("/v1/proposals/{public_id}/events")
-def list_proposal_events(public_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+def list_proposal_events(
+    public_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> Any:
     check_allowed(request, {"limit", "cursor", "event_type", "sort"})
-    prop = db.scalar(select(Proposal).where(Proposal.public_id == public_id, *proposal_public_filter()))
+    prop = db.scalar(
+        select(Proposal).where(Proposal.public_id == public_id, *proposal_visibility_filter(ctx.entitlement))
+    )
     if prop is None:
         raise not_found(request.url.path)
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, {"seq", "observed_at"}, "-seq")
     stmt = select(Event).where(
-        Event.subject_type == "proposal", Event.subject_id == prop.id, *event_public_filter()
+        Event.subject_type == "proposal",
+        Event.subject_id == prop.id,
+        *event_visibility_filter(ctx.entitlement),
     )
     if v := request.query_params.get("event_type"):
         stmt = stmt.where(Event.event_type.in_(csv_param(v)))
@@ -458,7 +467,7 @@ def list_proposal_events(public_id: str, request: Request, db: Session = Depends
         )
         for e in rows
     ]
-    meta = build_meta("proposal")
+    meta = build_meta("proposal", tier=ctx.entitlement)
     licence_rows = [r for e in rows if (r := event_licence_row(e)) is not None]
     return build_list_envelope(
         data,
@@ -469,16 +478,23 @@ def list_proposal_events(public_id: str, request: Request, db: Session = Depends
 
 
 @app.get("/v1/proposals/{public_id}/sources")
-def list_proposal_sources(public_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+def list_proposal_sources(
+    public_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> Any:
     check_allowed(request, {"include"})
-    prop = db.scalar(select(Proposal).where(Proposal.public_id == public_id, *proposal_public_filter()))
+    prop = db.scalar(
+        select(Proposal).where(Proposal.public_id == public_id, *proposal_visibility_filter(ctx.entitlement))
+    )
     if prop is None:
         raise not_found(request.url.path)
     from services.api.serialize import provenance_row
 
     links = [s for s in prop.sources if s.active]
     data = [provenance_row(s, s.source) for s in links]
-    meta = build_meta("proposal")
+    meta = build_meta("proposal", tier=ctx.entitlement)
     rows = [licence_summary_row(s.source, s.source.licence, s.retrieved_at) for s in links]
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary(rows))
 
@@ -523,9 +539,16 @@ def _opportunity_technologies_filter(db: Session, values: list[str]) -> ColumnEl
     return sa.or_(empty, overlap)
 
 
-def _opportunity_query_with_filters(request: Request, db: Session) -> sa.Select[tuple[Opportunity]]:
-    # Same N+1 fix as `_proposal_query_with_filters` above, for `Opportunity.sources`.
-    stmt = select(Opportunity).where(*opportunity_public_filter()).options(selectinload(Opportunity.sources))
+def _opportunity_query_with_filters(
+    request: Request, db: Session, entitlement: str = "public"
+) -> sa.Select[tuple[Opportunity]]:
+    # Same N+1 fix as `_proposal_query_with_filters` above, for `Opportunity.sources`; same
+    # entitlement wiring too (services/api/visibility.py `opportunity_visibility_filter`).
+    stmt = (
+        select(Opportunity)
+        .where(*opportunity_visibility_filter(entitlement))
+        .options(selectinload(Opportunity.sources))
+    )
     qp = request.query_params
     status = csv_param(qp.get("status")) or ["open"]
     stmt = stmt.where(Opportunity.status.in_(status))
@@ -561,11 +584,13 @@ def _opportunity_licence_rows(items: list[Opportunity]) -> list[dict[str, Any]]:
 
 
 @app.get("/v1/opportunities")
-def list_opportunities(request: Request, db: Session = Depends(get_db)) -> Any:
+def list_opportunities(
+    request: Request, db: Session = Depends(get_db), ctx: AuthContext = Depends(get_auth_context)
+) -> Any:
     check_allowed(request, LIST_COMMON | OPPORTUNITY_FILTERS)
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
-    stmt = _opportunity_query_with_filters(request, db)
+    stmt = _opportunity_query_with_filters(request, db, ctx.entitlement)
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
@@ -577,10 +602,12 @@ def list_opportunities(request: Request, db: Session = Depends(get_db)) -> Any:
         instance=request.url.path,
     )
     data = [serialize_opportunity(o) for o in rows]
-    meta = build_meta("opportunity")
+    meta = build_meta("opportunity", tier=ctx.entitlement)
     if "count" in (request.query_params.get("include") or "").split(","):
         total = db.scalar(
-            select(func.count()).select_from(_opportunity_query_with_filters(request, db).subquery())
+            select(func.count()).select_from(
+                _opportunity_query_with_filters(request, db, ctx.entitlement).subquery()
+            )
         )
         meta["total"] = total
         meta["total_is_estimate"] = total is not None and total > 10000
@@ -593,7 +620,9 @@ def list_opportunities(request: Request, db: Session = Depends(get_db)) -> Any:
 
 
 @app.get("/v1/opportunities/geo")
-def get_opportunities_geo(request: Request, db: Session = Depends(get_db)) -> Any:
+def get_opportunities_geo(
+    request: Request, db: Session = Depends(get_db), ctx: AuthContext = Depends(get_auth_context)
+) -> Any:
     check_allowed(request, {"bbox", "zoom"} | OPPORTUNITY_FILTERS | {"q"})
     bbox_param = request.query_params.get("bbox")
     zoom_param = request.query_params.get("zoom")
@@ -601,7 +630,7 @@ def get_opportunities_geo(request: Request, db: Session = Depends(get_db)) -> An
         raise validation_error("bbox", "bbox and zoom are required", request.url.path)
     bbox = _parse_bbox(bbox_param, request.url.path)
     zoom = int(zoom_param)
-    stmt = _opportunity_query_with_filters(request, db)
+    stmt = _opportunity_query_with_filters(request, db, ctx.entitlement)
     items = list(db.scalars(stmt).all())
     # `services/ingest/loader.py` never geocodes opportunities (no state/county columns in
     # `pipeline.connectors.base.OPPORTUNITY_COLUMNS` to geocode from -- unlike proposals) so
@@ -627,38 +656,54 @@ def get_opportunities_geo(request: Request, db: Session = Depends(get_db)) -> An
         technology_counts=dict(technology_counts),
     )
     unplaced_count = len(items)
-    meta = build_meta("opportunity", extra={"unplaced_count": unplaced_count})
+    meta = build_meta("opportunity", tier=ctx.entitlement, extra={"unplaced_count": unplaced_count})
     return build_envelope(
         fc, meta=meta, licence_summary=build_licence_summary(_opportunity_licence_rows(items))
     )
 
 
 @app.get("/v1/opportunities/{public_id}")
-def get_opportunity(public_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+def get_opportunity(
+    public_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> Any:
     opp = db.scalar(
-        select(Opportunity).where(Opportunity.public_id == public_id, *opportunity_public_filter())
+        select(Opportunity).where(
+            Opportunity.public_id == public_id, *opportunity_visibility_filter(ctx.entitlement)
+        )
     )
     if opp is None:
         raise not_found(request.url.path)
     data = serialize_opportunity(opp)
-    meta = build_meta("opportunity")
+    meta = build_meta("opportunity", tier=ctx.entitlement)
     return build_envelope(
         data, meta=meta, licence_summary=build_licence_summary(_opportunity_licence_rows([opp]))
     )
 
 
 @app.get("/v1/opportunities/{public_id}/events")
-def list_opportunity_events(public_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+def list_opportunity_events(
+    public_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> Any:
     check_allowed(request, {"limit", "cursor", "event_type", "sort"})
     opp = db.scalar(
-        select(Opportunity).where(Opportunity.public_id == public_id, *opportunity_public_filter())
+        select(Opportunity).where(
+            Opportunity.public_id == public_id, *opportunity_visibility_filter(ctx.entitlement)
+        )
     )
     if opp is None:
         raise not_found(request.url.path)
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, {"seq", "observed_at"}, "-seq")
     stmt = select(Event).where(
-        Event.subject_type == "opportunity", Event.subject_id == opp.id, *event_public_filter()
+        Event.subject_type == "opportunity",
+        Event.subject_id == opp.id,
+        *event_visibility_filter(ctx.entitlement),
     )
     if v := request.query_params.get("event_type"):
         stmt = stmt.where(Event.event_type.in_(csv_param(v)))
@@ -681,7 +726,7 @@ def list_opportunity_events(public_id: str, request: Request, db: Session = Depe
         )
         for e in rows
     ]
-    meta = build_meta("opportunity")
+    meta = build_meta("opportunity", tier=ctx.entitlement)
     licence_rows = [r for e in rows if (r := event_licence_row(e)) is not None]
     return build_list_envelope(
         data,
@@ -692,10 +737,17 @@ def list_opportunity_events(public_id: str, request: Request, db: Session = Depe
 
 
 @app.get("/v1/opportunities/{public_id}/sources")
-def list_opportunity_sources(public_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+def list_opportunity_sources(
+    public_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> Any:
     check_allowed(request, {"include"})
     opp = db.scalar(
-        select(Opportunity).where(Opportunity.public_id == public_id, *opportunity_public_filter())
+        select(Opportunity).where(
+            Opportunity.public_id == public_id, *opportunity_visibility_filter(ctx.entitlement)
+        )
     )
     if opp is None:
         raise not_found(request.url.path)
@@ -703,7 +755,7 @@ def list_opportunity_sources(public_id: str, request: Request, db: Session = Dep
 
     links = [s for s in opp.sources if s.active]
     data = [provenance_row(s, s.source) for s in links]
-    meta = build_meta("opportunity")
+    meta = build_meta("opportunity", tier=ctx.entitlement)
     rows = [licence_summary_row(s.source, s.source.licence, s.retrieved_at) for s in links]
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary(rows))
 
@@ -771,7 +823,12 @@ def get_organization(public_id: str, request: Request, db: Session = Depends(get
 
 
 @app.get("/v1/organizations/{public_id}/proposals")
-def list_organization_proposals(public_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+def list_organization_proposals(
+    public_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> Any:
     check_allowed(
         request, {"limit", "cursor", "sort", "kind", "technology", "lifecycle_state", "jurisdiction"}
     )
@@ -782,7 +839,7 @@ def list_organization_proposals(public_id: str, request: Request, db: Session = 
     field, ascending = _sort_spec(request, PROPOSAL_SORT_ALLOWLIST, "-last_changed")
     stmt = (
         select(Proposal)
-        .where(Proposal.sponsor_org_id == org.id, *proposal_public_filter())
+        .where(Proposal.sponsor_org_id == org.id, *proposal_visibility_filter(ctx.entitlement))
         .options(selectinload(Proposal.sources))
     )
     qp = request.query_params
@@ -801,7 +858,7 @@ def list_organization_proposals(public_id: str, request: Request, db: Session = 
         instance=request.url.path,
     )
     data = [serialize_proposal(p) for p in rows]
-    meta = build_meta("proposal")
+    meta = build_meta("proposal", tier=ctx.entitlement)
     return build_list_envelope(
         data,
         meta=meta,
@@ -811,7 +868,12 @@ def list_organization_proposals(public_id: str, request: Request, db: Session = 
 
 
 @app.get("/v1/organizations/{public_id}/opportunities")
-def list_organization_opportunities(public_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+def list_organization_opportunities(
+    public_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> Any:
     check_allowed(request, {"limit", "cursor", "sort", "kind", "status", "technologies"})
     org = db.scalar(select(Organization).where(Organization.public_id == public_id))
     if org is None:
@@ -825,7 +887,7 @@ def list_organization_opportunities(public_id: str, request: Request, db: Sessio
         .where(
             Opportunity.issuer_org_id == org.id,
             Opportunity.status.in_(status),
-            *opportunity_public_filter(),
+            *opportunity_visibility_filter(ctx.entitlement),
         )
         .options(selectinload(Opportunity.sources))
     )
@@ -844,7 +906,7 @@ def list_organization_opportunities(public_id: str, request: Request, db: Sessio
         instance=request.url.path,
     )
     data = [serialize_opportunity(o) for o in rows]
-    meta = build_meta("opportunity")
+    meta = build_meta("opportunity", tier=ctx.entitlement)
     return build_list_envelope(
         data,
         meta=meta,
@@ -855,11 +917,13 @@ def list_organization_opportunities(public_id: str, request: Request, db: Sessio
 
 # ------------------------------------------------------------------------------------------ events
 @app.get("/v1/events")
-def list_events(request: Request, db: Session = Depends(get_db)) -> Any:
+def list_events(
+    request: Request, db: Session = Depends(get_db), ctx: AuthContext = Depends(get_auth_context)
+) -> Any:
     check_allowed(request, LIST_COMMON | {"subject_type", "subject_id", "event_type", "source_id", "since"})
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, {"seq", "observed_at"}, "-seq")
-    stmt = select(Event).where(*event_public_filter())
+    stmt = select(Event).where(*event_visibility_filter(ctx.entitlement))
     qp = request.query_params
     if v := qp.get("subject_type"):
         stmt = stmt.where(Event.subject_type.in_(csv_param(v)))
@@ -889,7 +953,12 @@ def list_events(request: Request, db: Session = Depends(get_db)) -> Any:
         instance=request.url.path,
     )
     data = [serialize_event(e, **_subject_info(db, e)) for e in rows]
-    meta = build_meta(lag_days=max((_lag_days_for_subject(e.subject_type) for e in rows), default=14))
+    lag_days = (
+        0
+        if ctx.entitlement != "public"
+        else max((_lag_days_for_subject(e.subject_type) for e in rows), default=14)
+    )
+    meta = build_meta(lag_days=lag_days, tier=ctx.entitlement)
     licence_rows = [r for e in rows if (r := event_licence_row(e)) is not None]
     return build_list_envelope(
         data,
@@ -938,14 +1007,26 @@ def _subject_info(db: Session, event: Event) -> dict[str, str]:
 
 
 @app.get("/v1/events/{event_id}")
-def get_event(event_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
+def get_event(
+    event_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> Any:
     ev = _find_event_by_public_id(db, event_id)
-    if ev is None or ev.public_at is None or ensure_aware(ev.public_at) > utcnow():
+    if ev is None:
+        raise not_found(request.url.path)
+    # Pro/API read `published_at`; public reads `public_at` (docs/21 §5.4) — mirrors
+    # `event_visibility_filter` exactly, applied here to one already-fetched row rather than as a
+    # `WHERE` clause since the row is looked up by its derived public id, not queried directly.
+    timing_field = ev.public_at if ctx.entitlement == "public" else ev.published_at
+    if timing_field is None or ensure_aware(timing_field) > utcnow():
         raise not_found(request.url.path)
     if ev.licence and ev.licence.reuse_class not in ("open", "attribution"):
         raise not_found(request.url.path)
     data = serialize_event(ev, **_subject_info(db, ev))
-    meta = build_meta(lag_days=_lag_days_for_subject(ev.subject_type))
+    lag_days = 0 if ctx.entitlement != "public" else _lag_days_for_subject(ev.subject_type)
+    meta = build_meta(lag_days=lag_days, tier=ctx.entitlement)
     row = event_licence_row(ev)
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary([row] if row else []))
 
