@@ -1,0 +1,107 @@
+# Production overrides (docs/04 O-1 `production`; ADR 0005). Apply together with the base file:
+#
+#   docker compose -f infra/compose/docker-compose.yml -f infra/compose/compose.prod.yml \
+#     --env-file /opt/infraqueue/secrets/.env up -d
+#
+# The `local` profile's postgres service is never activated here — DATABASE_URL points at the
+# managed Postgres provider instead (ADR 0003; docs/20 §4.4). Caddy terminates TLS and is the only
+# service with a published port; every VM firewall (infra/terraform) blocks everything else from
+# the public internet.
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+    depends_on:
+      - api
+      - web
+    mem_limit: 256m
+    cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api:
+    ports: !reset [] # no direct publish; only Caddy is public (docs/20 §11)
+    depends_on: !override {} # DATABASE_URL points at managed Postgres, not the `local`-profile container
+    environment:
+      ENVIRONMENT: production
+    deploy:
+      replicas: 2 # docs/20 §4.1
+    mem_limit: 1g
+    cpus: "2.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  web:
+    ports: !reset []
+    environment:
+      ENVIRONMENT: production
+    mem_limit: 768m
+    # depends_on: [api] is kept from the base file — that dependency has no profile and is fine as-is.
+    cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  scheduler:
+    depends_on: !override {}
+    environment:
+      ENVIRONMENT: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  worker:
+    depends_on: !override {}
+    environment:
+      ENVIRONMENT: production
+    mem_limit: 1g
+    cpus: "1.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  browser-worker:
+    depends_on: !override {}
+    environment:
+      ENVIRONMENT: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  social:
+    depends_on: !override {}
+    environment:
+      ENVIRONMENT: production
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

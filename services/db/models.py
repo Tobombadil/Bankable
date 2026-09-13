@@ -116,6 +116,11 @@ class Licence(Base, TimestampMixin):
     contract_ref: Mapped[str | None] = mapped_column(sa.Text)
     expires_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(sa.Text)
+    #: The free-text `license` clause `data/sources.yaml` records for this source (the actual
+    #: quoted terms), distinct from `notes` (data-engineer commentary about them). Added so the
+    #: public `source`/`licence` resources can carry a real licence quote instead of web/'s
+    #: composed paraphrase (web/README.md "Missing from the API" item 3).
+    quote_text: Mapped[str | None] = mapped_column(sa.Text)
 
     __table_args__ = (sa.CheckConstraint(f"reuse_class IN {REUSE_CLASSES!r}", name="reuse_class_vocab"),)
 

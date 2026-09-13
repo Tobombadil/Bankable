@@ -1,0 +1,23 @@
+# SOPS creation rules (ADR 0005: "SOPS + age" for secrets, decrypted in CI). One age recipient per
+# environment so a compromised dev key cannot decrypt production secrets. Real recipients are the
+# operator's own age public keys (infra/scripts/bootstrap_age_key.sh generates one); the
+# `example-age-key` recipient below is the placeholder used only by
+# infra/sops/secrets.dev.example.enc.yaml — see infra/sops/README.md before touching this file for
+# a real environment.
+
+# path_regex is matched relative to this file's own directory (infra/sops/), not the repo root.
+creation_rules:
+  - path_regex: secrets\.dev\.example\.enc\.yaml$
+    age: age1zmfzuzlqkan95eslq627aa743ka46nz6zyaa3njktl8zdwa94shq68tnw4 # example-age-key (throwaway, see README)
+
+  - path_regex: secrets\.dev\.enc\.yaml$
+    age: >-
+      REPLACE_WITH_DEV_AGE_PUBLIC_KEY
+
+  - path_regex: secrets\.staging\.enc\.yaml$
+    age: >-
+      REPLACE_WITH_STAGING_AGE_PUBLIC_KEY
+
+  - path_regex: secrets\.production\.enc\.yaml$
+    age: >-
+      REPLACE_WITH_PRODUCTION_AGE_PUBLIC_KEY

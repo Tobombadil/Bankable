@@ -302,6 +302,7 @@ paths:
         - $ref: '#/components/parameters/LastChangedFrom'
         - $ref: '#/components/parameters/LastChangedTo'
         - $ref: '#/components/parameters/UpdatedSince'
+        - $ref: '#/components/parameters/SlugFilter'
       responses:
         '200':
           description: A page of proposals inside the attribution envelope.
@@ -574,6 +575,7 @@ paths:
         - $ref: '#/components/parameters/LastChangedFrom'
         - $ref: '#/components/parameters/LastChangedTo'
         - $ref: '#/components/parameters/UpdatedSince'
+        - $ref: '#/components/parameters/SlugFilter'
       responses:
         '200':
           description: A page of opportunities inside the attribution envelope.
@@ -4417,6 +4419,14 @@ components:
         type: string
         minLength: 1
         maxLength: 200
+    SlugFilter:
+      name: slug
+      in: query
+      description: Exact match on the record's SEO slug (`docs/30-design-ia.md`'s `/proposals/{slug}` / `/opportunities/{slug}` URLs). One value, not comma-separated — slugs are unique per kind. A working substitute for a dedicated slug-keyed detail route (`web/README.md` "Missing from the API" item 1); it does not implement `slug_history` 301 redirects for merged/renamed records, which stay out of scope this sprint (docs/21 §6.3).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 80
     # Sorting — allowlisted per resource
     SortProposals:
       name: sort
@@ -6812,6 +6822,9 @@ components:
         gate_name:
           type: [string, 'null']
           examples: [G-PJM]
+        quote_text:
+          type: [string, 'null']
+          description: The free-text `license` clause quoted from `data/sources.yaml` for this licence (docs/21 §3.19) — the literal terms, not a paraphrase. `null` for a licence recorded before this field existed. Distinct from the admin-only `notes` (`AdminLicence`), which may carry in-progress legal commentary not meant for public display.
     Licence:
       allOf:
         - $ref: '#/components/schemas/LicenceSummaryEmbedded'

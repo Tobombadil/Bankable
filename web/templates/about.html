@@ -1,20 +1,21 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}About &amp; sources -- Infraqueue (placeholder){% endblock %}
 {% block meta_description %}Method, sources and licences behind Infraqueue's proposal and opportunity data.{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>About &amp; sources</h1>
   <p>Infraqueue fuses public energy and infrastructure registers into one record per project. This is the public, delayed tier only: no login, no live data, no admin.</p>
-  <p class="reuse-badge">Infraqueue is a placeholder codename, not the permanent product name (<code>docs/12-naming-shortlist.md</code>). Every hostname and brand reference in this build is a stand-in.</p>
+  <p class="reuse-badge">Infraqueue is a placeholder codename, not the permanent product name. Every hostname and brand reference in this build is a stand-in.</p>
 </div>
 
 <section id="tiers">
-  <h2>Tiers</h2>
-  <p>Public data is delayed {{ lag_days.supply }} days for proposals and {{ lag_days.opportunities }} days for opportunities from the date a source was retrieved -- <code>public_at</code>, computed and enforced by the API, governs what this site can show; nothing here filters further. A live, undelayed tier (Pro) and a bulk API are planned but not built on this site yet.</p>
+  {{ m.section_heading("1.", "Tiers") }}
+  <p>Public data is delayed <span class="tnum">{{ lag_days.supply }}</span> days for proposals and <span class="tnum">{{ lag_days.opportunities }}</span> days for opportunities from the date a source was retrieved. A live, undelayed tier (Pro) and a bulk API are planned but not built on this site yet.</p>
 </section>
 
 <section id="sources">
-  <h2>Sources and licences</h2>
+  {{ m.section_heading("2.", "Sources and licences") }}
   <p>Every field on every page traces to one of the rows below. Sources marked "No -- derived only" have their raw source row and exact coordinates withheld; the page links out to the source instead.</p>
   <div class="table-scroll">
   <table class="record-table source-table">
@@ -36,7 +37,7 @@
         <td data-label="Reuse class"><span class="reuse-badge">{{ s.licence.reuse_class }}</span></td>
         <td data-label="Raw fields shown?">{{ 'Yes' if s.licence.allows_raw_publication else 'No -- derived only' }}</td>
         <td data-label="Attribution">{{ s.attribution_text }}</td>
-        <td data-label="Rows visible" class="num">{{ s.rows_visible if s.rows_visible is not none else '—' }}</td>
+        <td data-label="Rows visible" class="num tnum">{{ s.rows_visible if s.rows_visible is not none else '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -45,7 +46,7 @@
 </section>
 
 <section>
-  <h2>Licence terms</h2>
+  {{ m.section_heading("3.", "Licence terms") }}
   <dl>
     {% for s in sources %}
     <dt class="mono">{{ s.source_id }}</dt>
@@ -61,10 +62,10 @@
 </section>
 
 <section>
-  <h2>Method notes</h2>
+  {{ m.section_heading("4.", "Method notes") }}
   <ul>
     <li>Placement on the map follows source precision: an exact coordinate where the source supplies one and its licence allows raw publication; otherwise a county centroid (US Census Gazetteer 2024, public domain); records with neither a usable county nor a state are counted as Unplaced rather than guessed at.</li>
-    <li>Clustering on the map is computed server-side by <code>GET /v1/proposals/geo</code> (<code>docs/23</code>); this page's client script renders whatever the API returns and does not cluster on its own.</li>
+    <li>Clustering on the map is computed server-side; this page's client script renders whatever the API returns and does not cluster on its own.</li>
     <li>The default map and proposal list show active lifecycle states only (announced through under construction); withdrawn and cancelled proposals sit behind the "Include withdrawn &amp; cancelled" toggle, because most of this dataset's history is withdrawn queue positions and a default view of them reads as a map of what died rather than what's active.</li>
     <li>NESO TEC Register rows have no US-style county or state field in the source and are counted under Unplaced rather than guessed at.</li>
     <li>The map's basemap tiles come from OpenStreetMap; a lightweight world-country and US-state outline layer (Natural Earth and US Census Bureau TIGERweb, both public domain) is drawn underneath them so the map stays legible if the tile provider is ever unreachable.</li>

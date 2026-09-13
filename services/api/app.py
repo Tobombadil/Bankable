@@ -22,7 +22,7 @@ from typing import Any
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
 from services.api.common import WEB_HOST, ensure_aware, new_request_id, utcnow
@@ -102,6 +102,7 @@ PROPOSAL_FILTERS = {
     "source_id",
     "capacity_mw[gte]",
     "capacity_mw[lte]",
+    "slug",
 }
 PROPOSAL_SORT_ALLOWLIST = {"last_changed", "first_seen", "capacity_mw", "name_canonical"}
 
@@ -127,6 +128,8 @@ def _proposal_query_with_filters(request: Request) -> sa.Select[tuple[Proposal]]
         stmt = stmt.where(Proposal.capacity_mw >= float(v))
     if v := qp.get("capacity_mw[lte]"):
         stmt = stmt.where(Proposal.capacity_mw <= float(v))
+    if v := qp.get("slug"):
+        stmt = stmt.where(Proposal.slug == v)
     if v := qp.get("q"):
         like = f"%{v.lower()}%"
         stmt = stmt.where(func.lower(Proposal.name_canonical).like(like))
@@ -284,17 +287,40 @@ OPPORTUNITY_FILTERS = {
     "source_id",
     "due_at[from]",
     "due_at[to]",
+    "slug",
 }
 OPPORTUNITY_SORT_ALLOWLIST = {"due_at", "open_at", "last_changed", "budget_amount"}
 
 
-def _opportunity_query_with_filters(request: Request) -> sa.Select[tuple[Opportunity]]:
+def _opportunity_technologies_filter(db: Session, values: list[str]) -> ColumnElement[bool]:
+    """Any-of over `Opportunity.technologies[]`; an all-source opportunity (empty array) matches
+    every value (api/openapi.yaml `Technologies` parameter). `technologies` is a real Postgres
+    `ARRAY(Text)` in the canonical migration but a JSON-encoded `TEXT` column on SQLite
+    (`services/db/types.py TextArray`, this sprint's test target — services/README.md), so the
+    membership test is dialect-specific: Postgres uses the native `&&` overlap operator; SQLite
+    matches the JSON-quoted token as a substring, which is exact for the closed technology
+    vocabulary (docs/21 §7 — no value contains a quote or backslash). The Postgres branch is
+    written to spec but not exercised here, same caveat as every other dialect-specific path in
+    this service.
+    """
+    empty = Opportunity.technologies == []
+    dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
+    if dialect == "postgresql":
+        overlap = Opportunity.technologies.op("&&")(list(values))
+    else:
+        overlap = sa.or_(*(Opportunity.technologies.like(f'%"{t}"%') for t in values))
+    return sa.or_(empty, overlap)
+
+
+def _opportunity_query_with_filters(request: Request, db: Session) -> sa.Select[tuple[Opportunity]]:
     stmt = select(Opportunity).where(*opportunity_public_filter())
     qp = request.query_params
     status = csv_param(qp.get("status")) or ["open"]
     stmt = stmt.where(Opportunity.status.in_(status))
     if v := qp.get("kind"):
         stmt = stmt.where(Opportunity.kind.in_(csv_param(v)))
+    if v := qp.get("technologies"):
+        stmt = stmt.where(_opportunity_technologies_filter(db, csv_param(v)))
     if v := qp.get("jurisdiction"):
         stmt = stmt.where(Opportunity.jurisdiction.in_(csv_param(v)))
     if v := qp.get("source_id"):
@@ -305,6 +331,8 @@ def _opportunity_query_with_filters(request: Request) -> sa.Select[tuple[Opportu
         stmt = stmt.where(Opportunity.due_at >= dt.datetime.fromisoformat(v.replace("Z", "+00:00")))
     if v := qp.get("due_at[to]"):
         stmt = stmt.where(Opportunity.due_at <= dt.datetime.fromisoformat(v.replace("Z", "+00:00")))
+    if v := qp.get("slug"):
+        stmt = stmt.where(Opportunity.slug == v)
     if v := qp.get("q"):
         like = f"%{v.lower()}%"
         stmt = stmt.where(func.lower(Opportunity.title).like(like))
@@ -325,7 +353,7 @@ def list_opportunities(request: Request, db: Session = Depends(get_db)) -> Any:
     check_allowed(request, LIST_COMMON | OPPORTUNITY_FILTERS)
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
-    stmt = _opportunity_query_with_filters(request)
+    stmt = _opportunity_query_with_filters(request, db)
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
@@ -340,7 +368,7 @@ def list_opportunities(request: Request, db: Session = Depends(get_db)) -> Any:
     meta = build_meta("opportunity")
     if "count" in (request.query_params.get("include") or "").split(","):
         total = db.scalar(
-            select(func.count()).select_from(_opportunity_query_with_filters(request).subquery())
+            select(func.count()).select_from(_opportunity_query_with_filters(request, db).subquery())
         )
         meta["total"] = total
         meta["total_is_estimate"] = total is not None and total > 10000
@@ -361,7 +389,7 @@ def get_opportunities_geo(request: Request, db: Session = Depends(get_db)) -> An
         raise validation_error("bbox", "bbox and zoom are required", request.url.path)
     bbox = _parse_bbox(bbox_param, request.url.path)
     zoom = int(zoom_param)
-    stmt = _opportunity_query_with_filters(request)
+    stmt = _opportunity_query_with_filters(request, db)
     items = list(db.scalars(stmt).all())
     fc, unplaced_count = build_geo_feature_collection(items, bbox=bbox, zoom=zoom)  # type: ignore[arg-type]
     meta = build_meta("opportunity", extra={"unplaced_count": unplaced_count})
@@ -551,10 +579,15 @@ def list_organization_opportunities(public_id: str, request: Request, db: Sessio
         raise not_found(request.url.path)
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
-    status = csv_param(request.query_params.get("status")) or ["open"]
+    qp = request.query_params
+    status = csv_param(qp.get("status")) or ["open"]
     stmt = select(Opportunity).where(
         Opportunity.issuer_org_id == org.id, Opportunity.status.in_(status), *opportunity_public_filter()
     )
+    if v := qp.get("kind"):
+        stmt = stmt.where(Opportunity.kind.in_(csv_param(v)))
+    if v := qp.get("technologies"):
+        stmt = stmt.where(_opportunity_technologies_filter(db, csv_param(v)))
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
@@ -990,7 +1023,7 @@ def feed_proposals(format: str, request: Request, db: Session = Depends(get_db))
 @app.get("/feeds/opportunities.{format}")
 def feed_opportunities(format: str, request: Request, db: Session = Depends(get_db)) -> Response:
     check_allowed(request, OPPORTUNITY_FILTERS | {"q"})
-    stmt = _opportunity_query_with_filters(request)
+    stmt = _opportunity_query_with_filters(request, db)
     items_rows = list(db.scalars(stmt.order_by(Opportunity.last_changed.desc()).limit(50)).all())
     items = []
     for o in items_rows:

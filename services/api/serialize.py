@@ -404,6 +404,11 @@ def serialize_licence_embedded(licence: Licence) -> dict[str, Any]:
         "share_alike": licence.share_alike,
         "gate_flag": licence.gate_flag,
         "gate_name": licence.gate_name,
+        # The free-text licence quote itself (`data/sources.yaml` `license`), public by design —
+        # unlike `notes` (data-engineer commentary, sometimes about in-progress legal review, e.g.
+        # CAISO's "until counsel resolves..."), which stays admin-only (`AdminLicence` in
+        # api/openapi.yaml) and is deliberately not added here.
+        "quote_text": licence.quote_text,
     }
 
 
