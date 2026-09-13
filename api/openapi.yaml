@@ -2441,7 +2441,7 @@ paths:
         (US-904 AC1). Unimplemented connectors are listed with `implemented = false`. A source with
         `consecutive_failures >= 3` is `health = failing` and has raised a supervision notification (US-904 AC3).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-904, US-905, US-303]
       security: *sec_admin
@@ -2477,7 +2477,7 @@ paths:
         with the licence named in the body; publication follows the gate rules of `PUT …/publish-state`. The
         issuer URL host is added to the egress allowlist for the `plain` pool only.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-303, US-904]
       security: *sec_admin
@@ -2516,7 +2516,7 @@ paths:
       tags: [Admin — sources]
       summary: Source detail with runtime state
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-904]
       security: *sec_admin
@@ -2544,7 +2544,7 @@ paths:
         job; `public_at` on historical rows is recomputed asynchronously (docs/21 §5.4). Every change is an audited
         `source` event with the mandatory `reason`.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-904, US-601, US-303]
       security: *sec_admin
@@ -2582,7 +2582,7 @@ paths:
       summary: Run now
       description: Enqueues a `source_run` with `trigger = manual` (US-904 AC2). Refused with `409` while a run is already in progress for the source.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-904]
       security: *sec_admin
@@ -2626,7 +2626,7 @@ paths:
         including RSS and API; mixed-provenance records stay visible with the source's fields removed (US-905 AC2).
         Writes an audited `published` / `unpublished` event with the mandatory `reason`.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-905, US-906]
       security: *sec_admin
@@ -2664,7 +2664,7 @@ paths:
       summary: Run history
       description: Runs with status, diff counts, DQ warnings, cost and snapshot links (US-904 AC1, docs/21 §4.2).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-904, US-909]
       security: *sec_admin
@@ -2696,7 +2696,7 @@ paths:
       tags: [Admin — sources]
       summary: Run detail
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-904]
       security: *sec_admin
@@ -2724,7 +2724,7 @@ paths:
       summary: Raw snapshot metadata and link
       description: The evidence row (docs/21 §4.3) with a pre-signed link to the raw object while it is retained. Admin only — raw bytes never leave the admin host.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-904]
       security: *sec_admin
@@ -2757,7 +2757,7 @@ paths:
         changes `reuse_class` creates a new licence row (invariant L2); historical observation rows keep the licence
         that applied at fetch time.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-905, US-906]
       security: *sec_legal
@@ -4169,7 +4169,7 @@ paths:
         and day, and `cost_per_changed_record_30d` per source with the configured threshold (default USD 0.50) and
         a `flagged` marker. `model_alias` only — no provider model identifiers anywhere in the response.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-909, US-904]
       security: *sec_admin
@@ -4201,7 +4201,7 @@ paths:
       summary: Audit log
       description: The `event` table filtered to `actor_type = user` — who, what, when, before/after and reason for every admin write (US-901 AC2, docs/04 S-4). Same shape as `/v1/events`, ungated.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-901, US-905, US-907]
       security: *sec_admin
@@ -6015,8 +6015,11 @@ components:
       pattern: '^subn_[0-9A-HJKMNP-TV-Z]{10,26}$'
     AnyPublicIdValue:
       type: string
-      description: Any graph public id (`prop_`, `opp_`, `org_`, `mat_`, `evt_`, `doc_`).
-      pattern: '^(prop|opp|org|mat|evt|doc)_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      description: |
+        Any graph public id (`prop_`, `opp_`, `org_`, `mat_`, `evt_`, `doc_`), an operational one (`usr_`, `acc_`,
+        `key_`, `post_`, `task_`, `run_`, `snap_`, `ext_`), or — for admin audit events on the source and licence
+        registers (`GET /admin/v1/audit`) — the register's own text id (`us.iso.ercot.gen_queue`, `us-ercot-open`).
+      pattern: '^((prop|opp|org|mat|evt|doc|usr|acc|key|post|task|run|snap|ext)_[0-9A-HJKMNP-TV-Z]{10,26}|[a-z][a-z0-9_.-]{1,120})$'
     SourceIdValue:
       type: string
       description: The `data/sources.yaml` id — dotted, lower-case.
@@ -6062,7 +6065,7 @@ components:
       enum: [stored, link_only, headline_only]
     SubjectType:
       type: string
-      enum: [proposal, opportunity, organization, match, document, source, post, user, account, api_key]
+      enum: [proposal, opportunity, organization, match, document, source, licence, post, user, account, api_key]
     EventType:
       type: string
       description: docs/21 §7.3. Identity, proposal lifecycle, opportunity lifecycle, field-level, matching, publication and operational groups.
