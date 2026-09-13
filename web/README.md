@@ -1,86 +1,137 @@
-# Sprint 2 public-site prototype
+# Public site — reading `services/api`
 
-**Scope:** public delayed tier only -- no auth, no Pro, no admin. Built to `docs/30-design-ia.md` and
-`docs/31-design-system.md` against `docs/04-standards.md`. Serves five proposal sources (ERCOT,
-CAISO, NYISO, EIA-860M, NESO TEC) and four opportunity sources (grants.gov, TED, Find a Tender,
-World Bank) from `data/normalized/`.
+**Scope:** public delayed tier only — no auth, no Pro, no admin. Built to `docs/30-design-ia.md`
+and `docs/31-design-system.md` against `docs/04-standards.md`. This sprint's task: stop reading
+`web/build_data.py`'s static JSON and read `services/api` instead, and fix three product defects
+visible in the previous sprint's screenshots. See `docs/00-PLAN.md`'s decisions log (2026-09-13,
+frontend-developer) for the one-paragraph summary and `docs/CHANGELOG.md` for the changelog line.
+
+## Architecture
+
+- **`web/api_client.py`** — `ApiClient` wraps either a real `httpx.Client` (when `API_BASE_URL` is
+  set — HTTP mode, what a production deployment and `web/dev_up.py` use) or `services.api.app.app`
+  mounted in-process via Starlette's `TestClient` (when it isn't — no socket at all; what `pytest`
+  and a plain `uvicorn web.app:app --reload` use). Both expose the same `.get(path, params)`.
+- **`web/viewmodels.py`** — turns API envelope dicts (`services/api/serialize.py`'s shape) into
+  the flat dicts the Jinja templates read, and holds the frontend-only presentation rules: the
+  lifecycle-family colour grouping (docs/31 §1.2), the default active-states filter (product
+  defect A), and the collapsed provenance panel (product defect C). It decides nothing about
+  *visibility* — that is entirely `services/api/visibility.py`.
+- **`web/app.py`** — routes call `services/api` through `ApiClient` and render templates. The map
+  page's own JS talks to a same-origin proxy, `GET /api/proposals/geo`, which forwards to
+  `GET /v1/proposals/geo` and rewrites the API's absolute (and currently placeholder-hostname)
+  `url` fields to relative paths — see "Missing from the API" below.
+- **`web/static/js/map.js`** — fetches `/api/proposals/geo` on load and on every pan/zoom/filter
+  change and renders exactly what comes back (individual points below the cluster threshold,
+  cluster circles above it, per `docs/23` §3.1/docs/04 D-10). It does not compute clusters itself.
+- **`web/data_loading.py`** — loads connector parquet into a `services.db` SQLite store through
+  the real `services/ingest/loader.py`, for `web/dev_up.py` and the pytest suite. See "Data-layer
+  corrections" below for what it does beyond a plain load, and why.
+- **`web/store.py`** (the old in-memory filter/sort/paginate layer over the static JSON files) is
+  removed — nothing reads it any more; `services/api` now does all of filtering, sorting and
+  pagination, per the API's own filter grammar and cursor contract (`docs/23` §7, API-2).
+- **`web/build_data.py`** — retained only for the vendored basemap fallback asset
+  (`web/data_ref/build_basemap_fallback.py`'s output, `web/static/data/basemap_fallback.geojson`);
+  no route in `web/app.py` reads its JSON output any more. `web/test_build_data.py` still exercises
+  it directly and still passes — it is untouched.
 
 ## Run it
 
+**For real**, loading `data/normalized/*` through `services/ingest/loader.py` into SQLite and
+starting the API and the site as two processes talking over HTTP:
+
 ```bash
-# from the repo root, with the shared venv (fastapi/jinja2/uvicorn/playwright installed)
-python -m web.build_data --no-lag          # writes web/static/data/{proposals.geojson,opportunities.json,stats.json}
-uvicorn web.app:app --reload               # http://127.0.0.1:8000/
+python -m web.dev_up                 # loads data, starts both servers on :8001/:8000, Ctrl-C stops both
+python -m web.dev_up --preview       # also bypasses the publish delay so today's rows show now
+python -m web.dev_up --sample-per-state 200   # work around the visibility-query perf gap below
 ```
 
-`--no-lag` is the prototype flag the task asked for: it shows today's connector run instead of
-filtering everything out (all the sample data was retrieved today, and the real rule is a 14-day
-supply / 7-day opportunity lag). Every page still renders the delayed-tier notice with the
-*configured* lag, exactly as it will once the data is old enough for the lag to bite -- the notice
-text does not change between `--no-lag` and the real filter, only the row count does. Drop
-`--no-lag` to see the real filter (`web/test_build_data.py::test_lag_filtering_excludes...`
-proves it empties the set against today's fixtures, which is the intended behaviour).
+**In-process**, no second server at all (leave `API_BASE_URL` unset):
 
-## Pages built
+```bash
+DATABASE_URL=sqlite+pysqlite:///web/.data/dev.db uvicorn web.app:app --reload
+```
 
-| Route | What |
-|---|---|
-| `/` (= `/map`) | Map-first home: MapLibre GL JS, filter bar, in-view list, legend, Unplaced accordion |
-| `/proposals` | Filtered/sorted list (technology, lifecycle state, kind, jurisdiction, capacity range), htmx fragment swap, cursor-style pagination |
-| `/proposals/{slug}` | Detail: fields, status chip, Sources panel, lifecycle timeline, raw fields (only where the licence allows), attribution line |
-| `/opportunities` | Filtered/sorted list, default `status=open` sorted by due date |
-| `/opportunities/{slug}` | Detail: fields, status chip, Sources panel, status timeline, attribution line |
-| `/search` | Free-text search across both proposals and opportunities |
-| `/about` | Method notes + the source/licence registry, rendered from `data/sources.yaml` and `stats.json`, not hard-coded |
-| `/health` | Liveness + `data_as_of` |
+## Product defects fixed
 
-## Feature counts rendered (from the real `data/normalized/` snapshots, `--no-lag`)
+**A — the default map was a map of what died.** 7,889 of 14,388 normalised records (docs/22) are
+withdrawn; the old prototype showed everything, so the map read as dominated by dead projects. The
+default view (`web/viewmodels.py::ACTIVE_PROPOSAL_STATES`) now shows `announced` through
+`under_construction` only; `withdrawn`/`cancelled` sit behind an explicit "Include withdrawn &
+cancelled" checkbox on the map and the proposals list (same URL-param pattern the opportunities
+list already used for `status=all`: an explicit `lifecycle_state=` still wins verbatim). The notice
+above both views states the real counts, computed live from the API
+(`lifecycle_breakdown()` calls `GET /v1/proposals/geo` with no lifecycle filter and sums
+`totals.lifecycle_state_counts`), e.g. against the real per-source data loaded by `dev_up.py`:
+*"Showing 872 active proposals (announced through under construction). 160 withdrawn/cancelled are
+hidden by default … (320 built or unknown-state proposals are also outside this default view)."*
+`built` is deliberately outside both the default and the toggle — the task's own wording bounded
+the default range at `under_construction`; a future "show completed" control is a fair follow-up
+but wasn't asked for here.
 
-| Source | Kind | Rows visible |
-|---|---|---|
-| `us.iso.ercot.gen_queue` | proposal | 1,778 |
-| `us.iso.caiso.gen_queue` | proposal | 2,278 |
-| `us.iso.nyiso.gen_queue` | proposal | 1,814 |
-| `us.eia.860m` | proposal | 2,341 |
-| `gb.neso.tec_register` | proposal | 2,198 |
-| `us.grants_gov.search2` | opportunity | 151 |
-| `eu.ted.api` | opportunity | 698 |
-| `gb.find_a_tender` | opportunity | 11 |
-| `mdb.worldbank.procnotices` | opportunity | 100 |
+**B — the placeholder-name subtitle and "not a production launch" footer read as apologies.** The
+wordmark no longer carries a subtitle; the placeholder-name fact moved to `/about`'s intro
+paragraph (stated once, plainly). The footer is one calm line with the delayed-tier fact (read
+live from `/v1/health`, never hard-coded) and a sources link: *"Public data is delayed 14 days for
+proposals, 7 for opportunities. Sources and licences."*
 
-**10,409 proposals, 960 opportunities**, all visible (no `--no-lag` filtering loss since every row
-was retrieved today). Placement: 2,341 exact points (EIA-860M only -- the only `open` source with a
-supplied coordinate), 5,464 county centroids, 378 folded into 8 state-aggregate markers, 2,207
-listed under Unplaced (2,198 NESO GB rows with no US-style county/state; 9 CAISO/NYISO rows with
-neither a matched county nor a state at all).
+**C — the licence quote block was right but long.** The provenance panel now collapses each
+source behind its name; the reuse-class badge and retrieval date stay visible outside the
+`<details>`, and the (now composed, not verbatim — see below) licence text is the expandable part,
+matching `docs/31` §5.2's anatomy (source name, `retrieved_at`, licence badge, link-out; the quote
+itself isn't part of that anatomy, but the task asked for it collapsed the same way).
 
-## Design system implementation
+## Delayed tier, for real
 
-- Tokens as CSS custom properties in `web/static/css/styles.css` §1: colour (core + five status
-  families), type scale (`--text-1`...`--text-7`, Newsreader/Plex Sans/Plex Mono), 4px spacing
-  scale, radius, motion. Dark theme via `prefers-color-scheme` plus a `[data-theme]` override hook
-  (no manual toggle control built this sprint -- see Gaps below).
-- Status chip component (`_macros.html` `status_chip`): shared SVG icon + label per family, never
-  colour alone (D-5); `status_raw` exposed to screen readers only where the source's licence
-  allows raw (CAISO/NYISO withhold it).
-- Provenance panel + attribution line render from each record's own `source_id`, `source_url`,
-  `retrieved_at`, `licence_id`, `attribution_text` -- nothing is a template literal.
-- Delayed-tier notice is one component, one wording, rendered on every list/map/detail page.
-- No banned pattern from `docs/30` §9: table for tabular data (not cards), no gradient for status,
-  no emoji, no glassmorphism, no marketing hero above the map.
-- Responsive to 400px: table rows collapse to key/value cards, filter bar stacks, map keeps its
-  side list as a stacked panel (not yet a true bottom sheet -- see Gaps).
+`--no-lag` is gone. `public_at` from the API governs what's visible everywhere; nothing in `web/`
+filters further. Because `services/ingest/loader.py` computes `public_at = published_at +
+lag_days` at *ingestion* time, freshly-loaded rows (whose `retrieved_at`/`published_at` is "now")
+are correctly invisible for 14 (proposals) or 7 (opportunities) days — exactly the real behaviour.
+For previewing what a fresh connector run looks like without waiting: `web/dev_up.py --preview`
+(or `WEB_DEV_PREVIEW=1` for a manually-started `uvicorn`) pulls `public_at` back to "now" for rows
+still in the future (`web/data_loading.py::apply_preview_lag_override`) and the site shows a
+distinct, clearly-labelled banner wherever the delayed-tier notice renders: *"Preview: the publish
+delay is bypassed for this data so today's rows are visible now (dev only). The notice above still
+states the real configured lag."* The delayed-tier notice itself is unaffected by preview mode —
+it always states the real configured lag from `/v1/health`.
+
+## Data-layer corrections (`web/data_loading.py`) — and why they exist
+
+None of these edit `services/` code; they are documented workarounds applied *after* calling the
+real, unmodified `services.ingest.loader` functions, each tied to a gap already recorded in
+`services/README.md`'s "Open decisions":
+
+1. **Geocoding backfill.** `services/ingest/loader.py` never sets `location.geom` (open decision
+   #2 — no geocoder exists yet), so nothing would plot on the map at all. `backfill_locations()`
+   reuses the same public-domain US Census Gazetteer county-centroid table
+   `web/build_data.py`'s prototype vendored. `backfill_eia_exact_points()` additionally promotes
+   EIA-860M's exact `Latitude`/`Longitude` (present in the `raw` JSON the loader already stores,
+   just not projected onto `location.geom`) to the `exact` precedence tier, matching the design's
+   placement precedence (docs/04 D-8).
+2. **CAISO/NYISO's derived-only status.** Open decision #11: the loader hardcodes
+   `licence.allows_raw_publication = True` for *every* ingested licence, and never sets
+   `location.precision_reason` for *any* source. Both together mean the restricted-precision note
+   (docs/04 D-9) — the whole point of product defect C's redaction requirement — could never
+   render, even for CAISO/NYISO, which the legal register (`docs/00-PLAN.md`, 2026-09-12) calls
+   derived-only. `apply_derived_only_licence_correction()` flips the flag for those two sources
+   and stamps their `location.precision_reason = "licence"`.
+3. **Source `publish_state`.** Open decision #5: a newly-ingested source loads as `api_only` until
+   an admin publish workflow (not built yet) flips it to `public`. Every source this loader
+   touches already cleared the licence gate by construction, so `_flip_publish_state_public()`
+   does what that admin action would.
+
+`tests/test_web_provenance.py` proves defect C's redaction note works *independent* of these
+corrections (built directly on `services/db` models via `services/api/conftest.py`'s helpers, with
+a licence explicitly marked `allows_raw_publication=False`), so the test suite isn't just
+validating my own workaround against itself.
 
 ## Quality
 
-Run everything from the repo root with the shared venv:
-
 ```bash
-python -m web.build_data --no-lag
 ruff check web/
 ruff format --check web/
 mypy web
-pytest web -v
+pytest web tests/test_web_default_view.py tests/test_web_provenance.py -v
 ```
 
 Verbatim output from this build:
@@ -90,122 +141,119 @@ Verbatim output from this build:
 All checks passed!
 
 ### ruff format --check web/
-8 files already formatted
+12 files already formatted
 
 ### mypy web
-Success: no issues found in 6 source files
+Success: no issues found in 10 source files
 
-### python -m web.build_data --no-lag
-build complete
-proposals: 10409/10409 visible | opportunities: 960/960 visible | no_lag=True
-
-### pytest web -v
+### pytest web tests/test_web_default_view.py tests/test_web_provenance.py -v
 ============================= test session starts ==============================
 platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0
 rootdir: /home/user/Bankable
 configfile: pyproject.toml
 plugins: anyio-4.15.1
-collected 8 items
+collected 18 items
 
-web/test_build_data.py .......                                           [ 87%]
-web/test_e2e.py .                                                        [100%]
+web/test_build_data.py .......                                           [ 38%]
+web/test_e2e.py .                                                        [ 44%]
+tests/test_web_default_view.py .......                                   [ 83%]
+tests/test_web_provenance.py ...                                         [100%]
 
-============================== 8 passed in 31.68s ===============================
+======================== 18 passed in 55.62s ========================
 ```
 
-`mypy` is scoped to `pipeline`, `web` and `services` in `pyproject.toml` (three teams share the
-repo this sprint); running the full `mypy` from the repo root also reports one pre-existing error
-in `pipeline/connectors/us_ferc_elibrary/connector.py` unrelated to this task (a `pandas-stubs`
-strictness finding in a connector this agent does not own) -- `mypy web` above is the scoped,
-relevant gate and is clean. `pytest` at the repo root also runs `tests/test_social_queue.py`,
-which belongs to a different in-progress agent's work in this shared session and is unrelated to
-`web/`; `pytest web pipeline tests --ignore=tests/test_social_queue.py` is fully green.
+`services/db services/ingest services/api tests/test_api_contract.py` (untouched by this task,
+read only) still pass unchanged: 59 tests. `mypy` is scoped to `pipeline`, `web` and `services` in
+`pyproject.toml`; `tests/` is intentionally not in that list (see `pyproject.toml`'s comment), so
+the two new `tests/test_web_*.py` files are covered by the pytest run above, not the strict-mypy
+gate — both import and run cleanly regardless.
 
-### Playwright smoke path (`web/test_e2e.py`)
+### What each new/changed test proves (docs/00-PLAN.md task item 6)
 
-Starts a real `uvicorn` subprocess, drives Chromium (`/opt/pw-browsers/chromium`) through
-map -> list -> detail at desktop (1440px) and 400px, and asserts: the `#map` container exists and
-at least one cluster or marker actually renders (`queryRenderedFeatures`), the delayed-tier notice
-is present, the provenance panel and attribution line render on a detail page, and there is no
-horizontal overflow at 400px. Screenshots land in `web/screenshots/`:
-`home-desktop.png`, `home-400px.png`, `list-desktop.png`, `list-400px.png`, `detail-desktop.png`,
-`detail-400px.png`.
+- `tests/test_web_default_view.py` — loaded from `data/eval/normalized.parquet` (the task's named
+  fixture) through the real loader, restricted to the non-gated sources
+  (`web.build_data.EVAL_SHORT_ID_MAP`; SPP/ISO-NE dropped, never remapped). Asserts: the default
+  `/api/proposals/geo` and `/proposals` exclude `withdrawn`/`cancelled`; the `include_withdrawn=1`
+  toggle and an explicit `lifecycle_state=` both include them; the home page states the real
+  active/withdrawn counts; a proposal detail page's rendered source name/URL/retrieved-date match
+  the API envelope's own `provenance[0]` verbatim (not a template literal).
+  `services/ingest/loader.py` upserts row-by-row (no bulk path — several flushes per row measures
+  at ~100 rows/second here), so this file's fixture loads a `_stratified_sample` (60 rows per
+  lifecycle state per source, real rows through the real loader) rather than all ~9,500 —
+  documented in `web/data_loading.py::load_eval_fixture`. Full run: 7 tests in ~6s.
+- `tests/test_web_provenance.py` — built directly on `services/db` models (no eval fixture),
+  because the redaction case needs a licence with `allows_raw_publication=False`, which nothing in
+  the real ingested data currently produces without this task's own data-loader correction (see
+  above): proves the provenance panel collapses the licence quote behind the source name with
+  classification and retrieval date visible (product defect C), the restricted-precision note
+  renders when a location's `precision_reason` is `"licence"` (docs/04 D-9), and a gated/absent
+  record reads as 404 indistinguishably (docs/21 §8 item 3).
+- `web/test_e2e.py` (updated, not new) — now loads a real file-backed SQLite database via
+  `web/data_loading.py::load_dev_database(preview=True)` instead of building static JSON, and
+  starts `uvicorn web.app:app` as a real subprocess with `DATABASE_URL` set and `API_BASE_URL`
+  unset (in-process API mount inside that one process). Regenerates all six screenshots in
+  `web/screenshots/`: `home-{desktop,400px}.png`, `list-{desktop,400px}.png`,
+  `detail-{desktop,400px}.png`.
 
-This sandbox's egress proxy resets Chromium's own TLS handshake to every external host the page
-references (`cdn.jsdelivr.net` for MapLibre, `fonts.googleapis.com` for the type families,
-`tile.openstreetmap.org` for the basemap) -- plain `curl`/`urllib` through the same proxy work
-fine, so the test fetches the two MapLibre assets once via Python and serves them to the browser
-from memory (`page.route`), and aborts the non-essential font/basemap-tile requests rather than
-waiting out the same reset. The app's own markup is untouched -- a real browser with normal
-internet access loads both from the CDN exactly as written in `templates/home_map.html`.
+## Missing from the API — for the backend team
 
-### Map basemap: why it rendered blank, and the fix
+1. **No slug-keyed lookup.** `/v1/proposals/{public_id}` and `/v1/opportunities/{public_id}` are
+   the only detail routes; there is no `slug=` filter and no slug-keyed alias. The site's URLs are
+   SEO-friendly slugs per `docs/30-design-ia.md` (`/proposals/{slug}`), so
+   `web/app.py::_resolve_proposal_by_slug`/`_resolve_opportunity_by_slug` derive a search phrase
+   from the slug and scan up to 200 `q=` search results for an exact match — a real, working,
+   but best-effort substitute that can miss a record whose derived phrase doesn't rank in the
+   first 200 results. Recommend a `slug=` filter or a slug-keyed alias route.
+2. **Visibility-predicate performance at real volume.** `services/api/visibility.py`'s
+   `_has_public_source` (a correlated `EXISTS` per candidate row) measures at 30-75 seconds per
+   page over this site's real ~10,400-row proposal set in SQLite — confirmed the cost is the
+   predicate itself, not `services/api/geo.py`'s clustering (a plain `include=count` list query on
+   `/v1/proposals` costs the same). Unusable for an interactive site at this volume; likely needs
+   an index or a rewritten join, and should be re-measured against real Postgres/PostGIS before
+   trusting SQLite's number either way. `web/data_loading.py` and `web/dev_up.py --sample-per-state`
+   exist specifically to keep the dev/test site responsive around this gap; it isn't fixed.
+3. **No free-text licence quote/notes field in the public schema.** `Licence`'s embedded shape
+   (`serialize_licence_embedded`) is boolean permission flags + `attribution_text` — no field
+   carries `data/sources.yaml`'s free-text `license`/`notes` clauses the design's provenance panel
+   implies ("licence quote"). `web/viewmodels.py::_compose_licence_quote` composes a plain-language
+   paraphrase from the flags instead of quoting anything verbatim. Recommend exposing the
+   registry's free-text terms (a `notes`/`quote_text` field) if a literal quote is wanted.
+4. **`bbox` on `/v1/proposals/geo` is accepted and echoed but not enforced** — `services/api/geo.py`
+   never filters `proposals` by the given bounding box before clustering, so panning the map
+   currently re-fetches the same full result set every time (zoom still changes cluster
+   granularity, since grid-cell size is zoom-dependent). Not a correctness bug for what's rendered,
+   but a real gap for map performance at scale.
+5. **`technologies` (opportunities) is allowlisted but not implemented.** `services/api/app.py`'s
+   `OPPORTUNITY_FILTERS` includes `technologies`, and `check_allowed` accepts it, but
+   `_opportunity_query_with_filters` never applies it — passing it silently changes nothing. The
+   opportunities list's technology filter is wired to send this exact parameter name, so it will
+   start working the moment the backend implements it; today it's a no-op, not an error.
+6. **`GET /v1/organizations/{id}` has no public detail route rendered by this site** — sponsor and
+   issuer names render as plain text (`serialize_organization_summary`'s `url` field is unused);
+   an `/organizations/{slug}` page is in `docs/30-design-ia.md`'s page inventory but was out of
+   this task's explicit scope.
 
-Early screenshots showed clusters floating on a blank white canvas. Diagnosis (each step
-measured against this build, not assumed):
+## Simplifications carried over or newly made, and why
 
-1. **Tile source blocked in this sandbox -- confirmed.** `curl`/`urllib` through the proxy
-   fetch `tile.openstreetmap.org`, `tiles.openfreemap.org` (a vector alternative) and
-   `demotiles.maplibre.org/style.json` successfully. The same three URLs opened directly in this
-   Chromium build (`/opt/pw-browsers/chromium`) all reset mid-TLS-handshake
-   (`net::ERR_CONNECTION_RESET`) regardless of provider -- a Chromium/proxy interaction specific
-   to this sandbox, not a defect in any one tile host or in the app's style configuration.
-2. **That exposed a real style-configuration fragility (not just a sandbox artefact).** With the
-   OSM raster source declared in the map's *initial* style, MapLibre GL JS 5.24.0's `load` event
-   never fired at all once every tile request failed -- confirmed by watching it hang for 40+
-   seconds even after each individual tile logged its own `AJAXError` to the console. A raster
-   source that fails outright (blocked host, offline, an ad-blocker, a flaky CDN) was silently
-   taking the *entire* map down with it, data layers included, not just the basemap image. This
-   would have hit real users too, not only this sandbox.
-3. **Playwright's screenshot timing (`idle`) is not a safe fix for #2.** `idle` fires only once
-   every requested tile has "loaded or errored out"; if a tile request never resolves at the
-   network layer (as here), `idle` never fires either. Waiting for `idle` before capture was tried
-   and does not help when the tile source itself is the thing hanging.
+- **No separate "state aggregate" marker.** The old client-side prototype drew a distinct square
+  glyph for records placed only at state level. The API's location model has no aggregate-marker
+  concept (only a `precision` value); state-centroid records now render as ordinary points (or
+  fold into a cluster like anything else), which is a smaller vocabulary than the old prototype
+  but consistent with the server owning clustering (item 4 above governs a fuller fix).
+- **`/proposals`'s "Previous" pager control is always disabled.** `services/api/pagination.py`
+  only implements forward iteration (`page.prev_cursor` is always `null`, `services/README.md`
+  open decision #6) — carried through honestly rather than faked.
+- **Jurisdiction is a free-text input, not a populated dropdown**, on both list pages and the map
+  filter bar: `/v1/meta/vocabularies` has no `jurisdiction` vocabulary to populate one from.
+- **The raw-JSON "Raw source fields" debug panel from the old prototype is gone** — the public API
+  never exposes a record's full raw payload (by design; only `provenance[].source_record_id`,
+  gated by licence), so there was nothing left to show.
 
-Fix applied in `web/static/js/map.js`: the OSM raster source/layer is no longer part of the
-map's initial style. The initial style holds only a same-origin GeoJSON fallback layer (world
-country fill + country/state outlines, `web/static/data/basemap_fallback.geojson`,
-public-domain Natural Earth + US Census Bureau TIGERweb data, generated by
-`web/data_ref/build_basemap_fallback.py`), so `load` fires as soon as that fast, reliable,
-same-origin fetch resolves. The OSM tile source is then added with `map.addSource`/`addLayer`
-*inside* the `load` handler, drawn above the fallback so real tiles cover it wherever they load,
-and its success or failure can no longer block anything else on the page. OSM tiles remain the
-production default basemap; the fallback is what keeps the map legible -- underneath real tiles
-when they load, standing in for them when they do not. The Playwright smoke test proves this
-directly: `queryRenderedFeatures({layers:['fallback-land']})` is asserted non-empty with the tile
-layer deliberately unreachable.
+## Design system, accessibility and responsiveness (carried forward, updated where the API changed it)
 
-## What could not be honoured this sprint, and why
-
-- **D-21 self-hosted fonts.** The task instruction for this build was explicit: "Newsreader, IBM
-  Plex Sans and IBM Plex Mono from Google Fonts". `docs/31` D-21 calls for self-hosting with a
-  vendored licence file. Flagged here as a departure to fix before production, not a design-system
-  change.
-- **Clustering is client-side (MapLibre's built-in `cluster: true`), not the server-computed
-  `/v1/proposals/geo` endpoint** `docs/23` §3.1 describes. There is no database or API service in
-  this sprint's scope (`docs/20` §15 row is a Sprint 2+ item across several agents); the dominant-
-  family colour for a cluster is computed with a `clusterProperties` sum per family and a
-  `max`-comparison expression, which ties in a fixed priority order (danger > committed > success
-  > progress > neutral) rather than the server deciding it.
-- **D-14 keyboard/roving-tabindex on individual map markers** is not implemented -- MapLibre
-  markers are canvas-rendered (correctly, per D-13's "never one DOM node per marker"), which means
-  they are not natively focusable. The synchronised, always-present "in view" list *is* built and
-  is the full keyboard/screen-reader path to every record (arrow-key map panning and per-marker
-  roving tabindex are not); this is a narrower reading of D-14 than the standard intends.
-- **D-32's "map keeps the results list as a bottom sheet" at 400px** renders the side list as a
-  stacked panel below the map instead of a true overlay bottom sheet. No horizontal overflow, all
-  content reachable, just a simpler vertical layout.
-- **D-23 manual dark/light override control** is not built; the page follows
-  `prefers-color-scheme` only. Both palettes are complete and verified (see the dark-mode
-  screenshot check performed during development).
-- **NESO TEC Register has no county/state field usable by the D-8 precedence chain** -- its
-  `county` column holds a connection-site or substation name, not a UK administrative county, and
-  this build has no UK gazetteer. All 2,198 rows are listed under Unplaced (GB) rather than
-  guessed at; documented in `/about`.
-- **Sitemaps, RSS/JSON feeds** (a general frontend-developer responsibility) are out of this
-  sprint's explicit page list (`docs/30-design-ia.md` limits it to map/list/detail/about) and were
-  not built.
-- **Sort/filter pagination uses a plain integer offset** exposed as `cursor=` rather than a signed
-  opaque token (`docs/23` API-2). The UI never shows "page N of M" and cursors are not reused
-  across data changes in this static-file prototype, so the simplification is invisible to a user
-  but is not the real cursor contract.
+Unchanged from the previous sprint except where noted above: tokens as CSS custom properties
+(`web/static/css/styles.css`), the status chip/provenance-panel/delayed-notice/table components
+from `docs/31` §5, `dark`/`light` via `prefers-color-scheme`, responsive to 400px (filter bars
+stack, tables collapse to key/value rows, the map keeps its side list as a stacked panel). Google
+Fonts CDN instead of self-hosted (docs/31 D-21) remains a pre-production departure, unchanged by
+this task.
