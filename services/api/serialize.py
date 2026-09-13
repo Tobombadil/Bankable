@@ -88,6 +88,10 @@ def build_licence_summary(source_rows: list[dict[str, Any]]) -> dict[str, Any]:
             if isinstance(s["retrieved_at_max"], dt.datetime)
             else s["retrieved_at_max"]
         )
+    return _finalize_licence_summary(sources)
+
+
+def _finalize_licence_summary(sources: list[dict[str, Any]]) -> dict[str, Any]:
     names = [s["name"] for s in sources]
     attribution_line = f"Sources: {'; '.join(names)}." if names else "Sources: none in this response."
     redistribution = (
@@ -95,6 +99,53 @@ def build_licence_summary(source_rows: list[dict[str, Any]]) -> dict[str, Any]:
         "wherever a credit line is shown; raw source rows are shown only where the licence allows it."
     )
     return {"sources": sources, "attribution_line": attribution_line, "redistribution": redistribution}
+
+
+_SourceLicenceAggregateRow = tuple[
+    str, str, str | None, str, str, str | None, str, str | None, bool, dt.datetime | None, int
+]
+
+
+def licence_summary_from_source_aggregates(
+    rows: list[_SourceLicenceAggregateRow],
+) -> dict[str, Any]:
+    """Same output shape as `build_licence_summary`, built from a `GROUP BY source_id` SQL
+    aggregate instead of one Python dict per record (`services/api/app.py`'s geo endpoints, which
+    would otherwise need every visible record's `ProposalSource`/`OpportunitySource` ORM row
+    materialised just to compute this — the dominant remaining cost after the visibility-index fix
+    over the full ~10,400-row set, services/README.md "Sprint 2 fixes"). Each row: `(source_id,
+    name, operator, licence_id, licence_name, licence_url, reuse_class, attribution_text,
+    requires_link_back, retrieved_at_max, record_count)`.
+    """
+    sources = [
+        {
+            "source_id": source_id,
+            "name": name,
+            "operator": operator,
+            "licence_id": licence_id,
+            "licence_name": licence_name,
+            "licence_url": licence_url,
+            "reuse_class": reuse_class,
+            "attribution_text": attribution_text,
+            "requires_link_back": requires_link_back,
+            "record_count": record_count,
+            "retrieved_at_max": iso(retrieved_at_max),
+        }
+        for (
+            source_id,
+            name,
+            operator,
+            licence_id,
+            licence_name,
+            licence_url,
+            reuse_class,
+            attribution_text,
+            requires_link_back,
+            retrieved_at_max,
+            record_count,
+        ) in rows
+    ]
+    return _finalize_licence_summary(sources)
 
 
 def build_envelope(

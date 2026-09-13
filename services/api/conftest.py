@@ -138,12 +138,24 @@ def make_org(session: Session, name: str = "Acme Power LLC") -> Organization:
     return org
 
 
-def make_location(session: Session, source: Source, licence: Licence) -> Location:
+def make_location(
+    session: Session,
+    source: Source,
+    licence: Licence,
+    *,
+    geom: tuple[float, float] | None = None,
+    precision: str = "county_centroid",
+    precision_reason: str | None = None,
+    county_name: str | None = "Travis",
+    state_code: str | None = "US-TX",
+) -> Location:
     loc = Location(
-        kind="county",
-        precision="county_centroid",
-        county_name="Travis",
-        state_code="US-TX",
+        kind="county" if county_name else "state",
+        geom=geom,
+        precision=precision,
+        precision_reason=precision_reason,
+        county_name=county_name,
+        state_code=state_code,
         country="US",
         source_id=source.id,
         source_url=source.url,

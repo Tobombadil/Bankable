@@ -49,36 +49,40 @@ def _in_bbox(lon: float, lat: float, bbox: tuple[float, float, float, float]) ->
 
 
 def build_geo_feature_collection(
-    proposals: list[Proposal], *, bbox: tuple[float, float, float, float], zoom: int
-) -> tuple[dict[str, Any], int]:
-    """`proposals` must already be tier/licence filtered by the caller (services/api/visibility.py).
+    plottable_proposals: list[Proposal],
+    *,
+    bbox: tuple[float, float, float, float],
+    zoom: int,
+    records_total: int,
+    lifecycle_state_counts: dict[str, int],
+    technology_counts: dict[str, int],
+) -> dict[str, Any]:
+    """`plottable_proposals` must already be tier/licence filtered by the caller
+    (services/api/visibility.py) *and* pre-restricted to records with a placeable point
+    (`p.location is not None and p.location.geom is not None`) — the caller computes that
+    restriction in SQL (`services/api/app.py::_proposal_geo_query`) rather than this function
+    filtering it out of a wider, more expensive-to-load set; over the real ~10,400-row proposal
+    set, loading every column of every row (including the ~2,200 that can never be plotted) was
+    most of this endpoint's latency (services/README.md "Sprint 2 fixes").
 
-    `bbox` scopes which placed records become map *features* (points/clusters) — a pan or zoom now
+    `bbox` scopes which of those become map *features* (points/clusters) — a pan or zoom now
     actually changes what's returned (`web/README.md` "Missing from the API" item 4: previously
     accepted and echoed but never applied, so every request re-clustered the whole dataset
-    regardless of viewport). `totals` (`records`, `lifecycle_state_counts`, `technology_counts`)
-    and the returned `unplaced_count` stay scoped to the full filter match, not the viewport — a
-    record with no geometry is not "in" any bbox, and D-8 requires it stays counted rather than
-    silently dropping out the moment a caller narrows the map; `web/app.py`'s sitewide
-    active/withdrawn notice deliberately calls this with a whole-world bbox for exactly this
-    total, and a whole-world bbox already includes every placed record, so that caller's numbers
-    are unaffected by this scoping.
+    regardless of viewport). `records_total`, `lifecycle_state_counts` and `technology_counts` are
+    the caller's own aggregate over the *full* filter match (not just the plottable/in-view
+    subset) — a record with no geometry is not "in" any bbox, and D-8 requires it stays counted
+    rather than silently dropping out the moment a caller narrows the map; `web/app.py`'s sitewide
+    active/withdrawn notice deliberately calls this with a whole-world bbox, which already
+    includes every placed record, so that caller's numbers are unaffected by this scoping.
 
-    Returns `(feature_collection, unplaced_count)`.
+    Returns the feature collection dict (`meta.unplaced_count` is the caller's concern, computed
+    alongside `records_total` from the same aggregate query — not derived here).
     """
-    with_location: list[tuple[Proposal, Location]] = [
-        (p, p.location) for p in proposals if p.location is not None
-    ]
-    unplaced_count = len(proposals) - len(with_location)
-
-    # county/state-centroid records without a stored point cannot be plotted exactly; treat them
-    # as "unplaced" for feature purposes but still counted honestly (docs/04 D-8) rather than
-    # silently dropped.
     plottable: list[tuple[Proposal, Location, tuple[float, float]]] = [
-        (p, loc, loc.geom) for p, loc in with_location if loc.geom is not None
+        (p, p.location, p.location.geom)
+        for p in plottable_proposals
+        if p.location is not None and p.location.geom is not None
     ]
-    unplaced_count += len(with_location) - len(plottable)
-
     in_view = [member for member in plottable if _in_bbox(member[2][0], member[2][1], bbox)]
 
     features: list[dict[str, Any]] = []
@@ -95,25 +99,17 @@ def build_geo_feature_collection(
         for members in groups.values():
             features.append(_cluster_feature(members))
 
-    lifecycle_counts: dict[str, int] = defaultdict(int)
-    technology_counts: dict[str, int] = defaultdict(int)
-    for p in proposals:
-        lifecycle_counts[p.lifecycle_state] += 1
-        if p.technology:
-            technology_counts[p.technology] += 1
-
-    fc = {
+    return {
         "type": "FeatureCollection",
         "bbox": list(bbox),
         "features": features,
         "totals": {
-            "records": len(proposals),
+            "records": records_total,
             "clustered": len(in_view) > SPLIT_THRESHOLD,
-            "lifecycle_state_counts": dict(lifecycle_counts),
-            "technology_counts": dict(technology_counts),
+            "lifecycle_state_counts": lifecycle_state_counts,
+            "technology_counts": technology_counts,
         },
     }
-    return fc, unplaced_count
 
 
 def _record_feature(p: Proposal, loc: Location, lon: float, lat: float) -> dict[str, Any]:

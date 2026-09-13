@@ -301,3 +301,149 @@ def test_geo_endpoint_returns_feature_collection(client, db):
     assert resp.status_code == 200
     body = resp.json()
     assert body["data"]["type"] == "FeatureCollection"
+
+
+def test_geo_bbox_is_enforced(client, db):
+    """web/README.md "Missing from the API" item 4, fixed: `bbox` used to be accepted and echoed
+    but never applied, so panning the map re-fetched the same full result set every request. One
+    proposal placed in Texas, one in New York; a Texas-only bbox must return only the Texas one."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    tx = make_location(db, src, lic, geom=(-97.7, 30.3), county_name="Travis", state_code="US-TX")
+    ny = make_location(db, src, lic, geom=(-73.9, 42.9), county_name="Albany", state_code="US-NY")
+    make_visible_proposal(db, src, public_id_suffix="701", location=tx)
+    make_visible_proposal(db, src, public_id_suffix="702", location=ny)
+    db.commit()
+
+    tx_bbox = "-107,25,-93,37"
+    resp = client.get(f"/v1/proposals/geo?bbox={tx_bbox}&zoom=8")
+    assert resp.status_code == 200
+    body = resp.json()
+    features = body["data"]["features"]
+    assert len(features) == 1
+    assert features[0]["properties"]["feature_kind"] == "proposal"
+    assert features[0]["geometry"]["coordinates"][0] < -93  # the Texas point, not the NY one
+
+    # totals stay scoped to the whole filter match, not the viewport (docs/04 D-8: a record isn't
+    # dropped just because a narrower bbox was asked for)
+    assert body["data"]["totals"]["records"] == 2
+
+    world_resp = client.get("/v1/proposals/geo?bbox=-179,-85,179,85&zoom=8")
+    assert len(world_resp.json()["data"]["features"]) == 2
+
+
+def test_geo_unplaced_records_are_counted_not_dropped(client, db):
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    placed = make_location(db, src, lic, geom=(-97.7, 30.3))
+    unplaced = make_location(db, src, lic, geom=None, precision="unknown", county_name=None, state_code=None)
+    make_visible_proposal(db, src, public_id_suffix="710", location=placed)
+    make_visible_proposal(db, src, public_id_suffix="711", location=unplaced)
+    make_visible_proposal(db, src, public_id_suffix="712", location=None)
+    db.commit()
+
+    resp = client.get("/v1/proposals/geo?bbox=-179,-85,179,85&zoom=5")
+    body = resp.json()
+    assert len(body["data"]["features"]) == 1
+    assert body["data"]["totals"]["records"] == 3
+    assert body["meta"]["unplaced_count"] == 2
+
+
+def test_geo_restricted_precision_reason_renders_for_derived_only_sources(client, db):
+    lic = make_attribution_licence(db)
+    lic.allows_raw_publication = False
+    src = make_public_source(db, lic, id_="us.test.derived_only_source")
+    loc = make_location(db, src, lic, geom=(-97.7, 30.3), precision_reason="licence")
+    make_visible_proposal(db, src, public_id_suffix="720", location=loc)
+    db.commit()
+
+    resp = client.get("/v1/proposals/geo?bbox=-179,-85,179,85&zoom=10")
+    feature = resp.json()["data"]["features"][0]
+    assert feature["properties"]["precision_reason"] == "licence"
+    assert feature["properties"]["precision_note"] == "location shown at county level (source licence)"
+
+
+def test_slug_filter_looks_up_a_proposal_and_an_opportunity(client, db):
+    """web/README.md "Missing from the API" item 1: the site had no `slug=` filter and no
+    slug-keyed alias, so it scanned up to 200 search results to map a slug back to a record."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    prop = make_visible_proposal(db, src, public_id_suffix="740")
+    opp = make_visible_opportunity(db, src, public_id_suffix="slug1")
+    db.commit()
+
+    prop_resp = client.get(f"/v1/proposals?slug={prop.slug}")
+    assert prop_resp.status_code == 200
+    assert [p["public_id"] for p in prop_resp.json()["data"]] == [prop.public_id]
+
+    opp_resp = client.get(f"/v1/opportunities?slug={opp.slug}")
+    assert opp_resp.status_code == 200
+    assert [o["public_id"] for o in opp_resp.json()["data"]] == [opp.public_id]
+
+    miss_resp = client.get("/v1/proposals?slug=not-a-real-slug")
+    assert miss_resp.json()["data"] == []
+
+
+def test_opportunities_technologies_filter_is_enforced(client, db):
+    """web/README.md "Missing from the API" item 5: `technologies` was allowlisted and accepted
+    but silently ignored. Any-of match; an all-source opportunity (empty `technologies[]`) matches
+    every value (api/openapi.yaml `Technologies` parameter)."""
+    from services.db.models import Opportunity
+
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    solar = make_visible_opportunity(db, src, public_id_suffix="solar1")  # default technologies=[solar_pv]
+    wind = make_visible_opportunity(db, src, public_id_suffix="wind1")
+    db.get(Opportunity, wind.id).technologies = ["wind"]
+    all_source = make_visible_opportunity(db, src, public_id_suffix="allsrc1")
+    db.get(Opportunity, all_source.id).technologies = []
+    db.commit()
+
+    resp = client.get("/v1/opportunities?status=open&technologies=wind")
+    ids = {o["public_id"] for o in resp.json()["data"]}
+    assert ids == {wind.public_id, all_source.public_id}
+    assert solar.public_id not in ids
+
+    resp2 = client.get("/v1/opportunities?status=open&technologies=solar_pv")
+    ids2 = {o["public_id"] for o in resp2.json()["data"]}
+    assert ids2 == {solar.public_id, all_source.public_id}
+
+
+def test_organization_detail_route(client, db):
+    """`GET /v1/organizations/{public_id}` (api/openapi.yaml `getOrganization`) -- already
+    implemented before this task; this asserts the counts and 404 boundary explicitly."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    org = make_org(db, name="Acme Power LLC")
+    make_visible_proposal(db, src, public_id_suffix="731", sponsor=org)
+    db.commit()
+
+    resp = client.get(f"/v1/organizations/{org.public_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data"]["public_id"] == org.public_id
+    assert body["data"]["proposal_count"] == 1
+    assert body["data"]["opportunity_count"] == 0
+
+    assert client.get("/v1/organizations/org_doesnotexist").status_code == 404
+
+
+def test_source_and_licence_expose_a_quote_text_field(client, db):
+    """web/README.md "Missing from the API" item 3: no field carried `data/sources.yaml`'s
+    free-text `license` clause; `web/viewmodels.py` had to compose a paraphrase instead of quoting
+    anything. `Licence.quote_text` (services/db/models.py) now carries it; `notes` (data-engineer
+    commentary, sometimes about in-progress legal review) stays out of the public shape."""
+    lic = make_open_licence(db)
+    lic.quote_text = 'Terms of Use: "raw data ... may be used, reproduced, and redistributed."'
+    lic.notes = "Internal-only commentary that must never appear on the public API."
+    src = make_public_source(db, lic)
+    db.commit()
+
+    resp = client.get(f"/v1/sources/{src.id}")
+    assert resp.status_code == 200
+    body = resp.json()["data"]
+    assert body["licence"]["quote_text"] == lic.quote_text
+    assert "notes" not in body["licence"]
+
+    lic_resp = client.get(f"/v1/licences/{lic.id}")
+    assert lic_resp.json()["data"]["quote_text"] == lic.quote_text

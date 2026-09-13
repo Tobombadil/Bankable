@@ -17,13 +17,21 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid as _uuid
+from collections import defaultdict
 from typing import Any
 
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import ColumnElement, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import (
+    InstrumentedAttribute,
+    Session,
+    contains_eager,
+    load_only,
+    noload,
+    selectinload,
+)
 
 from services.api.common import WEB_HOST, ensure_aware, new_request_id, utcnow
 from services.api.deps import get_db
@@ -39,6 +47,7 @@ from services.api.serialize import (
     build_meta,
     build_page,
     event_licence_row,
+    licence_summary_from_source_aggregates,
     licence_summary_row,
     serialize_event,
     serialize_licence,
@@ -55,6 +64,7 @@ from services.api.visibility import (
 from services.db.models import (
     Event,
     Licence,
+    Location,
     Opportunity,
     OpportunitySource,
     Organization,
@@ -107,8 +117,7 @@ PROPOSAL_FILTERS = {
 PROPOSAL_SORT_ALLOWLIST = {"last_changed", "first_seen", "capacity_mw", "name_canonical"}
 
 
-def _proposal_query_with_filters(request: Request) -> sa.Select[tuple[Proposal]]:
-    stmt = select(Proposal).where(*proposal_public_filter())
+def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]:
     qp = request.query_params
     if v := qp.get("kind"):
         stmt = stmt.where(Proposal.kind.in_(csv_param(v)))
@@ -134,6 +143,115 @@ def _proposal_query_with_filters(request: Request) -> sa.Select[tuple[Proposal]]
         like = f"%{v.lower()}%"
         stmt = stmt.where(func.lower(Proposal.name_canonical).like(like))
     return stmt
+
+
+def _proposal_query_with_filters(request: Request) -> sa.Select[tuple[Proposal]]:
+    # `Proposal.sources` is a `viewonly` relationship with no eager default (unlike `sponsor`/
+    # `location`, both `lazy="joined"`), so a caller that reads `.sources` over a whole result set
+    # (`_proposal_licence_rows`) would otherwise issue one query per proposal -- fine at this list
+    # endpoint's page size (<=200), unlike the geo endpoint's unpaginated full-viewport set, which
+    # uses `_proposal_geo_plottable_query` below instead (services/README.md "Sprint 2 fixes").
+    stmt = select(Proposal).where(*proposal_public_filter()).options(selectinload(Proposal.sources))
+    return _apply_proposal_filters(stmt, request)
+
+
+#: Exactly the `Proposal`/`Location` columns `services/api/geo.py` reads for a placed feature
+#: (individual marker or cluster member) plus its identity/join keys. Kept as an explicit list
+#: (rather than loading every column) because unused-column hydration -- not the join itself --
+#: turned out to be most of the residual cost at the real ~8,200-row placed set: even a bare,
+#: no-relationship `select(Proposal)` over every column took ~0.44s of pure ORM row construction;
+#: narrowing to these columns cuts that to ~0.12-0.25s (services/README.md "Sprint 2 fixes" has the
+#: full before/after). Any column `services/api/geo.py` starts reading later needs adding here too
+#: -- SQLAlchemy's default `load_only` behaviour for a column left out is a silent per-row
+#: deferred-load query on first access, not an error, so a gap here would quietly reintroduce an
+#: N+1 rather than fail loudly; nothing but the endpoint's own timing budget would catch it.
+_GEO_PROPOSAL_COLUMNS = (
+    Proposal.id,
+    Proposal.public_id,
+    Proposal.slug,
+    Proposal.name_canonical,
+    Proposal.kind,
+    Proposal.technology,
+    Proposal.lifecycle_state,
+    Proposal.capacity_mw,
+    Proposal.last_changed,
+    Proposal.location_id,
+)
+_GEO_LOCATION_COLUMNS = (
+    Location.id,
+    Location.geom,
+    Location.precision,
+    Location.county_name,
+    Location.state_code,
+    Location.licence_id,
+)
+
+
+def _proposal_geo_plottable_query(request: Request) -> sa.Select[tuple[Proposal]]:
+    """Same filters as `_proposal_query_with_filters`, restricted to proposals that can actually
+    be placed on the map (`location` present with a resolved `geom`) and loaded for `GET
+    /v1/proposals/geo`'s access pattern: every visible *placeable* proposal (not one page of ~50),
+    over only the columns `services/api/geo.py` reads (`_GEO_PROPOSAL_COLUMNS`/
+    `_GEO_LOCATION_COLUMNS` above).
+
+    Restricting to placeable rows in SQL (an inner join, `Location.geom.is_not(None)`) rather than
+    loading every visible proposal and filtering the ~2,200 unplaced ones out in Python matters at
+    the real ~10,400-row proposal set — `_proposal_geo_totals` below still counts every visible
+    proposal (placeable or not) for `records`/`lifecycle_state_counts`/`unplaced_count`, just via a
+    separate, much cheaper column-only query instead of full ORM hydration.
+
+    `sponsor` (the list endpoint's default, `lazy="joined"` on the model, never read here) is
+    dropped entirely; `location`'s own `lazy="joined"` `source`/`licence` (needed only for the
+    below-`SPLIT_THRESHOLD` individual-feature path's restricted-precision check,
+    `services/api/geo.py::_precision_reason`) fall back to a per-record lazy load instead of an
+    eager join on every row; `.sources` is not loaded here at all -- `_source_licence_aggregate`
+    below computes the licence summary with one SQL aggregate instead, and the individual-feature
+    path lazy-loads `.sources` per record (bounded by `SPLIT_THRESHOLD`, so at most a few hundred
+    small queries). Together with the visibility indexes (services/db/models.py), this is the
+    services/README.md "Sprint 2 fixes" geo timing.
+    """
+    loc_load = contains_eager(Proposal.location)
+    stmt = (
+        select(Proposal)
+        .join(Location, Location.id == Proposal.location_id)
+        .where(*proposal_public_filter(), Location.geom.is_not(None))
+        .options(
+            load_only(*_GEO_PROPOSAL_COLUMNS),
+            noload(Proposal.sponsor),
+            loc_load.load_only(*_GEO_LOCATION_COLUMNS),
+            loc_load.lazyload(Location.source),
+            loc_load.lazyload(Location.licence),
+        )
+    )
+    return _apply_proposal_filters(stmt, request)
+
+
+def _proposal_geo_totals(db: Session, request: Request) -> tuple[int, dict[str, int], dict[str, int], int]:
+    """`(records_total, lifecycle_state_counts, technology_counts, unplaced_count)` over every
+    visible proposal matching `request`'s filters (not just the placeable subset
+    `_proposal_geo_plottable_query` loads) — one column-only query (three plain columns, not full
+    `Proposal`/`Location` ORM entities) rather than four separate `COUNT`/`GROUP BY` round trips
+    each re-evaluating the visibility predicate, or hydrating every row as an ORM object just to
+    tally two of its columns in Python (services/README.md "Sprint 2 fixes").
+    """
+    stmt = _apply_proposal_filters(
+        select(Proposal.lifecycle_state, Proposal.technology, Location.geom)
+        .select_from(Proposal)
+        .outerjoin(Location, Location.id == Proposal.location_id)
+        .where(*proposal_public_filter()),
+        request,
+    )
+    rows = db.execute(stmt).all()
+    lifecycle_counts: dict[str, int] = defaultdict(int)
+    technology_counts: dict[str, int] = defaultdict(int)
+    unplaced = 0
+    for lifecycle_state, technology, geom in rows:
+        lifecycle_counts[lifecycle_state] += 1
+        if technology:
+            technology_counts[technology] += 1
+        if geom is None:
+            unplaced += 1
+    return len(rows), dict(lifecycle_counts), dict(technology_counts), unplaced
 
 
 def _sort_spec(request: Request, allowlist: set[str], default: str) -> tuple[str, bool]:
@@ -188,6 +306,41 @@ def list_proposals(request: Request, db: Session = Depends(get_db)) -> Any:
     return env
 
 
+def _source_licence_aggregate(
+    db: Session,
+    link_model: type[ProposalSource] | type[OpportunitySource],
+    fk_column: InstrumentedAttribute[Any],
+    id_subquery: sa.Select[Any],
+) -> dict[str, Any]:
+    """`licence_summary` for a whole (unpaginated) result set via one `GROUP BY source_id`
+    aggregate query, instead of materialising every visible `proposal_source`/`opportunity_source`
+    ORM row just to fold them in Python (`_proposal_licence_rows` — fine at a list page's size, the
+    dominant remaining cost at the geo endpoints' full-viewport scale after the visibility-index
+    fix, services/README.md "Sprint 2 fixes")."""
+    agg_stmt = (
+        select(
+            Source.id,
+            Source.name,
+            Source.operator,
+            Licence.id,
+            Licence.name,
+            Licence.url,
+            Licence.reuse_class,
+            func.coalesce(Source.attribution_text, Licence.attribution_text),
+            Licence.requires_link_back,
+            func.max(link_model.retrieved_at),
+            func.count(),
+        )
+        .select_from(link_model)
+        .join(Source, Source.id == link_model.source_id)
+        .join(Licence, Licence.id == Source.licence_id)
+        .where(fk_column.in_(id_subquery), link_model.active.is_(True))
+        .group_by(Source.id, Licence.id)
+    )
+    rows = [tuple(row) for row in db.execute(agg_stmt).all()]
+    return licence_summary_from_source_aggregates(rows)  # type: ignore[arg-type]
+
+
 @app.get("/v1/proposals/geo")
 def get_proposals_geo(request: Request, db: Session = Depends(get_db)) -> Any:
     check_allowed(request, {"bbox", "zoom"} | PROPOSAL_FILTERS | {"q"})
@@ -200,13 +353,21 @@ def get_proposals_geo(request: Request, db: Session = Depends(get_db)) -> Any:
         zoom = int(zoom_param)
     except ValueError as exc:
         raise validation_error("bbox", "bbox/zoom malformed", request.url.path) from exc
-    stmt = _proposal_query_with_filters(request)
-    proposals = list(db.scalars(stmt).all())
-    fc, unplaced_count = build_geo_feature_collection(proposals, bbox=bbox, zoom=zoom)
-    meta = build_meta("proposal", extra={"unplaced_count": unplaced_count})
-    return build_envelope(
-        fc, meta=meta, licence_summary=build_licence_summary(_proposal_licence_rows(proposals))
+    stmt = _proposal_geo_plottable_query(request)
+    plottable = list(db.scalars(stmt).all())
+    records_total, lifecycle_counts, technology_counts, unplaced_count = _proposal_geo_totals(db, request)
+    fc = build_geo_feature_collection(
+        plottable,
+        bbox=bbox,
+        zoom=zoom,
+        records_total=records_total,
+        lifecycle_state_counts=lifecycle_counts,
+        technology_counts=technology_counts,
     )
+    meta = build_meta("proposal", extra={"unplaced_count": unplaced_count})
+    id_subquery = _apply_proposal_filters(select(Proposal.id).where(*proposal_public_filter()), request)
+    licence_summary = _source_licence_aggregate(db, ProposalSource, ProposalSource.proposal_id, id_subquery)
+    return build_envelope(fc, meta=meta, licence_summary=licence_summary)
 
 
 @app.get("/v1/proposals/{public_id}")
@@ -305,15 +466,22 @@ def _opportunity_technologies_filter(db: Session, values: list[str]) -> ColumnEl
     """
     empty = Opportunity.technologies == []
     dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
+    overlap: ColumnElement[bool]
     if dialect == "postgresql":
         overlap = Opportunity.technologies.op("&&")(list(values))
     else:
-        overlap = sa.or_(*(Opportunity.technologies.like(f'%"{t}"%') for t in values))
+        # `.like()` on a `TextArray` column would otherwise bind the pattern *through the
+        # column's own type* (`services/db/types.py` JSON-encodes it, turning `%"wind"%` into a
+        # JSON array of one character per list element) rather than as a plain string -- casting
+        # to `Text` first makes the right-hand literal an ordinary string bind again.
+        technologies_text = sa.cast(Opportunity.technologies, sa.Text)
+        overlap = sa.or_(*(technologies_text.like(f'%"{t}"%') for t in values))
     return sa.or_(empty, overlap)
 
 
 def _opportunity_query_with_filters(request: Request, db: Session) -> sa.Select[tuple[Opportunity]]:
-    stmt = select(Opportunity).where(*opportunity_public_filter())
+    # Same N+1 fix as `_proposal_query_with_filters` above, for `Opportunity.sources`.
+    stmt = select(Opportunity).where(*opportunity_public_filter()).options(selectinload(Opportunity.sources))
     qp = request.query_params
     status = csv_param(qp.get("status")) or ["open"]
     stmt = stmt.where(Opportunity.status.in_(status))
@@ -391,7 +559,30 @@ def get_opportunities_geo(request: Request, db: Session = Depends(get_db)) -> An
     zoom = int(zoom_param)
     stmt = _opportunity_query_with_filters(request, db)
     items = list(db.scalars(stmt).all())
-    fc, unplaced_count = build_geo_feature_collection(items, bbox=bbox, zoom=zoom)  # type: ignore[arg-type]
+    # `services/ingest/loader.py` never geocodes opportunities (no state/county columns in
+    # `pipeline.connectors.base.OPPORTUNITY_COLUMNS` to geocode from -- unlike proposals) so
+    # `location` is always null here; every visible opportunity is unplaced by construction, never
+    # dropped (docs/04 D-8). This endpoint predates that gap being understood and previously
+    # crashed on first access to `Proposal`-only attributes (`lifecycle_state`, `technology`) that
+    # `Opportunity` doesn't have, the moment any opportunity matched the filters -- untested and
+    # unnoticed because nothing had populated `Opportunity.location_id` yet. Fixed here to the
+    # extent this sprint's scope covers (proposals' geo endpoint, task priority): a correct,
+    # honestly-empty response rather than a 500. Full parity with the proposal side (a real
+    # `status_counts`/`kind_counts` aggregate, `technologies[]` clustering) is a follow-up once
+    # opportunities have geometry to place at all.
+    technology_counts: dict[str, int] = defaultdict(int)
+    for o in items:
+        for t in o.technologies or []:
+            technology_counts[t] += 1
+    fc = build_geo_feature_collection(
+        [],
+        bbox=bbox,
+        zoom=zoom,
+        records_total=len(items),
+        lifecycle_state_counts={},
+        technology_counts=dict(technology_counts),
+    )
+    unplaced_count = len(items)
     meta = build_meta("opportunity", extra={"unplaced_count": unplaced_count})
     return build_envelope(
         fc, meta=meta, licence_summary=build_licence_summary(_opportunity_licence_rows(items))
@@ -545,7 +736,11 @@ def list_organization_proposals(public_id: str, request: Request, db: Session = 
         raise not_found(request.url.path)
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, PROPOSAL_SORT_ALLOWLIST, "-last_changed")
-    stmt = select(Proposal).where(Proposal.sponsor_org_id == org.id, *proposal_public_filter())
+    stmt = (
+        select(Proposal)
+        .where(Proposal.sponsor_org_id == org.id, *proposal_public_filter())
+        .options(selectinload(Proposal.sources))
+    )
     qp = request.query_params
     if v := qp.get("kind"):
         stmt = stmt.where(Proposal.kind.in_(csv_param(v)))
@@ -581,8 +776,14 @@ def list_organization_opportunities(public_id: str, request: Request, db: Sessio
     field, ascending = _sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
     qp = request.query_params
     status = csv_param(qp.get("status")) or ["open"]
-    stmt = select(Opportunity).where(
-        Opportunity.issuer_org_id == org.id, Opportunity.status.in_(status), *opportunity_public_filter()
+    stmt = (
+        select(Opportunity)
+        .where(
+            Opportunity.issuer_org_id == org.id,
+            Opportunity.status.in_(status),
+            *opportunity_public_filter(),
+        )
+        .options(selectinload(Opportunity.sources))
     )
     if v := qp.get("kind"):
         stmt = stmt.where(Opportunity.kind.in_(csv_param(v)))

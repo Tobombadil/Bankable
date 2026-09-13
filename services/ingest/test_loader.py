@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from pipeline.connectors.registry import Registry, SourceEntry
 from services.db.models import (
     Event,
+    Location,
     Organization,
     OrganizationAlias,
     Proposal,
@@ -20,6 +21,7 @@ from services.db.models import (
     SourceRun,
 )
 from services.db.session import get_engine, get_sessionmaker, init_db
+from services.ingest.geocode import CountyGazetteer, geocode
 from services.ingest.loader import GateRefused, load_dataframe, upsert_licence_and_source
 
 UTC = dt.UTC
@@ -426,4 +428,192 @@ def test_load_from_files_reads_parquet_and_run_json(tmp_path, session: Session) 
     assert result.proposals_created == 1
     src = session.get(Source, entry.id)
     assert src is not None
-    assert src.publish_state == "api_only"
+    # Sprint 2 fix: a gate-cleared (open/attribution) source loads straight to `public`, not the
+    # earlier `api_only` default that needed a separate admin-style flip (services/README.md
+    # "Sprint 2 fixes"; see also `test_source_publish_state_defaults_from_registry_class` below).
+    assert src.publish_state == "public"
+
+
+# ------------------------------------------------------------------ licence correctness (Sprint 2)
+def test_licence_flags_derived_from_registry_reuse_not_hardcoded(session: Session) -> None:
+    """docs/21 §8 / services/README.md open decision #11, fixed: `allows_raw_publication` and the
+    licence `quote_text` come from the real `data/sources.yaml` registry entry, not a blanket
+    `True` for every source. CAISO and NYISO are the two sources the legal register
+    (docs/00-PLAN.md, 2026-09-12) calls derived-only, and both say so in their own `notes` text
+    (`_is_derived_only_override`'s module-docstring rationale in services/ingest/loader.py: this is
+    a per-source override on top of `attribution`, not a rule that every `attribution` source is
+    derived-only -- a plain attribution source with no such note, e.g. GB NESO, stays raw-ok per
+    docs/21 §8's general `attribution` row). ERCOT (`open`) is unaffected either way.
+    """
+    registry = Registry()
+
+    caiso = upsert_licence_and_source(session, registry.get("us.iso.caiso.gen_queue"), registry.version)
+    nyiso = upsert_licence_and_source(session, registry.get("us.iso.nyiso.gen_queue"), registry.version)
+    ercot = upsert_licence_and_source(session, registry.get("us.iso.ercot.gen_queue"), registry.version)
+
+    assert caiso.licence.reuse_class == "attribution"
+    assert caiso.licence.allows_raw_publication is False
+    assert caiso.licence.quote_text and caiso.licence.quote_text.startswith("CAISO Terms of Use")
+
+    assert nyiso.licence.reuse_class == "attribution"
+    assert nyiso.licence.allows_raw_publication is False
+    assert nyiso.licence.quote_text and nyiso.licence.quote_text.startswith("NYISO Legal Notice")
+
+    assert ercot.licence.reuse_class == "open"
+    assert ercot.licence.allows_raw_publication is True
+    assert ercot.licence.quote_text and ercot.licence.quote_text.startswith("ERCOT Website User Agreement")
+
+
+def test_plain_attribution_source_without_a_derived_only_note_stays_raw_allowed(session: Session) -> None:
+    """The override is textual (module docstring above), not a blanket rule over `reuse ==
+    "attribution"` -- an attribution source whose notes/licence text never says "derived-only"
+    (e.g. a curated issuer with a mandatory-credit-only clause, matching GB NESO's real registry
+    entry in shape) keeps `allows_raw_publication = True`, per docs/21 §8's general attribution
+    row ("everything, at lag, with the credit line rendered")."""
+    entry = SourceEntry.from_yaml(
+        {
+            "id": "test.attribution.credit_only",
+            "name": "Test Credit-Only Register",
+            "category": "generation_queue",
+            "access": "api",
+            "reuse": "attribution",
+            "cadence": "weekly",
+            "license": 'Open licence: "free to exploit commercially and non-commercially" with credit.',
+            "notes": 'Mandatory exact attribution string "Supported by Test Register"; no reuse restriction.',
+        }
+    )
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+    assert src.licence.allows_raw_publication is True
+
+
+def test_source_publish_state_defaults_from_registry_class(session: Session) -> None:
+    """Sprint 2 fix (services/README.md, supersedes the sprint-1 open decision #5 default): a
+    gate-cleared source (its `reuse` already known `open`/`attribution` by the time this runs --
+    `_assert_not_gated` and `upsert_licence_and_source`'s own "both must hold" check both raise
+    first) loads straight to `publish_state = "public"`, matching `docs/21` §5.4's
+    `source_permits` gate, instead of the old `api_only` default that needed a separate
+    admin-style flip (`web/data_loading.py::_flip_publish_state_public`'s workaround, now
+    unnecessary)."""
+    open_src = upsert_licence_and_source(session, open_source_entry("us.test.pub_state_open"), "2026-09-12")
+    assert open_src.publish_state == "public"
+
+    attribution_entry = open_source_entry("us.test.pub_state_attr")
+    attribution_entry.reuse = "attribution"
+    attr_src = upsert_licence_and_source(session, attribution_entry, "2026-09-12")
+    assert attr_src.publish_state == "public"
+
+
+# --------------------------------------------------------------------------- geocoding (Sprint 2)
+def test_geocode_resolves_known_county_to_its_centroid() -> None:
+    point, precision = geocode("TX", "Travis")
+    assert precision == "county_centroid"
+    assert point is not None
+    lon, lat = point
+    assert -99 < lon < -96  # Travis County, TX is roughly here
+    assert 29 < lat < 31
+
+
+def test_geocode_falls_back_to_state_centroid_when_county_unresolvable() -> None:
+    point, precision = geocode("TX", "Not A Real County")
+    assert precision == "state_centroid"
+    assert point is not None
+
+
+def test_geocode_is_unknown_with_neither_state_nor_county_resolvable() -> None:
+    point, precision = geocode("ZZ", "Nowhere County")
+    assert point is None
+    assert precision == "unknown"
+
+
+def test_geocode_nyiso_borough_alias_resolves(session: Session) -> None:
+    """`_COUNTY_ALIASES` maps NYISO's free-text borough names to their Gazetteer county (module
+    docstring in services/ingest/geocode.py)."""
+    point, precision = geocode("NY", "Brooklyn")
+    assert precision == "county_centroid"
+    assert point is not None
+
+
+def test_loader_geocodes_proposal_location_from_state_and_county(session: Session) -> None:
+    """services/README.md open decision #2, fixed: `services/ingest/loader.py` now geocodes a
+    connector-parsed state/county pair through `services/ingest/geocode.py` instead of leaving
+    `location.geom` null for every row."""
+    entry = open_source_entry("us.test.geocoded_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    row = sample_proposal_row("G1")
+    row["source_id"] = entry.id
+    row["record_id"] = f"{entry.id}:G1"
+    row["state"] = "TX"
+    row["county"] = "Travis"
+    df = pd.DataFrame([row])
+    load_dataframe(session, src, "proposal", df, None)
+
+    proposal = session.scalar(select(Proposal))
+    assert proposal is not None and proposal.location_id is not None
+    loc = session.get(Location, proposal.location_id)
+    assert loc is not None
+    assert loc.precision == "county_centroid"
+    assert loc.geom is not None
+    assert loc.precision_reason is None  # ERCOT-style open source: no restricted-precision reason
+
+
+def test_loader_falls_back_to_state_centroid_for_unresolvable_county(session: Session) -> None:
+    entry = open_source_entry("us.test.state_fallback_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    row = sample_proposal_row("G2")
+    row["source_id"] = entry.id
+    row["record_id"] = f"{entry.id}:G2"
+    row["state"] = "TX"
+    row["county"] = "Not A Real County"
+    df = pd.DataFrame([row])
+    load_dataframe(session, src, "proposal", df, None)
+
+    proposal = session.scalar(select(Proposal))
+    assert proposal is not None
+    loc = session.get(Location, proposal.location_id)
+    assert loc is not None
+    assert loc.precision == "state_centroid"
+    assert loc.geom is not None
+
+
+def test_loader_stamps_licence_precision_reason_for_derived_only_sources(session: Session) -> None:
+    """docs/04 D-9: a derived-only source (module docstring's `_is_derived_only_override`) never
+    gets to imply an exact point, and its locations carry `precision_reason = "licence"` so the API
+    can render the restricted-precision note -- CAISO/NYISO in production, a synthetic equivalent
+    here so this test does not depend on those two real counties existing in the same shape."""
+    entry = SourceEntry.from_yaml(
+        {
+            "id": "test.derived_only.queue",
+            "name": "Test Derived-Only Queue",
+            "category": "generation_queue",
+            "access": "bulk_file",
+            "reuse": "attribution",
+            "cadence": "weekly",
+            "license": "Test Terms of Use.",
+            "notes": "Publish derived-only until counsel resolves the tension between two clauses.",
+        }
+    )
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+    assert src.licence.allows_raw_publication is False
+
+    row = sample_proposal_row("D1")
+    row["source_id"] = entry.id
+    row["record_id"] = f"{entry.id}:D1"
+    row["state"] = "TX"
+    row["county"] = "Travis"
+    df = pd.DataFrame([row])
+    load_dataframe(session, src, "proposal", df, None)
+
+    proposal = session.scalar(select(Proposal))
+    assert proposal is not None
+    loc = session.get(Location, proposal.location_id)
+    assert loc is not None
+    assert loc.precision == "county_centroid"
+    assert loc.precision_reason == "licence"
+
+
+def test_county_gazetteer_normalizes_suffixes_and_case() -> None:
+    gaz = CountyGazetteer.load()
+    assert gaz.county_point("TX", "TRAVIS COUNTY") == gaz.county_point("TX", "travis")
+    assert gaz.state_point("TX") is not None

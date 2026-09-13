@@ -108,9 +108,9 @@ def default_gazetteer() -> CountyGazetteer:
     return _CACHED_GAZETTEER
 
 
-def geocode(state: str | None, county: str | None, *, gaz: CountyGazetteer | None = None) -> tuple[
-    tuple[float, float] | None, str
-]:
+def geocode(
+    state: str | None, county: str | None, *, gaz: CountyGazetteer | None = None
+) -> tuple[tuple[float, float] | None, str]:
     """`(geom, precision)` for a parsed state/county pair (docs/04 D-8 placement precedence,
     restricted to this module's two tiers): a resolvable county -> its centroid, `county_centroid`;
     else a resolvable state -> its centroid, `state_centroid`; else `(None, "unknown")` -- counted
