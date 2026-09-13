@@ -246,3 +246,143 @@ DATABASE_URL=postgresql+psycopg://user:pass@host/db \
 # Sanity-check the revision graph without a database:
 .venv/bin/alembic -c services/db/migrations/alembic.ini history
 ```
+
+## Loader fixes (2026-09-13)
+
+Fixed the two `services/ingest/loader.py` limitations `services/resolve/README.md` documented but
+left unfixed (out of that task's assigned paths). Neither changes the loader's public functions
+(`upsert_licence_and_source`, `load_dataframe`, `load_from_files`) — both are internal to the
+row loop and `_get_or_create_organization`.
+
+**1. Intra-run id reuse** (docs/22 §5/§7.1). The loader now tells apart, per row, three cases
+using both the natural key (`source_id`, `source_record_id`) and the connector's own composite
+`record_id`:
+- A row whose natural key already has an active link **from an earlier `load_dataframe` call**:
+  an update, through the unchanged diff/event path — no behaviour change.
+- A row whose natural key was already assigned to the **same** `record_id` earlier **in this same
+  call** (a dataframe that bundles more than one historical observation of one record, as
+  `services/resolve/report.py`'s evaluation snapshot does): also an ordinary update against the
+  same stored key — not reuse. (`test_repeated_record_id_in_one_dataframe_is_a_sequential_update_not_reuse`.)
+- A row whose natural key was already assigned to a **different** `record_id` earlier in this
+  call — true intra-run id reuse, the ISO-NE/NYISO signature — is never merged: its
+  `source_record_id` is suffixed deterministically (`#2`, `#3`, ...), the same convention
+  `pipeline.connectors.base.Connector.finalize` already applies to `record_id` for
+  `dedupe_strategy = "suffix"` sources, and a warning is appended to both `LoadResult.warnings`
+  and, when a `SourceRun` is passed, `source_run.dq`/`dq_status` (`{check, level, detail, data}`,
+  the same shape `pipeline.connectors.dq.Check` uses).
+  (`test_intra_run_id_reuse_keeps_both_records_and_warns`,
+  `test_intra_run_id_reuse_does_not_confuse_a_later_run_update`.)
+
+**2. Organisation slug/punctuation collisions** (docs/21 §3.5/§3.6). `_get_or_create_organization`
+now matches in two tiers: an exact case-folded spelling match first (unchanged fast path, keeps
+compatibility with rows already keyed on plain `name.lower()`, e.g.
+`services/resolve/report.py`'s pre-seeding), then, on a miss, a case/whitespace/punctuation-only
+normalised match (`_org_punct_key`) against organisations not yet merged away. Two spellings that
+match only on the second tier resolve to the *same* organisation, and every distinct raw spelling
+seen — including the one an organisation was first created from — is recorded as its own
+`organization_alias` row, so a punctuation-only pair leaves the org with two aliases rather than
+raising `UNIQUE constraint failed: organization.slug`. Two names differing in letters still create
+two organisations; `services/resolve/merge.py`'s separate, heavier corp-suffix-stripping fuzzy pass
+is unchanged and out of scope here.
+(`test_organization_punctuation_only_spellings_merge_with_two_aliases`,
+`test_organization_letter_distinct_names_stay_separate`,
+`test_organization_repeated_alternate_spelling_does_not_duplicate_alias`.)
+
+### `services/resolve/report.py` before/after
+
+Before (verbatim from `services/resolve/README.md`, pre-fix):
+
+```
+  nyiso    -> us.iso.nyiso.gen_queue     reuse=attribution +1,814 created  1,350 updated
+  ...
+proposals in store before resolution: 8,212
+...
+proposals in store after resolution (surviving/canonical rows): 7,770
+  of which with >=2 sources: 273
+proposals absorbed (merged_into_id set): 442
+...
+organizations before: 3,034  after: 2,784
+```
+
+After (this fix, same `data/eval/normalized.parquet` pull, `python -m services.resolve.report`):
+
+```
+  nyiso    -> us.iso.nyiso.gen_queue     reuse=attribution +3,164 created     0 updated
+
+proposals in store before resolution: 9,563
+organizations in store before resolution: 3,034
+
+resolver clusters with >=2 store-loaded members: 278
+clusters merged:   275 (absorbing 442 records)
+clusters proposed (gate failed, filed for review): 3
+
+proposals in store after resolution (surviving/canonical rows): 9,121
+  of which with >=2 sources: 273
+proposals absorbed (merged_into_id set): 442
+
+organizations before: 3,034  after: 2,784
+usable labels: 77 of 85 (8 touch a gated source and are excluded)
+tp=35 fp=2 fn=2 tn=38
+precision=0.946  recall=0.946
+```
+
+**Yes, the counts changed — by more than "slightly"**: `nyiso` created rows go from 1,814 to
+3,164 (+1,350), so proposals before resolution go from 8,212 to 9,563 and after resolution from
+7,770 to 9,121. This is not a fix-caused regression; it is 1,350 real rows the old loader was
+silently collapsing. Measured directly against `data/eval/normalized.parquet`: `nyiso` has 3,164
+rows but only 1,814 distinct `source_record_id` values, and the old loader kept exactly one stored
+row per distinct `source_record_id` — the rest were silently folded in as "updates" inside the
+same single `load_dataframe` call. Of the four `source_record_id` values with more than one
+occurrence, two (`0031`, `0127A`, 2 each) are the documented ISO-NE/NYISO case (docs/22 §5); the
+other two are large content-hash collisions (`content_hash()`, `pipeline/connectors/base.py`) among
+genuinely blank rows — 1,063 rows under `he0f6cee65a13` and 287 under `h07cc5855b76c`, every field
+null except a single shared `retrieved_at` and `lifecycle_state = "withdrawn"` — which the
+connector's own `dedupe_strategy = "suffix"` already gave distinct, sequential `record_id`s
+(`nyiso:he0f6cee65a13` .. `#1063`) because they are, in fact, 1,063 distinct rows in the source
+register, even though their content happens to be indistinguishable. Per the task's rule ("two
+distinct records share an id... keep both... never merge them"), this loader now keeps all of
+them rather than silently discarding 1,349 of them with no event and no warning.
+
+Everything downstream of ingestion is unaffected: clusters merged (275, absorbing 442), the 3
+gate-refused clusters, proposals with >= 2 sources (273), organization resolution (3,034 -> 2,784,
+212 groups), and the 85-label precision/recall (0.946/0.946) are all identical before and after —
+the newly-preserved blank rows carry no content the resolver can match against, so they never join
+a cluster; they just stop being invisible.
+
+### Full suite (verbatim, 2026-09-13, this fix)
+
+Excludes `web/` (another agent mid-edit there) and `tests/test_web_default_view.py` (imports
+`web.data_loading`, which currently fails on an unrelated pre-existing bug — a naive/aware
+`datetime` comparison in `apply_preview_lag_override` — not touched by this task):
+
+```
+$ .venv/bin/python -m pytest tests pipeline services --ignore=tests/test_web_default_view.py
+............................................................................... [ 15%]
+............................................................................... [ 31%]
+............................................................................... [ 46%]
+............................................................................... [ 62%]
+............................................................................... [ 77%]
+............................................................................... [ 93%]
+................................                                                 [100%]
+464 passed, 20 warnings in 9.11s
+```
+
+`services/ingest/test_loader.py` itself grew from 9 to 15 tests (the 6 new ones listed above), all
+passing. The repo-wide "463 passed" figure recorded in `services/resolve/README.md` the same day
+was a *different* `pytest` invocation (plain `pytest`, over `testpaths` including `web/`) run
+before this fix, so it is not a like-for-like baseline for the 464 above (a different scope,
+deliberately excluding `web/` per this task's instructions); it is included only to show that nothing
+this fix touches regressed the count that mattered before.
+
+### Lint and types (verbatim, 2026-09-13)
+
+```
+$ .venv/bin/python -m ruff check services/db services/ingest services/ids.py
+All checks passed!
+
+$ .venv/bin/python -m ruff format --check services/db services/ingest services/ids.py
+13 files already formatted
+
+$ .venv/bin/python -m mypy services/db services/ingest services/ids.py
+Success: no issues found in 10 source files
+```

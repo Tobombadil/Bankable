@@ -25,6 +25,27 @@ Simplifications this sprint (no upstream producer yet — recorded here, not sil
     Every record from a publishable source (its gate already cleared, by construction of the
     refusal above) is loaded as `publish_state = "public"`; the admin sprint gains the ability to
     move individual records to `pending_review` / `unpublished` without a loader change.
+
+Fixed since `services/resolve/README.md` first observed them (both without changing the public
+functions below):
+  - **Intra-run id reuse** (docs/22 §5/§7.1: the ISO-NE/NYISO signature). A source record whose
+    natural key (`source_id`, `source_record_id`) already exists with different content from an
+    *earlier* run is an update, handled exactly as before through the diff/event path — and a
+    dataframe that repeats the *same* connector `record_id` for that key more than once in this
+    call (e.g. several historical snapshots of one record bundled into one call) is likewise an
+    ordinary sequential update, not reuse. Only a *different* `record_id` sharing that natural key
+    inside the *same* call is true reuse, and those are never merged: the second (and any later)
+    such occurrence has its `source_record_id` suffixed deterministically (`#2`, `#3`, ... — the
+    same convention `pipeline.connectors.base.Connector.finalize` already applies to its own
+    `record_id` for `dedupe_strategy = "suffix"` sources), keeping both rows, and a data-quality
+    warning is recorded on `source_run.dq` and `LoadResult.warnings`.
+  - **Organisation slug/punctuation collisions.** Two raw sponsor spellings that normalise to the
+    same organisation once case, whitespace and punctuation are stripped (e.g. "CED Development,
+    Inc." vs "Ced Development Inc") resolve to one `organization` row; every distinct raw spelling
+    seen is kept as its own `organization_alias` row (docs/21 §3.6) rather than raising a
+    `UNIQUE constraint failed: organization.slug` error. Two names that differ in letters (not
+    just punctuation) still become two organisations, per `services/resolve/merge.py`'s separate,
+    heavier corp-suffix-stripping fuzzy pass for anything beyond that.
 """
 
 from __future__ import annotations
@@ -33,6 +54,7 @@ import datetime as dt
 import hashlib
 import json
 import pathlib
+import re
 import uuid as _uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -49,6 +71,7 @@ from services.db.models import (
     Opportunity,
     OpportunitySource,
     Organization,
+    OrganizationAlias,
     Proposal,
     ProposalSource,
     Source,
@@ -90,6 +113,30 @@ class LoadResult:
     locations_created: int = 0
     organizations_created: int = 0
     warnings: list[str] = field(default_factory=list)
+
+
+def _bump_dq_status(run: SourceRun, level: str) -> None:
+    """Escalate `run.dq_status` to at least `level`, never downgrading a worse one already
+    recorded (docs/20 §10/§12 vocabulary: `pass < warn < fail`)."""
+    order = {"pass": 0, "warn": 1, "hold": 2, "fail": 2}
+    current = run.dq_status or "pass"
+    if order.get(level, 0) > order.get(current, 0):
+        run.dq_status = level
+
+
+def _record_dq_warning(run: SourceRun | None, *, check: str, detail: str, data: dict[str, Any]) -> None:
+    """Append one warning onto `source_run.dq` (docs/21 §4.2), in the same `{check, level, detail,
+    data}` shape `pipeline.connectors.dq.Check` already uses, so admin tooling reading this column
+    sees one consistent structure whether the warning came from the connector's own DQ gates or
+    this independent, loader-side check. A no-op when the caller has no `SourceRun` to attach to
+    (e.g. a direct `load_dataframe` call in a test) -- the warning still reaches the caller via
+    `LoadResult.warnings`."""
+    if run is None:
+        return
+    existing = run.dq if isinstance(run.dq, dict) else {}
+    checks = [*existing.get("checks", []), {"check": check, "level": "warn", "detail": detail, "data": data}]
+    run.dq = {**existing, "checks": checks, "status": existing.get("status") or "warn"}
+    _bump_dq_status(run, "warn")
 
 
 def _assert_not_gated(entry: SourceEntry) -> None:
@@ -215,27 +262,118 @@ def _to_float(value: Any) -> float | None:
     return None if pd.isna(f) else f
 
 
-def _get_or_create_organization(session: Session, name: str | None) -> tuple[Organization | None, bool]:
+#: Case/whitespace/punctuation-only normalisation for organisation matching (task scope: not the
+#: corp-suffix stripping `pipeline.normalize.norm_org` does for `services/resolve/merge.py`'s
+#: separate, heavier fuzzy pass over already-loaded organisations).
+_ORG_PUNCT_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _org_punct_key(text: str) -> str:
+    return _ORG_PUNCT_RE.sub(" ", text.strip().lower()).strip()
+
+
+def _add_organization_alias_if_new(
+    session: Session,
+    org: Organization,
+    *,
+    alias: str,
+    source: Source,
+    source_url: str,
+    retrieved_at: dt.datetime,
+) -> None:
+    """Record one raw spelling as an `organization_alias` row (docs/21 §3.6), skipping it if this
+    exact spelling is already on file for this organisation (re-running the same source/run must
+    not duplicate the alias)."""
+    alias_normalised = alias.lower()
+    existing = session.scalar(
+        select(OrganizationAlias).where(
+            OrganizationAlias.organization_id == org.id,
+            OrganizationAlias.alias_normalised == alias_normalised,
+        )
+    )
+    if existing is not None:
+        return
+    session.add(
+        OrganizationAlias(
+            organization_id=org.id,
+            alias=alias,
+            alias_normalised=alias_normalised,
+            kind="filing_spelling",
+            source_id=source.id,
+            source_url=source_url,
+            retrieved_at=retrieved_at,
+            licence_id=source.licence_id,
+            confidence=1.0,
+            created_by="pipeline",
+        )
+    )
+    session.flush()
+
+
+def _get_or_create_organization(
+    session: Session,
+    name: str | None,
+    *,
+    source: Source,
+    source_url: str,
+    retrieved_at: dt.datetime,
+) -> tuple[Organization | None, bool]:
+    """Find or create the organisation for one raw sponsor spelling.
+
+    Matching is two-tier: an exact (case-folded) spelling match is tried first — this is the
+    original, unchanged fast path and keeps compatibility with any organisation row already keyed
+    on plain `name.lower()` (e.g. `services/resolve/report.py`'s pre-seeding). Only on a miss do we
+    fall back to `_org_punct_key`, which additionally strips whitespace/punctuation, so that two
+    spellings differing only in punctuation land on the same organisation (task scope) instead of
+    tripping the `organization.slug` unique constraint (`services/resolve/README.md`'s observed
+    limitation). Every raw spelling that resolves to an existing organisation via either path is
+    recorded as an `organization_alias` row (docs/21 §3.6), including the spelling an organisation
+    was first created from, so two punctuation-only variants leave the org with two aliases.
+    """
     if not name or not str(name).strip():
         return None, False
-    name = str(name).strip()
-    normalised = name.lower()
-    org = session.scalar(select(Organization).where(Organization.name_normalised == normalised))
+    raw_name = str(name).strip()
+    exact_key = raw_name.lower()
+
+    org = session.scalar(select(Organization).where(Organization.name_normalised == exact_key))
     if org is not None:
         return org, False
+
+    punct_key = _org_punct_key(raw_name)
+    for candidate in session.scalars(select(Organization).where(Organization.merged_into_id.is_(None))):
+        if _org_punct_key(candidate.name_canonical) == punct_key:
+            _add_organization_alias_if_new(
+                session,
+                candidate,
+                alias=raw_name,
+                source=source,
+                source_url=source_url,
+                retrieved_at=retrieved_at,
+            )
+            return candidate, False
+
     org = Organization(
         public_id="",  # set below once we have the id
         slug="",
-        name_canonical=name,
-        name_normalised=normalised,
+        name_canonical=raw_name,
+        name_normalised=exact_key,
         type="other",
         country="US",
     )
     session.add(org)
     session.flush()
     org.public_id = public_id("org", org.id)
-    org.slug = slugify(name)
+    org.slug = slugify(raw_name)
+    if session.scalar(select(Organization).where(Organization.slug == org.slug, Organization.id != org.id)):
+        # Defence in depth: two letter-distinct names should never coincidentally collide once
+        # `_org_punct_key` above has already ruled out a punctuation-only match, but a lowest-cost
+        # deterministic suffix here means a bug in that reasoning fails safe (no row, no crash)
+        # rather than raising `UNIQUE constraint failed: organization.slug` at ingestion.
+        org.slug = f"{org.slug}-{org.public_id[-6:].lower()}"
     session.flush()
+    _add_organization_alias_if_new(
+        session, org, alias=raw_name, source=source, source_url=source_url, retrieved_at=retrieved_at
+    )
     return org, True
 
 
@@ -384,15 +522,58 @@ def load_dataframe(
     now = utcnow()
     result = LoadResult(source_run_id=run.id if run else _uuid.UUID(int=0))
     record_id_to_internal: dict[str, _uuid.UUID] = {}
+    #: raw source_record_id -> {connector record_id -> the (possibly suffixed) key stored for it}.
+    #: A dataframe covering more than one historical pull for the same source (as
+    #: `services/resolve/report.py`'s evaluation snapshot does) legitimately repeats the *same*
+    #: `record_id` many times for one natural key -- each repeat is an ordinary sequential update
+    #: and must keep using the same stored key. Only a *different* `record_id` sharing that same
+    #: natural key is true intra-run id reuse (docs/22 §5/§7.1): the connector's own
+    #: `dedupe_strategy = "suffix"` already gives such rows distinct `record_id`s (e.g.
+    #: `nyiso:0031` vs `nyiso:0031#2`) precisely because they were simultaneous, distinct records
+    #: at parse time, which is the signal this loader keys off rather than raw repetition count.
+    variant_keys: dict[str, dict[str, str]] = {}
 
     entity_cls = Proposal if kind == "proposal" else Opportunity
     link_cls = ProposalSource if kind == "proposal" else OpportunitySource
     fk_name = "proposal_id" if kind == "proposal" else "opportunity_id"
 
     for _, row in records_df.iterrows():
-        source_record_id = str(_row_get(row, "source_record_id"))
-        retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or now
+        raw_source_record_id = str(_row_get(row, "source_record_id"))
         record_id = str(_row_get(row, "record_id"))
+        variants = variant_keys.setdefault(raw_source_record_id, {})
+        if record_id in variants:
+            source_record_id = variants[record_id]
+        else:
+            occurrence = len(variants) + 1
+            if occurrence == 1:
+                source_record_id = raw_source_record_id
+            else:
+                # A different connector `record_id` reusing this natural key inside the same
+                # run/dataframe -- never merge it with the earlier variant(s). Suffix the *stored*
+                # key deterministically, the same convention
+                # `pipeline.connectors.base.Connector.finalize` already applies to its own
+                # `record_id` for `dedupe_strategy = "suffix"` sources, so the loader is
+                # consistent with the connector layer rather than depending on it having done so.
+                source_record_id = f"{raw_source_record_id}#{occurrence}"
+                warning = (
+                    f"{source.id}: source_record_id {raw_source_record_id!r} reused by a distinct "
+                    f"record ({record_id!r}) within this run; stored as {source_record_id!r} "
+                    "rather than merged into the earlier occurrence (docs/22 §5, §7.1)"
+                )
+                result.warnings.append(warning)
+                _record_dq_warning(
+                    run,
+                    check="duplicate_source_record_id_same_run",
+                    detail=warning,
+                    data={
+                        "source_record_id": raw_source_record_id,
+                        "record_id": record_id,
+                        "occurrence": occurrence,
+                        "stored_as": source_record_id,
+                    },
+                )
+            variants[record_id] = source_record_id
+        retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or now
 
         existing_link = session.scalar(
             select(link_cls).where(
@@ -452,7 +633,13 @@ def load_dataframe(
                 **fields,
             )
             if isinstance(entity, Proposal):
-                sponsor, sponsor_created = _get_or_create_organization(session, _row_get(row, "sponsor_name"))
+                sponsor, sponsor_created = _get_or_create_organization(
+                    session,
+                    _row_get(row, "sponsor_name"),
+                    source=source,
+                    source_url=str(_row_get(row, "source_url") or source.url),
+                    retrieved_at=retrieved_at,
+                )
                 if sponsor is not None:
                     entity.sponsor_org_id = sponsor.id
                     if sponsor_created:
