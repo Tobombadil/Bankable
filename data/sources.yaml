@@ -701,6 +701,30 @@ sources:
     Add Interconnector Register and Embedded Register (same portal). DNO queues via nationalgrid connecteddata
     / SSEN opendatasoft.
 
+- id: gb.neso.fes_gsp_gazetteer
+  name: NESO FES Grid Supply Point Info (vendored gazetteer for TEC register substation geocoding)
+  jurisdiction: GB
+  category: registry
+  operator: National Energy System Operator
+  url: https://www.neso.energy/data-portal/regional-breakdown-fes-data-electricity/fes_2024_grid_supply_point_info
+  access: bulk_file
+  auth: none
+  format: csv
+  cadence: annual (republished alongside each year's Future Energy Scenarios; 2021–2024 vintages seen)
+  license: 'National Energy SO Open Data Licence v1.0 (identical to the TEC register''s own licence, docs/13-legal-data-rights.md §2.5 — this dataset''s own package_show confirms the same license_title/license_id/license_url); must "Acknowledge NESO as the source of the Information by including the following attribution statement: Supported by National Energy SO Open Data"'
+  reuse: attribution
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-13, result: ok, rows: 373, note: 'FES 2024 Grid Supply Point Info CSV, 373 GSPs with name/lat/lon; 371 vendored to services/ingest/data/gb_substations.tsv after dropping 2 byte-identical rows; matches 6/30 (20.0%) of the gb.neso.tec_register fixture''s distinct Connection Site strings and 346/1,237 (28.0%) of the live TEC register''s — the remainder are project-specific new-build substations and connection nodes, not public GSPs, and correctly stay unplaced'}
+  notes: >-
+    Reference data, not a proposal/opportunity feed: used only by services/ingest/geocode.py to resolve a
+    TEC register "Connection Site" (a substation name) to a point, county_centroid precision (never exact —
+    a substation is not the project's location, docs/21-data-model.md §3.7). Not a live feed; re-vendor when
+    NESO publishes the next FES vintage. Full provenance, licence comparison against the other candidates
+    checked (NESO GIS boundary datasets, National Grid ET's own open data), and coverage measurement in
+    services/ingest/data/README.md.
+
 - id: gb.pins.nsip
   name: UK Planning Inspectorate — Find a National Infrastructure Project
   jurisdiction: GB (England/Wales)

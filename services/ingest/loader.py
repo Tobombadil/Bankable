@@ -641,18 +641,23 @@ def _get_or_create_location(
     falling through to the county/state centroid with `precision_reason = "licence"` stamped (so
     the API can render the restricted-precision note) exactly as before this promotion existed.
     """
+    country_code = "GB" if (source.jurisdiction or "").upper().startswith("GB") else "US"
     exact_point = None if derived_only else _extract_exact_point(raw_payload or {})
     if exact_point is not None:
         kind = "point"
         point: tuple[float, float] | None = exact_point
         precision = "exact"
-        geocoder = "source_provided"
+        geocoder: str | None = "source_provided"
     else:
         if not state and not county:
             return None
         kind = "county" if county else "state"
-        point, precision = geocode(state, county, gaz=gaz)
-        geocoder = None
+        # GB rows (the NESO TEC register) carry a transmission "Connection Site" in `county` and
+        # no state; `geocode` resolves it against the vendored substation gazetteer when told the
+        # country (services/ingest/geocode.py, Sprint 3 item 5). A hit is a substation-level
+        # proxy, stamped `gb_substation` so the API and the map can say so (docs/21 §3.7).
+        point, precision = geocode(state, county, gaz=gaz, country=country_code)
+        geocoder = "gb_substation" if country_code == "GB" and point is not None else None
     loc = Location(
         id=new_uuid(),
         kind=kind,
@@ -660,8 +665,8 @@ def _get_or_create_location(
         precision=precision,
         precision_reason="licence" if derived_only else None,
         county_name=county or None,
-        state_code=(f"US-{state.upper()}" if state else None),
-        country="US",
+        state_code=(f"US-{state.upper()}" if state and country_code == "US" else None),
+        country=country_code,
         geocoder=geocoder,
         source_id=source.id,
         source_url=source.url,

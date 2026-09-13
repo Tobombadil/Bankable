@@ -16,6 +16,27 @@ The vendored TSV (`services/ingest/data/us_county_centroids.tsv`) is a copy of
 `web/data_ref/us_county_centroids.tsv` (same public-domain source), so a location string a
 connector already parsed geocodes the same way whether it is loaded through `web/dev_up.py` or a
 real ingestion run — `services/` no longer needs `web/` to plot anything on a map.
+
+Sprint 3 item 5 adds a second, unrelated tier: `gb.neso.tec_register` rows carry a "Connection
+Site" -- a transmission substation name -- and nothing else geographic (docs/02 NESO row). A
+substation is not the project's location (the plant can be kilometres away), so this is not, and
+must never become, `exact` (docs/21 §3.7); it is a site-level proxy comparable in scale to a
+county centroid, so it is stamped `county_centroid` the same as the US tier. `SubstationGazetteer`
+resolves it against the vendored `services/ingest/data/gb_substations.tsv` (NESO Open Data
+Licence -- see `services/ingest/data/README.md` for the exact source, licence text and retrieval
+date). `geocode()` takes this path only when `country` starts with "GB"; `loader.py` does not pass
+`country` yet (it hardcodes `country="US"` when building `Location`) -- wiring that argument at the
+call site, and the one-line follow-up below, is left to the coordinator.
+
+`geocode()` still returns a 2-tuple, unchanged, because `loader.py` unpacks it positionally today
+(`point, precision = geocode(state, county, gaz=gaz)`) and this module does not touch `loader.py`.
+There is nowhere in that tuple to carry which geocoder tier produced the point, so
+`docs/21` §3.7's `Location.geocoder` field cannot be set from here: when the coordinator wires the
+`country` argument at the loader's call site, it should also set `Location.geocoder =
+"gb_substation"` there for rows where `country` starts with "GB" and `precision == "county_centroid"`
+(mirroring the `precision_reason="licence"` pattern already at that call site) -- `census_tiger`
+would be wrong, and `docs/21`'s `geocoder` vocabulary does not yet name this tier so it may need
+extending there too.
 """
 
 from __future__ import annotations
@@ -25,6 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_COUNTY_CENTROID_TSV = Path(__file__).resolve().parent / "data" / "us_county_centroids.tsv"
+DEFAULT_GB_SUBSTATION_TSV = Path(__file__).resolve().parent / "data" / "gb_substations.tsv"
 
 _COUNTY_SUFFIX_RE = re.compile(r"\b(COUNTY|PARISH|BOROUGH|CENSUS AREA|MUNICIPALITY|CITY AND BOROUGH|CITY)\b")
 _NON_ALNUM_RE = re.compile(r"[^A-Z0-9 ]")
@@ -108,22 +130,115 @@ def default_gazetteer() -> CountyGazetteer:
     return _CACHED_GAZETTEER
 
 
+# NESO TEC register "Connection Site" strings name a substation with a voltage/role suffix that
+# varies row to row ("Berkswell GSP", "Aberthaw 275kV Substation", "Blackhill 132/33kV") while the
+# open gazetteer (`gb_substations.tsv`, sourced from NESO's own FES Grid Supply Point list, see
+# `services/ingest/data/README.md`) records the bare site name only. The dual-voltage pattern
+# ("132/33kV") must be stripped before the single-voltage one, or "132/" is left as a stray token.
+# Word-boundary tokens are stripped before punctuation/whitespace so "SUBSTATION" etc. match whole
+# words, not substrings. Whitespace is dropped last, and entirely (not collapsed to one space): the
+# fixture pairs a one-word Connection Site with a two-word gazetteer name for the same real site
+# ("Upperboat" / "Upper Boat"; "Clydesmill" / "Clyde's Mill", apostrophe and all) often enough that
+# this is a spelling variant to normalise past, not a coincidence -- verified against the 371-row
+# gazetteer to introduce no cross-site collisions (two different sites reduced to the same key).
+_GB_KV_PAIR_RE = re.compile(r"\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\s*KV\b")
+_GB_KV_RE = re.compile(r"\d+(?:\.\d+)?\s*KV\b")
+_GB_SUBSTATION_WORD_RE = re.compile(r"\bS/?S\b|\bSUBSTATIONS?\b|\bGRID SUPPLY POINT\b|\bGSP\b")
+_GB_NON_ALNUM_RE = re.compile(r"[^A-Z0-9]")
+
+
+def normalize_substation_name(name: str | None) -> str | None:
+    """Match a NESO TEC register `Connection Site` string against `gb_substations.tsv`'s bare
+    site names -- case, the "GSP"/"Substation"/"S/S" role suffix, voltage suffixes (single or
+    dual-voltage), and remaining punctuation/whitespace all fold away; `None` (or blank) stays
+    `None` rather than becoming an empty-string key that could spuriously match a blank row."""
+    if not name:
+        return None
+    upper = name.upper()
+    upper = _GB_KV_PAIR_RE.sub("", upper)
+    upper = _GB_KV_RE.sub("", upper)
+    upper = _GB_SUBSTATION_WORD_RE.sub("", upper)
+    normalized = _GB_NON_ALNUM_RE.sub("", upper)
+    return normalized or None
+
+
+@dataclass
+class SubstationGazetteer:
+    """GB transmission substation points (NESO Open Data Licence; see
+    `services/ingest/data/README.md` for the exact dataset, licence text and retrieval date this
+    was vendored under). A site-level proxy, not the project's own location -- `geocode()` never
+    reports this tier as `exact` (docs/21 §3.7)."""
+
+    points: dict[str, tuple[float, float]] = field(default_factory=dict)
+
+    @classmethod
+    def load(cls, path: Path = DEFAULT_GB_SUBSTATION_TSV) -> SubstationGazetteer:
+        gaz = cls()
+        with path.open(encoding="utf-8") as f:
+            next(f)  # header
+            for line in f:
+                name, lat_s, lon_s = line.rstrip("\n").split("\t")
+                norm = normalize_substation_name(name)
+                if norm and norm not in gaz.points:
+                    gaz.points[norm] = (float(lat_s), float(lon_s))
+        return gaz
+
+    def substation_point(self, name: str | None) -> tuple[float, float] | None:
+        norm = normalize_substation_name(name)
+        if not norm:
+            return None
+        return self.points.get(norm)
+
+
+_CACHED_SUBSTATION_GAZETTEER: SubstationGazetteer | None = None
+
+
+def default_substation_gazetteer() -> SubstationGazetteer:
+    """Process-wide cache, mirroring `default_gazetteer()` (the TSV is small -- ~370 rows -- but
+    there is no reason to re-parse it per row either)."""
+    global _CACHED_SUBSTATION_GAZETTEER
+    if _CACHED_SUBSTATION_GAZETTEER is None:
+        _CACHED_SUBSTATION_GAZETTEER = SubstationGazetteer.load()
+    return _CACHED_SUBSTATION_GAZETTEER
+
+
 def geocode(
-    state: str | None, county: str | None, *, gaz: CountyGazetteer | None = None
+    state: str | None,
+    county: str | None,
+    *,
+    gaz: CountyGazetteer | SubstationGazetteer | None = None,
+    country: str | None = None,
 ) -> tuple[tuple[float, float] | None, str]:
-    """`(geom, precision)` for a parsed state/county pair (docs/04 D-8 placement precedence,
-    restricted to this module's two tiers): a resolvable county -> its centroid, `county_centroid`;
-    else a resolvable state -> its centroid, `state_centroid`; else `(None, "unknown")` -- counted
-    as unplaced (never dropped), not silently defaulted to a guessed point.
+    """`(geom, precision)` for a parsed state/county pair (docs/04 D-8 placement precedence).
+
+    `country` starting with "GB" (case-insensitive) switches tiers entirely: `county` is then read
+    as the NESO TEC register's "Connection Site" substation name (the connector keeps that field
+    named `county` on purpose -- see `pipeline/connectors/gb_neso_tec_register/connector.py`) and
+    looked up in the vendored `SubstationGazetteer`; a hit is `county_centroid` (a substation is
+    not the project's location -- never `exact`, docs/21 §3.7), a miss is `unknown`. `state` is
+    unused on this path -- NESO does not carry one -- and there is no state-level GB fallback.
+
+    Otherwise (the original, default behaviour, unchanged for `country=None`): a resolvable county
+    -> its centroid, `county_centroid`; else a resolvable state -> its centroid, `state_centroid`;
+    else `(None, "unknown")` -- counted as unplaced (never dropped), not silently defaulted to a
+    guessed point.
     """
-    gaz = gaz or default_gazetteer()
+    if country and country.upper().startswith("GB"):
+        sub_gaz = gaz if isinstance(gaz, SubstationGazetteer) else default_substation_gazetteer()
+        point = sub_gaz.substation_point(county)
+        if point is not None:
+            lat, lon = point
+            return (lon, lat), "county_centroid"
+        return None, "unknown"
+
+    county_gaz = gaz if isinstance(gaz, CountyGazetteer) else default_gazetteer()
     if county:
-        point = gaz.county_point(state, county)
+        point = county_gaz.county_point(state, county)
         if point is not None:
             lat, lon = point
             return (lon, lat), "county_centroid"
     if state:
-        point = gaz.state_point(state)
+        point = county_gaz.state_point(state)
         if point is not None:
             lat, lon = point
             return (lon, lat), "state_centroid"
