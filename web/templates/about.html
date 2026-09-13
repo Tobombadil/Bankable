@@ -59,6 +59,7 @@
     <li>Placement on the map follows source precision: an exact coordinate where the source supplies one and its licence allows raw publication; otherwise a county centroid (US Census Gazetteer 2024, public domain); otherwise a state-level aggregate marker; records with neither a usable county nor a state are listed under &ldquo;Unplaced&rdquo;.</li>
     <li>Clustering on the map is computed client-side by MapLibre's built-in clustering rather than the server-side <code>/v1/proposals/geo</code> endpoint described in <code>docs/23</code>, since this prototype has no database or API service yet.</li>
     <li>NESO TEC Register rows have no US-style county or state field in the source and are listed under Unplaced (GB) rather than guessed at.</li>
+    <li>The map's basemap tiles come from OpenStreetMap; a lightweight world-country and US-state outline layer (Natural Earth and US Census Bureau TIGERweb, both public domain) is drawn underneath them so the map stays legible if the tile provider is ever unreachable.</li>
   </ul>
 </section>
 {% endblock %}

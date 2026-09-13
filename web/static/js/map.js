@@ -82,19 +82,51 @@
     document.getElementById("mf-jurisdiction").value = filters.jurisdiction;
     writeFilters(filters);
 
+    // Fallback basemap (docs/04 D-13 "basemap tiles ... with attribution rendered"): a lightweight
+    // public-domain world-countries + US-states outline layer (web/data_ref/build_basemap_fallback.py)
+    // drawn *underneath* the OSM raster tiles. The tile layer is the production default and covers
+    // this wherever it loads; the fallback keeps the map legible if tile requests are blocked (as
+    // they are for Chromium in the sandbox this smoke test runs in -- web/README.md) without ever
+    // showing a blank canvas.
+    var mapColors = {
+      land: cssVar("--map-land") || "#eae6da",
+      water: cssVar("--map-water") || "#cfe0e8",
+      border: cssVar("--map-border") || "#b9c4c9"
+    };
+
+    // The OSM raster source is added *after* `load` fires (below), not declared in this initial
+    // style. Measured behaviour (MapLibre GL JS 5.24.0): a raster source in the initial style
+    // whose tiles all fail to fetch (blocked host, offline, ad-blocker) makes `load` itself hang
+    // indefinitely, even though each tile request correctly errors out individually -- so a
+    // broken tile provider previously took the whole map, data layers included, down with it.
+    // Keeping only the same-origin fallback source in the initial style means `load` fires as
+    // soon as that fast, reliable fetch resolves; the tile layer is then layered in without being
+    // able to block anything else, and stays the production default basemap.
     var map = new maplibregl.Map({
       container: "map",
       style: {
         version: 8,
         sources: {
-          osm: {
-            type: "raster",
-            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-            tileSize: 256,
-            attribution: "&copy; OpenStreetMap contributors"
-          }
+          "basemap-fallback": { type: "geojson", data: "/static/data/basemap_fallback.geojson" }
         },
-        layers: [{ id: "osm", type: "raster", source: "osm" }]
+        layers: [
+          { id: "fallback-water", type: "background", paint: { "background-color": mapColors.water } },
+          {
+            id: "fallback-land", type: "fill", source: "basemap-fallback",
+            filter: ["==", ["get", "level"], "country"],
+            paint: { "fill-color": mapColors.land }
+          },
+          {
+            id: "fallback-country-lines", type: "line", source: "basemap-fallback",
+            filter: ["==", ["get", "level"], "country"],
+            paint: { "line-color": mapColors.border, "line-width": 0.6 }
+          },
+          {
+            id: "fallback-state-lines", type: "line", source: "basemap-fallback",
+            filter: ["==", ["get", "level"], "us_state"],
+            paint: { "line-color": mapColors.border, "line-width": 0.5 }
+          }
+        ]
       },
       center: [-98.5, 39.8],
       zoom: 3.2,
@@ -103,6 +135,10 @@
     map.dragRotate.disable();
     map.touchZoomRotate.disableRotation();
     window.__map = map; // exposed for the Playwright smoke test only
+    // Not used to gate rendering (see note above `map` for why): if every tile request errors
+    // out, MapLibre never reaches "idle" either, even though the map itself is fully usable.
+    window.__mapIdle = false;
+    map.once("idle", function () { window.__mapIdle = true; });
 
     document.getElementById("zoom-in").addEventListener("click", function () { map.zoomIn({ duration: 200 }); });
     document.getElementById("zoom-out").addEventListener("click", function () { map.zoomOut({ duration: 200 }); });
@@ -118,6 +154,14 @@
     }
 
     map.on("load", function () {
+      map.addSource("osm", {
+        type: "raster",
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        attribution: "&copy; OpenStreetMap contributors"
+      });
+      map.addLayer({ id: "osm", type: "raster", source: "osm" });
+
       map.addSource("proposals", {
         type: "geojson",
         data: filteredCollection(),
