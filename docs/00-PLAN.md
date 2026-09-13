@@ -82,7 +82,7 @@ workflow be a later consideration only. The graph, feed, tiers and distribution 
 deployed; no accounts exist. Placeholder name Infraqueue; `{{DOMAIN}}` in code.
 
 **Sprint 3 scope (in order):**
-1. **Attio + Stripe adapters** behind the existing ports: `services/crm/attio.py` (accounts, contacts, deals,
+1. **Attio + Stripe adapters** behind the existing ports (Attio schema contract: `docs/34-crm-system-of-record.md`, built by the owner): `services/crm/attio.py` (accounts, contacts, deals,
    notes, tasks; webhooks inbound), `services/billing/stripe.py` (checkout, portal, subscription webhooks →
    `account.entitlement`). The interim admin entitlement endpoint stays as the manual override. Sales lead
    hand-off (`docs/10` US-403) writes to Attio. Verify Attio API v2 endpoints and rate limits first.
@@ -199,6 +199,7 @@ docs/13-legal-outreach-and-social.md  channel gate checklist, human-sends rules
 docs/adr/                  architecture decision records
 docs/32-social-operating-playbook.md  channels, account checklist, editorial, post pipeline
 docs/33-gtm-and-sales-playbook.md     ICPs, outreach, partnerships, automation boundary
+docs/34-crm-system-of-record.md      Attio contract: objects, attributes, relationships, lists, adapter behaviour
 pipeline/                  ingestion and resolution code; status_map.yaml is versioned data
 .claude/agents/            agent role definitions (invoke via the Agent tool or /agents)
 CLAUDE.md                  instructions every session/agent loads first
