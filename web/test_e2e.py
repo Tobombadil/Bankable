@@ -75,15 +75,18 @@ def _install_offline_routes(page: Any) -> None:
 
 
 def _ensure_db_loaded(db_path: Path) -> str:
-    """Load the real per-source `data/normalized/*` connector output through
-    `services/ingest/loader.py` into a fresh file-backed SQLite database, with the dev-only
-    preview override (web/README.md "Delayed tier") so today's rows are visible without waiting
-    out the real 14/7-day lag. Returns the `DATABASE_URL` the app subprocess should use.
+    """Load the real per-source `data/normalized/*` connector output -- the full ~11,400-row set
+    across all nine sources, unsampled -- through `services/ingest/loader.py` into a fresh
+    file-backed SQLite database, with the dev-only preview override (web/README.md "Delayed tier")
+    so today's rows are visible without waiting out the real 14/7-day lag. Returns the
+    `DATABASE_URL` the app subprocess should use.
 
-    `sample_per_state=80`: web/README.md "Missing from the API" -- `services/api/visibility.py`'s
-    per-row correlated-EXISTS predicate measures at 30-75s per page over the real ~10,400-row
-    proposal set in SQLite, which a Playwright smoke test (30s navigation timeout) cannot survive.
-    A few hundred rows is still real data through the real loader, just not the full volume.
+    Full data, not a sample: `services/README.md`'s "Sprint 2 fixes" closed the
+    `services/api/visibility.py` query-time gap (30-75s/page unsampled) that used to make a full
+    load unusable for this smoke test's navigation timeouts -- 0.127s/page and 0.35-0.53s/geo-
+    request measured there on the same full load this now performs. The load step itself
+    (`services/ingest/loader.py`'s row-by-row upsert, ~100 rows/second, unaffected by that fix)
+    is the real cost now, at roughly two minutes for the module-scoped `server` fixture below.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db_path.unlink(missing_ok=True)
@@ -92,7 +95,7 @@ def _ensure_db_loaded(db_path: Path) -> str:
     init_db(engine)
     session = get_sessionmaker(engine)()
     try:
-        load_dev_database(session, preview=True, sample_per_state=80)
+        load_dev_database(session, preview=True)
     finally:
         session.close()
     return database_url

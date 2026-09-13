@@ -1,8 +1,17 @@
 """docs/00-PLAN.md task item 6: the default map/list view excludes withdrawn and cancelled
 proposals (product defect A), the "include withdrawn" toggle includes them, and every rendered
-proposal carries provenance straight from the API envelope -- all against the real
-`data/eval/normalized.parquet` fixture loaded through `services/ingest/loader.py` into an
-in-process API mounted into `web.app`, per the task's instruction to test against that fixture.
+proposal carries provenance straight from the API envelope -- all against the real, full
+`data/normalized/*` connector output loaded through `services/ingest/loader.py` into an in-process
+API mounted into `web.app`.
+
+Previously this loaded a stratified sample of the separate `data/eval/normalized.parquet` fixture,
+because `services/api/visibility.py`'s per-row query cost (30-75s/page over the real ~10,400-row
+proposal set) made testing against the real data too slow. `services/README.md`'s "Sprint 2 fixes"
+closed that gap (0.127s/page, 0.35-0.53s/geo-request, both measured there on the full load), so
+this suite now loads the same full, unsampled `data/normalized/*` data `web/dev_up.py` and
+`web/test_e2e.py` do (`web/data_loading.py::load_dev_database`) rather than a smaller stand-in --
+the module-scoped fixture below pays `services/ingest/loader.py`'s ~100-rows/second row-by-row
+upsert cost (a separate, still-real gap, unaffected by the query-time fix) once for the whole file.
 """
 
 from __future__ import annotations
@@ -16,7 +25,7 @@ from services.api.deps import get_db
 from services.db.session import get_engine, get_sessionmaker, init_db
 from web.api_client import ApiClient
 from web.app import app as web_app
-from web.data_loading import load_test_database
+from web.data_loading import load_dev_database
 from web.viewmodels import ACTIVE_PROPOSAL_STATES
 
 ACTIVE_STATES_CSV = ",".join(ACTIVE_PROPOSAL_STATES)
@@ -28,8 +37,8 @@ def loaded_db() -> sessionmaker[Session]:
     init_db(engine)
     session_factory = get_sessionmaker(engine)
     with session_factory() as session:
-        report = load_test_database(session, include_opportunities=False)
-    assert sum(report["proposals"].values()) > 0, "eval fixture produced no proposal rows"
+        report = load_dev_database(session, preview=True)
+    assert "loaded" in report["sources"].values(), "no data/normalized/* source loaded"
     return session_factory
 
 

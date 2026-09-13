@@ -54,8 +54,10 @@ def web_client(db_sessionmaker: sessionmaker[Session]) -> Iterator[TestClient]:
 def test_provenance_panel_collapses_the_licence_quote_behind_the_source_name(
     db_sessionmaker: sessionmaker[Session], web_client: TestClient
 ) -> None:
+    quote = "Open Test Registry Terms, retrieved 2026-09-01: data may be freely reused with attribution."
     with db_sessionmaker() as session:
         licence = make_open_licence(session)
+        licence.quote_text = quote  # services/README.md "Sprint 2 fixes" #5: Licence.quote_text
         source = make_public_source(session, licence)
         proposal = make_visible_proposal(session, source)
         session.commit()
@@ -68,7 +70,7 @@ def test_provenance_panel_collapses_the_licence_quote_behind_the_source_name(
     assert "Test Public Source" in body  # source name visible, per docs/31 §5.2 anatomy
     assert "retrieved" in body  # retrieval date visible
     assert "<details" in body and "<summary>" in body  # the quote is collapsed, not inline
-    assert "Reuse class: open." in body  # composed licence text lives inside the expandable region
+    assert quote in body  # the licence's quote_text renders verbatim, not a composed paraphrase
 
 
 def test_restricted_precision_renders_the_redaction_note(
@@ -88,6 +90,9 @@ def test_restricted_precision_renders_the_redaction_note(
     assert resp.status_code == 200
     assert "county level (source licence)" in resp.text
     assert "Derived fields only" in resp.text  # provenance panel's raw-withheld note
+    # `make_attribution_licence` sets no `quote_text` -- the honest fallback renders instead of an
+    # empty expandable region.
+    assert "No licence quote recorded for this source." in resp.text
 
 
 def test_gated_source_never_appears_and_reads_as_not_found(web_client: TestClient) -> None:

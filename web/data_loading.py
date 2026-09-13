@@ -1,18 +1,42 @@
 """Load connector output into a SQLite `services.db` store for `web/` to read through the API,
 via the real `services/ingest/loader.py` path -- this module never invents its own record shape.
 
-Two entry points:
-  - `load_dev_database()` -- the nine real per-source `data/normalized/<source_id>/*.parquet`
-    files this site has always served (docs/00-PLAN.md Sprint 2 prototype), for `web/dev_up.py`.
-  - `load_test_database()` -- `data/eval/normalized.parquet` (task item 6's named fixture) for
-    proposals, plus the same real opportunity sources, for the pytest suite.
+`load_dev_database()` -- the nine real per-source `data/normalized/<source_id>/*.parquet` files
+this site has always served (docs/00-PLAN.md Sprint 2 prototype) -- is the one entry point
+`web/dev_up.py`, `web/test_e2e.py` and `tests/test_web_default_view.py` all now use, unsampled by
+default (the full ~11,400-row set across all nine sources): `services/README.md`'s "Sprint 2
+fixes" closed the `services/api/visibility.py` performance gap that used to force this site onto a
+sample (0.127s/page and 0.35-0.53s/geo-request on the full load, both measured there), so there is
+no longer a reason to test or develop against anything smaller by default. `sample_per_state`
+(exposed as `web/dev_up.py --sample`) still caps the load to a handful of rows per lifecycle
+state/status per source when that's useful for a fast local edit-reload loop -- unrelated to the
+performance fix; `services/ingest/loader.py` upserts row by row (no bulk path) at roughly 100
+rows/second regardless of query speed, so a full load still costs a couple of minutes wall clock,
+which the sample flag exists to skip when a developer doesn't need the real volume.
 
-Both apply three small, explicitly-documented corrections *on top of* what the loader wrote,
-because three known gaps in `services/ingest/loader.py` (recorded in `services/README.md`'s "Open
-decisions" and repeated below) would otherwise leave the site with nothing to show or with
-defect-C/D-9 behaviour that can never trigger. None of this edits `services/` code -- it is a
-data-loading-layer workaround, applied from the frontend's own loader, pending the real fix
-upstream (see web/README.md "Missing from the API" for what to ask the backend team for).
+`load_eval_fixture()`/`load_test_database()` remain below as a way to load the separate
+entity-resolution evaluation fixture (`data/eval/normalized.parquet`, docs/22) into the same store
+shape, should something else need that specific fixture; nothing in `web/` or `tests/test_web_*.py`
+calls them any more now that the real `data/normalized/*` load is fast enough to test against
+directly.
+
+One correction remains on top of what the loader writes -- the other two this module used to apply
+are gone (see below, and `services/README.md`'s "Sprint 2 fixes" -> "`web/data_loading.py`
+overrides this makes unnecessary" for the backend's own verdict on the same three):
+
+- **Geocoding, CAISO/NYISO's derived-only licence flag and `precision_reason`, and source
+  `publish_state`** are now all done correctly by `services/ingest/loader.py` itself (it geocodes
+  at ingest time, derives `allows_raw_publication`/`precision_reason` per source from the registry
+  rather than hardcoding them, and sets `publish_state` from the registry's reuse class) -- the
+  `backfill_locations()`, `apply_derived_only_licence_correction()` and `_flip_publish_state_public()`
+  functions that used to patch around those three gaps from this side are removed, not merely
+  unused, because re-running them would now be redundant work over a store the loader already got
+  right.
+- **`backfill_eia_exact_points()` stays.** EIA-860M's raw `Latitude`/`Longitude` promotion to
+  `exact` location precision is explicitly out of `services/ingest/loader.py`'s scope this sprint
+  (`services/README.md` "Sprint 2 fixes" says so directly) -- the loader's own geocoder only ever
+  produces `county_centroid`/`state_centroid`/`unknown`. This function stays a real, documented
+  frontend-side correction until the loader promotes EIA-860M's exact points itself.
 """
 
 from __future__ import annotations
@@ -28,47 +52,14 @@ from sqlalchemy.orm import Session
 
 from pipeline.connectors.registry import Registry
 from services.api.common import ensure_aware
-from services.db.models import (
-    Event,
-    Location,
-    Opportunity,
-    OpportunitySource,
-    Proposal,
-    ProposalSource,
-    Source,
-)
+from services.db.models import Event, Opportunity, OpportunitySource, Proposal, ProposalSource
 from services.ingest.loader import GateRefused, load_dataframe, load_from_files, upsert_licence_and_source
-from web.build_data import (
-    COUNTY_CENTROID_TSV,
-    EVAL_SHORT_ID_MAP,
-    OPPORTUNITY_SOURCE_IDS,
-    PROPOSAL_SOURCE_IDS,
-    CountyGazetteer,
-)
+from web.build_data import EVAL_SHORT_ID_MAP, OPPORTUNITY_SOURCE_IDS, PROPOSAL_SOURCE_IDS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_ROOT = REPO_ROOT / "data"
 DEFAULT_SOURCES_YAML = REPO_ROOT / "data" / "sources.yaml"
 DEFAULT_EVAL_PARQUET = REPO_ROOT / "data" / "eval" / "normalized.parquet"
-
-# services/README.md open decision #11: "allows_raw_publication is True for every ingested source
-# this sprint ... needs the per-source override wired from the registry". CAISO and NYISO are the
-# two sources the legal register (docs/00-PLAN.md, 2026-09-12) calls derived-only.
-DERIVED_ONLY_SOURCE_IDS: tuple[str, ...] = ("us.iso.caiso.gen_queue", "us.iso.nyiso.gen_queue")
-
-
-def _flip_publish_state_public(session: Session, source_id: str) -> None:
-    """services/README.md open decision #5: a newly-seen source loads as `publish_state =
-    "api_only"` until an admin publish workflow flips it -- which does not exist yet. Every source
-    this module loads has already cleared `data/sources.yaml`'s open/attribution gate (the loader
-    itself would have refused it otherwise), so flipping it here is the same call `build_data.py`'s
-    prototype made implicitly by construction, just made explicit now that a real `publish_state`
-    column exists to set.
-    """
-    source = session.get(Source, source_id)
-    if source is not None and source.publish_state != "public":
-        source.publish_state = "public"
-        session.flush()
 
 
 def load_real_normalized_sources(
@@ -87,11 +78,11 @@ def load_real_normalized_sources(
     `sample_per_state`, when given, loads only `_stratified_sample`'s per-lifecycle-state/status
     cap instead of the whole file (bypassing `load_from_files` to call
     `services.ingest.loader.load_dataframe` directly on the sampled frame -- the same upsert
-    function either way, just skipping the whole-file read). See web/README.md "Missing from the
-    API": `services/api/visibility.py`'s per-row correlated-EXISTS predicate measures at 30-75s
-    over this site's real ~10,400-row proposal set in SQLite, which is unusable for an interactive
-    smoke test -- `web/test_e2e.py` samples for exactly this reason. `web/dev_up.py` leaves this
-    unsampled by default and exposes `--sample-per-state` as the same workaround.
+    function either way, just skipping the whole-file read). Not a performance workaround any more
+    (`services/README.md` "Sprint 2 fixes" closed the query-time gap this used to exist for) --
+    kept purely as `web/dev_up.py --sample`'s fast local-iteration path, since
+    `services/ingest/loader.py`'s row-by-row upsert (no bulk path) stays ~100 rows/second
+    regardless of query speed, so a full ~11,400-row load still costs a couple of minutes.
     """
     registry = Registry(sources_yaml)
     ids = list(source_ids) if source_ids is not None else [*PROPOSAL_SOURCE_IDS, *OPPORTUNITY_SOURCE_IDS]
@@ -111,7 +102,6 @@ def load_real_normalized_sources(
         except GateRefused as exc:
             status[source_id] = f"skipped: {exc}"
             continue
-        _flip_publish_state_public(session, source_id)
         status[source_id] = "loaded"
     session.commit()
     return status
@@ -171,63 +161,18 @@ def load_eval_fixture(
             frame = _stratified_sample(frame, per_state=sample_per_state)
         entry = registry.get(source_id)
         source = upsert_licence_and_source(session, entry, registry.version)
-        _flip_publish_state_public(session, source_id)
         result = load_dataframe(session, source, "proposal", frame, None)
         counts[source_id] = result.proposals_created
     session.commit()
     return counts
 
 
-def apply_derived_only_licence_correction(
-    session: Session, source_ids: Iterable[str] = DERIVED_ONLY_SOURCE_IDS
-) -> int:
-    """Correct the loader's hardcoded `allows_raw_publication=True` (open decision #11 above) for
-    sources the legal register calls derived-only, and stamp their already-loaded `location` rows
-    with `precision_reason="licence"` so `serialize_location`'s stored column (which the loader
-    never sets for any source, not only these two -- another instance of the same gap) has real
-    data for the frontend's restricted-precision note (docs/04 D-9) to render. Returns the number
-    of `location` rows stamped.
-    """
-    updated = 0
-    for source_id in source_ids:
-        source = session.get(Source, source_id)
-        if source is None:
-            continue
-        licence = source.licence
-        if licence.allows_raw_publication:
-            licence.allows_raw_publication = False
-            licence.allows_derived_publication = True
-        for loc in session.scalars(select(Location).where(Location.source_id == source_id)):
-            if loc.precision == "county_centroid":
-                loc.precision_reason = "licence"
-                updated += 1
-    session.commit()
-    return updated
-
-
-def backfill_locations(session: Session, *, gaz: CountyGazetteer | None = None) -> int:
-    """`services/ingest/loader.py` never geocodes (README open decision #2: `location.geom` is
-    always null), so nothing plots on the map at all without this. Uses the same public-domain US
-    Census Gazetteer county-centroid table `web/build_data.py`'s prototype vendored -- a frontend
-    stopgap, not a substitute for a real geocoder in the ingest pipeline (see web/README.md).
-    """
-    gaz = gaz or CountyGazetteer.load(COUNTY_CENTROID_TSV)
-    updated = 0
-    for loc in session.scalars(select(Location).where(Location.geom.is_(None))):
-        if loc.country != "US":
-            continue
-        state = (loc.state_code or "").rsplit("-", 1)[-1] or None
-        point = gaz.county_point(state, loc.county_name) if loc.county_name and state else None
-        if point is None and state:
-            point = gaz.state_point(state)
-            if point is not None:
-                loc.precision = "state_centroid"
-        if point is not None:
-            lat, lon = point
-            loc.geom = (lon, lat)
-            updated += 1
-    session.commit()
-    return updated
+# `apply_derived_only_licence_correction()` and `backfill_locations()` used to live here. Both are
+# removed, not merely unused: `services/ingest/loader.py` now derives `allows_raw_publication`/
+# `location.precision_reason` per source from the registry and geocodes county/state centroids at
+# ingest time (`services/README.md` "Sprint 2 fixes" #2 and #3), so re-running either correction on
+# top would be redundant work over a store the loader already got right -- confirmed there as an
+# idempotent no-op against this sprint's loader before the fix landed.
 
 
 def backfill_eia_exact_points(session: Session, *, source_id: str = "us.eia.860m") -> int:
@@ -303,25 +248,25 @@ def load_dev_database(
     preview: bool = False,
     sample_per_state: int | None = None,
 ) -> dict[str, Any]:
-    """Everything `web/dev_up.py` needs: the nine real sources, the two data-layer corrections
-    above, and (only with `preview=True`) the lag override.
+    """Everything `web/dev_up.py`, `web/test_e2e.py` and `tests/test_web_default_view.py` need: the
+    nine real sources under `data/normalized/*` through the real loader (which now geocodes and
+    derives licence/publish-state correctly on its own, per the module docstring above), the one
+    remaining frontend-side correction (`backfill_eia_exact_points`), and (only with
+    `preview=True`) the lag override.
 
-    `sample_per_state` defaults to `None` (the full, real ~10,400-row dataset) -- pass a small cap
-    to work around the `services/api/visibility.py` performance gap documented in
-    `load_real_normalized_sources` and web/README.md "Missing from the API" if the full set makes
-    the site unusably slow in your environment (measured at 30-75s per page in this one).
+    `sample_per_state` defaults to `None` -- the full, real ~11,400-row set across all nine
+    sources, viable now that `services/api/visibility.py`'s query-time gap is fixed
+    (`services/README.md` "Sprint 2 fixes"). Pass a small cap (`web/dev_up.py --sample`) only for a
+    fast local edit-reload loop; the loader's own row-by-row upsert rate (~100 rows/second,
+    independent of that fix) is what a full load still costs time on.
     """
     status = load_real_normalized_sources(
         session, data_root=data_root, sources_yaml=sources_yaml, sample_per_state=sample_per_state
     )
-    licence_rows_stamped = apply_derived_only_licence_correction(session)
-    locations_backfilled = backfill_locations(session)
     eia_exact_points = backfill_eia_exact_points(session)
     preview_rows_advanced = apply_preview_lag_override(session) if preview else 0
     return {
         "sources": status,
-        "licence_rows_stamped": licence_rows_stamped,
-        "locations_backfilled": locations_backfilled,
         "eia_exact_points": eia_exact_points,
         "preview_rows_advanced": preview_rows_advanced,
     }
@@ -336,14 +281,17 @@ def load_test_database(
     include_opportunities: bool = True,
     sample_per_state: int | None = 60,
 ) -> dict[str, Any]:
-    """What `tests/test_web_*.py` calls: `data/eval/normalized.parquet` for proposals (task item
-    6's named fixture) plus the real opportunity sources for provenance/detail-page coverage, both
-    corrected the same way `load_dev_database` is, and always with the preview override applied
-    (the eval fixture's `retrieved_at` is "today", so nothing would be visible otherwise).
+    """Loads the separate entity-resolution evaluation fixture (`data/eval/normalized.parquet`,
+    docs/22) for proposals, plus the real opportunity sources, into `session` -- available for
+    whatever else wants that specific fixture, but **not called by anything in `web/` or
+    `tests/test_web_*.py` any more**: `tests/test_web_default_view.py` now loads the real
+    `data/normalized/*` data through `load_dev_database` directly, the same full-data path
+    `web/dev_up.py` and `web/test_e2e.py` use, since that data is now fast enough to test against
+    (see the module docstring above).
 
-    `sample_per_state` defaults to a small per-lifecycle-state cap (see `load_eval_fixture`) so the
-    suite loads in a few seconds instead of the ~90s the full ~9,500-row fixture costs through
-    `services/ingest/loader.py`'s row-at-a-time upsert; pass `None` for an unsampled load.
+    `sample_per_state` defaults to a small per-lifecycle-state cap (see `load_eval_fixture`) so a
+    caller that does want this fixture can stay fast; pass `None` for an unsampled load of the full
+    ~9,500-row fixture (still ~90s through `services/ingest/loader.py`'s row-at-a-time upsert).
     """
     proposal_counts = load_eval_fixture(
         session,
@@ -361,7 +309,5 @@ def load_test_database(
         if include_opportunities
         else {}
     )
-    apply_derived_only_licence_correction(session)
-    backfill_locations(session)
     apply_preview_lag_override(session)
     return {"proposals": proposal_counts, "opportunities": opportunity_status}
