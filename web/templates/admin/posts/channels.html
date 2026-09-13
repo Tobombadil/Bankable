@@ -1,0 +1,56 @@
+{% extends "admin/base.html" %}
+{% block title %}Channels -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-posts.css">{% endblock %}
+{% block content %}
+<p><a href="/admin/posts">&larr; Back to the queue</a></p>
+<h1>Channel switches</h1>
+<p class="admin-muted">Owner only (US-802 AC2). Default is off for every channel: nothing publishes without a
+  human approval unless an owner has switched it on here.</p>
+{% include "admin/_notice.html" %}
+
+{% if not is_owner %}
+<p class="notice" role="status">Your role is <strong>{{ admin.role }}</strong>. Only an owner may change a
+  channel's auto-publish switch; the forms below are read-only.</p>
+{% endif %}
+
+<div class="admin-cols">
+{% for channel in channels %}
+{% set row = channel_rows.get(channel) %}
+<section>
+  <h2>{{ channel }}
+    {% if row %}
+    <span class="chip chip--{{ 'progress' if row.auto_publish else 'neutral' }}">{{ 'auto-publish on' if row.auto_publish else 'review required' }}</span>
+    {% endif %}
+  </h2>
+  {% if row %}
+  <dl class="admin-dl">
+    <dt>Daily cap</dt><dd>{{ row.daily_cap if row.daily_cap is not none else 'unset' }}</dd>
+    <dt>Disclosure label</dt><dd>{{ row.disclosure_label or '—' }}</dd>
+    <dt>Last changed by</dt><dd>{{ row.changed_by_user_id or '—' }}</dd>
+    <dt>Last changed</dt><dd class="mono">{{ row.updated_at or '—' }}</dd>
+  </dl>
+  {% endif %}
+  {% if notice_channel == channel %}{% include "admin/_notice.html" %}{% endif %}
+  <form class="admin-form" method="post" action="/admin/posts/channels/{{ channel }}/auto-publish">
+    <div class="field">
+      <label><input type="checkbox" name="auto_publish" value="1" {% if row and row.auto_publish %}checked{% endif %} {% if not is_owner %}disabled{% endif %}> Auto-publish enabled</label>
+    </div>
+    <div class="field">
+      <label><input type="checkbox" name="disclosure_label_confirmed" value="1" {% if not is_owner %}disabled{% endif %}> Disclosure label confirmed (required to enable)</label>
+    </div>
+    <div class="field">
+      <label for="cap-{{ channel }}">Daily cap</label>
+      <input id="cap-{{ channel }}" name="daily_cap" inputmode="numeric" value="{{ row.daily_cap if row and row.daily_cap is not none else '' }}" placeholder="unset" {% if not is_owner %}disabled{% endif %}>
+    </div>
+    <div class="field">
+      <label for="reason-{{ channel }}">Reason (required)</label>
+      <textarea id="reason-{{ channel }}" name="reason" rows="2" {% if not is_owner %}disabled{% else %}required{% endif %}></textarea>
+    </div>
+    <div class="admin-actions">
+      <button class="admin-button admin-button--primary" type="submit" {% if not is_owner %}disabled{% endif %}>Save {{ channel }}</button>
+    </div>
+  </form>
+</section>
+{% endfor %}
+</div>
+{% endblock %}
