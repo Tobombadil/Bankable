@@ -86,6 +86,7 @@ def _rate_limit_headers(request: Request, ctx: AuthContext) -> dict[str, str]:
             "rate_limited",
             "Rate limit exceeded",
             detail=f"More than {result.limit} requests in the current window.",
+            headers={"Retry-After": str(result.reset_seconds)},
         )
     return {
         "RateLimit-Limit": str(result.limit),
@@ -106,15 +107,23 @@ def get_me(
     rl = _rate_limit_headers(request, ctx)
     for k, v in rl.items():
         response.headers[k] = v
-    if ctx.user is None or ctx.account is None:
-        # A key-only caller (no user row) — `/v1/me` still needs a user for `data.user`; a
-        # customer key always has `created_by_user_id`, so this path is API-key self-service
-        # calling as the account rather than a specific member (out of this sprint's scope to
-        # disambiguate further — documented in services/README.md).
+    if ctx.account is None:
+        raise not_found(request.url.path, "No account context for this credential.")
+    # A key-only caller has no `ctx.user` of its own; every key still names the user who created
+    # it (`ApiKey.created_by_user_id`, docs/21 §3.17), so `/v1/me` renders as that user rather
+    # than 404ing on a perfectly valid credential.
+    me_user = (
+        ctx.user
+        if ctx.user is not None
+        else db.get(User, ctx.api_key.created_by_user_id)
+        if ctx.api_key
+        else None
+    )
+    if me_user is None:
         raise not_found(request.url.path, "No user context for this credential.")
     account = ctx.account
     data: dict[str, Any] = {
-        "user": serialize_user(ctx.user, account_public_id=account.public_id),
+        "user": serialize_user(me_user, account_public_id=account.public_id),
         "account": serialize_account(account),
         "tier": ctx.entitlement,
         "limits": {
@@ -129,7 +138,7 @@ def get_me(
         "saved_search_quota": {
             "limit": SAVED_SEARCH_QUOTA,
             "used": db.scalar(
-                select(func.count()).select_from(SavedSearch).where(SavedSearch.user_id == ctx.user.id)
+                select(func.count()).select_from(SavedSearch).where(SavedSearch.user_id == me_user.id)
             )
             or 0,
         },
@@ -137,7 +146,9 @@ def get_me(
     }
     if ctx.api_key is not None:
         data["scopes"] = sorted(ctx.scopes)
-    return build_envelope(data, meta=build_meta(lag_days=0), licence_summary=build_licence_summary([]))
+    return build_envelope(
+        data, meta=build_meta(lag_days=0, tier=ctx.entitlement), licence_summary=build_licence_summary([])
+    )
 
 
 @router.get("/v1/account")
@@ -153,7 +164,9 @@ def get_account(
         raise not_found(request.url.path)
     org = db.get(Organization, ctx.account.organization_id) if ctx.account.organization_id else None
     data = {"account": serialize_account(ctx.account, organization=org), "subscriptions": []}
-    return build_envelope(data, meta=build_meta(lag_days=0), licence_summary=build_licence_summary([]))
+    return build_envelope(
+        data, meta=build_meta(lag_days=0, tier=ctx.entitlement), licence_summary=build_licence_summary([])
+    )
 
 
 # -------------------------------------------------------------------------------- saved searches
@@ -180,7 +193,7 @@ def list_saved_searches(
     data = [serialize_saved_search(s) for s in rows]
     return build_list_envelope(
         data,
-        meta=build_meta(lag_days=0),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
         licence_summary=build_licence_summary([]),
         page=build_page(None, None, False),
     )
@@ -228,7 +241,9 @@ def create_saved_search(
     search.public_id = public_id("ss", search.id)
     db.flush()
     return build_envelope(
-        serialize_saved_search(search), meta=build_meta(lag_days=0), licence_summary=build_licence_summary([])
+        serialize_saved_search(search),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
+        licence_summary=build_licence_summary([]),
     )
 
 
@@ -248,7 +263,9 @@ def get_saved_search(
 ) -> Any:
     search = _get_owned_saved_search(db, ctx, saved_search_id, request.url.path)
     return build_envelope(
-        serialize_saved_search(search), meta=build_meta(lag_days=0), licence_summary=build_licence_summary([])
+        serialize_saved_search(search),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
+        licence_summary=build_licence_summary([]),
     )
 
 
@@ -278,7 +295,9 @@ def update_saved_search(
         search.status = body["status"]
     db.flush()
     return build_envelope(
-        serialize_saved_search(search), meta=build_meta(lag_days=0), licence_summary=build_licence_summary([])
+        serialize_saved_search(search),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
+        licence_summary=build_licence_summary([]),
     )
 
 
@@ -308,7 +327,7 @@ def preview_saved_search(
     items = matching_items_for_feed(db, search, ctx.account, limit=50)
     return build_list_envelope(
         items,
-        meta=build_meta(lag_days=0),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
         licence_summary=build_licence_summary([]),
         page=build_page(None, None, False),
     )
@@ -332,7 +351,7 @@ def list_alerts(
     data = [serialize_alert(a) for a in rows]
     return build_list_envelope(
         data,
-        meta=build_meta(lag_days=0),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
         licence_summary=build_licence_summary([]),
         page=build_page(None, None, False),
     )
@@ -349,7 +368,9 @@ def get_alert(
     if alert is None or ctx.user is None or alert.user_id != ctx.user.id:
         raise not_found(request.url.path)
     return build_envelope(
-        serialize_alert(alert, event_ids=[]), meta=build_meta(lag_days=0), licence_summary=build_licence_summary([])
+        serialize_alert(alert, event_ids=[]),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
+        licence_summary=build_licence_summary([]),
     )
 
 
@@ -371,7 +392,7 @@ def list_keys(
     ]
     return build_list_envelope(
         data,
-        meta=build_meta(lag_days=0),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
         licence_summary=build_licence_summary([]),
         page=build_page(None, None, False),
     )
@@ -401,17 +422,23 @@ def create_key(
             request.url.path,
         )
     existing = db.scalar(
-        select(func.count()).select_from(ApiKey).where(ApiKey.account_id == ctx.account.id, ApiKey.revoked_at.is_(None))
+        select(func.count())
+        .select_from(ApiKey)
+        .where(ApiKey.account_id == ctx.account.id, ApiKey.revoked_at.is_(None))
     )
     if (existing or 0) >= MAX_API_KEYS_PER_USER:
-        raise ProblemError("forbidden_tier", "API key limit reached", detail=f"Limit is {MAX_API_KEYS_PER_USER}.")
+        raise ProblemError(
+            "forbidden_tier", "API key limit reached", detail=f"Limit is {MAX_API_KEYS_PER_USER}."
+        )
     requested_scopes = body.get("scopes") or ["read:public"]
     if "admin:*" in requested_scopes:
         raise validation_error("scopes", "admin:* may never be requested by a customer key", request.url.path)
     prefix = body.get("prefix", "bk_live")
     secret, key_hash, last4 = generate_api_key(prefix)
-    tier = "api" if ("read:bulk" in requested_scopes or "write:webhooks" in requested_scopes) else (
-        "pro" if "read:live" in requested_scopes else "public"
+    tier = (
+        "api"
+        if ("read:bulk" in requested_scopes or "write:webhooks" in requested_scopes)
+        else ("pro" if "read:live" in requested_scopes else "public")
     )
     key = ApiKey(
         public_id="",
@@ -439,9 +466,13 @@ def create_key(
         reason=f"API key {key.name!r} created",
         after={"scopes": requested_scopes, "tier": tier},
     )
-    data = serialize_api_key(key, account_public_id=ctx.account.public_id, created_by_public_id=ctx.user.public_id)
+    data = serialize_api_key(
+        key, account_public_id=ctx.account.public_id, created_by_public_id=ctx.user.public_id
+    )
     data["secret"] = secret
-    return build_envelope(data, meta=build_meta(lag_days=0), licence_summary=build_licence_summary([]))
+    return build_envelope(
+        data, meta=build_meta(lag_days=0, tier=ctx.entitlement), licence_summary=build_licence_summary([])
+    )
 
 
 @router.delete("/v1/keys/{key_id}", status_code=204)
@@ -494,7 +525,7 @@ def list_webhooks(
     data = [serialize_webhook_endpoint(e) for e in rows]
     return build_list_envelope(
         data,
-        meta=build_meta(lag_days=0),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
         licence_summary=build_licence_summary([]),
         page=build_page(None, None, False),
     )
@@ -550,7 +581,9 @@ def create_webhook(
     db.flush()
     data = serialize_webhook_endpoint(endpoint)
     data["secret"] = secret
-    return build_envelope(data, meta=build_meta(lag_days=0), licence_summary=build_licence_summary([]))
+    return build_envelope(
+        data, meta=build_meta(lag_days=0, tier=ctx.entitlement), licence_summary=build_licence_summary([])
+    )
 
 
 def _get_owned_webhook(db: Session, ctx: AuthContext, webhook_id: str, path: str) -> WebhookEndpoint:
@@ -570,7 +603,9 @@ def get_webhook(
     _require_webhook_access(ctx)
     endpoint = _get_owned_webhook(db, ctx, webhook_id, request.url.path)
     return build_envelope(
-        serialize_webhook_endpoint(endpoint), meta=build_meta(lag_days=0), licence_summary=build_licence_summary([])
+        serialize_webhook_endpoint(endpoint),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
+        licence_summary=build_licence_summary([]),
     )
 
 
@@ -600,7 +635,7 @@ def test_webhook(
     delivery = create_test_delivery(db, endpoint)
     return build_envelope(
         serialize_webhook_delivery(delivery, event_public_id=None),
-        meta=build_meta(lag_days=0),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
         licence_summary=build_licence_summary([]),
     )
 
@@ -619,7 +654,9 @@ def replay_webhook(
         raise validation_error("since", "since (event seq) is required", request.url.path)
     deliveries = replay_from_seq(db, endpoint, since_seq=int(since_raw))
     data = {"webhook_id": endpoint.public_id, "since": int(since_raw), "queued_count": len(deliveries)}
-    return build_envelope(data, meta=build_meta(lag_days=0), licence_summary=build_licence_summary([]))
+    return build_envelope(
+        data, meta=build_meta(lag_days=0, tier=ctx.entitlement), licence_summary=build_licence_summary([])
+    )
 
 
 @router.get("/v1/webhooks/{webhook_id}/deliveries")
@@ -636,12 +673,10 @@ def list_webhook_deliveries(
     if v := request.query_params.get("status"):
         stmt = stmt.where(WebhookDelivery.status.in_(csv_param(v)))
     rows = list(db.scalars(stmt.order_by(WebhookDelivery.created_at.desc())).all())
-    data = [
-        serialize_webhook_delivery(d, event_public_id=_event_public_id(db, d.event_id)) for d in rows
-    ]
+    data = [serialize_webhook_delivery(d, event_public_id=_event_public_id(db, d.event_id)) for d in rows]
     return build_list_envelope(
         data,
-        meta=build_meta(lag_days=0),
+        meta=build_meta(lag_days=0, tier=ctx.entitlement),
         licence_summary=build_licence_summary([]),
         page=build_page(None, None, False),
     )
@@ -704,19 +739,19 @@ def admin_set_account_entitlement(
     admin-only endpoint for now"). Not a CRM/ERP adapter write like `/admin/v1/customers` (that
     path needs the system-of-record integration this sprint does not build) — this sets
     `account.entitlement` directly with `entitlement_source = "manual_grant"` and an audited
-    reason, exactly the escape hatch docs/21 §3.13 already models (`sor \| manual_grant \|
-    trial`). Superseded once billing wires the adapter (services/README.md)."""
+    reason, exactly the escape hatch docs/21 §3.13 already models (`sor` / `manual_grant` /
+    `trial`). Superseded once billing wires the adapter (services/README.md)."""
     account = db.scalar(select(Account).where(Account.public_id == account_id))
     if account is None:
         raise not_found(request.url.path)
     entitlement = body.get("entitlement")
     reason = body.get("reason")
     if entitlement not in ACCOUNT_ENTITLEMENTS:
-        raise validation_error(
-            "entitlement", f"must be one of {ACCOUNT_ENTITLEMENTS}", request.url.path
-        )
+        raise validation_error("entitlement", f"must be one of {ACCOUNT_ENTITLEMENTS}", request.url.path)
     if not reason:
-        raise validation_error("reason", "reason is required for an admin entitlement change", request.url.path)
+        raise validation_error(
+            "reason", "reason is required for an admin entitlement change", request.url.path
+        )
     before = {"entitlement": account.entitlement}
     account.entitlement = entitlement
     account.entitlement_source = "manual_grant"
@@ -735,8 +770,10 @@ def admin_set_account_entitlement(
             after={"entitlement": entitlement},
         )
     return build_envelope(
-        {"account": serialize_account(account)}, meta=build_meta(lag_days=0), licence_summary=build_licence_summary([])
+        {"account": serialize_account(account)},
+        meta=build_meta(lag_days=0, tier="admin"),
+        licence_summary=build_licence_summary([]),
     )
 
 
-__all__ = ["router", "sign_payload", "new_request_id"]
+__all__ = ["router"]

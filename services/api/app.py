@@ -34,7 +34,7 @@ from sqlalchemy.orm import (
 )
 
 from services.api.auth import AuthContext, get_auth_context
-from services.api.common import WEB_HOST, ensure_aware, new_request_id, utcnow
+from services.api.common import API_HOST, WEB_HOST, ensure_aware, new_request_id, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
 from services.api.feeds import render_json_feed, render_rss
@@ -97,14 +97,60 @@ app.include_router(pro_router)
 
 @app.middleware("http")
 async def standard_headers(request: Request, call_next: Any) -> Response:
-    """`X-Request-Id` and static rate-limit headers on every response (docs/23 §1, §6; this
-    sprint's brief: "rate-limit headers (static values for now)")."""
-    response: Response = await call_next(request)
+    """`X-Request-Id` on every response, plus real per-tier rate-limit headers (docs/23 §1, §6).
+
+    Sprint 2 shipped static placeholder values here ("rate-limit headers (static values for
+    now)"); this sprint (Pro tier and alerts, task item 2: "real per-tier token buckets") replaces
+    them for anonymous traffic — the public tier per docs/23 §6's "60/hour, per IP" row — with a
+    real count through `services.api.ratelimit.default_limiter`. A request carrying a session
+    cookie or `Authorization` header is left to the route itself: `services/api/pro.py`'s routes
+    already compute and set real per-caller headers via `_rate_limit_headers` (keyed by API key or
+    session, tier from `AuthContext.entitlement`), which this middleware never overwrites
+    (`setdefault` only). **Known gap**, not silently dropped: a Pro/API-entitled credential calling
+    one of `services/api/app.py`'s original Sprint 2 public-tier routes directly (rather than a
+    `services/api/pro.py` route) is not yet metered by this middleware, since crediting it to the
+    anonymous per-IP bucket would double-count against unrelated anonymous traffic sharing that
+    IP, and this sprint does not thread `AuthContext` resolution into the middleware layer itself.
+    Recorded in services/README.md as a follow-up: unify both under one rate-limiting dependency.
+    """
+    from services.api.ratelimit import TIER_LIMITS, default_limiter, policy_header
+
+    is_credentialed = bool(request.headers.get("authorization")) or bool(request.cookies.get("session"))
+    if not is_credentialed:
+        client_ip = request.client.host if request.client else "unknown"
+        result = default_limiter.check(f"public:{client_ip}", limit=TIER_LIMITS["public"])
+        if not result.allowed:
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(
+                status_code=429,
+                media_type="application/problem+json",
+                headers={
+                    "Retry-After": str(result.reset_seconds),
+                    "RateLimit-Limit": str(result.limit),
+                    "RateLimit-Remaining": "0",
+                    "RateLimit-Reset": str(result.reset_seconds),
+                    "RateLimit-Policy": policy_header("public", result),
+                    "X-Request-Id": new_request_id(),
+                },
+                content={
+                    "type": f"{API_HOST}/errors/rate_limited",
+                    "title": "Rate limit exceeded",
+                    "status": 429,
+                    "code": "rate_limited",
+                    "detail": f"More than {result.limit} requests in the current window.",
+                    "request_id": new_request_id(),
+                    "instance": request.url.path,
+                },
+            )
+        response: Response = await call_next(request)
+        response.headers.setdefault("RateLimit-Limit", str(result.limit))
+        response.headers.setdefault("RateLimit-Remaining", str(result.remaining))
+        response.headers.setdefault("RateLimit-Reset", str(result.reset_seconds))
+        response.headers.setdefault("RateLimit-Policy", policy_header("public", result))
+    else:
+        response = await call_next(request)
     response.headers["X-Request-Id"] = new_request_id()
-    response.headers["RateLimit-Limit"] = "60"
-    response.headers["RateLimit-Remaining"] = "59"
-    response.headers["RateLimit-Reset"] = "3600"
-    response.headers["RateLimit-Policy"] = '60;w=3600;policy="public-read"'
     if request.url.path.startswith("/v1/") and request.method == "GET":
         response.headers["Cache-Control"] = "public, max-age=300"
     return response
@@ -157,9 +203,7 @@ def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select
     return stmt
 
 
-def _proposal_query_with_filters(
-    request: Request, entitlement: str = "public"
-) -> sa.Select[tuple[Proposal]]:
+def _proposal_query_with_filters(request: Request, entitlement: str = "public") -> sa.Select[tuple[Proposal]]:
     # `Proposal.sources` is a `viewonly` relationship with no eager default (unlike `sponsor`/
     # `location`, both `lazy="joined"`), so a caller that reads `.sources` over a whole result set
     # (`_proposal_licence_rows`) would otherwise issue one query per proposal -- fine at this list
@@ -324,7 +368,9 @@ def list_proposals(
     meta = build_meta("proposal", tier=ctx.entitlement)
     if "count" in (request.query_params.get("include") or "").split(","):
         total = db.scalar(
-            select(func.count()).select_from(_proposal_query_with_filters(request, ctx.entitlement).subquery())
+            select(func.count()).select_from(
+                _proposal_query_with_filters(request, ctx.entitlement).subquery()
+            )
         )
         meta["total"] = total
         meta["total_is_estimate"] = total is not None and total > 10000

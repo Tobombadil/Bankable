@@ -19,7 +19,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "S", "C4", "DTZ", "T20", "RUF"]
 ignore = ["RUF001", "RUF002", "RUF003", "N818"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]                       # asserts are the point
+"tests/**" = ["S101", "S105", "S106", "S107"]  # asserts are the point; test fixtures use literal test credentials
 "pipeline/connectors/**/test_connector.py" = ["S101"]
 "conftest.py" = ["E402"]                    # sys.path must be set before the pipeline imports
 "pipeline/normalize.py" = ["T20"]           # prototype CLI reporting, superseded by the runner

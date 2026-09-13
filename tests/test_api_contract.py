@@ -217,3 +217,95 @@ def test_unknown_parameter_matches_problem_schema(spec: dict, seeded_client) -> 
     resp = seeded_client.get("/v1/proposals?technolgy=x")
     assert resp.status_code == 400
     assert_valid(spec, "Problem", resp.json())
+
+
+# --------------------------------------------------------------- Pro tier and alerts (this sprint)
+# Extends E-8 to the operations `services/api/pro.py` newly ships (`api/openapi.yaml`'s
+# `x-status: live` flip for these operationIds is this sprint's own change, so the contract test
+# must cover them the same way the pre-existing operations above are covered). Unlike
+# `seeded_client` above, this fixture's `_override` commits after each request — `services/api/pro.py`
+# is this codebase's first write surface, and `services/api/deps.py::get_db`'s own docstring
+# explains why a plain `finally: s.close()` would silently discard those writes.
+@pytest.fixture()
+def pro_client(db_sessionmaker: sessionmaker[Session]):
+    def _override():
+        s = db_sessionmaker()
+        try:
+            yield s
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
+        finally:
+            s.close()
+
+    app.dependency_overrides[get_db] = _override
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+def _pro_account_and_user(db_sessionmaker: sessionmaker[Session], client, *, entitlement: str = "pro"):
+    from tests.conftest import login, make_account, make_user
+
+    with db_sessionmaker() as db:
+        account = make_account(db, entitlement=entitlement)
+        user = make_user(db, account)
+        db.commit()
+        login(client, db, user)
+    return account, user
+
+
+def test_me_matches_schema(spec: dict, db_sessionmaker: sessionmaker[Session], pro_client) -> None:
+    _pro_account_and_user(db_sessionmaker, pro_client)
+    resp = pro_client.get("/v1/me")
+    assert resp.status_code == 200
+    assert_valid(spec, "MeResponse", resp.json())
+
+
+def test_saved_search_create_and_list_match_schema(
+    spec: dict, db_sessionmaker: sessionmaker[Session], pro_client
+) -> None:
+    _pro_account_and_user(db_sessionmaker, pro_client)
+    created = pro_client.post(
+        "/v1/saved-searches",
+        json={"name": "contract test", "entity": "proposal", "query": {"kind": "storage"}},
+    )
+    assert created.status_code == 201
+    assert_valid(spec, "SavedSearchDetailResponse", created.json())
+
+    listing = pro_client.get("/v1/saved-searches")
+    assert listing.status_code == 200
+    assert_valid(spec, "SavedSearchListResponse", listing.json())
+
+
+def test_api_key_create_and_list_match_schema(
+    spec: dict, db_sessionmaker: sessionmaker[Session], pro_client
+) -> None:
+    from services.api.pro import API_LICENCE_VERSION
+
+    _pro_account_and_user(db_sessionmaker, pro_client, entitlement="api")
+    created = pro_client.post(
+        "/v1/keys", json={"name": "contract-key", "licence_accepted_version": API_LICENCE_VERSION}
+    )
+    assert created.status_code == 201
+    assert_valid(spec, "ApiKeyCreatedResponse", created.json())
+
+    listing = pro_client.get("/v1/keys")
+    assert listing.status_code == 200
+    assert_valid(spec, "ApiKeyListResponse", listing.json())
+
+
+def test_webhook_create_and_list_match_schema(
+    spec: dict, db_sessionmaker: sessionmaker[Session], pro_client
+) -> None:
+    _pro_account_and_user(db_sessionmaker, pro_client, entitlement="api")
+    created = pro_client.post(
+        "/v1/webhooks", json={"url": "https://example.com/hook", "types": ["event.published"]}
+    )
+    assert created.status_code == 201
+    assert_valid(spec, "WebhookEndpointCreatedResponse", created.json())
+
+    listing = pro_client.get("/v1/webhooks")
+    assert listing.status_code == 200
+    assert_valid(spec, "WebhookEndpointListResponse", listing.json())

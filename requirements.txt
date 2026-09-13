@@ -19,6 +19,10 @@ uvicorn>=0.30,<0.31
 httpx>=0.27,<0.28             # FastAPI TestClient
 jsonschema>=4.22,<5           # tests/test_api_contract.py
 
+# services/api/auth.py, services/alerts/ (Pro tier and alerts)
+argon2-cffi>=25.1,<26         # password hashing (services/api/auth.py)
+itsdangerous>=2.2,<3          # signed session cookies (services/api/auth.py)
+
 # web/ (Sprint 2 public-site prototype: FastAPI + Jinja2 + htmx, docs/20 §15)
 jinja2>=3.1,<4
 python-multipart>=0.0.9,<0.1  # form parsing for FastAPI/Starlette

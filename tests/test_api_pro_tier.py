@@ -144,7 +144,8 @@ def test_restricted_source_is_invisible_on_public_pro_and_api(client, db):
     ids = [p["public_id"] for p in resp.json()["data"]]
     assert prop.public_id not in ids, "restricted sources must stay invisible on API too (docs/21 D-2)"
 
-    assert client.get(f"/v1/proposals/{prop.public_id}", headers={"Authorization": f"Bearer {secret}"}).status_code == 404
+    detail = client.get(f"/v1/proposals/{prop.public_id}", headers={"Authorization": f"Bearer {secret}"})
+    assert detail.status_code == 404
 
 
 def test_api_only_source_is_visible_to_pro_but_not_public(client, db):

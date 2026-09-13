@@ -39,6 +39,7 @@ class ProblemError(Exception):
         detail: str | None = None,
         errors: list[dict[str, str]] | None = None,
         instance: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         if code not in ERROR_CODES:
             raise ValueError(f"unknown problem code {code!r}")
@@ -48,6 +49,10 @@ class ProblemError(Exception):
         self.detail = detail
         self.errors = errors
         self.instance = instance
+        #: Sprint 2 and alerts' addition: `429 rate_limited`/`quota_exceeded` carry `Retry-After`
+        #: (docs/23 §6, §8) — the one error family whose response needs a header beyond the
+        #: standard set every response already gets from `services/api/app.py`'s middleware.
+        self.headers = headers
         super().__init__(title)
 
     def to_body(self, request: Request) -> dict[str, Any]:
@@ -76,6 +81,7 @@ async def problem_exception_handler(request: Request, exc: Exception) -> JSONRes
         status_code=exc.status,
         content=exc.to_body(request),
         media_type="application/problem+json",
+        headers=exc.headers,
     )
 
 

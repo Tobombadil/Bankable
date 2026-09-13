@@ -77,7 +77,7 @@ LOCATION_PRECISIONS = ("exact", "county_centroid", "state_centroid", "unknown")
 # --------------------------------------------------------------------------------------------
 USER_ROLES = ("viewer", "member", "operator", "legal", "owner")
 USER_STATUSES = ("active", "disabled", "anonymised")
-#: docs/20 §7 / api/openapi.yaml specify `magic_link \| google` (passwordless). This task's brief
+#: docs/20 §7 / api/openapi.yaml specify `magic_link | google` (passwordless). This task's brief
 #: explicitly asks for "signed cookie, argon2 password hashing" session auth, which `password`
 #: accommodates without dropping the other two — recorded as a decision in services/README.md
 #: rather than silently overriding docs/20 §7.

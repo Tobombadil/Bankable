@@ -125,9 +125,7 @@ def enqueue_deliveries_for_event(db: Session, event: Event) -> list[WebhookDeliv
     this function have already passed the visibility predicate for the endpoint's own tier
     (the caller's responsibility, mirroring how `services/api/app.py` never constructs an
     ungated query in the first place)."""
-    endpoints = list(
-        db.scalars(select(WebhookEndpoint).where(WebhookEndpoint.status == "active")).all()
-    )
+    endpoints = list(db.scalars(select(WebhookEndpoint).where(WebhookEndpoint.status == "active")).all())
     created = []
     for endpoint in endpoints:
         if not _event_matches_endpoint(db, endpoint, event):
@@ -208,7 +206,7 @@ def attempt_delivery(
         delivery.response_status = response.status_code
         delivery.latency_ms = latency_ms
         success = 200 <= response.status_code < 300
-    except Exception as exc:  # noqa: BLE001 — any transport failure is a delivery failure, not a 500
+    except Exception as exc:  # any transport failure is a delivery failure, not a 500
         success = False
         delivery.error_class = type(exc).__name__
         delivery.latency_ms = int((time.monotonic() - started) * 1000)

@@ -6,7 +6,7 @@ writes alert rows").
 scan of `proposal`/`opportunity` — `saved_search.watermark_seq` is `event.seq`-typed (docs/21
 §3.15) precisely because the event log is the change feed the product sells (docs/21 §2's
 "anything derived... is rebuildable from event"), and it makes the job exactly-once and cheap
-regardless of table size. For `entity = proposal \| opportunity` the query filters are evaluated
+regardless of table size. For `entity = proposal | opportunity` the query filters are evaluated
 against the event's **subject** (the proposal/opportunity row itself, since `saved_search.query`
 holds resource filters like `kind`/`jurisdiction`, not event filters); for `entity = event` they
 are evaluated against the event row directly. `entity = match` is out of scope — no `match` writer
@@ -43,9 +43,7 @@ class MatchedItem:
     event_seq: int
 
 
-def _subject_and_attribution(
-    db: Session, event: Event
-) -> tuple[Proposal | Opportunity | None, str, str]:
+def _subject_and_attribution(db: Session, event: Event) -> tuple[Proposal | Opportunity | None, str, str]:
     if event.subject_type == "proposal":
         p = db.get(Proposal, event.subject_id)
         if p is None:
@@ -61,7 +59,9 @@ def _subject_and_attribution(
 
 def _new_events_for_search(db: Session, search: SavedSearch, account: Account) -> list[Event]:
     subject_type = {"proposal": "proposal", "opportunity": "opportunity"}.get(search.entity)
-    stmt = select(Event).where(Event.seq > search.watermark_seq, *event_visibility_filter(account.entitlement))
+    stmt = select(Event).where(
+        Event.seq > search.watermark_seq, *event_visibility_filter(account.entitlement)
+    )
     if subject_type is not None:
         stmt = stmt.where(Event.subject_type == subject_type)
     return list(db.scalars(stmt.order_by(Event.seq.asc())).all())
@@ -134,9 +134,7 @@ def render_digest_body(search: SavedSearch, items: list[MatchedItem]) -> str:
     return "\n".join(lines)
 
 
-def run_alert_cycle(
-    db: Session, *, email_port: EmailPort, now: dt.datetime | None = None
-) -> list[Alert]:
+def run_alert_cycle(db: Session, *, email_port: EmailPort, now: dt.datetime | None = None) -> list[Alert]:
     """One pass over every active saved search: evaluate, and for each channel other than `rss`
     (served live from the current query, never stored as an `alert` row — docs/23 §9.2) write one
     digest `Alert` row grouping every match found this pass, per US-502's "digest mode" and the
