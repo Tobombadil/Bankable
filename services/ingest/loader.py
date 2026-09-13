@@ -292,7 +292,8 @@ def _to_datetime(value: Any) -> dt.datetime | None:
         return None
     if ts.tzinfo is None:
         ts = ts.tz_localize("UTC")
-    return ts.to_pydatetime()
+    resolved: dt.datetime = ts.to_pydatetime()
+    return resolved
 
 
 def _to_date(value: Any) -> dt.date | None:

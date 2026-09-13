@@ -14,6 +14,7 @@ Usage:
     python pipeline/diff.py --before A.parquet --after B.parquet [--out events.parquet]
     python pipeline/diff.py --demo            # perturb today's normalized.parquet and diff it
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,7 +28,7 @@ import pandas as pd
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EVAL = ROOT / "data" / "eval"
 
-CAP_ABS_MW = 0.5      # ignore rounding noise below both of these
+CAP_ABS_MW = 0.5  # ignore rounding noise below both of these
 CAP_REL = 0.01
 TERMINAL = {"withdrawn", "cancelled"}
 EVENT_TYPES = ["new", "status_change", "capacity_change", "cod_change", "withdrawn", "removed"]
@@ -43,8 +44,7 @@ def _s(v):
     return str(v)
 
 
-def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame,
-                   observed_at: str | None = None) -> pd.DataFrame:
+def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame, observed_at: str | None = None) -> pd.DataFrame:
     """Deterministic, model-free diff of two snapshots keyed by record_id."""
     observed_at = observed_at or dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     b = before.drop_duplicates(KEY).set_index(KEY)
@@ -52,8 +52,17 @@ def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame,
     events: list[dict] = []
 
     def emit(rid, etype, field=None, bv=None, av=None, src=None):
-        events.append({"event_type": etype, "record_id": rid, "source_id": src, "field": field,
-                       "before": _s(bv), "after": _s(av), "observed_at": observed_at})
+        events.append(
+            {
+                "event_type": etype,
+                "record_id": rid,
+                "source_id": src,
+                "field": field,
+                "before": _s(bv),
+                "after": _s(av),
+                "observed_at": observed_at,
+            }
+        )
 
     for rid in a.index.difference(b.index):
         emit(rid, "new", "lifecycle_state", None, a.at[rid, "lifecycle_state"], a.at[rid, "source_id"])
@@ -69,8 +78,11 @@ def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame,
     changed = bs != as_
     for rid in common[changed]:
         new_state = aa.at[rid, "lifecycle_state"]
-        etype = "withdrawn" if new_state in TERMINAL and ab.at[rid, "lifecycle_state"] not in TERMINAL \
+        etype = (
+            "withdrawn"
+            if new_state in TERMINAL and ab.at[rid, "lifecycle_state"] not in TERMINAL
             else "status_change"
+        )
         emit(rid, etype, "lifecycle_state", ab.at[rid, "lifecycle_state"], new_state, aa.at[rid, "source_id"])
 
     bc = pd.to_numeric(ab["capacity_mw"], errors="coerce").astype(float).to_numpy()
@@ -88,8 +100,14 @@ def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame,
     cod_changed = (bd != ad) & ~(pd.isna(bd) & pd.isna(ad))
     for i in np.flatnonzero(cod_changed):
         rid = common[i]
-        emit(rid, "cod_change", "proposed_cod", pd.Timestamp(bd[i]) if not pd.isna(bd[i]) else None,
-             pd.Timestamp(ad[i]) if not pd.isna(ad[i]) else None, aa.at[rid, "source_id"])
+        emit(
+            rid,
+            "cod_change",
+            "proposed_cod",
+            pd.Timestamp(bd[i]) if not pd.isna(bd[i]) else None,
+            pd.Timestamp(ad[i]) if not pd.isna(ad[i]) else None,
+            aa.at[rid, "source_id"],
+        )
 
     cols = ["event_type", "record_id", "source_id", "field", "before", "after", "observed_at"]
     out = pd.DataFrame(events, columns=cols)
@@ -98,9 +116,16 @@ def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame,
 
 
 # ------------------------------------------------------------------ synthetic perturbation
-def perturb(df: pd.DataFrame, seed: int = 0, n_new: int = 50, n_status: int = 80,
-            n_capacity: int = 60, n_cod: int = 70, n_withdrawn: int = 40, n_removed: int = 30
-            ) -> tuple[pd.DataFrame, dict[str, int]]:
+def perturb(
+    df: pd.DataFrame,
+    seed: int = 0,
+    n_new: int = 50,
+    n_status: int = 80,
+    n_capacity: int = 60,
+    n_cod: int = 70,
+    n_withdrawn: int = 40,
+    n_removed: int = 30,
+) -> tuple[pd.DataFrame, dict[str, int]]:
     """Return (perturbed copy, expected event counts). Each perturbation hits a disjoint set of
     rows so the expected counts are exact. Only non-terminal rows are used for status/withdrawn."""
     rng = np.random.default_rng(seed)
@@ -114,7 +139,7 @@ def perturb(df: pd.DataFrame, seed: int = 0, n_new: int = 50, n_status: int = 80
 
     def take(n):
         nonlocal cur
-        sel = live[cur:cur + n]
+        sel = live[cur : cur + n]
         cur += n
         return sel
 
@@ -123,7 +148,8 @@ def perturb(df: pd.DataFrame, seed: int = 0, n_new: int = 50, n_status: int = 80
     sel = take(n_status)
     out.loc[sel, "lifecycle_state"] = [
         ladder[(ladder.index(s) + 1) % len(ladder)] if s in ladder else "studied"
-        for s in out.loc[sel, "lifecycle_state"]]
+        for s in out.loc[sel, "lifecycle_state"]
+    ]
     # withdrawn
     sel = take(n_withdrawn)
     out.loc[sel, "lifecycle_state"] = "withdrawn"
@@ -146,8 +172,14 @@ def perturb(df: pd.DataFrame, seed: int = 0, n_new: int = 50, n_status: int = 80
     src["source_record_id"] = src["record_id"].str.split(":").str[1]
     out = pd.concat([out, src], ignore_index=True)
 
-    expected = {"new": n_new, "status_change": n_status, "capacity_change": n_capacity,
-                "cod_change": n_cod, "withdrawn": n_withdrawn, "removed": n_removed}
+    expected = {
+        "new": n_new,
+        "status_change": n_status,
+        "capacity_change": n_capacity,
+        "cod_change": n_cod,
+        "withdrawn": n_withdrawn,
+        "removed": n_removed,
+    }
     return out, expected
 
 
@@ -156,8 +188,11 @@ def main() -> int:
     ap.add_argument("--before")
     ap.add_argument("--after")
     ap.add_argument("--out", default=str(EVAL / "events.parquet"))
-    ap.add_argument("--demo", action="store_true",
-                    help="diff data/eval/normalized.parquet against a seeded synthetic perturbation")
+    ap.add_argument(
+        "--demo",
+        action="store_true",
+        help="diff data/eval/normalized.parquet against a seeded synthetic perturbation",
+    )
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -165,8 +200,10 @@ def main() -> int:
         before = pd.read_parquet(EVAL / "normalized.parquet")
         after, expected = perturb(before, seed=args.seed)
         after.to_parquet(EVAL / "normalized.perturbed.parquet", index=False)
-        print(f"perturbed copy: {len(before):,} -> {len(after):,} rows "
-              f"-> {EVAL / 'normalized.perturbed.parquet'}")
+        print(
+            f"perturbed copy: {len(before):,} -> {len(after):,} rows "
+            f"-> {EVAL / 'normalized.perturbed.parquet'}"
+        )
     else:
         if not (args.before and args.after):
             ap.error("--before and --after are required unless --demo")

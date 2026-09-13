@@ -72,9 +72,7 @@ class DuplicateDraft(Exception):
 
 
 class ReviewQueue:
-    def __init__(
-        self, path: str | pathlib.Path, *, now: Callable[[], dt.datetime] | None = None
-    ) -> None:
+    def __init__(self, path: str | pathlib.Path, *, now: Callable[[], dt.datetime] | None = None) -> None:
         self.path = pathlib.Path(path)
         self._now: Callable[[], dt.datetime] = now or (lambda: dt.datetime.now(dt.UTC))
         self._drafts: dict[str, PostDraft] = {}
@@ -142,9 +140,7 @@ class ReviewQueue:
 
     # ------------------------------------------------------------------------- list/approve/reject/edit
 
-    def list_drafts(
-        self, *, channel: str | None = None, status: str | None = None
-    ) -> list[PostDraft]:
+    def list_drafts(self, *, channel: str | None = None, status: str | None = None) -> list[PostDraft]:
         drafts = list(self._drafts.values())
         if channel is not None:
             drafts = [d for d in drafts if d.channel == channel]
@@ -277,9 +273,7 @@ class ReviewQueue:
         raise RuntimeError(f"no {channel} slot found in the next 14 days")
 
     def _slot_taken(self, channel: str, candidate: dt.datetime) -> bool:
-        gap = dt.timedelta(
-            minutes=BLUESKY_X_MIN_GAP_MINUTES if channel != "linkedin" else 0
-        )
+        gap = dt.timedelta(minutes=BLUESKY_X_MIN_GAP_MINUTES if channel != "linkedin" else 0)
         for d in self._drafts.values():
             if d.channel != channel or d.scheduled_for is None:
                 continue
@@ -319,7 +313,9 @@ class ReviewQueue:
         cohort = [
             d
             for d in self._drafts.values()
-            if d.channel == channel and d.event_type == event_type and d.status == "published"
+            if d.channel == channel
+            and d.event_type == event_type
+            and d.status == "published"
             and d.created_at >= window_start
         ]
         trailing_100 = sorted(cohort, key=lambda d: d.created_at)[-100:]

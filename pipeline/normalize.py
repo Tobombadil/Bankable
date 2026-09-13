@@ -10,6 +10,7 @@ Status harmonisation lives in pipeline/status_map.yaml, not here.
 Usage:
     python pipeline/normalize.py [--date YYYY-MM-DD] [--out data/eval/normalized.parquet]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,25 +30,45 @@ STATUS_MAP_PATH = pathlib.Path(__file__).resolve().parent / "status_map.yaml"
 
 CANONICAL_COLUMNS = [
     # identity / provenance
-    "record_id", "source_id", "source_record_id", "source_url", "retrieved_at", "licence",
+    "record_id",
+    "source_id",
+    "source_record_id",
+    "source_url",
+    "retrieved_at",
+    "licence",
     # what it is
-    "kind", "name_canonical", "name_norm", "sponsor_name", "sponsor_norm",
-    "technology", "technology_raw", "capacity_mw", "storage_mwh",
+    "kind",
+    "name_canonical",
+    "name_norm",
+    "sponsor_name",
+    "sponsor_norm",
+    "technology",
+    "technology_raw",
+    "capacity_mw",
+    "storage_mwh",
     # where it is
-    "iso", "state", "county", "county_norm",
+    "iso",
+    "state",
+    "county",
+    "county_norm",
     # lifecycle
-    "lifecycle_state", "status_raw", "status_rule", "status_conflict",
-    "queue_date", "proposed_cod",
+    "lifecycle_state",
+    "status_raw",
+    "status_rule",
+    "status_conflict",
+    "queue_date",
+    "proposed_cod",
     # resolution keys
-    "queue_id", "eia_plant_id", "eia_generator_id", "cross_refs",
+    "queue_id",
+    "eia_plant_id",
+    "eia_generator_id",
+    "cross_refs",
 ]
 
 SOURCE_META = {
     # licence classes from docs/02 §4
-    "caiso": ("CAISO", "https://www.caiso.com/planning/generator-interconnection-queue",
-              "iso-attribution"),
-    "ercot": ("ERCOT", "https://www.ercot.com/misapp/GetReports.do?reportTypeId=15933",
-              "iso-permissive"),
+    "caiso": ("CAISO", "https://www.caiso.com/planning/generator-interconnection-queue", "iso-attribution"),
+    "ercot": ("ERCOT", "https://www.ercot.com/misapp/GetReports.do?reportTypeId=15933", "iso-permissive"),
     "spp": ("SPP", "https://opsportal.spp.org/Studies/GenerateActiveCsv", "iso-unknown"),
     "nyiso": ("NYISO", "https://www.nyiso.com/interconnections", "iso-unknown"),
     "isone": ("ISONE", "https://irtt.iso-ne.com/reports/external", "iso-unknown"),
@@ -55,18 +76,57 @@ SOURCE_META = {
 }
 
 US_STATES = {
-    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
-    "colorado": "CO", "connecticut": "CT", "delaware": "DE", "florida": "FL", "georgia": "GA",
-    "hawaii": "HI", "idaho": "ID", "illinois": "IL", "indiana": "IN", "iowa": "IA",
-    "kansas": "KS", "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
-    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
-    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
-    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
-    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
-    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
-    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT",
-    "virginia": "VA", "washington": "WA", "west virginia": "WV", "wisconsin": "WI",
-    "wyoming": "WY", "district of columbia": "DC",
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+    "district of columbia": "DC",
 }
 
 # ---------------------------------------------------------------- technology vocabulary
@@ -107,16 +167,17 @@ TECH_RULES: list[tuple[str, str, str]] = [
 CORP_SUFFIXES = re.compile(
     r"\b(llc|l\.l\.c|inc|incorporated|corp|corporation|co|company|lp|l\.p|llp|ltd|limited|"
     r"holdings?|energy|energies|power|renewables?|solar|wind|storage|development|developments?|"
-    r"partners?|group|usa|us|america|american|north|project|projects)\b")
+    r"partners?|group|usa|us|america|american|north|project|projects)\b"
+)
 
 NAME_NOISE = re.compile(
     r"\b(project|solar|wind|energy|center|centre|storage|bess|battery|farm|park|facility|"
-    r"generating|generation|station|plant|llc|inc|lp|phase|site|hybrid|expansion)\b")
+    r"generating|generation|station|plant|llc|inc|lp|phase|site|hybrid|expansion)\b"
+)
 
 # Cross-ISO references embedded in project names, e.g. "Chazy Lake BESS (NYISO-C24-308)".
 # The id part must contain a digit, otherwise ordinary prose ("PJM Rainey") is picked up as a ref.
-XREF = re.compile(r"\b(NYISO|ISO-?NE|ISONE|PJM|MISO|SPP|CAISO|ERCOT)[\s:-]+([A-Z0-9\-]*\d[A-Z0-9\-]*)",
-                  re.I)
+XREF = re.compile(r"\b(NYISO|ISO-?NE|ISONE|PJM|MISO|SPP|CAISO|ERCOT)[\s:-]+([A-Z0-9\-]*\d[A-Z0-9\-]*)", re.I)
 
 
 # ---------------------------------------------------------------- small normalisers
@@ -146,7 +207,7 @@ def norm_name(v) -> str | None:
     if v is None or pd.isna(v):
         return None
     s = str(v).upper().strip()
-    s = re.sub(r"\([^)]*\)", " ", s)          # drop parenthetical cross-refs
+    s = re.sub(r"\([^)]*\)", " ", s)  # drop parenthetical cross-refs
     s = re.sub(r"[^A-Z0-9 ]", " ", s)
     s = re.sub(r"\b(I{1,3}|IV|V|VI{0,3}|IX|X)\b", " ", s)  # roman numerals / phase markers
     s = NAME_NOISE.sub(" ", s.lower()).upper()
@@ -262,21 +323,23 @@ def _identity_hash(text: str) -> str:
     return hashlib.sha1(text.encode()).hexdigest()[:12]  # noqa: S324
 
 
-def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict,
-                  retrieved_at: str) -> pd.DataFrame:
+def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict, retrieved_at: str) -> pd.DataFrame:
     iso, url, licence = SOURCE_META[source_id]
     n = len(df)
     get = lambda c: df[c] if c in df.columns else _blank(n)  # noqa: E731
 
-    ctxs = pd.DataFrame({
-        "status_raw": get("Status").astype("object"),
-        "status_original": get("Status (Original)").astype("object"),
-        "ia_status": get("Interconnection Agreement Status").astype("object"),
-        "project_status": get("Project Status").astype("object"),
-        "ia_signed": get("IA Signed").notna().map({True: "yes", False: "no"}),
-        "approved_for_energization": get("Approved for Energization").notna().map(
-            {True: "yes", False: "no"}),
-    })
+    ctxs = pd.DataFrame(
+        {
+            "status_raw": get("Status").astype("object"),
+            "status_original": get("Status (Original)").astype("object"),
+            "ia_status": get("Interconnection Agreement Status").astype("object"),
+            "project_status": get("Project Status").astype("object"),
+            "ia_signed": get("IA Signed").notna().map({True: "yes", False: "no"}),
+            "approved_for_energization": get("Approved for Energization")
+            .notna()
+            .map({True: "yes", False: "no"}),
+        }
+    )
     harmonised = [harmonise_status(source_id, r, status_map) for r in ctxs.to_dict("records")]
 
     tech = [classify_tech(v) for v in get("Generation Type")]
@@ -285,51 +348,70 @@ def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict,
     sponsor = get("Interconnecting Entity")
     # docs/20 §3.1: when the source gives no id (NYISO: 1,350 withdrawn rows have no queue
     # position) the source_record_id is a content hash of the identifying columns.
-    ident = pd.DataFrame({"n": name.astype("string"), "c": get("County").astype("string"),
-                          "s": get("State").astype("string"),
-                          "m": get("Capacity (MW)").astype("string"),
-                          "d": get("Queue Date").astype("string"),
-                          "st": get("Status").astype("string")}).fillna("").agg("|".join, axis=1)
+    ident = (
+        pd.DataFrame(
+            {
+                "n": name.astype("string"),
+                "c": get("County").astype("string"),
+                "s": get("State").astype("string"),
+                "m": get("Capacity (MW)").astype("string"),
+                "d": get("Queue Date").astype("string"),
+                "st": get("Status").astype("string"),
+            }
+        )
+        .fillna("")
+        .agg("|".join, axis=1)
+    )
     srid = qid.copy()
     no_id = srid.isna() | (srid == "")
     srid[no_id] = "h" + ident[no_id].map(_identity_hash)
 
-    out = pd.DataFrame({
-        "source_id": source_id,
-        "source_record_id": srid,
-        "source_url": url,
-        "retrieved_at": retrieved_at,
-        "licence": licence,
-        "kind": [k for _, k in tech],
-        "name_canonical": name.astype("string").str.strip(),
-        "name_norm": [norm_name(v) for v in name],
-        "sponsor_name": sponsor.astype("string").str.strip(),
-        "sponsor_norm": [norm_org(v) for v in sponsor],
-        "technology": [t for t, _ in tech],
-        "technology_raw": get("Generation Type").astype("string"),
-        "capacity_mw": pd.array(
-            [capacity(a, b, c) for a, b, c in zip(get("Capacity (MW)"),
-                                                  get("Summer Capacity (MW)"),
-                                                  get("Winter Capacity (MW)"),
-                                                  strict=True)], dtype="Float64"),
-        "storage_mwh": pd.array([None] * n, dtype="Float64"),
-        "iso": iso,
-        "state": [norm_state(v) for v in get("State")],
-        "county": get("County").astype("string").str.strip(),
-        "county_norm": [norm_county(v) for v in get("County")],
-        "lifecycle_state": [s for s, _ in harmonised],
-        "status_raw": ctxs["status_raw"].astype("string"),
-        "status_rule": [r for _, r in harmonised],
-        "queue_date": [to_date(v) for v in get("Queue Date")],
-        "proposed_cod": [to_date(v) for v in get("Proposed Completion Date")],
-        "queue_id": qid,
-        "eia_plant_id": pd.array([None] * n, dtype="string"),
-        "eia_generator_id": pd.array([None] * n, dtype="string"),
-        "cross_refs": [cross_refs(v) for v in name],
-    })
+    out = pd.DataFrame(
+        {
+            "source_id": source_id,
+            "source_record_id": srid,
+            "source_url": url,
+            "retrieved_at": retrieved_at,
+            "licence": licence,
+            "kind": [k for _, k in tech],
+            "name_canonical": name.astype("string").str.strip(),
+            "name_norm": [norm_name(v) for v in name],
+            "sponsor_name": sponsor.astype("string").str.strip(),
+            "sponsor_norm": [norm_org(v) for v in sponsor],
+            "technology": [t for t, _ in tech],
+            "technology_raw": get("Generation Type").astype("string"),
+            "capacity_mw": pd.array(
+                [
+                    capacity(a, b, c)
+                    for a, b, c in zip(
+                        get("Capacity (MW)"),
+                        get("Summer Capacity (MW)"),
+                        get("Winter Capacity (MW)"),
+                        strict=True,
+                    )
+                ],
+                dtype="Float64",
+            ),
+            "storage_mwh": pd.array([None] * n, dtype="Float64"),
+            "iso": iso,
+            "state": [norm_state(v) for v in get("State")],
+            "county": get("County").astype("string").str.strip(),
+            "county_norm": [norm_county(v) for v in get("County")],
+            "lifecycle_state": [s for s, _ in harmonised],
+            "status_raw": ctxs["status_raw"].astype("string"),
+            "status_rule": [r for _, r in harmonised],
+            "queue_date": [to_date(v) for v in get("Queue Date")],
+            "proposed_cod": [to_date(v) for v in get("Proposed Completion Date")],
+            "queue_id": qid,
+            "eia_plant_id": pd.array([None] * n, dtype="string"),
+            "eia_generator_id": pd.array([None] * n, dtype="string"),
+            "cross_refs": [cross_refs(v) for v in name],
+        }
+    )
     # status_conflict: withdrawn row that also carries evidence of a later lifecycle point
-    later = ctxs["project_status"].isin(["Under Study", "In Service", "Under Construction"]) | \
-        ctxs["ia_status"].eq("Executed")
+    later = ctxs["project_status"].isin(["Under Study", "In Service", "Under Construction"]) | ctxs[
+        "ia_status"
+    ].eq("Executed")
     out["status_conflict"] = (out["lifecycle_state"].eq("withdrawn") & later).fillna(False)
     out["record_id"] = out["source_id"] + ":" + out["source_record_id"].fillna("")
     return out
@@ -357,39 +439,48 @@ def normalize_eia(df: pd.DataFrame, status_map: dict, retrieved_at: str) -> pd.D
         except (ValueError, TypeError):
             return pd.NaT
 
-    out = pd.DataFrame({
-        "source_id": "eia860m",
-        "source_record_id": srid,
-        "source_url": url,
-        "retrieved_at": retrieved_at,
-        "licence": licence,
-        "kind": [k for _, k in tech],
-        "name_canonical": get("Plant Name").astype("string").str.strip(),
-        "name_norm": [norm_name(v) for v in get("Plant Name")],
-        "sponsor_name": get("Entity Name").astype("string").str.strip(),
-        "sponsor_norm": [norm_org(v) for v in get("Entity Name")],
-        "technology": [t for t, _ in tech],
-        "technology_raw": get("Technology").astype("string"),
-        "capacity_mw": pd.array(
-            [capacity(a, b) for a, b in zip(get("Nameplate Capacity (MW)"),
-                                            get("Net Summer Capacity (MW)"), strict=True)], dtype="Float64"),
-        "storage_mwh": pd.array([None] * n, dtype="Float64"),
-        "iso": get("Balancing Authority Code").astype("string"),
-        "state": [norm_state(v) for v in get("Plant State")],
-        "county": get("County").astype("string").str.strip(),
-        "county_norm": [norm_county(v) for v in get("County")],
-        "lifecycle_state": [s for s, _ in harmonised],
-        "status_raw": ctxs["status_raw"].astype("string"),
-        "status_rule": [r for _, r in harmonised],
-        "status_conflict": False,
-        "queue_date": pd.array([pd.NaT] * n, dtype="datetime64[ns]"),
-        "proposed_cod": list(map(cod, zip(get("Planned Operation Year"),
-                                          get("Planned Operation Month"), strict=True))),
-        "queue_id": pd.array([None] * n, dtype="string"),
-        "eia_plant_id": plant,
-        "eia_generator_id": gen,
-        "cross_refs": "",
-    })
+    out = pd.DataFrame(
+        {
+            "source_id": "eia860m",
+            "source_record_id": srid,
+            "source_url": url,
+            "retrieved_at": retrieved_at,
+            "licence": licence,
+            "kind": [k for _, k in tech],
+            "name_canonical": get("Plant Name").astype("string").str.strip(),
+            "name_norm": [norm_name(v) for v in get("Plant Name")],
+            "sponsor_name": get("Entity Name").astype("string").str.strip(),
+            "sponsor_norm": [norm_org(v) for v in get("Entity Name")],
+            "technology": [t for t, _ in tech],
+            "technology_raw": get("Technology").astype("string"),
+            "capacity_mw": pd.array(
+                [
+                    capacity(a, b)
+                    for a, b in zip(
+                        get("Nameplate Capacity (MW)"), get("Net Summer Capacity (MW)"), strict=True
+                    )
+                ],
+                dtype="Float64",
+            ),
+            "storage_mwh": pd.array([None] * n, dtype="Float64"),
+            "iso": get("Balancing Authority Code").astype("string"),
+            "state": [norm_state(v) for v in get("Plant State")],
+            "county": get("County").astype("string").str.strip(),
+            "county_norm": [norm_county(v) for v in get("County")],
+            "lifecycle_state": [s for s, _ in harmonised],
+            "status_raw": ctxs["status_raw"].astype("string"),
+            "status_rule": [r for _, r in harmonised],
+            "status_conflict": False,
+            "queue_date": pd.array([pd.NaT] * n, dtype="datetime64[ns]"),
+            "proposed_cod": list(
+                map(cod, zip(get("Planned Operation Year"), get("Planned Operation Month"), strict=True))
+            ),
+            "queue_id": pd.array([None] * n, dtype="string"),
+            "eia_plant_id": plant,
+            "eia_generator_id": gen,
+            "cross_refs": "",
+        }
+    )
     out["record_id"] = "eia860m:" + out["source_record_id"].fillna("")
     return out
 
@@ -412,9 +503,24 @@ def build(date: str, raw_dir: pathlib.Path = RAW) -> pd.DataFrame:
         else:
             frames.append(normalize_iso(raw, source_id, status_map, retrieved_at))
     out = pd.concat(frames, ignore_index=True)[CANONICAL_COLUMNS]
-    for c in ("source_record_id", "name_canonical", "name_norm", "sponsor_name", "sponsor_norm",
-              "technology", "technology_raw", "state", "county", "county_norm", "status_raw",
-              "queue_id", "eia_plant_id", "eia_generator_id", "cross_refs", "iso"):
+    for c in (
+        "source_record_id",
+        "name_canonical",
+        "name_norm",
+        "sponsor_name",
+        "sponsor_norm",
+        "technology",
+        "technology_raw",
+        "state",
+        "county",
+        "county_norm",
+        "status_raw",
+        "queue_id",
+        "eia_plant_id",
+        "eia_generator_id",
+        "cross_refs",
+        "iso",
+    ):
         out[c] = out[c].astype("string")
     out["status_conflict"] = out["status_conflict"].fillna(False).astype(bool)
     # record_id must be unique. ISO-NE reuses queue ids (92 ids over 242 rows) and NYISO has 2
@@ -437,7 +543,7 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out, index=False)
 
-    print(f"normalized {len(df):,} records -> {out} ({out.stat().st_size/1e6:.2f} MB)")
+    print(f"normalized {len(df):,} records -> {out} ({out.stat().st_size / 1e6:.2f} MB)")
     print("\nrows per source")
     print(df["source_id"].value_counts().rename_axis("source").to_frame("rows").to_string())
     print("\nrows per canonical lifecycle state")
@@ -450,8 +556,20 @@ def main() -> int:
     print(df["technology"].value_counts().head(12).to_string())
     print("\nfield coverage (non-null %)")
     cov = (df.notna().mean() * 100).round(1)
-    print(cov[["name_canonical", "sponsor_name", "state", "county", "capacity_mw",
-               "queue_date", "proposed_cod", "eia_plant_id"]].to_string())
+    print(
+        cov[
+            [
+                "name_canonical",
+                "sponsor_name",
+                "state",
+                "county",
+                "capacity_mw",
+                "queue_date",
+                "proposed_cod",
+                "eia_plant_id",
+            ]
+        ].to_string()
+    )
     return 0
 
 

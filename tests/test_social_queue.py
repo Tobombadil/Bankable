@@ -81,7 +81,9 @@ class TestAddAndDuplicateSuppression:
         q.add_draft(editorial.build_draft(new_event, "bluesky"))
 
         withdrawn = make_event(
-            event_id="e-withdrawn", event_type="proposal.withdrawn", event_date=dt.date(2026, 9, 11),
+            event_id="e-withdrawn",
+            event_type="proposal.withdrawn",
+            event_date=dt.date(2026, 9, 11),
             withdrawal_reason_code=None,
         )
         draft = editorial.build_draft(withdrawn, "bluesky")
@@ -183,7 +185,9 @@ class TestScheduling:
             # queue_id/page_url vary per iteration so the content-hash guard (docs/32 §4.8) sees
             # genuinely distinct posts, not the same proposal posted twice.
             event = make_event(
-                event_id=f"e{i}", subject_id=f"caiso:{i}", queue_id=f"Q{i}",
+                event_id=f"e{i}",
+                subject_id=f"caiso:{i}",
+                queue_id=f"Q{i}",
                 page_url=f"https://{{{{DOMAIN}}}}/proposals/caiso:{i}",
             )
             draft = editorial.build_draft(event, "linkedin")
@@ -233,11 +237,15 @@ class TestCostAndStats:
 
     def test_review_stats_counts(self, q: queue_mod.ReviewQueue) -> None:
         d1 = editorial.build_draft(
-            make_event(event_id="e1", subject_id="a", queue_id="QA", page_url="https://{{DOMAIN}}/proposals/a"),
+            make_event(
+                event_id="e1", subject_id="a", queue_id="QA", page_url="https://{{DOMAIN}}/proposals/a"
+            ),
             "bluesky",
         )
         d2 = editorial.build_draft(
-            make_event(event_id="e2", subject_id="b", queue_id="QB", page_url="https://{{DOMAIN}}/proposals/b"),
+            make_event(
+                event_id="e2", subject_id="b", queue_id="QB", page_url="https://{{DOMAIN}}/proposals/b"
+            ),
             "bluesky",
         )
         q.add_draft(d1)

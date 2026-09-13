@@ -135,8 +135,10 @@ def cmd_draft(args: argparse.Namespace) -> int:
         created += 1
         by_channel[draft.channel] = by_channel.get(draft.channel, 0) + 1
 
-    print(f"\n{len(events)} events read, {len(drafts)} eligible drafts rendered, "
-          f"{created} queued, {duplicates} suppressed as duplicates")
+    print(
+        f"\n{len(events)} events read, {len(drafts)} eligible drafts rendered, "
+        f"{created} queued, {duplicates} suppressed as duplicates"
+    )
     for channel, n in sorted(by_channel.items()):
         print(f"  {channel}: {n}")
     return 0

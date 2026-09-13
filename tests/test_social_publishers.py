@@ -16,14 +16,25 @@ RETRIEVED_AT = dt.datetime(2026, 9, 10, 12, 0, tzinfo=dt.UTC)
 
 def make_draft(channel: str, *, status: str = "approved"):
     event = editorial.SocialEvent(
-        event_id="e1", event_type="proposal.new", event_date=dt.date(2026, 9, 10),
-        subject_type="proposal", subject_id="caiso:1",
-        source_id="us.iso.caiso.gen_queue", source_name="CAISO Public Queue Report",
+        event_id="e1",
+        event_type="proposal.new",
+        event_date=dt.date(2026, 9, 10),
+        subject_type="proposal",
+        subject_id="caiso:1",
+        source_id="us.iso.caiso.gen_queue",
+        source_name="CAISO Public Queue Report",
         source_url="https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx",
-        retrieved_at=RETRIEVED_AT, reuse_class="attribution",
-        page_url="https://{{DOMAIN}}/proposals/caiso:1", lag_days=14,
-        technology="solar", capacity_mw=250.0, county="Kern", state="CA", iso_rto="CAISO",
-        queue_id="Q1234", developer_org="Acme Solar LLC",
+        retrieved_at=RETRIEVED_AT,
+        reuse_class="attribution",
+        page_url="https://{{DOMAIN}}/proposals/caiso:1",
+        lag_days=14,
+        technology="solar",
+        capacity_mw=250.0,
+        county="Kern",
+        state="CA",
+        iso_rto="CAISO",
+        queue_id="Q1234",
+        developer_org="Acme Solar LLC",
     )
     draft = editorial.build_draft(event, channel)
     draft.status = status
