@@ -997,3 +997,66 @@ def test_gate_refusal_writes_nothing_to_the_store(session: Session) -> None:
     assert session.scalar(select(func.count()).select_from(Source)) == 0
     assert session.scalar(select(func.count()).select_from(Licence)) == 0
     assert session.scalar(select(func.count()).select_from(Proposal)) == 0
+
+
+def gb_source_entry(id_: str = "gb.test.tec_register") -> SourceEntry:
+    return SourceEntry.from_yaml(
+        {
+            "id": id_,
+            "name": "Test TEC Register",
+            "jurisdiction": "GB",
+            "category": "generation_queue",
+            "operator": "Test SO",
+            "url": "https://example.org/tec",
+            "access": "bulk_file",
+            "reuse": "attribution",
+            "cadence": "weekly",
+            "tier": 1,
+            "license": "Test open licence with attribution",
+        }
+    )
+
+
+def test_loader_places_gb_rows_at_their_connection_substation(session: Session) -> None:
+    """Sprint 3 item 5: a NESO TEC row carries no state and a transmission "Connection Site" in
+    `county`; the loader passes the source's GB jurisdiction to `geocode`, which resolves the site
+    against the vendored NESO gazetteer. A hit is a substation-level proxy (`county_centroid`,
+    geocoder `gb_substation`), never `exact`; a miss stays unplaced, never guessed."""
+    entry = gb_source_entry()
+    src = upsert_licence_and_source(session, entry, "2026-09-13")
+
+    placed_row = sample_proposal_row("T1")
+    placed_row.update(
+        source_id=entry.id,
+        record_id=f"{entry.id}:T1",
+        name_canonical="Aberthaw Battery",
+        name_norm="aberthaw battery",
+        state=None,
+        county="Aberthaw",
+    )
+    missed_row = sample_proposal_row("T2")
+    missed_row.update(
+        source_id=entry.id,
+        record_id=f"{entry.id}:T2",
+        name_canonical="Node Battery",
+        name_norm="node battery",
+        state=None,
+        county="Connection Node 4711",
+    )
+    load_dataframe(session, src, "proposal", pd.DataFrame([placed_row, missed_row]), None)
+
+    placed = session.scalar(select(Proposal).where(Proposal.name_canonical == "Aberthaw Battery"))
+    assert placed is not None and placed.location_id is not None
+    loc = session.get(Location, placed.location_id)
+    assert loc is not None
+    assert loc.country == "GB" and loc.state_code is None
+    assert loc.precision == "county_centroid" and loc.geocoder == "gb_substation"
+    assert loc.geom is not None
+    lon, lat = loc.geom
+    assert 51 < lat < 52 and -4 < lon < -3  # Aberthaw, south Wales
+
+    missed = session.scalar(select(Proposal).where(Proposal.name_canonical == "Node Battery"))
+    assert missed is not None and missed.location_id is not None
+    loc2 = session.get(Location, missed.location_id)
+    assert loc2 is not None
+    assert loc2.precision == "unknown" and loc2.geom is None and loc2.geocoder is None

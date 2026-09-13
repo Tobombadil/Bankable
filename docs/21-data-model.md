@@ -398,7 +398,7 @@ document references only (`docs/20` §11; `docs/02` §4 last row).
 | `country` | char(2) | No | ISO 3166-1 | `US` |
 | `raw_place` | text | Yes | Verbatim place string from the source. **Gated (§8)** | `Sec 12 T24S R61E` |
 | `source_id`, `source_url`, `retrieved_at`, `licence_id` | — | No | Provenance of the geocode | — |
-| `geocoder` | text | Yes | `source_provided \| census_tiger \| manual` — never a commercial geocoder whose terms forbid storage | `census_tiger` |
+| `geocoder` | text | Yes | `source_provided \| census_tiger \| gb_substation \| manual` — never a commercial geocoder whose terms forbid storage; `gb_substation` (2026-09-13) marks a NESO Connection Site resolved against the vendored NESO grid-supply-point gazetteer, a substation-level proxy stored at `county_centroid` precision | `census_tiger` |
 
 ### 3.8 `document`
 

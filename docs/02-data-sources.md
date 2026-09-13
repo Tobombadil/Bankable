@@ -124,3 +124,23 @@ sponsor + county + capacity ± 10% + technology; fuzzy name. Every merge is reco
 - EIA-860M file names must be scraped from the index page; guessed names return HTML with a 200.
 - FERC's backend occasionally returns HTTP 200 with `success:false`; treat as error, retry with backoff.
 - SAM.gov and EIA v2 need free API keys; register both now.
+
+## 8. Reference data: GB substation gazetteer
+
+`gb.neso.tec_register` rows carry a "Connection Site" — a transmission substation name — and nothing else
+geographic. `services/ingest/data/gb_substations.tsv` (371 rows: name, latitude, longitude) is vendored from
+NESO's own **FES 2024 Grid Supply Point Info** dataset, part of "Regional breakdown of FES data (Electricity)"
+on the NESO Data Portal, under the same NESO Open Data Licence already quoted for the TEC register itself
+(`13-legal-data-rights.md` §2.5; required attribution "Supported by National Energy SO Open Data"). It is a
+reference table (`data/sources.yaml` id `gb.neso.fes_gsp_gazetteer`, category `registry`), not a proposal or
+opportunity feed: `services/ingest/geocode.py`'s `SubstationGazetteer` uses it to resolve a Connection Site to
+a point at `county_centroid` precision — never `exact`, since a substation is not the project's own location
+(docs/21-data-model.md §3.7).
+
+Measured coverage (2026-09-13): 6 of the 30 distinct Connection Site strings in the connector's own test
+fixture resolve (20.0%); 346 of the 1,237 distinct Connection Site strings in the live TEC register resolve
+(28.0%, 739 of 2,198 rows). The gap is structural: most unmatched sites are a substation built new for that
+specific generator or BESS project, which no general gazetteer covers. Unmatched sites stay `unknown`, never
+guessed. Full provenance, the other candidates checked and why they were not used (NESO's own GIS boundary
+datasets, National Grid Electricity Transmission's open data), and the coverage measurement are in
+`services/ingest/data/README.md`.
