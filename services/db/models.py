@@ -1005,3 +1005,224 @@ class Subscription(Base, TimestampMixin):
         sa.UniqueConstraint("sor_kind", "sor_ref", name="one_subscription_per_sor_ref"),
         sa.Index("ix_subscription_account_id", "account_id"),
     )
+
+
+# ============================================================= admin panel tables (Sprint 3 item 3)
+# Coordinator-owned contract for the admin wave (docs/00-PLAN.md "Sprint 3 kickoff" item 3): the
+# docs/21 tables the admin surface reads and writes that no earlier sprint had a writer for —
+# `document` (§3.8), `extraction` (§3.9), `post` (§3.18), `task` and `model_call` (§4.4) — plus one
+# small table docs/21 does not name, `channel_config`, for the per-channel auto-publish switch that
+# `PUT /admin/v1/channels/{channel}/auto-publish` sets (docs/20 §8 item 5; owner role only).
+# Vocabularies are the spec's enums (api/openapi.yaml `TaskType`, `TaskStatus`, `PostState`,
+# `ExtractionStatus`) so the CHECK constraints and the contract cannot disagree.
+DOCUMENT_SUBJECT_TYPES = ("proposal", "opportunity", "organization", "none")
+DOCUMENT_TYPES = (
+    "filing",
+    "order",
+    "notice",
+    "rfp_document",
+    "news_article",
+    "press_release",
+    "report",
+    "other",
+)
+DOCUMENT_STORAGE_POLICIES = ("stored", "link_only", "headline_only")
+EXTRACTION_PURPOSES = ("extract", "adjudicate")
+EXTRACTION_STATUSES = ("proposed", "accepted", "rejected", "superseded")
+MODEL_ALIASES = ("fast", "careful", "batch")
+POST_CHANNELS = ("bluesky", "linkedin", "x")
+POST_STATES = ("draft", "approved", "scheduled", "published", "rejected", "withdrawn", "failed")
+TASK_TYPES = ("report", "intake_proposal", "intake_opportunity", "deletion_request", "resolution_dispute")
+TASK_STATUSES = ("open", "in_progress", "done", "rejected")
+
+
+class Document(Base, TimestampMixin):
+    """docs/21 §3.8. Provenance quartet is not-null like every stored record (CLAUDE.md); news is
+    never `stored` (`storage_policy`), and `robots_opt_out` blocks text extraction."""
+
+    __tablename__ = "document"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    subject_type: Mapped[str] = mapped_column(sa.Text, nullable=False, default="none")
+    subject_id: Mapped[_uuid.UUID | None] = mapped_column(GUID())
+    source_id: Mapped[str] = mapped_column(sa.ForeignKey("source.id"), nullable=False)
+    source_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    retrieved_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
+    snapshot_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("snapshot.id"))
+    title: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    doc_type: Mapped[str] = mapped_column(sa.Text, nullable=False, default="other")
+    published_date: Mapped[dt.date | None] = mapped_column(sa.Date)
+    identifiers: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    storage_policy: Mapped[str] = mapped_column(sa.Text, nullable=False, default="link_only")
+    object_key: Mapped[str | None] = mapped_column(sa.Text)
+    content_type: Mapped[str | None] = mapped_column(sa.Text)
+    byte_size: Mapped[int | None] = mapped_column(sa.BigInteger)
+    sha256: Mapped[str | None] = mapped_column(sa.String(64))
+    page_count: Mapped[int | None] = mapped_column(sa.Integer)
+    text_extracted: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    personal_data_flag: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    robots_opt_out: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+
+    __table_args__ = (
+        sa.CheckConstraint(f"subject_type IN {DOCUMENT_SUBJECT_TYPES!r}", name="subject_type_vocab"),
+        sa.CheckConstraint(f"doc_type IN {DOCUMENT_TYPES!r}", name="doc_type_vocab"),
+        sa.CheckConstraint(f"storage_policy IN {DOCUMENT_STORAGE_POLICIES!r}", name="storage_policy_vocab"),
+        sa.Index("ix_document_subject", "subject_type", "subject_id"),
+    )
+
+
+class ModelCall(Base):
+    """docs/21 §4.4 `model_call`: one row per gateway call (US-909). `alias` is `fast | careful |
+    batch`, never a provider model id (CLAUDE.md). No gateway writes here yet; the admin cost report
+    reads it so the column set is fixed now."""
+
+    __tablename__ = "model_call"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    purpose: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    subject_type: Mapped[str | None] = mapped_column(sa.Text)
+    subject_id: Mapped[_uuid.UUID | None] = mapped_column(GUID())
+    source_id: Mapped[str | None] = mapped_column(sa.ForeignKey("source.id"))
+    alias: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    prompt_template_id: Mapped[str | None] = mapped_column(sa.Text)
+    prompt_version: Mapped[str | None] = mapped_column(sa.Text)
+    input_tokens: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(sa.Numeric(10, 6), nullable=False, default=0)
+    latency_ms: Mapped[int | None] = mapped_column(sa.Integer)
+    cache_hit: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    error: Mapped[str | None] = mapped_column(sa.Text)
+
+    __table_args__ = (
+        sa.CheckConstraint(f"alias IN {MODEL_ALIASES!r}", name="alias_vocab"),
+        sa.Index("ix_model_call_source_created", "source_id", "created_at"),
+    )
+
+
+class Extraction(Base, TimestampMixin):
+    """docs/21 §3.9. An extraction without a citation is rejected at the application layer; the
+    licence gate on the extracted value inherits `source_id`/`licence_id` from the document."""
+
+    __tablename__ = "extraction"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    document_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("document.id"))
+    subject_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    subject_id: Mapped[_uuid.UUID] = mapped_column(GUID(), nullable=False)
+    purpose: Mapped[str] = mapped_column(sa.Text, nullable=False, default="extract")
+    field_path: Mapped[str | None] = mapped_column(sa.Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    confidence: Mapped[float] = mapped_column(sa.Numeric(4, 3), nullable=False)
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(JSONVariant(), nullable=False, default=list)
+    model_alias: Mapped[str | None] = mapped_column(sa.Text)
+    prompt_template_id: Mapped[str | None] = mapped_column(sa.Text)
+    prompt_version: Mapped[str | None] = mapped_column(sa.Text)
+    model_call_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("model_call.id"))
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="proposed")
+    accepted_by_user_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("user.id"))
+    applied_event_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("event.id"))
+    source_id: Mapped[str] = mapped_column(sa.ForeignKey("source.id"), nullable=False)
+    licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
+
+    __table_args__ = (
+        sa.CheckConstraint(f"purpose IN {EXTRACTION_PURPOSES!r}", name="purpose_vocab"),
+        sa.CheckConstraint(f"status IN {EXTRACTION_STATUSES!r}", name="status_vocab"),
+        sa.Index("ix_extraction_status_created", "status", "created_at"),
+        sa.Index("ix_extraction_subject", "subject_type", "subject_id"),
+    )
+
+
+class Post(Base, TimestampMixin):
+    """docs/21 §3.18: the social review queue row (US-801 to US-804). `approved_by_user_id` is
+    null only when the channel's `auto_publish` was on; `reject_reason` is required on reject."""
+
+    __tablename__ = "post"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    channel: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    event_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("event.id"), nullable=False)
+    subject_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    subject_id: Mapped[_uuid.UUID] = mapped_column(GUID(), nullable=False)
+    template_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    template_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    body: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    link_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    credit_line: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    disclosure_label: Mapped[str | None] = mapped_column(sa.Text)
+    state: Mapped[str] = mapped_column(sa.Text, nullable=False, default="draft")
+    gate_checked_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    approved_by_user_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("user.id"))
+    auto_published: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    scheduled_for: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    published_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    external_post_id: Mapped[str | None] = mapped_column(sa.Text)
+    reject_reason: Mapped[str | None] = mapped_column(sa.Text)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    cost_usd: Mapped[float] = mapped_column(sa.Numeric(10, 4), nullable=False, default=0)
+
+    __table_args__ = (
+        sa.CheckConstraint(f"channel IN {POST_CHANNELS!r}", name="channel_vocab"),
+        sa.CheckConstraint(f"state IN {POST_STATES!r}", name="state_vocab"),
+        sa.Index("ix_post_queue", "state", "channel", "created_at"),
+    )
+
+
+class ChannelConfig(Base, TimestampMixin):
+    """Per-channel publishing switch (docs/20 §8 item 5; docs/32 §6). `auto_publish` defaults off
+    and only an `owner` session may set it; `disclosure_label` is what a published post carries
+    where the platform requires an automation label (CLAUDE.md)."""
+
+    __tablename__ = "channel_config"
+
+    channel: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    auto_publish: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    disclosure_label: Mapped[str | None] = mapped_column(sa.Text)
+    daily_cap: Mapped[int | None] = mapped_column(sa.Integer)
+    updated_by_user_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("user.id"))
+
+    __table_args__ = (sa.CheckConstraint(f"channel IN {POST_CHANNELS!r}", name="channel_vocab"),)
+
+
+class Task(Base, TimestampMixin):
+    """docs/21 §4.4 `task`, widened to the spec's `Task` schema: the admin work queue for reported
+    problems (US-204), intake submissions (US-1001/1003, `pending_record` holds the submission
+    until approved), deletion requests (US-910) and resolution disputes (US-907). `contact` holds
+    the minimum personal data the flow needs and is cleared on completion of a deletion request."""
+
+    __tablename__ = "task"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    subject_type: Mapped[str | None] = mapped_column(sa.Text)
+    subject_id: Mapped[_uuid.UUID | None] = mapped_column(GUID())
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="open")
+    assignee_user_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("user.id"))
+    notes: Mapped[str | None] = mapped_column(sa.Text)
+    issue_type: Mapped[str | None] = mapped_column(sa.Text)
+    description: Mapped[str | None] = mapped_column(sa.Text)
+    contact: Mapped[dict[str, Any] | None] = mapped_column(JSONVariant())
+    pending_record: Mapped[dict[str, Any] | None] = mapped_column(JSONVariant())
+    resolver_suggestions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONVariant(), nullable=False, default=list
+    )
+    due_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    public_opt_in: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    audit_event_ids: Mapped[list[str]] = mapped_column(JSONVariant(), nullable=False, default=list)
+    completed_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    created_by_user_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("user.id"))
+    idempotency_key: Mapped[str | None] = mapped_column(sa.Text, unique=True)
+
+    __table_args__ = (
+        sa.CheckConstraint(f"type IN {TASK_TYPES!r}", name="type_vocab"),
+        sa.CheckConstraint(f"status IN {TASK_STATUSES!r}", name="status_vocab"),
+        sa.Index("ix_task_queue", "status", "type", "created_at"),
+        sa.Index("ix_task_subject", "subject_type", "subject_id"),
+    )
