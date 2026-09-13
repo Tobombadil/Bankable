@@ -1,0 +1,67 @@
+{% extends "admin/base.html" %}
+{% block title %}User -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-people.css">{% endblock %}
+{% block content %}
+<p><a href="/admin/users">&larr; Users</a></p>
+{% include "admin/_notice.html" %}
+
+{% if user %}
+<h1>{{ user.email or "(redacted)" }}</h1>
+<dl class="admin-cols">
+  <div>
+    <dt>Role</dt><dd><span class="chip {% if user.role in ('owner','operator','legal') %}chip--committed{% else %}chip--neutral{% endif %}">{{ user.role }}</span></dd>
+    <dt>Status</dt><dd><span class="chip {% if user.status == 'active' %}chip--success{% elif user.status == 'disabled' %}chip--danger{% else %}chip--neutral{% endif %}">{{ user.status }}</span></dd>
+    <dt>Account</dt><dd>{{ user.account_name }} (<a href="/admin/customers/{{ user.account_id }}">{{ user.account_id }}</a>), entitlement {{ user.entitlement }}</dd>
+    <dt>Subscription status</dt><dd>{{ user.subscription_status or "--" }}</dd>
+  </div>
+  <div>
+    <dt>Email verified</dt><dd class="mono">{{ user.email_verified_at or "no" }}</dd>
+    <dt>Auth provider</dt><dd>{{ user.auth_provider }}</dd>
+    <dt>MFA enforced</dt><dd>{{ "yes" if user.mfa_enforced else "no" }}</dd>
+    <dt>Created</dt><dd class="mono">{{ user.created_at }}</dd>
+    <dt>Last login</dt><dd class="mono">{{ user.last_login_at or "never" }}</dd>
+    <dt>Anonymised at</dt><dd class="mono">{{ user.anonymised_at or "--" }}</dd>
+  </div>
+</dl>
+
+<div class="admin-cols">
+  <form class="admin-form" method="post" action="/admin/users/{{ user.user_id }}/role">
+    <h2>Change role</h2>
+    <div class="field">
+      <label for="role">Role</label>
+      <select id="role" name="role">
+        {% for r in roles %}
+          {% if r != "owner" or admin.is_owner %}
+          <option value="{{ r }}"{% if user.role == r %} selected{% endif %}>{{ r }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="role-reason">Reason</label>
+      <textarea id="role-reason" name="reason" required></textarea>
+    </div>
+    <button class="admin-button admin-button--primary" type="submit">Change role</button>
+  </form>
+
+  <form class="admin-form" method="post" action="/admin/users/{{ user.user_id }}/status">
+    <h2>Change status</h2>
+    <div class="field">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        {% for s in statuses %}
+        <option value="{{ s }}"{% if user.status == s %} selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="status-reason">Reason</label>
+      <textarea id="status-reason" name="reason" required></textarea>
+    </div>
+    <button class="admin-button admin-button--primary" type="submit">Change status</button>
+  </form>
+</div>
+
+<p><a class="admin-button" href="/admin/users/{{ user.user_id }}/delete">Delete this user&hellip;</a></p>
+{% endif %}
+{% endblock %}
