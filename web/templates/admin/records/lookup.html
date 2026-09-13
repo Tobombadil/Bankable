@@ -1,0 +1,13 @@
+{% extends "admin/base.html" %}
+{% block title %}Records -- Infraqueue admin{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Records</h1></div>
+{% include "admin/_notice.html" %}
+<form class="admin-form" method="get" action="/admin/records/lookup">
+  <div class="field">
+    <label for="public_id">Public id</label>
+    <input id="public_id" name="public_id" required value="{{ value }}" placeholder="prop_..., opp_... or org_...">
+  </div>
+  <button class="admin-button admin-button--primary" type="submit">Open</button>
+</form>
+{% endblock %}

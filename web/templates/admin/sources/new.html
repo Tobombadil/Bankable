@@ -1,0 +1,66 @@
+{% extends "admin/base.html" %}
+{% block title %}Add issuer -- Infraqueue admin{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Add curated issuer</h1></div>
+{% include "admin/_notice.html" %}
+<form class="admin-form" method="post" action="/admin/sources/new">
+  <div class="field">
+    <label for="source_id">Source id</label>
+    <input id="source_id" name="source_id" required value="{{ values.source_id or '' }}" placeholder="us.state.issuer_name">
+    {% if notice and notice.errors.source_id %}<p class="admin-muted">{{ notice.errors.source_id }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" name="name" required value="{{ values.name or '' }}">
+    {% if notice and notice.errors.name %}<p class="admin-muted">{{ notice.errors.name }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="jurisdiction">Jurisdiction</label>
+    <input id="jurisdiction" name="jurisdiction" value="{{ values.jurisdiction or '' }}" placeholder="US-TX">
+  </div>
+  <div class="field">
+    <label for="operator">Operator</label>
+    <input id="operator" name="operator" required value="{{ values.operator or '' }}">
+  </div>
+  <div class="field">
+    <label for="url">URL</label>
+    <input id="url" name="url" type="url" required value="{{ values.url or '' }}">
+    {% if notice and notice.errors.url %}<p class="admin-muted">{{ notice.errors.url }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="access">Access</label>
+    <select id="access" name="access" required>
+      {% for v in access_values %}
+      <option value="{{ v }}"{% if values.access == v %} selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+    {% if notice and notice.errors.access %}<p class="admin-muted">{{ notice.errors.access }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="cadence">Cadence</label>
+    <select id="cadence" name="cadence" required>
+      {% for v in cadence_values %}
+      <option value="{{ v }}"{% if values.cadence == v %} selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="licence_id">Licence id</label>
+    <input id="licence_id" name="licence_id" required value="{{ values.licence_id or '' }}" placeholder="an existing licence's id, from another source's detail page">
+    {% if notice and notice.errors.licence_id %}<p class="admin-muted">{{ notice.errors.licence_id }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="attribution_text">Attribution text</label>
+    <input id="attribution_text" name="attribution_text" value="{{ values.attribution_text or '' }}">
+  </div>
+  <div class="field">
+    <label for="reason">Reason</label>
+    <textarea id="reason" name="reason" required rows="2">{{ values.reason or '' }}</textarea>
+    {% if notice and notice.errors.reason %}<p class="admin-muted">{{ notice.errors.reason }}</p>{% endif %}
+  </div>
+  <div class="admin-actions">
+    <button class="admin-button admin-button--primary" type="submit">Add issuer</button>
+    <a class="admin-button" href="/admin/sources">Cancel</a>
+  </div>
+</form>
+{% endblock %}
