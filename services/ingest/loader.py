@@ -66,6 +66,7 @@ import json
 import pathlib
 import re
 import uuid as _uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -86,10 +87,23 @@ from services.db.models import (
     ProposalSource,
     Source,
     SourceRun,
+    new_uuid,
 )
 from services.ids import public_id, slugify
-from services.ingest.geocode import CountyGazetteer, geocode
+from services.ingest.geocode import CountyGazetteer, default_gazetteer, geocode
 from services.ingest.lag import compute_public_at
+
+#: Default rows-per-flush for `load_dataframe`'s bulk-insert pass (Sprint 3, services/README.md
+#: "Bulk-insert pass (Sprint 3)"): every id used inside one call (`proposal`/`organization`/
+#: `location`/`proposal_source` primary keys) is generated client-side (`new_uuid()`, the same
+#: callable the ORM column `default=` already used, just invoked before `session.add` instead of
+#: at flush time) so a row's dependents can be wired up without a flush to learn its id. This
+#: batch size only bounds how often the *pending* INSERTs are actually sent to the database — it
+#: changes no id, no dedupe key and no write; a smaller or larger value produces byte-identical
+#: rows, just in a different number of round trips. `Event.seq` is the one exception (see the
+#: `_assign_event_seq` docstring in services/db/models.py) and is deliberately flushed one row at
+#: a time regardless of this setting.
+DEFAULT_BATCH_SIZE = 500
 
 #: A `reuse: attribution` source whose recorded terms explicitly call it out as derived-only
 #: (docs/00-PLAN.md's 2026-09-12 legal register: "CAISO and NYISO derived-only with credit") is a
@@ -273,7 +287,7 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
     return source
 
 
-def _row_get(row: pd.Series, key: str) -> Any:
+def _row_get(row: Mapping[str, Any], key: str) -> Any:
     v = row.get(key)
     if v is None:
         return None
@@ -321,7 +335,119 @@ def _org_punct_key(text: str) -> str:
     return _ORG_PUNCT_RE.sub(" ", text.strip().lower()).strip()
 
 
+@dataclass
+class _LoadCache:
+    """Everything one `load_dataframe` call would otherwise re-query per row, loaded once up front
+    (Sprint 3 bulk-insert pass; `services/README.md` "Bulk-insert pass (Sprint 3)" has the
+    before/after measurement and the profile that motivated each field below).
+
+    Every lookup this module used to run as a per-row `session.scalar(select(...))` — the active
+    `proposal_source`/`opportunity_source` link for a natural key, the entity a link points at, an
+    organisation by exact or punctuation-normalised spelling, whether an alias is already on file,
+    whether a slug is taken — is a dict/set membership test against one of these instead. Nothing
+    here changes *which* row wins a lookup, only how many round trips finding it costs: each field
+    is seeded from the same query the old per-row code ran (just once, not N times) and kept in
+    sync as this call creates new rows, so a later row in the same dataframe sees an earlier row's
+    new organisation/link exactly as it would have via a flushed, re-queried session.
+    """
+
+    #: `source_record_id -> ProposalSource | OpportunitySource`, restricted to this `source` and
+    #: `active`, i.e. the same set the old code re-selected on every row.
+    links: dict[str, Any]
+    #: entity primary key -> `Proposal | Opportunity`, for every entity the links above point at,
+    #: plus every entity this call creates.
+    entities: dict[_uuid.UUID, Any]
+    #: entity primary key -> its active link, kept for the `diff_type == "removed"` branch below
+    #: (the old code's `select(link_cls).where(getattr(link_cls, fk_name) == subject_id, ...)`).
+    links_by_entity: dict[_uuid.UUID, Any]
+    #: `organization.name_normalised` (exact, case-folded) -> `Organization`, over *every*
+    #: organisation regardless of `merged_into_id` — matches the old exact-match query's scope.
+    org_by_exact: dict[str, Organization]
+    #: `_org_punct_key(name_canonical)` -> `Organization`, over organisations with
+    #: `merged_into_id is None` only — matches the old punctuation-match query's scope.
+    org_by_punct: dict[str, Organization]
+    #: `(organization_id, alias_normalised)` pairs already on file, any organisation.
+    alias_keys: set[tuple[_uuid.UUID, str]]
+    #: every `organization.slug` already taken, any organisation — the old collision re-check's scope.
+    existing_slugs: set[str]
+    #: one gazetteer instance for the whole call instead of a `default_gazetteer()` cache check
+    #: per row (`services/ingest/geocode.py` already caches it process-wide; this just avoids
+    #: paying that lookup 14,000+ times).
+    gaz: CountyGazetteer
+
+
+def _build_load_cache(
+    session: Session, source: Source, entity_cls: type[Any], link_cls: type[Any], fk_name: str
+) -> _LoadCache:
+    links: dict[str, Any] = {
+        link.source_record_id: link
+        for link in session.scalars(
+            select(link_cls).where(link_cls.source_id == source.id, link_cls.active.is_(True))
+        )
+    }
+    links_by_entity: dict[_uuid.UUID, Any] = {getattr(link, fk_name): link for link in links.values()}
+    entities: dict[_uuid.UUID, Any] = {}
+    if links_by_entity:
+        entities = {
+            entity.id: entity
+            for entity in session.scalars(select(entity_cls).where(entity_cls.id.in_(links_by_entity)))
+        }
+
+    org_by_exact: dict[str, Organization] = {}
+    org_by_punct: dict[str, Organization] = {}
+    existing_slugs: set[str] = set()
+    for org in session.scalars(select(Organization)):
+        existing_slugs.add(org.slug)
+        org_by_exact.setdefault(org.name_normalised, org)
+        if org.merged_into_id is None:
+            org_by_punct.setdefault(_org_punct_key(org.name_canonical), org)
+
+    alias_keys: set[tuple[_uuid.UUID, str]] = {
+        (organization_id, alias_normalised)
+        for organization_id, alias_normalised in session.execute(
+            select(OrganizationAlias.organization_id, OrganizationAlias.alias_normalised)
+        )
+    }
+
+    return _LoadCache(
+        links=links,
+        entities=entities,
+        links_by_entity=links_by_entity,
+        org_by_exact=org_by_exact,
+        org_by_punct=org_by_punct,
+        alias_keys=alias_keys,
+        existing_slugs=existing_slugs,
+        gaz=default_gazetteer(),
+    )
+
+
+def _flush_pending(session: Session, pending_links: list[Any]) -> None:
+    """Flush everything the row loop has added so far — entities, organisations, locations,
+    aliases, and any dirty updates to an existing entity/link — then, only once that has actually
+    reached the database, add and flush `pending_links` (the `ProposalSource`/`OpportunitySource`
+    rows created alongside them).
+
+    Two ordered flushes, not one: `ProposalSource`/`OpportunitySource` carry no ORM
+    `relationship()` back to `Proposal`/`Opportunity` for SQLAlchemy's unit-of-work to infer
+    insert order from (only the reverse, `Proposal.sources`, and that one is `viewonly=True` --
+    deliberately excluded from flush-dependency tracking, docs/21 §3.1/§3.2), so a link and its
+    entity flushed in the same statement batch can be sent in either order and the link's
+    `proposal_id`/`opportunity_id` foreign key trips if it lands first. New entities do carry a
+    real (non-viewonly) `relationship()` to `Organization`/`Location`, so those two are safe to
+    flush together with the entity in the first call. Called at every `batch_size` boundary and
+    once more after the loop -- `pending_links` accumulates across the whole `load_dataframe` call
+    (not reset except here), so a call with fewer than `batch_size` new rows still gets both
+    flushes exactly once, at the end.
+    """
+    session.flush()
+    if pending_links:
+        session.add_all(pending_links)
+        session.flush()
+        pending_links.clear()
+
+
 def _add_organization_alias_if_new(
+    cache: _LoadCache,
     session: Session,
     org: Organization,
     *,
@@ -332,15 +458,10 @@ def _add_organization_alias_if_new(
 ) -> None:
     """Record one raw spelling as an `organization_alias` row (docs/21 §3.6), skipping it if this
     exact spelling is already on file for this organisation (re-running the same source/run must
-    not duplicate the alias)."""
+    not duplicate the alias) — checked against `cache.alias_keys` rather than a per-row `SELECT`."""
     alias_normalised = alias.lower()
-    existing = session.scalar(
-        select(OrganizationAlias).where(
-            OrganizationAlias.organization_id == org.id,
-            OrganizationAlias.alias_normalised == alias_normalised,
-        )
-    )
-    if existing is not None:
+    key = (org.id, alias_normalised)
+    if key in cache.alias_keys:
         return
     session.add(
         OrganizationAlias(
@@ -356,10 +477,11 @@ def _add_organization_alias_if_new(
             created_by="pipeline",
         )
     )
-    session.flush()
+    cache.alias_keys.add(key)
 
 
 def _get_or_create_organization(
+    cache: _LoadCache,
     session: Session,
     name: str | None,
     *,
@@ -378,50 +500,59 @@ def _get_or_create_organization(
     limitation). Every raw spelling that resolves to an existing organisation via either path is
     recorded as an `organization_alias` row (docs/21 §3.6), including the spelling an organisation
     was first created from, so two punctuation-only variants leave the org with two aliases.
+
+    Both matches and the slug-collision re-check below read `cache` (`_LoadCache`, built once per
+    `load_dataframe` call) instead of issuing a `SELECT` for every row — the bulk-insert pass; the
+    matching logic itself, including which organisation wins when both an exact and punctuation
+    match exist, is unchanged.
     """
     if not name or not str(name).strip():
         return None, False
     raw_name = str(name).strip()
     exact_key = raw_name.lower()
 
-    org = session.scalar(select(Organization).where(Organization.name_normalised == exact_key))
+    org = cache.org_by_exact.get(exact_key)
     if org is not None:
         return org, False
 
     punct_key = _org_punct_key(raw_name)
-    for candidate in session.scalars(select(Organization).where(Organization.merged_into_id.is_(None))):
-        if _org_punct_key(candidate.name_canonical) == punct_key:
-            _add_organization_alias_if_new(
-                session,
-                candidate,
-                alias=raw_name,
-                source=source,
-                source_url=source_url,
-                retrieved_at=retrieved_at,
-            )
-            return candidate, False
+    candidate = cache.org_by_punct.get(punct_key)
+    if candidate is not None:
+        _add_organization_alias_if_new(
+            cache,
+            session,
+            candidate,
+            alias=raw_name,
+            source=source,
+            source_url=source_url,
+            retrieved_at=retrieved_at,
+        )
+        return candidate, False
 
+    org_id = new_uuid()
+    org_public_id = public_id("org", org_id)
+    slug = slugify(raw_name)
+    if slug in cache.existing_slugs:
+        # Defence in depth: two letter-distinct names should never coincidentally collide once
+        # `_org_punct_key` above has already ruled out a punctuation-only match, but a lowest-cost
+        # deterministic suffix here means a bug in that reasoning fails safe (no row, no crash)
+        # rather than raising `UNIQUE constraint failed: organization.slug` at ingestion.
+        slug = f"{slug}-{org_public_id[-6:].lower()}"
     org = Organization(
-        public_id="",  # set below once we have the id
-        slug="",
+        id=org_id,
+        public_id=org_public_id,
+        slug=slug,
         name_canonical=raw_name,
         name_normalised=exact_key,
         type="other",
         country="US",
     )
     session.add(org)
-    session.flush()
-    org.public_id = public_id("org", org.id)
-    org.slug = slugify(raw_name)
-    if session.scalar(select(Organization).where(Organization.slug == org.slug, Organization.id != org.id)):
-        # Defence in depth: two letter-distinct names should never coincidentally collide once
-        # `_org_punct_key` above has already ruled out a punctuation-only match, but a lowest-cost
-        # deterministic suffix here means a bug in that reasoning fails safe (no row, no crash)
-        # rather than raising `UNIQUE constraint failed: organization.slug` at ingestion.
-        org.slug = f"{org.slug}-{org.public_id[-6:].lower()}"
-    session.flush()
+    cache.existing_slugs.add(slug)
+    cache.org_by_exact[exact_key] = org
+    cache.org_by_punct.setdefault(punct_key, org)
     _add_organization_alias_if_new(
-        session, org, alias=raw_name, source=source, source_url=source_url, retrieved_at=retrieved_at
+        cache, session, org, alias=raw_name, source=source, source_url=source_url, retrieved_at=retrieved_at
     )
     return org, True
 
@@ -461,6 +592,7 @@ def _get_or_create_location(
     kind = "county" if county else "state"
     point, precision = geocode(state, county, gaz=gaz)
     loc = Location(
+        id=new_uuid(),
         kind=kind,
         geom=point,
         precision=precision,
@@ -474,11 +606,10 @@ def _get_or_create_location(
         licence_id=source.licence_id,
     )
     session.add(loc)
-    session.flush()
     return loc
 
 
-def _proposal_fields_from_row(row: pd.Series, source: Source) -> dict[str, Any]:
+def _proposal_fields_from_row(row: Mapping[str, Any], source: Source) -> dict[str, Any]:
     queue_id = _row_get(row, "queue_id")
     identifiers: dict[str, Any] = {}
     if queue_id:
@@ -511,7 +642,7 @@ def _proposal_fields_from_row(row: pd.Series, source: Source) -> dict[str, Any]:
     }
 
 
-def _opportunity_fields_from_row(row: pd.Series) -> dict[str, Any]:
+def _opportunity_fields_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
     identifiers = _row_get(row, "identifiers") or {}
     if isinstance(identifiers, str):
         try:
@@ -578,6 +709,7 @@ def load_dataframe(
     events_df: pd.DataFrame | None,
     *,
     run: SourceRun | None = None,
+    batch_size: int = DEFAULT_BATCH_SIZE,
 ) -> LoadResult:
     """Upsert one connector run's normalised records and diff events (idempotent).
 
@@ -585,6 +717,18 @@ def load_dataframe(
     Safe to call twice with the same `records_df`/`events_df`: `proposal_source`/
     `opportunity_source` rows are keyed on `(source_id, source_record_id)` and `event` rows on
     `idempotency_key`, so a re-run changes nothing (docs/20 §3, docs/21 §6.1).
+
+    `batch_size` (Sprint 3 bulk-insert pass, `services/README.md` "Bulk-insert pass (Sprint 3)"):
+    the record loop below reads and writes entirely through `_LoadCache` (one set of preloaded
+    dicts, built once from the database) and generates every id it needs client-side, so nothing
+    inside the loop depends on a flush to see an earlier row's write — `session.flush()` only
+    happens every `batch_size` rows (plus once at the end), purely to bound how much stays pending
+    in memory and to send writes to the database periodically. A smaller or larger value changes
+    only that cadence: the rows written, their ids, and every dedupe/idempotency key are identical
+    for any `batch_size >= 1` (pinned by `test_loader.py`'s digest-equality test). The event loop
+    is unaffected — `Event.seq`'s `before_insert` listener (`services/db/models.py`) computes
+    `MAX(seq)+1` per row and collides if two new events are flushed together, so events are still
+    flushed one at a time regardless of this setting, exactly as before.
     """
     now = utcnow()
     result = LoadResult(source_run_id=run.id if run else _uuid.UUID(int=0))
@@ -600,169 +744,182 @@ def load_dataframe(
     #: at parse time, which is the signal this loader keys off rather than raw repetition count.
     variant_keys: dict[str, dict[str, str]] = {}
 
-    entity_cls = Proposal if kind == "proposal" else Opportunity
-    link_cls = ProposalSource if kind == "proposal" else OpportunitySource
+    entity_cls: type[Any] = Proposal if kind == "proposal" else Opportunity
+    link_cls: type[Any] = ProposalSource if kind == "proposal" else OpportunitySource
     fk_name = "proposal_id" if kind == "proposal" else "opportunity_id"
 
-    for _, row in records_df.iterrows():
-        raw_source_record_id = str(_row_get(row, "source_record_id"))
-        record_id = str(_row_get(row, "record_id"))
-        variants = variant_keys.setdefault(raw_source_record_id, {})
-        if record_id in variants:
-            source_record_id = variants[record_id]
-        else:
-            occurrence = len(variants) + 1
-            if occurrence == 1:
-                source_record_id = raw_source_record_id
+    cache = _build_load_cache(session, source, entity_cls, link_cls, fk_name)
+    records = records_df.to_dict("records") if len(records_df) else []
+    #: New `ProposalSource`/`OpportunitySource` rows, held back from `session.add` until the next
+    #: `_flush_pending` call so their entity is guaranteed already flushed first (see that
+    #: function's docstring for why order matters here).
+    pending_links: list[Any] = []
+
+    with session.no_autoflush:
+        for i, row in enumerate(records):
+            raw_source_record_id = str(_row_get(row, "source_record_id"))
+            record_id = str(_row_get(row, "record_id"))
+            variants = variant_keys.setdefault(raw_source_record_id, {})
+            if record_id in variants:
+                source_record_id = variants[record_id]
             else:
-                # A different connector `record_id` reusing this natural key inside the same
-                # run/dataframe -- never merge it with the earlier variant(s). Suffix the *stored*
-                # key deterministically, the same convention
-                # `pipeline.connectors.base.Connector.finalize` already applies to its own
-                # `record_id` for `dedupe_strategy = "suffix"` sources, so the loader is
-                # consistent with the connector layer rather than depending on it having done so.
-                source_record_id = f"{raw_source_record_id}#{occurrence}"
-                warning = (
-                    f"{source.id}: source_record_id {raw_source_record_id!r} reused by a distinct "
-                    f"record ({record_id!r}) within this run; stored as {source_record_id!r} "
-                    "rather than merged into the earlier occurrence (docs/22 §5, §7.1)"
-                )
-                result.warnings.append(warning)
-                _record_dq_warning(
-                    run,
-                    check="duplicate_source_record_id_same_run",
-                    detail=warning,
-                    data={
-                        "source_record_id": raw_source_record_id,
-                        "record_id": record_id,
-                        "occurrence": occurrence,
-                        "stored_as": source_record_id,
-                    },
-                )
-            variants[record_id] = source_record_id
-        retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or now
+                occurrence = len(variants) + 1
+                if occurrence == 1:
+                    source_record_id = raw_source_record_id
+                else:
+                    # A different connector `record_id` reusing this natural key inside the same
+                    # run/dataframe -- never merge it with the earlier variant(s). Suffix the
+                    # *stored* key deterministically, the same convention
+                    # `pipeline.connectors.base.Connector.finalize` already applies to its own
+                    # `record_id` for `dedupe_strategy = "suffix"` sources, so the loader is
+                    # consistent with the connector layer rather than depending on it having done
+                    # so.
+                    source_record_id = f"{raw_source_record_id}#{occurrence}"
+                    warning = (
+                        f"{source.id}: source_record_id {raw_source_record_id!r} reused by a "
+                        f"distinct record ({record_id!r}) within this run; stored as "
+                        f"{source_record_id!r} rather than merged into the earlier occurrence "
+                        "(docs/22 §5, §7.1)"
+                    )
+                    result.warnings.append(warning)
+                    _record_dq_warning(
+                        run,
+                        check="duplicate_source_record_id_same_run",
+                        detail=warning,
+                        data={
+                            "source_record_id": raw_source_record_id,
+                            "record_id": record_id,
+                            "occurrence": occurrence,
+                            "stored_as": source_record_id,
+                        },
+                    )
+                variants[record_id] = source_record_id
+            retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or now
 
-        existing_link = session.scalar(
-            select(link_cls).where(
-                link_cls.source_id == source.id,
-                link_cls.source_record_id == source_record_id,
-                link_cls.active.is_(True),
-            )
-        )
-        raw_payload = _parse_raw(_row_get(row, "raw"))
+            existing_link = cache.links.get(source_record_id)
+            raw_payload = _parse_raw(_row_get(row, "raw"))
 
-        if kind == "proposal":
-            fields = _proposal_fields_from_row(row, source)
-        else:
-            fields = _opportunity_fields_from_row(row)
-
-        if existing_link is not None:
-            entity = session.get(entity_cls, getattr(existing_link, fk_name))
-            if entity is None:
-                # `entity_cls`/`link_cls` are `type[Proposal] | type[Opportunity]` /
-                # `type[ProposalSource] | type[OpportunitySource]`: mypy resolves `session.get`
-                # and `select()` against the shared declarative `Base` for a union-of-classes
-                # reference it cannot specialise, so every attribute below needs a targeted
-                # ignore even though both concrete siblings share the exact same column. A
-                # generic rewrite (one TypeVar-bound helper per kind) would remove these but
-                # duplicates the whole function body; not worth it for two extra type params.
-                raise RuntimeError(
-                    f"proposal_source/opportunity_source row {existing_link.id} points at a "  # type: ignore[attr-defined]
-                    "missing entity — this is a store consistency bug, not a data error"
-                )
-            for k, v in fields.items():
-                setattr(entity, k, v)
-            entity.last_changed = now  # type: ignore[attr-defined]
-            existing_link.raw = raw_payload  # type: ignore[attr-defined]
-            existing_link.normalised = _jsonable(  # type: ignore[attr-defined]
-                {k: v for k, v in fields.items() if not isinstance(v, dict)}
-            )
-            existing_link.status_raw = fields.get("status_raw")  # type: ignore[attr-defined]
-            existing_link.last_seen = retrieved_at  # type: ignore[attr-defined]
-            existing_link.retrieved_at = retrieved_at  # type: ignore[attr-defined]
             if kind == "proposal":
-                result.proposals_updated += 1
+                fields = _proposal_fields_from_row(row, source)
             else:
-                result.opportunities_updated += 1
-        else:
-            published_at = now
-            public_at = compute_public_at(
-                published_at, kind, source_lag_days=source.lag_days, lag_overrides=source.lag_overrides
-            )
-            entity = entity_cls(
-                public_id=public_id("prop" if kind == "proposal" else "opp", _uuid.uuid4()),
-                slug="",
-                publish_state="public",
-                published_at=published_at,
-                public_at=public_at,
-                min_reuse_class=source.licence.reuse_class,
-                source_count=1,
-                **fields,
-            )
-            if isinstance(entity, Proposal):
-                sponsor, sponsor_created = _get_or_create_organization(
-                    session,
-                    _row_get(row, "sponsor_name"),
-                    source=source,
+                fields = _opportunity_fields_from_row(row)
+
+            if existing_link is not None:
+                entity = cache.entities.get(getattr(existing_link, fk_name))
+                if entity is None:
+                    raise RuntimeError(
+                        f"proposal_source/opportunity_source row {existing_link.id} points at a "
+                        "missing entity — this is a store consistency bug, not a data error"
+                    )
+                for k, v in fields.items():
+                    setattr(entity, k, v)
+                entity.last_changed = now
+                existing_link.raw = raw_payload
+                existing_link.normalised = _jsonable(
+                    {k: v for k, v in fields.items() if not isinstance(v, dict)}
+                )
+                existing_link.status_raw = fields.get("status_raw")
+                existing_link.last_seen = retrieved_at
+                existing_link.retrieved_at = retrieved_at
+                if kind == "proposal":
+                    result.proposals_updated += 1
+                else:
+                    result.opportunities_updated += 1
+            else:
+                published_at = now
+                public_at = compute_public_at(
+                    published_at, kind, source_lag_days=source.lag_days, lag_overrides=source.lag_overrides
+                )
+                entity_id = new_uuid()
+                entity_public_id = public_id("prop" if kind == "proposal" else "opp", entity_id)
+                title = fields.get("name_canonical") or fields.get("title") or "record"
+                entity = entity_cls(
+                    id=entity_id,
+                    public_id=entity_public_id,
+                    slug=f"{slugify(title)}-{entity_public_id[-6:].lower()}",
+                    publish_state="public",
+                    published_at=published_at,
+                    public_at=public_at,
+                    min_reuse_class=source.licence.reuse_class,
+                    source_count=1,
+                    **fields,
+                )
+                if isinstance(entity, Proposal):
+                    sponsor, sponsor_created = _get_or_create_organization(
+                        cache,
+                        session,
+                        _row_get(row, "sponsor_name"),
+                        source=source,
+                        source_url=str(_row_get(row, "source_url") or source.url),
+                        retrieved_at=retrieved_at,
+                    )
+                    if sponsor is not None:
+                        entity.sponsor_org_id = sponsor.id
+                        if sponsor_created:
+                            result.organizations_created += 1
+                    loc = _get_or_create_location(
+                        session,
+                        state=_row_get(row, "state"),
+                        county=_row_get(row, "county"),
+                        source=source,
+                        retrieved_at=retrieved_at,
+                        derived_only=not source.licence.allows_raw_publication,
+                        gaz=cache.gaz,
+                    )
+                    if loc is not None:
+                        entity.location_id = loc.id
+                        result.locations_created += 1
+                entity.field_provenance = {
+                    k: {
+                        "source_id": source.id,
+                        "licence_id": source.licence_id,
+                        "retrieved_at": retrieved_at.isoformat(),
+                    }
+                    for k in fields
+                    if fields[k] is not None
+                }
+                session.add(entity)
+                cache.entities[entity.id] = entity
+                existing_link = link_cls(
+                    **{fk_name: entity.id},
+                    source_id=source.id,
+                    source_record_id=source_record_id,
                     source_url=str(_row_get(row, "source_url") or source.url),
                     retrieved_at=retrieved_at,
+                    licence_id=source.licence_id,
+                    raw=raw_payload,
+                    normalised=_jsonable({k: v for k, v in fields.items() if not isinstance(v, dict)}),
+                    status_raw=fields.get("status_raw"),
+                    first_seen=retrieved_at,
+                    last_seen=retrieved_at,
+                    link_method="deterministic_key",
+                    link_confidence=1.0,
                 )
-                if sponsor is not None:
-                    entity.sponsor_org_id = sponsor.id
-                    if sponsor_created:
-                        result.organizations_created += 1
-                loc = _get_or_create_location(
-                    session,
-                    state=_row_get(row, "state"),
-                    county=_row_get(row, "county"),
-                    source=source,
-                    retrieved_at=retrieved_at,
-                    derived_only=not source.licence.allows_raw_publication,
-                )
-                if loc is not None:
-                    entity.location_id = loc.id
-                    result.locations_created += 1
-            entity.field_provenance = {
-                k: {
-                    "source_id": source.id,
-                    "licence_id": source.licence_id,
-                    "retrieved_at": retrieved_at.isoformat(),
-                }
-                for k in fields
-                if fields[k] is not None
-            }
-            session.add(entity)
-            session.flush()
-            entity.public_id = public_id("prop" if kind == "proposal" else "opp", entity.id)
-            title = fields.get("name_canonical") or fields.get("title") or "record"
-            entity.slug = f"{slugify(title)}-{entity.public_id[-6:].lower()}"
-            session.flush()
-            existing_link = link_cls(
-                **{fk_name: entity.id},
-                source_id=source.id,
-                source_record_id=source_record_id,
-                source_url=str(_row_get(row, "source_url") or source.url),
-                retrieved_at=retrieved_at,
-                licence_id=source.licence_id,
-                raw=raw_payload,
-                normalised=_jsonable({k: v for k, v in fields.items() if not isinstance(v, dict)}),
-                status_raw=fields.get("status_raw"),
-                first_seen=retrieved_at,
-                last_seen=retrieved_at,
-                link_method="deterministic_key",
-                link_confidence=1.0,
-            )
-            session.add(existing_link)
-            session.flush()
-            if kind == "proposal":
-                result.proposals_created += 1
-            else:
-                result.opportunities_created += 1
+                pending_links.append(existing_link)
+                cache.links[source_record_id] = existing_link
+                cache.links_by_entity[entity.id] = existing_link
+                if kind == "proposal":
+                    result.proposals_created += 1
+                else:
+                    result.opportunities_created += 1
 
-        record_id_to_internal[record_id] = getattr(existing_link, fk_name)
+            record_id_to_internal[record_id] = getattr(existing_link, fk_name)
+
+            if (i + 1) % batch_size == 0:
+                _flush_pending(session, pending_links)
+
+    _flush_pending(session, pending_links)
 
     if events_df is not None and len(events_df):
-        for _, ev in events_df.iterrows():
+        #: Preloaded once (Sprint 3 bulk-insert pass) instead of one `SELECT` per event; a key
+        #: added below as each event is created keeps a later duplicate in the same call correctly
+        #: idempotent without a re-query. `Event.source_id` is always this call's `source.id` for
+        #: every key this loader writes (set explicitly below), so filtering on it is exact, not
+        #: an approximation.
+        existing_event_keys: set[str] = set(
+            session.scalars(select(Event.idempotency_key).where(Event.source_id == source.id))
+        )
+        for ev in events_df.to_dict("records"):
             diff_type = str(ev["event_type"])
             record_id = str(ev["record_id"])
             subject_id = record_id_to_internal.get(record_id)
@@ -779,8 +936,7 @@ def load_dataframe(
             ).hexdigest()[:12]
             idempotency_key = f"{source.id}:{record_id}:{event_type}:{after_hash}"
 
-            already = session.scalar(select(Event).where(Event.idempotency_key == idempotency_key))
-            if already is not None:
+            if idempotency_key in existing_event_keys:
                 result.events_skipped_idempotent += 1
                 continue
 
@@ -811,17 +967,19 @@ def load_dataframe(
                 idempotency_key=idempotency_key,
             )
             session.add(event)
+            # `Event.seq`'s `before_insert` listener computes `MAX(seq) + 1` from the database at
+            # insert time (services/db/models.py); flushing more than one new event together would
+            # let two rows compute the same `MAX(seq)` and collide on the `seq` unique constraint
+            # (documented on that listener). Deliberately not batched by `batch_size` — the
+            # bulk-insert pass optimises the record loop above, not this one.
             session.flush()
+            existing_event_keys.add(idempotency_key)
             result.events_created += 1
 
             if diff_type == "removed":
-                link = session.scalar(
-                    select(link_cls).where(
-                        getattr(link_cls, fk_name) == subject_id, link_cls.active.is_(True)
-                    )
-                )
+                link = cache.links_by_entity.get(subject_id)
                 if link is not None:
-                    link.gone_at = observed_at  # type: ignore[attr-defined]  # see the note above
+                    link.gone_at = observed_at
 
     return result
 
