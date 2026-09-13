@@ -1,0 +1,13 @@
+#cloud-config
+# Bootstraps the api+web VM. The `docker-ce` Hetzner App Marketplace image already ships Docker
+# Engine, the Compose plugin and root SSH access via the key attached in `hcloud_server.app`
+# (docs/20 §11: "VMs accept SSH from the owner's key only"). This only creates the directories the
+# deploy script (infra/scripts/deploy.sh) expects. No secret material is written here (docs/04
+# E-19) — infra/sops/*.enc.yaml is decrypted on the VM by the deploy script itself, using an age
+# key provisioned out of band (docs/60-deployment.md, "Rotate a secret" runbook).
+
+package_update: true
+
+runcmd:
+  - mkdir -p /opt/infraqueue/compose /opt/infraqueue/secrets /opt/infraqueue/backups
+  - timedatectl set-timezone UTC
