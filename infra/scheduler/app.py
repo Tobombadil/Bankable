@@ -30,6 +30,8 @@ import logging
 import os
 import subprocess
 import sys
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,7 @@ import procrastinate
 import yaml
 
 from infra.scheduler.cadence import CRON_BY_BUCKET, bucket_for_cadence, queue_for_source, queueing_lock_for
+from infra.scheduler.jobs import alert_tick_job, post_draft_tick_job
 
 logger = logging.getLogger("infra.scheduler")
 
@@ -127,6 +130,70 @@ def _register_bucket_tick(bucket: str, cron: str) -> None:
 
 for _bucket_name, _cron in CRON_BY_BUCKET.items():
     _register_bucket_tick(_bucket_name, _cron)
+
+
+# Alert cycle and social draft generation (docs/00-PLAN.md Sprint 3 item 4). Unlike the bucket
+# ticks above, each of these is a single unit of work per firing (no per-source fan-out), so the
+# `SCHEDULER_ONLY_QUEUE` tick's body defers exactly one job rather than N — but the split is the
+# same one: the tick (this process, `scheduler`) only ever decides *whether* it's time to run; the
+# deferred job (`worker`, whose queues line already includes `alert` and `post_draft`) does the
+# work. Both real tasks carry `retry=0` because the next periodic tick is the retry (15 minutes for
+# alerts, an hour for post drafts) — a Procrastinate-managed retry would just race it.
+
+ALERT_TICK_TIMEOUT_S = 600  # docs/20 §4.2's 10-minute fetch-job ceiling, reused for consistency
+POST_DRAFT_TICK_TIMEOUT_S = 600
+
+
+def _run_with_timeout(fn: Callable[[], dict[str, Any]], *, timeout_s: int) -> dict[str, Any]:
+    """Enforce a hard wall-clock timeout on an in-process call, the same discipline
+    `run_connector` gets for free from `subprocess.run(timeout=...)` above. These two jobs call an
+    in-process Python function rather than shelling out, so there is no subprocess for the OS to
+    kill on timeout; running the call in its own thread and bounding `Future.result()` is the
+    closest equivalent for a plain callable (a `signal.alarm` only works on a process's main
+    thread, which a Procrastinate worker does not guarantee). Known limitation, same as any
+    thread-based Python timeout: a call that ignores the deadline is not forcibly interrupted, only
+    abandoned — the job still fails/raises promptly so the next periodic tick can retry, which is
+    the property that matters here (docs/20 §4.2's timeout exists to stop a hung job from wedging a
+    worker slot forever; a queueing_lock, not this timeout, is what stops a *second* tick from
+    piling on)."""
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        return pool.submit(fn).result(timeout=timeout_s)
+    finally:
+        pool.shutdown(wait=False)
+
+
+@app.task(name="alert_tick", queue="alert", retry=0, queueing_lock="alert_tick")
+def alert_tick() -> dict[str, Any]:
+    """US-502 AC1: alerts fire within 15 minutes of the triggering change. Body in
+    `infra/scheduler/jobs.py` so this module stays a thin Procrastinate registration layer
+    (docs/adr/0004 "a thin runner is fine")."""
+    return _run_with_timeout(alert_tick_job, timeout_s=ALERT_TICK_TIMEOUT_S)
+
+
+@app.periodic(cron="*/15 * * * *", periodic_id="tick:alert")
+@app.task(name="tick_alert", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_alert(timestamp: int) -> None:
+    try:
+        alert_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous alert_tick still queued or running")
+
+
+@app.task(name="post_draft_tick", queue="post_draft", retry=0, queueing_lock="post_draft_tick")
+def post_draft_tick() -> dict[str, Any]:
+    """Social draft generation from the event log. Hourly cadence is plenty for drafts a human
+    reviews before anything posts (`docs/32` review queue); body in `infra/scheduler/jobs.py`."""
+    return _run_with_timeout(post_draft_tick_job, timeout_s=POST_DRAFT_TICK_TIMEOUT_S)
+
+
+@app.periodic(cron="7 * * * *", periodic_id="tick:post_draft")  # off the hour: never coincides
+@app.task(name="tick_post_draft", queue=SCHEDULER_ONLY_QUEUE)  # with a fetch bucket's top-of-hour
+def _tick_post_draft(timestamp: int) -> None:  # jitter offset (cadence.py's CRON_BY_BUCKET)
+    try:
+        post_draft_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous post_draft_tick still queued or running")
 
 
 def main() -> None:

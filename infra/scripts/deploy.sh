@@ -68,7 +68,7 @@ log "1/5 draining and stopping worker services on: $WORKER_HOSTS $BROWSER_WORKER
 for host in $WORKER_HOSTS "$BROWSER_WORKER_HOST"; do
   sync_compose_files "$host"
   decrypt_secrets_to "$host"
-  remote_compose "$host" stop worker browser-worker social scheduler
+  remote_compose "$host" stop worker browser-worker scheduler
 done
 
 log "2/5 running migrations (expand phase, docs/04 E-11) once against the shared database"
@@ -81,7 +81,7 @@ remote_compose "$APP_HOST" up -d --pull always caddy api web
 
 log "4/5 restarting workers"
 for host in $WORKER_HOSTS; do
-  remote_compose "$host" up -d --pull always worker social
+  remote_compose "$host" up -d --pull always worker
 done
 remote_compose "$BROWSER_WORKER_HOST" up -d --pull always browser-worker
 

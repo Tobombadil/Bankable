@@ -163,6 +163,39 @@ timeouts (10 min / 5 min, `docs/20` §4.2) are enforced inside `pipeline/connect
 `infra/scheduler/app.py`'s `run_connector` respectively — the scheduler does not duplicate that logic, only
 decides *when* to enqueue.
 
+### 6.1 Alert cycle and social draft generation (Sprint 3 item 4)
+
+Two more periodic jobs follow the same tick-defers-a-job split as the bucket ticks above, each a single
+unit of work per firing rather than a per-source fan-out:
+
+| Job | Cron | Queue | `queueing_lock` | Timeout | Calls |
+|---|---|---|---|---|---|
+| `alert_tick` | `*/15 * * * *` (US-502 AC1: alerts fire within 15 minutes) | `alert` | `alert_tick` | 10 min | `services.alerts.worker.run_alert_tick` |
+| `post_draft_tick` | `7 * * * *` (hourly, off the hour so it never collides with a fetch bucket's top-of-hour jitter offset, `infra/scheduler/cadence.py`'s `CRON_BY_BUCKET`) | `post_draft` | `post_draft_tick` | 10 min | `services.social.worker.draft_posts_tick` |
+
+Both carry `retry=0`: the next periodic tick is the retry, so a Procrastinate-managed retry would only race
+it. `queueing_lock` guarantees an overlapping tick is refused (`AlreadyEnqueued`, logged and dropped) rather
+than double-run, the same guarantee `queueing_lock_for` gives each source's `fetch` job above. The
+10-minute timeout is enforced in `infra/scheduler/app.py`'s `_run_with_timeout` — the same discipline as
+`run_connector`'s `subprocess.run(timeout=...)`, but implemented with a bounded `Future.result()` instead,
+because these two jobs call an in-process Python function rather than shelling out (there is no subprocess
+for the OS to kill on timeout; a thread-based Python timeout abandons a hung call rather than interrupting
+it, which is a known limitation but still lets the job fail promptly so the next tick can retry).
+
+The tick itself (`tick_alert`/`tick_post_draft`) runs on `SCHEDULER_ONLY_QUEUE` like every bucket tick,
+so it only ever executes inside the `scheduler` service; the deferred job (`alert_tick`/`post_draft_tick`)
+runs on the `alert`/`post_draft` queue, which the `worker` service already consumes
+(`infra/compose/docker-compose.yml`'s `worker` command). Both job bodies live in `infra/scheduler/jobs.py`,
+kept separate from `app.py`'s Procrastinate registrations so that module stays importable without Postgres
+and lazily imports `services.alerts.worker`/`services.social.worker` only when a tick actually runs.
+
+To run either job by hand (bypassing the scheduler, e.g. to backfill or debug):
+
+```
+python -m services.alerts.worker
+python -m services.social.worker
+```
+
 ## 7. Observability
 
 | Signal | Mechanism | Where |
@@ -231,7 +264,7 @@ job build-and-pushed an image and the digest/tag is known.
 **Steps:**
 1. `export APP_HOST=... WORKER_HOSTS="..." BROWSER_WORKER_HOST=... SOPS_AGE_KEY="$(cat path/to/key)"`
 2. `infra/scripts/deploy.sh <staging|production> <image-tag>`
-3. The script: stops `worker`/`browser-worker`/`social`/`scheduler` on the worker VMs first → runs
+3. The script: stops `worker`/`browser-worker`/`scheduler` on the worker VMs first → runs
    migrations once (`alembic upgrade head`, expand phase only, `docs/04` E-11) → restarts `caddy`/`api`/`web`
    on the app VM (public pages keep serving from the Cloudflare edge cache throughout, `docs/20` §12) →
    restarts the workers → restarts the scheduler last.
