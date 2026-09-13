@@ -1,0 +1,9 @@
+#cloud-config
+# Bootstraps a worker VM (scheduler + worker-plain + worker-model). See app.yaml for the
+# rationale shared by all three cloud-init files.
+
+package_update: true
+
+runcmd:
+  - mkdir -p /opt/infraqueue/compose /opt/infraqueue/secrets /opt/infraqueue/backups
+  - timedatectl set-timezone UTC
