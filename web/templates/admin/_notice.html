@@ -1,0 +1,10 @@
+{# Renders one RFC 9457 problem as the admin error banner (docs/30-design-ia.md §6). #}
+{% if notice %}
+<div class="notice notice--error" role="alert">
+  <strong>{{ notice.title }}</strong>{% if notice.detail %} -- {{ notice.detail }}{% endif %}
+  {% if notice.request_id %}<span class="admin-muted mono"> request {{ notice.request_id }}</span>{% endif %}
+</div>
+{% endif %}
+{% if flash %}
+<p class="notice" role="status">{{ flash }}</p>
+{% endif %}

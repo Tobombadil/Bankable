@@ -58,6 +58,14 @@ templates = Jinja2Templates(directory=str(WEB_ROOT / "templates"))
 # rather than importing this one).
 app.include_router(auth_router)
 
+# Sprint 3 item 3: the admin panel shell (operator guard, chrome) — page routers for each nav
+# group are mounted below it as they land.
+from web.admin.shell import NotAnOperator, not_an_operator_handler  # noqa: E402
+from web.admin.shell import router as admin_shell_router  # noqa: E402
+
+app.add_exception_handler(NotAnOperator, not_an_operator_handler)
+app.include_router(admin_shell_router)
+
 
 def get_api(request: Request) -> ApiClient:
     """One `ApiClient` per app process (or per test app instance), cached on `app.state` -- the

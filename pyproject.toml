@@ -30,8 +30,7 @@ ignore = ["RUF001", "RUF002", "RUF003", "N818"]
 "api/check_story_coverage.py" = ["T20"]      # CI reporting script; prints the story -> operation map
 "web/build_data.py" = ["T20"]                # CLI summary line (main()), not application logging
 "web/data_ref/build_basemap_fallback.py" = ["T20"]  # CLI summary line (main()), not application logging
-"web/test_build_data.py" = ["S101"]          # asserts are the point
-"web/test_auth.py" = ["S101", "S105", "S106"]  # asserts are the point; literal test credentials
+"web/test_*.py" = ["S101", "S105", "S106"]    # asserts are the point; literal test credentials
 "web/test_e2e.py" = ["S101", "T20"]          # asserts are the point; prints screenshot paths
 "services/**/test_*.py" = ["S101"]           # asserts are the point (docs/04 E-6)
 "services/api/conftest.py" = ["S101"]
@@ -47,8 +46,7 @@ strict = true
 # they are covered by the suite itself (docs/04 E-6), not by the strict type gate.
 exclude = [
     "test_connector\\.py$",
-    "web/test_e2e\\.py$",
-    "web/test_auth\\.py$",
+    "web/test_.*\\.py$",
     "services/.*/test_.*\\.py$",
     "services/api/conftest\\.py$",
     "services/db/migrations/versions/.*\\.py$",  # Alembic op.* calls have no useful stubs
