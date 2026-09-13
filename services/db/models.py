@@ -944,3 +944,64 @@ class WebhookDelivery(Base):
         sa.CheckConstraint(f"status IN {WEBHOOK_DELIVERY_STATUSES!r}", name="status_vocab"),
         sa.Index("ix_webhook_delivery_endpoint_created", "webhook_endpoint_id", sa.text("created_at DESC")),
     )
+
+
+# ============================================================================= subscription (§3.14)
+# Sprint 3, first wave (docs/00-PLAN.md; docs/34-crm-system-of-record.md §1, §5): the Stripe billing
+# adapter and the entitlement-application logic behind it (`services/billing/`). `SUBSCRIPTION_
+# STATUSES` mirrors `services.sor.ports.STATUSES_IN_GOOD_STANDING`'s source vocabulary (docs/21
+# §3.14) rather than importing it — this module never imports `services.sor` (docs/04 E-2 layering:
+# the DB layer stays vendor- and port-free), the same reason `services/db/migrations/versions/
+# 0003_pro_tier_and_alerts.py` duplicates `USER_ROLES` etc. instead of importing `services/db/
+# models.py`.
+#
+# `plan_tier` keeps docs/21's `free | pro | team | api` vocabulary — the same four values as
+# `api/openapi.yaml`'s `PlanTier` schema — rather than the wider vendor-neutral
+# `services.sor.ports.PLAN_TIERS` (`pro | team | api | enterprise`: the commercial names a
+# customer can *buy*, one purchasable tier above `api`). Neither the spec's `PlanTier` nor this
+# sprint's docs/21 reading has an `enterprise` member, so `services/billing/entitlement.py` stores
+# an `enterprise` purchase with `plan_tier = "api"` (the entitlement `enterprise` grants, per
+# `services.sor.ports.PLAN_ENTITLEMENT`) while `plan_code` keeps the vendor's exact price/plan
+# code — no information is lost, and this CHECK constraint never needs the "extend an existing
+# vocab tuple" escape hatch CLAUDE.md's task brief allows (services/billing/README.md decision #3).
+SUBSCRIPTION_SOR_KINDS = ("stripe", "odoo", "erpnext")
+SUBSCRIPTION_PLAN_TIERS = ("free", "pro", "team", "api")
+SUBSCRIPTION_STATUSES = ("trialing", "active", "past_due", "paused", "canceled")
+
+
+class Subscription(Base, TimestampMixin):
+    """docs/21 §3.14: the mirror of the commercial record. Written only by
+    `services/billing/entitlement.py:apply_entitlement_change` from a billing-provider webhook —
+    never by hand (docs/34 §1: "Stripe writes it; the platform never treats a CRM as the source of
+    a commercial fact")."""
+
+    __tablename__ = "subscription"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    account_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("account.id"), nullable=False)
+    sor_kind: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    sor_ref: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    plan_code: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    plan_tier: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    seats: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
+    current_period_start: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    current_period_end: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    cancel_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    mrr_amount: Mapped[float | None] = mapped_column(sa.Numeric(18, 2))
+    currency: Mapped[str] = mapped_column(sa.String(3), nullable=False)
+    mirrored_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    drift_flag: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+
+    account: Mapped[Account] = relationship(lazy="joined")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"sor_kind IN {SUBSCRIPTION_SOR_KINDS!r}", name="sor_kind_vocab"),
+        sa.CheckConstraint(f"plan_tier IN {SUBSCRIPTION_PLAN_TIERS!r}", name="plan_tier_vocab"),
+        sa.CheckConstraint(f"status IN {SUBSCRIPTION_STATUSES!r}", name="status_vocab"),
+        sa.UniqueConstraint("sor_kind", "sor_ref", name="one_subscription_per_sor_ref"),
+        sa.Index("ix_subscription_account_id", "account_id"),
+    )

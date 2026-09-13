@@ -1,0 +1,12 @@
+{
+  "id": "evt_1NG8Du2eZvKYlo2CtOM5UNKN",
+  "object": "event",
+  "type": "customer.created",
+  "created": 1757721600,
+  "data": {
+    "object": {
+      "id": "cus_QXtest0000000001",
+      "object": "customer"
+    }
+  }
+}

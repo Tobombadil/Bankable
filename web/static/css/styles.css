@@ -474,3 +474,42 @@ h3 { font-size: var(--text-4); }
 /* ---------- 10. About page ---------- */
 .source-table td, .source-table th { vertical-align: top; }
 .reuse-badge { font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+
+/* ---------- 11. Auth forms (Sprint 3 "login and registration surface") ----------
+   Bordered inputs and a filled primary button, unlike the filter bar's underline-only strip
+   (§6) -- a credential form reads as a form, not a toolbar. Tokens only, no new colours. */
+.auth-form {
+  display: flex; flex-direction: column; gap: var(--space-5);
+  max-width: 26rem; margin: var(--space-6) 0;
+}
+.field { display: flex; flex-direction: column; gap: var(--space-1); }
+.field label {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.field input {
+  font: inherit; font-size: var(--text-2); padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface);
+  color: var(--text); min-height: 2.5rem;
+}
+.field input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.field-hint { font-size: var(--text-1); color: var(--text-muted); margin: 0; }
+/* SC 3.3.1: the error is carried by this text node, not by the input's border colour alone. */
+.field__error { font-size: var(--text-1); color: var(--text); font-weight: 600; margin: 0; }
+.form-actions { display: flex; gap: var(--space-3); }
+.form-actions button {
+  font: inherit; font-size: var(--text-2); padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-2); border: 1px solid var(--link); background: var(--link);
+  color: var(--surface); cursor: pointer; min-height: 2.5rem;
+}
+.form-actions button:hover { background: var(--link-visited); border-color: var(--link-visited); }
+.notice {
+  border: 1px solid var(--border); border-radius: var(--radius-2); padding: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0; font-size: var(--text-2);
+}
+/* Still identified by the text itself (role="alert"/"status" plus the message), not colour alone
+   -- the border tint is a reinforcing cue for sighted users only (SC 3.3.1, SC 1.4.1). */
+.notice--error { border-color: var(--family-danger-text); }
+@media (max-width: 719px) {
+  .auth-form { max-width: 100%; }
+}

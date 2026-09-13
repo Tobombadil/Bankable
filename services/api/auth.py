@@ -433,3 +433,63 @@ def iter_client_ip_prefix(request: Request) -> str | None:
     if len(parts) == 4:
         return ".".join([*parts[:3], "0"])
     return host
+
+
+# ------------------------------------------------------------------------- Sprint 3: /v1/auth/*
+# The functions below are new, append-only additions for `services/api/auth_routes.py` (Sprint 3
+# "login and registration surface" task). They do not change any function above; `resolve_session`
+# in particular keeps its exact behaviour and signature — `resolve_session_row` below duplicates
+# its verification steps rather than factoring them out of it, since this module is append-only
+# for this task.
+
+
+def resolve_session_row(db: Session, cookie_value: str) -> UserSession | None:
+    """Same verification `resolve_session` performs (signature check, then the server-side row:
+    not revoked, not expired, per-session token hash), returning the `UserSession` row itself
+    rather than its `User` — `POST /v1/auth/logout` needs the row to revoke exactly the session
+    the cookie names, not the user it belongs to."""
+    try:
+        payload = _serializer().loads(cookie_value, max_age=_SESSION_IDLE_DAYS * 86400)
+        sid, tok = payload["sid"], payload["tok"]
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return None
+    row = db.get(UserSession, sid)
+    if row is None or row.revoked_at is not None:
+        return None
+    now = dt.datetime.now(dt.UTC)
+    expires_at = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=dt.UTC)
+    if expires_at <= now:
+        return None
+    if not hmac.compare_digest(row.token_hash, _hash_token(f"{row.id}:{tok}")):
+        return None
+    return row
+
+
+_VERIFICATION_SALT = "email-verification"
+_VERIFICATION_MAX_AGE_SECONDS = 24 * 3600  # docs/23 email-verification link lifetime
+
+
+def _verification_serializer() -> URLSafeTimedSerializer:
+    # Same secret source as `_serializer()` (CLAUDE.md: secrets from environment only), a
+    # different salt so a verification token can never be replayed as a session cookie or
+    # vice versa (itsdangerous salts namespace the signature, not just the payload).
+    secret = os.environ.get("SESSION_SECRET", "dev-only-insecure-session-secret-do-not-deploy")
+    return URLSafeTimedSerializer(secret, salt=_VERIFICATION_SALT)
+
+
+def make_verification_token(user: User) -> str:
+    """Signs `{uid, email}` (the public id, so the token cannot be replayed for a different user
+    even if two users somehow shared an email at signing time) for the `GET /v1/auth/verify` link
+    `send_verification_email` puts in the message body."""
+    return _verification_serializer().dumps({"uid": user.public_id, "email": user.email})
+
+
+def read_verification_token(token: str) -> tuple[str, str] | None:
+    """Returns `(uid, email)` for a valid, unexpired token, or `None` for anything else (bad
+    signature, tampered payload, expired past `_VERIFICATION_MAX_AGE_SECONDS`) — the route turns
+    `None` into `400 validation_error` rather than this module raising."""
+    try:
+        payload = _verification_serializer().loads(token, max_age=_VERIFICATION_MAX_AGE_SECONDS)
+        return payload["uid"], payload["email"]
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return None

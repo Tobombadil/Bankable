@@ -34,6 +34,11 @@
       <a href="/proposals">Proposals</a>
       <a href="/opportunities">Opportunities</a>
       <a href="/about">About &amp; sources</a>
+      {% if request.cookies.get('session') %}
+      <a href="/account">Account</a>
+      {% else %}
+      <a href="/login">Sign in</a>
+      {% endif %}
     </nav>
     <form class="site-search" action="/search" method="get" role="search">
       <label class="visually-hidden" for="site-search-q">Search proposals and opportunities</label>

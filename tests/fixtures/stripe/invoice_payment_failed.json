@@ -1,0 +1,19 @@
+{
+  "id": "evt_1NG8Du2eZvKYlo2CtOM5INVF",
+  "object": "event",
+  "type": "invoice.payment_failed",
+  "created": 1757725200,
+  "data": {
+    "object": {
+      "id": "in_test0000000002",
+      "object": "invoice",
+      "customer": "cus_QXtest0000000001",
+      "subscription": "sub_1NG8Du2eZvKYlo2Cq5f8Vsxu",
+      "status": "open",
+      "amount_due": 4900,
+      "currency": "usd",
+      "created": 1757725200,
+      "hosted_invoice_url": "https://invoice.stripe.com/i/test0000000002"
+    }
+  }
+}

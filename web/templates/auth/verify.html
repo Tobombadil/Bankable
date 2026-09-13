@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Verify email -- Infraqueue (placeholder){% endblock %}
+{% block meta_description %}Confirm your Infraqueue email address.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Verify email</h1>
+</div>
+{% if verified %}
+<p class="notice" role="status">Your email address is verified.</p>
+<p><a href="/account">Go to your account</a></p>
+{% else %}
+<p class="notice notice--error" role="alert">{{ problem.title if problem else 'This verification link is invalid or has expired.' }}{% if problem and problem.detail %}: {{ problem.detail }}{% endif %}</p>
+<p><a href="/login?next=/account">Sign in</a> to request a new verification link from your account page.</p>
+{% endif %}
+{% endblock %}

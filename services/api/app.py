@@ -94,6 +94,18 @@ from services.api.pro import router as pro_router  # noqa: E402 - after `app` ex
 
 app.include_router(pro_router)
 
+# Sprint 3, first wave (docs/00-PLAN.md "Sprint 3 kickoff" item 1 and 2): the Attio CRM adapter's
+# routes (inbound webhook, US-403 lead hand-off), the Stripe billing routes (checkout, portal,
+# inbound webhook, admin subscription mirror) and the password login/registration surface. Each
+# lives in its own module behind the ports in services/sor; this file only mounts them.
+from services.api.auth_routes import router as auth_router  # noqa: E402
+from services.billing.router import router as billing_router  # noqa: E402
+from services.crm.router import router as crm_router  # noqa: E402
+
+app.include_router(auth_router)
+app.include_router(crm_router)
+app.include_router(billing_router)
+
 
 @app.middleware("http")
 async def standard_headers(request: Request, call_next: Any) -> Response:

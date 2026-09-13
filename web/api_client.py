@@ -12,21 +12,41 @@ Two transports, selected by the `API_BASE_URL` environment variable:
     also works fine as the default for local `uvicorn web.app:app --reload` against a file-backed
     SQLite `DATABASE_URL`, since both the API app and this client then read the same database.
 
-Both transports expose the same `.get(path, params) -> httpx.Response`-shaped interface, so
-`web/app.py` and `web/viewmodels.py` never need to know which one is active.
+Both transports expose the same `.get(path, params, cookies) -> httpx.Response`-shaped interface
+(and, since Sprint 3's "login and registration surface" task, `.post`), so `web/app.py` and
+`web/viewmodels.py` never need to know which one is active. `cookies` is always passed *per call*
+(never written onto the shared `Transport`'s own cookie jar): this process serves every visitor
+through one `ApiClient`, so mutating the client's persistent jar with one visitor's session cookie
+would leak it to the next request from anyone else. httpx honours a per-call `cookies=` mapping for
+exactly one request without merging it back into `Client.cookies` -- verified in
+`web/test_auth.py`.
 """
 
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import httpx
 
 
 class Transport(Protocol):
-    def get(self, url: str, *, params: Mapping[str, Any] | None = None) -> httpx.Response: ...
+    def get(
+        self,
+        url: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> httpx.Response: ...
+    def post(
+        self,
+        url: str,
+        *,
+        json: Mapping[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> httpx.Response: ...
     def close(self) -> None: ...
 
 
@@ -43,15 +63,36 @@ class ApiNotFound(ApiError):
     """404 -- a gated or absent record (docs/21 §8 item 3: the two are indistinguishable)."""
 
 
+@dataclass(frozen=True)
+class ApiResult:
+    """The raw shape of a response, for callers that must inspect a non-2xx status themselves
+    instead of getting an exception -- `web/auth.py`'s POST routes, which re-render a form with
+    the API's own problem `title`/`detail`/`errors[]` rather than raising (Sprint 3 "login and
+    registration surface" task). `set_cookie` carries every raw `Set-Cookie` header value so the
+    caller can relay the session cookie onto its own response unchanged."""
+
+    status_code: int
+    body: dict[str, Any]
+    set_cookie: list[str] = field(default_factory=list)
+
+
 class ApiClient:
-    """Thin wrapper: JSON in, envelope dict out, `ApiNotFound`/`ApiError` on failure."""
+    """Thin wrapper: JSON in, envelope dict out, `ApiNotFound`/`ApiError` on failure for `.get`;
+    `.get_result`/`.post` return the raw `ApiResult` instead of raising, for callers that need to
+    branch on the status code themselves."""
 
     def __init__(self, transport: Transport) -> None:
         self._transport = transport
 
-    def get(self, path: str, *, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    def get(
+        self,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         clean = {k: v for k, v in (params or {}).items() if v is not None}
-        response = self._transport.get(path, params=clean)
+        response = self._transport.get(path, params=clean, cookies=cookies)
         if response.status_code == 404:
             raise ApiNotFound(404, _safe_json(response))
         if response.status_code >= 400:
@@ -59,11 +100,47 @@ class ApiClient:
         data: dict[str, Any] = response.json()
         return data
 
+    def get_result(
+        self,
+        path: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> ApiResult:
+        """Non-raising `.get` for a caller that wants to branch on the status code itself (e.g.
+        `web/auth.py`'s `/account`, which treats a 401 as "not signed in", not an error)."""
+        clean = {k: v for k, v in (params or {}).items() if v is not None}
+        response = self._transport.get(path, params=clean, cookies=cookies)
+        return _to_result(response)
+
+    def post(
+        self,
+        path: str,
+        *,
+        json: Mapping[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> ApiResult:
+        response = self._transport.post(path, json=json, cookies=cookies)
+        return _to_result(response)
+
     def close(self) -> None:
         self._transport.close()
 
 
+def _to_result(response: httpx.Response) -> ApiResult:
+    return ApiResult(
+        status_code=response.status_code,
+        body=_safe_json(response),
+        set_cookie=response.headers.get_list("set-cookie"),
+    )
+
+
 def _safe_json(response: httpx.Response) -> dict[str, Any]:
+    if not response.content:
+        # A 204 (logout) or any other empty-bodied success has nothing to parse -- treating that
+        # as a `{"title": "error", ...}` fallback would misrepresent a clean success as a problem
+        # body to every caller that inspects `.body.get("title")`.
+        return {}
     try:
         body: dict[str, Any] = response.json()
         return body

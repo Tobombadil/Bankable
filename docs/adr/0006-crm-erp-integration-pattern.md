@@ -87,3 +87,8 @@ metric M-13 revenue figures; and whether accounting consolidation is worth the h
 ## Decision update (2026-09-13)
 
 The owner chose **Attio** as the CRM system of record instead of HubSpot; Stripe Billing is unchanged. The adapter pattern in this ADR is unaffected: the first concrete CRM adapter is `services/crm/attio.py`. Attio's public REST API v2 (objects, records, lists, notes, tasks, webhooks; API-key auth) is to be verified against https://docs.attio.com before implementation, with rate limits recorded.
+
+**Implemented (2026-09-13, Sprint 3 first wave):** ports in `services/sor/ports.py`, adapters in `services/crm/attio.py`
+and `services/billing/stripe.py` (not `services/sor/adapters/`, per the Sprint 3 kickoff layout), each with an in-memory
+fake the suite runs against; an import-linter contract keeps every adapter module behind the ports. Two port deviations
+from the sketch above are recorded in `docs/00-PLAN.md` ("Ports written by the coordinator first").
