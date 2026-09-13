@@ -1,0 +1,24 @@
+{% extends "admin/base.html" %}
+{% block title %}Delete user -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-people.css">{% endblock %}
+{% block content %}
+{% if user %}<p><a href="/admin/users/{{ user.user_id }}">&larr; {{ user.email or user.user_id }}</a></p>{% else %}<p><a href="/admin/users">&larr; Users</a></p>{% endif %}
+{% include "admin/_notice.html" %}
+
+{% if user %}
+<h1>Delete {{ user.email or "(redacted)" }}?</h1>
+<p>
+  This does not delete the user immediately. It opens a deletion-request task (US-910) and
+  disables the user right away: their sessions and their own API keys are revoked, and they can no
+  longer sign in. Completing that task later nulls their email and name and marks the account
+  anonymised. This action is audit-logged with the reason you give below.
+</p>
+<form class="admin-form" method="post" action="/admin/users/{{ user.user_id }}/delete">
+  <div class="field">
+    <label for="reason">Reason</label>
+    <textarea id="reason" name="reason" required></textarea>
+  </div>
+  <button class="admin-button admin-button--primary" type="submit">Open deletion request</button>
+</form>
+{% endif %}
+{% endblock %}

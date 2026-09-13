@@ -1,0 +1,7 @@
+/* Admin panel: Keys, Costs and Audit screens (Sprint 3 item 3). Tokens only (docs/31 D-19); loaded
+   through web/templates/admin/base.html's `extra_head` block only on the pages that need it. See
+   web/static/css/admin-people.css for why this file exists at all: a small set of layout tweaks
+   this agent's screens need that the shared admin.css/styles.css do not already cover. */
+.key-secret-field { width: 100%; }
+.admin-cols dt { color: var(--text-muted); font-size: var(--text-1); margin-top: var(--space-3); }
+.admin-cols dd { margin: 0 0 var(--space-1) 0; }

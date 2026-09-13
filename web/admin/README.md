@@ -276,3 +276,112 @@ The three failures are all in `web/test_admin_people.py` (`test_customer_detail_
 different concurrent agent's file area, untouched by this task. Verified in isolation
 (`.venv/bin/python -m pytest web/test_admin_people.py -k test_customer_detail_shows_stale_banner`)
 that the failure reproduces with no tasks/posts files involved at all.
+
+## Users, customers, keys, costs, audit
+
+Sprint 3 item 3 (admin panel), my slice: `web/admin/people.py` (Users, Customers with
+subscriptions) and `web/admin/ops.py` (Keys, Costs, Audit), each `router = APIRouter()`, mounted by
+the coordinator next to `web/admin/shell.py`'s own router. `web/test_admin_people.py` (26 shared
+with ops, 15 of them here) and `web/test_admin_ops.py` (11) mount their router onto `web_app`
+inside the test module when not already mounted, exactly as the task brief describes. Every route
+depends on `require_operator`, reads/writes only through `ctx.api`, and renders through
+`web/admin/shell.py`'s `render()`/`problem_notice()` -- no page here talks to the database or
+trusts anything the live `/admin/v1` API on `services/api/admin_people.py`/`admin_posts.py`
+(keys)/`admin_sources.py` (costs, audit) did not itself answer.
+
+### What
+
+- **Users** (`GET /admin/users`, `GET/PATCH /admin/users/{id}`,
+  `GET/POST /admin/users/{id}/delete`): list with role/status/account_id filters and paging; detail
+  with two single-purpose forms (change role, change status) instead of one combined form, so each
+  keeps its own `reason` unambiguous (docs/31 SC 3.3.1); a delete confirm page explaining the
+  deletion-request/disable flow, then a `POST` that redirects to the API's own returned
+  `/admin/tasks/{task_id}`.
+- **Customers** (`GET /admin/customers`, `GET/POST /admin/customers/new`,
+  `GET /admin/customers/{id}`, `POST /admin/customers/{id}/subscriptions`): list with
+  account/kind/entitlement/seats/billing-ref-present/CRM-ref-present/stale-marker columns; detail
+  with the account block, the `sor` block (a staleness banner in the exact US-902 AC3 wording when
+  `stale`), subscriptions/users/keys tables, and a create-subscription form that explains the
+  billing-reference prerequisite and renders the API's `409` when it is missing.
+- **Keys** (`GET/POST /admin/keys`, `POST /admin/keys/{id}/revoke`): list with
+  account_id/status(active|revoked) filters; an issue form that, on `201`, renders a one-time
+  secret page directly rather than the usual `303` redirect (the secret is never stored anywhere to
+  redirect *to*) -- the one deliberate exception to the shell's normal write pattern, called out in
+  `web/admin/ops.py`'s module docstring decision 1.
+- **Costs** (`GET /admin/costs`): filters forward the API's own parameter names verbatim
+  (`day[from]`, `day[to]`, `source_id`, `purpose`, `group_by`); a totals row is summed in
+  `web/admin/ops.py` from the rows the page already has (task brief: "computed server-side in the
+  page module"), not a pass-through of the API's own `totals` field -- `cache_hit_rate` in that
+  totals row is a `model_calls`-weighted average, an approximation documented in the module's
+  decision 5 since a `CostRow` carries only the ratio, not the underlying hit/attempt counts. Empty
+  state says plainly that an empty cost log is the expected state today (US-909).
+- **Audit** (`GET /admin/audit`, `GET /admin/audit/{event_id}`): list with
+  subject_type/event_type/actor_user_id/since filters and paging; a detail page rendering
+  `before`/`after` as two side-by-side definition lists (`admin-cols`). **`GET /admin/v1/audit` has
+  no single-item counterpart** -- `api/openapi.yaml` never grew an `adminGetAuditEvent` operation --
+  so the detail route pages through the list (narrowed by `subject_type` when the list's own link
+  supplies one, capped at 10 pages of 200) scanning for a matching `id`. Narrowing by `subject_id`
+  too was tried and reverted: `admin_list_audit`'s `_resolve_any_subject_uuid` only decodes
+  `prop_`/`opp_`/`org_`/`mat_`/`evt_`/`doc_` ids, so a `usr_`/`acc_`/`key_` subject id (exactly the
+  ones `AnyPublicIdValue` was widened to cover for the *response*) silently matches nothing as a
+  *filter* rather than narrowing correctly -- caught by `test_audit_list_filters_and_detail_renders_before_after`
+  failing with a `404` before the fix. Both gaps (no get-by-id operation, no matching subject_id
+  decode for the newer prefixes) are flagged for the coordinator in `web/admin/ops.py`'s decision 4.
+
+### Decisions
+
+1. Vocabulary in `<select>` options (`USER_ROLES`, the role/status pairs, `ACCOUNT_KINDS`,
+   `ACCOUNT_ENTITLEMENT_SOURCES`, `PLAN_TIERS`) is hardcoded locally in `web/admin/people.py`/
+   `web/admin/ops.py` as small display-only tuples rather than imported from `services.db.models`/
+   `services.sor.ports` -- importing those would cross the web/API boundary
+   `web/admin/shell.py`'s docstring draws ("no page ever talks to the database"). The API still
+   enforces every value on write, so drift here only ever produces a form option the API rejects
+   with its own validation notice, never a silent wrong write.
+2. The keys issue form's `licence_accepted_version` is sent as a hidden constant
+   (`api-licence-1.0`, mirroring `services.api.pro.API_LICENCE_VERSION`), never a form field --
+   `AdminApiKeyCreate` requires it to equal that exact value, so there is nothing for an operator to
+   choose.
+3. The keys list's "status" filter is the API's own `revoked` boolean (`GET /admin/v1/keys` has no
+   `status` parameter), rendered as an active/revoked choice.
+4. Found and fixed a real bug flagged by a concurrent agent's own verbatim-tail note in this same
+   README (see the "Tasks and posts" section above, "three failures ... in
+   `web/test_admin_people.py`"): `customers/detail.html`'s stale-banner sentence line-wrapped across
+   two lines in the template source, so the literal AC3 wording never appeared as one contiguous
+   string in the rendered HTML even though the banner itself rendered correctly. Fixed by keeping
+   the sentence on one source line; `test_customer_detail_shows_stale_banner` and the two
+   subscription tests now pass.
+
+### Verbatim tails
+
+```
+$ .venv/bin/python -m pytest web/test_admin_people.py web/test_admin_ops.py
+..........................                                               [100%]
+26 passed, 69 warnings in 5.68s
+```
+
+```
+$ .venv/bin/ruff check web/admin/people.py web/admin/ops.py web/test_admin_people.py web/test_admin_ops.py
+All checks passed!
+$ .venv/bin/ruff format --check web/admin/people.py web/admin/ops.py web/test_admin_people.py web/test_admin_ops.py
+4 files already formatted
+```
+
+```
+$ .venv/bin/mypy --cache-dir /tmp/mypy-fe-c web/admin/people.py web/admin/ops.py
+Success: no issues found in 2 source files
+```
+
+```
+$ .venv/bin/python -m pytest web --ignore=web/test_e2e.py
+106 passed, 260 warnings in 40.99s
+```
+
+### Not done / deferred
+
+- `web/static/css/admin-people.css` and `admin-ops.css` are small (a couple of layout-only rules
+  each) -- everything else reuses `web/static/css/admin.css`/`styles.css` unchanged, as intended.
+- No JavaScript anywhere, including the one-time key-secret page (no copy-to-clipboard button; the
+  field is a plain readonly `<input>` the operator selects manually).
+- The audit detail page's bounded page-scan (decision above) is a real, documented limitation, not
+  a hidden one -- see `web/admin/ops.py`'s decision 4 for the exact API-side gaps that would remove
+  the need for it.
