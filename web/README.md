@@ -108,7 +108,7 @@ delay is bypassed for this data so today's rows are visible now (dev only). The 
 states the real configured lag."* The delayed-tier notice itself is unaffected by preview mode —
 it always states the real configured lag from `/v1/health`.
 
-## Data-layer corrections (`web/data_loading.py`) — and why one remains
+## Data-layer corrections (`web/data_loading.py`) — none remain
 
 This used to be three documented workarounds applied *after* calling the real, unmodified
 `services.ingest.loader` functions, each tied to a gap `services/README.md`'s "Open decisions" once
@@ -129,14 +129,15 @@ would now be a redundant no-op — so they are removed here, not merely unused:
    sets `publish_state` from the registry's reuse class at ingest time (`services/README.md`
    "Sprint 2 fixes" #6). **Removed.**
 
-**`backfill_eia_exact_points()` stays.** EIA-860M's raw `Latitude`/`Longitude` promotion to `exact`
-location precision (docs/04 D-8's placement precedence) is explicitly out of
-`services/ingest/loader.py`'s scope this sprint — its own geocoder only ever produces
-`county_centroid`/`state_centroid`/`unknown` (`services/README.md`'s "Sprint 2 fixes" says so
-directly, and repeats the same verdict on this specific function). This one correction remains a
-real, documented frontend-side patch until the loader promotes EIA-860M's exact points itself; it
-is what gives EIA-860M's ~2,341 proposals exact-point placement on the map instead of falling back
-to a county centroid like every other source.
+4. ~~**EIA-860M exact-point promotion** (`backfill_eia_exact_points()`).~~ Sprint 3
+   (`services/README.md` "EIA exact-point promotion"): `services/ingest/loader.py` now promotes a
+   row's raw `Latitude`/`Longitude` to `location.precision = "exact"` itself, at ingest time, for
+   any source whose raw payload carries that pair (EIA-860M today), gated behind the same docs/04
+   D-9 derived-only check the county/state path already honoured. This was the one correction this
+   file's docstring used to call out as a real, still-needed frontend-side patch — it is not
+   needed any more. **Removed**, along with the `eia_exact_points` key `load_dev_database()` used
+   to report (no test asserts that key; checked `tests/test_web_default_view.py`, `web/test_e2e.py`
+   and every other reference to `load_dev_database`'s return value before dropping it).
 
 `tests/test_web_provenance.py` proves defect C's redaction note works *independent* of any
 data-loading correction (built directly on `services/db` models via `services/api/conftest.py`'s

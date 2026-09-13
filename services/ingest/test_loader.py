@@ -623,6 +623,200 @@ def test_county_gazetteer_normalizes_suffixes_and_case() -> None:
     assert gaz.state_point("TX") is not None
 
 
+# ------------------------------------------------------- EIA exact-point promotion (Sprint 3)
+def eia_row(
+    record_id: str,
+    *,
+    lat: object = 39.8536,
+    lon: object = -119.0394,
+    state: str = "NV",
+    county: str = "Churchill",
+) -> dict[str, object]:
+    """An EIA-860M-shaped row: same normalised columns `sample_proposal_row` produces, but with a
+    `raw` payload carrying the connector's real `Latitude`/`Longitude` keys (verified against
+    `pipeline.connectors.us_eia_860m.connector.Connector.parse`'s output over
+    `tests/fixtures/eia860m_planned.xlsx` -- see `test_eia_fixture_row_promotes_through_the_real_
+    connector_output` below for the real thing end to end)."""
+    row = sample_proposal_row(record_id)
+    row["source_id"] = "us.eia.860m"
+    row["record_id"] = f"us.eia.860m:{record_id}"
+    row["state"] = state
+    row["county"] = county
+    row["raw"] = json.dumps({"Plant ID": record_id, "Latitude": lat, "Longitude": lon})
+    return row
+
+
+def eia_source(session: Session, id_: str = "us.eia.860m") -> Source:
+    entry = open_source_entry(id_)
+    entry.category = "generator_inventory"
+    return upsert_licence_and_source(session, entry, "2026-09-12")
+
+
+def test_row_with_valid_coordinates_is_promoted_to_exact(session: Session) -> None:
+    src = eia_source(session)
+    df = pd.DataFrame([eia_row("E1")])
+    result = load_dataframe(session, src, "proposal", df, None)
+
+    assert result.locations_created == 1
+    assert result.locations_exact_promoted == 1
+    proposal = session.scalar(select(Proposal))
+    assert proposal is not None
+    loc = session.get(Location, proposal.location_id)
+    assert loc is not None
+    assert loc.precision == "exact"
+    assert loc.kind == "point"
+    assert loc.geocoder == "source_provided"
+    assert loc.geom == (-119.0394, 39.8536)  # (lon, lat), matching services/ingest/geocode.py
+    assert loc.precision_reason is None
+
+
+@pytest.mark.parametrize(
+    "lat,lon",
+    [
+        (0.0, 0.0),  # the common unset-field placeholder, not a real point
+        (95.0, -119.0394),  # out of world bounds
+        (39.8536, -190.0),  # out of world bounds
+        ("not-a-number", -119.0394),  # non-numeric
+        (None, -119.0394),  # missing half of the pair
+    ],
+)
+def test_row_with_invalid_coordinates_falls_back_and_is_not_promoted(
+    session: Session, lat: object, lon: object
+) -> None:
+    src = eia_source(session)
+    df = pd.DataFrame([eia_row("E2", lat=lat, lon=lon)])
+    result = load_dataframe(session, src, "proposal", df, None)
+
+    assert result.locations_created == 1
+    assert result.locations_exact_promoted == 0
+    proposal = session.scalar(select(Proposal))
+    assert proposal is not None
+    loc = session.get(Location, proposal.location_id)
+    assert loc is not None
+    assert loc.precision == "county_centroid"  # NV/Churchill resolves -- module docstring above
+    assert loc.geom is not None
+
+
+def test_row_without_raw_coordinates_falls_back_to_county_geocoding_unchanged(session: Session) -> None:
+    """A non-EIA row with no `Latitude`/`Longitude` on its raw payload is entirely unaffected by
+    this promotion -- the pre-existing county/state geocoding path, byte-for-byte."""
+    entry = open_source_entry("us.test.no_coords_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+    row = sample_proposal_row("NC1")
+    row["state"] = "TX"
+    row["county"] = "Travis"
+    df = pd.DataFrame([row])
+    result = load_dataframe(session, src, "proposal", df, None)
+
+    assert result.locations_exact_promoted == 0
+    proposal = session.scalar(select(Proposal))
+    assert proposal is not None
+    loc = session.get(Location, proposal.location_id)
+    assert loc is not None
+    assert loc.precision == "county_centroid"
+    assert loc.geocoder is None
+
+
+def test_derived_only_source_is_never_promoted_even_with_valid_raw_coordinates(session: Session) -> None:
+    """docs/04 D-9: an exact coordinate is a raw field, withheld exactly like any other for a
+    derived-only source -- valid `Latitude`/`Longitude` on the raw payload must not promote it."""
+    entry = SourceEntry.from_yaml(
+        {
+            "id": "test.derived_only.eia_like_queue",
+            "name": "Test Derived-Only EIA-Like Queue",
+            "category": "generation_queue",
+            "access": "bulk_file",
+            "reuse": "attribution",
+            "cadence": "weekly",
+            "license": "Test Terms of Use.",
+            "notes": "Publish derived-only until counsel resolves the tension between two clauses.",
+        }
+    )
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+    row = eia_row("E3")
+    row["source_id"] = entry.id
+    row["record_id"] = f"{entry.id}:E3"
+    df = pd.DataFrame([row])
+    result = load_dataframe(session, src, "proposal", df, None)
+
+    assert result.locations_exact_promoted == 0
+    proposal = session.scalar(select(Proposal))
+    assert proposal is not None
+    loc = session.get(Location, proposal.location_id)
+    assert loc is not None
+    assert loc.precision == "county_centroid"
+    assert loc.precision_reason == "licence"
+
+
+def test_rerunning_the_same_eia_frame_is_idempotent(session: Session) -> None:
+    src = eia_source(session)
+    df = pd.DataFrame([eia_row("E4")])
+    result1 = load_dataframe(session, src, "proposal", df, None)
+    result2 = load_dataframe(session, src, "proposal", df, None)
+
+    assert result1.locations_exact_promoted == 1
+    assert result2.proposals_created == 0
+    assert result2.proposals_updated == 1
+    assert result2.locations_exact_promoted == 0  # nothing new created on the update path
+    assert session.scalar(select(func.count()).select_from(Location)) == 1
+    loc = session.scalar(select(Location))
+    assert loc is not None and loc.precision == "exact"
+
+
+def test_exact_promotion_batch_size_does_not_change_what_gets_written() -> None:
+    """The bulk-insert pass's invariant (`test_batch_size_does_not_change_what_gets_written` above)
+    extended to exact-point promotion: `batch_size=1` and `batch_size=500` must produce the same
+    locations for a frame mixing promoted and non-promoted EIA rows."""
+    rows = [
+        eia_row("BSE1"),
+        eia_row("BSE2", lat=0.0, lon=0.0),  # invalid -- falls back
+        eia_row("BSE3", lat=31.19371, lon=-102.3159, state="TX", county="Crane"),
+    ]
+    df = pd.DataFrame(rows)
+
+    digests: dict[int, str] = {}
+    for batch_size in (1, 500):
+        engine = get_engine("sqlite+pysqlite:///:memory:")
+        init_db(engine)
+        session_factory = get_sessionmaker(engine)
+        with session_factory() as s:
+            src = eia_source(s)
+            load_dataframe(s, src, "proposal", df, None, batch_size=batch_size)
+            digests[batch_size] = _store_digest(s)
+
+    assert digests[1] == digests[500]
+
+
+def test_eia_fixture_row_promotes_through_the_real_connector_output(session: Session) -> None:
+    """End to end through the real connector parse (not a hand-built `raw` payload): the fixture's
+    first "Planned" row (Sierra Solar Hybrid, NV) carries real `Latitude`/`Longitude` and must come
+    out `exact`."""
+    from conftest import connector_for, snapshot
+
+    entry = open_source_entry("us.eia.860m")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    connector = connector_for("us.eia.860m")
+    raw = snapshot(
+        "eia860m_planned.xlsx",
+        "https://www.eia.gov/electricity/data/eia860m/xls/july_generator2026.xlsx",
+    )
+    rows = connector.parse(raw)
+    df = connector.normalize(rows, raw)
+
+    result = load_dataframe(session, src, "proposal", df, None)
+
+    assert result.locations_exact_promoted >= 1
+    exact_locations = session.scalars(select(Location).where(Location.precision == "exact")).all()
+    assert len(exact_locations) == result.locations_exact_promoted
+    for loc in exact_locations:
+        assert loc.kind == "point"
+        assert loc.geocoder == "source_provided"
+        lon, lat = loc.geom
+        assert -180.0 <= lon <= 180.0
+        assert -90.0 <= lat <= 90.0
+
+
 # ------------------------------------------------------- bulk-insert pass (Sprint 3, batch_size)
 def _store_digest(session: Session) -> str:
     """A deterministic content digest of everything `load_dataframe` wrote: proposals (with their

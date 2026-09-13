@@ -1073,3 +1073,127 @@ All checks passed!
 $ .venv/bin/mypy --cache-dir /tmp/mypy-ingest services/ingest
 Success: no issues found in 5 source files
 ```
+
+## EIA exact-point promotion (Sprint 3)
+
+Sprint 3 item 5, data follow-ups: `services/ingest/loader.py`'s own geocoder only ever produced
+`county_centroid`/`state_centroid`/`unknown` (the "Loader fixes" section above and this module's
+own docstring both said so directly); `web/data_loading.py::backfill_eia_exact_points` patched
+EIA-860M's exact points onto the store from the frontend side, after the fact, as a documented
+stopgap. Task: promote a row's real coordinates inside the loader itself so that frontend
+correction is no longer needed for any source, not just EIA-860M's special case.
+
+### What changed
+
+`services/ingest/loader.py` only:
+
+- **`_extract_exact_point(raw_payload)`** (new): a plain `raw_payload["Latitude"]`/`["Longitude"]`
+  lookup (verified against `pipeline/connectors/us_eia_860m/connector.py`'s `parse()` output —
+  the Planned sheet's own column names, carried through unchanged onto `proposal_source.raw` by
+  `Connector.finalize`), validated numeric, inside world bounds (`-90..90` / `-180..180`), and not
+  the `(0, 0)` placeholder an unset field commonly serialises to. Written as a key lookup rather
+  than an EIA-specific branch, so any other source whose raw payload already carries the same two
+  keys is promoted identically with no further loader change. Note on how "checked" this claim is:
+  `raw` is a pass-through of each connector's parsed source columns verbatim (`Connector.finalize`
+  -> `raw_json(r)`), so a source's raw key names live in its *data*, not in connector code — a
+  source code grep for "atitude"/"ongitude" across `pipeline/connectors` and `pipeline/normalize.py`
+  (both come back empty) rules out a connector that *renames* a coordinate column onto those two
+  keys itself, but cannot rule out an upstream source file that happens to use the same column
+  headers EIA-860M does. No other source in `data/sources.yaml`'s current registry publishes
+  coordinate columns per `docs/13-legal-data-rights.md`'s source notes, so this is not expected in
+  practice this sprint — flagged as the honest limit of what a static check here can confirm.
+- **`_get_or_create_location`**: tries `_extract_exact_point` first, before the county/state
+  geocoder, *unless* the source is `derived_only` (docs/04 D-9 — an exact coordinate is a raw
+  field, withheld exactly like any other raw field for a source whose licence withholds raw geo,
+  regardless of what its raw payload carries). A validated point wins outright (docs/04 D-8):
+  `precision = "exact"`, `kind = "point"`, `geocoder = "source_provided"`. An invalid or missing
+  pair, or a `derived_only` source, falls through to the existing county/state geocoding
+  unchanged — same call, same gazetteer, same `precision_reason = "licence"` stamping.
+- **`LoadResult.locations_exact_promoted`** (new field): counts rows promoted to `exact` in the
+  call, alongside the existing `locations_created`.
+- The bulk-insert pass's batching and the licence gate are untouched — `_extract_exact_point` is a
+  pure function over one row's already-parsed `raw` dict, so it works identically at any
+  `batch_size` (pinned by `test_exact_promotion_batch_size_does_not_change_what_gets_written`).
+
+`web/data_loading.py::backfill_eia_exact_points` and its call in `load_dev_database` are removed
+(the loader now does this at ingest time, for every source, not just EIA-860M); the
+`eia_exact_points` report key is dropped with it — no test asserts that key (checked
+`tests/test_web_default_view.py`, `web/test_e2e.py`, and every other `load_dev_database(...)`
+call site before removing it), so nothing had to keep a placeholder value for it.
+
+### Tests
+
+Nine new tests in `services/ingest/test_loader.py`: a valid EIA-shaped raw payload promotes to
+`exact`/`point`/`source_provided` with the right `geom`; five invalid-pair cases (`(0, 0)`, lat out
+of range, lon out of range, a non-numeric value, a missing half of the pair) each fall back to
+`county_centroid` and are not counted as promoted; a row with no raw coordinates at all is
+unaffected (`geocoder` stays `None`, matching the pre-existing path byte-for-byte); a
+`derived_only` source with a *valid* raw pair still falls back, with `precision_reason = "licence"`
+(docs/04 D-9); re-running the same EIA frame is idempotent (one `location` row, still `exact`, and
+the update path — which never touches `location` — creates zero new promotions); `batch_size=1`
+vs `500` over a frame mixing a promoted and a non-promoted row produce byte-identical stores (same
+digest helper the bulk-insert pass's own pinning test uses); and one true end-to-end test through
+the real connector (`pipeline.connectors.us_eia_860m.connector.Connector.parse`/`normalize` over
+`tests/fixtures/eia860m_planned.xlsx`, via the root `conftest.py` helpers the connector's own test
+uses) — all 25 fixture rows promote to `exact`, confirming the raw key names match production, not
+just this file's own hand-built fixture rows.
+
+### Benchmark: before / after
+
+`services/ingest/bench_loader.py` was not modified (out of this task's write scope) and its input,
+`data/eval/normalized.parquet`, predates the `raw` payload column entirely for every one of its
+four sources (`"raw" in frame.columns` is `False`) — a Phase 2 entity-resolution fixture from
+before `pipeline.connectors.base.Connector.finalize` started attaching `raw`, not merely an
+EIA-specific gap. So the benchmark's own EIA-860M rows carry nothing to promote, by construction of
+its fixture, and this change is measurably free on it — confirmed, not assumed, by instrumenting a
+throwaway run of the same four frames and reading `LoadResult.locations_exact_promoted` off each
+(all zero). Measured with `.venv/bin/python -m services.ingest.bench_loader --runs 3`, before
+(`git show HEAD:services/ingest/loader.py` swapped in, then the working edit restored and
+re-verified byte-identical against the pre-swap copy — the same technique the "Bulk-insert pass"
+baseline above used, so the working tree was never actually reverted):
+
+```
+before: run 1: 9563 rows in 4.151s (2303.7 rows/s) [setup 0.062s, load 4.010s, commit 0.080s]
+        run 2: 9563 rows in 3.953s (2419.4 rows/s) [setup 0.013s, load 3.868s, commit 0.071s]
+        run 3: 9563 rows in 4.111s (2326.1 rows/s) [setup 0.014s, load 4.033s, commit 0.064s]
+after:  run 1: 9563 rows in 4.213s (2270.0 rows/s) [setup 0.054s, load 4.098s, commit 0.061s]
+        run 2: 9563 rows in 4.015s (2381.9 rows/s) [setup 0.013s, load 3.936s, commit 0.066s]
+        run 3: 9563 rows in 3.983s (2401.2 rows/s) [setup 0.013s, load 3.904s, commit 0.065s]
+```
+
+**~2,270–2,420 rows/s both before and after** (run-to-run noise, no measurable regression); **0 of
+9,563 benchmark rows promoted** for the reason above. For a number that actually exercises
+promotion, the same connector-fixture path the new end-to-end test uses (`tests/fixtures/
+eia860m_planned.xlsx`, real `raw` payload, real `Latitude`/`Longitude` keys): **25 of 25 rows
+promoted to `exact`** (`locations_created == locations_exact_promoted == 25`). The real
+`data/normalized/us.eia.860m/*.parquet` this promotion is built for is absent from this
+environment (same gap the "Bulk-insert pass" section above recorded for the full nine-source
+site load), so this 25-row connector-fixture run is the closest available measurement of real
+production behaviour; a future run with real connector output should re-measure against it and
+should see the fraction of EIA-860M rows carrying a valid pair, not exactly 25/25 (a small curated
+sample skews cleaner than the wild).
+
+### Decisions
+
+- **Scope kept to record creation, not update.** `_get_or_create_location` is only called when a
+  new `Proposal` is created; re-ingesting a row whose entity already exists never touches its
+  existing `location` (true before this task, unchanged by it). A location created before this
+  promotion existed (e.g. a store loaded under the previous loader) is not retroactively upgraded
+  by a later re-ingest of the same row — only a genuinely new record is promoted. Nothing in the
+  task brief or the existing test suite required upgrade-on-update, and adding it would touch the
+  update branch's behaviour for every source, not just this one's slice — flagged here rather than
+  done silently; a follow-up one-off backfill (in the shape `backfill_eia_exact_points` used to be,
+  but calling the loader's own `_extract_exact_point`/`_get_or_create_location` instead of
+  reimplementing the check) is the natural way to upgrade pre-existing rows, if wanted.
+- **Key lookup, not a source-id branch.** `_extract_exact_point` does not check `source.id ==
+  "us.eia.860m"` anywhere — it looks for `Latitude`/`Longitude` on whatever `raw` payload it is
+  given, gated only by `derived_only`. No other connector's own code names a coordinate column
+  (grep for "atitude"/"ongitude" across `pipeline/connectors` and `pipeline/normalize.py` is
+  empty), so today this promotes EIA-860M rows only in practice; a future source whose raw payload
+  happens to carry the same two keys (renamed by its own connector, or a new source using EIA's
+  column names) is promoted with no loader change — the behaviour the task brief asked for ("any
+  other source whose normalised frame already has them").
+- **`geocoder` only set on the new path.** The pre-existing county/state branch still leaves
+  `Location.geocoder` as `None` (unchanged) rather than retroactively backfilling `"census_tiger"`
+  onto it — out of this task's scope ("otherwise fall through to the existing county/state
+  geocoding unchanged").
