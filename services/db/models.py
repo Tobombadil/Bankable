@@ -68,6 +68,43 @@ SOURCE_RUN_STATUSES = ("running", "ok", "unchanged", "partial", "failed", "block
 LOCATION_KINDS = ("point", "county", "state", "region", "service_territory")
 LOCATION_PRECISIONS = ("exact", "county_centroid", "state_centroid", "unknown")
 
+# --------------------------------------------------------------------------------------------
+# Pro tier and alerts (Sprint 2 backend brief: auth, tier enforcement, saved searches/alerts,
+# webhooks). docs/21 §3.12-§3.17; `legal` added to USER_ROLES per docs/21 §3.12's 2026-09-12 note
+# (US-905 AC1 needs a role distinct from `owner` to clear a licence gate) — api/openapi.yaml's
+# `UserRole` enum was stale on this and is corrected alongside this migration (services/README.md
+# "Pro tier and alerts").
+# --------------------------------------------------------------------------------------------
+USER_ROLES = ("viewer", "member", "operator", "legal", "owner")
+USER_STATUSES = ("active", "disabled", "anonymised")
+#: docs/20 §7 / api/openapi.yaml specify `magic_link \| google` (passwordless). This task's brief
+#: explicitly asks for "signed cookie, argon2 password hashing" session auth, which `password`
+#: accommodates without dropping the other two — recorded as a decision in services/README.md
+#: rather than silently overriding docs/20 §7.
+AUTH_PROVIDERS = ("magic_link", "google", "password")
+ACCOUNT_KINDS = ("personal", "organization")
+ACCOUNT_ENTITLEMENTS = ("public", "pro", "api", "admin")
+ACCOUNT_ENTITLEMENT_SOURCES = ("sor", "manual_grant", "trial")
+ACCOUNT_STATUSES = ("active", "suspended", "closed")
+API_KEY_SCOPES = ("read:public", "read:live", "read:bulk", "write:webhooks", "admin:*")
+API_KEY_PREFIXES = ("bk_live", "bk_test")
+API_KEY_TIERS = ("public", "pro", "api")
+SAVED_SEARCH_ENTITIES = ("proposal", "opportunity", "event", "match")
+SAVED_SEARCH_DELIVERY_MODES = ("immediate", "daily", "weekly", "none")
+SAVED_SEARCH_STATUSES = ("active", "paused")
+ALERT_CHANNELS = ("email", "webhook", "rss")
+ALERT_MODES = ("immediate", "daily", "weekly")
+ALERT_STATUSES = ("queued", "sent", "bounced", "failed", "suppressed")
+WEBHOOK_TYPES = (
+    "event.published",
+    "match.added",
+    "match.removed",
+    "record.unpublished",
+    "webhook.test",
+)
+WEBHOOK_ENDPOINT_STATUSES = ("active", "paused", "disabled")
+WEBHOOK_DELIVERY_STATUSES = ("pending", "delivered", "retrying", "failed")
+
 
 def utcnow() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
@@ -633,4 +670,277 @@ class Match(Base):
             postgresql_where=sa.text("status = 'active'"),
             sqlite_where=sa.text("status = 'active'"),
         ),
+    )
+
+
+# ===================================================================================== account (§3.13)
+class Account(Base, TimestampMixin):
+    """The entitlement mirror (docs/21 §3.13). Authoritative for nothing once a real CRM/ERP
+    adapter exists (`docs/20` §9); this sprint has no billing integration (Sprint 3), so
+    `entitlement_source = 'manual_grant'` rows are set directly by an admin endpoint
+    (services/README.md "Pro tier and alerts" open decisions)."""
+
+    __tablename__ = "account"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    kind: Mapped[str] = mapped_column(sa.Text, nullable=False, default="personal")
+    organization_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("organization.id"))
+    entitlement: Mapped[str] = mapped_column(sa.Text, nullable=False, default="public")
+    entitlement_source: Mapped[str] = mapped_column(sa.Text, nullable=False, default="manual_grant")
+    entitlement_checked_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    entitlement_stale: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    seats: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
+    seats_used: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    sor_kind: Mapped[str | None] = mapped_column(sa.Text)
+    sor_ref: Mapped[str | None] = mapped_column(sa.Text)
+    billing_ref: Mapped[str | None] = mapped_column(sa.Text)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="active")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"kind IN {ACCOUNT_KINDS!r}", name="kind_vocab"),
+        sa.CheckConstraint(f"entitlement IN {ACCOUNT_ENTITLEMENTS!r}", name="entitlement_vocab"),
+        sa.CheckConstraint(
+            f"entitlement_source IN {ACCOUNT_ENTITLEMENT_SOURCES!r}", name="entitlement_source_vocab"
+        ),
+        sa.CheckConstraint(f"status IN {ACCOUNT_STATUSES!r}", name="status_vocab"),
+    )
+
+
+# ======================================================================================== user (§3.12)
+class User(Base, TimestampMixin):
+    """docs/21 §3.12. `role` includes `legal` (2026-09-12 note); `password_hash` is this sprint's
+    addition (see `AUTH_PROVIDERS` docstring)."""
+
+    __tablename__ = "user"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    account_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("account.id"), nullable=False)
+    email: Mapped[str | None] = mapped_column(sa.Text)
+    password_hash: Mapped[str | None] = mapped_column(sa.Text)
+    email_verified_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    name: Mapped[str | None] = mapped_column(sa.Text)
+    role: Mapped[str] = mapped_column(sa.Text, nullable=False, default="member")
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="active")
+    auth_provider: Mapped[str] = mapped_column(sa.Text, nullable=False, default="password")
+    mfa_enforced: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    marketing_consent: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    consent_version: Mapped[str | None] = mapped_column(sa.Text)
+    tos_version: Mapped[str | None] = mapped_column(sa.Text)
+    last_login_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    anonymised_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    sor_kind: Mapped[str | None] = mapped_column(sa.Text)
+    sor_ref: Mapped[str | None] = mapped_column(sa.Text)
+
+    account: Mapped[Account] = relationship(lazy="joined")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"role IN {USER_ROLES!r}", name="role_vocab"),
+        sa.CheckConstraint(f"status IN {USER_STATUSES!r}", name="status_vocab"),
+        sa.CheckConstraint(f"auth_provider IN {AUTH_PROVIDERS!r}", name="auth_provider_vocab"),
+        sa.Index(
+            "uq_user_email_active",
+            "email",
+            unique=True,
+            postgresql_where=sa.text("status <> 'anonymised'"),
+            sqlite_where=sa.text("status <> 'anonymised'"),
+        ),
+    )
+
+
+# =============================================================================== session (§4.4 table)
+class UserSession(Base):
+    """Revocable server-side session row backing the signed session cookie (docs/20 §7, docs/04
+    S-2). Named `UserSession`/`__tablename__ = "session"` rather than a Python class `Session` to
+    avoid colliding with `sqlalchemy.orm.Session` imported throughout this codebase."""
+
+    __tablename__ = "session"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    user_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("user.id"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(sa.String(64), nullable=False, unique=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    ip_prefix: Mapped[str | None] = mapped_column(sa.Text)
+
+
+# ====================================================================================== api_key (§3.17)
+class ApiKey(Base, TimestampMixin):
+    __tablename__ = "api_key"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    account_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("account.id"), nullable=False)
+    created_by_user_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("user.id"), nullable=False)
+    name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    prefix: Mapped[str] = mapped_column(sa.Text, nullable=False, default="bk_live")
+    last4: Mapped[str] = mapped_column(sa.String(4), nullable=False)
+    key_hash: Mapped[str] = mapped_column(sa.String(64), nullable=False, unique=True)
+    scopes: Mapped[list[str]] = mapped_column(TextArray(), nullable=False, default=list)
+    tier: Mapped[str] = mapped_column(sa.Text, nullable=False, default="public")
+    rate_limit_per_hour: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=6000)
+    daily_quota: Mapped[int | None] = mapped_column(sa.Integer)
+    expires_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    last_used_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    last_used_ip: Mapped[str | None] = mapped_column(sa.Text)
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    licence_accepted_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    licence_accepted_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    account: Mapped[Account] = relationship(lazy="joined")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"prefix IN {API_KEY_PREFIXES!r}", name="prefix_vocab"),
+        sa.CheckConstraint(f"tier IN {API_KEY_TIERS!r}", name="tier_vocab"),
+        sa.Index("ix_api_key_account_id", "account_id"),
+    )
+
+
+# ================================================================================ saved_search (§3.15)
+class SavedSearch(Base, TimestampMixin):
+    __tablename__ = "saved_search"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    user_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("user.id"), nullable=False)
+    account_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("account.id"), nullable=False)
+    name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    entity: Mapped[str] = mapped_column(sa.Text, nullable=False, default="proposal")
+    query: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    query_hash: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    delivery_mode: Mapped[str] = mapped_column(sa.Text, nullable=False, default="daily")
+    channels: Mapped[list[str]] = mapped_column(TextArray(), nullable=False, default=lambda: ["email"])
+    rss_token: Mapped[str | None] = mapped_column(sa.Text, unique=True)
+    last_run_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    #: `bigint` per docs/21 §3.15; the highest `event.seq` this saved search has already
+    #: considered, so the evaluation job is exactly-once (services/alerts/evaluate.py).
+    watermark_seq: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, default=0)
+    last_match_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="active")
+
+    user: Mapped[User] = relationship(lazy="joined")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"entity IN {SAVED_SEARCH_ENTITIES!r}", name="entity_vocab"),
+        sa.CheckConstraint(f"delivery_mode IN {SAVED_SEARCH_DELIVERY_MODES!r}", name="delivery_mode_vocab"),
+        sa.CheckConstraint(f"status IN {SAVED_SEARCH_STATUSES!r}", name="status_vocab"),
+        sa.UniqueConstraint("user_id", "name", name="one_name_per_user"),
+        sa.Index("ix_saved_search_status_delivery", "status", "delivery_mode"),
+    )
+
+
+# ======================================================================================== alert (§3.16)
+class Alert(Base):
+    __tablename__ = "alert"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    saved_search_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("saved_search.id"), nullable=False
+    )
+    user_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("user.id"), nullable=False)
+    channel: Mapped[str] = mapped_column(sa.Text, nullable=False, default="email")
+    mode: Mapped[str] = mapped_column(sa.Text, nullable=False, default="daily")
+    window_start: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    window_end: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    #: `bigint[]` per docs/21 §3.16; stored as a JSON list of ints (`JSONVariant`, not
+    #: `TextArray`, which this codebase types as text) since this sprint has no other consumer of
+    #: an integer array column and adding one just for this is not worth it (services/README.md).
+    event_seqs: Mapped[list[int]] = mapped_column(JSONVariant(), nullable=False, default=list)
+    recipient: Mapped[str | None] = mapped_column(sa.Text)
+    subject: Mapped[str | None] = mapped_column(sa.Text)
+    provider_message_id: Mapped[str | None] = mapped_column(sa.Text)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="queued")
+    sent_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    unsubscribe_token: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    error: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    saved_search: Mapped[SavedSearch] = relationship(lazy="joined")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"channel IN {ALERT_CHANNELS!r}", name="channel_vocab"),
+        sa.CheckConstraint(f"mode IN {ALERT_MODES!r}", name="mode_vocab"),
+        sa.CheckConstraint(f"status IN {ALERT_STATUSES!r}", name="status_vocab"),
+        sa.Index("ix_alert_saved_search_created", "saved_search_id", sa.text("created_at DESC")),
+    )
+
+
+# ============================================================================= webhook_endpoint (§4.4)
+class WebhookEndpoint(Base, TimestampMixin):
+    """docs/23 §9.1: "a webhook is literally a saved search with a URL as its channel"."""
+
+    __tablename__ = "webhook_endpoint"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    account_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("account.id"), nullable=False)
+    created_by_user_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("user.id"), nullable=False)
+    url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(sa.Text)
+    types: Mapped[list[str]] = mapped_column(TextArray(), nullable=False, default=list)
+    entity: Mapped[str] = mapped_column(sa.Text, nullable=False, default="event")
+    query: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    #: Stored in the clear, unlike `ApiKey.key_hash` — the platform is the one *sending* a signed
+    #: request here, not verifying a bearer credential presented to it, so a one-way hash cannot
+    #: work: HMAC-signing every outbound delivery needs the actual secret, every time (docs/23 §9.1
+    #: `X-Platform-Signature`; the customer holds the same value to verify). "Shown once" in
+    #: `api/openapi.yaml` describes the client-facing UX, not server-side discard — the same
+    #: pattern Stripe and GitHub webhooks use. This sprint has no envelope-encryption/KMS story for
+    #: secrets at rest (services/README.md "Pro tier and alerts" flags it as a follow-up, same
+    #: gap `docs/04` E-19 already calls out for deploy-time secrets generally).
+    secret: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="active")
+    consecutive_failures: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    last_delivery_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    last_success_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    secret_rotated_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+
+    __table_args__ = (
+        sa.CheckConstraint(f"entity IN {SAVED_SEARCH_ENTITIES!r}", name="entity_vocab"),
+        sa.CheckConstraint(f"status IN {WEBHOOK_ENDPOINT_STATUSES!r}", name="status_vocab"),
+        sa.Index("ix_webhook_endpoint_account_id", "account_id"),
+    )
+
+
+# ============================================================================= webhook_delivery (§4.4)
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_delivery"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    webhook_endpoint_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("webhook_endpoint.id"), nullable=False
+    )
+    type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    event_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("event.id"))
+    event_seq: Mapped[int | None] = mapped_column(sa.BigInteger)
+    attempt: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="pending")
+    response_status: Mapped[int | None] = mapped_column(sa.Integer)
+    response_body_excerpt: Mapped[str | None] = mapped_column(sa.Text)
+    latency_ms: Mapped[int | None] = mapped_column(sa.Integer)
+    error_class: Mapped[str | None] = mapped_column(sa.Text)
+    next_attempt_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    endpoint: Mapped[WebhookEndpoint] = relationship(lazy="joined")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"type IN {WEBHOOK_TYPES!r}", name="type_vocab"),
+        sa.CheckConstraint(f"status IN {WEBHOOK_DELIVERY_STATUSES!r}", name="status_vocab"),
+        sa.Index("ix_webhook_delivery_endpoint_created", "webhook_endpoint_id", sa.text("created_at DESC")),
     )

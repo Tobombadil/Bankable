@@ -3,8 +3,17 @@
 `services.api.app` and `web.app` together as two real subprocesses talking over HTTP -- the shape
 a production deployment uses (`docs/20-architecture.md`: the API is its own deployable).
 
-    python -m web.dev_up                 # loads data, starts both servers, Ctrl-C stops both
+Loads the full ~11,400-row set across all nine sources by default -- `services/README.md`'s
+"Sprint 2 fixes" closed the `services/api/visibility.py` query-time gap that used to force this
+script onto a sample, so the real volume is what both interactive use and the pytest suite now run
+against. `--sample` remains for a fast local edit-reload loop: `services/ingest/loader.py` upserts
+row by row (no bulk path) at ~100 rows/second regardless of query speed, so a full load still costs
+a couple of minutes wall clock, which a developer iterating on a template or route doesn't always
+want to pay.
+
+    python -m web.dev_up                 # loads the full data set, starts both servers, Ctrl-C stops both
     python -m web.dev_up --preview       # also bypasses the publish delay so today's rows show
+    python -m web.dev_up --sample 200    # cap each source to 200 rows/lifecycle-state, for fast iteration
     python -m web.dev_up --skip-load     # reuse whatever is already in --db
 
 For an in-process run with no second server at all (what `pytest` uses by default, and a fine
@@ -49,12 +58,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--skip-load", action="store_true", help="Reuse the database at --db as-is.")
     parser.add_argument(
-        "--sample-per-state",
+        "--sample",
+        dest="sample_per_state",
         type=int,
         default=None,
-        help="Load at most this many rows per lifecycle_state/status per source instead of the "
-        "full ~10,400-row set. Workaround for the services/api/visibility.py performance gap "
-        "documented in web/README.md 'Missing from the API' (measured 30-75s/page unsampled).",
+        metavar="N",
+        help="Load at most N rows per lifecycle_state/status per source instead of the full "
+        "~11,400-row set, for a fast local edit-reload loop. Not a performance workaround any "
+        "more (services/README.md 'Sprint 2 fixes' closed that gap) -- the full set is the "
+        "default; this only trades real volume for a shorter load time when you want that.",
     )
     parser.add_argument("--api-host", default="127.0.0.1")
     parser.add_argument("--api-port", type=int, default=8001)

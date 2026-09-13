@@ -14,13 +14,21 @@ from services.api.common import WEB_HOST, iso
 from services.ingest.lag import LAG_DAYS_BY_KIND, Kind
 
 
-def feed_title(resource: str, kind: Kind) -> str:
+def feed_title(resource: str, kind: Kind, *, live: bool = False) -> str:
+    """`live=True` is this sprint's addition (Pro tier and alerts): a private saved-search feed
+    (`services/alerts/feed.py`) is zero-lag for its owner, so the public "N days delayed" framing
+    (US-604) would be actively wrong there — `docs/23` §9.2's `feedSavedSearch` calls it out as
+    "items are live (`lag_days = 0`) for the owner's tier"."""
+    if live:
+        return f"{resource} — Live feed (Pro)"
     lag = LAG_DAYS_BY_KIND[kind]
     return f"{resource} — Public feed, {lag} days delayed — live in Pro"
 
 
-def render_rss(*, resource: str, kind: Kind, self_url: str, items: list[dict[str, Any]]) -> str:
-    title = feed_title(resource, kind)
+def render_rss(
+    *, resource: str, kind: Kind, self_url: str, items: list[dict[str, Any]], live: bool = False
+) -> str:
+    title = feed_title(resource, kind, live=live)
     channel_link = f"{WEB_HOST}/{resource.lower()}"
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -52,11 +60,11 @@ def _rfc822(value: dt.datetime) -> str:
 
 
 def render_json_feed(
-    *, resource: str, kind: Kind, self_url: str, items: list[dict[str, Any]]
+    *, resource: str, kind: Kind, self_url: str, items: list[dict[str, Any]], live: bool = False
 ) -> dict[str, Any]:
     return {
         "version": "https://jsonfeed.org/version/1.1",
-        "title": feed_title(resource, kind),
+        "title": feed_title(resource, kind, live=live),
         "home_page_url": f"{WEB_HOST}/{resource.lower()}",
         "feed_url": self_url,
         "description": "Energy and infrastructure change events, with provenance on every item.",

@@ -223,29 +223,27 @@ def proposals_list(request: Request) -> HTMLResponse:
 
 
 def _resolve_proposal_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | None:
-    """The API has no slug-keyed lookup (only `/v1/proposals/{public_id}`) -- see
-    web/README.md "Missing from the API". Best-effort: derive a search phrase from the slug (it is
-    `slugify(name) + "-" + public_id[-6:]`, `services/ids.py`/`services/ingest/loader.py`) and scan
-    the `q=` search results for an exact slug match."""
-    guess = slug.rsplit("-", 1)[0].replace("-", " ") if "-" in slug else slug
-    envelope = api.get("/v1/proposals", params={"q": guess, "limit": 200})
+    """`GET /v1/proposals?slug=...` (`api/openapi.yaml`'s `SlugFilter`, added in
+    `services/README.md`'s "Sprint 2 fixes" #5) is an exact match on the record's own slug --
+    this replaces the search-and-scan workaround (derive a phrase from the slug, scan up to 200
+    `q=` results for it) that used to stand in for a slug-keyed lookup, per web/README.md "Missing
+    from the API" item 1, now resolved. No `lifecycle_state` filter is passed, so a detail page
+    resolves regardless of the record's lifecycle state, matching the old workaround's behaviour.
+    """
+    envelope = api.get("/v1/proposals", params={"slug": slug, "limit": 1})
     entities: list[dict[str, Any]] = envelope["data"]
-    for entity in entities:
-        if entity["slug"] == slug:
-            return entity
-    return None
+    return entities[0] if entities else None
 
 
 def _resolve_opportunity_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | None:
-    guess = slug.rsplit("-", 1)[0].replace("-", " ") if "-" in slug else slug
+    """Same slug-filter lookup as `_resolve_proposal_by_slug`; `status=` is still passed as every
+    status (the API defaults `status` to `open` when absent, docs/23), so a detail page resolves
+    regardless of the opportunity's status, matching the old workaround's behaviour."""
     envelope = api.get(
-        "/v1/opportunities", params={"q": guess, "limit": 200, "status": ALL_OPPORTUNITY_STATUSES_CSV}
+        "/v1/opportunities", params={"slug": slug, "limit": 1, "status": ALL_OPPORTUNITY_STATUSES_CSV}
     )
     entities: list[dict[str, Any]] = envelope["data"]
-    for entity in entities:
-        if entity["slug"] == slug:
-            return entity
-    return None
+    return entities[0] if entities else None
 
 
 @app.get("/proposals/{slug}", response_class=HTMLResponse)

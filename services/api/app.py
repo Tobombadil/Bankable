@@ -33,6 +33,7 @@ from sqlalchemy.orm import (
     selectinload,
 )
 
+from services.api.auth import AuthContext, get_auth_context
 from services.api.common import WEB_HOST, ensure_aware, new_request_id, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
@@ -58,8 +59,11 @@ from services.api.serialize import (
 )
 from services.api.visibility import (
     event_public_filter,
+    event_visibility_filter,
     opportunity_public_filter,
+    opportunity_visibility_filter,
     proposal_public_filter,
+    proposal_visibility_filter,
 )
 from services.db.models import (
     Event,
@@ -81,6 +85,14 @@ app = FastAPI(
     description="Public tier only (Sprint 2 backend brief). See api/openapi.yaml for the full contract.",
 )
 app.add_exception_handler(ProblemError, problem_exception_handler)
+
+# Pro/API tier and alerts (Sprint 2 backend brief "Pro tier and alerts"): session and API-key
+# auth, saved searches, alerts, keys, webhooks, the private saved-search feed, and the interim
+# admin entitlement-grant endpoint. Kept in its own module (services/api/pro.py) per that task's
+# "extend, don't rewrite" instruction for this file — one import and one include_router call.
+from services.api.pro import router as pro_router  # noqa: E402 - after `app` exists, by design
+
+app.include_router(pro_router)
 
 
 @app.middleware("http")
@@ -145,13 +157,24 @@ def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select
     return stmt
 
 
-def _proposal_query_with_filters(request: Request) -> sa.Select[tuple[Proposal]]:
+def _proposal_query_with_filters(
+    request: Request, entitlement: str = "public"
+) -> sa.Select[tuple[Proposal]]:
     # `Proposal.sources` is a `viewonly` relationship with no eager default (unlike `sponsor`/
     # `location`, both `lazy="joined"`), so a caller that reads `.sources` over a whole result set
     # (`_proposal_licence_rows`) would otherwise issue one query per proposal -- fine at this list
     # endpoint's page size (<=200), unlike the geo endpoint's unpaginated full-viewport set, which
     # uses `_proposal_geo_plottable_query` below instead (services/README.md "Sprint 2 fixes").
-    stmt = select(Proposal).where(*proposal_public_filter()).options(selectinload(Proposal.sources))
+    #
+    # `entitlement` (Pro tier and alerts, task item 2): "public" reads `public_at` as before;
+    # "pro"/"api" read `published_at` instead (services/api/visibility.py
+    # `proposal_visibility_filter`) — the same list/detail code path serves every tier, only the
+    # predicate changes, per docs/21 §5.4's "one predicate" design.
+    stmt = (
+        select(Proposal)
+        .where(*proposal_visibility_filter(entitlement))
+        .options(selectinload(Proposal.sources))
+    )
     return _apply_proposal_filters(stmt, request)
 
 
@@ -187,7 +210,9 @@ _GEO_LOCATION_COLUMNS = (
 )
 
 
-def _proposal_geo_plottable_query(request: Request) -> sa.Select[tuple[Proposal]]:
+def _proposal_geo_plottable_query(
+    request: Request, entitlement: str = "public"
+) -> sa.Select[tuple[Proposal]]:
     """Same filters as `_proposal_query_with_filters`, restricted to proposals that can actually
     be placed on the map (`location` present with a resolved `geom`) and loaded for `GET
     /v1/proposals/geo`'s access pattern: every visible *placeable* proposal (not one page of ~50),
@@ -214,7 +239,7 @@ def _proposal_geo_plottable_query(request: Request) -> sa.Select[tuple[Proposal]
     stmt = (
         select(Proposal)
         .join(Location, Location.id == Proposal.location_id)
-        .where(*proposal_public_filter(), Location.geom.is_not(None))
+        .where(*proposal_visibility_filter(entitlement), Location.geom.is_not(None))
         .options(
             load_only(*_GEO_PROPOSAL_COLUMNS),
             noload(Proposal.sponsor),
@@ -226,7 +251,9 @@ def _proposal_geo_plottable_query(request: Request) -> sa.Select[tuple[Proposal]
     return _apply_proposal_filters(stmt, request)
 
 
-def _proposal_geo_totals(db: Session, request: Request) -> tuple[int, dict[str, int], dict[str, int], int]:
+def _proposal_geo_totals(
+    db: Session, request: Request, entitlement: str = "public"
+) -> tuple[int, dict[str, int], dict[str, int], int]:
     """`(records_total, lifecycle_state_counts, technology_counts, unplaced_count)` over every
     visible proposal matching `request`'s filters (not just the placeable subset
     `_proposal_geo_plottable_query` loads) — one column-only query (three plain columns, not full
@@ -238,7 +265,7 @@ def _proposal_geo_totals(db: Session, request: Request) -> tuple[int, dict[str, 
         select(Proposal.lifecycle_state, Proposal.technology, Location.geom)
         .select_from(Proposal)
         .outerjoin(Location, Location.id == Proposal.location_id)
-        .where(*proposal_public_filter()),
+        .where(*proposal_visibility_filter(entitlement)),
         request,
     )
     rows = db.execute(stmt).all()
@@ -276,11 +303,13 @@ def _proposal_licence_rows(proposals: list[Proposal]) -> list[dict[str, Any]]:
 
 
 @app.get("/v1/proposals")
-def list_proposals(request: Request, db: Session = Depends(get_db)) -> Any:
+def list_proposals(
+    request: Request, db: Session = Depends(get_db), ctx: AuthContext = Depends(get_auth_context)
+) -> Any:
     check_allowed(request, LIST_COMMON | PROPOSAL_FILTERS)
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, PROPOSAL_SORT_ALLOWLIST, "-last_changed")
-    stmt = _proposal_query_with_filters(request)
+    stmt = _proposal_query_with_filters(request, ctx.entitlement)
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
@@ -292,9 +321,11 @@ def list_proposals(request: Request, db: Session = Depends(get_db)) -> Any:
         instance=request.url.path,
     )
     data = [serialize_proposal(p) for p in rows]
-    meta = build_meta("proposal")
+    meta = build_meta("proposal", tier=ctx.entitlement)
     if "count" in (request.query_params.get("include") or "").split(","):
-        total = db.scalar(select(func.count()).select_from(_proposal_query_with_filters(request).subquery()))
+        total = db.scalar(
+            select(func.count()).select_from(_proposal_query_with_filters(request, ctx.entitlement).subquery())
+        )
         meta["total"] = total
         meta["total_is_estimate"] = total is not None and total > 10000
     env = build_list_envelope(
@@ -342,7 +373,9 @@ def _source_licence_aggregate(
 
 
 @app.get("/v1/proposals/geo")
-def get_proposals_geo(request: Request, db: Session = Depends(get_db)) -> Any:
+def get_proposals_geo(
+    request: Request, db: Session = Depends(get_db), ctx: AuthContext = Depends(get_auth_context)
+) -> Any:
     check_allowed(request, {"bbox", "zoom"} | PROPOSAL_FILTERS | {"q"})
     bbox_param = request.query_params.get("bbox")
     zoom_param = request.query_params.get("zoom")
@@ -353,9 +386,11 @@ def get_proposals_geo(request: Request, db: Session = Depends(get_db)) -> Any:
         zoom = int(zoom_param)
     except ValueError as exc:
         raise validation_error("bbox", "bbox/zoom malformed", request.url.path) from exc
-    stmt = _proposal_geo_plottable_query(request)
+    stmt = _proposal_geo_plottable_query(request, ctx.entitlement)
     plottable = list(db.scalars(stmt).all())
-    records_total, lifecycle_counts, technology_counts, unplaced_count = _proposal_geo_totals(db, request)
+    records_total, lifecycle_counts, technology_counts, unplaced_count = _proposal_geo_totals(
+        db, request, ctx.entitlement
+    )
     fc = build_geo_feature_collection(
         plottable,
         bbox=bbox,
@@ -364,19 +399,28 @@ def get_proposals_geo(request: Request, db: Session = Depends(get_db)) -> Any:
         lifecycle_state_counts=lifecycle_counts,
         technology_counts=technology_counts,
     )
-    meta = build_meta("proposal", extra={"unplaced_count": unplaced_count})
-    id_subquery = _apply_proposal_filters(select(Proposal.id).where(*proposal_public_filter()), request)
+    meta = build_meta("proposal", tier=ctx.entitlement, extra={"unplaced_count": unplaced_count})
+    id_subquery = _apply_proposal_filters(
+        select(Proposal.id).where(*proposal_visibility_filter(ctx.entitlement)), request
+    )
     licence_summary = _source_licence_aggregate(db, ProposalSource, ProposalSource.proposal_id, id_subquery)
     return build_envelope(fc, meta=meta, licence_summary=licence_summary)
 
 
 @app.get("/v1/proposals/{public_id}")
-def get_proposal(public_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
-    prop = db.scalar(select(Proposal).where(Proposal.public_id == public_id, *proposal_public_filter()))
+def get_proposal(
+    public_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AuthContext = Depends(get_auth_context),
+) -> Any:
+    prop = db.scalar(
+        select(Proposal).where(Proposal.public_id == public_id, *proposal_visibility_filter(ctx.entitlement))
+    )
     if prop is None:
         raise not_found(request.url.path)
     data = serialize_proposal(prop)
-    meta = build_meta("proposal")
+    meta = build_meta("proposal", tier=ctx.entitlement)
     return build_envelope(
         data, meta=meta, licence_summary=build_licence_summary(_proposal_licence_rows([prop]))
     )

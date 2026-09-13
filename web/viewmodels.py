@@ -204,14 +204,15 @@ def _primary_provenance(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def provenance_panel_rows(api: ApiClient, provenance: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Product defect C: one row per source, collapsed behind the source name -- classification
-    (`reuse_class`) and retrieval date visible, the licence's full permission/quote text behind an
-    expandable `<details>` (docs/31 §5.2 anatomy). Gated sources are already omitted server-side
+    (`reuse_class`) and retrieval date visible, the licence's quote text behind an expandable
+    `<details>` (docs/31 §5.2 anatomy). Gated sources are already omitted server-side
     (`provenance_row`/the visibility predicate), so every row here is one the public tier may show.
 
-    The one field the public API does not expose anywhere (`/v1/proposals`, `/v1/sources`,
-    `/v1/licences`) is a free-text licence quote/notes string -- see web/README.md "Missing from
-    the API" -- so the expandable panel is composed from the licence's boolean permission flags
-    plus `attribution_text` instead of a verbatim quote.
+    `Licence.quote_text` (`services/README.md`'s "Sprint 2 fixes" #5, exposed on the embedded
+    licence shape returned by `/v1/sources/{id}`) carries `data/sources.yaml`'s free-text `license`
+    clause verbatim -- rendered as-is here rather than composed from the licence's boolean
+    permission flags, which is what this module did before that field existed (web/README.md
+    "Missing from the API" item 3, now resolved).
     """
     out: list[dict[str, Any]] = []
     licence_cache: dict[str, dict[str, Any]] = {}
@@ -234,34 +235,15 @@ def provenance_panel_rows(api: ApiClient, provenance: list[dict[str, Any]]) -> l
                 "attribution_text": row.get("attribution_text"),
                 "allows_raw": row.get("source_record_id") is not None,
                 "active": row.get("active", True),
-                "licence_quote": _compose_licence_quote(row, licence),
+                "licence_quote": _licence_quote_text(licence),
             }
         )
     return out
 
 
-def _compose_licence_quote(row: dict[str, Any], licence: dict[str, Any] | None) -> str:
-    parts = []
-    if row.get("attribution_text"):
-        parts.append(row["attribution_text"])
-    if licence:
-        parts.append(f"Reuse class: {licence.get('reuse_class', 'unknown')}.")
-        parts.append(
-            "Raw source rows: "
-            + ("published." if licence.get("allows_raw_publication") else "withheld under licence.")
-        )
-        parts.append(
-            "Derived fields: " + ("published." if licence.get("allows_derived_publication") else "withheld.")
-        )
-        parts.append(
-            "Attribution: " + ("required." if licence.get("attribution_required") else "not required.")
-        )
-        parts.append(
-            "Commercial use: " + ("allowed." if licence.get("allows_commercial_use") else "not allowed.")
-        )
-        if licence.get("url"):
-            parts.append(f"Full terms: {licence['url']}")
-    return " ".join(parts) or "No further licence text is recorded for this source."
+def _licence_quote_text(licence: dict[str, Any] | None) -> str:
+    quote = licence.get("quote_text") if licence else None
+    return quote if quote else "No licence quote recorded for this source."
 
 
 def web_relative_url(url: str | None) -> str | None:

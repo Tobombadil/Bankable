@@ -14,6 +14,9 @@ from typing import Any
 
 from services.api.common import TERMS_URL, WEB_HOST, iso, utcnow
 from services.db.models import (
+    Account,
+    Alert,
+    ApiKey,
     Event,
     Licence,
     Location,
@@ -22,21 +25,34 @@ from services.db.models import (
     Organization,
     Proposal,
     ProposalSource,
+    SavedSearch,
     Source,
+    User,
+    WebhookDelivery,
+    WebhookEndpoint,
 )
 from services.ingest.lag import LAG_DAYS_BY_KIND, Kind
 
 
 # --------------------------------------------------------------------------------- envelope
 def build_meta(
-    kind: Kind | None = None, *, lag_days: int | None = None, extra: dict[str, Any] | None = None
+    kind: Kind | None = None,
+    *,
+    lag_days: int | None = None,
+    tier: str = "public",
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """`tier` is this sprint's addition (Pro tier and alerts, task item 2): Pro/API callers get
+    `meta.tier` and `meta.lag_days = 0` reflecting the entitlement resolved for their request
+    (`services/api/auth.py` `AuthContext.entitlement`), not a hardcoded `"public"` — `docs/23` §10
+    "every envelope" states tier honestly per caller, and `docs/04` D-3/D-28's delayed-tier
+    messaging depends on it being true."""
     if lag_days is None:
-        lag_days = LAG_DAYS_BY_KIND[kind] if kind else 0
+        lag_days = 0 if tier != "public" else (LAG_DAYS_BY_KIND[kind] if kind else 0)
     now = utcnow()
     data_as_of = now - dt.timedelta(days=lag_days)
     meta: dict[str, Any] = {
-        "tier": "public",
+        "tier": tier,
         "lag_days": lag_days,
         "data_as_of": iso(data_as_of),
         "generated_at": iso(now),
@@ -473,3 +489,142 @@ def serialize_licence(licence: Licence, *, source_count: int) -> dict[str, Any]:
         }
     )
     return out
+
+
+# ----------------------------------------------------------------------- Pro tier and alerts
+def serialize_user(user: User, *, account_public_id: str) -> dict[str, Any]:
+    """`api/openapi.yaml` `User` (docs/21 §3.12). `sor_ref` is admin-only per the schema's own
+    description — omitted from the shape a user sees of themselves via `/v1/me`, not just from
+    the field's meaning; callers needing the admin view build their own dict."""
+    return {
+        "user_id": user.public_id,
+        "account_id": account_public_id,
+        "email": user.email,
+        "email_verified_at": iso(user.email_verified_at),
+        "name": user.name,
+        "role": user.role,
+        "status": user.status,
+        "auth_provider": user.auth_provider,
+        "mfa_enforced": user.mfa_enforced,
+        "marketing_consent": user.marketing_consent,
+        "consent_version": user.consent_version,
+        "tos_version": user.tos_version,
+        "last_login_at": iso(user.last_login_at),
+        "anonymised_at": iso(user.anonymised_at),
+        "created_at": iso(user.created_at),
+    }
+
+
+def serialize_account(account: Account, *, organization: Organization | None = None) -> dict[str, Any]:
+    return {
+        "account_id": account.public_id,
+        "name": account.name,
+        "kind": account.kind,
+        "organization": serialize_organization_summary(organization) if organization else None,
+        "entitlement": account.entitlement,
+        "entitlement_source": account.entitlement_source,
+        "entitlement_checked_at": iso(account.entitlement_checked_at),
+        "entitlement_stale": account.entitlement_stale,
+        "seats": account.seats,
+        "seats_used": account.seats_used,
+        "sor_kind": account.sor_kind,
+        "status": account.status,
+    }
+
+
+def serialize_saved_search(search: SavedSearch) -> dict[str, Any]:
+    rss_url = f"{WEB_HOST}/feeds/saved/{search.rss_token}" if search.rss_token else None
+    return {
+        "saved_search_id": search.public_id,
+        "name": search.name,
+        "entity": search.entity,
+        "query": search.query,
+        "delivery_mode": search.delivery_mode,
+        "channels": search.channels,
+        "rss_url": rss_url,
+        "last_run_at": iso(search.last_run_at),
+        "watermark_seq": search.watermark_seq,
+        "last_match_count": search.last_match_count,
+        "status": search.status,
+        "created_at": iso(search.created_at),
+        "updated_at": iso(search.updated_at),
+    }
+
+
+def serialize_alert(alert: Alert, *, event_ids: list[str] | None = None) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "alert_id": alert.public_id,
+        "saved_search_id": alert.saved_search.public_id,
+        "channel": alert.channel,
+        "mode": alert.mode,
+        "window_start": iso(alert.window_start),
+        "window_end": iso(alert.window_end),
+        "event_seqs": alert.event_seqs,
+        "recipient": alert.recipient,
+        "subject": alert.subject,
+        "provider_message_id": alert.provider_message_id,
+        "status": alert.status,
+        "sent_at": iso(alert.sent_at),
+        "error": alert.error,
+        "created_at": iso(alert.created_at),
+    }
+    if event_ids is not None:
+        out["event_ids"] = event_ids
+    return out
+
+
+def serialize_api_key(key: ApiKey, *, account_public_id: str, created_by_public_id: str) -> dict[str, Any]:
+    return {
+        "key_id": key.public_id,
+        "account_id": account_public_id,
+        "created_by_user_id": created_by_public_id,
+        "name": key.name,
+        "prefix": key.prefix,
+        "last4": key.last4,
+        "scopes": key.scopes,
+        "tier": key.tier,
+        "rate_limit_per_hour": key.rate_limit_per_hour,
+        "daily_quota": key.daily_quota,
+        "expires_at": iso(key.expires_at),
+        "last_used_at": iso(key.last_used_at),
+        "last_used_ip": key.last_used_ip,
+        "revoked_at": iso(key.revoked_at),
+        "licence_accepted_version": key.licence_accepted_version,
+        "licence_accepted_at": iso(key.licence_accepted_at),
+        "created_at": iso(key.created_at),
+    }
+
+
+def serialize_webhook_endpoint(endpoint: WebhookEndpoint) -> dict[str, Any]:
+    return {
+        "webhook_id": endpoint.public_id,
+        "url": endpoint.url,
+        "description": endpoint.description,
+        "types": endpoint.types,
+        "query": endpoint.query,
+        "entity": endpoint.entity,
+        "status": endpoint.status,
+        "consecutive_failures": endpoint.consecutive_failures,
+        "last_delivery_at": iso(endpoint.last_delivery_at),
+        "last_success_at": iso(endpoint.last_success_at),
+        "secret_rotated_at": iso(endpoint.secret_rotated_at),
+        "created_at": iso(endpoint.created_at),
+    }
+
+
+def serialize_webhook_delivery(delivery: WebhookDelivery, *, event_public_id: str | None) -> dict[str, Any]:
+    return {
+        "delivery_id": delivery.public_id,
+        "webhook_id": delivery.endpoint.public_id,
+        "type": delivery.type,
+        "event_id": event_public_id,
+        "event_seq": delivery.event_seq,
+        "attempt": delivery.attempt,
+        "status": delivery.status,
+        "response_status": delivery.response_status,
+        "response_body_excerpt": delivery.response_body_excerpt,
+        "latency_ms": delivery.latency_ms,
+        "error_class": delivery.error_class,
+        "next_attempt_at": iso(delivery.next_attempt_at),
+        "created_at": iso(delivery.created_at),
+    }
