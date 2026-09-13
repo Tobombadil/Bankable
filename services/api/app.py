@@ -111,6 +111,9 @@ app.include_router(billing_router)
 from services.api.admin_sources import router as admin_sources_router  # noqa: E402
 
 app.include_router(admin_sources_router)
+from services.api.admin_posts import router as admin_posts_router  # noqa: E402
+
+app.include_router(admin_posts_router)
 
 
 @app.middleware("http")

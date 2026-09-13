@@ -1145,7 +1145,7 @@ paths:
         *submitted* personal data (consented, deletable). One transactional confirmation email is sent, nothing else
         (US-1001 AC3). Captcha-gated and limited to 5/hour per IP (docs/23 P-5). No file upload in MVP.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-1001, US-1002]
       security: *sec_public
@@ -1181,7 +1181,7 @@ paths:
         and a task of type `intake_opportunity`; on approval the issuer is added to the curated issuer registry if
         new (US-303).
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-1003, US-1002]
       security: *sec_public
@@ -1217,7 +1217,7 @@ paths:
         optional email; creates an admin task of type `report` and sends no outbound email (US-204 AC1). Minimum
         personal data; the response carries the privacy notice link (US-204 AC2). Limited to 5/hour per IP.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-204, US-907]
       security: *sec_public
@@ -3282,7 +3282,7 @@ paths:
         exposes only *create post* and *read metrics*: there are no reply, DM, follow or like operations anywhere
         in this document (US-804 AC1).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-801, US-802, US-803, US-804]
       security: *sec_admin
@@ -3315,7 +3315,7 @@ paths:
       summary: Post detail with metrics
       description: Includes `external_post_id`, `published_at` and `metrics` (impressions, clicks, likes, reposts, `fetched_at`) once published (US-803 AC2).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-803]
       security: *sec_admin
@@ -3338,7 +3338,7 @@ paths:
       summary: Edit a draft
       description: '`body` and `scheduled_for` only, on `draft` or `approved` posts (edit-then-approve, US-802 AC1). The link, credit line and disclosure label are template-owned and cannot be removed by an edit; a body that drops them is `400 validation_error`.'
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-802, US-801]
       security: *sec_admin
@@ -3378,7 +3378,7 @@ paths:
       summary: Approve a draft
       description: Sets `state = approved` and `approved_by_user_id`; publishes on the next publisher pass through the channel's approved API (US-802 AC1, US-803 AC1). X drafts are refused with `422 gate_unmet` naming the budget when the daily cap is exhausted.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-802, US-803]
       security: *sec_admin
@@ -3412,7 +3412,7 @@ paths:
       summary: Reject a draft with a reason
       description: '`reject_reason` is mandatory and reported weekly (US-802 AC3).'
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-802]
       security: *sec_admin
@@ -3451,7 +3451,7 @@ paths:
       tags: [Admin — social]
       summary: Approve and schedule
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-802, US-803]
       security: *sec_admin
@@ -3496,7 +3496,7 @@ paths:
         automated-account label is set on the platform where required (US-803 AC3). Only Bluesky, LinkedIn and X
         exist; there is no channel with reply or DM capability (US-804).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-802, US-803, US-804]
       security: *sec_owner
@@ -4072,7 +4072,7 @@ paths:
       tags: [Admin — customers]
       summary: API keys across accounts
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-701]
       security: *sec_admin
@@ -4098,7 +4098,7 @@ paths:
       summary: Issue a key on behalf of an account
       description: As `POST /v1/keys` with an explicit `account_id`; the licence acceptance recorded is the account owner's, captured out of band and referenced by `licence_acceptance_ref`. `admin:*` is never grantable here (docs/23 §5).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-701, US-704]
       security: *sec_admin
@@ -4137,7 +4137,7 @@ paths:
       tags: [Admin — customers]
       summary: Revoke any key
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-701]
       security: *sec_admin
