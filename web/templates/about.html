@@ -4,17 +4,18 @@
 {% block content %}
 <div class="page-header">
   <h1>About &amp; sources</h1>
-  <p>Infraqueue (placeholder name) fuses public energy and infrastructure registers into one record per project. This prototype covers the public, delayed tier only: no login, no live data, no admin.</p>
+  <p>Infraqueue fuses public energy and infrastructure registers into one record per project. This is the public, delayed tier only: no login, no live data, no admin.</p>
+  <p class="reuse-badge">Infraqueue is a placeholder codename, not the permanent product name (<code>docs/12-naming-shortlist.md</code>). Every hostname and brand reference in this build is a stand-in.</p>
 </div>
 
 <section id="tiers">
   <h2>Tiers</h2>
-  <p>Public data is delayed {{ stats.lag_days.proposal }} days for proposals and {{ stats.lag_days.opportunity }} days for opportunities from the date a source was retrieved. A live, undelayed tier (Pro) and a bulk API are planned but not built in this prototype.</p>
+  <p>Public data is delayed {{ lag_days.supply }} days for proposals and {{ lag_days.opportunities }} days for opportunities from the date a source was retrieved -- <code>public_at</code>, computed and enforced by the API, governs what this site can show; nothing here filters further. A live, undelayed tier (Pro) and a bulk API are planned but not built on this site yet.</p>
 </section>
 
-<section>
+<section id="sources">
   <h2>Sources and licences</h2>
-  <p>Every field on every page traces to one of the rows below. "Derived only" sources have their raw source row and exact coordinates withheld; the page links out to the source instead.</p>
+  <p>Every field on every page traces to one of the rows below. Sources marked "No -- derived only" have their raw source row and exact coordinates withheld; the page links out to the source instead.</p>
   <div class="table-scroll">
   <table class="record-table source-table">
     <thead>
@@ -28,14 +29,14 @@
       </tr>
     </thead>
     <tbody>
-      {% for source_id, s in sources.items() %}
+      {% for s in sources %}
       <tr>
-        <td data-label="Source"><a href="{{ s.homepage }}" rel="noopener nofollow">{{ s.name }}</a><br><span class="mono reuse-badge">{{ source_id }}</span></td>
+        <td data-label="Source"><a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a><br><span class="mono reuse-badge">{{ s.source_id }}</span></td>
         <td data-label="Operator">{{ s.operator or '—' }}</td>
-        <td data-label="Reuse class"><span class="reuse-badge">{{ s.reuse_class }}</span></td>
-        <td data-label="Raw fields shown?">{{ 'Yes' if s.allows_raw else 'No -- derived only' }}</td>
+        <td data-label="Reuse class"><span class="reuse-badge">{{ s.licence.reuse_class }}</span></td>
+        <td data-label="Raw fields shown?">{{ 'Yes' if s.licence.allows_raw_publication else 'No -- derived only' }}</td>
         <td data-label="Attribution">{{ s.attribution_text }}</td>
-        <td data-label="Rows visible" class="num">{{ s.rows_visible }}</td>
+        <td data-label="Rows visible" class="num">{{ s.rows_visible if s.rows_visible is not none else '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -44,21 +45,28 @@
 </section>
 
 <section>
-  <h2>Licence text, verbatim</h2>
+  <h2>Licence terms</h2>
   <dl>
-    {% for source_id, s in sources.items() %}
-    <dt class="mono">{{ source_id }}</dt>
-    <dd>{{ s.licence_text }}</dd>
+    {% for s in sources %}
+    <dt class="mono">{{ s.source_id }}</dt>
+    <dd>
+      Reuse class: {{ s.licence.reuse_class }}. Derived publication: {{ 'allowed' if s.licence.allows_derived_publication else 'withheld' }}.
+      Raw publication: {{ 'allowed' if s.licence.allows_raw_publication else 'withheld' }}.
+      Commercial use: {{ 'allowed' if s.licence.allows_commercial_use else 'not allowed' }}.
+      Attribution: {{ 'required' if s.licence.attribution_required else 'not required' }}.
+      {% if s.licence.url %}<a href="{{ s.licence.url }}" rel="noopener nofollow">Full terms &rarr;</a>{% endif %}
+    </dd>
     {% endfor %}
   </dl>
 </section>
 
 <section>
-  <h2>Method notes for this prototype</h2>
+  <h2>Method notes</h2>
   <ul>
-    <li>Placement on the map follows source precision: an exact coordinate where the source supplies one and its licence allows raw publication; otherwise a county centroid (US Census Gazetteer 2024, public domain); otherwise a state-level aggregate marker; records with neither a usable county nor a state are listed under &ldquo;Unplaced&rdquo;.</li>
-    <li>Clustering on the map is computed client-side by MapLibre's built-in clustering rather than the server-side <code>/v1/proposals/geo</code> endpoint described in <code>docs/23</code>, since this prototype has no database or API service yet.</li>
-    <li>NESO TEC Register rows have no US-style county or state field in the source and are listed under Unplaced (GB) rather than guessed at.</li>
+    <li>Placement on the map follows source precision: an exact coordinate where the source supplies one and its licence allows raw publication; otherwise a county centroid (US Census Gazetteer 2024, public domain); records with neither a usable county nor a state are counted as Unplaced rather than guessed at.</li>
+    <li>Clustering on the map is computed server-side by <code>GET /v1/proposals/geo</code> (<code>docs/23</code>); this page's client script renders whatever the API returns and does not cluster on its own.</li>
+    <li>The default map and proposal list show active lifecycle states only (announced through under construction); withdrawn and cancelled proposals sit behind the "Include withdrawn &amp; cancelled" toggle, because most of this dataset's history is withdrawn queue positions and a default view of them reads as a map of what died rather than what's active.</li>
+    <li>NESO TEC Register rows have no US-style county or state field in the source and are counted under Unplaced rather than guessed at.</li>
     <li>The map's basemap tiles come from OpenStreetMap; a lightweight world-country and US-state outline layer (Natural Earth and US Census Bureau TIGERweb, both public domain) is drawn underneath them so the map stays legible if the tile provider is ever unreachable.</li>
   </ul>
 </section>

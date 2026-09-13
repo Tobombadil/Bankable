@@ -9,7 +9,7 @@
   <h1>{{ record.title }}</h1>
   {{ m.status_chip(record.status, record.lifecycle_family, record.status_raw) }}
 </div>
-{{ m.delayed_banner(delayed, "demand") }}
+{{ m.delayed_banner(delayed) }}
 
 <dl class="field-grid">
   <div><dt>Kind</dt><dd>{{ record.kind or '—' }}</dd></div>
@@ -24,7 +24,7 @@
 
 {% if record.summary %}<p>{{ record.summary }}</p>{% endif %}
 
-{{ m.provenance_panel(record) }}
+{{ m.provenance_panel(provenance_rows) }}
 
 <section aria-label="Status timeline">
   <h2>Status timeline</h2>
@@ -35,13 +35,6 @@
     {% if record.due_at %}<li><time datetime="{{ record.due_at }}">{{ record.due_at[:10] }}</time> Response deadline, as stated by the source.</li>{% endif %}
   </ul>
 </section>
-
-{% if record.allows_raw and record.raw_fields %}
-<details class="raw-fields-details">
-  <summary>Raw source fields ({{ record.source_name }})</summary>
-  <pre class="raw-fields">{{ record.raw_fields | tojson(indent=2) }}</pre>
-</details>
-{% endif %}
 
 {{ m.attribution_line(record) }}
 {% endblock %}

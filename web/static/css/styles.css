@@ -220,7 +220,17 @@ h3 { font-size: var(--text-4); }
   font-size: var(--text-1);
 }
 .delayed-notice a { color: inherit; font-weight: 600; }
-.delayed-notice__demo { display: block; margin-top: var(--space-2); opacity: 0.85; }
+
+.preview-banner {
+  background: var(--family-committed-fill); color: var(--family-committed-text);
+  border: 1px solid var(--border); border-radius: var(--radius-2);
+  padding: var(--space-2) var(--space-4); margin: 0 0 var(--space-4); font-size: var(--text-1);
+}
+
+.view-notice {
+  font-size: var(--text-1); color: var(--text-muted);
+  padding: var(--space-2) 0 var(--space-4);
+}
 
 .attribution-line { font-size: var(--text-1); color: var(--text-muted); }
 
@@ -230,12 +240,22 @@ h3 { font-size: var(--text-4); }
 }
 .provenance-panel h2 { font-size: var(--text-4); margin-bottom: var(--space-3); }
 .provenance-panel__list { list-style: none; margin: 0; padding: 0; }
-.provenance-panel__list li { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: baseline; padding: var(--space-2) 0; }
+.provenance-panel__row { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.provenance-panel__row:last-child { border-bottom: none; }
+.provenance-panel__details summary {
+  display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: baseline; cursor: pointer;
+  list-style: none;
+}
+.provenance-panel__details summary::-webkit-details-marker { display: none; }
+.provenance-panel__details summary::before { content: "▸ "; color: var(--text-muted); }
+.provenance-panel__details[open] summary::before { content: "▾ "; }
 .provenance-panel__name { font-weight: 600; }
 .provenance-panel__licence { font-size: var(--text-1); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .provenance-panel__date { font-size: var(--text-1); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.provenance-panel__note { flex-basis: 100%; font-size: var(--text-1); color: var(--text-muted); margin: var(--space-1) 0 0; }
-.provenance-panel__licence-text { font-size: var(--text-1); color: var(--text-muted); border-top: 1px solid var(--border); padding-top: var(--space-3); margin-top: var(--space-3); }
+.provenance-panel__note { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-1) 0 0; }
+.provenance-panel__quote { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-2) 0 0; }
+.provenance-panel__link { font-size: var(--text-1); }
+.provenance-panel__empty { font-size: var(--text-1); color: var(--text-muted); }
 
 /* ---------- 5. Status chip (D-25, never colour alone) ---------- */
 .chip {
@@ -264,6 +284,9 @@ h3 { font-size: var(--text-4); }
 }
 .filter-bar__range { display: flex; align-items: center; gap: var(--space-2); }
 .filter-bar__range input { width: 6.5rem; }
+.filter-field--checkbox { flex-direction: row; align-items: center; }
+.filter-field--checkbox label { display: flex; align-items: center; gap: var(--space-2); color: var(--text); }
+.filter-field--checkbox input[type="checkbox"] { width: 1.15rem; height: 1.15rem; min-height: 0; }
 .filter-bar__submit {
   font: inherit; padding: var(--space-2) var(--space-4); border-radius: var(--radius-2);
   border: 1px solid var(--color-copper-deep); background: var(--color-copper-deep); color: #fff; cursor: pointer;

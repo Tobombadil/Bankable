@@ -24,6 +24,7 @@ import pathlib
 import sys
 import uuid as _uuid
 from collections import defaultdict
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import func, select
@@ -32,12 +33,11 @@ from sqlalchemy.orm import Session
 from pipeline import resolve as resolve_module
 from pipeline.connectors.registry import Registry
 from pipeline.normalize import norm_org
-from services.db.models import Event, Organization, Proposal, ProposalSource
+from services.db.models import Organization, Proposal, ProposalSource
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id, slugify
 from services.ingest.loader import GateRefused, load_dataframe, upsert_licence_and_source
 from services.resolve import merge as merge_mod
-from services.resolve.models import ResolutionDecision
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 EVAL = ROOT / "data" / "eval"
@@ -53,6 +53,14 @@ REGISTRY_ID = {
     "isone": "us.iso.isone.gen_queue",
     "eia860m": "us.eia.860m",
 }
+
+
+def _report(message: str = "") -> None:
+    """CLI reporting output, the same convention `pipeline/resolve.py` and `pipeline/diff.py`
+    use (see their `pyproject.toml` per-file `T20` ignores) -- one `noqa` here instead of one per
+    call site, without adding a new entry to `pyproject.toml` (outside this task's assigned
+    paths)."""
+    print(message)  # noqa: T201
 
 
 def preseed_organizations(session: Session, df: pd.DataFrame, loadable_shorts: set[str]) -> int:
@@ -99,7 +107,7 @@ def build_store(session: Session, normalized_path: pathlib.Path) -> dict[str, st
         short for short, rid in REGISTRY_ID.items() if registry.get(rid).reuse in ("open", "attribution")
     }
     preseeded = preseed_organizations(session, df, loadable_shorts)
-    print(f"  pre-seeded {preseeded:,} organizations (collision-proof slugs; see docstring)")
+    _report(f"  pre-seeded {preseeded:,} organizations (collision-proof slugs; see docstring)")
     loaded: dict[str, str] = {}
     for short, registry_id in REGISTRY_ID.items():
         entry = registry.get(registry_id)
@@ -107,7 +115,7 @@ def build_store(session: Session, normalized_path: pathlib.Path) -> dict[str, st
             try:
                 upsert_licence_and_source(session, entry, registry.version)
             except GateRefused as exc:
-                print(f"  {short:8s} -> {registry_id:26s} GateRefused (reuse={entry.reuse!r}): {exc}")
+                _report(f"  {short:8s} -> {registry_id:26s} GateRefused (reuse={entry.reuse!r}): {exc}")
                 continue
             else:
                 raise AssertionError(f"{registry_id} has reuse={entry.reuse!r} but was NOT refused")
@@ -115,7 +123,7 @@ def build_store(session: Session, normalized_path: pathlib.Path) -> dict[str, st
         sub = df[df["source_id"] == short].copy()
         sub["raw"] = "{}"  # docs/22 evaluation snapshot carries no separate raw payload per row
         result = load_dataframe(session, source, "proposal", sub, None)
-        print(
+        _report(
             f"  {short:8s} -> {registry_id:26s} reuse={entry.reuse:11s} "
             f"+{result.proposals_created:5,d} created  {result.proposals_updated:4,d} updated"
         )
@@ -124,7 +132,7 @@ def build_store(session: Session, normalized_path: pathlib.Path) -> dict[str, st
     return loaded
 
 
-def _parse_retrieved_at(value: object) -> dt.datetime:
+def _parse_retrieved_at(value: Any) -> dt.datetime:
     ts = pd.Timestamp(value)
     if ts.tzinfo is None:
         ts = ts.tz_localize("UTC")
@@ -296,68 +304,74 @@ def main() -> int:
 
     normalized_path = pathlib.Path(args.normalized)
     with session_factory() as session:
-        print("1. Loading real 2026-09-12 pull into the store (data/sources.yaml gate applied):")
+        _report("1. Loading real 2026-09-12 pull into the store (data/sources.yaml gate applied):")
         loaded_sources = build_store(session, normalized_path)
 
-        proposals_before = session.scalar(select(func.count()).select_from(Proposal))
-        orgs_before = session.scalar(select(func.count()).select_from(Organization))
-        print(f"\nproposals in store before resolution: {proposals_before:,}")
-        print(f"organizations in store before resolution: {orgs_before:,}")
+        proposals_before = int(session.scalar(select(func.count()).select_from(Proposal)) or 0)
+        orgs_before = int(session.scalar(select(func.count()).select_from(Organization)) or 0)
+        _report(f"\nproposals in store before resolution: {proposals_before:,}")
+        _report(f"organizations in store before resolution: {orgs_before:,}")
 
-        print(f"\n2. Running pipeline.resolve.run(threshold={args.threshold}) ...")
+        _report(f"\n2. Running pipeline.resolve.run(threshold={args.threshold}) ...")
         df = pd.read_parquet(normalized_path)
         matches, clusters = resolve_module.run(args.threshold, normalized_path)
 
         link_index = build_link_index(session)
         members, edges = build_clusters(df, matches, clusters, loaded_sources, link_index)
         multi_member = {k: v for k, v in members.items() if len(v) >= 2}
-        print(f"resolver clusters with >=2 store-loaded members: {len(multi_member):,}")
+        _report(f"resolver clusters with >=2 store-loaded members: {len(multi_member):,}")
 
-        print("\n3. Applying the confidence gate and merging ...")
+        _report("\n3. Applying the confidence gate and merging ...")
         applications = apply_all_clusters(session, multi_member, edges)
         merged = [a for a in applications if a.action == "merged"]
         proposed = [a for a in applications if a.action == "proposed"]
         absorbed_total = sum(a.members_merged for a in merged)
         decisions_total = sum(len(a.decisions) for a in proposed)
-        print(f"clusters merged:   {len(merged):,} (absorbing {absorbed_total:,} records)")
-        print(f"clusters proposed (gate failed, filed for review): {len(proposed):,}")
+        _report(f"clusters merged:   {len(merged):,} (absorbing {absorbed_total:,} records)")
+        _report(f"clusters proposed (gate failed, filed for review): {len(proposed):,}")
         for a in proposed[:10]:
-            print(f"    cluster {a.cluster_key}: {a.gate_reason}")
-        print(f"resolution_decision rows created: {decisions_total:,}")
+            _report(f"    cluster {a.cluster_key}: {a.gate_reason}")
+        _report(f"resolution_decision rows created: {decisions_total:,}")
 
         session.commit()
 
-        proposals_after = session.scalar(
-            select(func.count()).select_from(Proposal).where(Proposal.merged_into_id.is_(None))
-        )
-        multi_source = session.scalar(
-            select(func.count()).select_from(Proposal).where(
-                Proposal.merged_into_id.is_(None), Proposal.source_count >= 2
+        proposals_after = int(
+            session.scalar(
+                select(func.count()).select_from(Proposal).where(Proposal.merged_into_id.is_(None))
             )
+            or 0
         )
-        print(f"\nproposals in store after resolution (surviving/canonical rows): {proposals_after:,}")
-        print(f"  of which with >=2 sources: {multi_source:,}")
-        print(f"proposals absorbed (merged_into_id set): {proposals_before - proposals_after:,}")
+        multi_source = int(
+            session.scalar(
+                select(func.count())
+                .select_from(Proposal)
+                .where(Proposal.merged_into_id.is_(None), Proposal.source_count >= 2)
+            )
+            or 0
+        )
+        _report(f"\nproposals in store after resolution (surviving/canonical rows): {proposals_after:,}")
+        _report(f"  of which with >=2 sources: {multi_source:,}")
+        _report(f"proposals absorbed (merged_into_id set): {proposals_before - proposals_after:,}")
 
-        print("\n4. Organization resolution ...")
+        _report("\n4. Organization resolution ...")
         org_report = merge_mod.resolve_organizations(session, norm_org)
         session.commit()
-        orgs_after = session.scalar(select(func.count()).select_from(Organization).where(
-            Organization.merged_into_id.is_(None)
-        ))
-        print(f"organizations before: {orgs_before:,}  after: {orgs_after:,}")
-        print(f"normalised-name groups considered (size > 1): {org_report.groups_considered:,}")
-        print(f"groups merged: {org_report.groups_merged:,}")
-        print(f"organizations absorbed: {org_report.organizations_absorbed:,}")
+        orgs_after = session.scalar(
+            select(func.count()).select_from(Organization).where(Organization.merged_into_id.is_(None))
+        )
+        _report(f"organizations before: {orgs_before:,}  after: {orgs_after:,}")
+        _report(f"normalised-name groups considered (size > 1): {org_report.groups_considered:,}")
+        _report(f"groups merged: {org_report.groups_merged:,}")
+        _report(f"organizations absorbed: {org_report.organizations_absorbed:,}")
 
-        print("\n5. Precision on the 85 hand labels, through the store path ...")
+        _report("\n5. Precision on the 85 hand labels, through the store path ...")
         stats = store_path_precision(session, pathlib.Path(args.labels), loaded_sources, link_index)
-        print(
+        _report(
             f"usable labels: {stats['n_usable']} of {stats['n_total_labels']} "
             f"({stats['unusable_gated_source']} touch a gated source and are excluded)"
         )
-        print(f"tp={stats['tp']} fp={stats['fp']} fn={stats['fn']} tn={stats['tn']}")
-        print(f"precision={stats['precision']}  recall={stats['recall']}")
+        _report(f"tp={stats['tp']} fp={stats['fp']} fn={stats['fn']} tn={stats['tn']}")
+        _report(f"precision={stats['precision']}  recall={stats['recall']}")
 
     return 0
 
