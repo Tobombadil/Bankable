@@ -301,9 +301,7 @@ def _entitlement_for_key(key: ApiKey, account: Account) -> str:
     return resolved if order[resolved] <= order.get(account.entitlement, 0) else account.entitlement
 
 
-def build_auth_context(
-    db: Session, *, session_cookie: str | None, authorization: str | None
-) -> AuthContext:
+def build_auth_context(db: Session, *, session_cookie: str | None, authorization: str | None) -> AuthContext:
     """Session takes precedence when both are present (an unusual case); an invalid or absent
     credential of either kind falls back to `PUBLIC_CONTEXT` rather than raising — Pro/API-only
     routes enforce the 401 themselves (docs/23 §5 "a public read is always available")."""
@@ -313,7 +311,11 @@ def build_auth_context(
             account = db.get(Account, user.account_id)
             if account is not None:
                 return AuthContext(
-                    user=user, account=account, api_key=None, entitlement=account.entitlement, scopes=frozenset()
+                    user=user,
+                    account=account,
+                    api_key=None,
+                    entitlement=account.entitlement,
+                    scopes=frozenset(),
                 )
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()

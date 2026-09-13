@@ -8,7 +8,7 @@
 
 Sprint 2 implemented the `public` tier only; this sprint (Pro tier and alerts) adds the
 `entitlement` parameter the module's own docstring used to say was out of scope. Every `*_filter`
-function below now takes an `entitlement` (`public \| pro \| api`; `admin` is out of scope —
+function below now takes an `entitlement` (`public | pro | api`; `admin` is out of scope —
 admin reads bypass this predicate entirely per docs/21 §5.4's fourth row) and dispatches on it:
 
 - `public_at` is read only for `entitlement == "public"`; `pro`/`api` read `published_at`
@@ -35,7 +35,6 @@ routes are unchanged by this sprint.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Literal
 
 from sqlalchemy import ColumnElement, exists, select
 
@@ -50,7 +49,14 @@ from services.db.models import (
     Source,
 )
 
-Entitlement = Literal["public", "pro", "api"]
+#: The three non-admin entitlements this predicate distinguishes. Typed as plain `str` at every
+#: function boundary below (not a `Literal["public","pro","api"]`) because the real caller-facing
+#: type, `services.api.auth.AuthContext.entitlement`, is also `str` — it can legitimately hold
+#: `"admin"` too (an operator's own account entitlement), which this module was never meant to
+#: special-case (admin reads bypass this predicate entirely, per the module docstring). Any value
+#: other than `"pro"`/`"api"` is treated as `"public"` by `_PERMITTED_SOURCE_STATES.get` below, so
+#: an unrecognised entitlement never accidentally widens visibility.
+Entitlement = str
 
 PUBLISHABLE_REUSE_CLASSES = ("open", "attribution")
 # Drift guard, not a real code path: pragma'd out of the module's required 100% branch coverage
@@ -62,7 +68,7 @@ if not set(PUBLISHABLE_REUSE_CLASSES) <= set(REUSE_CLASSES):  # pragma: no cover
 #: entitlement may read from. `public` stays exactly the source's own public surface flag (open
 #: decision 5); `pro`/`api` also see a source cleared for ingestion-and-licence but not yet the
 #: public surface (`api_only`).
-_PERMITTED_SOURCE_STATES: dict[Entitlement, tuple[str, ...]] = {
+_PERMITTED_SOURCE_STATES: dict[str, tuple[str, ...]] = {
     "public": ("public",),
     "pro": ("public", "api_only"),
     "api": ("public", "api_only"),
@@ -80,7 +86,7 @@ def _has_permitted_source(
         .where(
             fk,
             link_model.active.is_(True),
-            Source.publish_state.in_(_PERMITTED_SOURCE_STATES[entitlement]),
+            Source.publish_state.in_(_PERMITTED_SOURCE_STATES.get(entitlement, ("public",))),
         )
     )
 
@@ -140,7 +146,7 @@ def event_visibility_filter(
         exists(
             select(Source.id).where(
                 Source.id == Event.source_id,
-                Source.publish_state.in_(_PERMITTED_SOURCE_STATES[entitlement]),
+                Source.publish_state.in_(_PERMITTED_SOURCE_STATES.get(entitlement, ("public",))),
             )
         ),
     ]

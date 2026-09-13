@@ -5,11 +5,25 @@ from __future__ import annotations
 
 import datetime as dt
 
+from fastapi.testclient import TestClient
+
+from services.api.app import app
 from services.api.pro import API_LICENCE_VERSION, MAX_API_KEYS_PER_USER
 from services.db.models import ApiKey, Event
 from tests.conftest import login, make_account, make_api_key, make_user
 
 UTC = dt.UTC
+
+
+def _bearer_only_client() -> TestClient:
+    """A `client` fixture logs in with a session cookie for the write calls a key-only endpoint
+    (`createKey`, `revokeKey`) requires; `TestClient` persists cookies across requests, and a
+    session takes precedence over a bearer token when both are present
+    (`services/api/auth.py::build_auth_context`) — a real integration a stray session cookie
+    should never mask. A second `TestClient` sharing the same app (and so the same
+    `get_db` dependency override / in-memory database) but no cookie jar isolates the
+    bearer-token-only assertions below."""
+    return TestClient(app)
 
 
 def test_create_key_requires_a_session_not_a_key(client, db):
@@ -96,18 +110,24 @@ def test_revoke_key_is_immediate_and_audited(client, db):
     login(client, db, user)
 
     created = client.post(
-        "/v1/keys", json={"name": "to-revoke", "licence_accepted_version": API_LICENCE_VERSION}
+        "/v1/keys",
+        json={
+            "name": "to-revoke",
+            "licence_accepted_version": API_LICENCE_VERSION,
+            "scopes": ["read:live"],
+        },
     ).json()["data"]
     secret = created["secret"]
     key_id = created["key_id"]
 
+    bearer = _bearer_only_client()
     # Works before revocation.
-    assert client.get("/v1/saved-searches", headers={"Authorization": f"Bearer {secret}"}).status_code == 200
+    assert bearer.get("/v1/saved-searches", headers={"Authorization": f"Bearer {secret}"}).status_code == 200
 
     revoke = client.delete(f"/v1/keys/{key_id}")
     assert revoke.status_code == 204
 
-    assert client.get("/v1/saved-searches", headers={"Authorization": f"Bearer {secret}"}).status_code == 401
+    assert bearer.get("/v1/saved-searches", headers={"Authorization": f"Bearer {secret}"}).status_code == 401
 
     events = db.query(Event).filter_by(subject_type="api_key", event_type="key_revoked").all()
     assert len(events) == 1
@@ -138,12 +158,22 @@ def test_rotation_is_revoke_then_create_and_only_the_new_secret_works(client, db
     login(client, db, user)
 
     old = client.post(
-        "/v1/keys", json={"name": "rotate-me", "licence_accepted_version": API_LICENCE_VERSION}
+        "/v1/keys",
+        json={
+            "name": "rotate-me",
+            "licence_accepted_version": API_LICENCE_VERSION,
+            "scopes": ["read:live"],
+        },
     ).json()["data"]
     old_secret, old_id = old["secret"], old["key_id"]
 
     new = client.post(
-        "/v1/keys", json={"name": "rotate-me", "licence_accepted_version": API_LICENCE_VERSION}
+        "/v1/keys",
+        json={
+            "name": "rotate-me",
+            "licence_accepted_version": API_LICENCE_VERSION,
+            "scopes": ["read:live"],
+        },
     ).json()["data"]
     new_secret = new["secret"]
     assert new_secret != old_secret
@@ -151,12 +181,13 @@ def test_rotation_is_revoke_then_create_and_only_the_new_secret_works(client, db
     revoke_resp = client.delete(f"/v1/keys/{old_id}")
     assert revoke_resp.status_code == 204
 
-    assert client.get(
-        "/v1/saved-searches", headers={"Authorization": f"Bearer {old_secret}"}
-    ).status_code == 401
-    assert client.get(
-        "/v1/saved-searches", headers={"Authorization": f"Bearer {new_secret}"}
-    ).status_code == 200
+    bearer = _bearer_only_client()
+    assert (
+        bearer.get("/v1/saved-searches", headers={"Authorization": f"Bearer {old_secret}"}).status_code == 401
+    )
+    assert (
+        bearer.get("/v1/saved-searches", headers={"Authorization": f"Bearer {new_secret}"}).status_code == 200
+    )
 
 
 def test_keys_are_scoped_to_their_own_account(client, db):

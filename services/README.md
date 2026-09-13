@@ -705,3 +705,165 @@ since it is outside this task's assigned paths — flagged for whoever owns `api
     then, a new attribution source that should be derived-only must say so in its `notes` or
     `license` text using that phrase, or it will load as raw-allowed by default (matching docs/21
     §8's general attribution row, the safer default for a source nobody has flagged otherwise).
+
+## Pro tier and alerts
+
+Sprint 2 backend brief: auth and API keys, an `entitlement` parameter on the visibility predicate,
+saved searches and alerts, and API-tier webhooks. Builds on the Sprint 2 public-tier store and API
+above without rewriting it — `services/api/app.py`, `services/api/visibility.py` and
+`services/api/serialize.py` are extended in place; the new surface lives in its own modules.
+
+### What was added
+
+```
+services/db/models.py            + account, user, session (as UserSession), api_key, saved_search,
+                                    alert, webhook_endpoint, webhook_delivery (docs/21 §3.12-§3.17)
+services/db/migrations/versions/0003_pro_tier_and_alerts.py   canonical Postgres DDL for the above
+services/api/auth.py             argon2 password hashing; signed-cookie sessions backed by a
+                                  revocable server row; API-key generation/hashing/resolution; a
+                                  dry-run EmailPort + ResendEmailAdapter; AuthContext and the
+                                  require_authenticated/require_entitlement/require_scope/
+                                  require_session_only/require_admin FastAPI dependencies
+services/api/ratelimit.py        InMemoryRateLimiter (real token buckets, one process-wide
+                                  instance) behind a RateLimiter protocol a Redis implementation
+                                  can satisfy identically
+services/api/audit.py            record_audit_event — writes the admin/key audit trail as
+                                  ordinary `event` rows (actor_type='user', required reason)
+services/api/visibility.py       extended: every *_visibility_filter takes an `entitlement`;
+                                  *_public_filter kept as the entitlement="public" case
+services/api/serialize.py        extended: build_meta takes `tier`; serializers for
+                                  User/Account/SavedSearch/Alert/ApiKey/WebhookEndpoint/
+                                  WebhookDelivery
+services/api/pro.py               the new router (mounted from services/api/app.py) — see the
+                                  endpoint table below
+services/api/errors.py           extended: ProblemError carries optional `headers` (Retry-After)
+services/api/feeds.py            extended: render_rss/render_json_feed/feed_title take `live`
+services/api/deps.py             get_db now commits on a clean return / rolls back on exception
+                                  (Sprint 2's routes were all reads; this sprint's are the first
+                                  writes, and a bare `finally: db.close()` silently discards them)
+services/alerts/matching.py      saved-search/webhook query grammar evaluated against one row
+services/alerts/evaluate.py      run_alert_cycle: matches new events since each saved search's
+                                  watermark_seq, digests every match in one pass into one Alert
+                                  per channel, sends through EmailPort
+services/alerts/feed.py          rt_ token generation; the private live saved-search feed
+services/alerts/webhooks.py      HMAC signing/verification, endpoint matching, enqueue/replay,
+                                  attempt_delivery/deliver_pending with exponential backoff
+```
+
+### Endpoints (all `x-status: live` in `api/openapi.yaml` as of this sprint)
+
+| Method & path | Notes |
+|---|---|
+| `GET /v1/me` | Any authenticated session or key; a key-only caller renders as its own creator |
+| `GET /v1/account` | Pro+; `subscriptions` is always `[]` this sprint (no billing adapter) |
+| `GET/POST /v1/saved-searches`, `GET/PATCH/DELETE /v1/saved-searches/{id}` | CRUD; quota 25/user |
+| `POST /v1/saved-searches/{id}/preview` | Runs the stored query live, does not move the watermark |
+| `GET /v1/alerts`, `GET /v1/alerts/{id}` | Delivery history for the caller |
+| `GET/POST /v1/keys`, `DELETE /v1/keys/{id}` | Session-only create/revoke; 5/account; `admin:*` rejected |
+| `GET/POST /v1/webhooks`, `GET/DELETE /v1/webhooks/{id}` | Session (api entitlement) or `write:webhooks` key; 10/account |
+| `POST /v1/webhooks/{id}/test`, `.../replay`, `GET .../deliveries` | Enqueue only — delivery is a separate worker tick (`deliver_pending`) |
+| `GET /feeds/saved/{rss_token}` | No auth; the token is the credential; live (`lag_days=0`) |
+| `PUT /admin/v1/accounts/{account_id}/entitlement` | New this sprint, operator/owner only — see decision 1 below |
+
+### Open decisions
+
+1. **No billing/CRM adapter this sprint (as the task brief instructs).** Entitlements are set
+   directly by `PUT /admin/v1/accounts/{account_id}/entitlement` with
+   `entitlement_source = "manual_grant"` — the same escape hatch docs/21 §3.13 already models,
+   audited as an `admin_edit` event. Superseded once Sprint 3 wires Stripe/HubSpot behind
+   `POST /admin/v1/customers` and `/admin/v1/subscriptions`; this endpoint should then be
+   restricted or removed, not left as a parallel path to `sor`-sourced entitlements.
+2. **Password auth, not docs/20 §7's passwordless magic-link/Google.** The task brief explicitly
+   asks for "signed cookie, argon2 password hashing"; `User.auth_provider` gained a `password`
+   value alongside `magic_link`/`google` rather than replacing them. No public registration/login
+   HTTP endpoint exists — `api/openapi.yaml` (normative per docs/04 API-1) has no `/v1/auth/*`
+   path, and inventing one without a `docs/23` entry would itself put the contract out of sync.
+   `register_user`/`authenticate_user`/`create_session` are tested library functions a web front
+   end (or a future spec'd endpoint) calls; this sprint's tests call them directly, the same
+   pattern `services/api/conftest.py`'s fixtures already use for domain rows.
+3. **Rate limiting is real for anonymous public traffic and for every `services/api/pro.py`
+   route, not yet for a Pro/API credential calling one of the original Sprint 2 public routes
+   directly** (`GET /v1/proposals` etc. with a session or key attached). Crediting that call to
+   the anonymous per-IP bucket would double-count against unrelated anonymous traffic on the same
+   IP, and this sprint does not thread `AuthContext` resolution into the shared middleware.
+   Follow-up: one rate-limiting dependency shared by both routers.
+4. **`saved_search.channels` supports `email` and `rss`, not `webhook`.** Docs/23 §9.1 describes
+   a webhook as "a saved search with a URL as its channel" — that description is about the
+   separate `webhook_endpoint` mechanism (its own `query`/`entity` fields), not a literal
+   `saved_search.channels` entry; this sprint keeps the two mechanisms distinct rather than
+   collapsing them, since `webhook_endpoint` already carries what a channel entry would need
+   (URL, secret, delivery log) and `alert` does not model any of that.
+5. **`WebhookEndpoint.secret` is stored in the clear**, not hashed like `ApiKey.key_hash`.
+   Signing an outbound HMAC delivery needs the actual secret every time — a one-way hash cannot
+   work here, unlike a bearer credential the platform only ever verifies. "Shown once" in
+   `api/openapi.yaml` describes the client-facing UX (Stripe/GitHub webhooks work the same way),
+   not server-side discard. This sprint has no envelope-encryption/KMS story for secrets at rest;
+   flagged as a follow-up, the same gap docs/04 E-19 already calls out for deploy-time secrets.
+6. **No scheduled worker.** `run_alert_cycle` and `deliver_pending` are functions a Procrastinate
+   job (ADR 0004) should call on an interval in production; this sprint ships and tests the
+   functions, not the periodic-task wiring (`infra/scheduler/` is devops-engineer's tree, out of
+   this task's scope).
+7. **Matching re-implements a named subset of the filter grammar** (`services/alerts/matching.py`)
+   rather than generalising `services/api/app.py`'s `_apply_proposal_filters` et al. to also drive
+   in-Python matching against one already-loaded row. Reusing those would have meant restructuring
+   Sprint 2's already-shipped, already-tested public list endpoints; this sprint's matcher covers
+   the same named subset of parameters (docs/04 §10 "Filter coverage is a named subset" decision,
+   unchanged) plus `q`. A follow-up could unify both under one grammar module.
+8. **Rotation is create-then-revoke**, not a dedicated endpoint — `api/openapi.yaml` defines only
+   `createKey` (session-only) and `revokeKey`; task brief calls for a "rotation endpoint" and this
+   is the workflow that satisfies it without adding an undocumented path (tested end to end in
+   `tests/test_api_pro_keys.py::test_rotation_is_revoke_then_create_and_only_the_new_secret_works`).
+9. **`event.seqs` on `alert`, docs/21 §3.16's `bigint[]`, is stored as `jsonb`** (`JSONVariant`),
+   matching this sprint's one other integer-array need rather than adding a new column type for
+   both.
+10. **The admin surface has no second host/second-factor enforcement here** — `require_admin`
+    checks `user.role` only. docs/20 §7's `admin.` hostname and MFA are an infra/reverse-proxy
+    concern (ADR 0005, `infra/`), out of this task's scope; this sprint's admin check is a
+    necessary-but-not-sufficient building block, not a claim that the full control is in place.
+
+### Verbatim output (this sprint, 2026-09-13)
+
+```
+$ pytest tests --ignore=tests/test_web_default_view.py services/db services/ingest services/api pipeline
+588 passed, 27 warnings in 48.26s
+
+$ ruff check services/api services/db services/alerts services/ids.py tests
+All checks passed!
+
+$ ruff format --check services/api services/db services/alerts services/ids.py
+33 files already formatted
+
+$ mypy services
+Success: no issues found in 46 source files
+
+$ python api/check_story_coverage.py --quiet
+RESULT: PASS — 44/44 PRD stories covered by 119 operations; all $refs resolve
+```
+
+97 new tests: `tests/test_api_pro_auth.py` (24), `tests/test_api_pro_tier.py` (5),
+`tests/test_api_pro_keys.py` (9), `tests/test_api_pro_saved_searches.py` (12),
+`tests/test_api_pro_webhooks.py` (10), `tests/test_api_pro_admin.py` (5),
+`tests/test_api_pro_ratelimit.py` (7), `tests/test_alerts_webhooks.py` (15),
+`tests/test_alerts_evaluate.py` (10) — plus 6 new Pro-tier schema checks added to
+`tests/test_api_contract.py` (`MeResponse`, `SavedSearchDetailResponse`/`ListResponse`,
+`ApiKeyCreatedResponse`/`ListResponse`, `WebhookEndpointCreatedResponse`/`ListResponse`).
+Covers: tier visibility (public vs pro vs api on the same record, `api_only`-source visibility,
+restricted-source invisibility on every tier); key scopes, quota, revocation and rotation; the
+audit trail on key issue/revoke and the admin entitlement grant; saved-search CRUD, quota, query
+matching (kind/jurisdiction/capacity/technologies/due date/event type), RSS-token minting and
+toggling; alert digest grouping (multiple matches → one `Alert` per channel) and the exactly-once
+watermark; webhook HMAC sign/verify, endpoint matching by type+query, retry backoff scheduling,
+pause-after-24-failures, and replay-from-seq; the real per-tier token bucket (allow/block
+boundary, per-key isolation, `Retry-After`) at both the middleware and route level.
+
+### Remaining for billing (Sprint 3)
+
+- The real CRM/ERP + Stripe adapter (ADR 0006) behind `POST/GET /admin/v1/customers` and
+  `/admin/v1/subscriptions`, writing `account.entitlement_source = "sor"`; the interim
+  `PUT /admin/v1/accounts/{id}/entitlement` (`manual_grant`) should then be scoped down or removed.
+- Seat-limit enforcement (`account.seats`/`seats_used`, `403 seat_limit`) — modelled in the schema,
+  not enforced by any route yet.
+- Wiring a real login/registration surface (web-facing), and deciding whether magic-link/Google
+  ship alongside password auth or are dropped from the spec.
+- A scheduled job actually invoking `run_alert_cycle`/`deliver_pending` (Procrastinate).
+- Metering Pro/API credentials on the original Sprint 2 public routes (open decision 3 above).

@@ -9,7 +9,7 @@ consistency (`alembic history` resolves the revision graph) only.
 
 Two deliberate deviations from a literal reading of docs/21, both recorded in
 services/README.md "Pro tier and alerts" rather than silently assumed:
-  - `user.auth_provider` gains `password` alongside docs/20 §7's `magic_link \| google`, because
+  - `user.auth_provider` gains `password` alongside docs/20 §7's `magic_link | google`, because
     this task's brief asks for argon2 password-hash session auth.
   - `alert.event_seqs` (docs/21 §3.16 `bigint[]`) is stored as `jsonb` (`JSONVariant`) rather than
     a native array, matching this sprint's one other integer-array need with no new column type.
@@ -90,9 +90,7 @@ def upgrade() -> None:
         sa.Column("updated_at", TIMESTAMPTZ, nullable=False, server_default=sa.func.now()),
         _in_check("kind", ACCOUNT_KINDS, "ck_account_kind_vocab"),
         _in_check("entitlement", ACCOUNT_ENTITLEMENTS, "ck_account_entitlement_vocab"),
-        _in_check(
-            "entitlement_source", ACCOUNT_ENTITLEMENT_SOURCES, "ck_account_entitlement_source_vocab"
-        ),
+        _in_check("entitlement_source", ACCOUNT_ENTITLEMENT_SOURCES, "ck_account_entitlement_source_vocab"),
         _in_check("status", ACCOUNT_STATUSES, "ck_account_status_vocab"),
     )
 
@@ -150,9 +148,7 @@ def upgrade() -> None:
         sa.Column("id", pg.UUID(as_uuid=True), primary_key=True),
         sa.Column("public_id", sa.Text, nullable=False, unique=True),
         sa.Column("account_id", pg.UUID(as_uuid=True), sa.ForeignKey("account.id"), nullable=False),
-        sa.Column(
-            "created_by_user_id", pg.UUID(as_uuid=True), sa.ForeignKey("user.id"), nullable=False
-        ),
+        sa.Column("created_by_user_id", pg.UUID(as_uuid=True), sa.ForeignKey("user.id"), nullable=False),
         sa.Column("name", sa.Text, nullable=False),
         sa.Column("prefix", sa.Text, nullable=False, server_default="bk_live"),
         sa.Column("last4", sa.String(4), nullable=False),
@@ -206,9 +202,7 @@ def upgrade() -> None:
         "alert",
         sa.Column("id", pg.UUID(as_uuid=True), primary_key=True),
         sa.Column("public_id", sa.Text, nullable=False, unique=True),
-        sa.Column(
-            "saved_search_id", pg.UUID(as_uuid=True), sa.ForeignKey("saved_search.id"), nullable=False
-        ),
+        sa.Column("saved_search_id", pg.UUID(as_uuid=True), sa.ForeignKey("saved_search.id"), nullable=False),
         sa.Column("user_id", pg.UUID(as_uuid=True), sa.ForeignKey("user.id"), nullable=False),
         sa.Column("channel", sa.Text, nullable=False, server_default="email"),
         sa.Column("mode", sa.Text, nullable=False, server_default="daily"),
@@ -235,9 +229,7 @@ def upgrade() -> None:
         sa.Column("id", pg.UUID(as_uuid=True), primary_key=True),
         sa.Column("public_id", sa.Text, nullable=False, unique=True),
         sa.Column("account_id", pg.UUID(as_uuid=True), sa.ForeignKey("account.id"), nullable=False),
-        sa.Column(
-            "created_by_user_id", pg.UUID(as_uuid=True), sa.ForeignKey("user.id"), nullable=False
-        ),
+        sa.Column("created_by_user_id", pg.UUID(as_uuid=True), sa.ForeignKey("user.id"), nullable=False),
         sa.Column("url", sa.Text, nullable=False),
         sa.Column("description", sa.Text),
         sa.Column("types", pg.ARRAY(sa.Text), nullable=False, server_default="{}"),

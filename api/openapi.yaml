@@ -1279,8 +1279,8 @@ paths:
         `seats_used` back the seat check: a login above the seat count answers `403 seat_limit` (US-602 AC2).
         `limits` echoes the caller's effective rate-limit policy.
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-602, US-701, US-702]
       security:
         - Session: []
@@ -1306,8 +1306,8 @@ paths:
       summary: Account and subscription mirror
       description: The account row and its mirrored subscriptions (docs/21 §3.13, §3.14). Authoritative for nothing; `mirrored_at` and `drift_flag` say how fresh it is.
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-602, US-902]
       security:
         - Session: [member, owner]
@@ -1331,8 +1331,8 @@ paths:
       summary: List saved searches
       description: Mode, `last_run_at`, `last_match_count` and status per saved search (US-504 AC1).
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-501, US-504]
       security: *sec_pro
       parameters:
@@ -1361,8 +1361,8 @@ paths:
         Limit 25 per user (configurable); the 26th answers `403 forbidden_tier` naming the quota. `delivery_mode`
         defaults to `daily` (US-502 AC1); `channels` may include `rss`, which mints a private `rss_token` feed.
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-501, US-502]
       security: *sec_pro
       parameters:
@@ -1399,8 +1399,8 @@ paths:
       tags: [Saved searches & alerts]
       summary: Saved search detail
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-504]
       security: *sec_pro
       responses:
@@ -1422,8 +1422,8 @@ paths:
       summary: Edit or pause a saved search
       description: Name, query, delivery mode, channels or `status` (`active` | `paused`); the change is reflected in the next delivery cycle (US-504 AC1).
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-504, US-502]
       security: *sec_pro
       parameters:
@@ -1455,8 +1455,8 @@ paths:
       summary: Delete a saved search
       description: Stops its alerts within one delivery cycle and revokes its `rss_token` (US-504 AC1, US-502 AC3).
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-504]
       security: *sec_pro
       parameters:
@@ -1479,8 +1479,8 @@ paths:
       summary: Run the query now
       description: Returns the records or events the saved search would alert on, from the caller's tier, without moving `watermark_seq` (US-501 AC2).
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-501]
       security: *sec_pro
       parameters:
@@ -1506,8 +1506,8 @@ paths:
       summary: Alert delivery history
       description: One row per delivery with `event_seqs`, `sent_at`, `status` and `provider_message_id` — the source of truth for metric M-5 (US-502 AC4).
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-502, US-504]
       security: *sec_pro
       parameters:
@@ -1539,8 +1539,8 @@ paths:
       tags: [Saved searches & alerts]
       summary: Alert detail
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-502]
       security: *sec_pro
       responses:
@@ -1778,8 +1778,8 @@ paths:
       summary: List the account's API keys
       description: Name, prefix, `last4`, scopes, tier, limits, `created_at`, `last_used_at`, `revoked_at`; never the secret (US-701 AC1–AC2).
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-701]
       security: *sec_api_keys
       responses:
@@ -1806,8 +1806,8 @@ paths:
         `licence_accepted_version` must equal the version this document's `info.license.url` publishes, and the
         acceptance is recorded with a timestamp (US-704 AC2). Session-only: a key cannot mint keys.
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-701, US-704]
       security:
         - Session: [api]
@@ -1849,8 +1849,8 @@ paths:
       summary: Revoke a key
       description: Sets `revoked_at`; effective within 60 seconds everywhere (US-701 AC1). Writes a `key_revoked` event.
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-701]
       security:
         - Session: [api]
@@ -1979,8 +1979,8 @@ paths:
       tags: [Webhooks]
       summary: List webhook endpoints
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-703]
       security: *sec_api_webhooks
       responses:
@@ -2006,8 +2006,8 @@ paths:
         The payload is tier-filtered and licence-gated exactly like a `GET` on the same key. Outbound payload
         shapes are documented under `webhooks` at the end of this document.
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-703, US-502]
       security: *sec_api_webhooks
       parameters:
@@ -2042,8 +2042,8 @@ paths:
       tags: [Webhooks]
       summary: Webhook endpoint detail
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-703]
       security: *sec_api_webhooks
       responses:
@@ -2064,8 +2064,8 @@ paths:
       tags: [Webhooks]
       summary: Delete a webhook endpoint
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-703]
       security: *sec_api_webhooks
       parameters:
@@ -2087,8 +2087,8 @@ paths:
       tags: [Webhooks]
       summary: Send a `webhook.test` delivery
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-703]
       security: *sec_api_webhooks
       responses:
@@ -2114,8 +2114,8 @@ paths:
       summary: Resend deliveries from a `seq` cursor
       description: Re-enqueues every matching event with `seq > since` (docs/23 §9.1). Consumers dedupe on `data.event.id`.
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-703]
       security: *sec_api_webhooks
       parameters:
@@ -2152,8 +2152,8 @@ paths:
       summary: Delivery attempts and responses
       description: For debugging — attempt number, response status, latency, error class; response bodies are truncated to 1 KB and never logged beyond 30 days.
       x-tier: api
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-703]
       security: *sec_api_webhooks
       parameters:
@@ -3645,6 +3645,59 @@ paths:
         default:
           $ref: '#/components/responses/Problem'
 
+  /admin/v1/accounts/{account_id}/entitlement:
+    servers: *admin_servers
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+    put:
+      operationId: adminSetAccountEntitlement
+      tags: [Admin — customers]
+      summary: Manually grant an account's entitlement (interim, pre-billing)
+      description: |
+        Sets `account.entitlement` directly, with `entitlement_source = manual_grant` (docs/21 §3.13) — the
+        escape hatch that vocabulary already models, used because billing/CRM integration (`POST
+        /admin/v1/subscriptions`, the real `entitlement_source = sor` path) is Sprint 3 (Pro tier and alerts task
+        brief: "entitlements are set by an admin-only endpoint for now"). Requires a `reason` (US-905 AC3 pattern);
+        writes an `admin_edit` event with `before`/`after` (US-901 AC2). Superseded once the CRM/ERP adapter ships;
+        does not call it.
+      x-tier: admin
+      x-status: live
+      x-sprint: 2
+      x-prd-stories: [US-602, US-901]
+      security: *sec_admin
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entitlement, reason]
+              properties:
+                entitlement:
+                  $ref: '#/components/schemas/Entitlement'
+                reason:
+                  type: string
+                  minLength: 1
+      responses:
+        '200':
+          description: The updated account.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccountEntitlementResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
   /admin/v1/subscriptions:
     servers: *admin_servers
     get:
@@ -4065,8 +4118,8 @@ paths:
       summary: Private live feed for a saved search (Pro)
       description: The token is the credential; items are live (`lag_days = 0`) for the owner's tier and licence-gated as any Pro read. A revoked or unknown token answers `404`.
       x-tier: pro
-      x-status: planned
-      x-sprint: 3
+      x-status: live
+      x-sprint: 2
       x-prd-stories: [US-503, US-501]
       security:
         - {}
@@ -5761,7 +5814,8 @@ components:
       enum: [public, pro, api, admin]
     UserRole:
       type: string
-      enum: [viewer, member, operator, owner]
+      description: docs/21 §3.12. `legal` added 2026-09-12 so a role distinct from `owner` can clear a licence gate (US-905 AC1) — this enum was stale on that addition until Pro tier and alerts corrected it.
+      enum: [viewer, member, operator, legal, owner]
     UserStatus:
       type: string
       enum: [active, disabled, anonymised]
@@ -7815,7 +7869,8 @@ components:
           $ref: '#/components/schemas/UserStatus'
         auth_provider:
           type: string
-          enum: [magic_link, google]
+          description: '`password` added by Pro tier and alerts (argon2-hashed session auth per that task''s brief); docs/20 §7''s passwordless `magic_link`/Google flows remain unbuilt this sprint (services/README.md).'
+          enum: [magic_link, google, password]
         mfa_enforced:
           type: boolean
         marketing_consent:
@@ -7976,6 +8031,17 @@ components:
                   type: array
                   items:
                     $ref: '#/components/schemas/Subscription'
+    AdminAccountEntitlementResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [account]
+              properties:
+                account:
+                  $ref: '#/components/schemas/Account'
     SavedSearchQuery:
       type: object
       description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results.

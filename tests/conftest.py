@@ -19,11 +19,24 @@ from sqlalchemy.orm import Session, sessionmaker
 from services.api.app import app
 from services.api.auth import create_session
 from services.api.deps import get_db
+from services.api.ratelimit import default_limiter
 from services.db.models import Account, ApiKey, User
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id
 
 UTC = dt.UTC
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter() -> None:
+    """`services.api.ratelimit.default_limiter` is one process-wide instance (by design — it
+    stands in for a shared Redis store in production, `services/api/ratelimit.py`'s module
+    docstring), so without a reset here, tests sharing this pytest process would exhaust each
+    other's buckets by running after `tests/test_api_pro_ratelimit.py`'s deliberately
+    limit-filling tests. Autouse rather than opt-in: any test hitting `client` goes through the
+    same middleware and the same limiter, so leaving one test file to remember this would be a
+    silent ordering hazard."""
+    default_limiter.reset()
 
 
 @pytest.fixture()
@@ -121,6 +134,19 @@ def make_api_key(
 
 def login(client: TestClient, session_db: Session, user: User) -> None:
     """Signs `client` in as `user` by minting a real session row and setting the cookie exactly as
-    `services.api.auth.create_session` would for a web login — not a test-only bypass."""
+    `services.api.auth.create_session` would for a web login — not a test-only bypass.
+
+    Commits immediately: this sandbox's SQLite test target shares one physical connection across
+    every `Session` in a test (`services/db/session.py`'s `StaticPool`, needed because a bare
+    in-memory database is otherwise per-connection) so that fixture writes on the `db` fixture and
+    request-scoped writes through `client` can see each other without an explicit commit in every
+    test. That convenience has one sharp edge: a later request that raises a handled error (a 404,
+    say) rolls back its own request-scoped session (`services/api/deps.py` `get_db`), and because
+    the connection is shared, that rollback would also discard this session row if it were left
+    uncommitted — an artefact of the shared-connection test setup, not of the app (two real
+    connections cannot roll each other back). Committing here up front avoids depending on the
+    ordering of later requests to keep a login alive.
+    """
     _row, cookie_value = create_session(session_db, user)
+    session_db.commit()
     client.cookies.set("session", cookie_value)

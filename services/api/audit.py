@@ -1,8 +1,8 @@
 """The audit log (docs/04-standards.md S-4; docs/21-data-model.md §3.10, §6.1).
 
 Reuses the existing append-only `event` table rather than a new one: `event.subject_type` already
-includes `user \| account \| api_key` and `event.event_type` already includes `key_issued \|
-key_revoked \| admin_edit` (docs/21 §7.3, §3.10) — an admin write recorded here is
+includes `user | account | api_key` and `event.event_type` already includes `key_issued |
+key_revoked | admin_edit` (docs/21 §7.3, §3.10) — an admin write recorded here is
 indistinguishable in shape from a pipeline event, which is the point (`docs/21` §6.1: "one code
 path, one predicate"). `actor_type = 'user'` and a non-null `reason` are required, matching
 US-905 AC3.

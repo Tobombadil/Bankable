@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from services.api.app import app
 from services.api.deps import get_db
+from services.api.ratelimit import default_limiter
 from services.db.models import (
     Event,
     Licence,
@@ -26,6 +27,16 @@ from services.db.models import (
 from services.db.session import get_engine, get_sessionmaker, init_db
 
 UTC = dt.UTC
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter() -> None:
+    """`services.api.ratelimit.default_limiter` is one process-wide instance standing in for a
+    shared store (its module docstring); reset it so this file's tests never inherit a
+    part-filled bucket from `tests/test_api_pro_ratelimit.py` (or each other) when the whole
+    suite runs in one pytest process (`tests/conftest.py` carries the identical fixture for the
+    same reason — the two directories do not share fixtures, so both need it)."""
+    default_limiter.reset()
 
 
 @pytest.fixture()

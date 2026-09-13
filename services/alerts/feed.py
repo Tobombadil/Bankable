@@ -29,7 +29,7 @@ from services.db.models import Account, Event, Opportunity, Proposal, SavedSearc
 
 from .matching import event_matches_query, matches_query
 
-RSS_TOKEN_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+RSS_TOKEN_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"  # noqa: S105 - a charset, not a secret
 
 
 def generate_rss_token() -> str:
@@ -48,26 +48,26 @@ def matching_items_for_feed(
     first — used both for the RSS/JSON feed and for `POST .../preview` (US-501 AC2's "run the
     query now")."""
     if search.entity == "proposal":
-        stmt = select(Proposal).where(*_visibility_for(Proposal, account))
-        rows = [p for p in db.scalars(stmt).all() if matches_query("proposal", p, search.query)]
-        rows.sort(key=lambda p: p.last_changed, reverse=True)
-        return [_proposal_feed_item(p) for p in rows[:limit]]
+        proposal_stmt = select(Proposal).where(*_visibility_for(Proposal, account))
+        proposals = [p for p in db.scalars(proposal_stmt).all() if matches_query("proposal", p, search.query)]
+        proposals.sort(key=lambda p: p.last_changed, reverse=True)
+        return [_proposal_feed_item(p) for p in proposals[:limit]]
     if search.entity == "opportunity":
-        stmt = select(Opportunity).where(*_visibility_for(Opportunity, account))
-        rows = [o for o in db.scalars(stmt).all() if matches_query("opportunity", o, search.query)]
-        rows.sort(key=lambda o: o.last_changed, reverse=True)
-        return [_opportunity_feed_item(o) for o in rows[:limit]]
+        opportunity_stmt = select(Opportunity).where(*_visibility_for(Opportunity, account))
+        opportunities = [
+            o for o in db.scalars(opportunity_stmt).all() if matches_query("opportunity", o, search.query)
+        ]
+        opportunities.sort(key=lambda o: o.last_changed, reverse=True)
+        return [_opportunity_feed_item(o) for o in opportunities[:limit]]
     if search.entity == "event":
-        stmt = select(Event).where(*event_visibility_filter(account.entitlement))
-        events = [e for e in db.scalars(stmt).all() if event_matches_query(e, search.query)]
+        event_stmt = select(Event).where(*event_visibility_filter(account.entitlement))
+        events = [e for e in db.scalars(event_stmt).all() if event_matches_query(e, search.query)]
         events.sort(key=lambda e: e.seq, reverse=True)
         return [_event_feed_item(e) for e in events[:limit]]
     return []
 
 
-def _visibility_for(
-    model: type[Proposal] | type[Opportunity], account: Account
-) -> list[ColumnElement[bool]]:
+def _visibility_for(model: type[Proposal] | type[Opportunity], account: Account) -> list[ColumnElement[bool]]:
     from services.api.visibility import opportunity_visibility_filter, proposal_visibility_filter
 
     if model is Proposal:
@@ -89,10 +89,18 @@ def _proposal_feed_item(p: Proposal) -> dict[str, Any]:
         "description": f"{p.name_canonical}: {p.lifecycle_state} ({p.jurisdiction}).",
         "platform_ext": {
             "event_type": "status_change",
-            "subject": {"public_id": p.public_id, "name": p.name_canonical, "url": f"{WEB_HOST}/proposals/{p.slug}"},
+            "subject": {
+                "public_id": p.public_id,
+                "name": p.name_canonical,
+                "url": f"{WEB_HOST}/proposals/{p.slug}",
+            },
             "provenance": [],
             "licence_summary": build_licence_summary(
-                [licence_summary_row(s.source, s.source.licence, s.retrieved_at) for s in p.sources if s.active]
+                [
+                    licence_summary_row(s.source, s.source.licence, s.retrieved_at)
+                    for s in p.sources
+                    if s.active
+                ]
             ),
             "data_as_of": "live",
         },
@@ -113,10 +121,18 @@ def _opportunity_feed_item(o: Opportunity) -> dict[str, Any]:
         "description": f"{o.title}: {o.status} ({o.jurisdiction}).",
         "platform_ext": {
             "event_type": "status_change",
-            "subject": {"public_id": o.public_id, "name": o.title, "url": f"{WEB_HOST}/opportunities/{o.slug}"},
+            "subject": {
+                "public_id": o.public_id,
+                "name": o.title,
+                "url": f"{WEB_HOST}/opportunities/{o.slug}",
+            },
             "provenance": [],
             "licence_summary": build_licence_summary(
-                [licence_summary_row(s.source, s.source.licence, s.retrieved_at) for s in o.sources if s.active]
+                [
+                    licence_summary_row(s.source, s.source.licence, s.retrieved_at)
+                    for s in o.sources
+                    if s.active
+                ]
             ),
             "data_as_of": "live",
         },

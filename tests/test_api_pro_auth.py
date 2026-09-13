@@ -94,7 +94,12 @@ def test_session_cookie_is_rejected_after_tampering(db):
     _row, cookie = create_session(db, user)
     db.commit()
 
-    tampered = cookie[:-1] + ("A" if cookie[-1] != "A" else "B")
+    # Flip a character in the payload segment (before the first ".") rather than the very last
+    # character of the whole cookie: the tail few base64 characters of an itsdangerous token can
+    # have spare bits that some substitutions decode identically, making tampering there flaky.
+    payload, _, rest = cookie.partition(".")
+    flipped_char = "A" if payload[-1] != "A" else "B"
+    tampered = payload[:-1] + flipped_char + "." + rest
     assert resolve_session(db, tampered) is None
 
 
@@ -227,10 +232,22 @@ def test_account_requires_pro_entitlement(client, db):
 def test_api_key_bearer_grants_access_to_pro_route(client, db):
     account = make_account(db, entitlement="pro")
     user = make_user(db, account)
-    key, secret = make_api_key(db, account, user, scopes=["read:live"])
+    _key, secret = make_api_key(db, account, user, scopes=["read:live"])
     db.commit()
     resp = client.get("/v1/saved-searches", headers={"Authorization": f"Bearer {secret}"})
     assert resp.status_code == 200
+
+
+def test_me_with_a_key_only_credential_renders_as_the_keys_creator(client, db):
+    account = make_account(db, entitlement="pro")
+    user = make_user(db, account)
+    _key, secret = make_api_key(db, account, user, scopes=["read:live"])
+    db.commit()
+    resp = client.get("/v1/me", headers={"Authorization": f"Bearer {secret}"})
+    assert resp.status_code == 200
+    body = resp.json()["data"]
+    assert body["user"]["user_id"] == user.public_id
+    assert body["scopes"] == ["read:live"]
 
 
 def test_revoked_key_is_rejected(client, db):
