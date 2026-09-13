@@ -92,16 +92,6 @@ services:
         max-size: "20m"
         max-file: "5"
 
-  social:
-    depends_on: !override {}
-    environment:
-      ENVIRONMENT: production
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 volumes:
   caddy_data:
   caddy_config:

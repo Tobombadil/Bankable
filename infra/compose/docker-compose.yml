@@ -106,6 +106,12 @@ services:
       dockerfile: infra/docker/Dockerfile
       target: worker
     restart: unless-stopped
+    # `alert`/`post_draft`/`publish_post` cover the alert cycle and social draft/publish jobs
+    # (infra/scheduler/app.py's `alert_tick`/`post_draft_tick`); there is no separate `social`
+    # process in docs/20 §4.1's pool table (`worker-plain` already reads "alerts, publishers"), so
+    # the placeholder `social` service (Sprint 2's `while true ... report` loop) is folded in here
+    # rather than replaced — see infra.scheduler.app.py's module docstring for why this is safe
+    # even before the `alert`/`post_draft` queues had any task deferred onto them.
     command: ["python", "-m", "infra.scheduler.worker", "--queues", "fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook"]
     environment:
       <<: *app-env
@@ -134,26 +140,6 @@ services:
     shm_size: "1gb" # Chromium needs real /dev/shm, not Docker's 64 MB default
     mem_limit: 2g   # docs/20 §4.1: "Playwright Chromium pool, max 3 pages, 2 GB RAM"
     cpus: "1.5"
-
-  social:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile
-      target: worker
-    restart: unless-stopped
-    # services/social is a one-shot CLI this sprint (services/social/README.md), not a daemon;
-    # this loop polls the review queue every 5 minutes so `docker compose ps` shows a live service
-    # without inventing a server mode the codebase doesn't have. Real scheduling (draft generation
-    # off the event log) is a `worker` job once services/social gains a queue consumer.
-    command: ["sh", "-c", "while true; do python -m services.social report; sleep 300; done"]
-    environment:
-      <<: *app-env
-      WORKER_ROLE: social-dry-run
-    depends_on:
-      postgres:
-        condition: service_healthy
-    mem_limit: 256m
-    cpus: "0.5"
 
 volumes:
   pg_data:
