@@ -54,3 +54,6 @@ rotation is logged under `infra/secret-rotation-log.md` (date, secret, rotated b
 This is not a KMS. There is no audit log of *who decrypted what and when* beyond git history of
 `.sops.yaml` and whoever has the private key. For a solo operator (docs/20 [A-2]) that is an
 accepted trade-off (ADR 0005); revisit if a second engineer with less-than-full trust joins.
+
+
+> **Note (2026-09-13):** the throwaway age private key that once accompanied `secrets.dev.example.enc.yaml` was removed from the repository; private keys are gitignored under `infra/sops/keys/`. The example file therefore cannot be decrypted from a fresh clone. Generate your own key with `infra/scripts/bootstrap_age_key.sh dev`, re-encrypt the example, and treat the recipient in `.sops.yaml` as a placeholder to replace.
