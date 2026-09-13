@@ -18,13 +18,23 @@ Simplifications this sprint (no upstream producer yet — recorded here, not sil
     `proposal`/`opportunity` row 1:1 with its `proposal_source`/`opportunity_source` row; the
     `min_reuse_class` and `field_provenance` machinery is still exercised, just over a single
     source per record until resolve.py lands.
-  - **No geocoding.** `location.geom` is left null; `location.precision` is `county_centroid` /
-    `state_centroid` / `unknown` from the state/county strings a connector already parsed, per
-    docs/21 §3.7's precision vocabulary. A geocoder (`census_tiger`) is a follow-up.
   - **Publish state.** Admin per-record publish/unpublish (US-905) is out of scope this sprint.
     Every record from a publishable source (its gate already cleared, by construction of the
     refusal above) is loaded as `publish_state = "public"`; the admin sprint gains the ability to
-    move individual records to `pending_review` / `unpublished` without a loader change.
+    move individual records to `pending_review` / `unpublished` without a loader change. The
+    *source's own* `publish_state` is likewise set straight to `public` for a gate-cleared
+    (`open`/`attribution`) registry entry (docs/21 §5.4's `source_permits`) rather than the earlier
+    `api_only` default that needed a separate admin-style flip — see `_is_derived_only_override`'s
+    neighbourhood below and `services/README.md`'s "Sprint 2 fixes" for the history.
+
+Geocoding (`services/ingest/geocode.py`, this sprint's fix — previously `location.geom` was left
+null for every row, `web/data_loading.py::backfill_locations` was a frontend-side stopgap for it):
+a connector-parsed county name geocodes to its US Census Gazetteer centroid (`county_centroid`); a
+county that doesn't resolve (misspelling, multi-county span, non-US) falls back to a state centroid
+(`state_centroid`) when a state is present; otherwise the location is `unknown` — counted as
+unplaced, never dropped (docs/04 D-8). Never `exact`: that precision tier needs real coordinates
+from the source itself (e.g. EIA-860M's raw `Latitude`/`Longitude`), which this module does not
+promote — a documented follow-up, not silently done here.
 
 Fixed since `services/resolve/README.md` first observed them (both without changing the public
 functions below):
@@ -78,7 +88,26 @@ from services.db.models import (
     SourceRun,
 )
 from services.ids import public_id, slugify
+from services.ingest.geocode import CountyGazetteer, default_gazetteer, geocode
 from services.ingest.lag import compute_public_at
+
+#: A `reuse: attribution` source whose recorded terms explicitly call it out as derived-only
+#: (docs/00-PLAN.md's 2026-09-12 legal register: "CAISO and NYISO derived-only with credit") is a
+#: per-source override, not a blanket property of the `attribution` reuse class -- docs/21 §8's
+#: general `attribution` row is "everything, at lag, with credit" (raw allowed); only the specific
+#: sources whose licence text says so withhold raw. `data/sources.yaml` has no dedicated boolean
+#: for this yet (a data-engineer follow-up, services/README.md open decision #11), so this reads
+#: the signal that is already there: the free-text `notes`/`license` clause a data-engineer wrote
+#: for exactly this purpose (CAISO: "Publish derived-only until counsel resolves..."; NYISO:
+#: "Derived-only at launch with credit ... raw-ok candidate after counsel sign-off"). A source
+#: whose terms don't say "derived-only" (e.g. GB NESO, credited but raw-ok) is unaffected.
+_DERIVED_ONLY_RE = re.compile(r"derived[\s-]only", re.I)
+
+
+def _is_derived_only_override(entry: SourceEntry) -> bool:
+    if entry.reuse != "attribution":
+        return False
+    return bool(_DERIVED_ONLY_RE.search(entry.notes or "") or _DERIVED_ONLY_RE.search(entry.license or ""))
 
 Kind = Literal["proposal", "opportunity"]
 
@@ -163,6 +192,7 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
 
     licence = session.get(Licence, licence_id)
     now = utcnow()
+    derived_only = _is_derived_only_override(entry)
     if licence is None:
         licence = Licence(
             id=licence_id,
@@ -174,7 +204,11 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
             ),
             requires_link_back=entry.reuse == "attribution",
             allows_derived_publication=True,
-            allows_raw_publication=True,
+            # docs/21 §8: `open` is always raw-ok; `attribution` is raw-ok too unless this
+            # source's own terms are recorded as a derived-only override (module docstring above)
+            # -- never hardcoded True regardless of reuse class (was services/README.md open
+            # decision #11).
+            allows_raw_publication=not derived_only,
             allows_api_redistribution=True,
             allows_bulk_export=True,
             allows_commercial_use=entry.reuse == "open",
@@ -184,6 +218,7 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
             evidence_retrieved_at=now,
             classified_by="data-engineer",
             notes=entry.notes or None,
+            quote_text=entry.license or None,
         )
         session.add(licence)
         session.flush()
@@ -209,7 +244,19 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
             connector=entry.connector or None,
             implemented=entry.implemented,
             licence_id=licence.id,
-            publish_state="api_only",
+            # docs/21 §5.4's source_permits gate requires publish_state = 'public' exactly (not
+            # 'api_only') before the public tier shows anything from this source. Previously
+            # hardcoded 'api_only' regardless of registry class, pushed onto a manual admin-style
+            # flip (services/README.md open decision #5, `web/data_loading.py::
+            # _flip_publish_state_public`'s workaround for the missing admin surface). By this
+            # point in the function `entry.reuse` is already known to be `open`/`attribution` --
+            # `_assert_not_gated` and the `is_open_or_attribution` check above both raise first --
+            # so the registry class now decides directly: a source that cleared the licence gate
+            # loads straight to public, matching what an admin publish action would do (the same
+            # call the workaround made explicit); `restricted`/`unknown` never reach here, but the
+            # branch is written to fail closed (`ingest_only`) rather than assume that continues
+            # to hold.
+            publish_state="public" if entry.reuse in ("open", "attribution") else "ingest_only",
             host=entry.host or None,
             max_rps=entry.max_rps,
             manifest_version=manifest_version,
@@ -391,13 +438,31 @@ def _get_or_create_location(
     county: str | None,
     source: Source,
     retrieved_at: dt.datetime,
+    derived_only: bool,
+    gaz: CountyGazetteer | None = None,
 ) -> Location | None:
+    """Geocode a connector-parsed state/county pair (docs/21 §3.7; docs/04 D-8): a resolvable
+    county centroid, else a resolvable state centroid, else unplaced -- `services/ingest/geocode.py`
+    does the lookup against the vendored public-domain county-centroid table so this no longer
+    depends on `web/`'s copy of the same geocoder (services/README.md open decision #2).
+
+    `derived_only` (the source's licence withholds raw/exact geo, docs/21 §8's "attribution, raw
+    withheld" row, `_is_derived_only_override` above): stamps `precision_reason = "licence"`
+    (docs/04 D-9) so the API can render the restricted-precision note. This never *upgrades* a
+    location -- this module's geocoder only ever produces `county_centroid`/`state_centroid`/
+    `unknown`, never `exact`, so there is nothing to downgrade from yet; the reason is recorded
+    now so a future `exact`-capable geocoder (e.g. EIA-860M's raw `Latitude`/`Longitude`) does not
+    silently start leaking an exact point for these sources without this check already in place.
+    """
     if not state and not county:
         return None
-    precision = "county_centroid" if county else "state_centroid"
+    kind = "county" if county else "state"
+    point, precision = geocode(state, county, gaz=gaz)
     loc = Location(
-        kind="county" if county else "state",
+        kind=kind,
+        geom=point,
         precision=precision,
+        precision_reason="licence" if derived_only else None,
         county_name=county or None,
         state_code=(f"US-{state.upper()}" if state else None),
         country="US",
@@ -650,6 +715,7 @@ def load_dataframe(
                     county=_row_get(row, "county"),
                     source=source,
                     retrieved_at=retrieved_at,
+                    derived_only=not source.licence.allows_raw_publication,
                 )
                 if loc is not None:
                     entity.location_id = loc.id

@@ -8,15 +8,19 @@
 
 {% macro delayed_banner(delayed) -%}
 <p class="delayed-notice" role="status">
-  Public data is {{ delayed.lag_days }} days delayed (as of {{ delayed.data_as_of }}). <a href="/about#tiers">Live in Pro &rarr;</a>
+  <span class="stamp-label">Delayed</span> Public data is <span class="tnum">{{ delayed.lag_days }}</span> days delayed (as of <span class="tnum">{{ delayed.data_as_of }}</span>). <a href="/about#tiers">Live in Pro &rarr;</a>
 </p>
 {%- if delayed.preview_active %}
-<p class="preview-banner" role="status">Preview: the publish delay is bypassed for this data so today&rsquo;s rows are visible now (dev only). The notice above still states the real configured lag.</p>
+<p class="preview-banner" role="status"><span class="stamp-label">Dev preview</span> The publish delay is bypassed for this data so today&rsquo;s rows are visible now. The notice above still states the real configured lag.</p>
 {%- endif %}
 {%- endmacro %}
 
 {% macro attribution_line(record) -%}
-<p class="attribution-line">Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text or record.source_name }}</a>{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved {{ record.retrieved_at[:10] if record.retrieved_at else 'unknown' }}.</p>
+<p class="attribution-line">Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text or record.source_name }}</a>{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved <span class="tnum">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown' }}</span>.</p>
+{%- endmacro %}
+
+{% macro section_heading(number, text, id=None) -%}
+<h2{% if id %} id="{{ id }}"{% endif %}><span class="section-num">{{ number }}</span> {{ text }}</h2>
 {%- endmacro %}
 
 {% macro active_states_notice(breakdown, include_withdrawn) -%}
@@ -31,9 +35,11 @@
 </p>
 {%- endmacro %}
 
-{% macro provenance_panel(rows) -%}
+{# Class stays "provenance-panel" (web/test_e2e.py selects it); the provenance-bar idiom described
+   in docs/30 §7/§9 is the styling underneath that class in styles.css, not a renamed component. #}
+{% macro provenance_panel(rows, number=None) -%}
 <section class="provenance-panel" aria-label="Sources">
-  <h2>Sources</h2>
+  {% if number %}{{ section_heading(number, "Sources") }}{% else %}<h2>Sources</h2>{% endif %}
   {% if rows %}
   <ul class="provenance-panel__list">
     {% for row in rows %}
@@ -42,7 +48,7 @@
         <summary>
           <span class="provenance-panel__name">{{ row.source_name }}</span>
           <span class="provenance-panel__licence reuse-badge">{{ row.reuse_class }}</span>
-          <span class="provenance-panel__date">retrieved {{ row.retrieved_at[:10] if row.retrieved_at else 'unknown' }}</span>
+          <span class="provenance-panel__date tnum">retrieved {{ row.retrieved_at[:10] if row.retrieved_at else 'unknown' }}</span>
         </summary>
         <p class="provenance-panel__quote">{{ row.licence_quote }}</p>
         {% if not row.allows_raw -%}

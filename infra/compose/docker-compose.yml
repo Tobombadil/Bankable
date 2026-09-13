@@ -1,0 +1,159 @@
+# Base Compose file: one service per component (docs/20 §2, §4.1). Used as-is for `local`/`dev`
+# and `staging` (docs/04 O-1); `compose.prod.yml` overrides it for `production` (managed Postgres,
+# Caddy, tighter resource limits, docs/04 O-4).
+#
+# Run from the repo root:
+#   docker compose -f infra/compose/docker-compose.yml --env-file infra/compose/.env up -d
+#
+# All application services build from the same two Dockerfiles (docs/20 §4.1 "one container image
+# with different entrypoints"): infra/docker/Dockerfile (multi-stage, targets api/web/worker) and
+# infra/docker/Dockerfile.browser-worker (adds Playwright's Chromium).
+
+name: infraqueue
+
+x-app-env: &app-env
+  DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://infraqueue:infraqueue@postgres:5432/infraqueue}
+  BANKABLE_DOMAIN: ${DOMAIN:-example-infraqueue.test}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  ENVIRONMENT: ${ENVIRONMENT:-dev}
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    profiles: ["local"] # `local`/`dev`/CI only — staging and production point DATABASE_URL at the managed provider (ADR 0003); activate with `--profile local` or `COMPOSE_PROFILES=local`
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: infraqueue
+      POSTGRES_USER: infraqueue
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-infraqueue-dev-only}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432" # dev convenience only; not exposed in compose.prod.yml
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infraqueue -d infraqueue"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 1g
+    cpus: "1.0"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      target: api
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+    cpus: "1.0"
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      target: web
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      API_BASE_URL: http://api:8000
+    depends_on:
+      - api
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+    cpus: "1.0"
+
+  scheduler:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      target: worker
+    restart: unless-stopped
+    command: ["python", "-m", "infra.scheduler.app"]
+    environment:
+      <<: *app-env
+      WORKER_ROLE: scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Singleton by design (docs/20 §4.2: leader lock in Postgres) — never scale this service.
+    mem_limit: 256m
+    cpus: "0.5"
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      target: worker
+    restart: unless-stopped
+    command: ["python", "-m", "infra.scheduler.worker", "--queues", "fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook"]
+    environment:
+      <<: *app-env
+      WORKER_ROLE: worker-plain
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 2 # docs/20 §4.1 "worker-plain | 2 replicas"; scale further via `docker compose up --scale worker=N` (docs/20 §13 step 1)
+    mem_limit: 512m
+    cpus: "1.0"
+
+  browser-worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.browser-worker
+    restart: unless-stopped
+    command: ["python", "-m", "infra.scheduler.worker", "--queues", "fetch_browser"]
+    environment:
+      <<: *app-env
+      WORKER_ROLE: worker-browser
+      PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
+    depends_on:
+      postgres:
+        condition: service_healthy
+    shm_size: "1gb" # Chromium needs real /dev/shm, not Docker's 64 MB default
+    mem_limit: 2g   # docs/20 §4.1: "Playwright Chromium pool, max 3 pages, 2 GB RAM"
+    cpus: "1.5"
+
+  social:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      target: worker
+    restart: unless-stopped
+    # services/social is a one-shot CLI this sprint (services/social/README.md), not a daemon;
+    # this loop polls the review queue every 5 minutes so `docker compose ps` shows a live service
+    # without inventing a server mode the codebase doesn't have. Real scheduling (draft generation
+    # off the event log) is a `worker` job once services/social gains a queue consumer.
+    command: ["sh", "-c", "while true; do python -m services.social report; sleep 300; done"]
+    environment:
+      <<: *app-env
+      WORKER_ROLE: social-dry-run
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 256m
+    cpus: "0.5"
+
+volumes:
+  pg_data:

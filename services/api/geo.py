@@ -1,10 +1,12 @@
-"""GeoJSON map payloads (docs/04-standards.md §2.2; api/openapi.yaml `GeoResponse`).
+"""GeoJSON map payloads (docs/04-standards.md §2.2, D-10; api/openapi.yaml `GeoResponse`).
 
-Clustering here is a simple lon/lat grid keyed by zoom (grid cell size halves per zoom level) —
-enough to prove the contract (cluster vs individual-feature shape, `lifecycle_state_counts`,
-`technology_counts`, the restricted-precision rule) at this sprint's data volumes. A production
-implementation would use PostGIS `ST_ClusterKMeans`/`ST_SnapToGrid` server-side; that is a
-follow-up once the map page (docs/04 D-10) is being built against real traffic, not before.
+Clustering here is a pure-Python lon/lat grid keyed by zoom (grid cell size halves per zoom level
+off an empirically-tuned base, `_grid_cell` below) — enough to prove the contract (cluster vs
+individual-feature shape, `lifecycle_state_counts`, `technology_counts`, the restricted-precision
+rule) at this sprint's data volumes, real ones included (tuned and measured against the full
+`data/normalized/*` load — services/README.md "Sprint 2 fixes"). A production implementation would
+use PostGIS `ST_ClusterKMeans`/`ST_SnapToGrid` server-side; that is a follow-up once the map page
+is being built against real traffic at a scale this grid stops serving well, not before.
 """
 
 from __future__ import annotations
@@ -17,9 +19,21 @@ from services.db.models import Location, Proposal
 
 SPLIT_THRESHOLD = 500  # docs/04 D-10: clusters split into markers at <=500 visible records
 
+#: Grid-cell size in degrees at `zoom = 1`; halves each zoom level thereafter (`_grid_cell`).
+#: Chosen empirically against the full proposal set placed by `services/ingest/geocode.py`
+#: (~8,150 continental-US points): 36° at zoom 1 yields on the order of 20-60 grid cells with any
+#: members over the continental US at zoom 3-4 (docs/04 D-10's "a cluster that hides state and
+#: technology hides the product" — the prior fixed `360 / 2**zoom` formula produced only 2-4 at
+#: that range, `web/README.md`'s reported "three clusters" defect). Never below `MIN_CELL_DEG`
+#: (the old formula's zoom-12 floor), so high zoom still converges to near-individual markers
+#: rather than an ever-shrinking cell that never stops splitting.
+BASE_CELL_DEG = 36.0
+MIN_CELL_DEG = 360.0 / (2**12)
+
 
 def _grid_cell(lon: float, lat: float, zoom: int) -> tuple[int, int]:
-    cell_deg = 360.0 / (2 ** max(1, min(zoom, 12)))
+    effective_zoom = max(1, min(zoom, 20))
+    cell_deg = max(BASE_CELL_DEG / (2 ** (effective_zoom - 1)), MIN_CELL_DEG)
     return (math.floor(lon / cell_deg), math.floor(lat / cell_deg))
 
 
@@ -29,10 +43,26 @@ def _precision_reason(loc: Location) -> str | None:
     return None
 
 
+def _in_bbox(lon: float, lat: float, bbox: tuple[float, float, float, float]) -> bool:
+    min_lon, min_lat, max_lon, max_lat = bbox
+    return min_lon <= lon <= max_lon and min_lat <= lat <= max_lat
+
+
 def build_geo_feature_collection(
     proposals: list[Proposal], *, bbox: tuple[float, float, float, float], zoom: int
 ) -> tuple[dict[str, Any], int]:
     """`proposals` must already be tier/licence filtered by the caller (services/api/visibility.py).
+
+    `bbox` scopes which placed records become map *features* (points/clusters) — a pan or zoom now
+    actually changes what's returned (`web/README.md` "Missing from the API" item 4: previously
+    accepted and echoed but never applied, so every request re-clustered the whole dataset
+    regardless of viewport). `totals` (`records`, `lifecycle_state_counts`, `technology_counts`)
+    and the returned `unplaced_count` stay scoped to the full filter match, not the viewport — a
+    record with no geometry is not "in" any bbox, and D-8 requires it stays counted rather than
+    silently dropping out the moment a caller narrows the map; `web/app.py`'s sitewide
+    active/withdrawn notice deliberately calls this with a whole-world bbox for exactly this
+    total, and a whole-world bbox already includes every placed record, so that caller's numbers
+    are unaffected by this scoping.
 
     Returns `(feature_collection, unplaced_count)`.
     """
@@ -43,21 +73,23 @@ def build_geo_feature_collection(
 
     # county/state-centroid records without a stored point cannot be plotted exactly; treat them
     # as "unplaced" for feature purposes but still counted honestly (docs/04 D-8) rather than
-    # silently dropped. A future geocoder (services/ingest/loader.py note) fills `geom` in.
+    # silently dropped.
     plottable: list[tuple[Proposal, Location, tuple[float, float]]] = [
         (p, loc, loc.geom) for p, loc in with_location if loc.geom is not None
     ]
     unplaced_count += len(with_location) - len(plottable)
 
+    in_view = [member for member in plottable if _in_bbox(member[2][0], member[2][1], bbox)]
+
     features: list[dict[str, Any]] = []
-    if len(plottable) <= SPLIT_THRESHOLD:
-        for p, loc, (lon, lat) in plottable:
+    if len(in_view) <= SPLIT_THRESHOLD:
+        for p, loc, (lon, lat) in in_view:
             features.append(_record_feature(p, loc, lon, lat))
     else:
         groups: dict[tuple[int, int], list[tuple[Proposal, Location, tuple[float, float]]]] = defaultdict(
             list
         )
-        for member in plottable:
+        for member in in_view:
             _, _, (lon, lat) = member
             groups[_grid_cell(lon, lat, zoom)].append(member)
         for members in groups.values():
@@ -76,7 +108,7 @@ def build_geo_feature_collection(
         "features": features,
         "totals": {
             "records": len(proposals),
-            "clustered": len(plottable) > SPLIT_THRESHOLD,
+            "clustered": len(in_view) > SPLIT_THRESHOLD,
             "lifecycle_state_counts": dict(lifecycle_counts),
             "technology_counts": dict(technology_counts),
         },

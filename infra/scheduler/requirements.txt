@@ -1,0 +1,6 @@
+# Additional dependencies for the scheduler/worker image (infra/docker/Dockerfile, `worker`
+# target), layered on top of the repo-root requirements.txt. Kept separate rather than added to
+# the root file because devops-engineer's write scope for this task is infra/ only — see
+# docs/CHANGELOG.md — and requirements.txt/pyproject.toml belong to whoever owns dependency
+# pinning for the whole repo (docs/04 E-3). Fold these in there once that owner reviews the pin.
+procrastinate[psycopg]>=3.9,<4

@@ -7,7 +7,7 @@
 {% block content %}
 <div class="page-header">
   <h1>Map</h1>
-  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO. Filters apply to the map and the list together; the URL always reflects the current view. Clustering is computed by the API (<code>/v1/proposals/geo</code>); this page renders what it returns.</p>
+  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO. Filters apply to the map and the list together; the URL always reflects the current view.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
 {% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
@@ -45,11 +45,11 @@
     </div>
     <div id="map" role="application" aria-label="Map of proposal locations. Use the in-view list for a keyboard- and screen-reader-accessible equivalent."></div>
     <div class="legend" aria-hidden="true">
-      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-neutral-text)"></span> Neutral</span>
-      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-progress-text)"></span> Progress</span>
-      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-committed-text)"></span> Committed</span>
-      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-success-text)"></span> Success</span>
-      <span class="legend__item"><span class="legend__swatch" style="background:var(--family-danger-text)"></span> Danger</span>
+      <span class="legend__item" style="color:var(--family-neutral-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-neutral"></use></svg> Neutral</span>
+      <span class="legend__item" style="color:var(--family-progress-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-progress"></use></svg> Progress</span>
+      <span class="legend__item" style="color:var(--family-committed-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-committed"></use></svg> Committed</span>
+      <span class="legend__item" style="color:var(--family-success-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-success"></use></svg> Success</span>
+      <span class="legend__item" style="color:var(--family-danger-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-danger"></use></svg> Danger</span>
     </div>
     <p class="map-attribution">Basemap &copy; <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a> contributors, ODbL. Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <a href="/about#sources">see About &amp; sources</a>.</p>
   </div>

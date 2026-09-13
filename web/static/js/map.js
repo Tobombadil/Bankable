@@ -29,6 +29,12 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
+  // docs/31 §8: every map animation is instant under prefers-reduced-motion -- MapLibre does not
+  // do this on its own, so every flyTo/easeTo/zoomIn/zoomOut call below is given a duration through
+  // this helper rather than a literal number.
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function motionMs(ms) { return reduceMotion ? 0 : ms; }
+
   function familyColors() {
     var out = {};
     FAMILIES.forEach(function (f) { out[f] = cssVar("--family-" + f + "-text") || "#5b6b7c"; });
@@ -143,10 +149,10 @@
   window.__mapIdle = false;
   map.once("idle", function () { window.__mapIdle = true; });
 
-  document.getElementById("zoom-in").addEventListener("click", function () { map.zoomIn({ duration: 200 }); });
-  document.getElementById("zoom-out").addEventListener("click", function () { map.zoomOut({ duration: 200 }); });
+  document.getElementById("zoom-in").addEventListener("click", function () { map.zoomIn({ duration: motionMs(200) }); });
+  document.getElementById("zoom-out").addEventListener("click", function () { map.zoomOut({ duration: motionMs(200) }); });
   document.getElementById("zoom-reset").addEventListener("click", function () {
-    map.flyTo({ center: WORLD_CENTER, zoom: WORLD_ZOOM, duration: 600 });
+    map.flyTo({ center: WORLD_CENTER, zoom: WORLD_ZOOM, duration: motionMs(600) });
   });
 
   var latestCollection = { type: "FeatureCollection", features: [], totals: {} };
@@ -235,7 +241,12 @@
       tileSize: 256,
       attribution: "&copy; OpenStreetMap contributors"
     });
-    map.addLayer({ id: "osm", type: "raster", source: "osm" });
+    // Tinted toward the paper ground and desaturated so tile land/water/borders read as a quiet
+    // backdrop the data sits on top of, not a competing full-colour basemap (docs/30 §7 "Basemap").
+    map.addLayer({
+      id: "osm", type: "raster", source: "osm",
+      paint: { "raster-saturation": -0.75, "raster-brightness-min": 0.35, "raster-brightness-max": 1, "raster-contrast": -0.1 }
+    });
 
     map.addSource("proposals", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
 
@@ -245,20 +256,23 @@
       "success", colors.success, "danger", colors.danger, colors.neutral
     ];
 
+    // Clusters render as thin rings on the paper ground, not filled discs -- the count is read
+    // through the ring, the family colour carried by the ring stroke and the count text alone
+    // (docs/30 §7 "Zoom and clustering"; task: "thin-ring counts on the navy family").
     map.addLayer({
       id: "clusters", type: "circle", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "cluster"],
       paint: {
-        "circle-color": colorExpr,
+        "circle-color": mapColors.land,
         "circle-radius": ["step", ["get", "count"], 14, 10, 18, 50, 24, 200, 32],
-        "circle-stroke-width": 2, "circle-stroke-color": "#ffffff"
+        "circle-stroke-width": 2, "circle-stroke-color": colorExpr
       }
     });
     map.addLayer({
       id: "cluster-count", type: "symbol", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "cluster"],
       layout: { "text-field": ["get", "count"], "text-size": 12, "text-font": ["Noto Sans Bold"] },
-      paint: { "text-color": "#ffffff" }
+      paint: { "text-color": colorExpr }
     });
     map.addLayer({
       id: "points", type: "circle", source: "proposals",
@@ -280,7 +294,7 @@
     map.on("click", "clusters", function (e) {
       var f = map.queryRenderedFeatures(e.point, { layers: ["clusters"] })[0];
       var targetZoom = f.properties.expands_to_zoom || (map.getZoom() + 2);
-      map.easeTo({ center: f.geometry.coordinates, zoom: targetZoom, duration: 600 });
+      map.easeTo({ center: f.geometry.coordinates, zoom: targetZoom, duration: motionMs(600) });
     });
     map.on("mouseenter", "clusters", function (e) { map.getCanvas().style.cursor = "pointer"; showClusterTooltip(e); });
     map.on("mouseleave", "clusters", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
@@ -342,14 +356,11 @@
   function buildDrawer() {
     var el = document.createElement("div");
     el.id = "map-drawer";
+    el.className = "map-drawer";
     el.setAttribute("role", "dialog");
     el.setAttribute("aria-modal", "true");
     el.setAttribute("aria-label", "Record detail");
-    el.style.cssText =
-      "position:fixed;top:0;right:0;height:100%;width:min(24rem,90vw);background:var(--surface);" +
-      "border-left:1px solid var(--border);box-shadow:var(--shadow-1);padding:1.5rem;overflow-y:auto;" +
-      "transform:translateX(100%);transition:transform var(--motion-base) ease-out;z-index:50;";
-    el.innerHTML = '<button type="button" id="drawer-close" aria-label="Close">&times; Close</button><div id="drawer-body"></div>';
+    el.innerHTML = '<button type="button" id="drawer-close" class="map-drawer__close" aria-label="Close">&times; Close</button><div id="drawer-body"></div>';
     document.body.appendChild(el);
     var body = el.querySelector("#drawer-body");
     var closeBtn = el.querySelector("#drawer-close");
@@ -363,24 +374,29 @@
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
       }
     });
-    function open() { el.style.transform = "translateX(0)"; closeBtn.focus(); }
+    // Open/close duration comes from CSS (docs/31 §1.5 --motion-base/--motion-fast): adding
+    // `is-open` transitions in at 200ms, removing it transitions out at 150ms (the base rule's own
+    // duration) -- see the .map-drawer / .map-drawer.is-open rule in styles.css.
+    function open() { el.classList.add("is-open"); closeBtn.focus(); }
     function close() {
-      el.style.transform = "translateX(100%)";
+      el.classList.remove("is-open");
       if (lastFocused) lastFocused.focus();
     }
     function render(p, source) {
       body.innerHTML =
         "<h2>" + p.name + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
-        "<dl>" +
-        "<dt>Technology</dt><dd>" + (p.technology || "—") + "</dd>" +
-        "<dt>Capacity</dt><dd>" + (p.capacity_mw ? p.capacity_mw.toFixed(1) + " MW" : "—") + "</dd>" +
-        "<dt>Location</dt><dd>" + (p.county_name || "—") + ", " + (p.state_code || "—") +
-        (p.precision_note ? " (" + p.precision_note + ")" : "") + "</dd>" +
+        "<dl class=\"drawer-fields\">" +
+        "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + (p.technology || "—") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? p.capacity_mw.toFixed(1) + " MW" : "—") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + (p.county_name || "—") + ", " + (p.state_code || "—") +
+        (p.precision_note ? " (" + p.precision_note + ")" : "") + "</dd></div>" +
+        "</dl>" +
         (source
-          ? "<dt>Source</dt><dd><a href=\"" + source.source_url + "\" rel=\"noopener nofollow\">" + source.source_name + "</a>, retrieved " +
-            (source.retrieved_at ? source.retrieved_at.slice(0, 10) : "unknown") + "</dd>"
+          ? "<p class=\"drawer-source\"><span class=\"drawer-source__label\">Source</span>" +
+            "<a href=\"" + source.source_url + "\" rel=\"noopener nofollow\">" + source.source_name + "</a>, retrieved " +
+            "<span class=\"tnum\">" + (source.retrieved_at ? source.retrieved_at.slice(0, 10) : "unknown") + "</span></p>"
           : "") +
-        "</dl><p><a href=\"" + (p.url || "#") + "\">Open full record &rarr;</a></p>";
+        "<a class=\"drawer-open-link\" href=\"" + (p.url || "#") + "\">Open full record &rarr;</a>";
     }
     return { open: open, close: close, render: render };
   }
