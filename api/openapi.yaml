@@ -2797,7 +2797,7 @@ paths:
       summary: Proposal, ungated
       description: The full row regardless of `publish_state`, with `overrides`, `field_provenance`, gated sources and `raw` present. Admin only.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-905, US-907]
       security: *sec_admin
@@ -2823,7 +2823,7 @@ paths:
         each edited field in `overrides` so the normaliser and enricher skip it until cleared (US-905 AC3,
         US-901 AC2, docs/21 §6.4). `clear_overrides` lists fields to release back to the pipeline.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-905, US-901, US-907]
       security: *sec_admin
@@ -2862,7 +2862,7 @@ paths:
       tags: [Admin — records]
       summary: Opportunity, ungated
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-905]
       security: *sec_admin
@@ -2885,7 +2885,7 @@ paths:
       summary: Edit canonical fields with a reason
       description: As `PATCH /admin/v1/proposals/{public_id}` for the demand side.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-905, US-901]
       security: *sec_admin
@@ -2925,7 +2925,7 @@ paths:
       summary: Edit an organization with a reason
       description: Name, type, country, jurisdiction, `ids`, `website`, `is_curated_issuer`; writes an `admin_edit` event (US-905 AC3, US-901 AC2).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-905, US-901, US-303]
       security: *sec_admin
@@ -2969,7 +2969,7 @@ paths:
         `slug_history` so old URLs `301` (docs/21 §6.3, US-201 AC3, US-202 AC2). `preview_token` from the preview
         must be sent with the write; a stale token (either record changed since) answers `409 conflict`.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-202, US-201, US-907, US-1002]
       security: *sec_admin
@@ -3013,7 +3013,7 @@ paths:
         `before.surviving`, recomputes `field_provenance`, `min_reuse_class` and matches on both, and removes the
         absorbed slug from `slug_history` (docs/21 §6.3). Mechanical and total: needs no row other than the event.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-202, US-907]
       security: *sec_admin
@@ -3059,7 +3059,7 @@ paths:
         `422 gate_unmet`. An unpublished record answers `410` on every non-admin surface within one cache TTL. This
         is also how an approved intake submission becomes public after the submitter opted in (US-1002 AC3).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-905, US-906, US-1002]
       security: *sec_admin
@@ -3097,7 +3097,7 @@ paths:
       summary: Ambiguous entity-resolution pairs awaiting a human
       description: Candidate pairs whose score sits between the configured thresholds, with the model's rationale and the resolver's features (docs/20 §3.5). A human decision short-circuits later automated adjudication of the same pair.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-907, US-202]
       security: *sec_admin
@@ -3128,7 +3128,7 @@ paths:
       summary: Record a human decision on a candidate pair
       description: '`same` merges (through the merge path, so the event is reversible), `different` records a negative decision that wins over later automated adjudication, `defer` leaves it in the queue. Audited with `reason`.'
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-907, US-202]
       security: *sec_admin
@@ -3166,7 +3166,7 @@ paths:
       summary: Low-confidence extractions awaiting review
       description: Extractions with `status = proposed` below the per-field acceptance threshold (docs/20 §8 item 4, docs/21 §3.9); each carries its typed payload, confidence and citations. `model_alias` only — never a provider model id.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-907, US-909]
       security: *sec_admin
@@ -3198,7 +3198,7 @@ paths:
       summary: Accept an extraction
       description: Sets `status = accepted`, `accepted_by_user_id`, applies the payload as an `extraction_accepted` event and records `applied_event_id`. Refused with `422 gate_unmet` when the source licence withholds the extracted value from every tier (docs/21 §8 item 6).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-907]
       security: *sec_admin
@@ -3237,7 +3237,7 @@ paths:
       tags: [Admin — records]
       summary: Reject an extraction
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-907]
       security: *sec_admin
