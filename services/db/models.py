@@ -189,6 +189,7 @@ class Source(Base, TimestampMixin):
 
     __table_args__ = (
         sa.CheckConstraint(f"publish_state IN {SOURCE_PUBLISH_STATES!r}", name="publish_state_vocab"),
+        sa.Index("ix_source_publish_state", "publish_state"),
     )
 
     @property
@@ -425,6 +426,13 @@ class ProposalSource(Base):
             postgresql_where=sa.text("active"),
             sqlite_where=sa.text("active"),
         ),
+        # services/api/visibility.py's `_has_public_source` is a correlated `EXISTS` keyed on
+        # `proposal_id` for every candidate proposal row; with no index on this column SQLite (and
+        # Postgres alike) falls back to a full `proposal_source` scan per outer row. Measured at
+        # ~10,400 real proposals: 14-75s per list/geo page without this index, ~0.1s with it
+        # (services/README.md "Sprint 2 fixes" has the full before/after) -- this single index is
+        # the fix, not a query rewrite; `public_at` was already materialised (docs/21 §5.4).
+        sa.Index("ix_proposal_source_proposal_id", "proposal_id"),
     )
 
 
@@ -521,6 +529,9 @@ class OpportunitySource(Base):
             postgresql_where=sa.text("active"),
             sqlite_where=sa.text("active"),
         ),
+        # Same fix as `ix_proposal_source_proposal_id` above, for the opportunity side of
+        # `services/api/visibility.py`'s `_has_public_source`.
+        sa.Index("ix_opportunity_source_opportunity_id", "opportunity_id"),
     )
 
 

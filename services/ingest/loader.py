@@ -88,7 +88,7 @@ from services.db.models import (
     SourceRun,
 )
 from services.ids import public_id, slugify
-from services.ingest.geocode import CountyGazetteer, default_gazetteer, geocode
+from services.ingest.geocode import CountyGazetteer, geocode
 from services.ingest.lag import compute_public_at
 
 #: A `reuse: attribution` source whose recorded terms explicitly call it out as derived-only
@@ -108,6 +108,7 @@ def _is_derived_only_override(entry: SourceEntry) -> bool:
     if entry.reuse != "attribution":
         return False
     return bool(_DERIVED_ONLY_RE.search(entry.notes or "") or _DERIVED_ONLY_RE.search(entry.license or ""))
+
 
 Kind = Literal["proposal", "opportunity"]
 
