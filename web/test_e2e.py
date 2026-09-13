@@ -55,8 +55,16 @@ def _install_offline_routes(page: Any) -> None:
 
     page.route(js_url, serve_js)
     page.route(css_url, serve_css)
-    # Non-essential to the smoke assertions (fonts fall back, tiles are a basemap image only) --
-    # aborted rather than left to hang on the same proxy/browser interaction.
+    # Fonts fall back gracefully. OSM tiles fail the same way whether aborted here or left to hit
+    # the real proxy -- confirmed by testing tile.openstreetmap.org, tiles.openfreemap.org and
+    # demotiles.maplibre.org directly from this Chromium build: all reset mid-handshake even
+    # though plain `curl`/`urllib` through the same proxy succeed (web/README.md "Map basemap").
+    # Aborting keeps the test fast rather than waiting out the real timeout; the map stays legible
+    # regardless because web/static/js/map.js (a) draws a same-origin fallback outline layer
+    # underneath the tile layer (web/data_ref/build_basemap_fallback.py) and (b) adds the tile
+    # source only after `load` fires instead of in the initial style, since a raster source whose
+    # tiles all fail otherwise keeps MapLibre from ever reaching `load` at all -- measured directly
+    # against this build, not assumed.
     page.route("https://fonts.googleapis.com/**", lambda route: route.abort())
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
 
@@ -133,6 +141,12 @@ def _check_desktop_and_narrow(browser: object) -> None:
         timeout=15000,
     )
     assert "days delayed" in page.locator(".delayed-notice").inner_text()
+    # The OSM tile layer is aborted above (see _install_offline_routes) -- this proves the
+    # same-origin fallback outline layer is what keeps the map from rendering blank.
+    fallback_rendered = page.evaluate(
+        "window.__map.queryRenderedFeatures({layers:['fallback-land']}).length > 0"
+    )
+    assert fallback_rendered, "fallback basemap layer did not render behind the (unavailable) tiles"
     page.screenshot(path=str(SCREENSHOT_DIR / "home-desktop.png"), full_page=True)
 
     # ---- desktop: proposals list, attribution rendered ----
