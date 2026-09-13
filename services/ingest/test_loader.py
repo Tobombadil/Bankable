@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -12,6 +15,7 @@ from sqlalchemy.orm import Session
 from pipeline.connectors.registry import Registry, SourceEntry
 from services.db.models import (
     Event,
+    Licence,
     Location,
     Organization,
     OrganizationAlias,
@@ -617,3 +621,185 @@ def test_county_gazetteer_normalizes_suffixes_and_case() -> None:
     gaz = CountyGazetteer.load()
     assert gaz.county_point("TX", "TRAVIS COUNTY") == gaz.county_point("TX", "travis")
     assert gaz.state_point("TX") is not None
+
+
+# ------------------------------------------------------- bulk-insert pass (Sprint 3, batch_size)
+def _store_digest(session: Session) -> str:
+    """A deterministic content digest of everything `load_dataframe` wrote: proposals (with their
+    links, sponsor and location), organisations (with their aliases) and events. Excludes every
+    wall-clock-derived column (`published_at`, `public_at`, `last_changed`, `created_at`,
+    `updated_at`, `recorded_at`) and every randomly/time-generated primary key (`id`, `public_id`,
+    `slug`'s collision-suffix case), so two independent loads of the same rows produce the same
+    digest regardless of `batch_size` or of the wall-clock moment each ran at -- proving
+    `batch_size` changes only flush cadence, never what gets written (docs/00-PLAN.md's "measured
+    numbers only" rule)."""
+    proposals: list[dict[str, Any]] = []
+    for p in session.scalars(select(Proposal).order_by(Proposal.name_canonical)):
+        links = sorted(
+            (
+                {
+                    "source_record_id": link.source_record_id,
+                    "source_url": link.source_url,
+                    "raw": link.raw,
+                    "normalised": link.normalised,
+                    "status_raw": link.status_raw,
+                    "link_method": link.link_method,
+                    "link_confidence": float(link.link_confidence),
+                    "active": link.active,
+                    "gone_at": link.gone_at.isoformat() if link.gone_at else None,
+                }
+                for link in session.scalars(select(ProposalSource).where(ProposalSource.proposal_id == p.id))
+            ),
+            key=lambda d: str(d["source_record_id"]),
+        )
+        proposals.append(
+            {
+                "name_canonical": p.name_canonical,
+                "kind": p.kind,
+                "technology": p.technology,
+                "technology_raw": p.technology_raw,
+                "capacity_mw": float(p.capacity_mw) if p.capacity_mw is not None else None,
+                "storage_mwh": float(p.storage_mwh) if p.storage_mwh is not None else None,
+                "jurisdiction": p.jurisdiction,
+                "iso": p.iso,
+                "lifecycle_state": p.lifecycle_state,
+                "status_raw": p.status_raw,
+                "identifiers": p.identifiers,
+                "proposed_online_date": (
+                    p.proposed_online_date.isoformat() if p.proposed_online_date else None
+                ),
+                "publish_state": p.publish_state,
+                "min_reuse_class": p.min_reuse_class,
+                "source_count": p.source_count,
+                "sponsor": p.sponsor.name_canonical if p.sponsor else None,
+                "location": (
+                    {
+                        "state_code": p.location.state_code,
+                        "county_name": p.location.county_name,
+                        "precision": p.location.precision,
+                        "precision_reason": p.location.precision_reason,
+                    }
+                    if p.location
+                    else None
+                ),
+                "links": links,
+            }
+        )
+
+    organizations: list[dict[str, Any]] = []
+    for org in session.scalars(select(Organization).order_by(Organization.name_normalised)):
+        aliases = sorted(
+            (a.alias, a.alias_normalised, a.kind)
+            for a in session.scalars(
+                select(OrganizationAlias).where(OrganizationAlias.organization_id == org.id)
+            )
+        )
+        organizations.append(
+            {
+                "name_canonical": org.name_canonical,
+                "name_normalised": org.name_normalised,
+                "type": org.type,
+                "country": org.country,
+                "aliases": aliases,
+            }
+        )
+
+    events = sorted(
+        (
+            {
+                "event_type": e.event_type,
+                "idempotency_key": e.idempotency_key,
+                "before": e.before,
+                "after": e.after,
+                "changed_keys": e.changed_keys,
+            }
+            for e in session.scalars(select(Event))
+        ),
+        key=lambda d: str(d["idempotency_key"]),
+    )
+
+    snapshot = {"proposals": proposals, "organizations": organizations, "events": events}
+    return hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def test_batch_size_does_not_change_what_gets_written() -> None:
+    """The bulk-insert pass's whole point: `batch_size` only changes how often pending writes are
+    flushed, never which rows, ids' content, links, organisations or events end up written.
+    Proven by loading the same rows into two independent, fresh stores -- one with `batch_size=1`
+    (flush every row, the pre-optimisation cadence) and one with `batch_size=500` (the new
+    default) -- and comparing `_store_digest` between them."""
+    rows = [sample_proposal_row("BS1"), sample_proposal_row("BS2"), sample_proposal_row("BS3")]
+    rows[0]["sponsor_name"] = "CED Development, Inc."
+    rows[1]["sponsor_name"] = "Ced Development Inc"  # punctuation-only alias of row 0's sponsor
+    rows[2]["sponsor_name"] = "Acme Power LLC"
+    rows[2]["state"] = "TX"
+    rows[2]["county"] = "Travis"
+    df = pd.DataFrame(rows)
+    events_df = pd.DataFrame(
+        [
+            {
+                "event_type": "status_change",
+                "record_id": "us.test.open_queue:BS1",
+                "source_id": "us.test.open_queue",
+                "field": "lifecycle_state",
+                "before": "filed",
+                "after": "studied",
+                "observed_at": "2026-09-12T06:00:00Z",
+            }
+        ]
+    )
+
+    digests: dict[int, str] = {}
+    for batch_size in (1, 500):
+        engine = get_engine("sqlite+pysqlite:///:memory:")
+        init_db(engine)
+        session_factory = get_sessionmaker(engine)
+        with session_factory() as s:
+            src = upsert_licence_and_source(s, open_source_entry(), "2026-09-12")
+            load_dataframe(s, src, "proposal", df, events_df, batch_size=batch_size)
+            digests[batch_size] = _store_digest(s)
+
+    assert digests[1] == digests[500]
+
+
+def test_rerun_with_default_batch_size_is_idempotent(session: Session) -> None:
+    """The Sprint 3 default `batch_size` (500) doesn't change idempotency: re-loading the same
+    frame must not create duplicate proposals, links or events, exactly as the pre-optimisation
+    per-row cadence already guaranteed (`test_load_dataframe_is_idempotent`,
+    `test_load_dataframe_with_events_idempotent` above)."""
+    entry = open_source_entry("us.test.batch_idempotent_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+    df = pd.DataFrame([sample_proposal_row("BI1"), sample_proposal_row("BI2")])
+    events_df = pd.DataFrame(
+        [
+            {
+                "event_type": "status_change",
+                "record_id": "us.test.open_queue:BI1",
+                "source_id": entry.id,
+                "field": "lifecycle_state",
+                "before": "filed",
+                "after": "studied",
+                "observed_at": "2026-09-12T06:00:00Z",
+            }
+        ]
+    )
+
+    load_dataframe(session, src, "proposal", df, events_df)  # batch_size defaults to 500
+    load_dataframe(session, src, "proposal", df, events_df)
+
+    assert session.scalar(select(func.count()).select_from(Proposal)) == 2
+    assert session.scalar(select(func.count()).select_from(ProposalSource)) == 2
+    assert session.scalar(select(func.count()).select_from(Event)) == 1
+
+
+def test_gate_refusal_writes_nothing_to_the_store(session: Session) -> None:
+    """The licence gate raises before touching the store at all (module docstring's "both must
+    hold" invariant) -- not merely that `GateRefused` is raised, but that no `source`/`licence`
+    row exists afterward either, matching CLAUDE.md's "restricted source cannot enter the store"
+    guardrail literally."""
+    entry = restricted_source_entry()
+    with pytest.raises(GateRefused):
+        upsert_licence_and_source(session, entry, "2026-09-12")
+    assert session.scalar(select(func.count()).select_from(Source)) == 0
+    assert session.scalar(select(func.count()).select_from(Licence)) == 0
+    assert session.scalar(select(func.count()).select_from(Proposal)) == 0

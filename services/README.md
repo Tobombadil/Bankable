@@ -874,3 +874,202 @@ Sprint 3 kickoff), not removed. The last two items remain open for the workers w
   ship alongside password auth or are dropped from the spec.
 - A scheduled job actually invoking `run_alert_cycle`/`deliver_pending` (Procrastinate).
 - Metering Pro/API credentials on the original Sprint 2 public routes (open decision 3 above).
+
+## Bulk-insert pass (Sprint 3)
+
+Sprint 3 item 4 (`docs/00-PLAN.md`'s "Sprint 3 kickoff" and 2026-09-13 decision log row "Site now
+reads the public API end to end"): the loader ran at ≈100 rows/second (the full-data site test
+took 451s). Task: measure, speed up `services/ingest/loader.py`'s row-loop hot path without
+changing behaviour, and measure again. Method followed exactly as briefed — measured numbers only,
+recorded before any change.
+
+### Benchmark input
+
+`data/normalized/*` (the real connector output the site loads) does not exist in this environment
+— no connector has run here this session, so `tests/test_web_default_view.py` and
+`web/dev_up.py` cannot run either (confirmed: `ls data/normalized` → "No such file or directory").
+`data/eval/normalized.parquet` (14,388 Phase 2 resolution-evaluation records, docs/22) is the only
+ingest-scale fixture actually present, so it is the benchmark input, exactly as the task named it.
+Two of its six short source ids — `spp` and `isone` — are `restricted` under
+`docs/13-legal-data-rights.md` and must never enter the store (CLAUDE.md's guardrail); the new
+`services/ingest/bench_loader.py` excludes them rather than remapping them, the same scope
+`web/build_data.py::EVAL_SHORT_ID_MAP` already uses for this exact fixture (reproduced, not
+imported, to keep the benchmark script independent of `web/`). That leaves four sources — `ercot`,
+`caiso`, `nyiso`, `eia860m` — **9,563 rows**, matching the count this repo already recorded for the
+same fixture (`services/README.md`'s own "Loader fixes" section above: "proposals in store before
+resolution: 9,563"). Run with:
+
+```
+.venv/bin/python -m services.ingest.bench_loader --runs 2
+```
+
+### Baseline (measured before any change)
+
+Loaded into a fresh SQLite **file** database (not `:memory:` — closer to Postgres's real commit
+costs, per the task's method), through the unmodified loader at that day's commit (retrieved via
+`git show HEAD:services/ingest/loader.py` into a throwaway module so the working tree never had to
+be reverted to measure it):
+
+```
+baseline: 9563 rows across 4 sources
+run 1: 9563 rows in 98.299s (97.3 rows/s)  [setup 0.055s, load 98.218s, commit 0.026s]
+run 2: 9563 rows in 102.436s (93.4 rows/s) [setup 0.013s, load 102.391s, commit 0.032s]
+```
+
+**93–97 rows/second**, consistent with the ≈100 rows/s already on record and with `docs/00-PLAN.md`'s
+451s figure for the larger, nine-source real site load (different, larger scope — 5 proposal + 4
+opportunity sources plus the EIA exact-point backfill and preview-lag pass — so not a like-for-like
+number, but the same order of magnitude at the same "row-at-a-time, no bulk path" rate the PLAN
+already named).
+
+### Profile: the top costs
+
+`cProfile` over just the `ercot` slice of the fixture (1,778 rows, one source, small enough to
+profile without the profiler's own overhead dominating the wall clock) against the unmodified
+baseline loader:
+
+```
+1778 calls to _get_or_create_organization: 30.516s cumulative of 37.603s total (81%)
+  -> each miss re-ran `select(Organization).where(merged_into_id.is_(None))` and iterated the
+     *entire* result to find a punctuation-normalised match -- an O(n) scan repeated once per row,
+     so total work grows O(rows x organisations) as the organisation table fills up.
+  -> 864,714 ORM row instantiations across those re-queries (orm/loading.py:_instance,
+     instrumentation.py:new_instance), each paying JSON-decode of the `ids` JSONB column
+     (867,280 json.loads calls, 4.24s cumulative) and a UUID parse (877,044 calls, 2.28s) for data
+     the caller never uses beyond `name_canonical`.
+18,574 session.flush() calls: 5.65s cumulative (three per newly created proposal — one to learn
+  the generated id for `public_id`/`slug`, one after setting them, one after creating the link —
+  plus one per update row's implicit autoflush on the next SELECT).
+```
+
+Exactly the suspects the task brief named: a per-row (here, per-miss) linear scan standing in for
+an index, per-row `flush()`, and autoflush-triggered round trips. Per-row geocoding was **not** a
+measurable cost — `services/ingest/geocode.py` already process-wide-caches the county gazetteer
+(`default_gazetteer()`), so that suspect was already closed before this task started.
+
+### What changed, and why
+
+All in `services/ingest/loader.py`; no public function's signature lost compatibility
+(`load_dataframe` gained one optional keyword, `batch_size`, default 500) and no gate, dedupe,
+event-emission or `SourceRun` behaviour changed:
+
+1. **One `_LoadCache` built once per `load_dataframe` call** (not per row): the active
+   `proposal_source`/`opportunity_source` links for this source, the entities those links point
+   at, every organisation indexed by exact and by punctuation-normalised name, every
+   `organization_alias` key already on file, and every `organization.slug` in use. Four `SELECT`s
+   total, replacing what used to be one to several `SELECT`s *per row* — the exact-match
+   organisation lookup, the O(n) punctuation-match scan above, the alias existence check, and the
+   slug-collision check are now dict/set membership tests. The county gazetteer is fetched once
+   into the cache too (`gaz=cache.gaz`) instead of a `default_gazetteer()` cache-check per row.
+2. **Every id generated client-side before the row that needs it**, via the same `new_uuid()`
+   callable the ORM column `default=` already used (`services/db/models.py`), instead of at flush
+   time. `public_id`/`slug` no longer need a flush-then-overwrite dance (the original code wrote a
+   throwaway random `public_id`, flushed to learn the real id, then overwrote it) — they are
+   computed once, correctly, at construction. This is what makes batching possible at all: nothing
+   in the row loop depends on a flush to learn an id it needs for the next row.
+3. **`itertuples`-equivalent row access**: `records_df.to_dict("records")` / `events_df.to_dict("records")`
+   once per call, replacing `.iterrows()`'s per-row `Series` construction. `_row_get` and the two
+   `_fields_from_row` helpers now type against `Mapping[str, Any]` so the same code reads either a
+   `pandas.Series` or a plain `dict`.
+4. **`session.no_autoflush` around the row loop**, with `session.flush()` called explicitly every
+   `batch_size` rows (default 500, `DEFAULT_BATCH_SIZE`) via `_flush_pending`, plus once more after
+   the loop. Two flushes, not one, at each boundary: entities/organisations/locations/aliases
+   first, then the `ProposalSource`/`OpportunitySource` rows created alongside them
+   (`pending_links`, added to the session only at that second step). This order is load-bearing,
+   not stylistic — `ProposalSource`/`OpportunitySource` carry no ORM `relationship()` back to
+   `Proposal`/`Opportunity` (only the reverse, `Proposal.sources`, and that one is `viewonly=True`,
+   deliberately excluded from SQLAlchemy's flush-dependency tracking), so without this split a link
+   and its entity flushed in the same statement batch can be sent in either order and the link's
+   foreign key trips against a proposal that doesn't exist yet — hit and fixed during this task
+   (first pass batched both together and every `test_loader.py` create test failed on
+   `IntegrityError: FOREIGN KEY constraint failed`). `Organization`/`Location` *do* carry a real
+   (non-`viewonly`) `relationship()` from `Proposal`, so they were never affected and needed no
+   such split.
+5. **`Event.seq` is deliberately NOT batched.** `services/db/models.py`'s `_assign_event_seq`
+   `before_insert` listener computes `MAX(seq) + 1` from the database at insert time and says so
+   explicitly: "events must be flushed one at a time... or several rows in the same batch would
+   compute the same MAX() and collide." The event loop keeps the original per-event
+   `session.add(event); session.flush()` unchanged; the only optimisation there is preloading
+   `Event.idempotency_key` for this `source.id` once before the loop (one `SELECT`) instead of one
+   `SELECT` per event to check idempotency, and the same preloaded set for the `diff_type ==
+   "removed"` branch's link lookup (`cache.links_by_entity`) instead of a `SELECT` per removal.
+
+Nothing else changed: the licence gate (`_assert_not_gated`, the "both must hold" re-check in
+`upsert_licence_and_source`) still runs, and still runs, before any row of a call is written; the
+intra-run id-reuse suffixing, the organisation punctuation-match/alias logic's *matching rules*,
+the derived-only licence/precision-reason stamping, and the diff→event type mapping are all
+untouched — only how each of those looks things up changed.
+
+### After (measured, same benchmark, same machine)
+
+```
+services/ingest/bench_loader: 9563 rows across 4 sources, batch_size=500
+run 1: 9563 rows in 4.059s (2356.1 rows/s) [setup 0.065s, load 3.924s, commit 0.070s]
+run 2: 9563 rows in 3.975s (2405.5 rows/s) [setup 0.014s, load 3.903s, commit 0.059s]
+```
+
+**≈2,380 rows/second average (2356–2406 across the two runs) versus ≈95 rows/second average
+(93–97) before — a ≈25x speedup**, well past the task's 5x bar. The same `ercot`-slice `cProfile`
+run against the optimised loader drops from 37.6s to **2.15s** (a consistent ≈17x on that smaller,
+profiler-overhead-inflated slice) with no single function left dominating — remaining cost is
+ordinary SQLAlchemy attribute-set/flush/object-construction overhead spread across the two
+`_flush_pending` calls that batch of 1,778 rows triggers, not a per-row query or scan.
+
+### Decisions
+
+- **Benchmark source**: `data/eval/normalized.parquet`, four open/attribution sources
+  (9,563 rows), for the reason given above (`data/normalized/*` absent in this environment). The
+  full ~11,400-row, nine-source site load `docs/00-PLAN.md` originally measured (451s) was not
+  re-run — extrapolating this benchmark's ≈2,380 rows/s to that row count gives roughly 5s, but
+  that is an extrapolation, not a measurement, and is reported as one in the "Deferred" note below.
+- **`batch_size` default is 500**, matching the task brief; exposed as a keyword argument on
+  `load_dataframe` (`DEFAULT_BATCH_SIZE` in `services/ingest/loader.py`) so a caller can tune it
+  without a code change. `test_batch_size_does_not_change_what_gets_written` pins that
+  `batch_size=1` and `batch_size=500` write byte-identical content (a deterministic digest
+  excluding wall-clock columns and random ids) for the same input.
+  `test_rerun_with_default_batch_size_is_idempotent` and
+  `test_gate_refusal_writes_nothing_to_the_store` pin the other two behaviours the task asked to be
+  pinned (idempotent re-run; the gate refuses before any write).
+- **`Event` inserts stay one-at-a-time.** Documented above as a hard constraint from
+  `services/db/models.py`'s `seq` listener, not a missed optimisation — batching them would risk
+  duplicate `seq` values under Postgres concurrency semantics the SQLite test target doesn't
+  surface. A real fix (a Postgres `bigint identity`/sequence column instead of the portable
+  `MAX()+1` stand-in) is a `services/db/*` change, out of this task's write scope.
+- **No location dedupe added.** The task's preload list names "locations" alongside organisation
+  keys/aliases; the existing loader never deduplicated locations (every new proposal gets its own
+  `Location` row even if another proposal already has the identical county centroid) and this task
+  did not change that — only removed the per-location `flush()` (the id is generated client-side
+  like everything else now) and passed one shared `CountyGazetteer` instance through the cache
+  instead of a `default_gazetteer()` cache-check per row. Adding real location dedupe would change
+  which rows get written (fewer `location` rows, `location_id` reused across proposals) and so,
+  per the task's rule, was left alone rather than done as a drive-by.
+
+### Deferred / follow-ups
+
+- Re-run `tests/test_web_default_view.py` and `web/dev_up.py`'s full ~11,400-row load once
+  `data/normalized/*` exists in an environment that has it, to get a measured (not extrapolated)
+  number for the real site load `docs/00-PLAN.md`'s 451s referred to.
+- `Event.seq`'s `MAX()+1` stand-in (see Decisions) should become a real sequence/identity column
+  in the canonical Postgres migration so event inserts can eventually batch too — `services/db/*`
+  is out of this task's write scope.
+- Real location dedupe (see Decisions) — a separate, semantics-changing task, not a speed-only one.
+
+### Verbatim: full check, this task
+
+```
+$ .venv/bin/python -m pytest services/ingest tests/test_connector_gating.py tests/test_resolve_store.py
+............................................................                                     [100%]
+60 passed, 1 warning in 2.30s
+
+$ .venv/bin/python -m pytest tests/test_api_contract.py services/api/test_routes.py
+........................................................................ [ 66%]
+.....................................                                    [100%]
+109 passed, 27 warnings in 5.85s
+
+$ .venv/bin/ruff check services/ingest && .venv/bin/ruff format --check services/ingest
+All checks passed!
+6 files already formatted
+
+$ .venv/bin/mypy --cache-dir /tmp/mypy-ingest services/ingest
+Success: no issues found in 5 source files
+```
