@@ -1,0 +1,38 @@
+name: connectors-nightly
+
+# Runs the full connector test suite daily against recorded fixtures only — never live sources
+# (docs/20 §3.1: "fetch() never runs in CI"; docs/04 O-3). This is a regression net for parser
+# drift between sprints, independent of whether any PR touched pipeline/connectors that day.
+#
+# Separate file from ci.yml on purpose: this one runs on a schedule regardless of PR activity,
+# and its failure mode (a parser silently broke) is routed differently in principle (docs/20 §12:
+# "supervision Routine drafts a fixture and parser fix") even though no such Routine exists yet —
+# today a failure here should page the owner the same way ci.yml's `security` job would.
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # 06:17 UTC daily; offset from the hour to avoid GitHub's on-the-hour pile-up
+  workflow_dispatch: {} # manual "run now" from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  connector-fixtures-nightly:
+    name: connector suite against fixtures (never live)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: run the connector suite (parse()/normalize() only, docs/20 §3.1)
+        run: pytest pipeline -v
+      - name: cadence bucketing (infra/scheduler) stays in sync with the live registry
+        run: pytest infra/scheduler -v
+        # Catches a new `data/sources.yaml` cadence string that infra/scheduler/cadence.py's
+        # keyword table has not been taught yet (it fails safe to weekly rather than erroring, but
+        # this test makes that visible instead of silent — infra/scheduler/test_cadence.py's
+        # `test_sources_yaml_cadences_are_all_covered`).
