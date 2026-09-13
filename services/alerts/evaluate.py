@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from services.alerts.matching import event_matches_query, matches_query
 from services.api.auth import EmailPort
-from services.api.common import WEB_HOST
+from services.api.common import DOMAIN, WEB_HOST
 from services.api.visibility import event_visibility_filter
 from services.db.models import Account, Alert, Event, Opportunity, Proposal, SavedSearch, User
 from services.ids import public_id
@@ -124,13 +124,21 @@ def evaluate_saved_search(db: Session, search: SavedSearch, account: Account) ->
     return matched
 
 
-def render_digest_body(search: SavedSearch, items: list[MatchedItem]) -> str:
+def render_digest_body(search: SavedSearch, items: list[MatchedItem], *, unsubscribe_token: str) -> str:
+    """`unsubscribe_token` is `Alert.unsubscribe_token` for the digest this body belongs to (the
+    caller creates that row first so the token exists here — module docstring, US-908/US-502 AC3).
+    The last two lines are the CAN-SPAM/PECR/CASL minimum every outbound marketing message needs
+    (docs/13-legal-outreach-and-social.md §1/§8): the sender identity (the same `alerts@{{DOMAIN}}`
+    address `ResendEmailAdapter.send` sends *from*, `services/api/auth.py`) and a one-click
+    unsubscribe link built from that alert's own token, never a shared or guessable one."""
     lines = [f'Saved search "{search.name}": {len(items)} new match(es).', ""]
     for item in items:
         credit = item.attribution_text or item.source_name or "the platform"
         lines.append(f"- {item.name} — {item.url} (source: {credit})")
     lines.append("")
     lines.append(f"Manage this saved search: {WEB_HOST}/account/saved-searches")
+    lines.append(f"Sent by Infraqueue <alerts@{DOMAIN}>")
+    lines.append(f"Unsubscribe from this alert: {WEB_HOST}/unsubscribe?token={unsubscribe_token}")
     return "\n".join(lines)
 
 
@@ -158,12 +166,15 @@ def run_alert_cycle(db: Session, *, email_port: EmailPort, now: dt.datetime | No
         if not items:
             db.flush()
             continue
-        body = render_digest_body(search, items)
         for channel in search.channels:
             if channel == "rss":
                 continue
             if channel == "webhook":
                 continue  # separate mechanism, see docstring
+            # The alert row (and its `unsubscribe_token`) is created before the digest body is
+            # rendered -- the reverse of the previous order -- so that an email body can carry
+            # *this alert's own* unsubscribe link (US-908/US-502 AC3) rather than a link with no
+            # token to point to.
             alert = Alert(
                 public_id="",
                 saved_search_id=search.id,
@@ -182,6 +193,7 @@ def run_alert_cycle(db: Session, *, email_port: EmailPort, now: dt.datetime | No
             db.flush()
             alert.public_id = public_id("alr", alert.id)
             if channel == "email" and user.email:
+                body = render_digest_body(search, items, unsubscribe_token=alert.unsubscribe_token)
                 sent = email_port.send(to=user.email, subject=alert.subject or "", body=body)
                 alert.provider_message_id = sent.provider_message_id
                 alert.status = "sent"

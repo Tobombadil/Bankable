@@ -1752,6 +1752,93 @@ paths:
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
 
+  /v1/alerts/unsubscribe:
+    post:
+      operationId: unsubscribeAlert
+      tags: [Saved searches & alerts]
+      summary: Stop email alerts for a saved search
+      description: |
+        Public, no-session endpoint: `Alert.unsubscribe_token` (put in every digest email body by
+        `services/alerts/evaluate.py`) is itself the credential. Looks the token up, removes
+        `email` from that saved search's `channels` (pausing the search if `channels` becomes
+        empty), and records an `alert_unsubscribed` event. A second call with the same token is
+        idempotent (`200`, no further change). US-502 AC3: the next `run_alert_cycle` never emails
+        that search again.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-502, US-908]
+      security:
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnsubscribeRequest'
+      responses:
+        '200':
+          description: Unsubscribed (or already was -- idempotent).
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnsubscribeResponse'
+        '404':
+          description: The token is not recognized. Generic on purpose -- the same body whether the token never existed or was already consumed; existence is never confirmed beyond that (docs/21 §8 item 3's principle, applied to tokens).
+          headers: *std_headers
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://api.{{DOMAIN}}/errors/not_found
+                title: Not found
+                status: 404
+                code: not_found
+                detail: This unsubscribe link is not recognized.
+        <<: *common_errors
+
+    get:
+      operationId: unsubscribeAlertOneClick
+      tags: [Saved searches & alerts]
+      summary: One-click unsubscribe (mail-client GET)
+      description: |
+        Identical effect to `unsubscribeAlert`, reachable by `GET` (`?token=…`) for mail clients
+        that follow a plain link rather than issuing `List-Unsubscribe-Post`
+        (docs/13-legal-outreach-and-social.md §8.1's "one-click unsubscribe link"). Same resource,
+        same path as the `POST` operation above -- a `get:`/`post:` sibling pair on one path item,
+        the same shape `/v1/proposals` and other list endpoints already use for their own method
+        pairs in this document.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-502, US-908]
+      security:
+        - {}
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Unsubscribed (or already was -- idempotent).
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnsubscribeResponse'
+        '404':
+          description: The token is not recognized (see the `POST` operation's `404` for the generic-response rationale).
+          headers: *std_headers
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        <<: *common_errors
+
   /v1/alerts:
     get:
       operationId: listAlerts
@@ -10527,6 +10614,23 @@ components:
         applied:
           type: integer
           minimum: 0
+
+    UnsubscribeRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: '`Alert.unsubscribe_token` from a delivered alert email.'
+    UnsubscribeResponse:
+      type: object
+      required: [unsubscribed, saved_search_name]
+      properties:
+        unsubscribed:
+          type: boolean
+        saved_search_name:
+          type: string
+          description: The saved search the `email` channel was removed from.
 
   examples:
     ProposalListPublic:

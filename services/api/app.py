@@ -91,7 +91,12 @@ app.add_exception_handler(ProblemError, problem_exception_handler)
 # admin entitlement-grant endpoint. Kept in its own module (services/api/pro.py) per that task's
 # "extend, don't rewrite" instruction for this file — one import and one include_router call.
 from services.api.pro import router as pro_router  # noqa: E402 - after `app` exists, by design
+from services.api.unsubscribe_routes import router as unsubscribe_router  # noqa: E402
 
+# Mounted before pro_router on purpose: Starlette matches routes in registration order and
+# pro.py's `GET /v1/alerts/{alert_id}` would otherwise swallow `/v1/alerts/unsubscribe`
+# (US-502 AC3, US-908; found while building the unsubscribe route).
+app.include_router(unsubscribe_router)
 app.include_router(pro_router)
 
 # Sprint 3, first wave (docs/00-PLAN.md "Sprint 3 kickoff" item 1 and 2): the Attio CRM adapter's
