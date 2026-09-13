@@ -24,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.datastructures import QueryParams
 
 from web.api_client import ApiClient, ApiError, ApiNotFound, build_client
+from web.auth import router as auth_router
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
     ALL_OPPORTUNITY_STATUSES,
@@ -52,6 +53,10 @@ WEB_ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Infraqueue (placeholder) -- public site")
 app.mount("/static", StaticFiles(directory=str(WEB_ROOT / "static")), name="static")
 templates = Jinja2Templates(directory=str(WEB_ROOT / "templates"))
+# Sprint 3 "login and registration surface": /login, /register, /logout, /verify, /account (own
+# router in web/auth.py -- see that module's docstring for why it keeps its own Jinja2Templates
+# rather than importing this one).
+app.include_router(auth_router)
 
 
 def get_api(request: Request) -> ApiClient:

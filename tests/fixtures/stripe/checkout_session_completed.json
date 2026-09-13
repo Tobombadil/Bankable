@@ -1,0 +1,16 @@
+{
+  "id": "evt_1NG8Du2eZvKYlo2CtOM5CSCM",
+  "object": "event",
+  "type": "checkout.session.completed",
+  "created": 1757721600,
+  "data": {
+    "object": {
+      "id": "cs_test_a11YYufWQzNY63zpQ6QSNRQh",
+      "object": "checkout.session",
+      "mode": "subscription",
+      "customer": "cus_QXtest0000000001",
+      "client_reference_id": "acc_00000000TESTACCT1",
+      "subscription": "sub_1NG8Du2eZvKYlo2Cq5f8Vsxu"
+    }
+  }
+}

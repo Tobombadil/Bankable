@@ -50,6 +50,7 @@ from services.api.serialize import (
     serialize_webhook_delivery,
     serialize_webhook_endpoint,
 )
+from services.billing.router import subscriptions_for_account
 from services.db.models import (
     ACCOUNT_ENTITLEMENTS,
     Account,
@@ -163,7 +164,12 @@ def get_account(
     if ctx.account is None:
         raise not_found(request.url.path)
     org = db.get(Organization, ctx.account.organization_id) if ctx.account.organization_id else None
-    data = {"account": serialize_account(ctx.account, organization=org), "subscriptions": []}
+    # Sprint 3: the Stripe mirror rows for this account (services/billing/router.py) — an empty
+    # list until the first webhook lands, never a vendor call on the request path (ADR 0006).
+    data = {
+        "account": serialize_account(ctx.account, organization=org),
+        "subscriptions": subscriptions_for_account(db, ctx.account),
+    }
     return build_envelope(
         data, meta=build_meta(lag_days=0, tier=ctx.entitlement), licence_summary=build_licence_summary([])
     )

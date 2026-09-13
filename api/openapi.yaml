@@ -98,6 +98,8 @@ tags:
     description: Submit-a-project and submit-an-RFP (US-1001, US-1003). Public, write-only, captcha-gated.
   - name: Account
     description: Current user, account, entitlement and seats (Pro+).
+  - name: Billing
+    description: Stripe Checkout and Customer Portal hand-offs; entitlement derives from Stripe webhooks through the BillingPort (docs/20 §9, docs/34 §1).
   - name: Saved searches & alerts
     description: Saved filter definitions and their delivery history (Pro+).
   - name: Exports
@@ -1267,6 +1269,185 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
 
   # ───────────────────────────── §3.2 Pro and API — live, key or session required ─────────────────────────────
+  /v1/auth/register:
+    post:
+      operationId: authRegister
+      tags: [Account]
+      summary: Create a password account
+      description: |
+        Creates a `personal` account and its first user (`services/api/auth.py` `register_user`),
+        sends a verification email through the `EmailPort` (`services/README.md` "Pro tier and
+        alerts" decision 2: password auth alongside docs/20 §7's passwordless magic-link/Google,
+        which remain unbuilt), and signs the caller in immediately — `email_verified` is `false`
+        in the response until the link is followed. `dev_verification_url` is present only when
+        no `RESEND_API_KEY` is configured (the dry-run `EmailPort`), so the local/CI flow can be
+        completed without a mail provider; it is never present against a real one.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRegister'
+      responses:
+        '201':
+          description: Account created; a session cookie is set.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: An active user already has this email address.
+          headers: *std_headers
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://api.{{DOMAIN}}/errors/conflict
+                title: Email already registered
+                status: 409
+                code: conflict
+                instance: /v1/auth/register
+                request_id: req_4b1eaa
+                docs: https://{{DOMAIN}}/docs/api/errors#conflict
+        <<: *common_errors
+
+  /v1/auth/login:
+    post:
+      operationId: authLogin
+      tags: [Account]
+      summary: Sign in with email and password
+      description: |
+        `authenticate_user` plus the seat check US-602 AC2 requires: a login above
+        `account.seats` concurrent, non-revoked, unexpired sessions is refused with
+        `403 seat_limit` naming the seat count and the active session count, rather than silently
+        evicting another session.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLogin'
+      responses:
+        '200':
+          description: Signed in; a session cookie is set.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SeatLimit'
+        <<: *common_errors
+
+  /v1/auth/logout:
+    post:
+      operationId: authLogout
+      tags: [Account]
+      summary: Revoke the current session
+      description: Revokes the `UserSession` row the caller's cookie names and clears the cookie. Idempotent in effect — a second call with the same (now-revoked) cookie answers `401`, not `204` again.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - Session: []
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        <<: *common_errors
+
+  /v1/auth/verify:
+    get:
+      operationId: authVerifyEmail
+      tags: [Account]
+      summary: Confirm an email-verification link
+      description: |
+        Verifies the itsdangerous-signed token `POST /v1/auth/register` and
+        `POST /v1/auth/resend-verification` put in the verification email (max age 24h). Setting
+        `email_verified_at` is idempotent — following the same valid link twice answers `200`
+        both times.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - {}
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Email verified (or already was).
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthVerifyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/auth/resend-verification:
+    post:
+      operationId: authResendVerification
+      tags: [Account]
+      summary: Resend the email-verification link
+      description: '`200 {verified: true}` when the caller''s email is already verified (not a re-send); otherwise sends a new link and answers `202`. `dev_verification_url` is present under the same dry-run condition as `authRegister`.'
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - Session: []
+      responses:
+        '200':
+          description: Already verified; nothing was sent.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthVerifyResponse'
+        '202':
+          description: A new verification email was sent.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [verification_sent]
+                properties:
+                  verification_sent:
+                    type: boolean
+                  dev_verification_url:
+                    type: string
+                    description: Present only when no `RESEND_API_KEY` is configured (dry-run `EmailPort`) — never present against a real provider.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        <<: *common_errors
+
   /v1/me:
     get:
       operationId: getMe
@@ -1323,6 +1504,78 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         <<: *common_errors
+
+  /v1/billing/checkout:
+    post:
+      operationId: createBillingCheckout
+      tags: [Billing]
+      summary: Start a Stripe Checkout session
+      description: |
+        Any signed-in user may buy — this needs a session, not an existing entitlement
+        (`services/billing/router.py`'s `require_session_only("public")`). Creates a Stripe customer
+        on first purchase (`account.billing_ref` persisted from the response) and a subscription-mode
+        Checkout Session for `plan`/`seats`; the browser redirects the user to `data.url`.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - Session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutCreate'
+      responses:
+        '201':
+          description: Checkout session created.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSessionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/SorUnavailable'
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /v1/billing/portal:
+    post:
+      operationId: openBillingPortal
+      tags: [Billing]
+      summary: Open the Stripe customer portal
+      description: |
+        `409 conflict` when the account has no `billing_ref` yet (no checkout has ever completed) —
+        the fix is `POST /v1/billing/checkout` first, not a retry.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - Session: []
+      responses:
+        '200':
+          description: Portal session created.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortalSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/SorUnavailable'
+        default:
+          $ref: '#/components/responses/Problem'
 
   /v1/saved-searches:
     get:
@@ -3706,7 +3959,7 @@ paths:
       summary: Subscriptions, read through the adapter
       description: The subscription mirror (docs/21 §3.14) with `mirrored_at`, `drift_flag` and the staleness banner semantics of `/admin/v1/customers` (US-902).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-902, US-903, US-602]
       security: *sec_admin
@@ -3779,7 +4032,7 @@ paths:
         activity events on the proposal update the lead's activity through the same port within one pipeline run
         (US-403 AC2).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-403, US-903]
       security: *sec_admin
@@ -4139,6 +4392,90 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
+
+  /webhooks/attio:
+    post:
+      operationId: receiveAttioWebhook
+      tags: [Webhooks]
+      summary: Receive an Attio CRM webhook
+      description: |
+        Served on the API host (docs/34 §6 registers `https://api.{{DOMAIN}}/webhooks/attio`).
+        Inbound `record.updated` (Companies) and `record.updated`/`record.created` (Lead Signals) events from
+        Attio (docs/34 §5 "Inbound webhooks"). No session or API key — the `Attio-Signature` HMAC verified
+        against `ATTIO_WEBHOOK_SECRET` is the credential; a missing or invalid signature is `401
+        unauthenticated`, never processed. A `company.updated` change refreshes the platform's cached
+        `account.name` display field only (docs/34 §1: the platform never treats Attio as the source of a
+        project fact). `lead_signal.updated` events are currently received and counted but not otherwise
+        acted on until the admin-panel wave adds the task table that a `handled` tick would close.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-903]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttioWebhookPayload'
+      responses:
+        '200':
+          description: Delivery accepted and processed (or skipped, for an unmapped event type).
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookReceipt'
+              example:
+                received: 1
+                applied: 1
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SorUnavailable'
+        default:
+          $ref: '#/components/responses/Problem'
+
+  /webhooks/stripe:
+    post:
+      operationId: stripeWebhook
+      tags: [Billing]
+      summary: Inbound Stripe webhook
+      description: |
+        Served on the API host (`https://api.{{DOMAIN}}/webhooks/stripe`). Stripe calls this directly (`services/billing/stripe.py`'s `handle_webhook`; docs/34 §1
+        "Stripe writes it"). Verifies `Stripe-Signature: t=<unix>,v1=<hex>[,v1=<hex>...]` — HMAC-SHA256
+        of `"{t}.{raw body}"` with the `STRIPE_WEBHOOK_SECRET`, ±300s tolerance — before touching the
+        body; a bad signature is `401`, never processed. Maps `customer.subscription.created|updated|
+        deleted|paused|resumed`, `checkout.session.completed` (subscription mode) and
+        `invoice.paid`/`invoice.payment_failed` onto `account.entitlement` via the one rule in
+        `services/sor/ports.py:entitlement_for`. Always answers `200` once the signature checks out —
+        a per-event application failure is logged and counted, never a 5xx (Stripe would otherwise
+        retry indefinitely for a problem retrying cannot fix).
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StripeWebhookPayload'
+      responses:
+        '200':
+          description: Signature verified; `received`/`applied` count what this delivery did.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookReceipt'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '503':
+          $ref: '#/components/responses/SorUnavailable'
+        default:
+          $ref: '#/components/responses/Problem'
 
   /sitemap.xml:
     servers: *feed_servers
@@ -9953,6 +10290,180 @@ components:
                     $ref: '#/components/schemas/SourceIdValue'
 
   # ───────────────────────────── Examples (US-704 AC1) ─────────────────────────────
+    # ---- Sprint 3 first wave: auth, billing, inbound CRM/billing webhooks
+    AuthRegister:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 12
+          description: Never logged or echoed; argon2-hashed at rest (`services/api/auth.py`).
+        name:
+          type: [string, 'null']
+    AuthLogin:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    AuthSessionResponse:
+      type: object
+      required: [data, meta, licence_summary, redactions]
+      description: 'Envelope shape shared with every other public/pro response (docs/23 §10) — the attribution fields are always present and always empty here (auth responses carry no source-derived data).'
+      properties:
+        data:
+          type: object
+          required: [user, account, email_verified]
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+            account:
+              $ref: '#/components/schemas/Account'
+            email_verified:
+              type: boolean
+            verification_sent:
+              type: boolean
+              description: Present on `authRegister` only.
+            dev_verification_url:
+              type: string
+              description: Present on `authRegister` only, and only when no `RESEND_API_KEY` is configured (dry-run `EmailPort`) — never present against a real provider.
+        meta:
+          type: object
+        licence_summary:
+          type: object
+        redactions:
+          type: array
+          items: {}
+    AuthVerifyResponse:
+      type: object
+      required: [verified]
+      properties:
+        verified:
+          type: boolean
+    CheckoutCreate:
+      type: object
+      required: [plan]
+      properties:
+        plan:
+          $ref: '#/components/schemas/PlanTier'
+        seats:
+          type: integer
+          minimum: 1
+          default: 1
+    CheckoutSessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [url, session_ref]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                session_ref:
+                  type: string
+    PortalSessionResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+    StripeWebhookPayload:
+      type: object
+      description: Stripe's own event envelope, verbatim — this schema documents the shape the
+        platform reads, not one it validates against before signature verification (docs/34 §1).
+      required: [id, type, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        created:
+          type: integer
+        data:
+          type: object
+          required: [object]
+          properties:
+            object:
+              type: object
+    AttioWebhookPayload:
+      type: object
+      description: |
+        Attio's webhook delivery body (services/crm/README.md "webhook verification and payload shape" —
+        the exact record-event shape was not in the vendor evidence fetched for this wave and is reconstructed
+        from the list-entry-event shape Attio's docs do show plus the adapter's own required fields; treated
+        as a documented assumption, not a verified contract). Two shapes are accepted: a batch envelope
+        (`events`, a non-empty array of event objects) or a single bare event object at the top level.
+      properties:
+        event_type:
+          type: string
+          description: Present on a single bare event object.
+          example: record.updated
+        id:
+          $ref: '#/components/schemas/AttioWebhookEventId'
+        actor:
+          type: object
+          additionalProperties: true
+        events:
+          type: array
+          description: Present on a batch delivery.
+          items:
+            type: object
+            properties:
+              event_type:
+                type: string
+                example: record.updated
+              id:
+                $ref: '#/components/schemas/AttioWebhookEventId'
+              actor:
+                type: object
+                additionalProperties: true
+            additionalProperties: true
+      additionalProperties: true
+    AttioWebhookEventId:
+      type: object
+      description: Identifies the changed object by UUID, never by slug (services/crm/README.md A-34-1).
+      required: [object_id, record_id]
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+        object_id:
+          type: string
+          format: uuid
+        record_id:
+          type: string
+          format: uuid
+    WebhookReceipt:
+      type: object
+      description: |
+        Receipt for an inbound vendor webhook (`/webhooks/attio`, `/webhooks/stripe`): `received` counts the
+        events the adapter mapped to a known change, `applied` the subset that changed platform state.
+      required: [received, applied]
+      properties:
+        received:
+          type: integer
+          minimum: 0
+        applied:
+          type: integer
+          minimum: 0
+
   examples:
     ProposalListPublic:
       summary: Public tier, one CAISO-sourced record with raw fields withheld

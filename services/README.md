@@ -858,6 +858,13 @@ boundary, per-key isolation, `Retry-After`) at both the middleware and route lev
 
 ### Remaining for billing (Sprint 3)
 
+**Update 2026-09-13 (Sprint 3 first wave):** the first three items below are done — the Attio and
+Stripe adapters live in `services/crm/` and `services/billing/` behind `services/sor/ports.py`
+(each tree has its own README with the numbered decisions), `POST /v1/auth/*` in
+`services/api/auth_routes.py` enforces the seat limit, and `web/` has the login surface. The interim
+`PUT /admin/v1/accounts/{id}/entitlement` is kept deliberately as the manual override (docs/00-PLAN.md
+Sprint 3 kickoff), not removed. The last two items remain open for the workers wave.
+
 - The real CRM/ERP + Stripe adapter (ADR 0006) behind `POST/GET /admin/v1/customers` and
   `/admin/v1/subscriptions`, writing `account.entitlement_source = "sor"`; the interim
   `PUT /admin/v1/accounts/{id}/entitlement` (`manual_grant`) should then be scoped down or removed.

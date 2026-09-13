@@ -382,3 +382,153 @@ from `docs/31` §5, `dark`/`light` via `prefers-color-scheme`, responsive to 400
 stack, tables collapse to key/value rows, the map keeps its side list as a stacked panel). Google
 Fonts CDN instead of self-hosted (docs/31 D-21) remains a pre-production departure, unchanged by
 this task.
+
+## Login and registration (Sprint 3 "login and registration surface", first wave)
+
+Adds a password login/registration surface on the existing session auth `services/api/auth.py`
+already had (argon2 hashing, signed revocable session cookies) but never exposed over HTTP
+(`services/README.md` "Pro tier and alerts" decision 2 explicitly deferred the endpoint). Two new
+routers: `services/api/auth_routes.py` (`/v1/auth/*`, mounted onto `services.api.app.app` the same
+way `services/api/pro.py` is) and `web/auth.py` (`/login`, `/register`, `/logout`, `/verify`,
+`/account`, `/account/resend`, mounted onto `web.app.app`).
+
+### Routes
+
+| Method & path (web) | Calls (API) | Notes |
+|---|---|---|
+| `GET`/`POST /login` | `POST /v1/auth/login` | Form; re-renders with the API's `title`/`detail`/field errors and its status code (401 wrong credentials, 403 seat limit) on failure. |
+| `GET`/`POST /register` | `POST /v1/auth/register` | Form; 400 (weak password / bad email shape, field-level) or 409 (email already registered) re-render the form. |
+| `POST /logout` | `POST /v1/auth/logout` | Clears the cookie locally regardless of the API's answer. |
+| `GET /verify` | `GET /v1/auth/verify` | Renders success or an error page with a link back to sign in (and, from there, to resend). |
+| `GET /account` | `GET /v1/me` | 401 → redirect to `/login?next=/account`. Shows tier, account name, email + verification state, a resend form, a sign-out form. |
+| `POST /account/resend` | `POST /v1/auth/resend-verification` | Re-renders `/account` with the result, including the dev link in dry-run. |
+
+### Cookie relay design, and why
+
+Production runs the web host and the API host as two separate deployables (`docs/20-architecture.md`);
+the browser only ever talks to the web host. Every route above that needs the session forwards the
+browser's own `session` cookie to the API as a *request*, and relays every `Set-Cookie` header the
+API sends back onto its *own* response unchanged — same name, same attributes — via
+`ApiClient.post`/`.get_result`'s new `ApiResult.set_cookie: list[str]` (raw header values) and
+`web/auth.py::_relay_cookies`. The browser ends up holding one cookie, set by whichever host
+answered last, and either host resolves it identically (the cookie's payload is a signed opaque
+value `services/api/auth.py` mints and reads; the web host never parses or mints it, only carries
+it). Locally (in-process mode, what pytest and this README's other run modes use) the relay is a
+no-op in effect, but it is the exact same code path — one cookie design to test
+(`web/test_auth.py`), not a real one and a stubbed one.
+
+`web/api_client.py` grew to carry this: `ApiClient.post(path, *, json=, cookies=) -> ApiResult` and
+a `cookies=` keyword on `.get`/the new `.get_result` (non-raising counterpart to `.get`, for a
+caller like `/account` that treats `401` as "signed out", not an error). `cookies` is always a
+*per-request* keyword, never written onto the shared `Transport`'s own persistent cookie jar: one
+process serves every visitor through one `ApiClient` instance, so mutating that instance's jar with
+one visitor's session cookie would leak it to the next visitor's request. httpx (both the real
+`httpx.Client` used in HTTP mode and the `TestClient` used in-process, since it subclasses
+`httpx.Client`) honours a per-call `cookies=` mapping for exactly that one request without merging
+it back into `Client.cookies` — verified directly in this task's exploration and exercised by every
+`web/test_auth.py` test that logs in as one user and checks another. **Deviation:** httpx 0.27
+(pinned, `requirements.txt`) emits a `DeprecationWarning` on this exact usage ("Setting per-request
+cookies=... is being deprecated, because the expected behaviour on cookie persistence is
+ambiguous"); the behaviour it warns about is not the one being relied on here (nothing is expected
+to persist — the opposite is the point), but this is flagged as a follow-up to revisit once httpx's
+replacement API for scoped, non-persistent per-request cookies exists.
+
+### CSRF stance
+
+Every state-changing web route requires the request's `Origin` header (or `Referer` when `Origin`
+is absent — some plain-navigation form posts omit `Origin`) to name this same origin, refusing with
+a `403` **text** response otherwise (`web/auth.py::_is_same_origin`/`_csrf_rejection`). This is a
+deliberate two-layer, no-server-state design rather than a synchroniser-token scheme:
+`SameSite=Lax` on the session cookie already stops the cookie riding along on a genuinely
+cross-site POST in a modern browser; the Origin/Referer check covers the residual cases
+`SameSite=Lax` does not (a followed redirect chain, an older or misconfigured browser). A
+server-side CSRF token would need session-bound storage this task's scope does not otherwise need,
+for a form whose cookie is already `HttpOnly` + `SameSite=Lax`.
+
+### Dry-run verification link
+
+`services/api/auth.py`'s `ResendEmailAdapter` is dry-run whenever `RESEND_API_KEY` is unset (no
+credential exists in this environment to make a real send possible). In dry-run,
+`POST /v1/auth/register` and `POST /v1/auth/resend-verification` include a `dev_verification_url`
+field alongside the normal response — the exact URL that went into the (unsent) email body. The
+API builds it from `services.api.common.WEB_HOST`, which is still the literal `{{DOMAIN}}`
+placeholder (docs/00-PLAN.md: product name not chosen yet) and therefore not a navigable link on
+whatever host this site is actually served from; `web/auth.py`'s `/account/resend` handler runs it
+through `web/viewmodels.py::web_relative_url` — the exact same fix already applied to every
+API-supplied `url` field the map renders — before putting it in the page, labelled "development
+only, no email provider configured". This key is documented in `api/fragments/auth.yaml` as present
+only under that dry-run condition, never against a real provider.
+
+### Seat rule (US-602 AC2)
+
+`POST /v1/auth/login` counts non-revoked, unexpired `UserSession` rows across every user of the
+account at login time; a login that would put the count at or above `Account.seats` is refused with
+`403 seat_limit` naming both numbers, rather than silently evicting another session.
+`Account.seats_used` (docs/21 §3.13's CRM/ERP entitlement mirror column) is not used for this check
+— it has no writer anywhere in the codebase yet, and this task's scope does not add one; counting
+live sessions directly is simpler and by construction cannot drift from what "seats" is meant to
+police (concurrent logins).
+
+### Decisions and deviations
+
+1. **Password auth, not docs/20 §7's passwordless magic-link/Google.** Already recorded in
+   `services/README.md` "Pro tier and alerts" decision 2 for the underlying session machinery; this
+   task ships the HTTP surface on top of exactly that path, unchanged.
+2. **`services/api/auth_routes.py` request bodies are plain `dict[str, Any]`**, matching
+   `services/api/pro.py`'s `create_saved_search` and friends — no parallel Pydantic model tree
+   (`services/api/serialize.py`'s own stated rationale: the committed OpenAPI file is the shape
+   authority, and `tests/test_api_contract.py` checks responses against it directly).
+3. **The seat check counts live `UserSession` rows, not `Account.seats_used`** — see "Seat rule"
+   above.
+4. **Session-row expiry is compared in Python after loading candidate rows**, mirroring
+   `resolve_session`'s own naive/aware handling (SQLite round-trips `DateTime(timezone=True)` as
+   naive; a real Postgres deployment would not), rather than filtering `expires_at` in SQL, which
+   would behave differently across the two.
+5. **`resolve_session_row` duplicates `resolve_session`'s verification steps** instead of factoring
+   them out of it — this task's scope for `services/api/auth.py` is append-only (new helpers only,
+   no edits to existing functions), so the shared logic is a second copy, not a shared private
+   function `resolve_session` was refactored to call.
+6. **Simple email-shape validation** ("one `@`, a dot after it, ≤254 chars"), not RFC 5322 — the
+   deliverable is a verification link the user actually receives and clicks, which already proves
+   deliverability in practice; a stricter static check would only add false rejections.
+7. **`web/auth.py` keeps its own `Jinja2Templates`/`get_api`/`is_preview_active`/`footer_lag_days`**
+   instead of importing them from `web/app.py` — `web/app.py` mounts this router
+   (`app.include_router(web.auth.router)`), so importing back from `web.app` at module level would
+   be circular. The duplicated helpers are the exact bodies `web/app.py` already has and read only
+   `request.app.state`, shared regardless of which module defined the route — no second source of
+   truth for *behaviour*, only for a few lines of glue.
+8. **No dedicated PRD story for account registration or email verification** exists in
+   `docs/10-prd-mvp.md`; `api/fragments/auth.yaml` cites US-602 (the only applicable story, and the
+   one naming the seat rule) on every operation rather than inventing a story id, flagged there
+   explicitly rather than left silently unstated.
+9. **httpx per-request `cookies=` deprecation** — see "Cookie relay design" above.
+10. **CSRF is header-based, not a token scheme** — see "CSRF stance" above.
+
+### Verbatim output (this task, 2026-09-13)
+
+```
+$ .venv/bin/python -m pytest tests/test_api_auth.py web -q --ignore=web/test_e2e.py
+....................................                                     [100%]
+36 passed, 13 warnings in 33.38s
+
+$ .venv/bin/python -m pytest tests/test_api_pro_auth.py tests/test_api_contract.py services/api -q
+........................................................................ [ 98%]
+.                                                                        [100%]
+73 passed, 27 warnings in 6.82s
+
+$ .venv/bin/ruff check services/api/auth_routes.py services/api/auth.py web tests/test_api_auth.py api/fragments
+All checks passed!
+
+$ .venv/bin/ruff format --check services/api/auth_routes.py services/api/auth.py web tests/test_api_auth.py
+16 files already formatted
+
+$ .venv/bin/mypy --cache-dir /tmp/mypy-web services/api/auth_routes.py services/api/auth.py web
+web/build_data.py:267: error: Returning Any from function declared to return "str | None"  [no-any-return]
+web/build_data.py:274: error: Returning Any from function declared to return "str | None"  [no-any-return]
+services/ingest/loader.py:295: error: Returning Any from function declared to return "datetime | None"  [no-any-return]
+Found 3 errors in 2 files (checked 12 source files)
+```
+
+The three `mypy` errors are pre-existing (confirmed via `git stash`: present before this task's
+changes, in files this task does not touch) and unrelated to this surface — none are in
+`services/api/auth_routes.py`, `services/api/auth.py`, `web/auth.py` or `web/api_client.py`.

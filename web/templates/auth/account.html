@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Account -- Infraqueue (placeholder){% endblock %}
+{% block meta_description %}Your Infraqueue account.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Account</h1>
+</div>
+<dl class="field-grid">
+  <div><dt>Name</dt><dd>{{ me.account.name }}</dd></div>
+  <div><dt>Entitlement</dt><dd>{{ me.tier }}</dd></div>
+  <div><dt>Email</dt><dd>{{ me.user.email }}</dd></div>
+  <div><dt>Email status</dt><dd>{{ 'Verified' if me.user.email_verified_at else 'Not verified' }}</dd></div>
+</dl>
+
+{% if resend_body %}
+  {% if resend_body.verified %}
+  <p class="notice" role="status">Your email is already verified.</p>
+  {% elif resend_body.verification_sent %}
+  <p class="notice" role="status">Verification email sent.</p>
+  {% if resend_body.dev_verification_url %}
+  <p class="notice">Development only, no email provider configured: <a href="{{ resend_body.dev_verification_url }}">{{ resend_body.dev_verification_url }}</a></p>
+  {% endif %}
+  {% else %}
+  <p class="notice notice--error" role="alert">{{ resend_body.title or 'Could not resend the verification email.' }}{% if resend_body.detail %}: {{ resend_body.detail }}{% endif %}</p>
+  {% endif %}
+{% endif %}
+
+{% if not me.user.email_verified_at %}
+<form class="auth-form" method="post" action="/account/resend">
+  <div class="form-actions">
+    <button type="submit">Resend verification email</button>
+  </div>
+</form>
+{% endif %}
+
+<form class="auth-form" method="post" action="/logout">
+  <div class="form-actions">
+    <button type="submit">Sign out</button>
+  </div>
+</form>
+{% endblock %}
