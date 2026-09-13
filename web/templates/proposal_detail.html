@@ -9,7 +9,7 @@
   <h1>{{ record.name }}</h1>
   {{ m.status_chip(record.lifecycle_state, record.lifecycle_family, record.status_raw) }}
 </div>
-{{ m.delayed_banner(delayed, "supply") }}
+{{ m.delayed_banner(delayed) }}
 
 <dl class="field-grid">
   <div><dt>Kind</dt><dd>{{ record.kind or '—' }}</dd></div>
@@ -24,7 +24,7 @@
   <div><dt>EIA plant / generator ID</dt><dd class="mono">{{ (record.eia_plant_id ~ ' / ' ~ record.eia_generator_id) if record.eia_plant_id else '—' }}</dd></div>
 </dl>
 
-{{ m.provenance_panel(record) }}
+{{ m.provenance_panel(provenance_rows) }}
 
 <section aria-label="Lifecycle timeline">
   <h2>Lifecycle timeline</h2>
@@ -34,21 +34,11 @@
       <time datetime="{{ record.retrieved_at }}">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown date' }}</time>
       Observed as <strong>{{ record.lifecycle_state | replace('_',' ') }}</strong> in {{ record.source_name }}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.
     </li>
-    {% if record.queue_date %}
-    <li><time datetime="{{ record.queue_date }}">{{ record.queue_date }}</time> Interconnection request / queue entry date, as filed with the source.</li>
-    {% endif %}
     {% if record.proposed_online_date %}
     <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date }}</time> Proposed commercial-operation date (source-stated; not a commitment).</li>
     {% endif %}
   </ul>
 </section>
-
-{% if record.allows_raw and record.raw_fields %}
-<details class="raw-fields-details">
-  <summary>Raw source fields ({{ record.source_name }})</summary>
-  <pre class="raw-fields">{{ record.raw_fields | tojson(indent=2) }}</pre>
-</details>
-{% endif %}
 
 <p><a href="mailto:?subject=Report%20a%20problem%20with%20{{ record.name | urlencode }}">Report a problem with this record &rarr;</a> (prototype: opens a mail draft; the built product logs an admin task, US-204.)</p>
 

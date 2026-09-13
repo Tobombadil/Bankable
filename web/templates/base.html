@@ -23,7 +23,7 @@
 <a class="skip-link" href="#main">Skip to main content</a>
 <header class="site-header">
   <div class="site-header__bar">
-    <a class="wordmark" href="/">Infraqueue<span class="wordmark__tag">placeholder name</span></a>
+    <a class="wordmark" href="/">Infraqueue</a>
     <nav class="primary-nav" aria-label="Primary">
       <a href="/">Map</a>
       <a href="/proposals">Proposals</a>
@@ -41,7 +41,8 @@
 {% block content %}{% endblock %}
 </main>
 <footer class="site-footer">
-  <p>Public data is delayed. Prototype build for internal review -- not a production launch. <a href="/about">Sources and licences</a>.</p>
+  {% set lag = footer_lag_days(request) %}
+  <p>Public data is delayed {{ lag.supply }} days for proposals, {{ lag.opportunities }} for opportunities. <a href="/about#sources">Sources and licences</a>.</p>
 </footer>
 {% block extra_scripts %}{% endblock %}
 </body>

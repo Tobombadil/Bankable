@@ -7,9 +7,10 @@
 {% block content %}
 <div class="page-header">
   <h1>Map</h1>
-  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO. Filters apply to the map and the list together; the URL always reflects the current view.</p>
+  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO. Filters apply to the map and the list together; the URL always reflects the current view. Clustering is computed by the API (<code>/v1/proposals/geo</code>); this page renders what it returns.</p>
 </div>
-{{ m.delayed_banner(delayed, "supply") }}
+{{ m.delayed_banner(delayed) }}
+{% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
 
 <form id="map-filters" class="filter-bar" aria-label="Map filters">
   <div class="filter-field">
@@ -20,18 +21,14 @@
     </select>
   </div>
   <div class="filter-field">
-    <label for="mf-lifecycle">Lifecycle state</label>
-    <select id="mf-lifecycle" name="lifecycle_state">
-      <option value="">All</option>
-      {% for s in lifecycle_states %}<option value="{{ s }}">{{ s | replace('_',' ') }}</option>{% endfor %}
-    </select>
+    <label for="mf-jurisdiction">Jurisdiction</label>
+    <input id="mf-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX">
   </div>
-  <div class="filter-field">
-    <label for="mf-jurisdiction">Jurisdiction (state)</label>
-    <select id="mf-jurisdiction" name="jurisdiction">
-      <option value="">All</option>
-      {% for j in jurisdictions %}<option value="{{ j }}">{{ j }}</option>{% endfor %}
-    </select>
+  <div class="filter-field filter-field--checkbox">
+    <label for="mf-include-withdrawn">
+      <input id="mf-include-withdrawn" type="checkbox" name="include_withdrawn" value="1" {% if include_withdrawn %}checked{% endif %}>
+      Include withdrawn &amp; cancelled
+    </label>
   </div>
   <button class="filter-bar__submit" type="button" id="mf-clear">Clear all</button>
   <a class="filter-bar__clear" href="/proposals" id="mf-view-list">View as list &rarr;</a>
@@ -54,14 +51,14 @@
       <span class="legend__item"><span class="legend__swatch" style="background:var(--family-success-text)"></span> Success</span>
       <span class="legend__item"><span class="legend__swatch" style="background:var(--family-danger-text)"></span> Danger</span>
     </div>
-    <p class="map-attribution">Basemap &copy; <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a> contributors, ODbL. Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <span id="map-sources-line">see About &amp; sources.</span></p>
+    <p class="map-attribution">Basemap &copy; <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a> contributors, ODbL. Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <a href="/about#sources">see About &amp; sources</a>.</p>
   </div>
   <aside class="map-side" aria-label="Proposals in view">
     <a id="in-view-list" tabindex="-1"></a>
     <h2>In view</h2>
     <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
     <ul class="in-view-list" id="in-view-items"></ul>
-    <div id="unplaced-container"></div>
+    <p id="unplaced-note" class="in-view-list__unplaced" hidden></p>
   </aside>
 </div>
 

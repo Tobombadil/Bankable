@@ -1,53 +1,100 @@
-"""Sprint 2 public-site prototype (docs/20 §15 web-app row: FastAPI + Jinja2 + htmx; MapLibre for
-the map). Public delayed tier only -- no auth, no Pro, no admin (this task's scope).
+"""Public site (docs/00-PLAN.md Sprint 2 "wire site to API" item): reads `services/api` -- over
+HTTP when `API_BASE_URL` is set, or the API app mounted in-process otherwise -- instead of the
+static JSON files `web/build_data.py` used to produce. `build_data.py` itself is retained only for
+the vendored basemap fallback asset (`web/data_ref/build_basemap_fallback.py`'s output); no route
+below reads its JSON output any more.
 
-Run: `uvicorn web.app:app --reload` from the repo root, after `python -m web.build_data --no-lag`
-has written `web/static/data/*.json` (see `web/README.md`).
+Run for real: `python -m web.dev_up` (loads `data/normalized/*` into a SQLite file, starts
+`services.api.app` and this app together). Run against an in-process API with no separate process
+at all: `uvicorn web.app:app --reload` with `DATABASE_URL` pointing at an already-loaded SQLite
+file (or the default in-memory database, empty until something loads it).
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import QueryParams
 
-from web.store import (
-    OPPORTUNITY_SORT_ALLOWLIST,
-    PROPOSAL_SORT_ALLOWLIST,
-    Store,
-    filter_opportunities,
-    filter_proposals,
-    paginate,
-    sort_records,
+from web.api_client import ApiClient, ApiError, ApiNotFound, build_client
+from web.viewmodels import (
+    ACTIVE_PROPOSAL_STATES,
+    ALL_OPPORTUNITY_STATUSES,
+    WITHDRAWN_PROPOSAL_STATES,
+    WORLD_BBOX,
+    flatten_opportunity,
+    flatten_proposal,
+    lifecycle_breakdown,
+    opportunity_status_param,
+    provenance_panel_rows,
+    resolve_proposal_lifecycle_param,
 )
 
-WEB_ROOT = Path(__file__).resolve().parent
-DATA_DIR = WEB_ROOT / "static" / "data"
-PAGE_SIZE = 50
+ALL_OPPORTUNITY_STATUSES_CSV = ",".join(ALL_OPPORTUNITY_STATUSES)
+_PROPOSAL_SOURCE_IDS = {
+    "us.iso.ercot.gen_queue",
+    "us.iso.caiso.gen_queue",
+    "us.iso.nyiso.gen_queue",
+    "us.eia.860m",
+    "gb.neso.tec_register",
+}
 
-app = FastAPI(title="Infraqueue (placeholder) -- public site prototype")
+WEB_ROOT = Path(__file__).resolve().parent
+
+app = FastAPI(title="Infraqueue (placeholder) -- public site")
 app.mount("/static", StaticFiles(directory=str(WEB_ROOT / "static")), name="static")
 templates = Jinja2Templates(directory=str(WEB_ROOT / "templates"))
 
 
-def get_store() -> Store:
-    # Loaded once and cached on the app object (docs/20 §15: this sprint has no database; the
-    # store is the three files `build_data.py` writes). A restart picks up a re-run build.
-    store: Store | None = getattr(app.state, "store", None)
-    if store is None:
-        store = Store.load(DATA_DIR)
-        app.state.store = store
-    return store
+def get_api(request: Request) -> ApiClient:
+    """One `ApiClient` per app process (or per test app instance), cached on `app.state` -- the
+    same lifetime `get_store()` gave the old static-file `Store`."""
+    client: ApiClient | None = getattr(request.app.state, "api_client", None)
+    if client is None:
+        client = build_client()
+        request.app.state.api_client = client
+    return client
+
+
+def is_preview_active(request: Request) -> bool:
+    """docs/00-PLAN.md task item 5: "a dev-only override flag ... clearly labelled in the UI when
+    active". `app.state.preview_active` lets a test set this directly without an environment
+    variable; `web/dev_up.py --preview` sets `WEB_DEV_PREVIEW=1` for the real subprocess case."""
+    override = getattr(request.app.state, "preview_active", None)
+    if override is not None:
+        return bool(override)
+    return os.environ.get("WEB_DEV_PREVIEW", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def get_lag_days(request: Request) -> dict[str, int]:
+    """`lag_days_default` from `/v1/health` cached for the process lifetime -- it is server
+    configuration, not per-request data, and the footer (product defect B) and delayed-tier notice
+    on every page need it without a health round trip each time."""
+    cached: dict[str, int] | None = getattr(request.app.state, "lag_days_default", None)
+    if cached is None:
+        health = get_api(request).get("/v1/health")
+        cached = dict(health["lag_days_default"])
+        request.app.state.lag_days_default = cached
+    return cached
 
 
 def is_htmx(request: Request) -> bool:
     return request.headers.get("hx-request") == "true"
+
+
+# Available in every template without every route threading them through by hand (product defect
+# B's calm one-line footer, and the dev-preview label task item 5 requires "clearly labelled in
+# the UI when active"). Jinja2Templates always injects `request` into the render context, so
+# `{{ is_preview_active(request) }}` / `{{ footer_lag_days(request) }}` work from any template.
+templates.env.globals["is_preview_active"] = is_preview_active
+templates.env.globals["footer_lag_days"] = get_lag_days
 
 
 def querystring_without(params: QueryParams, *drop: str) -> str:
@@ -55,41 +102,56 @@ def querystring_without(params: QueryParams, *drop: str) -> str:
     return "&".join(f"{k}={v}" for k, v in kept)
 
 
-def delayed_notice(kind: str, stats: dict[str, Any]) -> dict[str, Any]:
-    """docs/04 D-3/D-28: fixed wording, rendered from data. The prototype's `--no-lag` build
-    still carries the configured `lag_days` here so the notice reads as it will in production
-    (the task's own instruction: "render the delayed-tier notice regardless").
-    """
-    lag_days = stats["lag_days"][kind]
-    data_as_of = stats["data_as_of"].get(kind)
-    return {"lag_days": lag_days, "data_as_of": data_as_of, "no_lag_demo": stats.get("no_lag", False)}
+def delayed_notice(request: Request, kind: str) -> dict[str, Any]:
+    """docs/04 D-3/D-28: the notice always states the *actual configured* lag for the record's
+    class, sourced from the API's own health payload -- never a hard-coded string (product defect
+    E, task item 5). `public_at` from the API is what actually governs visibility; this notice is
+    just the honest label for that, not a second filter."""
+    lag_key = "supply" if kind == "proposal" else "opportunities"
+    lag_days = get_lag_days(request)[lag_key]
+    now = dt.datetime.now(dt.UTC)
+    data_as_of = (now - dt.timedelta(days=lag_days)).strftime("%Y-%m-%d")
+    return {"lag_days": lag_days, "data_as_of": data_as_of, "preview_active": is_preview_active(request)}
 
 
-def facet_options(records: list[dict[str, Any]], field: str) -> list[str]:
-    return sorted({str(r[field]) for r in records if r.get(field)})
+def not_found_response(request: Request, kind: str) -> HTMLResponse:
+    return templates.TemplateResponse(request, "not_found.html", {"kind": kind}, status_code=404)
 
 
-def facet_options_multi(records: list[dict[str, Any]], field: str) -> list[str]:
-    values: set[str] = set()
-    for r in records:
-        for v in r.get(field) or []:
-            values.add(str(v))
-    return sorted(values)
+PROPOSAL_PASSTHROUGH_FILTERS = ("technology", "jurisdiction", "kind", "capacity_mw[gte]", "capacity_mw[lte]", "q")
+OPPORTUNITY_PASSTHROUGH_FILTERS = ("kind", "jurisdiction", "technologies", "q")
+
+
+def _proposal_params(qp: QueryParams, *, lifecycle_csv: str) -> dict[str, str | None]:
+    params: dict[str, str | None] = {
+        name: qp[name] for name in PROPOSAL_PASSTHROUGH_FILTERS if qp.get(name)
+    }
+    params["lifecycle_state"] = lifecycle_csv
+    return params
 
 
 @app.get("/", response_class=HTMLResponse)
 def home_map(request: Request) -> HTMLResponse:
-    store = get_store()
+    api = get_api(request)
+    qp = request.query_params
+    lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
+    vocab = api.get("/v1/meta/vocabularies")["data"]
+    breakdown = lifecycle_breakdown(
+        api, extra_filters={n: qp[n] for n in ("technology", "jurisdiction", "kind") if qp.get(n)}
+    )
     return templates.TemplateResponse(
         request,
         "home_map.html",
         {
-            "stats": store.stats,
-            "delayed": delayed_notice("proposal", store.stats),
-            "technologies": facet_options(store.proposals, "technology"),
-            "lifecycle_states": facet_options(store.proposals, "lifecycle_state"),
-            "jurisdictions": facet_options(store.proposals, "state"),
-            "generated_at": store.stats.get("generated_at"),
+            "delayed": delayed_notice(request, "proposal"),
+            "technologies": [v["value"] for v in vocab["technology"]],
+            "kinds": [v["value"] for v in vocab["proposal_kind"]],
+            "include_withdrawn": include_withdrawn,
+            "lifecycle_explicit": explicit,
+            "filters": dict(qp),
+            "breakdown": breakdown,
+            "active_states": ACTIVE_PROPOSAL_STATES,
+            "withdrawn_states": WITHDRAWN_PROPOSAL_STATES,
         },
     )
 
@@ -99,94 +161,129 @@ def map_alias() -> RedirectResponse:
     return RedirectResponse(url="/")
 
 
+@app.get("/api/proposals/geo")
+def proposals_geo_proxy(request: Request) -> JSONResponse:
+    """What `web/static/js/map.js` fetches: the API's own clustering, proxied so the browser
+    never needs to know the API's host/port (in HTTP mode) or that there is no separate host at
+    all (in-process mode). The client renders exactly what comes back; it does not cluster."""
+    api = get_api(request)
+    qp = request.query_params
+    lifecycle_csv, _explicit, _include = resolve_proposal_lifecycle_param(qp)
+    params = _proposal_params(qp, lifecycle_csv=lifecycle_csv)
+    params["bbox"] = qp.get("bbox") or WORLD_BBOX
+    params["zoom"] = qp.get("zoom") or "3"
+    try:
+        envelope = api.get("/v1/proposals/geo", params=params)
+    except ApiError as exc:
+        return JSONResponse(exc.body, status_code=exc.status_code)
+    return JSONResponse(envelope)
+
+
 @app.get("/proposals", response_class=HTMLResponse)
 def proposals_list(request: Request) -> HTMLResponse:
-    store = get_store()
+    api = get_api(request)
     qp = request.query_params
-    filtered = filter_proposals(
-        store.proposals,
-        technology=qp.get("technology"),
-        lifecycle_state=qp.get("lifecycle_state"),
-        kind=qp.get("kind"),
-        jurisdiction=qp.get("jurisdiction"),
-        capacity_gte=_to_float(qp.get("capacity_mw[gte]")),
-        capacity_lte=_to_float(qp.get("capacity_mw[lte]")),
-        q=qp.get("q"),
+    lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
+    params = _proposal_params(qp, lifecycle_csv=lifecycle_csv)
+    params["sort"] = qp.get("sort") or "-capacity_mw"
+    params["cursor"] = qp.get("cursor")
+    params["include"] = "count"
+    envelope = api.get("/v1/proposals", params=params)
+    vocab = api.get("/v1/meta/vocabularies")["data"]
+    breakdown = lifecycle_breakdown(
+        api, extra_filters={n: qp[n] for n in ("technology", "jurisdiction", "kind") if qp.get(n)}
     )
-    filtered = sort_records(filtered, qp.get("sort"), PROPOSAL_SORT_ALLOWLIST, "-capacity_mw")
-    offset = _to_int(qp.get("cursor")) or 0
-    page, has_more, total = paginate(filtered, offset=offset, limit=PAGE_SIZE)
 
     context = {
-        "records": page,
-        "total": total,
-        "has_more": has_more,
-        "next_cursor": offset + PAGE_SIZE if has_more else None,
-        "prev_cursor": max(offset - PAGE_SIZE, 0) if offset > 0 else None,
+        "records": [flatten_proposal(e) for e in envelope["data"]],
+        "total": envelope["meta"].get("total"),
+        "total_is_estimate": envelope["meta"].get("total_is_estimate", False),
+        "has_more": envelope["page"]["has_more"],
+        "next_cursor": envelope["page"]["next_cursor"],
+        "prev_cursor": envelope["page"]["prev_cursor"],
         "querystring": querystring_without(qp, "cursor"),
-        "delayed": delayed_notice("proposal", store.stats),
-        "technologies": facet_options(store.proposals, "technology"),
-        "lifecycle_states": facet_options(store.proposals, "lifecycle_state"),
-        "jurisdictions": facet_options(store.proposals, "state"),
-        "kinds": facet_options(store.proposals, "kind"),
+        "delayed": delayed_notice(request, "proposal"),
+        "technologies": [v["value"] for v in vocab["technology"]],
+        "kinds": [v["value"] for v in vocab["proposal_kind"]],
+        "include_withdrawn": include_withdrawn,
+        "lifecycle_explicit": explicit,
         "filters": dict(qp),
-        "stats": store.stats,
+        "breakdown": breakdown,
     }
     if is_htmx(request):
         return templates.TemplateResponse(request, "partials/_proposal_rows.html", context)
     return templates.TemplateResponse(request, "proposals_list.html", context)
 
 
+def _resolve_proposal_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | None:
+    """The API has no slug-keyed lookup (only `/v1/proposals/{public_id}`) -- see
+    web/README.md "Missing from the API". Best-effort: derive a search phrase from the slug (it is
+    `slugify(name) + "-" + public_id[-6:]`, `services/ids.py`/`services/ingest/loader.py`) and scan
+    the `q=` search results for an exact slug match."""
+    guess = slug.rsplit("-", 1)[0].replace("-", " ") if "-" in slug else slug
+    envelope = api.get("/v1/proposals", params={"q": guess, "limit": 200})
+    for entity in envelope["data"]:
+        if entity["slug"] == slug:
+            return entity
+    return None
+
+
+def _resolve_opportunity_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | None:
+    guess = slug.rsplit("-", 1)[0].replace("-", " ") if "-" in slug else slug
+    envelope = api.get(
+        "/v1/opportunities", params={"q": guess, "limit": 200, "status": ALL_OPPORTUNITY_STATUSES_CSV}
+    )
+    for entity in envelope["data"]:
+        if entity["slug"] == slug:
+            return entity
+    return None
+
+
 @app.get("/proposals/{slug}", response_class=HTMLResponse)
 def proposal_detail(request: Request, slug: str) -> HTMLResponse:
-    store = get_store()
-    record = store.proposals_by_slug.get(slug)
-    if record is None:
-        return templates.TemplateResponse(request, "not_found.html", {"kind": "proposal"}, status_code=404)
+    api = get_api(request)
+    entity = _resolve_proposal_by_slug(api, slug)
+    if entity is None:
+        return not_found_response(request, "proposal")
+    record = flatten_proposal(entity)
     return templates.TemplateResponse(
         request,
         "proposal_detail.html",
         {
             "record": record,
-            "delayed": delayed_notice("proposal", store.stats),
-            "stats": store.stats,
+            "provenance_rows": provenance_panel_rows(api, record["provenance"]),
+            "delayed": delayed_notice(request, "proposal"),
         },
     )
 
 
 @app.get("/opportunities", response_class=HTMLResponse)
 def opportunities_list(request: Request) -> HTMLResponse:
-    store = get_store()
+    api = get_api(request)
     qp = request.query_params
-    # US-301 AC2: default view is open opportunities; `status=all` (or any explicit value)
-    # overrides the default rather than being ANDed with it.
-    status_param = qp.get("status", "open")
-    filtered = filter_opportunities(
-        store.opportunities,
-        kind=qp.get("kind"),
-        status=None if status_param == "all" else status_param,
-        jurisdiction=qp.get("jurisdiction"),
-        technology=qp.get("technology"),
-        q=qp.get("q"),
-    )
-    filtered = sort_records(filtered, qp.get("sort"), OPPORTUNITY_SORT_ALLOWLIST, "due_at")
-    offset = _to_int(qp.get("cursor")) or 0
-    page, has_more, total = paginate(filtered, offset=offset, limit=PAGE_SIZE)
+    status_param = opportunity_status_param(qp)
+    params: dict[str, str | None] = {
+        name: qp[name] for name in OPPORTUNITY_PASSTHROUGH_FILTERS if qp.get(name)
+    }
+    params["status"] = status_param
+    params["cursor"] = qp.get("cursor")
+    params["include"] = "count"
+    envelope = api.get("/v1/opportunities", params=params)
+    vocab = api.get("/v1/meta/vocabularies")["data"]
 
     context = {
-        "records": page,
-        "total": total,
-        "has_more": has_more,
-        "next_cursor": offset + PAGE_SIZE if has_more else None,
-        "prev_cursor": max(offset - PAGE_SIZE, 0) if offset > 0 else None,
+        "records": [flatten_opportunity(e) for e in envelope["data"]],
+        "total": envelope["meta"].get("total"),
+        "total_is_estimate": envelope["meta"].get("total_is_estimate", False),
+        "has_more": envelope["page"]["has_more"],
+        "next_cursor": envelope["page"]["next_cursor"],
+        "prev_cursor": envelope["page"]["prev_cursor"],
         "querystring": querystring_without(qp, "cursor"),
-        "delayed": delayed_notice("opportunity", store.stats),
-        "kinds": facet_options(store.opportunities, "kind"),
-        "statuses": facet_options(store.opportunities, "status"),
-        "jurisdictions": facet_options(store.opportunities, "jurisdiction"),
-        "technologies": facet_options_multi(store.opportunities, "technologies"),
-        "filters": {**dict(qp), "status": status_param},
-        "stats": store.stats,
+        "delayed": delayed_notice(request, "opportunity"),
+        "kinds": [v["value"] for v in vocab["opportunity_kind"]],
+        "statuses": [v["value"] for v in vocab["opportunity_status"]],
+        "technologies": [v["value"] for v in vocab["technology"]],
+        "filters": {**dict(qp), "status": qp.get("status", "open")},
     }
     if is_htmx(request):
         return templates.TemplateResponse(request, "partials/_opportunity_rows.html", context)
@@ -195,73 +292,82 @@ def opportunities_list(request: Request) -> HTMLResponse:
 
 @app.get("/opportunities/{slug}", response_class=HTMLResponse)
 def opportunity_detail(request: Request, slug: str) -> HTMLResponse:
-    store = get_store()
-    record = store.opportunities_by_slug.get(slug)
-    if record is None:
-        return templates.TemplateResponse(request, "not_found.html", {"kind": "opportunity"}, status_code=404)
+    api = get_api(request)
+    entity = _resolve_opportunity_by_slug(api, slug)
+    if entity is None:
+        return not_found_response(request, "opportunity")
+    record = flatten_opportunity(entity)
     return templates.TemplateResponse(
         request,
         "opportunity_detail.html",
         {
             "record": record,
-            "delayed": delayed_notice("opportunity", store.stats),
-            "stats": store.stats,
+            "provenance_rows": provenance_panel_rows(api, record["provenance"]),
+            "delayed": delayed_notice(request, "opportunity"),
         },
     )
 
 
 @app.get("/search", response_class=HTMLResponse)
 def search(request: Request) -> HTMLResponse:
-    store = get_store()
+    api = get_api(request)
     q = request.query_params.get("q", "").strip()
-    proposals = filter_proposals(store.proposals, q=q)[:50] if q else []
-    opportunities = filter_opportunities(store.opportunities, q=q)[:50] if q else []
+    proposals: list[dict[str, Any]] = []
+    opportunities: list[dict[str, Any]] = []
+    if q:
+        proposals_env = api.get("/v1/proposals", params={"q": q, "limit": 50})
+        proposals = [flatten_proposal(e) for e in proposals_env["data"]]
+        opportunities_env = api.get(
+            "/v1/opportunities", params={"q": q, "limit": 50, "status": ALL_OPPORTUNITY_STATUSES_CSV}
+        )
+        opportunities = [flatten_opportunity(e) for e in opportunities_env["data"]]
     return templates.TemplateResponse(
-        request,
-        "search.html",
-        {
-            "q": q,
-            "proposals": proposals,
-            "opportunities": opportunities,
-            "stats": store.stats,
-        },
+        request, "search.html", {"q": q, "proposals": proposals, "opportunities": opportunities}
     )
 
 
 @app.get("/about", response_class=HTMLResponse)
 def about(request: Request) -> HTMLResponse:
-    store = get_store()
+    api = get_api(request)
+    sources_env = api.get("/v1/sources", params={"limit": 100})
+    sources = []
+    for source in sources_env["data"]:
+        kind = "proposal" if source["source_id"] in _PROPOSAL_SOURCE_IDS else "opportunity"
+        try:
+            count_env = api.get(
+                ("/v1/proposals" if kind == "proposal" else "/v1/opportunities"),
+                params={
+                    "source_id": source["source_id"],
+                    "limit": 1,
+                    "include": "count",
+                    **({"status": ALL_OPPORTUNITY_STATUSES_CSV} if kind == "opportunity" else {}),
+                },
+            )
+            rows_visible = count_env["meta"].get("total", 0)
+        except ApiError:
+            rows_visible = None
+        sources.append({**source, "kind": kind, "rows_visible": rows_visible})
     return templates.TemplateResponse(
         request,
         "about.html",
-        {"sources": store.stats["sources"], "stats": store.stats},
+        {"sources": sources, "lag_days": get_lag_days(request)},
     )
 
 
 @app.get("/health")
-def health() -> dict[str, Any]:
-    store = get_store()
+def health(request: Request) -> dict[str, Any]:
+    api = get_api(request)
+    upstream = api.get("/v1/health")
     return {
-        "status": "ok",
-        "data_as_of": store.stats["data_as_of"],
-        "generated_at": store.stats["generated_at"],
+        "status": upstream["status"],
+        "data_as_of": upstream["data_as_of"],
+        "live_as_of": upstream["live_as_of"],
+        "preview_active": is_preview_active(request),
         "checked_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
 
-def _to_float(value: str | None) -> float | None:
-    if not value:
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
-
-
-def _to_int(value: str | None) -> int | None:
-    if not value:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
+@app.exception_handler(ApiNotFound)
+async def api_not_found_handler(request: Request, _exc: ApiNotFound) -> HTMLResponse:
+    kind = "opportunity" if "/opportunities" in request.url.path else "proposal"
+    return not_found_response(request, kind)

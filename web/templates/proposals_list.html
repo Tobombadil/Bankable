@@ -7,7 +7,8 @@
   <h1>Proposals</h1>
   <p>Supply-side records: interconnection queue positions and planned generation/storage units, one row per source observation.</p>
 </div>
-{{ m.delayed_banner(delayed, "supply") }}
+{{ m.delayed_banner(delayed) }}
+{% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
 
 <form id="filters" class="filter-bar" method="get" action="/proposals" hx-get="/proposals" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
   <div class="filter-field">
@@ -18,13 +19,6 @@
     </select>
   </div>
   <div class="filter-field">
-    <label for="f-lifecycle">Lifecycle state</label>
-    <select id="f-lifecycle" name="lifecycle_state">
-      <option value="">All</option>
-      {% for s in lifecycle_states %}<option value="{{ s }}" {% if filters.get('lifecycle_state') == s %}selected{% endif %}>{{ s | replace('_',' ') }}</option>{% endfor %}
-    </select>
-  </div>
-  <div class="filter-field">
     <label for="f-kind">Kind</label>
     <select id="f-kind" name="kind">
       <option value="">All</option>
@@ -32,11 +26,8 @@
     </select>
   </div>
   <div class="filter-field">
-    <label for="f-jurisdiction">Jurisdiction (state)</label>
-    <select id="f-jurisdiction" name="jurisdiction">
-      <option value="">All</option>
-      {% for j in jurisdictions %}<option value="{{ j }}" {% if filters.get('jurisdiction') == j %}selected{% endif %}>{{ j }}</option>{% endfor %}
-    </select>
+    <label for="f-jurisdiction">Jurisdiction</label>
+    <input id="f-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX" value="{{ filters.get('jurisdiction', '') }}">
   </div>
   <div class="filter-field">
     <span id="f-capacity-label">Capacity (MW)</span>
@@ -48,8 +39,14 @@
       <input id="f-capacity-max" type="number" min="0" step="1" name="capacity_mw[lte]" placeholder="Max" value="{{ filters.get('capacity_mw[lte]', '') }}">
     </div>
   </div>
+  <div class="filter-field filter-field--checkbox">
+    <label for="f-include-withdrawn">
+      <input id="f-include-withdrawn" type="checkbox" name="include_withdrawn" value="1" {% if include_withdrawn %}checked{% endif %}>
+      Include withdrawn &amp; cancelled
+    </label>
+  </div>
   <button class="filter-bar__submit" type="submit">Apply filters</button>
-  {% if filters.get('technology') or filters.get('lifecycle_state') or filters.get('kind') or filters.get('jurisdiction') or filters.get('capacity_mw[gte]') or filters.get('capacity_mw[lte]') %}
+  {% if filters.get('technology') or filters.get('kind') or filters.get('jurisdiction') or filters.get('capacity_mw[gte]') or filters.get('capacity_mw[lte]') or include_withdrawn %}
   <a class="filter-bar__clear" href="/proposals">Clear all</a>
   {% endif %}
 </form>

@@ -35,7 +35,9 @@ class ResolutionDecision(Base):
 
     id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
     left_proposal_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("proposal.id"), nullable=False)
-    right_proposal_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("proposal.id"), nullable=False)
+    right_proposal_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("proposal.id"), nullable=False
+    )
     cluster_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
     score: Mapped[float] = mapped_column(sa.Numeric(5, 2), nullable=False)
     rationale: Mapped[str] = mapped_column(sa.Text, nullable=False)

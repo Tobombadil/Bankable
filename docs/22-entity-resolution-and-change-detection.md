@@ -330,3 +330,117 @@ terminal→terminal; capacity noise floor and null transitions; COD null transit
 determinism; perturbation round-trip counts exact; refusal when too few live rows. Two of these tests failed
 on first run and exposed real bugs (§2 technology rule; SPP fallback map), both fixed in the mapping/code, not
 in the tests.
+
+## 13. Reversible merges in the store (`services/resolve/`, 2026-09-13)
+
+**Status:** implemented and measured on the 2026-09-12 pull, code in `services/resolve/`, tests in
+`tests/test_resolve_store*.py`, verbatim run output in `services/resolve/README.md` (not
+duplicated here). This section records the rules and the measured counts; §10's prerequisites
+(organisation aliases, the plant/generator parent link, PJM/MISO) are unchanged by it.
+
+### 13.1 Merge rules
+
+**Canonical record**, in order: (1) carries an EIA id; else (2) most recently retrieved; else (3)
+lowest `source.id` string; else (4) lowest `proposal_id` (uuid7, so also earliest-created).
+`services/resolve/merge.choose_canonical`.
+
+**Merge** writes one `merged` event on the canonical row (docs/21 §6.3): `before.absorbed.entity`
+is the absorbed row's **full** serialized column set (not just the changed keys) captured before
+any mutation, which is what makes `unmerge` exact and total per invariant M1 without reading any
+other row. The absorbed row's `proposal_source` rows are re-pointed and their ids recorded in the
+same payload so `unmerge` can move them back. Nothing is deleted; the absorbed row's
+`merged_into_id` is set and `publish_state` moves to `unpublished`. Idempotent per pair.
+
+**Unmerge** restores every field of the absorbed row from that one event's `before` payload,
+moves the `proposal_source` rows back, and restores the canonical's changed fields
+(`source_count`, `resolution_confidence`, `last_changed`). Proven with an exact
+`serialize_row(...) == serialize_row(...)` round trip in
+`tests/test_resolve_store_unmerge.py::test_unmerge_proposal_round_trip`, plus a two-merges test
+showing an unmerge of one absorbed record does not disturb a sibling merge into the same
+canonical.
+
+### 13.2 The confidence gate, and the id-reuse guard's wording
+
+Merge requires both: minimum pairwise score >= 75 (this section's chosen threshold, §6) among the
+edges actually available between the cluster's **loaded** members (a cluster connected only
+through an excluded node — an EIA plant-rollup synthetic record or a gated SPP/ISO-NE record — is
+refused, not trusted); and no id-reuse conflict.
+
+This task's brief named the guard "two records from the same source with different queue ids ...
+the ISO-NE id-reuse failure case." Measured against today's 281 loadable multi-member clusters,
+that literal reading refuses 73 of them (26%) — almost all the legitimate multi-queue-position
+complexes §7.4 already documents (one EIA plant bridging several distinct, real ERCOT/CAISO
+interconnection requests for co-located units; e.g. `caiso:1479`/`caiso:1480`, "KEY STORAGE 1"/"2",
+two real, different projects that should each merge with the EIA record but never with each
+other). The bug this task actually names, measured in §5 ("within-source duplicate pairs": 85
+ISO-NE, 2 NYISO) and §7.1 (`isone:84`/`isone:84#5`, "Phase 3 – Nantucket Shoals" vs "Phase I –
+Nantucket Sound", the same reused queue id covering two different projects), is the opposite
+shape: the **same** queue id, from the **same** source, shared by two records that are not the
+same project. `services/resolve/merge.id_reuse_conflict` implements that reading: it fires on
+exactly the 2 NYISO clusters carrying the true signature and 0 of the 71 legitimate
+multi-queue-position clusters. This is a deliberate, measured departure from the pair's literal
+wording, argued in full in `merge.py`'s module docstring and `services/resolve/README.md`, not an
+unexamined misreading.
+
+Anything below the gate is filed as a `resolution_decision` row per pairwise edge
+(`status="proposed"`) for human review, never auto-applied. `docs/21` §3.11 `match` is
+proposal↔opportunity only (`opportunity_id NOT NULL`) and cannot hold a proposal-proposal
+candidate without misusing the column; `docs/21` §6.4 already names the right table
+(`resolution_decision`) and no sprint had built it, so `services/resolve/models.py` adds a minimal
+version of it rather than repurpose `match` or extend `services/db/models.py`.
+
+### 13.3 Organisation resolution
+
+Deterministic-key match on `pipeline.normalize.norm_org` (the same corp-suffix-stripping key the
+sponsor scoring component already uses), confidence 1.0, the same convention the `D`-prefixed
+deterministic passes use. A fuzzy pass across the ~3,000 sponsor organisations in this dataset
+(~4.6M candidate pairs) is deliberately not run this task: per §10, a fuzzy resolver number needs
+its own labelled sample before it is quoted, and none exists yet for organisations.
+
+### 13.4 Measured counts (2026-09-12 pull, run 2026-09-13)
+
+Loaded through the existing, unmodified `services.ingest.loader`, gated exactly as production
+gates it — SPP and ISO-NE (`restricted` in `data/sources.yaml`) are proven refused, not skipped.
+
+| Measurement | Value |
+|---|---|
+| Proposals in store before resolution (caiso+ercot+nyiso+eia860m only; SPP/ISO-NE gated) | 8,212 |
+| Resolver clusters with >= 2 store-loaded members | 278 |
+| Clusters merged | 275 (absorbing 442 records) |
+| Clusters refused by the gate | 3 (all: no direct edge between loaded members — bridged only via an excluded rollup node) |
+| `resolution_decision` rows created | 0 (the 3 refused clusters had no scored edge to file) |
+| Proposals after resolution (surviving/canonical rows) | 7,770 |
+| … of which with >= 2 sources | 273 |
+| Organizations before / after | 3,034 / 2,784 (250 absorbed across 212 normalised-name groups) |
+| Store-path precision / recall, 85 hand labels (77 usable; 8 touch a gated source) | 0.946 / 0.946 |
+
+For comparison, `pipeline/resolve.py`'s own accepted-pairs check on the full 85 labels (§6) gives
+0.927/0.950 sample. The store-path number, on the subset it can answer, is not worse — the gate
+and its application through the store do not regress the measured precision/recall.
+
+**On 278 vs. 281**: a direct count against `clusters.parquet` before any ingestion finds 281
+loadable multi-member clusters; after ingestion the store holds 278, because NYISO's
+`(source_id, source_record_id)` uniqueness constraint collapses its two true id-reuse duplicate
+pairs (`nyiso` queue ids `0031`, `0127A`) into one proposal each at ingestion — before this
+section's own gate is ever consulted. Both numbers are real; see §13.5.
+
+### 13.5 Observed limitation, on the data-engineer backlog
+
+`services/ingest/loader.py`'s active-uniqueness constraint on `(source.id, source_record_id)`
+means a source's legitimate id reuse — the exact case §13.2's guard is about — silently updates
+the first record in place on the second occurrence, rather than creating a second row for the
+resolver-level gate to ever see. This is a *worse* failure mode than a filed
+`resolution_decision`: no event, no confidence score, no way to unmerge. It affects nothing
+reported in §13.4 (both known NYISO occurrences are close enough that the collapse is not
+visibly wrong here), but is a latent defect for a future source with materially different id-reuse
+data. A second, unrelated loader limitation (organisation slugs not unique across punctuation-only
+spelling variants) was found and worked around in `services/resolve/report.py` without editing the
+loader; both are recorded in full, with the exact failing case, in `services/resolve/README.md`.
+
+### 13.6 Assumption recorded
+
+- A-22-5: the id-reuse guard refuses a cluster only when one source's queue id is shared, inside
+  that cluster, by more than one distinct store record — not merely when a cluster contains two
+  different queue ids from the same source. This departs from this task's literal wording; the
+  measured justification is §13.2 above. Owner should confirm; `services/resolve/merge.py`'s
+  module docstring and `services/resolve/README.md` carry the same argument for any future review.

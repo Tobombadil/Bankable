@@ -85,7 +85,7 @@ def serialize_row(obj: Proposal | Organization) -> dict[str, Any]:
     """Every mapped column of `obj`, JSON-safe. Used to snapshot a full row into an event's
     `before` payload so `unmerge` can restore it exactly without reading any other row
     (docs/21 §6.3 invariant M1)."""
-    mapper = sa.inspect(obj).mapper
+    mapper = type(obj).__mapper__
     return {c.key: _json_safe(getattr(obj, c.key)) for c in mapper.columns}
 
 
@@ -343,13 +343,21 @@ def apply_cluster(
     if len(members) < 2:
         return ClusterApplication(cluster_key, "skipped_singleton", 0, gate_reason="singleton")
 
-    min_score = min((e.score for e in edges), default=0.0)
+    if not edges:
+        # The resolver's union-find connected these members only transitively, through a node
+        # this store never loaded (an EIA plant-rollup synthetic record, or a gated SPP/ISO-NE
+        # record) -- there is no direct, measured similarity between any two of them. Refuse
+        # rather than trust the externally computed cluster_id (the same "both must hold"
+        # independent-recheck pattern services/ingest/loader.py already uses for the licence
+        # gate): a shared bridge is not evidence the bridged records are the same project.
+        reason = "no direct edge among loaded members (linked only via an excluded/rollup node)"
+        return ClusterApplication(cluster_key, "proposed", 0, gate_reason=reason)
+
+    min_score = min(e.score for e in edges)
     allowed, reason = gate_cluster(members, min_score, threshold=threshold)
 
     if not allowed:
-        decisions = [
-            _propose_decision(session, e, cluster_key=cluster_key, reason=reason) for e in edges
-        ]
+        decisions = [_propose_decision(session, e, cluster_key=cluster_key, reason=reason) for e in edges]
         return ClusterApplication(cluster_key, "proposed", 0, decisions=decisions, gate_reason=reason)
 
     canonical_member = choose_canonical(members)
@@ -423,9 +431,7 @@ def merge_organization(
             f"{absorbed.id} is already merged into {absorbed.merged_into_id}, not {canonical.id}"
         )
 
-    sponsored = session.scalars(
-        select(Proposal).where(Proposal.sponsor_org_id == absorbed.id)
-    ).all()
+    sponsored = session.scalars(select(Proposal).where(Proposal.sponsor_org_id == absorbed.id)).all()
     absorbed_source_id: str | None = None
     absorbed_source_url = ""
     absorbed_retrieved_at = utcnow()
@@ -514,7 +520,9 @@ def unmerge_organization(session: Session, merge_event_id: _uuid.UUID, *, reason
     absorbed_id = _uuid.UUID(before["absorbed"]["id"])
     absorbed = session.get(Organization, absorbed_id)
     if canonical is None or absorbed is None:
-        raise ValueError(f"cannot unmerge {merge_event.id}: canonical or absorbed organization row is missing")
+        raise ValueError(
+            f"cannot unmerge {merge_event.id}: canonical or absorbed organization row is missing"
+        )
 
     restore_row(absorbed, before["absorbed"]["entity"])
 
@@ -592,9 +600,12 @@ def _choose_canonical_organization(session: Session, members: Sequence[Organizat
     earliest `first_seen`, then shortest `name_canonical`, then `id` for a total order."""
 
     def sponsor_count(org: Organization) -> int:
-        return session.scalar(select(sa.func.count()).select_from(Proposal).where(
-            Proposal.sponsor_org_id == org.id
-        )) or 0
+        return (
+            session.scalar(
+                select(sa.func.count()).select_from(Proposal).where(Proposal.sponsor_org_id == org.id)
+            )
+            or 0
+        )
 
     return min(
         members,
