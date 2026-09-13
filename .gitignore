@@ -13,3 +13,6 @@ data/runs/
 data/held/
 data/events/
 data/quarantine/
+
+# Local dev store built by web/dev_up.py
+web/.data/
