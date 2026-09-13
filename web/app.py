@@ -57,6 +57,9 @@ templates = Jinja2Templates(directory=str(WEB_ROOT / "templates"))
 # router in web/auth.py -- see that module's docstring for why it keeps its own Jinja2Templates
 # rather than importing this one).
 app.include_router(auth_router)
+from web.legal import router as legal_router  # noqa: E402
+
+app.include_router(legal_router)
 
 # Sprint 3 item 3: the admin panel shell (operator guard, chrome) — page routers for each nav
 # group are mounted below it as they land.
