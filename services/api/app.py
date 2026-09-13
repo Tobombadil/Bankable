@@ -106,6 +106,12 @@ app.include_router(auth_router)
 app.include_router(crm_router)
 app.include_router(billing_router)
 
+# Sprint 3 item 3, the admin panel (docs/20 §8; docs/10 US-901 to US-910), one module per nav
+# group so each was built and verified on its own: sources/gate/costs/audit first.
+from services.api.admin_sources import router as admin_sources_router  # noqa: E402
+
+app.include_router(admin_sources_router)
+
 
 @app.middleware("http")
 async def standard_headers(request: Request, call_next: Any) -> Response:
