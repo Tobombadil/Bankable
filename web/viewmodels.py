@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal
 
+from services.api.common import WEB_HOST
 from web.api_client import ApiClient, ApiError
 
 Family = Literal["neutral", "progress", "committed", "success", "danger"]
@@ -103,9 +104,7 @@ def lifecycle_family(state: str | None) -> Family:
     return LIFECYCLE_FAMILY.get(state or "", "neutral")
 
 
-def lifecycle_breakdown(
-    api: ApiClient, *, extra_filters: Mapping[str, str] | None = None
-) -> dict[str, int]:
+def lifecycle_breakdown(api: ApiClient, *, extra_filters: Mapping[str, str] | None = None) -> dict[str, int]:
     """Counts behind the empty-state/notice copy for product defect A: how many currently-visible
     proposals (ignoring the lifecycle_state filter itself, but honouring every other filter in
     play) are active vs. withdrawn/cancelled vs. other (built/unknown) -- "so the choice is
@@ -143,8 +142,7 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
         "capacity_mw": entity.get("capacity_mw"),
         "storage_mwh": entity.get("storage_mwh"),
         "jurisdiction": entity.get("jurisdiction"),
-        "state": (location.get("state_code") or entity.get("jurisdiction") or "").rsplit("-", 1)[-1]
-        or None,
+        "state": (location.get("state_code") or entity.get("jurisdiction") or "").rsplit("-", 1)[-1] or None,
         "county": location.get("county_name"),
         "location_precision": location.get("precision"),
         "restricted_precision": location.get("precision_reason") == "licence",
@@ -253,12 +251,10 @@ def _compose_licence_quote(row: dict[str, Any], licence: dict[str, Any] | None) 
             + ("published." if licence.get("allows_raw_publication") else "withheld under licence.")
         )
         parts.append(
-            "Derived fields: "
-            + ("published." if licence.get("allows_derived_publication") else "withheld.")
+            "Derived fields: " + ("published." if licence.get("allows_derived_publication") else "withheld.")
         )
         parts.append(
-            "Attribution: "
-            + ("required." if licence.get("attribution_required") else "not required.")
+            "Attribution: " + ("required." if licence.get("attribution_required") else "not required.")
         )
         parts.append(
             "Commercial use: " + ("allowed." if licence.get("allows_commercial_use") else "not allowed.")
@@ -266,6 +262,26 @@ def _compose_licence_quote(row: dict[str, Any], licence: dict[str, Any] | None) 
         if licence.get("url"):
             parts.append(f"Full terms: {licence['url']}")
     return " ".join(parts) or "No further licence text is recorded for this source."
+
+
+def web_relative_url(url: str | None) -> str | None:
+    """The API's own `url` fields are absolute, built from `services/api/common.WEB_HOST` --
+    which is still the literal `{{DOMAIN}}` placeholder token (docs/00-PLAN.md: the product name
+    is not chosen yet), so they are not navigable links on whatever host this site is actually
+    served from. Anywhere the map (`web/static/js/map.js`, via the `/api/proposals/geo` proxy)
+    needs to link to a full record, this strips that placeholder host down to a same-origin path.
+    """
+    if url and url.startswith(WEB_HOST):
+        return url[len(WEB_HOST) :] or "/"
+    return url
+
+
+def relativize_geo_feature_urls(feature_collection: dict[str, Any]) -> dict[str, Any]:
+    for feature in feature_collection.get("features", []):
+        props = feature.get("properties") or {}
+        if "url" in props:
+            props["url"] = web_relative_url(props["url"])
+    return feature_collection
 
 
 def restricted_precision_note(location: Mapping[str, Any] | None) -> str | None:

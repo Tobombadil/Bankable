@@ -34,6 +34,7 @@ from web.viewmodels import (
     lifecycle_breakdown,
     opportunity_status_param,
     provenance_panel_rows,
+    relativize_geo_feature_urls,
     resolve_proposal_lifecycle_param,
 )
 
@@ -118,14 +119,19 @@ def not_found_response(request: Request, kind: str) -> HTMLResponse:
     return templates.TemplateResponse(request, "not_found.html", {"kind": kind}, status_code=404)
 
 
-PROPOSAL_PASSTHROUGH_FILTERS = ("technology", "jurisdiction", "kind", "capacity_mw[gte]", "capacity_mw[lte]", "q")
+PROPOSAL_PASSTHROUGH_FILTERS = (
+    "technology",
+    "jurisdiction",
+    "kind",
+    "capacity_mw[gte]",
+    "capacity_mw[lte]",
+    "q",
+)
 OPPORTUNITY_PASSTHROUGH_FILTERS = ("kind", "jurisdiction", "technologies", "q")
 
 
 def _proposal_params(qp: QueryParams, *, lifecycle_csv: str) -> dict[str, str | None]:
-    params: dict[str, str | None] = {
-        name: qp[name] for name in PROPOSAL_PASSTHROUGH_FILTERS if qp.get(name)
-    }
+    params: dict[str, str | None] = {name: qp[name] for name in PROPOSAL_PASSTHROUGH_FILTERS if qp.get(name)}
     params["lifecycle_state"] = lifecycle_csv
     return params
 
@@ -134,7 +140,7 @@ def _proposal_params(qp: QueryParams, *, lifecycle_csv: str) -> dict[str, str | 
 def home_map(request: Request) -> HTMLResponse:
     api = get_api(request)
     qp = request.query_params
-    lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
+    _lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
     vocab = api.get("/v1/meta/vocabularies")["data"]
     breakdown = lifecycle_breakdown(
         api, extra_filters={n: qp[n] for n in ("technology", "jurisdiction", "kind") if qp.get(n)}
@@ -176,6 +182,7 @@ def proposals_geo_proxy(request: Request) -> JSONResponse:
         envelope = api.get("/v1/proposals/geo", params=params)
     except ApiError as exc:
         return JSONResponse(exc.body, status_code=exc.status_code)
+    envelope["data"] = relativize_geo_feature_urls(envelope["data"])
     return JSONResponse(envelope)
 
 
@@ -222,7 +229,8 @@ def _resolve_proposal_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | Non
     the `q=` search results for an exact slug match."""
     guess = slug.rsplit("-", 1)[0].replace("-", " ") if "-" in slug else slug
     envelope = api.get("/v1/proposals", params={"q": guess, "limit": 200})
-    for entity in envelope["data"]:
+    entities: list[dict[str, Any]] = envelope["data"]
+    for entity in entities:
         if entity["slug"] == slug:
             return entity
     return None
@@ -233,7 +241,8 @@ def _resolve_opportunity_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | 
     envelope = api.get(
         "/v1/opportunities", params={"q": guess, "limit": 200, "status": ALL_OPPORTUNITY_STATUSES_CSV}
     )
-    for entity in envelope["data"]:
+    entities: list[dict[str, Any]] = envelope["data"]
+    for entity in entities:
         if entity["slug"] == slug:
             return entity
     return None

@@ -9,6 +9,7 @@ in-process) on a fixed local port.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -20,10 +21,14 @@ from typing import Any
 import pytest
 from playwright.sync_api import Route, sync_playwright
 
+from services.db.session import get_engine, get_sessionmaker, init_db
+from web.data_loading import load_dev_database
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHROMIUM_PATH = "/opt/pw-browsers/chromium"
 BASE_URL = "http://127.0.0.1:8799"
 SCREENSHOT_DIR = REPO_ROOT / "web" / "screenshots"
+DB_PATH = REPO_ROOT / "web" / ".data" / "e2e-test.db"
 DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
 NARROW_VIEWPORT = {"width": 400, "height": 850}
 MAPLIBRE_VERSION = "5.24.0"  # must match templates/home_map.html
@@ -69,19 +74,28 @@ def _install_offline_routes(page: Any) -> None:
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
 
 
-def _ensure_data_built() -> None:
-    data_dir = REPO_ROOT / "web" / "static" / "data"
-    if (data_dir / "proposals.geojson").exists():
-        return
-    from web.build_data import build_all
+def _ensure_db_loaded(db_path: Path) -> str:
+    """Load the real per-source `data/normalized/*` connector output through
+    `services/ingest/loader.py` into a fresh file-backed SQLite database, with the dev-only
+    preview override (web/README.md "Delayed tier") so today's rows are visible without waiting
+    out the real 14/7-day lag. Returns the `DATABASE_URL` the app subprocess should use.
 
-    build_all(
-        data_dir=REPO_ROOT / "data" / "normalized",
-        sources_yaml=REPO_ROOT / "data" / "sources.yaml",
-        eval_parquet=None,
-        out_dir=data_dir,
-        no_lag=True,
-    )
+    `sample_per_state=80`: web/README.md "Missing from the API" -- `services/api/visibility.py`'s
+    per-row correlated-EXISTS predicate measures at 30-75s per page over the real ~10,400-row
+    proposal set in SQLite, which a Playwright smoke test (30s navigation timeout) cannot survive.
+    A few hundred rows is still real data through the real loader, just not the full volume.
+    """
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.unlink(missing_ok=True)
+    database_url = f"sqlite+pysqlite:///{db_path}"
+    engine = get_engine(database_url)
+    init_db(engine)
+    session = get_sessionmaker(engine)()
+    try:
+        load_dev_database(session, preview=True, sample_per_state=80)
+    finally:
+        session.close()
+    return database_url
 
 
 def _wait_for_server(url: str, timeout_s: float = 20.0) -> None:
@@ -99,10 +113,13 @@ def _wait_for_server(url: str, timeout_s: float = 20.0) -> None:
 
 @pytest.fixture(scope="module")
 def server() -> object:
-    _ensure_data_built()
+    database_url = _ensure_db_loaded(DB_PATH)
+    env = dict(os.environ, DATABASE_URL=database_url, WEB_DEV_PREVIEW="1")
+    env.pop("API_BASE_URL", None)  # in-process API mount, backed by the same SQLite file
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", "8799"],
         cwd=REPO_ROOT,
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
