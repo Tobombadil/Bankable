@@ -21,7 +21,13 @@ import pytest
 
 from services.billing.signing import sign_payload
 from services.billing.stripe import StripeBillingAdapter
-from services.sor.ports import CheckoutRequest, SorRejected, SorUnavailable, WebhookRejected
+from services.sor.ports import (
+    CheckoutRequest,
+    SorRejected,
+    SorUnavailable,
+    SubscriptionCreate,
+    WebhookRejected,
+)
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "stripe"
 SECRET_KEY = "test-secret-key"  # noqa: S105 - low-entropy fixture value, not a credential
@@ -319,6 +325,83 @@ def test_open_portal_request_shape() -> None:
     form = _form(req)
     assert form["customer"] == "cus_existing"
     assert form["return_url"] == "https://example.com/account"
+
+
+def test_create_subscription_request_shape_and_mapping() -> None:
+    sub_obj = load_fixture_json("subscription_object.json")
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=sub_obj)
+
+    state = make_adapter(transport=httpx.MockTransport(handler)).create_subscription(
+        SubscriptionCreate(
+            billing_ref="cus_QXtest0000000001",
+            plan="pro",
+            seats=3,
+            trial_days=14,
+            account_public_id="acc_00000000TESTACCT1",
+            reason="pre-sold pilot",
+        )
+    )
+    # The mirror is refreshed from the read-back, never from the request (US-902 AC2): the
+    # returned state reflects `subscription_object.json`'s fixture content, not the seats/plan
+    # passed in above (which happen to match here only because the fixture was written to match).
+    assert state.sor_ref == sub_obj["id"]
+    assert state.plan_tier == "pro"
+
+    assert len(calls) == 1
+    req = calls[0]
+    assert req.method == "POST"
+    assert req.url.path == "/v1/subscriptions"
+    assert "Idempotency-Key" in req.headers
+    today = dt.datetime.now(dt.UTC).date().isoformat()
+    assert req.headers["Idempotency-Key"] == f"subscription:cus_QXtest0000000001:pro:{today}"
+    form = _form(req)
+    assert form["customer"] == "cus_QXtest0000000001"
+    assert form["items[0][price]"] == "price_test_pro"
+    assert form["items[0][quantity]"] == "3"
+    assert form["collection_method"] == "send_invoice"
+    assert form["days_until_due"] == "30"
+    assert form["trial_period_days"] == "14"
+    assert form["metadata[account_public_id]"] == "acc_00000000TESTACCT1"
+    assert form["metadata[plan]"] == "pro"
+
+
+def test_create_subscription_without_trial_omits_trial_period_days() -> None:
+    sub_obj = load_fixture_json("subscription_object.json")
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=sub_obj)
+
+    make_adapter(transport=httpx.MockTransport(handler)).create_subscription(
+        SubscriptionCreate(billing_ref="cus_existing", plan="team", seats=1)
+    )
+    form = _form(calls[0])
+    assert "trial_period_days" not in form
+    assert "metadata[account_public_id]" not in form
+    assert form["metadata[plan]"] == "team"
+
+
+def test_create_subscription_unknown_plan_rejected_before_any_call() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no HTTP call expected for an unknown plan")
+
+    adapter = make_adapter(transport=httpx.MockTransport(handler))
+    with pytest.raises(SorRejected):
+        adapter.create_subscription(SubscriptionCreate(billing_ref="cus_1", plan="doesnotexist", seats=1))
+
+
+def test_create_subscription_4xx_raises_sor_rejected() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(402, json={"error": {"message": "Your card was declined."}})
+
+    adapter = make_adapter(transport=httpx.MockTransport(handler))
+    with pytest.raises(SorRejected):
+        adapter.create_subscription(SubscriptionCreate(billing_ref="cus_1", plan="pro", seats=1))
 
 
 def test_get_subscription_request_shape_and_mapping() -> None:

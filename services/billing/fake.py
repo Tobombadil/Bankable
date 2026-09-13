@@ -28,11 +28,19 @@ from services.sor.ports import (
     EntitlementChange,
     Invoice,
     PortalSession,
+    SubscriptionCreate,
     SubscriptionState,
     entitlement_for,
 )
 
 _DEFAULT_WEBHOOK_SECRET = "test-webhook-secret"  # noqa: S105 - low-entropy fixture value, not a credential
+
+#: Made-up monthly amount per seat, for `create_subscription`'s `mrr_amount` — this is a test
+#: double, not a price list; any plan not named here (an operator typo, say) still gets a
+#: subscription, just with `mrr_amount = 0.0` rather than a raised error (services/billing/README.md
+#: "InMemoryBilling.create_subscription" — unlike the real adapter, the fake never validates
+#: `plan` against a price map, matching `create_checkout`'s existing no-validation behavior above).
+_FAKE_PLAN_MRR_PER_SEAT: Mapping[str, float] = {"pro": 49.0, "team": 149.0, "api": 299.0, "enterprise": 999.0}
 
 
 @dataclass(frozen=True)
@@ -93,6 +101,30 @@ class InMemoryBilling:
         url = f"https://portal.stripe.invalid/p/{n}"
         self.portals.append(RecordedPortal(billing_ref=billing_ref, return_url=return_url, url=url))
         return PortalSession(url=url)
+
+    def create_subscription(self, request: SubscriptionCreate) -> SubscriptionState:
+        n = next(self._counter)
+        now = dt.datetime.now(dt.UTC)
+        per_seat = _FAKE_PLAN_MRR_PER_SEAT.get(request.plan, 0.0)
+        state = SubscriptionState(
+            sor_kind="stripe",
+            sor_ref=f"sub_fake_{n}",
+            billing_ref=request.billing_ref,
+            plan_code=f"{request.plan}_fake",
+            plan_tier=request.plan,
+            status="trialing" if request.trial_days else "active",
+            seats=request.seats,
+            current_period_start=now,
+            current_period_end=now + dt.timedelta(days=30),
+            currency="USD",
+            cancel_at=None,
+            mrr_amount=per_seat * request.seats,
+        )
+        # A later `get_subscription`/`handle_webhook` must see this row (coordinator follow-up):
+        # stored the same way `handle_webhook` stores one, so both code paths share one source of
+        # truth for "what subscriptions does this fake billing provider know about".
+        self.subscriptions[state.sor_ref] = state
+        return state
 
     def get_subscription(self, ref: str) -> SubscriptionState | None:
         return self.subscriptions.get(ref)

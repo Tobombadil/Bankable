@@ -270,6 +270,20 @@ class CheckoutSession:
 
 
 @dataclass(frozen=True)
+class SubscriptionCreate:
+    """An operator-created subscription (`POST /admin/v1/subscriptions`, US-902 AC2): the vendor
+    invoices the customer rather than taking a card at checkout. The mirror is refreshed from the
+    adapter's read-back (`SubscriptionState`), never from this request."""
+
+    billing_ref: str
+    plan: str
+    seats: int
+    trial_days: int | None = None
+    account_public_id: str | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
 class PortalSession:
     url: str
 
@@ -321,6 +335,8 @@ class BillingPort(Protocol):
     def create_checkout(self, request: CheckoutRequest) -> CheckoutSession: ...
 
     def open_portal(self, *, billing_ref: str, return_url: str) -> PortalSession: ...
+
+    def create_subscription(self, request: SubscriptionCreate) -> SubscriptionState: ...
 
     def get_subscription(self, ref: str) -> SubscriptionState | None: ...
 

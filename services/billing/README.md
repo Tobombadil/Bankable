@@ -16,6 +16,7 @@ Stripe's bracket notation for nested fields), `Authorization: Bearer <STRIPE_SEC
 | `POST /v1/customers` | Create a Stripe customer on first checkout | https://docs.stripe.com/api/customers/create |
 | `POST /v1/checkout/sessions` | Subscription-mode Checkout Session | https://docs.stripe.com/api/checkout/sessions/create |
 | `POST /v1/billing_portal/sessions` | Customer portal session | https://docs.stripe.com/api/customer_portal/sessions/create |
+| `POST /v1/subscriptions` | Operator-created subscription (`create_subscription`, US-902 AC2 — no self-serve Checkout) | https://docs.stripe.com/api/subscriptions/create |
 | `GET /v1/subscriptions/{id}` | Refresh one subscription's state | https://docs.stripe.com/api/subscriptions/retrieve |
 | `GET /v1/invoices?customer=…&limit=24` | `BillingPort.list_invoices` | https://docs.stripe.com/api/invoices/list |
 | (inbound) webhook | `customer.subscription.*`, `checkout.session.completed`, `invoice.paid`/`invoice.payment_failed` | https://docs.stripe.com/webhooks, https://docs.stripe.com/api/events/types |
@@ -162,6 +163,22 @@ read model of the commercial record, independent of what the platform does with 
    again shortly." / "The billing provider rejected the request.") instead of `str(exc)` — a
    vendor error string can carry account-specific or otherwise sensitive detail that has no
    business leaving the platform in an API response. (Coordinator review, 2026-09-13.)
+10. **`create_subscription`'s `collection_method`/`days_until_due`.** `BillingPort.create_
+    subscription` (added by coordinator follow-up, 2026-09-13, for US-902's operator-created
+    subscription — no self-serve Checkout, so no card is on file) sends
+    `collection_method=send_invoice` and `days_until_due=30` on `POST /v1/subscriptions`. No
+    dedicated "create a subscription" page was among the saved vendor pages to verify these two
+    parameters' exact behavior against; `collection_method` is nonetheless confirmed as a real
+    Stripe subscription field — the saved `stripe-rate-limits.html`/`stripe-webhooks.html` pages
+    both reference a Stripe changelog entry titled "Renames billing to collection_method on
+    invoices, subscriptions, and subscription schedules" — but `days_until_due` and the precise
+    `send_invoice` semantics are **unverified here** and kept anyway as Stripe's documented
+    invoice-collection fields (the natural pairing for an operator-created, no-card-on-file
+    subscription). `trial_period_days` is confirmed on the *Checkout Session* `subscription_data`
+    object (`stripe-checkout-create.html`) but not independently verified on the raw `POST
+    /v1/subscriptions` endpoint specifically — kept under the same "documented Stripe field,
+    page not saved for this exact endpoint" caveat. Revisit once a real Stripe account is
+    available to confirm both against the live API reference.
 
 ## Deferred (not built this wave)
 
