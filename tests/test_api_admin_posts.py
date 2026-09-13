@@ -8,7 +8,6 @@ mounts it once every Sprint 3 agent's module lands); this file mounts it once at
 
 from __future__ import annotations
 
-import copy
 import datetime as dt
 import pathlib
 
@@ -24,7 +23,6 @@ from tests.conftest import login, make_account, make_user
 UTC = dt.UTC
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 OPENAPI_PATH = REPO_ROOT / "api" / "openapi.yaml"
-CHANNELS_FRAGMENT_PATH = REPO_ROOT / "api" / "fragments" / "channels.yaml"
 
 if admin_posts_router not in getattr(app, "_admin_posts_mounted", []):
     app.include_router(admin_posts_router)
@@ -32,16 +30,6 @@ if admin_posts_router not in getattr(app, "_admin_posts_mounted", []):
 
 with OPENAPI_PATH.open(encoding="utf-8") as _fh:
     SPEC = yaml.safe_load(_fh)
-
-# `api/fragments/channels.yaml`'s `paths:` section uses the `*admin_servers`/`*sec_admin`/
-# `*std_headers`/`*common_errors` aliases defined in `api/openapi.yaml` (lines 195-262) — it is a
-# merge fragment, not a standalone document, so `yaml.safe_load`-ing the whole file raises on the
-# undefined aliases. Its `components: schemas:` section uses only `$ref` (no aliases) and is the
-# only part this test needs, so it is sliced out by finding the top-level `components:` line
-# (the fragment's last section) and parsed on its own.
-_fragment_text = CHANNELS_FRAGMENT_PATH.read_text(encoding="utf-8")
-_components_start = _fragment_text.index("\ncomponents:\n") + 1
-CHANNELS_FRAGMENT_SCHEMAS = yaml.safe_load(_fragment_text[_components_start:])["components"]["schemas"]
 
 
 def assert_valid(schema_name: str, instance: object) -> None:
@@ -53,18 +41,9 @@ def assert_valid(schema_name: str, instance: object) -> None:
     assert not errors, "\n".join(f"{schema_name}: {e.message} at {list(e.absolute_path)}" for e in errors)
 
 
-def assert_valid_fragment_schema(schema_name: str, instance: object) -> None:
-    """Like `assert_valid`, but resolves against `api/openapi.yaml` with
-    `api/fragments/channels.yaml`'s new schemas merged in — for `GET /admin/v1/channels`, which
-    isn't in the committed spec yet (the coordinator merges the fragment on review)."""
-    merged = copy.deepcopy(SPEC)
-    merged["components"]["schemas"].update(CHANNELS_FRAGMENT_SCHEMAS)
-    schema = merged["components"]["schemas"][schema_name]
-    resolver = jsonschema.validators.RefResolver.from_schema(merged)
-    validator_cls = jsonschema.validators.validator_for(schema)
-    validator = validator_cls(schema, resolver=resolver)
-    errors = sorted(validator.iter_errors(instance), key=str)
-    assert not errors, "\n".join(f"{schema_name}: {e.message} at {list(e.absolute_path)}" for e in errors)
+# `GET /admin/v1/channels` and its `ChannelConfig`/`ChannelConfigListResponse` schemas are in the
+# committed spec now (merged by the coordinator), so the plain `assert_valid` covers it.
+assert_valid_fragment_schema = assert_valid
 
 
 # --------------------------------------------------------------------------------------- fixtures
