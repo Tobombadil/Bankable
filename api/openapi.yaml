@@ -3532,7 +3532,7 @@ paths:
       summary: Task queue
       description: 'Reported problems, intake submissions, deletion requests and resolution disputes in one queue: type, subject, status, assignee, notes (US-907 AC1). Deletion-request tasks carry the 30-day SLA `due_at`.'
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-907, US-204, US-1002, US-910]
       security: *sec_admin
@@ -3566,7 +3566,7 @@ paths:
       summary: Task detail
       description: For intake tasks, includes the pending record, the submitted contact (personal data, admin only) and resolver suggestions built with the same keys as the pipeline resolver (US-1002 AC1).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-907, US-1002]
       security: *sec_admin
@@ -3589,7 +3589,7 @@ paths:
       summary: Assign, progress, close or reject a task
       description: '`status` ∈ `open | in_progress | done | rejected`, `assignee_user_id`, `notes`. Completing a `deletion_request` task runs the redaction procedure (docs/21 §6.6) and writes a `personal_data_redacted` event (US-910 AC1). Audited.'
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-907, US-910]
       security: *sec_admin
@@ -3634,7 +3634,7 @@ paths:
         adapter; only `crm_lead_ref` is stored (US-1002 AC2, US-403). For opportunity intake, a new issuer is added
         to the curated issuer registry (US-1003 AC1).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-1002, US-1003, US-403, US-1001]
       security: *sec_admin
@@ -3675,7 +3675,7 @@ paths:
       summary: Application users
       description: Email, `user.role`, `account.entitlement` (distinct, docs/21 C-5), `created_at`, `last_login_at`, subscription status read via the adapter (US-901 AC1).
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-901]
       security: *sec_admin
@@ -3707,7 +3707,7 @@ paths:
       tags: [Admin — customers]
       summary: User detail
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-901]
       security: *sec_admin
@@ -3730,7 +3730,7 @@ paths:
       summary: Change role or disable
       description: '`role` and `status` (`active` | `disabled`). Promoting to `operator`/`owner` sets `mfa_enforced = true`. Audit-logged with before/after (US-901 AC2). Only an `owner` may grant `owner`.'
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-901]
       security: *sec_admin
@@ -3769,7 +3769,7 @@ paths:
         deletion through the port, writes a `personal_data_redacted` event carrying only an opaque subject id
         (docs/21 §6.6, US-910 AC1). Event ids and timestamps survive so the audit chain is unbroken.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-901, US-910]
       security: *sec_admin
@@ -3807,7 +3807,7 @@ paths:
         `meta.sor_cached_at` for the staleness banner; writes are refused (US-902 AC3). Each row carries an
         `open_in_crm_url`.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-902, US-903, US-602]
       security: *sec_admin
@@ -3837,7 +3837,7 @@ paths:
       summary: Create a customer through the adapter
       description: Calls the adapter's write; the local mirror is refreshed from the read-back, never from the request payload (US-902 AC2). Refused with `503 sor_unavailable` while the adapter is down.
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-902, US-903]
       security: *sec_admin
@@ -3877,7 +3877,7 @@ paths:
       tags: [Admin — customers]
       summary: Customer detail with users, keys and subscriptions
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-902, US-901]
       security: *sec_admin
@@ -3989,7 +3989,7 @@ paths:
       summary: Create a subscription through the adapter
       description: 'As `POST /admin/v1/customers`: adapter write, mirror refreshed from read-back (US-902 AC2). Entitlement changes propagate within the 15-minute TTL (US-602 AC1).'
       x-tier: admin
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-902, US-903, US-602]
       security: *sec_admin
@@ -9906,7 +9906,13 @@ components:
             - type: 'null'
           description: Intake tasks — submitted personal data, admin only, redacted on deletion.
         pending_record:
+          description: |
+            The submission as received (`IntakeProposalRequest` / `IntakeOpportunityRequest`) until the operator
+            approves it, or an admin-shaped draft when the task was raised from inside the panel; `adminApproveIntake`
+            reads either shape (US-1002).
           oneOf:
+            - $ref: '#/components/schemas/IntakeProposalRequest'
+            - $ref: '#/components/schemas/IntakeOpportunityRequest'
             - $ref: '#/components/schemas/AdminProposal'
             - $ref: '#/components/schemas/AdminOpportunity'
             - type: 'null'
