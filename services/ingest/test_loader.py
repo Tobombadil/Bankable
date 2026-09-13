@@ -10,7 +10,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from pipeline.connectors.registry import Registry, SourceEntry
-from services.db.models import Event, Proposal, ProposalSource, Source
+from services.db.models import (
+    Event,
+    Organization,
+    OrganizationAlias,
+    Proposal,
+    ProposalSource,
+    Source,
+    SourceRun,
+)
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ingest.loader import GateRefused, load_dataframe, upsert_licence_and_source
 
@@ -223,6 +231,178 @@ def test_load_from_files_gate_refused_before_any_file_read(tmp_path, session: Se
         )
     # No directories were even created under tmp_path for a gated source.
     assert not (tmp_path / "normalized").exists()
+
+
+def make_source_run(session: Session, source: Source) -> SourceRun:
+    run = SourceRun(source_id=source.id, trigger="manual", started_at=dt.datetime(2026, 9, 12, tzinfo=UTC))
+    session.add(run)
+    session.flush()
+    return run
+
+
+def test_intra_run_id_reuse_keeps_both_records_and_warns(session: Session) -> None:
+    """Two distinct source records sharing one `source_record_id` inside the *same* run/dataframe
+    (the measured ISO-NE/NYISO signature, docs/22 §5/§7.1) must never collapse into one proposal:
+    both are kept, the second's `source_record_id` is suffixed deterministically, and a
+    data-quality warning is recorded on both `LoadResult.warnings` and `source_run.dq`."""
+    entry = open_source_entry("us.test.isone_like_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+    run = make_source_run(session, src)
+
+    row_a = sample_proposal_row("0031", lifecycle_state="filed")
+    row_a["name_canonical"] = "First Distinct Project"
+    row_b = sample_proposal_row("0031", lifecycle_state="studied")  # same source_record_id
+    row_b["record_id"] = "us.test.open_queue:0031#2"  # connector-style composite-key suffix
+    row_b["name_canonical"] = "Second Distinct Project"
+    df = pd.DataFrame([row_a, row_b])
+
+    result = load_dataframe(session, src, "proposal", df, None, run=run)
+
+    assert result.proposals_created == 2
+    assert result.proposals_updated == 0
+    assert len(result.warnings) == 1
+    assert "0031" in result.warnings[0]
+    assert "reused" in result.warnings[0]
+
+    proposals = {p.name_canonical: p for p in session.scalars(select(Proposal)).all()}
+    assert set(proposals) == {"First Distinct Project", "Second Distinct Project"}
+
+    links = {link.source_record_id: link for link in session.scalars(select(ProposalSource)).all()}
+    assert set(links) == {"0031", "0031#2"}
+    assert links["0031"].proposal_id == proposals["First Distinct Project"].id
+    assert links["0031#2"].proposal_id == proposals["Second Distinct Project"].id
+
+    assert run.dq_status == "warn"
+    assert run.dq is not None
+    checks = run.dq["checks"]
+    assert any(c["check"] == "duplicate_source_record_id_same_run" for c in checks)
+
+
+def test_intra_run_id_reuse_does_not_confuse_a_later_run_update(session: Session) -> None:
+    """A source record whose natural key already exists from an *earlier* run is an ordinary
+    update through the existing diff path, not intra-run reuse -- the occurrence counter resets
+    on every `load_dataframe` call."""
+    entry = open_source_entry("us.test.update_after_reuse")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+    run1 = make_source_run(session, src)
+    df1 = pd.DataFrame([sample_proposal_row("Q1", lifecycle_state="filed")])
+    result1 = load_dataframe(session, src, "proposal", df1, None, run=run1)
+    assert result1.proposals_created == 1
+    assert result1.warnings == []
+
+    run2 = make_source_run(session, src)
+    df2 = pd.DataFrame([sample_proposal_row("Q1", lifecycle_state="studied")])
+    result2 = load_dataframe(session, src, "proposal", df2, None, run=run2)
+    assert result2.proposals_created == 0
+    assert result2.proposals_updated == 1
+    assert result2.warnings == []
+    assert run2.dq_status != "warn"
+
+    count = session.scalar(select(func.count()).select_from(Proposal))
+    assert count == 1
+
+
+def test_repeated_record_id_in_one_dataframe_is_a_sequential_update_not_reuse(session: Session) -> None:
+    """A dataframe that bundles more than one historical observation of the *same* connector
+    `record_id` for one natural key (e.g. an evaluation snapshot spanning several pull dates,
+    `services/resolve/report.py`) must fold them as ordinary sequential updates, not intra-run id
+    reuse -- only a genuinely *different* `record_id` sharing the natural key is reuse."""
+    entry = open_source_entry("us.test.sequential_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    row_1 = sample_proposal_row("Q1", lifecycle_state="filed")
+    row_2 = sample_proposal_row("Q1", lifecycle_state="studied")  # same record_id, later snapshot
+    row_3 = sample_proposal_row("Q1", lifecycle_state="permitted")
+    df = pd.DataFrame([row_1, row_2, row_3])
+
+    result = load_dataframe(session, src, "proposal", df, None)
+
+    assert result.proposals_created == 1
+    assert result.proposals_updated == 2
+    assert result.warnings == []
+
+    count = session.scalar(select(func.count()).select_from(Proposal))
+    assert count == 1
+    prop = session.scalar(select(Proposal))
+    assert prop is not None
+    assert prop.lifecycle_state == "permitted"  # last row in the dataframe wins
+
+
+def test_organization_punctuation_only_spellings_merge_with_two_aliases(session: Session) -> None:
+    """Two raw sponsor spellings that normalise to the same organisation once case, whitespace and
+    punctuation are stripped resolve to one `organization` row with two `organization_alias` rows
+    -- not a `UNIQUE constraint failed: organization.slug` crash
+    (`services/resolve/README.md`'s observed limitation)."""
+    entry = open_source_entry("us.test.org_punct_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    row_a = sample_proposal_row("A1")
+    row_a["sponsor_name"] = "CED Development, Inc."
+    row_b = sample_proposal_row("A2")
+    row_b["sponsor_name"] = "Ced Development Inc"
+    df = pd.DataFrame([row_a, row_b])
+
+    result = load_dataframe(session, src, "proposal", df, None)
+    assert result.proposals_created == 2
+    assert result.organizations_created == 1
+
+    orgs = session.scalars(select(Organization)).all()
+    assert len(orgs) == 1
+    org = orgs[0]
+    assert org.name_canonical == "CED Development, Inc."
+
+    aliases = session.scalars(
+        select(OrganizationAlias).where(OrganizationAlias.organization_id == org.id)
+    ).all()
+    assert {a.alias for a in aliases} == {"CED Development, Inc.", "Ced Development Inc"}
+
+    proposals = session.scalars(select(Proposal)).all()
+    assert {p.sponsor_org_id for p in proposals} == {org.id}
+
+
+def test_organization_letter_distinct_names_stay_separate(session: Session) -> None:
+    """Two sponsor names that differ in letters, not just punctuation, remain distinct
+    organisations."""
+    entry = open_source_entry("us.test.org_distinct_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    row_a = sample_proposal_row("B1")
+    row_a["sponsor_name"] = "Acme Power LLC"
+    row_b = sample_proposal_row("B2")
+    row_b["sponsor_name"] = "Acme Power II LLC"
+    df = pd.DataFrame([row_a, row_b])
+
+    result = load_dataframe(session, src, "proposal", df, None)
+    assert result.organizations_created == 2
+
+    org_names = {o.name_canonical for o in session.scalars(select(Organization)).all()}
+    assert org_names == {"Acme Power LLC", "Acme Power II LLC"}
+    alias_count = session.scalar(select(func.count()).select_from(OrganizationAlias))
+    assert alias_count == 2  # one alias per organisation for its own first-seen spelling
+
+
+def test_organization_repeated_alternate_spelling_does_not_duplicate_alias(session: Session) -> None:
+    """Re-ingesting the same alternate spelling for an already-known organisation must not create
+    a second identical `organization_alias` row (idempotent across runs)."""
+    entry = open_source_entry("us.test.org_repeat_alias_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    row_a = sample_proposal_row("C1")
+    row_a["sponsor_name"] = "CED Development, Inc."
+    row_b = sample_proposal_row("C2")
+    row_b["sponsor_name"] = "Ced Development Inc"
+    row_c = sample_proposal_row("C3")
+    row_c["sponsor_name"] = "Ced Development Inc"  # same alternate spelling again
+    df = pd.DataFrame([row_a, row_b, row_c])
+
+    load_dataframe(session, src, "proposal", df, None)
+
+    org = session.scalar(select(Organization))
+    assert org is not None
+    alias_count = session.scalar(
+        select(func.count()).select_from(OrganizationAlias).where(OrganizationAlias.organization_id == org.id)
+    )
+    assert alias_count == 2
 
 
 def test_load_from_files_reads_parquet_and_run_json(tmp_path, session: Session) -> None:
