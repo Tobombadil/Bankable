@@ -26,6 +26,8 @@ later consideration for integration, not a foundation (owner, 2026-09-12).
 - Docs are numbered by phase: `0x` feasibility, `1x` business/product, `2x` architecture/data, `3x` go-to-market,
   `4x` build/launch, `5x` marketplace, `6x` operations. One topic per file. Cite sources with URLs.
 - Python for data work (`.venv`, `pip install -r requirements.txt`). Tests next to code. Lint before commit.
-- Each agent writes only to the paths named in its task and appends a line to `docs/CHANGELOG.md`.
+- Each agent writes only to the paths named in its task and appends a line to `docs/CHANGELOG.md`. One agent per
+  file area at a time; the coordinator verifies (tests, lint, spec) and commits — agents never commit.
+- CRM system of record is Attio; billing is Stripe; both sit behind the ports in `docs/20` §9 (owner, 2026-09-13).
 - Record any decision in the decisions log in `docs/00-PLAN.md`. Record any assumption in the doc that depends on it.
 - Preferred tone in docs: direct, evidence first, calibrated confidence, no filler.

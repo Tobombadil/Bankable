@@ -69,9 +69,47 @@ workflow be a later consideration only. The graph, feed, tiers and distribution 
 | 2026-09-13 | **Backend fixes landed**: the 30–75 s page time was one missing index on the source-link tables (confirmed by query plan), now **21.84 s → 0.127 s** per list page on the full 10,409-row load; geo endpoint 0.35–0.53 s on the full set with column-limited loading and SQL aggregates; clustering retuned to 22 clusters at zoom 3 and 56 at zoom 4 with bbox enforced; raw-publication and precision now derived per source from the registry (CAISO and NYISO derived-only, GB NESO raw-ok, so the rule is per-source terms, not a blanket class rule); loader geocodes county and state centroids (8,183 of 8,211 US proposals placed); slug filter, technologies filter (a bind-type bug fixed on the way), licence quote text exposed; publish_state defaults from registry class. 487 core tests. Three of the site's four data-path overrides are now redundant; EIA exact-point promotion remains site-side until a later sprint | backend-developer, verified by coordinator |
 | 2026-09-13 | **Site on the full dataset**: 10,409 proposals loaded; default view 5,837 active, 3,215 withdrawn/cancelled hidden behind the toggle, 1,357 built/unknown outside the default, 1,825 unplaced (NESO carries no usable UK geography; some US rows lack county and state); 22 clusters at default zoom; page times ≈0.5 s home and list, ≈0.02 s detail through the in-process API; licence text verbatim in provenance; redundant overrides removed. **Follow-up for Sprint 3:** the loader runs at ≈100 rows/s (the full-data test takes 451 s), fine for a daily batch but worth a bulk-insert pass; UK geography for NESO needs a postcode or substation gazetteer | frontend-developer, verified by coordinator |
 | 2026-09-13 | **Pro tier and alerts landed (`services/api/pro.py`, `services/alerts/`)**: session and API-key auth with scopes, hashed keys, rotation and an audit log; tier-aware visibility (Pro and API see records at publication, public after the lag; restricted sources invisible on every non-admin tier); real per-tier token buckets; saved-search CRUD with preview; alert evaluation against change events with email dry-run and private token feeds; signed webhooks with retry and delivery log; an interim admin-only entitlement endpoint until billing exists. 97 new tests; 588 core tests; spec at 119 operations. **Sprint 2 is complete.** | backend-developer, verified by coordinator |
+| 2026-09-13 | **CRM system of record is Attio, not HubSpot** (owner). Stripe Billing stays for subscriptions. The anti-corruption adapter in `docs/20` §9 / ADR 0006 was designed so this swap is bounded: `services/api` reads entitlements through a port; the Attio adapter is the first concrete CRM adapter. Attio exposes a public REST API v2 (objects, records, lists, notes, tasks, webhooks) with API-key auth; the Sprint 3 backend agent verifies the exact endpoints against https://docs.attio.com before coding and records rate limits. `docs/33` §7 CRM plan and `docs/20` §9 comparison table are updated by reference here rather than rewritten; HubSpot mentions elsewhere are superseded | Owner decision |
+| 2026-09-13 | **Sprint 3 runs in a fresh session** (owner). This file is the hand-off; see "Sprint 3 kickoff" below | Owner decision |
 | 2026-09-12 | **Design must be distinctive, not the default AI look.** A custom package of typefaces, spacing scale and layouts, built from a documented study of the best interactive data products in and around the industry. Explicit anti-patterns are banned (generic sans on purple gradients, uniform rounded cards, three-tile hero, emoji bullets, stock illustration). Deliverable: `docs/30-design-references.md` before any screen is drawn | Owner request |
 | 2026-09-12 | ADRs 0001–0004 accepted as working decisions: Python 3.12 + FastAPI + SQLAlchemy; Postgres 16 with PostGIS + object storage for raw snapshots; Procrastinate (Postgres-backed) job queue. ADR 0005 (hosting) and 0006 (CRM/ERP adapter, HubSpot + Stripe recommended) remain proposed pending owner | `docs/adr/`; owner may overturn |
 | 2026-09-12 | Working defaults pending owner ratification: public-tier lag is 7 days for opportunities and 14 days for supply rows (per `docs/11` §3, resolves docs/21 C-4); restricted or unknown-terms sources (PJM, MISO, SPP, NYISO, ISO-NE until terms recorded) return nothing on any tier, including Pro and API, until legal-compliance records permission (resolves docs/21 C-3 on the safer reading) | Safer reading; reversible configuration |
+
+## Sprint 3 kickoff — read this first in the fresh session
+
+**State:** 74 commits on `claude/energy-proposals-platform-lf7lhb`, everything verified green (588 core tests,
+18 site tests, ruff, mypy strict on 95 files, OpenAPI valid at 119 operations, 44/44 stories). Nothing is
+deployed; no accounts exist. Placeholder name Infraqueue; `{{DOMAIN}}` in code.
+
+**Sprint 3 scope (in order):**
+1. **Attio + Stripe adapters** behind the existing ports: `services/crm/attio.py` (accounts, contacts, deals,
+   notes, tasks; webhooks inbound), `services/billing/stripe.py` (checkout, portal, subscription webhooks →
+   `account.entitlement`). The interim admin entitlement endpoint stays as the manual override. Sales lead
+   hand-off (`docs/10` US-403) writes to Attio. Verify Attio API v2 endpoints and rate limits first.
+2. **Login and registration surface** in `web/` on the existing session auth; email verification through the
+   EmailPort (Resend adapter, dry-run without a key).
+3. **Admin panel** (`web/admin/`, `/admin/v1`): source health, publish gate with the `legal` role, merge review
+   (`resolution_decision` rows), social post review queue, tasks/intake, users and accounts via the Attio and
+   Stripe ports, cost log. Minimal UI in the same design system; every story US-901 to US-910.
+4. **Workers**: scheduled alert cycle and delivery; social draft generation from events; loader bulk-insert
+   pass (≈100 rows/s today); all wired into `infra/` scheduler.
+5. **Data follow-ups**: EIA exact-point promotion in the loader; NESO geography via a substation/postcode
+   gazetteer; FERC multi-year filer-name backfill to retest docket linkage.
+6. **Launch runbook** (`docs/4x`): coverage statement (S3-4), pricing page copy from `docs/11` §3, the owner's
+   account checklist (`docs/32` §2), first deploy per `docs/60` §11, go/no-go checklist from `docs/04` §9.
+
+**Working rules that kept this repo clean, keep them:**
+- One agent per file area; the brief names exactly which paths it may write. Collisions were zero across 20+
+  agents because of this. `docs/CHANGELOG.md` is append-only and shared.
+- Briefs say "read only these files"; agents on Sonnet for execution; the coordinator verifies every
+  deliverable (tests, lint, spec) before committing, and commits with descriptive messages.
+- Never let an agent commit; never let a private key, `.coverage`, `web/.data/` or per-run outputs into git.
+- Measured numbers only; a rule the agent finds wrong by measurement is changed and the change is logged here.
+
+**Owner actions still open:** task #4 legal items (PJM licence enquiry, SPP authorisation, MISO terms in a
+browser, counsel brief on 22 items); free API keys (EIA v2, SAM.gov, NRC, regulations.gov); LinkedIn MDP
+application; Bluesky account; Attio workspace and API key; Stripe account; cloud accounts and tokens for the
+first deploy; register infraqueue.com and infrafeed.com.
 
 ## Sprint 2 close-out (2026-09-13) and the decisions that gate Sprint 3
 
@@ -86,7 +124,7 @@ Sprint 3 is billing, admin and launch. Decisions that shape it:
 | # | Decision | Default if the owner says nothing | Constrains |
 |---|---|---|---|
 | S3-1 | Billing provider: Stripe Billing (recommended in `docs/20` §15) or a merchant-of-record (Paddle, Lemon Squeezy) for EU VAT handling | Stripe | Entitlement adapter, checkout, portal |
-| S3-2 | CRM/ERP system of record (D2 carried forward): HubSpot + Stripe vs Odoo / ERPNext / Twenty | HubSpot + Stripe | Admin customer views, sales playbook |
+| S3-2 | CRM/ERP system of record | **Decided: Attio (CRM) + Stripe (billing)**; accounting stays out of scope until revenue exists | Attio adapter, admin customer views, sales playbook §7 |
 | S3-3 | Admin panel scope for launch: source health, publish gate, merge review, post review queue, tasks, users/accounts, cost log (`docs/10` US-901 to US-910) | All ten stories, minimal UI | Sprint 3 size |
 | S3-4 | Launch coverage statement: ERCOT raw, CAISO and NYISO derived, EIA, NESO, funding and tenders; SPP/ISO-NE/PJM/MISO absent until cleared (task #4) | As stated | Pricing page copy, sales talk-track |
 | S3-5 | Name made permanent (Infraqueue, or Infrafeed) after counsel search and domain registration | Register both .coms now; decide before wordmark | Wordmark, handles, `{{DOMAIN}}` replacement |

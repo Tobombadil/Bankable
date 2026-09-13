@@ -82,3 +82,8 @@ metric M-13 revenue figures; and whether accounting consolidation is worth the h
   not to a broken login.
 - Personal data in the CRM is governed by the vendor's terms; deletion requests must fan out through the port
   (US-910, `docs/20` §11), which is a required operation on `CrmPort` when the adapter is written.
+
+
+## Decision update (2026-09-13)
+
+The owner chose **Attio** as the CRM system of record instead of HubSpot; Stripe Billing is unchanged. The adapter pattern in this ADR is unaffected: the first concrete CRM adapter is `services/crm/attio.py`. Attio's public REST API v2 (objects, records, lists, notes, tasks, webhooks; API-key auth) is to be verified against https://docs.attio.com before implementation, with rate limits recorded.
