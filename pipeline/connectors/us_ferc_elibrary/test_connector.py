@@ -98,6 +98,56 @@ def test_doc_type_maps_category_and_notice_class():
     assert _doc_type("Submittal", "Notice") == "notice"
 
 
+def test_window_defaults_to_last_window_days():
+    """`.window` is unset by default; `_effective_window` falls back to the last `WINDOW_DAYS`
+    ending at `now` — the cadence behaviour every existing call site and test relies on."""
+    c = connector_for(SOURCE_ID)
+    assert c.window is None
+    now = dt.datetime(2026, 9, 12, 18, 0, tzinfo=dt.UTC)
+    start, end = c._effective_window(now)
+    assert (start, end) == (dt.date(2026, 8, 13), dt.date(2026, 9, 12))
+
+
+def test_window_override_replaces_the_default():
+    c = connector_for(SOURCE_ID)
+    c.window = (dt.date(2023, 1, 1), dt.date(2023, 12, 31))
+    now = dt.datetime(2026, 9, 12, 18, 0, tzinfo=dt.UTC)  # far from the override; must be ignored
+    assert c._effective_window(now) == (dt.date(2023, 1, 1), dt.date(2023, 12, 31))
+
+
+def test_build_queries_spans_every_year_the_window_touches():
+    """A multi-year window must query every intervening `ER<yy>`/`CP<yy>` pair, not just the
+    start and end years (the bug the original two-year-only computation would have had)."""
+    c = connector_for(SOURCE_ID)
+    queries = c._build_queries(dt.date(2023, 6, 1), dt.date(2025, 6, 1))
+    docket_texts = {q["text"] for q in queries if q["docket_number"]}
+    assert docket_texts == {"ER23", "ER24", "ER25", "CP23", "CP24", "CP25"}
+    # description queries are unaffected by the window
+    assert {q["text"] for q in queries if q["description"]} == set(c.DESCRIPTION_TERMS)
+
+
+def test_build_queries_default_window_matches_the_original_two_year_shape():
+    """Same 30-day-style window as before the override existed: at most two intervening years."""
+    c = connector_for(SOURCE_ID)
+    queries = c._build_queries(dt.date(2026, 8, 13), dt.date(2026, 9, 12))
+    docket_texts = {q["text"] for q in queries if q["docket_number"]}
+    assert docket_texts == {"ER26", "CP26"}
+
+
+def test_parse_honours_a_window_override_and_recovers_an_out_of_default_window_hit(parsed):
+    """`20030207-3057` (filed 2003-02-07, docket ER03-194) is outside the default 30-day window
+    (see `test_only_hits_within_the_window_and_docket_class_survive`) but must survive when
+    `.window` is widened to cover it — proof the override reaches `parse()`, not just `fetch()`."""
+    c, raw, _rows, _df = parsed
+    c.window = (dt.date(2003, 1, 1), dt.date(2026, 9, 12))
+    try:
+        rows = c.parse(raw)
+    finally:
+        c.window = None  # the `parsed` fixture's connector is module-scoped; leave it as found
+    accessions = {r["acesssionNumber"] for r in rows}
+    assert "20030207-3057" in accessions
+
+
 def test_an_error_body_with_http_200_fails_closed():
     """docs/02 §7: FERC's backend returns HTTP 200 with success:false; treat as error. This is a
     real captured response — sending sortBy anything other than "" 500s internally (module

@@ -119,6 +119,85 @@ def _distinctive(name: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+# --- Sprint 3 item 5: FERC filer-name backfill (docs/22 §14) --------------------------------
+# A multi-year pull (`pipeline/backfill_ferc.py`) surfaces every compliance filing, amendment and
+# refiling FERC ever recorded under a docket, almost always from the same filer — a single-year
+# 30-day pull rarely saw more than one filing per docket, so `_sponsor_matches` never needed to
+# guard against this. Two things below make the multi-year path cheap and non-redundant without
+# touching a single-run fixture, none of which has a repeated (docket, filer) pair: `docket_year`
+# / `filter_er_docket_years` scope a multi-year frame to a year range, and `dedupe_filings_per_docket`
+# + `_filer_index` collapse repeats before `_sponsor_matches`'s `cdist` call ever sees them.
+
+_DOCKET_ID_RE = re.compile(r"^([A-Z]+\d{2}-\d+)")
+_DOCKET_YEAR_RE = re.compile(r"^[A-Z]+(\d{2})-")
+
+
+def _primary_docket(docket_refs: str | None) -> str | None:
+    """First `<CLASS><YY>-<NUMBER>` docket id in a filing's `|`-joined `docket_refs`, without the
+    filing-sequence suffix (e.g. `"CP26-9-000|CP26-9-001"` -> `"CP26-9"`)."""
+    if not docket_refs:
+        return None
+    first = str(docket_refs).split("|")[0].strip()
+    m = _DOCKET_ID_RE.match(first)
+    return m.group(1) if m else (first or None)
+
+
+def docket_year(docket_refs: str | None) -> int | None:
+    """Four-digit filing year embedded in the first docket number of `docket_refs`
+    (`"ER26-1234-000"` -> `2026`) — FERC's docket-numbering convention (module docstring),
+    reused here to scope a multi-year pull to a year range independent of `filed_date` (a
+    compliance filing's `filed_date` can be years after the docket it belongs to was opened)."""
+    if not docket_refs:
+        return None
+    first = str(docket_refs).split("|")[0].strip()
+    m = _DOCKET_YEAR_RE.match(first)
+    if not m:
+        return None
+    yy = int(m.group(1))
+    return 2000 + yy
+
+
+def filter_er_docket_years(docs: pd.DataFrame, min_year: int, max_year: int) -> pd.DataFrame:
+    """ER-class filings whose docket-embedded year falls in `[min_year, max_year]`
+    (`pipeline/backfill_ferc.py`'s per-year breakdown and request-budget scoping, docs/22 §14)."""
+    if docs.empty:
+        return docs
+    refs = docs["docket_refs"].fillna("")
+    is_er = refs.str.contains(r"\bER\d", regex=True)
+    years = refs.map(docket_year)
+    return docs[is_er & years.between(min_year, max_year)]
+
+
+def dedupe_filings_per_docket(docs: pd.DataFrame) -> pd.DataFrame:
+    """One filing per (distinctive filer, primary docket) pair, keeping the first in file order.
+
+    A multi-year pull's compliance filings, amendments and refilings under one docket almost
+    always share a filer; without this, `_sponsor_matches` would count one project's LGIA docket
+    as N independent pieces of sponsor-fuzzy evidence (and `docket_links.parquet` would carry N
+    near-identical rows) instead of one. No-op on the single-filing-per-docket fixtures the
+    existing tests pin, so single-run behaviour is unchanged.
+    """
+    if docs.empty:
+        return docs
+    filer_key = docs["filer"].fillna("").astype(str).map(_distinctive)
+    docket_key = docs["docket_refs"].fillna("").map(_primary_docket).fillna("")
+    key = filer_key + "||" + docket_key
+    return docs[~key.duplicated()].reset_index(drop=True)
+
+
+def _filer_index(docs: pd.DataFrame) -> pd.DataFrame:
+    """One row per distinct *distinctive* filer residual, carrying every ferc `record_id` filed
+    under it and the first raw filer string as a display label — collapses repeated filers before
+    `_sponsor_matches`'s `cdist` call so it scores each distinct filer once, however many filings
+    (across however many years) that filer made, rather than once per filing."""
+    keys = docs["filer"].fillna("").astype(str).map(_distinctive)
+    idx = docs.assign(_filer_key=keys)
+    grouped = idx.groupby("_filer_key", sort=False).agg(
+        filer_display=("filer", "first"), record_ids=("record_id", list)
+    )
+    return grouped.reset_index().rename(columns={"_filer_key": "filer_key"})
+
+
 LINK_COLUMNS = [
     "record_id",
     "ferc_record_id",
@@ -203,21 +282,28 @@ def _explicit_matches(iso: pd.DataFrame, docs: pd.DataFrame) -> list[dict[str, A
 
 
 def _sponsor_matches(iso: pd.DataFrame, docs: pd.DataFrame, threshold: float) -> list[dict[str, Any]]:
-    """Method (b): rapidfuzz sponsor-vs-filer match on the distinctive residual of each name
-    (generic organisation words stripped, see module docstring and `GENERIC_ORG_WORDS`),
-    restricted to ER (electric) filings — every implemented ISO queue is electric generation."""
+    """Method (b), the filer-name method: rapidfuzz sponsor-vs-filer match on the distinctive
+    residual of each name (generic organisation words stripped, see module docstring and
+    `GENERIC_ORG_WORDS`), restricted to ER (electric) filings — every implemented ISO queue is
+    electric generation. Repeated filings under the same docket are collapsed first
+    (`dedupe_filings_per_docket`) and repeated filers are collapsed into one `cdist` column
+    (`_filer_index`) before matching, then expanded back out to one link row per underlying
+    filing — a no-op on the single-filing-per-docket, single-filing-per-filer fixtures the
+    existing tests pin, so single-run behaviour and output shape are unchanged; it matters only
+    on the multi-year frame `pipeline/backfill_ferc.py` builds."""
     er_docs = docs[docs["docket_refs"].fillna("").str.contains(r"\bER\d", regex=True)]
     if er_docs.empty:
         return []
+    er_docs = dedupe_filings_per_docket(er_docs)
+    filer_idx = _filer_index(er_docs)
     sponsors_raw = iso["sponsor_name"].fillna("").astype(str).tolist()
-    filers_raw = er_docs["filer"].fillna("").astype(str).tolist()
+    filer_keys = filer_idx["filer_key"].tolist()
     sponsors = [_distinctive(s) for s in sponsors_raw]
-    filers = [_distinctive(f) for f in filers_raw]
     keep_row = [len(s.split()) >= MIN_SPONSOR_WORDS for s in sponsors]
-    keep_col = [len(f.split()) >= MIN_SPONSOR_WORDS for f in filers]
+    keep_col = [len(f.split()) >= MIN_SPONSOR_WORDS for f in filer_keys]
     if not any(keep_row) or not any(keep_col):
         return []
-    matrix = process.cdist(sponsors, filers, scorer=fuzz.token_set_ratio)
+    matrix = process.cdist(sponsors, filer_keys, scorer=fuzz.token_set_ratio)
     out: list[dict[str, Any]] = []
     for ri, row_ok in enumerate(keep_row):
         if not row_ok:
@@ -225,18 +311,20 @@ def _sponsor_matches(iso: pd.DataFrame, docs: pd.DataFrame, threshold: float) ->
         for ci, col_ok in enumerate(keep_col):
             if not col_ok or matrix[ri, ci] < threshold:
                 continue
-            out.append(
-                {
-                    "record_id": iso.iloc[ri]["record_id"],
-                    "ferc_record_id": er_docs.iloc[ci]["record_id"],
-                    "method": "sponsor_fuzzy",
-                    "score": float(matrix[ri, ci]),
-                    "rationale": (
-                        f"sponsor {sponsors_raw[ri]!r} vs filer {filers_raw[ci]!r}"
-                        f" (distinctive {sponsors[ri]!r} vs {filers[ci]!r}) = {matrix[ri, ci]:.0f}"
-                    ),
-                }
-            )
+            filer_display = filer_idx.iloc[ci]["filer_display"]
+            for ferc_record_id in filer_idx.iloc[ci]["record_ids"]:
+                out.append(
+                    {
+                        "record_id": iso.iloc[ri]["record_id"],
+                        "ferc_record_id": ferc_record_id,
+                        "method": "sponsor_fuzzy",
+                        "score": float(matrix[ri, ci]),
+                        "rationale": (
+                            f"sponsor {sponsors_raw[ri]!r} vs filer {filer_display!r}"
+                            f" (distinctive {sponsors[ri]!r} vs {filer_keys[ci]!r}) = {matrix[ri, ci]:.0f}"
+                        ),
+                    }
+                )
     return out
 
 
