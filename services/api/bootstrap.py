@@ -59,9 +59,10 @@ def make_owner(
         user.status = "active"
         if password:
             user.password_hash = hash_password(password)
-        account = db.get(Account, user.account_id)
-        if account is None:  # pragma: no cover - a user always has an account
+        existing = db.get(Account, user.account_id)
+        if existing is None:  # pragma: no cover - a user always has an account
             raise ValueError("user has no account")
+        account = existing
     account.entitlement = "admin"
     account.entitlement_source = "manual_grant"
     account.seats = max(account.seats, seats)
