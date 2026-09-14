@@ -136,6 +136,12 @@ do not exist yet (`docs/60` §11 item 3). Creating that file is itself a first-d
 
 ---
 
+### 2.7 Map basemap tiles (found while the owner tested the prototype, 2026-09-14)
+
+| Item | Environment variable | Who creates | Done-check |
+|---|---|---|---|
+| A tile provider for the map. The prototype loads raster tiles from `tile.openstreetmap.org`, whose usage policy forbids production apps and rate-limits or blocks them; when the tiles are blocked the map is a beige outline with clusters on it and zooming looks like it does nothing. Options: MapTiler or Stadia (hosted, free tier, key in an env var) or Protomaps PMTiles self-hosted on R2 (no per-view cost, fits ADR 0005) | `MAP_TILE_URL` (and a key if hosted) | Owner picks; frontend-developer wires it into `web/static/js/map.js` | Street-level detail renders at zoom 10 on the deployed site; the attribution line names the provider |
+
 ## 3. First deploy, step by step
 
 Order: accounts and secrets, then infrastructure, then the application. Steps 1–6 are `docs/60-deployment.md`
