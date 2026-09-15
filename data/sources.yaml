@@ -294,7 +294,11 @@ sources:
   connector: PUDL (catalyst.coop) or direct xlsx parse; gridstatus.io mirrors it
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 2341, note: 'connector run: index scrape tried 6 links, july_generator2026.xlsx is the first real zip (december/october/september/november/august return HTML with a 200); Planned sheet, DQ pass'}
-  notes: Authoritative for planned units ≥1 MW with plant IDs — the spine for entity resolution against queue records.
+  notes: >-
+    Authoritative for planned units ≥1 MW with plant IDs — the spine for entity resolution against queue
+    records. Also feeds the built-infrastructure context layer (`pipeline/context/eia_plants.py` →
+    `built_plant`) from the same workbook's Operating sheet — read-only reuse of this entry's licence, no new
+    source id (2026-09-15).
 
 - id: us.eia.api
   name: EIA Open Data API v2
