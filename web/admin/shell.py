@@ -41,6 +41,7 @@ ADMIN_NAV: tuple[tuple[str, str, str], ...] = (
     ("/admin/customers", "Customers", "customers"),
     ("/admin/keys", "Keys", "keys"),
     ("/admin/costs", "Costs", "costs"),
+    ("/admin/engagement", "Engagement", "engagement"),
     ("/admin/audit", "Audit", "audit"),
 )
 templates.env.globals["ADMIN_NAV"] = ADMIN_NAV
