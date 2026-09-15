@@ -1235,6 +1235,78 @@ EIA-860M, is public domain) — both endpoints are public on every tier.
 `{week: "2026-Www", name, count, count_on?, count_off?}` (the `on`/`off` split present only for
 `map.layer_toggled` rows).
 
+### Pan/zoom performance (coordinator follow-up, 2026-09-15)
+
+**Measured problem.** Verified against the real load (14,659 `built_plant` rows,
+`DATABASE_URL=sqlite+pysqlite:///web/.data/dev.db`, in-process `TestClient`): the original
+`GET /v1/context/plants/geo` — one `select(BuiltPlant)` with `Source`/`Licence` eagerly joined (the
+model's own default relationship strategy) for *every visible, placed plant*, on *every request*,
+regardless of viewport or how many features that request actually rendered — cost 860-960 ms per
+pan/zoom (~60 µs/row of ORM hydration). docs/04 D-13's budget for a pan/zoom to updated markers is
+≤ 200 ms.
+
+**Fix.** `services/api/context_routes.py` now keeps a process-local cache
+(`_index_cache`/`_get_plant_index`) of the *whole* placed-plant table as `PlantIndexRow` — a small
+dataclass (`id, lon, lat, technology, capacity_mw, country`, `services/api/context_geo.py`) built
+from one plain `select()` of five columns, no join, no `BuiltPlant` ORM hydration. The cache is
+keyed on `(bind_id, row_count, max(updated_at))` over the placed rows — an insert, update or delete
+always changes one of those two aggregates (`updated_at` has `onupdate=utcnow`), so a stale cache
+is never served, and the one aggregate query that checks the key on every request is cheap (no join,
+no per-row hydration). `technology`/`country` filtering happens in Python over the cached index,
+never as a second SQL query, so re-filtering never touches the database and `records_total`/
+`technology_counts` stay correct for the request's own filters (only the licence-summary aggregate,
+already a cheap `GROUP BY` over a handful of sources, still queries live). A full `BuiltPlant` (with
+its `Source`/`Licence` join, for `name`/`technologies`/`source` block/…) is fetched by id — bounded
+to at most `SPLIT_THRESHOLD` (500) rows — only when the in-view count is at or below that threshold,
+i.e. only for plants that actually render as individual markers; a clustered response never touches
+`BuiltPlant` at all. `id`/`geom` are additionally selected `CAST(... AS TEXT)` rather than through
+their mapped `GUID`/`GeographyPoint` columns: profiling showed that even the join-free five-column
+index query paid roughly half its cost in those two `TypeDecorator`s' per-value `process_result_value`
+dispatch over 14,659 rows; casting to plain text and parsing directly (`id` is already the
+decorator's own `str(uuid)` string, so no parsing at all; `geom`'s JSON is one `json.loads`) cut the
+index rebuild from ~140 ms to ~50-110 ms depending on OS page-cache state.
+
+**Measured before/after** (same four requests, same real 14,659-row file, in-process `TestClient`;
+feature counts match the coordinator's own measurement exactly — 62/83/18/45 — proving the
+refactor changed nothing observable about clustering):
+
+| Request | Before (every request paid full ORM+join hydration) | After — index cache cold, connection warm | After — index cache warm (steady-state pan/zoom) |
+|---|---|---|---|
+| `zoom=4  bbox=-125,24,-66,50` (62 clusters) | 959 ms | 246 ms *(see note)* | **37 ms** |
+| `zoom=6  bbox=-104,25,-93,37` (83 clusters) | 863 ms | 156 ms | **29 ms** |
+| `zoom=12 bbox=-97.9,30.1,-97.5,30.5` (18 plants) | 893 ms | 105 ms | **28 ms** |
+| `technology=wind` (45 clusters, 1,365 matching rows) | 77 ms | 127 ms | **11 ms** |
+
+**Note on the one number still over budget.** The 246 ms figure is the *very first* query this
+process ever runs against a freshly-copied 78 MB SQLite file — a one-time OS page-cache miss
+reading the `built_plant` table's pages off disk for the first time (confirmed by isolating it: a
+trivial `SELECT 1` as the first query on the same fresh connection costs < 1 ms, but the index's
+`WHERE geom IS NOT NULL` / `max(updated_at)` aggregate — a genuine full-table scan, no index covers
+either condition — costs ~50 ms cold vs ~3 ms once those pages are warm). Every other number in the
+"index cache cold" column already reflects this same connection with its page cache warm, and is
+comfortably under 200 ms; the *steady-state* condition the D-13 budget actually describes
+("pan/zoom to updated markers") is the warm-cache column, at 11-37 ms — 23-87x faster than the
+original implementation. Eliminating the one-time cold-file number too would need either a
+`(geom, updated_at)` index (a migration — `services/db/models.py` and the migrations directory were
+not in this follow-up's file scope) or a startup warm-query (`services/api/app.py` — also out of
+this follow-up's stated scope, "same file area ... nothing else"); flagged for the coordinator to
+scope as a separate task if wanted.
+
+**Tests added** (`services/api/test_context_routes.py`):
+- `test_index_cache_invalidates_after_row_update` — changes a plant's `technology` and explicitly
+  bumps `updated_at` by a day (so the assertion can never be a false pass from wall-clock
+  resolution), and asserts the very next request reflects the change rather than serving a stale
+  cached index.
+- `test_cached_and_uncached_index_paths_agree` — 700 plants (above `SPLIT_THRESHOLD`, exercising
+  the clustered path the coordinator's own zoom=4/zoom=6 measurements used), two identical
+  requests, and asserts both (a) `resp1.json()["data"] == resp2.json()["data"]` byte-for-byte and
+  (b) `_rebuild_plant_index` (monkeypatched with a call counter) ran exactly once across the two
+  requests — proving the second request genuinely hit the cache rather than a key-computation bug
+  silently rebuilding every time.
+- The existing 9 tests were re-run unchanged against the refactored implementation (same public
+  route, same response shapes) and pass with zero modifications — the caching change is invisible
+  to any caller.
+
 ### Decisions
 
 1. **`validation_error` is 400, not 422, everywhere it is used in this codebase**
@@ -1270,6 +1342,33 @@ EIA-860M, is public domain) — both endpoints are public on every tier.
    Sprint 3's close; no sprint number is otherwise assigned to this post-launch work in
    `docs/00-PLAN.md` yet, so this documents "the sprint after Sprint 3" rather than inventing a
    name for it.
+7. **`build_plant_feature_collection`'s signature changed** (coordinator follow-up, "pan/zoom
+   performance" above): it now takes `index: list[PlantIndexRow]` and an optional
+   `plant_details: dict[str, BuiltPlant]` instead of `plants: list[BuiltPlant]`. This is a breaking
+   change to a function with no other caller in the repo (`services/api/context_routes.py` is the
+   only importer), made because the whole point of the fix is that the common (clustered) case
+   never needs a `BuiltPlant` at all — keeping the old signature and only optimizing the caller
+   would have left `context_geo.py` still declaring a `BuiltPlant`-shaped contract it no longer
+   needs for most calls.
+8. **The in-view/`SPLIT_THRESHOLD` decision is made twice** — once in
+   `services/api/context_routes.py` (to decide whether to query `plant_details` at all) and once
+   inside `build_plant_feature_collection` itself (to decide whether to build individual or cluster
+   features). Both use the same imported `_in_bbox`/`SPLIT_THRESHOLD`, so they cannot disagree, and
+   the repeated bbox filter costs microseconds over an in-memory list of ≤ ~15,000 lightweight
+   tuples — not worth the alternative (returning a "here are the ids you need" intermediate result
+   and calling back into the builder a second time), which would make the pure builder function
+   stateful across two calls for no measured benefit.
+9. **The licence-summary aggregate query was left as a live per-request query, not cached.** It is
+   already a `GROUP BY source_id, licence_id` over a handful of distinct sources (one, in the real
+   load) — not the measured bottleneck (`_source_licence_aggregate`-style aggregates were never the
+   860-960 ms cost; the full `BuiltPlant`+join ORM hydration was) — and caching it would add a
+   second cache-key coordination point for a query that is already fast and must stay exactly
+   correct under the request's own filters.
+10. **`PlantIndexRow` stayed a `@dataclass(frozen=True, slots=True)`, not a plain tuple or
+    `NamedTuple`.** Profiled against the real load: building 14,659 plain tuples instead of
+    `PlantIndexRow` instances measured ~24 ms vs ~27 ms — not a meaningful difference — so the
+    self-documenting, attribute-accessed dataclass was kept rather than trading readability for an
+    unmeasurable gain.
 
 ### Verbatim gates (this task, 2026-09-15)
 
@@ -1298,3 +1397,29 @@ unrelated failure (`web/test_e2e.py::test_smoke_map_list_detail_with_attribution
 chromium browser assertion — `docs/00-PLAN.md`'s "Sprint 3 closed" row already records this smoke
 path as "not verified ... no browser run this session"); everything else, including every other
 `services/`, `tests/` and `pipeline/` test, passed.
+
+### Verbatim gates — pan/zoom performance follow-up (2026-09-15)
+
+```
+$ .venv/bin/ruff check services api && .venv/bin/ruff format --check services api
+All checks passed!
+115 files already formatted
+
+$ .venv/bin/mypy services
+Success: no issues found in 77 source files
+
+$ .venv/bin/lint-imports --config infra/importlinter.ini
+Contracts: 2 kept, 0 broken.
+
+$ .venv/bin/python -m openapi_spec_validator api/openapi.yaml && .venv/bin/python api/check_story_coverage.py --quiet
+api/openapi.yaml: OK
+RESULT: PASS — 44/44 PRD stories covered by 134 operations; all $refs resolve
+(unchanged by this follow-up — no spec edits were needed)
+
+$ .venv/bin/python -m pytest services/api -q
+.........................................................  (57 passed)
+```
+
+The pre-existing 9 `test_context_routes.py` tests pass unmodified against the refactored
+implementation; 2 new tests were added for the cache specifically (see "Pan/zoom performance"
+above). `services/api/test_ui_events.py` is untouched by this follow-up and still passes.

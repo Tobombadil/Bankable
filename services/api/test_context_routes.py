@@ -14,6 +14,7 @@ import pathlib
 import pytest
 import yaml
 
+from services.api import context_routes
 from services.api.conftest import make_open_licence, make_public_source
 from services.db.models import BuiltPlant
 from tests.test_api_contract import assert_valid
@@ -26,6 +27,16 @@ _OPENAPI_PATH = pathlib.Path(__file__).resolve().parents[2] / "api" / "openapi.y
 def spec() -> dict:
     with _OPENAPI_PATH.open(encoding="utf-8") as fh:
         return yaml.safe_load(fh)
+
+
+@pytest.fixture(autouse=True)
+def _reset_plant_index_cache() -> None:
+    """`services.api.context_routes._index_cache` is one process-wide instance (its own docstring)
+    keyed in part on `id(db.get_bind())`, which already isolates this file's per-test in-memory
+    engines from each other in practice — this reset removes any dependence on `id()` reuse
+    dynamics being safe across the whole suite, the same reasoning `services/api/conftest.py`'s
+    `_reset_rate_limiter` gives for `default_limiter`."""
+    context_routes._reset_plant_index_cache()
 
 
 def make_built_plant(
@@ -201,3 +212,68 @@ def test_missing_bbox_or_zoom_is_400(client, db):
     assert resp.status_code == 400
     resp2 = client.get("/v1/context/plants/geo", params={"bbox": WORLD_BBOX})
     assert resp2.status_code == 400
+
+
+# ------------------------------------------------------------- process-local index cache (perf)
+def test_index_cache_invalidates_after_row_update(client, db):
+    """Coordinator follow-up (2026-09-15): the cache is keyed on `(row_count, max(updated_at))`
+    (`services.api.context_routes._plant_index_cache_key`) — a row's field changing, with no
+    change in row count, must still bust it."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    plant = make_built_plant(db, src, lic, plant_id_suffix="1", technology="wind", geom=(-100.0, 32.0))
+    db.commit()
+
+    resp1 = client.get("/v1/context/plants/geo", params={"bbox": WORLD_BBOX, "zoom": 4})
+    assert resp1.json()["data"]["totals"]["technology_counts"] == {"wind": 1}
+
+    # Change the field the response depends on, and bump `updated_at` by a whole day so the
+    # assertion below can never be a false pass from wall-clock resolution happening to not have
+    # advanced between the two requests.
+    plant.technology = "solar"
+    plant.updated_at = plant.updated_at + dt.timedelta(days=1)
+    db.commit()
+
+    resp2 = client.get("/v1/context/plants/geo", params={"bbox": WORLD_BBOX, "zoom": 4})
+    assert resp2.json()["data"]["totals"]["technology_counts"] == {"solar": 1}
+    feature = resp2.json()["data"]["features"][0]
+    assert feature["properties"]["technology"] == "solar"
+
+
+def test_cached_and_uncached_index_paths_agree(client, db, monkeypatch):
+    """A second request with the same underlying data must (a) serve the *identical* feature
+    collection as the first (proving the cached path and the cold-rebuild path agree byte for
+    byte) and (b) never re-hit `_rebuild_plant_index` (proving it actually was cached, not
+    silently rebuilt every time by a key-computation bug) — both requirements from the
+    coordinator's follow-up. 700 plants (above `SPLIT_THRESHOLD`) so this exercises the clustered
+    path the coordinator's own zoom=4/zoom=6 measurements used."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    for i in range(700):
+        make_built_plant(
+            db,
+            src,
+            lic,
+            plant_id_suffix=str(i),
+            geom=(-100.0 + (i % 7) * 0.01, 32.0 + (i % 5) * 0.01),
+        )
+    db.commit()
+
+    calls = {"count": 0}
+    original_rebuild = context_routes._rebuild_plant_index
+
+    def _counting_rebuild(db_):
+        calls["count"] += 1
+        return original_rebuild(db_)
+
+    monkeypatch.setattr(context_routes, "_rebuild_plant_index", _counting_rebuild)
+
+    params = {"bbox": WORLD_BBOX, "zoom": 3}
+    resp1 = client.get("/v1/context/plants/geo", params=params)
+    resp2 = client.get("/v1/context/plants/geo", params=params)
+
+    assert resp1.status_code == 200
+    assert resp2.status_code == 200
+    assert resp1.json()["data"] == resp2.json()["data"]
+    assert resp1.json()["data"]["totals"]["clustered"] is True
+    assert calls["count"] == 1, "second request should have served the cached index, not rebuilt it"
