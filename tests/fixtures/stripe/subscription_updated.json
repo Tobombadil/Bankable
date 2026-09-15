@@ -1,0 +1,40 @@
+{
+  "id": "evt_1NG8Du2eZvKYlo2CtOM5UPUP",
+  "object": "event",
+  "type": "customer.subscription.updated",
+  "created": 1757761200,
+  "data": {
+    "object": {
+      "id": "sub_1NG8Du2eZvKYlo2Cq5f8Vsxu",
+      "object": "subscription",
+      "customer": "cus_QXtest0000000001",
+      "status": "past_due",
+      "currency": "usd",
+      "current_period_start": 1757721600,
+      "current_period_end": 1760313600,
+      "cancel_at": null,
+      "metadata": {
+        "account_public_id": "acc_00000000TESTACCT1",
+        "plan": "pro"
+      },
+      "items": {
+        "object": "list",
+        "data": [
+          {
+            "id": "si_test0000000001",
+            "quantity": 3,
+            "current_period_start": 1757721600,
+            "current_period_end": 1760313600,
+            "price": {
+              "id": "price_test_pro",
+              "object": "price",
+              "unit_amount": 4900,
+              "currency": "usd",
+              "recurring": {"interval": "month"}
+            }
+          }
+        ]
+      }
+    }
+  }
+}

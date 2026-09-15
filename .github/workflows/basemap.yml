@@ -1,0 +1,53 @@
+name: basemap
+
+# Refreshes the self-hosted Protomaps PMTiles basemap on Cloudflare R2 (docs/00-PLAN.md owner
+# decision 2026-09-14/15; docs/adr/0007; docs/40-launch-runbook.md §2.7). Monthly cron plus
+# workflow_dispatch for an on-demand rebuild. Runs against the `production` GitHub Environment so
+# the R2 credentials are the same ones `infra/scripts/deploy.sh` and `infra/scripts/backup.sh`
+# already use in that environment (docs/60-deployment.md §11 item 5) — no separate secret set for
+# this workflow.
+#
+# `infra/scripts/build_basemap.sh` uploads to a dated key first and only then copies that key to
+# the canonical `basemap.pmtiles` name (a fast, server-side R2 copy, not a re-upload) — so a
+# build that fails partway through never leaves the live tile file half-written. If this job fails,
+# the site keeps serving whatever `basemap.pmtiles` currently holds; nothing needs to be rolled
+# back on the R2 side.
+
+on:
+  workflow_dispatch: {} # manual "run now" from the Actions tab, e.g. after a bbox/zoom change
+  schedule:
+    - cron: "23 5 1 * *" # 05:23 UTC on the 1st of the month; offset off the hour (docs/60 §9 convention)
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-basemap:
+    name: build and upload basemap.pmtiles
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: build and upload (infra/scripts/build_basemap.sh)
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # tofu output tiles_bucket_name (infra/terraform/outputs.tf) — the tiles bucket is
+          # separate from R2_BUCKET (raw snapshots/exports, infra/compose/.env.example), so this
+          # is its own secret rather than reusing that name.
+          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET }}
+        run: infra/scripts/build_basemap.sh
+      - name: verify the canonical key is reachable and range-request capable
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET }}
+        run: |
+          curl -fsSI "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_TILES_BUCKET}/basemap.pmtiles" \
+            | tee /dev/stderr | grep -qi "accept-ranges: bytes"
+          # Checks the R2 S3-compatible endpoint directly, not the tiles.infraque.com custom domain —
+          # that domain is a manual one-time dashboard step (infra/terraform/storage.tf's comment
+          # block) this workflow cannot assume exists yet in every environment that runs it.

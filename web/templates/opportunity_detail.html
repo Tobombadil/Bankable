@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ record.title }} -- Infraque{% endblock %}
+{% block meta_description %}{{ record.title }}: {{ record.kind }} from {{ record.issuer or 'issuer unstated' }}, due {{ record.due_at[:10] if record.due_at else 'unstated' }}.{% endblock %}
+{% block canonical %}<link rel="canonical" href="/opportunities/{{ record.slug }}">{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/opportunities">Opportunities</a> / {{ record.title }}</nav>
+<div class="detail-header">
+  <h1>{{ record.title }}</h1>
+  {{ m.status_chip(record.status, record.lifecycle_family, record.status_raw) }}
+</div>
+{{ m.delayed_banner(delayed) }}
+
+<dl class="field-grid">
+  <div><dt>Kind</dt><dd>{{ record.kind or '—' }}</dd></div>
+  <div><dt>Issuer</dt><dd>{{ record.issuer or '—' }}</dd></div>
+  <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
+  <div><dt>Technologies</dt><dd>{{ record.technologies | join(', ') if record.technologies else 'all-source' }}</dd></div>
+  <div><dt>Capacity sought (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_sought_mw) if record.capacity_sought_mw is not none else '—' }}</dd></div>
+  <div><dt>Budget</dt><dd class="tnum">{% if record.budget_amount %}{{ '{:,.0f}'.format(record.budget_amount) }} {{ record.budget_currency or '' }}{% else %}&mdash;{% endif %}</dd></div>
+  <div><dt>Opens</dt><dd class="tnum">{{ record.open_at or '—' }}</dd></div>
+  <div><dt>Due</dt><dd class="tnum">{{ record.due_at[:10] if record.due_at else '—' }}</dd></div>
+</dl>
+
+{% if record.summary %}<p>{{ record.summary }}</p>{% endif %}
+
+{{ m.provenance_panel(provenance_rows, number="1.") }}
+
+<section aria-label="Status timeline">
+  {{ m.section_heading("2.", "Status timeline") }}
+  <p class="attribution-line">Built from this record&rsquo;s single most recent source snapshot.</p>
+  <ul class="timeline">
+    <li><time datetime="{{ record.retrieved_at }}">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown date' }}</time> <span class="timeline__event">Observed as <strong>{{ record.status | replace('_',' ') }}</strong> in {{ record.source_name }}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.</span></li>
+    {% if record.open_at %}<li><time datetime="{{ record.open_at }}">{{ record.open_at }}</time> <span class="timeline__event">Notice opened for responses.</span></li>{% endif %}
+    {% if record.due_at %}<li><time datetime="{{ record.due_at }}">{{ record.due_at[:10] }}</time> <span class="timeline__event">Response deadline, as stated by the source.</span></li>{% endif %}
+  </ul>
+</section>
+
+{{ m.attribution_line(record) }}
+{% endblock %}

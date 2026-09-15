@@ -1,0 +1,37 @@
+# Isolated image for the `worker-browser` process (docs/20 §4.1 "Playwright Chromium pool, max 3
+# pages, 2 GB RAM; only for `egress: browser` sources"). Kept as its own Dockerfile (not a stage of
+# infra/docker/Dockerfile) because the Chromium download and its OS-level dependencies roughly
+# double image size and build time — no reason to pay that cost building api/web/worker images.
+#
+# Chromium path matches what web/test_e2e.py already drives in this repo
+# (`/opt/pw-browsers/chromium`, per web/README.md), so both suites exercise the same browser build.
+
+FROM python:3.11-slim-bookworm AS browser-worker
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+    BANKABLE_DOMAIN=example-infraque.test
+
+COPY requirements.txt ./requirements.txt
+COPY infra/scheduler/requirements.txt ./infra-scheduler-requirements.txt
+
+# See infra/docker/Dockerfile for why psycopg and infra/scheduler/requirements.txt (Procrastinate,
+# ADR 0004) are added at the image layer rather than in the repo-root requirements.txt.
+RUN pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt "psycopg[binary]>=3.1,<4" \
+    && python -m playwright install --with-deps chromium
+
+COPY pyproject.toml ./pyproject.toml
+COPY pipeline ./pipeline
+COPY services ./services
+COPY data/sources.yaml ./data/sources.yaml
+COPY infra/__init__.py ./infra/__init__.py
+COPY infra/scheduler ./infra/scheduler
+
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /opt/pw-browsers
+USER appuser
+
+CMD ["python", "-m", "infra.scheduler.worker", "--queues", "fetch_browser"]

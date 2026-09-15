@@ -1,0 +1,52 @@
+{% extends "admin/base.html" %}
+{% block title %}Audit event -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-ops.css">{% endblock %}
+{% block content %}
+<p><a href="/admin/audit">&larr; Audit</a></p>
+{% include "admin/_notice.html" %}
+
+{% if event %}
+<h1>{{ event.subject_type }} {{ event.event_type }}</h1>
+<dl class="admin-cols">
+  <div>
+    <dt>Observed at</dt><dd class="mono">{{ event.observed_at }}</dd>
+    <dt>Recorded at</dt><dd class="mono">{{ event.recorded_at }}</dd>
+    <dt>Subject</dt><dd class="mono">{{ event.subject_type }} {{ event.subject_id }}</dd>
+    <dt>Seq</dt><dd class="mono">{{ event.seq }}</dd>
+  </div>
+  <div>
+    <dt>Reason</dt><dd>{{ event.reason or "--" }}</dd>
+    <dt>Changed keys</dt><dd class="mono">{{ event.changed_keys|join(", ") if event.changed_keys else "--" }}</dd>
+    <dt>Confidence</dt><dd>{{ event.confidence if event.confidence is not none else "--" }}</dd>
+  </div>
+</dl>
+
+<h2>Before / after</h2>
+<div class="admin-cols">
+  <div>
+    <h3>Before</h3>
+    {% if event.before %}
+    <dl>
+      {% for k, v in event.before.items() %}
+      <dt class="mono">{{ k }}</dt><dd class="mono">{{ v }}</dd>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="admin-muted">Nothing recorded (this event has no prior state -- e.g. a creation).</p>
+    {% endif %}
+  </div>
+  <div>
+    <h3>After</h3>
+    {% if event.after %}
+    <dl>
+      {% for k, v in event.after.items() %}
+      <dt class="mono">{{ k }}</dt><dd class="mono">{{ v }}</dd>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="admin-muted">Nothing recorded.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

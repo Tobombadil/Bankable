@@ -1,0 +1,77 @@
+{% extends "admin/base.html" %}
+{% block title %}Users -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-people.css">{% endblock %}
+{% block content %}
+<h1>Users</h1>
+{% include "admin/_notice.html" %}
+
+<form class="admin-toolbar" method="get" action="/admin/users">
+  <div class="field">
+    <label for="f-q">Search</label>
+    <input id="f-q" type="text" name="q" value="{{ filters.q or '' }}" placeholder="email or name">
+  </div>
+  <div class="field">
+    <label for="f-role">Role</label>
+    <select id="f-role" name="role">
+      <option value="">Any</option>
+      {% for r in roles %}
+      <option value="{{ r }}"{% if filters.role == r %} selected{% endif %}>{{ r }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-status">Status</label>
+    <select id="f-status" name="status">
+      <option value="">Any</option>
+      {% for s in statuses %}
+      <option value="{{ s }}"{% if filters.status == s %} selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+      <option value="anonymised"{% if filters.status == "anonymised" %} selected{% endif %}>anonymised</option>
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-account">Account id</label>
+    <input id="f-account" type="text" name="account_id" value="{{ filters.account_id or '' }}" placeholder="acc_...">
+  </div>
+  <button class="admin-button" type="submit">Filter</button>
+  {% if filters %}<a class="admin-button" href="/admin/users">Clear all</a>{% endif %}
+</form>
+
+{% if users %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Email</th><th>Role</th><th>Status</th><th>Account</th>
+        <th>Subscription</th><th>Created</th><th>Last login</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td><a href="/admin/users/{{ u.user_id }}">{{ u.email or "(redacted)" }}</a></td>
+        <td><span class="chip {% if u.role in ('owner','operator','legal') %}chip--committed{% else %}chip--neutral{% endif %}">{{ u.role }}</span></td>
+        <td><span class="chip {% if u.status == 'active' %}chip--success{% elif u.status == 'disabled' %}chip--danger{% else %}chip--neutral{% endif %}">{{ u.status }}</span></td>
+        <td>{{ u.account_name }} <span class="admin-muted">({{ u.entitlement }})</span></td>
+        <td>{{ u.subscription_status or "--" }}</td>
+        <td class="mono">{{ u.created_at or "" }}</td>
+        <td class="mono">{{ u.last_login_at or "never" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="admin-empty">
+  {% if filters %}
+  <p>No users match {{ filters_description }}. <a href="/admin/users">Clear all</a> to see every user.</p>
+  {% else %}
+  <p>No users yet.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if next_href %}
+<div class="admin-pager"><a class="admin-button" href="{{ next_href }}">Next page</a></div>
+{% endif %}
+{% endblock %}

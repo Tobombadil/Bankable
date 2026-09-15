@@ -1,0 +1,96 @@
+{% extends "admin/base.html" %}
+{% block title %}Costs -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-ops.css">{% endblock %}
+{% block content %}
+<h1>Model-call cost log</h1>
+{% include "admin/_notice.html" %}
+
+<form class="admin-toolbar" method="get" action="/admin/costs">
+  <div class="field">
+    <label for="f-from">Since</label>
+    <input id="f-from" type="date" name="day[from]" value="{{ filters['day[from]'] or '' }}">
+  </div>
+  <div class="field">
+    <label for="f-to">Until</label>
+    <input id="f-to" type="date" name="day[to]" value="{{ filters['day[to]'] or '' }}">
+  </div>
+  <div class="field">
+    <label for="f-source">Source id</label>
+    <input id="f-source" type="text" name="source_id" value="{{ filters.source_id or '' }}" placeholder="us.iso...">
+  </div>
+  <div class="field">
+    <label for="f-purpose">Purpose</label>
+    <select id="f-purpose" name="purpose">
+      <option value="">Any</option>
+      {% for p in purposes %}
+      <option value="{{ p }}"{% if filters.purpose == p %} selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <fieldset class="field">
+    <legend>Group by</legend>
+    <label><input type="checkbox" name="group_by" value="source_id"{% if "source_id" in group_by_selected %} checked{% endif %}> source</label>
+    <label><input type="checkbox" name="group_by" value="purpose"{% if "purpose" in group_by_selected %} checked{% endif %}> purpose</label>
+    <label><input type="checkbox" name="group_by" value="model_alias"{% if "model_alias" in group_by_selected %} checked{% endif %}> model alias</label>
+  </fieldset>
+  <button class="admin-button" type="submit">Filter</button>
+  {% if filters %}<a class="admin-button" href="/admin/costs">Clear all</a>{% endif %}
+</form>
+
+{% if rows %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Day</th><th>Source</th><th>Purpose</th><th>Alias</th><th class="num">Calls</th>
+        <th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th>
+        <th class="num">Cache hit rate</th><th class="num">Records changed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.day }}</td>
+        <td class="mono">{{ r.source_id or "--" }}</td>
+        <td>{{ r.purpose or "--" }}</td>
+        <td>{{ r.model_alias or "--" }}</td>
+        <td class="num">{{ r.model_calls }}</td>
+        <td class="num">{{ r.input_tokens }}</td>
+        <td class="num">{{ r.output_tokens }}</td>
+        <td class="num">${{ "%.4f"|format(r.cost_usd) }}</td>
+        <td class="num">{{ (r.cache_hit_rate * 100)|round(1) if r.cache_hit_rate is not none else "--" }}{% if r.cache_hit_rate is not none %}%{% endif %}</td>
+        <td class="num">{{ r.records_changed if r.records_changed is not none else "--" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% if totals %}
+    <tfoot>
+      <tr>
+        <th>Total</th><th></th><th></th><th></th>
+        <th class="num">{{ totals.model_calls }}</th>
+        <th class="num">{{ totals.input_tokens }}</th>
+        <th class="num">{{ totals.output_tokens }}</th>
+        <th class="num">${{ "%.4f"|format(totals.cost_usd) }}</th>
+        <th class="num">{{ (totals.cache_hit_rate * 100)|round(1) if totals.cache_hit_rate is not none else "--" }}{% if totals.cache_hit_rate is not none %}%{% endif %}</th>
+        <th class="num">{{ totals.records_changed if totals.records_changed is not none else "--" }}</th>
+      </tr>
+    </tfoot>
+    {% endif %}
+  </table>
+</div>
+{% if flagged_sources %}
+<p class="admin-muted">Above the ${{ threshold_usd_per_changed_record }}/changed-record threshold
+  (US-909, `docs/03` §6): {{ flagged_sources|join(", ") }}.</p>
+{% endif %}
+{% else %}
+<div class="admin-empty">
+  {% if filters %}
+  <p>No model calls match {{ filters_description }}. <a href="/admin/costs">Clear all</a> to see the full log.</p>
+  {% else %}
+  <p>No model calls recorded yet. This is the expected state today (US-909): the cost log fills in
+    once a source runs extraction, adjudication, drafting or classification calls through the model
+    gateway. Nothing is broken.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

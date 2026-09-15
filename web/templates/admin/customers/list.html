@@ -1,0 +1,73 @@
+{% extends "admin/base.html" %}
+{% block title %}Customers -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-people.css">{% endblock %}
+{% block content %}
+<h1>Customers</h1>
+{% include "admin/_notice.html" %}
+
+<form class="admin-toolbar" method="get" action="/admin/customers">
+  <div class="field">
+    <label for="f-q">Search</label>
+    <input id="f-q" type="text" name="q" value="{{ filters.q or '' }}" placeholder="account name">
+  </div>
+  <div class="field">
+    <label for="f-entitlement">Entitlement</label>
+    <select id="f-entitlement" name="entitlement">
+      <option value="">Any</option>
+      {% for e in ("public", "pro", "api", "admin") %}
+      <option value="{{ e }}"{% if filters.entitlement == e %} selected{% endif %}>{{ e }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-status">Status</label>
+    <select id="f-status" name="status">
+      <option value="">Any</option>
+      {% for s in ("active", "suspended", "closed") %}
+      <option value="{{ s }}"{% if filters.status == s %} selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button class="admin-button" type="submit">Filter</button>
+  {% if filters %}<a class="admin-button" href="/admin/customers">Clear all</a>{% endif %}
+  <a class="admin-button admin-button--primary admin-toolbar__end" href="/admin/customers/new">New customer</a>
+</form>
+
+{% if customers %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Account</th><th>Kind</th><th>Entitlement</th><th>Seats</th>
+        <th>Billing ref</th><th>CRM ref</th><th>Stale</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in customers %}
+      <tr>
+        <td><a href="/admin/customers/{{ c.account.account_id }}">{{ c.account.name }}</a></td>
+        <td>{{ c.account.kind }}</td>
+        <td>{{ c.account.entitlement }} <span class="admin-muted">({{ c.account.entitlement_source }})</span></td>
+        <td class="num">{{ c.account.seats_used }}/{{ c.account.seats }}</td>
+        <td>{{ "yes" if c.account.billing_ref else "no" }}</td>
+        <td>{{ "yes" if c.account.sor_ref else "no" }}</td>
+        <td>{% if c.sor.stale %}<span class="chip chip--danger">stale</span>{% else %}--{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="admin-empty">
+  {% if filters %}
+  <p>No customers match {{ filters_description }}. <a href="/admin/customers">Clear all</a> to see every customer.</p>
+  {% else %}
+  <p>No customers yet. <a href="/admin/customers/new">Create the first one</a>.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if next_href %}
+<div class="admin-pager"><a class="admin-button" href="{{ next_href }}">Next page</a></div>
+{% endif %}
+{% endblock %}

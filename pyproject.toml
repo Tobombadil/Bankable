@@ -1,0 +1,70 @@
+# Tooling configuration for docs/04 §3 (E-3, E-5, E-6). Dependency pinning with hashes is a
+# separate Sprint 1 task; requirements.txt remains the install list until then.
+[project]
+name = "bankable"
+version = "0.2.0"
+description = "Energy and infrastructure proposal/opportunity intelligence pipeline"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["data", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "S", "C4", "DTZ", "T20", "RUF"]
+# RUF001-003: verbatim source text, licence quotes and doc references carry en dashes.
+# N818: docs/04 E-17 names the typed exceptions per layer (ConnectorError, ParseError,
+# GateViolation, ...); the standard's spelling wins over the suffix convention.
+ignore = ["RUF001", "RUF002", "RUF003", "N818"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S107"]  # asserts are the point; test fixtures use literal test credentials
+"pipeline/connectors/**/test_connector.py" = ["S101"]
+"pipeline/context/test_*.py" = ["S101"]      # asserts are the point (docs/04 E-6)
+"conftest.py" = ["E402"]                    # sys.path must be set before the pipeline imports
+"pipeline/normalize.py" = ["T20"]           # prototype CLI reporting, superseded by the runner
+"pipeline/resolve.py" = ["T20"]
+"pipeline/diff.py" = ["T20"]
+"pipeline/link_dockets.py" = ["T20"]        # CLI reporting script, same convention as resolve.py
+"scripts/probe_sources.py" = ["T20"]         # Phase 0 probe CLI (docs/00-PLAN.md repo layout)
+"api/check_story_coverage.py" = ["T20"]      # CI reporting script; prints the story -> operation map
+"web/build_data.py" = ["T20"]                # CLI summary line (main()), not application logging
+"web/data_ref/build_basemap_fallback.py" = ["T20"]  # CLI summary line (main()), not application logging
+"web/test_*.py" = ["S101", "S105", "S106"]    # asserts are the point; literal test credentials
+"web/test_e2e.py" = ["S101", "T20"]          # asserts are the point; prints screenshot paths
+"services/**/test_*.py" = ["S101"]           # asserts are the point (docs/04 E-6)
+"services/api/conftest.py" = ["S101"]
+"services/db/migrations/env.py" = ["E402"]   # sys.path must be set before the services import
+"services/api/app.py" = ["B008"]             # FastAPI's `Depends(...)` default-argument idiom
+"services/social/__main__.py" = ["T20"]      # CLI reporting (draft/review/dry-run/report output), same convention as pipeline/diff.py
+
+[tool.mypy]
+python_version = "3.11"
+files = ["pipeline", "web", "services"]
+strict = true
+# Test modules use pytest fixtures whose types are supplied by the plugin, not annotations;
+# they are covered by the suite itself (docs/04 E-6), not by the strict type gate.
+exclude = [
+    "test_connector\\.py$",
+    "web/test_.*\\.py$",
+    "services/.*/test_.*\\.py$",
+    "pipeline/context/test_.*\\.py$",
+    "services/api/conftest\\.py$",
+    "services/db/migrations/versions/.*\\.py$",  # Alembic op.* calls have no useful stubs
+]
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["gridstatus.*", "pandas.*", "yaml.*", "openpyxl.*", "requests.*", "geoalchemy2.*", "alembic.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Prototype modules from the Phase 2 evaluation; typed in the Sprint 2 store/resolve work.
+module = ["pipeline.normalize", "pipeline.resolve", "pipeline.diff"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "pipeline", "web", "services"]
+addopts = "-q"
+filterwarnings = ["ignore::FutureWarning", "ignore::UserWarning"]

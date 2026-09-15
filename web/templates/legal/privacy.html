@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Privacy notice -- Infraque{% endblock %}
+{% block meta_description %}What personal data Infraque stores, why, for how long, and how to ask for it to be deleted.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Privacy notice</h1>
+  <p>What personal data this platform stores, the lawful basis for each use, how long it is kept, and how to have it deleted.</p>
+  <p class="reuse-badge">Infraque is a placeholder codename, not the permanent product name. Last updated <span class="tnum">{{ last_updated }}</span>.</p>
+</div>
+
+<section id="what-we-store">
+  {{ m.section_heading("1.", "What we store") }}
+  <dl>
+    <dt>Accounts</dt>
+    <dd>Email address, name, and a password hash (never the password itself). Used to sign you in and to identify which saved searches and alerts belong to you.</dd>
+    <dt>Alerts</dt>
+    <dd>Your saved-search definitions (the filters you asked to be notified about) and a delivery log of alerts sent -- recipient, saved search, the matched records, and send status. Every alert email carries a one-click unsubscribe link tied to that saved search.</dd>
+    <dt>Intake and reports</dt>
+    <dd>If you submit a project or a report through the site, we store the contact block you provide (name and email) alongside the submission so we can follow up on it.</dd>
+    <dt>CRM (business contacts)</dt>
+    <dd>Where our own outreach is concerned, we hold business contact details (name, work email, job title) sourced from public professional sources such as filings and company sites -- never a personal email or a private social profile. This is the CRM system of record's People object; see the data-handling rules in <code>docs/34-crm-system-of-record.md</code> &sect;2.2. The platform is not the system of record for this data; the CRM is.</dd>
+    <dt>Map interactions</dt>
+    <dd>We count map layer toggles, region jumps, basemap failures and sign-ups made from the map page, with no cookie, IP address, user agent or referrer attached to any of these counts, so they are not personal data.</dd>
+  </dl>
+  <p>We do not store more personal data than the categories above. We do not sell personal data.</p>
+</section>
+
+<section id="lawful-bases">
+  {{ m.section_heading("2.", "Why we use it") }}
+  <ul>
+    <li><strong>Contract / providing the service</strong> -- your account and alert data: we need it to run the account you asked for and deliver the alerts you configured.</li>
+    <li><strong>Consent</strong> -- you choose which saved searches send email alerts, and can withdraw that consent at any time via the unsubscribe link on every alert email or the form below.</li>
+    <li><strong>Legitimate interest</strong> -- business contact details reached through public professional sources, used only to reach out about a specific, relevant project (never for unrelated marketing), per the outreach rules in <code>docs/13-legal-outreach-and-social.md</code> &sect;7.2. A recorded consent basis (legitimate interest, consent, or existing customer) is kept per contact in the CRM.</li>
+  </ul>
+  <p>Every outbound message we send states who we are, how we found you, what we want, and how to stop hearing from us -- the five points in <code>docs/13</code> &sect;7.2.</p>
+</section>
+
+<section id="retention-and-deletion">
+  {{ m.section_heading("3.", "Retention and deletion") }}
+  <p>We keep account and alert data for as long as your account is active. A deletion request -- from you, or from someone named in a filing we index -- is handled as a deletion task: it removes or redacts the personal-data fields above from every surface and export, and the action itself is recorded (US-910). Sessions and API keys are revoked and alerts are suppressed as part of the same task.</p>
+  <p>To request deletion or ask a question about your data, email <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>. To stop email alerts for a specific saved search without deleting your account, use the unsubscribe link in that alert's email, or the <a href="/unsubscribe">unsubscribe page</a>.</p>
+</section>
+
+<section id="contact">
+  {{ m.section_heading("4.", "Contact") }}
+  <p>Email: <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a></p>
+  <p>Postal address: <span class="mono">{{ postal_address }}</span> <span class="reuse-badge">placeholder -- not yet set</span></p>
+</section>
+{% endblock %}

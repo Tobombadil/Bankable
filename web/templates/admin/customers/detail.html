@@ -1,0 +1,128 @@
+{% extends "admin/base.html" %}
+{% block title %}Customer -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-people.css">{% endblock %}
+{% block content %}
+<p><a href="/admin/customers">&larr; Customers</a></p>
+{% include "admin/_notice.html" %}
+
+{% if customer %}
+{% set account = customer.account %}
+<h1>{{ account.name }}</h1>
+<dl class="admin-cols">
+  <div>
+    <dt>Kind</dt><dd>{{ account.kind }}</dd>
+    <dt>Entitlement</dt><dd>{{ account.entitlement }} <span class="admin-muted">({{ account.entitlement_source }})</span></dd>
+    <dt>Seats</dt><dd>{{ account.seats_used }} used of {{ account.seats }}</dd>
+    <dt>Status</dt><dd>{{ account.status }}</dd>
+  </div>
+  <div>
+    <dt>Billing ref</dt><dd class="mono">{{ account.billing_ref or "none" }}</dd>
+    <dt>CRM ref</dt><dd class="mono">{{ account.sor_ref or "none" }} <span class="admin-muted">({{ account.sor_kind or "--" }})</span></dd>
+    <dt>Entitlement checked</dt><dd class="mono">{{ account.entitlement_checked_at }}</dd>
+    <dt>Open in CRM</dt><dd>{% if customer.open_in_crm_url %}<a href="{{ customer.open_in_crm_url }}">open</a>{% else %}not available yet{% endif %}</dd>
+  </div>
+</dl>
+
+{% if customer.sor.stale %}
+<div class="notice notice--error" role="alert">
+  <strong>System-of-record data is stale.</strong> Writes are refused while the adapter is unavailable (US-902 AC3).
+  Last read from the adapter: <span class="mono">{{ customer.sor.fetched_at or "never" }}</span>.
+</div>
+{% endif %}
+
+<h2>Subscriptions</h2>
+{% if customer.subscriptions %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead><tr><th>Plan</th><th>Status</th><th>Seats</th><th>Period</th><th>MRR</th><th>Mirrored</th></tr></thead>
+    <tbody>
+      {% for s in customer.subscriptions %}
+      <tr>
+        <td>{{ s.plan_code }} <span class="admin-muted">({{ s.plan_tier }})</span></td>
+        <td><span class="chip {% if s.status == 'active' %}chip--success{% elif s.status == 'past_due' %}chip--danger{% else %}chip--neutral{% endif %}">{{ s.status }}</span></td>
+        <td class="num">{{ s.seats }}</td>
+        <td class="mono">{{ s.current_period_start }} &ndash; {{ s.current_period_end }}</td>
+        <td class="num">{{ s.mrr_amount }} {{ s.currency }}</td>
+        <td class="mono">{{ s.mirrored_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="admin-empty"><p>No subscriptions on this account yet.</p></div>
+{% endif %}
+
+<form class="admin-form" method="post" action="/admin/customers/{{ account.account_id }}/subscriptions">
+  <h2>Create subscription</h2>
+  {% if not account.billing_ref %}
+  <p class="admin-muted">This account has no billing reference on file yet. A checkout or a
+    customer id must exist in the billing provider before a subscription can be created here; the
+    API refuses this write with a 409 until then.</p>
+  {% endif %}
+  <div class="field">
+    <label for="plan_code">Plan</label>
+    <select id="plan_code" name="plan_code" required>
+      {% for p in plan_codes %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="seats">Seats</label>
+    <input id="seats" type="number" name="seats" min="1" value="1" required>
+  </div>
+  <div class="field">
+    <label for="trial_days">Trial days (optional)</label>
+    <input id="trial_days" type="number" name="trial_days" min="0">
+  </div>
+  <div class="field">
+    <label for="sub-reason">Reason</label>
+    <textarea id="sub-reason" name="reason" required></textarea>
+  </div>
+  <button class="admin-button admin-button--primary" type="submit">Create subscription</button>
+</form>
+
+<h2>Users</h2>
+{% if customer.users %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for u in customer.users %}
+      <tr>
+        <td><a href="/admin/users/{{ u.user_id }}">{{ u.email or "(redacted)" }}</a></td>
+        <td>{{ u.role }}</td>
+        <td>{{ u.status }}</td>
+        <td class="mono">{{ u.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="admin-empty"><p>No users on this account yet.</p></div>
+{% endif %}
+
+<h2>API keys</h2>
+<p><a class="admin-button" href="/admin/keys?account_id={{ account.account_id }}">Manage keys for this account</a></p>
+{% if customer['keys'] %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead><tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Tier</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for k in customer['keys'] %}
+      <tr>
+        <td>{{ k.name }}</td>
+        <td class="mono">{{ k.prefix }}&hellip;{{ k.last4 }}</td>
+        <td>{{ k.scopes|join(", ") }}</td>
+        <td>{{ k.tier }}</td>
+        <td>{% if k.revoked_at %}<span class="chip chip--danger">revoked</span>{% else %}<span class="chip chip--success">active</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="admin-empty"><p>No API keys on this account yet.</p></div>
+{% endif %}
+{% endif %}
+{% endblock %}

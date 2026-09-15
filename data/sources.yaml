@@ -1,0 +1,1282 @@
+# Bankable — data source registry
+# Machine-readable seed for the ingestion layer. One entry per source.
+#
+# Field guide
+#   category : generation_queue | load_queue | permit | regulatory_docket | funding | procurement |
+#              registry | planning | news | aggregator | social_channel
+#   access   : api | bulk_file | html | js_app | pdf | rss | email | wsdl
+#   reuse    : open (public domain / open licence) | attribution (open with credit) |
+#              restricted (redistribution needs licence or consent) | unknown (terms not retrievable)
+#   tier     : 1 = MVP, 2 = second wave, 3 = later / opportunistic
+#   effort   : S (<1 day connector) | M (1–3 days) | L (>3 days or needs agreements/browser automation)
+#   verified : result of scripts/probe_sources.py on the date shown (see data/probes/)
+#
+# Reuse of US federal government works is public domain (17 U.S.C. §105). ISO/RTO and state sites are
+# NOT federal works: each carries its own terms and is recorded individually below.
+
+version: 2026-09-12
+sources:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A. US GENERATION INTERCONNECTION QUEUES (supply side: what is being proposed)
+# ─────────────────────────────────────────────────────────────────────────────
+- id: us.iso.caiso.gen_queue
+  name: CAISO Public Queue Report
+  jurisdiction: US-CA
+  category: generation_queue
+  operator: California ISO
+  url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
+  access: bulk_file
+  auth: none
+  format: xlsx
+  cadence: weekly
+  license: 'CAISO Terms of Use (rev. 2025-05-14), retrieved 2026-09-12 — "No material or information from this Website ... may be copied, reproduced, republished ... except (i) as authorized in these Terms of Use"; and "may be used by you provided that you keep intact all copyright ... notices and that you credit the California ISO"'
+  reuse: attribution
+  tier: 1
+  effort: S
+  connector: gridstatus.CAISO.get_interconnection_queue
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok, rows: 2278, note: 'connector run: 384,823 bytes, DQ pass; 3 sheets (queued/completed/withdrawn)'}
+  notes: >-
+    Public Records Act material; render credit "California ISO" on every derived record. API Terms bar using
+    the API to monitor CAISO system availability or performance. Publish derived-only until counsel resolves
+    the tension between the two clauses. See docs/13-legal-data-rights.md section 1.2.
+
+- id: us.iso.ercot.gen_queue
+  name: ERCOT GIS Report (Generator Interconnection Status)
+  jurisdiction: US-TX
+  category: generation_queue
+  operator: ERCOT
+  url: https://www.ercot.com/mp/data-products/data-product-details?id=PG7-200-ER
+  access: api
+  auth: none (public MIS document listing → xlsx download)
+  format: xlsx
+  cadence: monthly
+  license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — "raw data provided in public portions of this website may be used, reproduced, and redistributed in compilations, charts, and analyses without maintaining such notices"'
+  reuse: open
+  tier: 1
+  effort: S
+  connector: gridstatus.Ercot.get_interconnection_queue
+  probe: {method: GET, url: "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"}
+  verified: {date: 2026-09-12, result: ok, rows: 1778, note: 'connector run: GIS_Report_August2026 via MIS doclookupId, 675,108 bytes, DQ pass'}
+  notes: >-
+    Most permissive ISO terms; raw-ok. Clause 6 bars use that degrades ERCOT systems (rate-limit). Clause 8
+    bars using the ERCOT list server for marketing. ERCOT Public API (api.ercot.com) needs free registration
+    (clickwrap); not required for the GIS report. See docs/13-legal-data-rights.md section 1.1.
+
+- id: us.iso.ercot.large_load_queue
+  name: ERCOT Large Load Interconnection Status Report
+  jurisdiction: US-TX
+  category: load_queue
+  operator: ERCOT
+  url: https://www.ercot.com/services/rq/large-load-integration
+  access: api
+  auth: none
+  format: json (EMIL catalogue watch) / xlsx expected once the report is published
+  cadence: monthly
+  license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — raw public data "may be used, reproduced, and redistributed in compilations, charts, and analyses"'
+  reuse: open
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: not_published, rows: 0, note: 'registry id NP3-990-CD does not exist (EMIL answers Product Not Found); no large-load status report in the 5,837-product EMIL catalogue or the 184 public MIS report types; NPRR1267 section 3.2.7 (PUCT-approved 2025-07-31) requires a monthly report but what is published is a PDF slide deck to TAC/LLWG, per-project status going to TSPs only pending the Large Load Portal. Connector watches the EMIL catalogue and emits a change event when the product appears.'}
+  notes: >-
+    The single most newsworthy queue in the country right now. Batch Zero process approved by PUCT June 2026.
+    Same clause-5 permission as the GIS report; raw-ok. The product id NP3-990-CD recorded here in Phase 0 was
+    wrong: it resolves to "Product Not Found" and NP3-990-EX is the 60-Day SASM Disclosure report. Verified
+    2026-09-12 against the full public EMIL catalogue (api/1/services/read/common/all-emil-items-search.json,
+    5,837 products), the public MIS report-type list (IceRepListJsonWS, 184 types) and the GIS Report document
+    list: no machine-readable large-load register exists yet. NPRR1267 adds Nodal Protocol 3.2.7, "ERCOT must
+    publish a Large Load Interconnection status report each month to the ERCOT website" with aggregation across
+    location, Load Zone, TSP, load type, request date, energisation date and size range; today that obligation is
+    met by a monthly PDF slide deck to TAC and the Large Load Working Group, and ERCOT's April 2026 board update
+    says per-project status reports go to TSPs only, ahead of a Large Load Portal "currently in development".
+    The connector therefore watches the EMIL catalogue for the product and emits a change event when it appears;
+    the row parser is written then, against the real file.
+
+- id: us.iso.spp.gen_queue
+  name: SPP Generator Interconnection Active/Withdrawn/Completed Requests
+  jurisdiction: US-SPP
+  category: generation_queue
+  operator: Southwest Power Pool
+  url: https://opsportal.spp.org/Studies/GenerateSummaryCSV
+  access: api
+  auth: none
+  format: csv
+  cadence: daily
+  license: 'SPP Terms & Conditions (Copyright), retrieved 2026-09-12 — "Permission is implicitly granted to copy and distribute ... EXCEPT when such materials will be used, in whole or in part, within a commercial publication ... Any commercial use of these materials requires prior, express written authorization from the author(s) or a duly authorized officer of SPP"'
+  reuse: restricted
+  tier: 1
+  effort: S
+  connector: gridstatus.SPP.get_interconnection_queue
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok, rows: 3074}
+  notes: >-
+    Commercial use requires written SPP authorisation on the face of the text; "Links to SPP website from
+    other websites are permitted and encouraged". Link-out-only until authorisation or a counsel opinion that
+    normalised facts fall outside the clause. Acceptable Use Policy PDF (spp.org/Documents/22819/...) not yet
+    read. See docs/13-legal-data-rights.md section 1.4.
+
+- id: us.iso.nyiso.gen_queue
+  name: NYISO Interconnection Queue
+  jurisdiction: US-NY
+  category: generation_queue
+  operator: NYISO
+  url: https://www.nyiso.com/documents/20142/1407078/NYISO-Interconnection-Queue.xlsx
+  access: bulk_file
+  auth: none
+  format: xlsx
+  cadence: weekly
+  license: 'NYISO Legal Notice, retrieved 2026-09-12 — only express prohibition is "Downloading, republishing, retransmitting, reproducing, or other use of any image or video on this website as a stand-alone file is strictly prohibited"; otherwise reserves rights; no assent clause; no data-reuse restriction'
+  reuse: attribution
+  tier: 1
+  effort: S
+  connector: gridstatus.NYISO.get_interconnection_queue
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok, rows: 1814, note: 'connector run: 1,814 identified rows (1,350 padding rows with no queue position, name, county or date are dropped); DQ warn: 2 queue positions duplicated in the workbook, suffixed'}
+  notes: >-
+    Queue xlsx is not an image or video; no clause restricts its reuse. Derived-only at launch with credit
+    "NYISO"; raw-ok candidate after counsel sign-off. See docs/13-legal-data-rights.md section 1.5.
+
+- id: us.iso.isone.gen_queue
+  name: ISO-NE Interconnection Request Tracking Tool (IRTT) public report
+  jurisdiction: US-NE
+  category: generation_queue
+  operator: ISO New England
+  url: https://irtt.iso-ne.com/reports/external
+  access: js_app
+  auth: none
+  format: xlsx
+  cadence: daily
+  license: 'ISO-NE Legal and Privacy, retrieved 2026-09-12 with a browser user-agent (403 to plain clients) — "By using this website, you signify your assent to these Terms and Conditions" and "Any duplication of the Content or non-personal use may violate copyright, trademark, and other laws"'
+  reuse: restricted
+  tier: 1
+  effort: S
+  connector: gridstatus.ISONE.get_interconnection_queue
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok, rows: 1751}
+  notes: >-
+    Assent-by-use clause plus broad copyright warning; explicit IP-based throttling for excessive bandwidth,
+    concurrent requests or invalid URLs. Link-out-only until counsel sign-off or written permission
+    (info@iso-ne.com). Connector rules - serial requests, conditional GET, no 404 retries. See
+    docs/13-legal-data-rights.md section 1.6.
+
+- id: us.iso.pjm.gen_queue
+  name: PJM New Services Queue (Queue Point / Data Miner)
+  jurisdiction: US-PJM
+  category: generation_queue
+  operator: PJM Interconnection
+  url: https://apiportal.pjm.com/
+  access: api
+  auth: api_key (free PJM Tools account)
+  format: json
+  cadence: daily
+  license: 'Three documents retrieved 2026-09-12. Data Miner 2 Terms of Use PDF — "Members may republish data, however non-members are specifically prohibited from republishing data". apiportal.pjm.com — "for internal use only and redistribution ... is strictly prohibited without an effective PJM-issued Redistribution License". pjm.com Legal & Privacy (governs planning pages) — reserves rights, contains no redistribution clause'
+  reuse: restricted
+  tier: 1
+  effort: M
+  connector: gridstatus.PJM.get_interconnection_queue (PJM_API_KEY)
+  probe: {method: GET, url: "https://api.pjm.com/api/v1/"}
+  verified: {date: 2026-09-12, result: needs_key, note: "401 without key; gridstatus raised 'api_key must be provided'"}
+  notes: >-
+    Data Miner 2 / API portal are restricted; non-members 6 connections/min; Pennsylvania law, Montgomery
+    County forum; clause 9 indemnity extends to customer use of derivatives. The New Services Queue on pjm.com
+    planning pages (serial-service-request-status) links only to the site-wide Legal & Privacy notice, which
+    has no redistribution prohibition — counsel question 1 in docs/13-legal-data-rights.md section 7. Until
+    answered: link-out-only, and do not accept the Data Miner ToU for the queue connector.
+
+- id: us.iso.miso.gen_queue
+  name: MISO Generator Interconnection Queue
+  jurisdiction: US-MISO
+  category: generation_queue
+  operator: MISO
+  url: https://www.misoenergy.org/planning/resource-utilization/GI_Queue/gi-interactive-queue/
+  access: api
+  auth: none (Cloudflare bot challenge)
+  format: json
+  cadence: daily
+  license: MISO Legal & Privacy (page returns 403 to non-browser clients — terms not retrievable)
+  reuse: unknown
+  tier: 1
+  effort: M
+  connector: gridstatus.MISO.get_interconnection_queue
+  probe: {method: GET, url: "https://www.misoenergy.org/api/giqueue/getprojects"}
+  verified: {date: 2026-09-12, result: blocked, note: "403 'Just a moment...' Cloudflare challenge from datacentre IP; worked for gridstatus historically"}
+  notes: >-
+    Terms page not retrievable on 2026-09-12 (Cloudflare managed challenge, HTTP 403; no Wayback snapshot).
+    robots.txt retrieved 2026-09-12 declares "Content-Signal: search=yes,ai-train=no,use=reference" as an
+    express DSM Art. 4 reservation — never train on MISO content. No MISO row is published in any tier until a
+    human reads the terms in a browser and records them here. Do not attempt challenge bypass. See
+    docs/13-legal-data-rights.md section 1.7.
+
+- id: us.lbnl.queued_up
+  name: LBNL / GridTracker "Queued Up" project-level dataset
+  jurisdiction: US
+  category: aggregator
+  operator: Lawrence Berkeley National Laboratory
+  url: https://emp.lbl.gov/queues
+  access: bulk_file
+  auth: none (page 403 to non-browser clients; direct xlsx link works in browser)
+  format: xlsx
+  cadence: annual (data through 2025 published May–Jun 2026)
+  license: CC BY 4.0 (attribute LBNL and GridTracker)
+  reuse: attribution
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: blocked_403_html, note: "site blocks non-browser UA; file itself is public"}
+  notes: >-
+    Best backfill and normalisation reference. ~8,200 active projects, 1,312 GW generation + 749 GW storage at
+    end-2025. Includes codebook. Annual cadence only. The CC BY 4.0 claim above is UNVERIFIED as of 2026-09-12
+    (emp.lbl.gov returns 403 behind Cloudflare); the 2024 slide-deck PDF carries only the DOE contract notice
+    ("funded by the U.S. Department of Energy under Contract No. DE-AC02-05CH11231"), no Creative Commons
+    statement. Derived-only with credit "Lawrence Berkeley National Laboratory and GridTracker" until
+    verified. See docs/13-legal-data-rights.md section 2.1.
+
+- id: us.ourgridfuture.transmission_projects
+  name: OurGridFuture planned transmission projects database (GIS shapefile)
+  jurisdiction: US
+  category: planning
+  operator: Horizon Energy Systems, in association with the Great Plains Institute (per web search; not primary-source verified)
+  url: https://ourgridfuture.org/
+  access: html
+  auth: registration gate (contact info requested before download, per web search; not primary-source verified)
+  format: shapefile/geodatabase (per web search; not primary-source verified)
+  cadence: unknown
+  license: 'NOT RETRIEVED — https://ourgridfuture.org/ returned HTTP 403 (Cloudflare challenge) on the root page and nine guessed terms/about paths, 2026-09-15; https://opengridworks.com/attribution (the citing page named in the task) returned HTTP 429 ("Vercel Security Checkpoint"), 2026-09-15; archive.org blocked by sandbox egress policy'
+  reuse: unknown
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-15, result: blocked, note: '403 Cloudflare "Just a moment..." challenge on ourgridfuture.org (root + /terms, /license, /licence, /about, /data, /faq, /terms-of-use, /data-use, /privacy, all 403); robots.txt returned 404 (no robots file, confirms app-level challenge not outage); opengridworks.com/attribution returned 429 on 3 attempts'}
+  notes: >-
+    Candidate source for the built-infrastructure context layer's transmission layer (owner decision,
+    00-PLAN.md 2026-09-14/09-15). NOT RETRIEVED: no operative licence clause obtained; do not ingest or publish
+    until a human retrieves the terms in a real browser (passes the interactive Cloudflare challenge that this
+    sandbox's clients fail) and records the operative clause here verbatim with a retrieval date. See
+    docs/13-legal-data-rights.md section 2.9.
+
+- id: us.gridtracker.interconnection_fyi
+  name: Interconnection.fyi (GridTracker)
+  jurisdiction: US+CA
+  category: aggregator
+  operator: GridTracker (private)
+  url: https://www.interconnection.fyi/
+  access: html
+  auth: none
+  format: html
+  cadence: daily
+  license: '© Interconnection.fyi. All rights reserved — commercial dataset sold via CSV/Snowflake/API'
+  reuse: restricted
+  tier: 3
+  effort: n/a
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+  notes: >
+    DO NOT SCRAPE. Competitor/benchmark and possible data partner (they cover 50+ ISOs and non-ISO
+    utilities incl. Southeast). Their existence is the strongest argument against a "scrape and list"
+    product with no fusion layer.
+
+- id: us.eia.860m
+  name: EIA-860M Preliminary Monthly Electric Generator Inventory
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration
+  url: https://www.eia.gov/electricity/data/eia860m/
+  access: bulk_file
+  auth: none
+  format: xlsx
+  cadence: monthly
+  license: US federal work — public domain
+  reuse: open
+  tier: 1
+  effort: S
+  connector: PUDL (catalyst.coop) or direct xlsx parse; gridstatus.io mirrors it
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok, rows: 2341, note: 'connector run: index scrape tried 6 links, july_generator2026.xlsx is the first real zip (december/october/september/november/august return HTML with a 200); Planned sheet, DQ pass. 2026-09-15: eia.gov robots.txt disallows /*archive/ (wildcard rule honoured by Python 3.13+ parsers only); the connector now drops /archive/ links before requesting and skips any robots-blocked candidate instead of aborting'}
+  notes: >-
+    Authoritative for planned units ≥1 MW with plant IDs — the spine for entity resolution against queue
+    records. Also feeds the built-infrastructure context layer (`pipeline/context/eia_plants.py` →
+    `built_plant`) from the same workbook's Operating sheet — read-only reuse of this entry's licence, no new
+    source id (2026-09-15).
+
+- id: us.eia.api
+  name: EIA Open Data API v2
+  jurisdiction: US
+  category: registry
+  operator: US EIA
+  url: https://api.eia.gov/v2/
+  access: api
+  auth: api_key (free)
+  format: json
+  cadence: varies
+  license: public domain
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: needs_key, note: "403 without key"}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B. US NON-ISO UTILITIES (Southeast, West, Mountain) — the coverage gap
+# ─────────────────────────────────────────────────────────────────────────────
+- id: us.eia.atlas.gas_pipelines
+  name: EIA US Energy Atlas — Natural Gas Interstate and Intrastate Pipelines (line geometries)
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration (ArcGIS Hub site)
+  url: https://atlas.eia.gov/datasets/eia::natural-gas-interstate-and-intrastate-pipelines/about
+  access: api
+  auth: none
+  format: geojson/shapefile (ArcGIS feature service export)
+  cadence: annual
+  license: 'US federal work — public domain; EIA copyright/reuse page quoted in docs/13-legal-data-rights.md section 2.11 (retrieved 2026-09-15) asks that EIA be cited as the source. The dataset-level licenseInfo field on the Atlas item was not retrieved (the Hub catalogue API returned no row for the slug, 2026-09-15); read it in a browser before the layer ships'
+  reuse: open
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-15, result: not_probed, note: 'about page answers 200 (JS app, no static licence text); catalogue API returned no row for the slug'}
+  notes: >-
+    Candidate for the second built-infrastructure context layer (existing pipelines; docs/00-PLAN.md decision
+    2026-09-15 "Pipelines join the plan"). Line geometries, so the layer is pre-built vector tiles on the tiles
+    bucket, not clustered GeoJSON from the API. HIFLD's natural gas pipeline layer is the alternative used by
+    Open Grid Works; its public availability has changed and needs its own terms check before use.
+
+- id: us.oasis.non_iso_queues
+  name: Non-ISO utility generator interconnection queues via OASIS / utility sites
+  jurisdiction: US (Duke, Southern, TVA, Dominion-non-PJM, PacifiCorp, APS, NV Energy, Xcel-CO, BPA, WAPA, etc.)
+  category: generation_queue
+  operator: ~40 transmission providers
+  url: https://www.oasis.oati.com/
+  access: html
+  auth: none (OATI OASIS sites; some require free registration)
+  format: html/xlsx/pdf (one layout per utility)
+  cadence: weekly–monthly
+  license: per-utility; most publish under FERC Order 2003/2023 transparency obligations
+  reuse: attribution
+  tier: 2
+  effort: L
+  notes: >
+    ~25–30% of US queued capacity lives outside the seven ISOs. No single API. This is where a durable
+    data moat could exist because every entry costs labour. Prioritise by queued MW: Duke Energy Carolinas,
+    Southern Company, TVA, PacifiCorp, APS, NV Energy, Xcel Colorado, BPA.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C. US FEDERAL REGULATORY & PERMITTING (project-stage signals)
+# ─────────────────────────────────────────────────────────────────────────────
+- id: us.ferc.elibrary
+  name: FERC eLibrary (undocumented JSON backend used by the SPA)
+  jurisdiction: US
+  category: regulatory_docket
+  operator: FERC
+  url: https://elibrary.ferc.gov/eLibrarywebapi/api/Search/AdvancedSearch
+  access: api
+  auth: none
+  format: json
+  cadence: realtime
+  license: public domain
+  reuse: open
+  tier: 1
+  effort: M
+  probe: {method: POST, body: '{"searchText":"interconnection agreement","searchDescription":true,"searchFullText":false,"searchDocketNumber":false,"resultsPerPage":3,"curPage":1,"sortBy":"","groupBy":"DOCKET","filterDate":{"dateType":"filed_date","startDate":"09/01/2026","endDate":"09/12/2026"},"docketNumbers":[],"documentClasses":[],"documentTypes":[],"availability":"P","categories":[],"idList":[],"accessionNumber":"","libraryTypes":[],"filedBy":"","affiliations":""}'}
+  verified: {date: 2026-09-12, result: ok, rows: 131, note: "connector run: 30-day window, docket-number substring search (ER26/CP26) plus description terms, 131 documents, DQ pass. filterDate has no measured effect (totalHits identical across every date window and dateType tried); the connector filters filed_date client-side instead. sortBy anything other than empty string (e.g. filed_date) returns HTTP 200 success:false with a null-reference errorMessage - treated as error, so sortBy is always sent empty. Full detail in pipeline/connectors/us_ferc_elibrary/connector.py docstring."}
+  notes: >
+    Docket prefixes of interest: ER (electric rate/IA filings incl. LGIAs), CP (gas pipeline & LNG
+    certificates), P (hydro), EL, RM. eSubscription email alerts are the officially supported channel.
+
+- id: us.ferc.pipelines_pending
+  name: FERC Major Pipeline Projects Pending / Approved lists
+  jurisdiction: US
+  category: planning
+  operator: FERC
+  url: https://www.ferc.gov/industries-data/natural-gas/major-pipeline-projects-pending
+  access: html
+  auth: none (ferc.gov returns 403 to non-browser UA)
+  format: html
+  cadence: monthly
+  license: public domain
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: blocked_403, note: "WAF blocks curl/WebFetch; headless browser needed"}
+
+- id: us.doe.lng_exports
+  name: DOE FECM Summary of LNG Export Applications + quarterly LNG Snapshot
+  jurisdiction: US
+  category: regulatory_docket
+  operator: DOE Office of Fossil Energy and Carbon Management
+  url: https://www.energy.gov/hgeo/liquefied-natural-gas-lng
+  access: pdf
+  auth: none
+  format: pdf
+  cadence: quarterly
+  license: public domain
+  reuse: open
+  tier: 2
+  effort: M
+
+- id: us.epa.eis_database
+  name: EPA Environmental Impact Statement Database
+  jurisdiction: US
+  category: permit
+  operator: US EPA
+  url: https://cdxapps.epa.gov/cdx-enepa-II/public/action/eis/search
+  access: html
+  auth: none
+  format: html (CSV export exists but omits EIS IDs)
+  cadence: weekly (Federal Register notices Fridays)
+  license: public domain
+  reuse: open
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+
+- id: us.epa.rblc
+  name: EPA RACT/BACT/LAER Clearinghouse (RBLC) — New Source Review preconstruction air permit determinations
+  jurisdiction: US
+  category: permit
+  operator: US EPA Office of Air and Radiation, Clean Air Technology Center
+  url: https://www.epa.gov/catc/rblc
+  access: html
+  auth: none
+  format: search dashboard (https://permitsearch.epa.gov/oms-permit-hub/) with export; legacy cfpub search decommissioning
+  cadence: continuous (state submissions)
+  license: 'US federal work — public domain; EIA-style reuse quote for EPA in docs/13 is not yet recorded for this site: data.gov catalogue entry (https://catalog.data.gov/dataset/ract-bact-laer-clearninghouse-rblc, retrieved 2026-09-15) shows Access Level public, publisher EPA OAR, dataset last updated 2015-09-23 with no licence text beyond a bare "License" link; read the dashboard terms before ingest'
+  reuse: open
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-15, result: ok, note: 'epa.gov/catc/rblc 200 and links to the new OMS permit hub search dashboard plus an August 2026 user guide PDF; the legacy cfpub.epa.gov/rblc URLs return 404; EPA says submissions since 2025-09-25 migrate into the dashboard and the old entry system is being decommissioned'}
+  notes: >-
+    The one national source for new-source air permits (PSD/BACT in attainment areas, LAER in nonattainment):
+    one record per permit determination with facility, state, process, pollutant, control and permit dates.
+    Feeds `permit.air_*` events in the permit-events sprint (docs/00-PLAN.md decision 2026-09-15 "Permits are
+    stages"). Linkage to queue proposals is by facility name and state; expect precision like the FERC backfill
+    until the resolver improves. Existing-facility Title V/operating permits are a different dataset (ECHO/ICIS-Air)
+    and are not this entry.
+
+- id: us.permits_dashboard
+  name: Federal Permitting Dashboard (FAST-41) full dataset — Socrata
+  jurisdiction: US
+  category: permit
+  operator: Federal Permitting Improvement Steering Council
+  url: https://data.permits.performance.gov/api/views/mcm3-xbid/rows.csv?accessType=DOWNLOAD
+  access: api
+  auth: none for bulk CSV; SODA token optional
+  format: csv/json
+  cadence: weekly
+  license: public domain
+  reuse: open
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok, rows: 104, note: "connector run: 104 energy/transmission projects (of 458 total) grouped from milestone rows, DQ pass. The original resource id q7va-8c67 in this url (probed 2026-09-12, 24,008 bytes) is RETIRED: its Socrata view metadata reports zero columns and /resource/q7va-8c67.json returns empty rows - the 24,008 bytes probed earlier were newline padding, not data. /api/views.json?id=q7va-8c67 resolves to a different asset (cdh7-hgu4, a map visualization) whose modifyingViewUid names the live source table, mcm3-xbid (\"Permitting Dashboard Full Dataset\", 74 columns, ~24,000 milestone rows) - this url is updated to that id. Full detail in pipeline/connectors/us_permits_dashboard/connector.py docstring."}
+  notes: >
+    Milestone-level rows for large projects (transmission, pipelines, offshore wind, mines). Excellent
+    stage-tracking signal. The connector keeps only Project Sector in {Renewable Energy Production,
+    Electricity Transmission, Pipelines, Energy Storage, Conventional Energy Production, Carbon Capture
+    and Sequestration} — Mining, Aviation, Surface Transportation, Broadband, Water Resources,
+    Manufacturing, Ports and Waterways, and the two data-centre/compute sectors are out of this
+    connector's scope (see connector docstring for the full rationale).
+
+- id: us.blm.eplanning
+  name: BLM National NEPA Register (ePlanning)
+  jurisdiction: US
+  category: permit
+  operator: Bureau of Land Management
+  url: https://eplanning.blm.gov/eplanning-ui/home
+  access: js_app
+  auth: none
+  format: json (Angular app backed by REST)
+  cadence: daily
+  license: public domain
+  reuse: open
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: 404_on_probe_path, note: "app root loads in browser; API path to be captured via devtools"}
+  notes: Filter program = Renewable Energy; covers solar/wind/geothermal/transmission on federal land in the West.
+
+- id: us.boem.renewables
+  name: BOEM Renewable Energy state activities / lease & COP status
+  jurisdiction: US-OCS
+  category: permit
+  operator: Bureau of Ocean Energy Management
+  url: https://www.boem.gov/renewable-energy/state-activities
+  access: html
+  auth: none
+  format: html + GIS (BOEM/MarineCadastre shapefiles)
+  cadence: monthly
+  license: public domain
+  reuse: open
+  tier: 2
+  effort: M
+
+- id: us.usace.orm_public
+  name: USACE Regulatory (ORM) public data + district public notices RSS
+  jurisdiction: US
+  category: permit
+  operator: US Army Corps of Engineers
+  url: https://permits.ops.usace.army.mil/orm-public
+  access: bulk_file
+  auth: none
+  format: csv/rss
+  cadence: weekly
+  license: public domain
+  reuse: open
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+  notes: Section 404/10 notices reveal projects months before other sources. Notices are PDFs — needs extraction.
+
+- id: us.epa.class_vi
+  name: EPA UIC Class VI (CO2 storage) permit tracker & data repository
+  jurisdiction: US
+  category: permit
+  operator: US EPA
+  url: https://www.epa.gov/uic/current-class-vi-projects-under-review-epa
+  access: html
+  auth: none
+  format: html/pdf (monthly tracker PDF), udr.epa.gov dashboard
+  cadence: monthly
+  license: public domain
+  reuse: open
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+  notes: 175+ applications under review. Add state primacy trackers (ND, WY, LA, WV, TX) if CCS is in scope.
+
+- id: us.nrc.adams
+  name: NRC ADAMS Public Search API
+  jurisdiction: US
+  category: regulatory_docket
+  operator: Nuclear Regulatory Commission
+  url: https://adams-api-developer.nrc.gov/
+  access: api
+  auth: api_key (free registration, launched Dec 2025)
+  format: json
+  cadence: realtime
+  license: public domain
+  reuse: open
+  tier: 3
+  effort: M
+  notes: Only if nuclear (SMR COL/CP applications, restarts) is in scope. High-value given 2026 policy tilt to nuclear.
+
+- id: us.regulations_gov
+  name: Regulations.gov API v4
+  jurisdiction: US
+  category: regulatory_docket
+  operator: GSA / eRulemaking
+  url: https://api.regulations.gov/v4/documents
+  access: api
+  auth: api_key (free, 1,000 req/hr)
+  format: json
+  cadence: realtime
+  license: public domain
+  reuse: open
+  tier: 3
+  effort: S
+  probe: {method: GET, url: "https://api.regulations.gov/v4/documents?api_key=DEMO_KEY&filter%5BsearchTerm%5D=solar"}
+  verified: {date: 2026-09-12, result: unverified, note: "URL-encoding issue in first probe; re-run"}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# D. US STATE-LEVEL SITING, DOCKETS AND SOLICITATIONS
+# ─────────────────────────────────────────────────────────────────────────────
+- id: us.state.siting_boards
+  name: State siting boards (NY ORES, OH OPSB, IL, MI PSC, MN PUC, WI PSC, CT Siting Council, MA EFSB, CA CEC Opt-in)
+  jurisdiction: US-states
+  category: permit
+  operator: various
+  url: https://opsb.ohio.gov/
+  access: html
+  auth: none
+  format: html/pdf (one system per state)
+  cadence: weekly
+  license: state public records; per-site terms
+  reuse: attribution
+  tier: 2
+  effort: L
+  notes: Highest-signal state layer for utility-scale solar/wind/storage. Start with OH (OPSB case map), NY (ORES/DMM), IL, MI, MN. One connector per board.
+
+- id: us.state.puc_dockets
+  name: State PUC docket systems (NY DMM, CPUC, PUCT Interchange, PA, OR, CO, etc.)
+  jurisdiction: US-states
+  category: regulatory_docket
+  operator: ~50 commissions
+  url: https://documents.dps.ny.gov/public/Common/AdvanceSearch.aspx
+  access: html
+  auth: none
+  format: html/pdf
+  cadence: daily
+  license: public records; per-site terms
+  reuse: attribution
+  tier: 3
+  effort: L
+  notes: >
+    CPCN applications, IRPs, RFP approvals, large-load tariff cases. Halcyon ($99/mo–$50k/yr) already
+    productises this; treat as partner-or-later, not MVP. Machine-readable exceptions: PUCT Interchange, NY DMM RSS.
+
+- id: us.utility_rfps
+  name: Utility / co-op / CCA all-source and renewable RFPs
+  jurisdiction: US
+  category: procurement
+  operator: ~3,000 IOUs, co-ops, munis, CCAs
+  url: https://energyadepto.com/utility-rfps/
+  access: html
+  auth: none
+  format: 'html/pdf (issuer sites: NYSERDA, SVCE, MCE, CPA, SDG&E, Xcel, PacifiCorp, Duke, Georgia Power, co-op G&Ts)'
+  cadence: continuous
+  license: issuer sites public; Energy Adepto is a private aggregator — do not scrape
+  reuse: attribution
+  tier: 1
+  effort: L
+  notes: >
+    DEMAND SIDE of the marketplace and the direct link to the existing Bankable thesis. No open dataset
+    exists. Build a curated issuer list (start: 50 issuers with recurring solicitations) + news-trigger discovery.
+
+- id: us.muni_procurement
+  name: Municipal / state procurement aggregators (BidNet Direct, DemandStar, OpenGov, Periscope, state e-procurement portals)
+  jurisdiction: US
+  category: procurement
+  operator: private aggregators + state portals
+  url: https://www.bidnetdirect.com/
+  access: html
+  auth: subscription (BidNet Premium from $599/yr per state)
+  format: html/email alerts
+  cadence: daily
+  license: aggregator ToS prohibit scraping; state portals are public
+  reuse: restricted
+  tier: 3
+  effort: L
+  notes: Buy alerts rather than scrape; or connect to state portals directly (e.g. Cal eProcure, NY Contract Reporter, Texas ESBD).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# E. US FEDERAL FUNDING & AWARDS
+# ─────────────────────────────────────────────────────────────────────────────
+- id: us.grants_gov.search2
+  name: Grants.gov Search2 API
+  jurisdiction: US
+  category: funding
+  operator: HHS / Grants.gov
+  url: https://api.grants.gov/v1/api/search2
+  access: api
+  auth: none
+  format: json
+  cadence: realtime
+  license: public domain
+  reuse: open
+  tier: 1
+  effort: S
+  probe: {method: POST, body: '{"keyword":"energy","oppStatuses":"forecasted|posted","rows":5}'}
+  verified: {date: 2026-09-12, result: ok, rows: 151, note: 'connector run: keyword energy, oppStatuses forecasted|posted, 151 hits over 2 pages, DQ pass'}
+  notes: Filter by agency (DOE-*, USDA-RD, EPA, DOT) and CFDA/ALN. Also fetchOpportunity endpoint for details.
+
+- id: us.sam_gov.opportunities
+  name: SAM.gov Get Opportunities Public API (contracts, not grants)
+  jurisdiction: US
+  category: procurement
+  operator: GSA
+  url: https://api.sam.gov/opportunities/v2/search
+  access: api
+  auth: api_key (free, api.data.gov key via SAM account; daily quota by role)
+  format: json
+  cadence: realtime
+  license: public domain
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET, url: "https://api.sam.gov/opportunities/v2/search?limit=1&postedFrom=09/01/2026&postedTo=09/12/2026"}
+  verified: {date: 2026-09-12, result: needs_key, note: "404 without api_key"}
+  notes: Federal PPAs, DoD resilience/energy RFPs, GSA. NAICS 2211xx, 221118, 237130.
+
+- id: us.doe.exchange_portals
+  name: DOE eXCHANGE FOA portals (CMEI/EERE, Infrastructure, IE, ARPA-E, FECM, NE)
+  jurisdiction: US
+  category: funding
+  operator: US DOE
+  url: https://infrastructure-exchange.energy.gov/
+  access: html
+  auth: none
+  format: html (server-rendered tables)
+  cadence: weekly
+  license: public domain
+  reuse: open
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok, note: "eere-exchange 2.1 MB and infrastructure-exchange 733 KB HTML both load"}
+  notes: >
+    2026 volume is far below 2023–24. Live programs: GDO SPARK ($1.9B, DE-FOA-0003580), Grid Resilience
+    formula grants, ARPA-E, LPO (nuclear, geothermal, critical minerals, $6.1B transmission loans),
+    TELGP. Track cancellations and litigation status too — that is itself a product feature.
+
+- id: us.usda.rd_energy
+  name: USDA Rural Development energy programs (REAP, New ERA, PACE, RUS Electric loans)
+  jurisdiction: US
+  category: funding
+  operator: USDA RD
+  url: https://www.rd.usda.gov/programs-services/energy-programs
+  access: html
+  auth: none
+  format: html/pdf
+  cadence: monthly
+  license: public domain
+  reuse: open
+  tier: 2
+  effort: M
+  notes: REAP grants paused pending new regs (Mar 2026); guaranteed loans open. Co-op audience = user's professional network.
+
+- id: us.usaspending
+  name: USAspending API (awards, retrospective)
+  jurisdiction: US
+  category: funding
+  operator: US Treasury
+  url: https://api.usaspending.gov/api/v2/search/spending_by_award/
+  access: api
+  auth: none
+  format: json
+  cadence: daily
+  license: public domain
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: POST, body: '{"filters":{"keywords":["solar"],"award_type_codes":["02","03","04","05"],"time_period":[{"start_date":"2026-01-01","end_date":"2026-09-12"}]},"fields":["Award ID","Recipient Name","Award Amount","Awarding Agency"],"limit":3}'}
+  verified: {date: 2026-09-12, result: ok}
+  notes: Who got funded, for how much — enrichment for sponsor track record; not a lead source.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# F. INTERNATIONAL — QUEUES, REGISTERS, PLANNING
+# ─────────────────────────────────────────────────────────────────────────────
+- id: gb.neso.tec_register
+  name: NESO Transmission Entry Capacity (TEC) Register
+  jurisdiction: GB
+  category: generation_queue
+  operator: National Energy System Operator
+  url: https://api.neso.energy/api/3/action/package_show?id=transmission-entry-capacity-tec-register
+  access: api
+  auth: none (CKAN)
+  format: csv/json
+  cadence: twice weekly
+  license: 'National Energy SO Open Data Licence v1.0 (based on OGL v3), retrieved 2026-09-12 — free to "exploit the Information commercially and non-commercially"; must "Acknowledge NESO as the source of the Information by including the following attribution statement: Supported by National Energy SO Open Data"'
+  reuse: attribution
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok, rows: 2198, note: 'connector run: CKAN resource tec-register-11-september-2026.csv, 2,198 rows, DQ pass'}
+  notes: >-
+    Mandatory exact attribution string "Supported by National Energy SO Open Data"; rights end automatically
+    on breach; datasets are licensed individually — check the TEC Register licence field at ingest. Licence
+    URL https://www.neso.energy/data-portal/neso-open-licence (the nationalgrideso.com path now returns 403).
+    Add Interconnector Register and Embedded Register (same portal). DNO queues via nationalgrid connecteddata
+    / SSEN opendatasoft.
+
+- id: gb.neso.fes_gsp_gazetteer
+  name: NESO FES Grid Supply Point Info (vendored gazetteer for TEC register substation geocoding)
+  jurisdiction: GB
+  category: registry
+  operator: National Energy System Operator
+  url: https://www.neso.energy/data-portal/regional-breakdown-fes-data-electricity/fes_2024_grid_supply_point_info
+  access: bulk_file
+  auth: none
+  format: csv
+  cadence: annual (republished alongside each year's Future Energy Scenarios; 2021–2024 vintages seen)
+  license: 'National Energy SO Open Data Licence v1.0 (identical to the TEC register''s own licence, docs/13-legal-data-rights.md §2.5 — this dataset''s own package_show confirms the same license_title/license_id/license_url); must "Acknowledge NESO as the source of the Information by including the following attribution statement: Supported by National Energy SO Open Data"'
+  reuse: attribution
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-13, result: ok, rows: 373, note: 'FES 2024 Grid Supply Point Info CSV, 373 GSPs with name/lat/lon; 371 vendored to services/ingest/data/gb_substations.tsv after dropping 2 byte-identical rows; matches 6/30 (20.0%) of the gb.neso.tec_register fixture''s distinct Connection Site strings and 346/1,237 (28.0%) of the live TEC register''s — the remainder are project-specific new-build substations and connection nodes, not public GSPs, and correctly stay unplaced'}
+  notes: >-
+    Reference data, not a proposal/opportunity feed: used only by services/ingest/geocode.py to resolve a
+    TEC register "Connection Site" (a substation name) to a point, county_centroid precision (never exact —
+    a substation is not the project's location, docs/21-data-model.md §3.7). Not a live feed; re-vendor when
+    NESO publishes the next FES vintage. Full provenance, licence comparison against the other candidates
+    checked (NESO GIS boundary datasets, National Grid ET's own open data), and coverage measurement in
+    services/ingest/data/README.md.
+
+- id: gb.pins.nsip
+  name: UK Planning Inspectorate — Find a National Infrastructure Project
+  jurisdiction: GB (England/Wales)
+  category: permit
+  operator: Planning Inspectorate
+  url: https://national-infrastructure-consenting.planninginspectorate.gov.uk/project-search
+  access: html
+  auth: none
+  format: html (Open Government Licence)
+  cadence: weekly
+  license: OGL v3
+  reuse: attribution
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+
+- id: gb.find_a_tender
+  name: UK Find a Tender Service OCDS API
+  jurisdiction: GB
+  category: procurement
+  operator: Cabinet Office
+  url: https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages
+  access: api
+  auth: none
+  format: json (OCDS)
+  cadence: realtime
+  license: OGL v3
+  reuse: attribution
+  tier: 1
+  effort: S
+  probe: {method: GET, url: "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?updatedFrom=2026-09-10T00:00:00"}
+  verified: {date: 2026-09-12, result: ok, rows: 11, note: 'connector run: 2-day updatedFrom window, 6 pages of OCDS releases, 11 with an energy CPV, DQ pass; contactPoint stripped at ingest'}
+
+- id: eu.ted.api
+  name: EU Tenders Electronic Daily (TED) API v3
+  jurisdiction: EU/EEA
+  category: procurement
+  operator: Publications Office of the EU
+  url: https://api.ted.europa.eu/v3/notices/search
+  access: api
+  auth: none for published notices
+  format: json (eForms)
+  cadence: daily
+  license: 'TED legal notice (Copyright notice), retrieved 2026-09-12 — "Unless otherwise noted, the procurement notices published in the Supplement to the Official Journal of the European Union can be freely reused, for commercial or non-commercial purposes" (Decision 2011/833/EU); editorial content CC BY 4.0; system metadata CC0 1.0'
+  reuse: attribution
+  tier: 1
+  effort: S
+  probe: {method: POST, body: '{"query":"classification-cpv=09* AND publication-date>=20260901","limit":3,"fields":["publication-number","notice-title"]}'}
+  verified: {date: 2026-09-12, result: ok, rows: 698, note: 'connector run: CPV 09*/31*/45231*/71314*, 3-day publication window, 698 notices over 7 pages, DQ pass'}
+  notes: >-
+    Raw-ok. Credit the source; do not distort; the TED logo is not licensed; strip contracting-authority
+    personal contact data at ingest (docs/13-legal-data-rights.md section 5).
+
+- id: eu.entsoe.tyndp
+  name: ENTSO-E TYNDP 2026 project portfolio (199 transmission + 69 storage)
+  jurisdiction: EU
+  category: planning
+  operator: ENTSO-E
+  url: https://tyndp2026.entsoe.eu/projects-map/
+  access: js_app
+  auth: none
+  format: json/geojson behind map app
+  cadence: biennial + amendments
+  license: ENTSO-E terms; attribution
+  reuse: attribution
+  tier: 2
+  effort: M
+
+- id: eu.pci_pmi_list
+  name: 'EU PCI/PMI Union list (Dec 2025: 113 electricity, 100 hydrogen, 17 CO2, 5 gas)'
+  jurisdiction: EU
+  category: planning
+  operator: European Commission DG ENER
+  url: https://energy.ec.europa.eu/topics/infrastructure/projects-common-interest_en
+  access: pdf
+  auth: none
+  format: pdf/xlsx + transparency platform map
+  cadence: biennial
+  license: EU reuse policy
+  reuse: attribution
+  tier: 2
+  effort: S
+
+- id: de.bnetza.mastr
+  name: Germany Marktstammdatenregister (MaStR) — all planned & operating units
+  jurisdiction: DE
+  category: registry
+  operator: Bundesnetzagentur
+  url: https://www.marktstammdatenregister.de/MaStR
+  access: bulk_file
+  auth: none (daily XML dump; SOAP API needs key)
+  format: xml/csv
+  cadence: daily
+  license: dl-de/by-2-0 (Datenlizenz Deutschland – Namensnennung)
+  reuse: attribution
+  tier: 2
+  effort: S
+  connector: open-mastr (OpenEnergyPlatform)
+
+- id: ie.eirgrid.connections
+  name: EirGrid / ESB Networks connection lists (ECP batches)
+  jurisdiction: IE
+  category: generation_queue
+  operator: EirGrid
+  url: https://www.eirgrid.ie/industry/becoming-customer/generator-connections
+  access: pdf
+  auth: none
+  format: pdf/xlsx
+  cadence: per-batch
+  license: EirGrid terms
+  reuse: attribution
+  tier: 3
+  effort: M
+
+- id: ca.ieso.connection_status
+  name: IESO Connection Assessment application status (Ontario)
+  jurisdiction: CA-ON
+  category: generation_queue
+  operator: IESO
+  url: https://www.ieso.ca/en/Sector-Participants/Connection-Process/Application-Status
+  access: html
+  auth: none
+  format: html/xlsx
+  cadence: monthly
+  license: IESO terms
+  reuse: attribution
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+
+- id: ca.aeso.connection_list
+  name: AESO Connection Project List (Alberta) — ArcGIS dashboard
+  jurisdiction: CA-AB
+  category: generation_queue
+  operator: AESO
+  url: https://www.aeso.ca/grid/connecting-to-the-grid/process-updates/2024/connection-project-list-dashboard/
+  access: api
+  auth: none (ArcGIS FeatureServer)
+  format: json
+  cadence: weekly
+  license: AESO terms
+  reuse: attribution
+  tier: 2
+  effort: S
+
+- id: ca.iaac.registry
+  name: Canadian Impact Assessment Registry — Assessment Inventory (ArcGIS REST)
+  jurisdiction: CA
+  category: permit
+  operator: Impact Assessment Agency of Canada
+  url: https://maps-cartes.services.geo.ca/server_serveur/rest/services/IAAC_AEIC/Canadian_Impact_Assessment_Registry_Assessment_Inventory_EN/MapServer/0/query?where=1%3D1&returnCountOnly=true&f=json
+  access: api
+  auth: none
+  format: json
+  cadence: weekly
+  license: Open Government Licence – Canada
+  reuse: attribution
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+
+- id: au.aemo.connections_scorecard
+  name: AEMO NEM Connections Scorecard + Generation Information page
+  jurisdiction: AU
+  category: generation_queue
+  operator: AEMO
+  url: https://www.aemo.com.au/energy-systems/electricity/national-electricity-market-nem/participate-in-the-market/network-connections/connections-scorecard
+  access: bulk_file
+  auth: none (site 403 to non-browser UA)
+  format: xlsx/pdf
+  cadence: quarterly (scorecard); monthly (Generation Information)
+  license: AEMO terms (attribution, non-modification)
+  reuse: attribution
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: blocked_403}
+  notes: 64 GW pipeline (Dec 2025). Use "NEM Generation Information" xlsx for project-level data.
+
+- id: au.dcceew.epbc_referrals
+  name: Australia EPBC Referrals public dataset (ArcGIS Hub)
+  jurisdiction: AU
+  category: permit
+  operator: DCCEEW
+  url: https://fed.dcceew.gov.au/datasets/epbc-referrals-public-dataset
+  access: api
+  auth: none
+  format: geojson/csv
+  cadence: weekly
+  license: CC BY 4.0
+  reuse: attribution
+  tier: 3
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+
+- id: in.seci_mnre.tenders
+  name: India SECI (sole REIA from 2026) + MNRE tender pages
+  jurisdiction: IN
+  category: procurement
+  operator: SECI / MNRE
+  url: https://www.seci.co.in/tenders
+  access: html
+  auth: none
+  format: html/pdf
+  cadence: weekly
+  license: GoI open data (attribution)
+  reuse: attribution
+  tier: 3
+  effort: M
+
+- id: br.aneel.leiloes
+  name: Brazil ANEEL/CCEE energy & transmission auctions
+  jurisdiction: BR
+  category: procurement
+  operator: ANEEL
+  url: https://leilao.aneel.gov.br/
+  access: html
+  auth: none
+  format: html/pdf
+  cadence: per-auction
+  license: gov.br open data
+  reuse: attribution
+  tier: 3
+  effort: M
+
+- id: za.ipp_office.reipppp
+  name: South Africa IPP Office — REIPPPP / BESIPPPP bid windows
+  jurisdiction: ZA
+  category: procurement
+  operator: IPP Office (DMRE/Treasury/DBSA)
+  url: https://www.ipp-projects.co.za/
+  access: html
+  auth: none
+  format: html/pdf
+  cadence: per-window
+  license: IPP Office terms
+  reuse: attribution
+  tier: 3
+  effort: M
+
+# ─────────────────────────────────────────────────────────────────────────────
+# G. MULTILATERAL DEVELOPMENT BANKS (funding + procurement, global)
+# ─────────────────────────────────────────────────────────────────────────────
+- id: mdb.worldbank.procnotices
+  name: World Bank Procurement Notices API
+  jurisdiction: global
+  category: procurement
+  operator: World Bank
+  url: https://search.worldbank.org/api/v2/procnotices
+  access: api
+  auth: none
+  format: json
+  cadence: daily
+  license: World Bank Open Data (CC BY 4.0)
+  reuse: attribution
+  tier: 1
+  effort: S
+  probe: {method: GET, url: "https://search.worldbank.org/api/v2/procnotices?format=json&rows=2"}
+  verified: {date: 2026-09-12, result: ok, rows: 100, note: 'sector filter confirmed: sector.sector_code=LU^LH^LW^LB^LI^LN^LT^LZ^LP^LE (33,950 notices); sector_exact=Energy returns 0. Connector run: newest 100 notices in a 14-day window, DQ pass'}
+
+- id: mdb.worldbank.projects
+  name: World Bank Projects API (pipeline & active projects, sector = Energy & Extractives)
+  jurisdiction: global
+  category: funding
+  operator: World Bank
+  url: https://search.worldbank.org/api/v2/projects
+  access: api
+  auth: none
+  format: json
+  cadence: daily
+  license: CC BY 4.0
+  reuse: attribution
+  tier: 2
+  effort: S
+
+- id: mdb.others
+  name: ADB, AfDB, EBRD (ECEPP), IDB, IFC, UNGM procurement & project pipelines
+  jurisdiction: global
+  category: procurement
+  operator: various MDBs
+  url: https://www.ebrd.com/home/work-with-us/project-procurement/procurement-notices.html
+  access: html
+  auth: none (EBRD ECEPP requires registration for documents)
+  format: html/pdf; AfDB has data portal; ADB has business opportunities RSS
+  cadence: daily
+  license: per-institution (generally attribution)
+  reuse: attribution
+  tier: 2
+  effort: L
+
+# ─────────────────────────────────────────────────────────────────────────────
+# H. GLOBAL FACILITY-LEVEL TRACKERS (backfill, cross-reference)
+# ─────────────────────────────────────────────────────────────────────────────
+- id: global.gem.trackers
+  name: Global Energy Monitor — Integrated Power, Solar, Wind, Gas Infrastructure, LNG, Hydrogen, Coal trackers
+  jurisdiction: global
+  category: aggregator
+  operator: Global Energy Monitor (non-profit)
+  url: https://globalenergymonitor.org/projects/global-integrated-power-tracker/
+  access: bulk_file
+  auth: email registration for download
+  format: xlsx
+  cadence: semi-annual/quarterly
+  license: 'GEM Download Data page, retrieved 2026-09-12 — "When the data set is being shared or adapted and our Creative Commons CC BY 4.0 International license applies, please read the license for attribution requirements"; records carrying a TZ ID are "Distributed under a Creative Commons Attribution-Non-Commercial 4.0 International License (CC BY-NC 4.0)"'
+  reuse: attribution
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+  notes: >-
+    Best free global backbone for announced/pre-construction projects outside the US. Lags months; use as
+    spine, not feed. Use the recommended citation per tracker and release. DROP at ingest any row whose Other
+    IDs (unit/phase) column carries a TZ ID (TransitionZero, CC BY-NC) — non-commercial rows cannot go in a
+    commercial product. gem.wiki prose is CC BY-NC-SA and is never ingested. See docs/13-legal-data-rights.md
+    section 2.2.
+
+- id: global.iea.demo_projects
+  name: IEA Clean Energy Demonstration Projects Database
+  jurisdiction: global
+  category: aggregator
+  operator: IEA
+  url: https://www.iea.org/data-and-statistics/data-tools/clean-energy-demonstration-projects-database
+  access: bulk_file
+  auth: none
+  format: xlsx
+  cadence: annual
+  license: CC BY 4.0
+  reuse: attribution
+  tier: 3
+  effort: S
+
+# ─────────────────────────────────────────────────────────────────────────────
+# I. NEWS & ANNOUNCEMENT DISCOVERY (finds proposals before they hit a register)
+# ─────────────────────────────────────────────────────────────────────────────
+- id: news.gdelt.doc
+  name: GDELT DOC 2.0 API
+  jurisdiction: global
+  category: news
+  operator: GDELT Project
+  url: https://api.gdeltproject.org/api/v2/doc/doc
+  access: api
+  auth: none (1 request / 5 s)
+  format: json
+  cadence: 15-min
+  license: GDELT open (attribution); article text is third-party copyright
+  reuse: attribution
+  tier: 2
+  effort: S
+  probe: {method: GET, url: "https://api.gdeltproject.org/api/v2/doc/doc?query=%22battery%20storage%22%20%22interconnection%22&mode=artlist&maxrecords=3&format=json&timespan=3d"}
+  verified: {date: 2026-09-12, result: rate_limited, note: "returned 'limit requests to one every 5 seconds' — works with pacing"}
+
+- id: news.google_rss
+  name: Google News RSS keyword feeds
+  jurisdiction: global
+  category: news
+  operator: Google
+  url: https://news.google.com/rss/search?q=%22solar+project%22+proposed&hl=en-US&gl=US&ceid=US:en
+  access: rss
+  auth: none
+  format: rss
+  cadence: continuous
+  license: 'news.google.com/robots.txt, retrieved 2026-09-12 — "User-agent: *" / "Disallow: /" with Allow only for /, /home, /nwshp, /topics/, /publications/, /stories/, /swg/, /about; the /rss/ path is NOT allowed'
+  reuse: restricted
+  tier: 3
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+  notes: >-
+    Polling /rss/search is contrary to robots.txt. Recommendation: drop this connector; use GDELT DOC, issuer
+    and publisher RSS, and curated trade-press feeds instead. Counsel item 4 in docs/13-legal-data-rights.md
+    section 7.
+  notes: 'DO NOT BUILD (legal-compliance 2026-09-12): /rss/ is disallowed by news.google.com/robots.txt. Use GDELT or publisher feeds as lookup triggers instead.'
+
+- id: news.wires
+  name: Business Wire / PR Newswire / GlobeNewswire energy RSS feeds
+  jurisdiction: global
+  category: news
+  operator: wire services
+  url: https://www.businesswire.com/newsroom/industry/energy
+  access: rss
+  auth: none
+  format: rss
+  cadence: continuous
+  license: 'PR Newswire Terms of Use, retrieved 2026-09-12 — may not "reproduce, distribute, frame, mirror, scrape, republish or retransmit information or content ... without the express prior written permission of PR Newswire"; no "robot, spider, site search/retrieval application, or other manual or automatic device or process to access, search, download, retrieve, index or data mine"; PR Newswire Materials may not be used "in full, in part, in full text or in abstract" beyond personal non-commercial use. Business Wire terms NOT retrieved (Akamai HTTP 403 on 2026-09-12)'
+  reuse: restricted
+  tier: 2
+  effort: S
+  probe: {method: GET, url: "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeEFpRVQ=="}
+  verified: {date: 2026-09-12, result: ok}
+  notes: >-
+    Link-out-only: headline, timestamp, link. No abstracts of PR Newswire-hosted releases; extracted facts
+    attributed to the issuing company are acceptable. Business Wire terms must be read before any wire
+    connector ships. Prefer issuers' own newsroom RSS feeds. See docs/13-legal-data-rights.md sections
+    2.7-2.8.
+
+- id: news.trade_press
+  name: Trade press RSS (Utility Dive, pv magazine, Energy-Storage.News, RTO Insider, Canary, Latitude)
+  jurisdiction: global
+  category: news
+  operator: publishers
+  url: https://www.utilitydive.com/feeds/news/
+  access: rss
+  auth: none (RTO Insider paywalled)
+  format: rss
+  cadence: continuous
+  license: publisher copyright — headline/link/snippet only
+  reuse: restricted
+  tier: 2
+  effort: S
+
+# ─────────────────────────────────────────────────────────────────────────────
+# J. SOCIAL DISTRIBUTION CHANNELS (outbound, not data sources — recorded for cost/feasibility)
+# ─────────────────────────────────────────────────────────────────────────────
+- id: social.bluesky
+  name: Bluesky (AT Protocol)
+  category: social_channel
+  url: https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=bsky.app
+  access: api
+  auth: app password / OAuth (dev preview)
+  cost: free; 5,000 points/hr ≈ 1,666 posts/hr
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-12, result: ok}
+
+- id: social.x
+  name: X (Twitter) API — pay-per-use only for new developers since Feb 2026
+  category: social_channel
+  url: https://developer.x.com/
+  access: api
+  auth: OAuth 2.0
+  cost: '"$0.20 per post containing a URL; $0.015 per post without; $0.001 per owned read"'
+  tier: 1
+  effort: S
+  notes: At 50 link posts/day ≈ $300/month. Budget line, not a blocker.
+
+- id: social.linkedin
+  name: LinkedIn Community Management API (organisation posting)
+  category: social_channel
+  url: https://learn.microsoft.com/en-us/linkedin/marketing/
+  access: api
+  auth: Marketing Developer Platform partner approval (2–8 weeks); w_organization_social
+  cost: free once approved
+  tier: 1
+  effort: M
+  notes: Highest-value channel for this audience. Bridge with an approved scheduler (Buffer/Hootsuite) at launch; apply for MDP on day 1.
+
+- id: social.meta
+  name: Meta Graph API (Facebook Page / Instagram)
+  category: social_channel
+  url: https://developers.facebook.com/docs/pages-api/
+  access: api
+  auth: Business Verification + App Review for advanced access
+  cost: free
+  tier: 3
+  effort: M
+
+- id: social.reddit
+  name: Reddit Data API
+  category: social_channel
+  url: https://www.redditinc.com/policies/data-api-terms
+  access: api
+  auth: OAuth; commercial use needs contract
+  cost: '"$0.24 per 1,000 calls; commercial tier reported at $12k/month"'
+  tier: 3
+  effort: S
+  notes: Post manually in r/energy, r/solar, r/RenewableEnergy if at all; automation is not worth the terms exposure.
+
+- id: social.owned
+  name: Owned channels — email newsletter (Substack/Beehiiv/Resend), RSS/Atom, Slack/Teams webhooks, Telegram
+  category: social_channel
+  url: https://www.rssboard.org/rss-specification
+  access: api
+  auth: none
+  cost: near zero
+  tier: 1
+  effort: S
+  notes: Own the audience. Every social post should route back to a page with an alert sign-up.

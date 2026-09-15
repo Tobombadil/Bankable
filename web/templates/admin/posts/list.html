@@ -1,0 +1,80 @@
+{% extends "admin/base.html" %}
+{% block title %}Posts -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-posts.css">{% endblock %}
+{% block content %}
+<h1>Social review queue</h1>
+<p class="admin-muted">Drafts by channel and event (docs/32 §4.4). <a href="/admin/posts/channels">Channel switches &rarr;</a></p>
+{% include "admin/_notice.html" %}
+
+<form class="admin-toolbar" method="get" action="/admin/posts">
+  <div class="field">
+    <label for="f-channel">Channel</label>
+    <select id="f-channel" name="channel">
+      <option value="">All channels</option>
+      {% for c in channels %}
+      <option value="{{ c }}"{% if filters.channel == c %} selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-state">State</label>
+    <select id="f-state" name="state">
+      <option value="">All states</option>
+      {% for s in states %}
+      <option value="{{ s }}"{% if filters.state == s %} selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="admin-actions">
+    <button class="admin-button admin-button--primary" type="submit">Apply</button>
+    {% if filters %}<a class="admin-button" href="/admin/posts">Clear all</a>{% endif %}
+  </div>
+</form>
+
+{% if posts %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Channel</th>
+        <th>State</th>
+        <th>Subject</th>
+        <th>Body</th>
+        <th>Credit line</th>
+        <th>Gate checked</th>
+        <th>Scheduled for</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for post in posts %}
+      <tr>
+        <td>{{ post.channel }}</td>
+        <td><span class="chip chip--{{ state_family.get(post.state, 'neutral') }}">{{ post.state }}</span></td>
+        <td>{% if post.subject %}<a href="{{ post.subject.url }}">{{ post.subject.name }}</a>{% endif %}</td>
+        <td>{{ post.body_preview }}{% if post.body and post.body|length > 140 %}&hellip;{% endif %}</td>
+        <td>{{ post.credit_line }}</td>
+        <td class="mono">{{ post.gate_age or '—' }}</td>
+        <td class="mono">{{ post.scheduled_for or '—' }}</td>
+        <td><a href="/admin/posts/{{ post.post_id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<nav class="admin-pager" aria-label="Post pages">
+  {% if page.has_more and page.next_cursor %}
+  <a href="/admin/posts?{{ filters_qs }}cursor={{ page.next_cursor }}">Next &rarr;</a>
+  {% endif %}
+</nav>
+{% else %}
+<div class="admin-empty">
+  {% if filters %}
+  <p>No posts match
+    {%- for k, v in filters.items() %} {{ k }}={{ v }}{{ ',' if not loop.last }}{% endfor %}.</p>
+  <p><a href="/admin/posts">Clear all filters</a></p>
+  {% else %}
+  <p>No posts in the review queue.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

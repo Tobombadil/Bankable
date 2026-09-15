@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Infraque{% endblock %}
+{% block extra_head %}
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Map</h1>
+  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO. Filters apply to the map and the list together; the URL always reflects the current view.</p>
+</div>
+{{ m.delayed_banner(delayed) }}
+{% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
+
+<form id="map-filters" class="filter-bar" aria-label="Map filters">
+  <div class="filter-field">
+    <label for="mf-technology">Technology</label>
+    <select id="mf-technology" name="technology">
+      <option value="">All</option>
+      {% for t in technologies %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="mf-jurisdiction">Jurisdiction</label>
+    <input id="mf-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX">
+  </div>
+  <div class="filter-field filter-field--checkbox">
+    <label for="mf-include-withdrawn">
+      <input id="mf-include-withdrawn" type="checkbox" name="include_withdrawn" value="1" {% if include_withdrawn %}checked{% endif %}>
+      Include withdrawn &amp; cancelled
+    </label>
+  </div>
+  <div class="filter-field filter-field--checkbox">
+    <label for="mf-layer-plants">
+      <input id="mf-layer-plants" type="checkbox" name="layer_plants" value="1">
+      Existing plants (EIA-860M, US)
+    </label>
+  </div>
+  <div class="filter-field" id="mf-plant-technology-field" hidden>
+    <label for="mf-plant-technology">Plant type</label>
+    <select id="mf-plant-technology" name="plant_technology">
+      <option value="">All types</option>
+      <option value="solar">Solar</option>
+      <option value="wind">Wind</option>
+      <option value="gas">Gas</option>
+      <option value="oil">Oil</option>
+      <option value="coal">Coal</option>
+      <option value="nuclear">Nuclear</option>
+      <option value="hydro">Hydro</option>
+      <option value="storage">Storage</option>
+      <option value="biomass">Biomass / waste</option>
+      <option value="geothermal">Geothermal</option>
+      <option value="other">Other</option>
+    </select>
+  </div>
+  <button class="filter-bar__submit" type="button" id="mf-clear">Clear all</button>
+  <a class="filter-bar__clear" href="/proposals" id="mf-view-list">View as list &rarr;</a>
+</form>
+
+<p class="result-count" id="map-result-count" aria-hidden="true">Loading proposals&hellip;</p>
+
+<div class="map-layout">
+  <div>
+    <div class="map-controls" role="group" aria-label="Map zoom">
+      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" id="zoom-out" aria-label="Zoom out">&minus;</button>
+      <button type="button" id="zoom-reset" aria-label="Reset view">Reset</button>
+    </div>
+    {% if regions %}
+    <div class="map-controls map-controls--regions" role="group" aria-label="Jump to region">
+      {% for r in regions %}
+      <button type="button" class="region-btn" data-region="{{ r.code }}" data-bbox="{{ r.bbox }}">{{ r.label }}</button>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div id="map" role="application" aria-label="Map of proposal locations. Use the in-view list for a keyboard- and screen-reader-accessible equivalent." data-tile-url="{{ tile_url or '' }}" data-tile-mode="{{ tile_mode }}"></div>
+    <div class="legend" aria-hidden="true">
+      <span class="legend__item" style="color:var(--family-neutral-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-neutral"></use></svg> Neutral</span>
+      <span class="legend__item" style="color:var(--family-progress-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-progress"></use></svg> Progress</span>
+      <span class="legend__item" style="color:var(--family-committed-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-committed"></use></svg> Committed</span>
+      <span class="legend__item" style="color:var(--family-success-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-success"></use></svg> Success</span>
+      <span class="legend__item" style="color:var(--family-danger-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-danger"></use></svg> Danger</span>
+    </div>
+    <div class="legend legend--plants" id="plants-legend" aria-hidden="true" hidden>
+      <span class="legend__item" style="color:var(--plant-solar)">&#9632; Solar</span>
+      <span class="legend__item" style="color:var(--plant-wind)">&#9632; Wind</span>
+      <span class="legend__item" style="color:var(--plant-gas)">&#9632; Gas</span>
+      <span class="legend__item" style="color:var(--plant-oil)">&#9632; Oil</span>
+      <span class="legend__item" style="color:var(--plant-coal)">&#9632; Coal</span>
+      <span class="legend__item" style="color:var(--plant-nuclear)">&#9632; Nuclear</span>
+      <span class="legend__item" style="color:var(--plant-hydro)">&#9632; Hydro</span>
+      <span class="legend__item" style="color:var(--plant-storage)">&#9632; Storage</span>
+      <span class="legend__item" style="color:var(--plant-biomass)">&#9632; Biomass / waste</span>
+      <span class="legend__item" style="color:var(--plant-geothermal)">&#9632; Geothermal</span>
+      <span class="legend__item" style="color:var(--plant-other)">&#9632; Other</span>
+    </div>
+    <p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <a href="/about#sources">see About &amp; sources</a>. Full credits: <a href="/attribution">Attribution</a>.</p>
+  </div>
+  <aside class="map-side" aria-label="Proposals in view">
+    <a id="in-view-list" tabindex="-1"></a>
+    <h2>In view</h2>
+    <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
+    <ul class="in-view-list" id="in-view-items"></ul>
+    <p id="unplaced-note" class="in-view-list__unplaced" hidden></p>
+  </aside>
+</div>
+
+<template id="in-view-item-template">
+  <li>
+    <span class="chip-slot"></span>
+    <a href="#" class="name-link"></a>
+    <span class="meta"></span>
+  </li>
+</template>
+{% endblock %}
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+{% if tile_mode == "pmtiles" %}
+<script src="https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/dist/pmtiles.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/dist/basemaps.js"></script>
+{% endif %}
+<script src="/static/js/map.js?v={{ asset_version }}"></script>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "admin/base.html" %}
+{% block title %}Engagement -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-ops.css">{% endblock %}
+{% block content %}
+<h1>Map engagement</h1>
+{% include "admin/_notice.html" %}
+<p>Identifier-free counts per ISO week (no cookie, IP, user agent or referrer is stored; see the privacy notice). The plants layer is judged on whether registrations and alerts from layer-on pages move, not on toggles alone. Basemap failures must stay at zero after the tile deploy (launch runbook &sect;2.7).</p>
+
+<form class="admin-toolbar" method="get" action="/admin/engagement">
+  <div class="field">
+    <label for="f-weeks">Weeks</label>
+    <input id="f-weeks" type="number" name="weeks" min="1" max="52" value="{{ weeks }}">
+  </div>
+  <button class="admin-button" type="submit">Show</button>
+</form>
+
+{% if grid %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Week</th>
+        {% for name, label in columns %}<th class="num">{{ label }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in grid %}
+      <tr>
+        <td class="mono">{{ row.week }}</td>
+        {% for name, label in columns %}
+        {% set c = row.cells[name] %}
+        <td class="num">{{ c.count }}{% if name == "map.layer_toggled" and c.count_on is not none %} <span class="admin-muted">(on {{ c.count_on }}, off {{ c.count_off }})</span>{% endif %}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="admin-empty">No interaction counts in the last {{ weeks }} week{{ "" if weeks == 1 else "s" }}. That is the expected state before the map is public; after launch a run of zeros here means the beacon is not reaching the API.</p>
+{% endif %}
+{% endblock %}

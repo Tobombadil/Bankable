@@ -1,0 +1,69 @@
+{% extends "admin/base.html" %}
+{% block title %}Resolution -- Infraque admin{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Resolution candidates</h1></div>
+{% include "admin/_notice.html" %}
+<form class="admin-toolbar" method="get" action="/admin/resolution">
+  <div class="field">
+    <label for="f-status">Status</label>
+    <select id="f-status" name="status">
+      {% for v in status_values %}
+      <option value="{{ v }}"{% if status_filter == v %} selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button class="admin-button" type="submit">Apply</button>
+</form>
+{% if candidates %}
+<div class="admin-table-wrap">
+<table class="admin-table">
+  <thead>
+    <tr>
+      <th scope="col">Left</th>
+      <th scope="col">Right</th>
+      <th scope="col" class="num">Score</th>
+      <th scope="col">Rationale</th>
+      <th scope="col">Decide</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in candidates %}
+    <tr>
+      <td><a href="/admin/records/proposals/{{ c.left.public_id }}">{{ c.left.name }}</a><br><span class="admin-muted">{{ c.left.summary.jurisdiction }}, {{ c.left.summary.capacity_mw }} MW</span></td>
+      <td><a href="/admin/records/proposals/{{ c.right.public_id }}">{{ c.right.name }}</a><br><span class="admin-muted">{{ c.right.summary.jurisdiction }}, {{ c.right.summary.capacity_mw }} MW</span></td>
+      <td class="num">{{ c.score }}</td>
+      <td>{{ c.model_rationale or "&mdash;" }}</td>
+      <td>
+        {% if c.status == "pending" %}
+        <form class="admin-form" method="post" action="/admin/resolution/{{ c.candidate_id }}/decide?status={{ status_filter }}">
+          <div class="field">
+            <label for="decision-{{ c.candidate_id }}">Decision</label>
+            <select id="decision-{{ c.candidate_id }}" name="decision">
+              <option value="same">same (merge)</option>
+              <option value="different">different</option>
+              <option value="defer">defer</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="surviving-{{ c.candidate_id }}">Surviving id (on "same")</label>
+            <input id="surviving-{{ c.candidate_id }}" name="surviving_public_id" placeholder="{{ c.left.public_id }}">
+          </div>
+          <div class="field">
+            <label for="reason-{{ c.candidate_id }}">Reason</label>
+            <input id="reason-{{ c.candidate_id }}" name="reason" required>
+          </div>
+          <button class="admin-button admin-button--primary" type="submit">Record decision</button>
+        </form>
+        {% else %}
+        <span class="admin-muted">Decided: {{ c.decision }}{% if c.merge_event_id %} ({{ c.merge_event_id }}){% endif %}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="admin-empty">No {{ status_filter }} candidates. <a href="/admin/resolution">Clear filter</a>.</p>
+{% endif %}
+{% endblock %}

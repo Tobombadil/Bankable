@@ -1,0 +1,10 @@
+/* Tasks screens (Sprint 3 item 3): pending-record/contact definition lists and the deletion-task
+   warning callout. Tokens only (docs/31 §1, D-19); nothing here duplicates web/static/css/admin.css. */
+.admin-dl { display: grid; grid-template-columns: 12rem 1fr; gap: var(--space-2) var(--space-4); margin: var(--space-3) 0 var(--space-5); }
+.admin-dl dt { color: var(--text-muted); font-size: var(--text-1); }
+.admin-dl dd { margin: 0; }
+.admin-pre { margin: 0; padding: var(--space-2); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-2); font-family: var(--font-mono); font-size: var(--text-1); overflow-x: auto; }
+.task-warning { padding: var(--space-3); border: 1px solid var(--family-danger-text); background: var(--family-danger-fill); color: var(--family-danger-text); border-radius: var(--radius-2); }
+@media (max-width: 719px) {
+  .admin-dl { grid-template-columns: 1fr; }
+}

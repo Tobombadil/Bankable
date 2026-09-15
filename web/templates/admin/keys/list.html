@@ -1,0 +1,99 @@
+{% extends "admin/base.html" %}
+{% block title %}Keys -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-ops.css">{% endblock %}
+{% block content %}
+<h1>API keys</h1>
+{% include "admin/_notice.html" %}
+
+<form class="admin-toolbar" method="get" action="/admin/keys">
+  <div class="field">
+    <label for="f-account">Account id</label>
+    <input id="f-account" type="text" name="account_id" value="{{ filters.account_id or '' }}" placeholder="acc_...">
+  </div>
+  <div class="field">
+    <label for="f-status">Status</label>
+    <select id="f-status" name="status">
+      <option value="active"{% if not filters.status or filters.status == "active" %} selected{% endif %}>active</option>
+      <option value="revoked"{% if filters.status == "revoked" %} selected{% endif %}>revoked</option>
+    </select>
+  </div>
+  <button class="admin-button" type="submit">Filter</button>
+  {% if filters %}<a class="admin-button" href="/admin/keys">Clear all</a>{% endif %}
+</form>
+
+{% if keys %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead>
+      <tr><th>Prefix</th><th>Account</th><th>Scopes</th><th>Tier</th><th>Status</th><th>Created</th><th>Last used</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for k in keys %}
+      <tr>
+        <td class="mono">{{ k.prefix }}&hellip;{{ k.last4 }}</td>
+        <td><a href="/admin/customers/{{ k.account_id }}">{{ k.account_id }}</a></td>
+        <td>{{ k.scopes|join(", ") }}</td>
+        <td>{{ k.tier }}</td>
+        <td>{% if k.revoked_at %}<span class="chip chip--danger">revoked</span>{% else %}<span class="chip chip--success">active</span>{% endif %}</td>
+        <td class="mono">{{ k.created_at }}</td>
+        <td class="mono">{{ k.last_used_at or "never" }}</td>
+        <td>
+          {% if not k.revoked_at %}
+          <form method="post" action="/admin/keys/{{ k.key_id }}/revoke">
+            <input type="text" name="reason" placeholder="reason" required aria-label="Reason to revoke {{ k.prefix }}{{ k.last4 }}">
+            <button class="admin-button" type="submit">Revoke</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="admin-empty">
+  {% if filters %}
+  <p>No keys match {{ filters_description }}. <a href="/admin/keys">Clear all</a> to see every key.</p>
+  {% else %}
+  <p>No API keys issued yet.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if next_href %}
+<div class="admin-pager"><a class="admin-button" href="{{ next_href }}">Next page</a></div>
+{% endif %}
+
+<form class="admin-form" method="post" action="/admin/keys">
+  <h2>Issue a key</h2>
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" type="text" name="name" required value="{{ values.name or '' }}">
+    {% if notice and notice.errors.name %}<p class="admin-muted">{{ notice.errors.name }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="account_id">Account id</label>
+    <input id="account_id" type="text" name="account_id" required placeholder="acc_..." value="{{ values.account_id or '' }}">
+    {% if notice and notice.errors.account_id %}<p class="admin-muted">{{ notice.errors.account_id }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="rate_limit_per_hour">Rate limit per hour (optional)</label>
+    <input id="rate_limit_per_hour" type="number" name="rate_limit_per_hour" min="1" value="{{ values.rate_limit_per_hour or '' }}">
+  </div>
+  <div class="field">
+    <label for="daily_quota">Daily quota (optional)</label>
+    <input id="daily_quota" type="number" name="daily_quota" min="0" value="{{ values.daily_quota or '' }}">
+  </div>
+  <div class="field">
+    <label for="licence_acceptance_ref">Licence acceptance reference</label>
+    <input id="licence_acceptance_ref" type="text" name="licence_acceptance_ref" required value="{{ values.licence_acceptance_ref or '' }}">
+    <p class="admin-muted">Where the account owner's API licence acceptance was captured (out of band).</p>
+    {% if notice and notice.errors.licence_acceptance_ref %}<p class="admin-muted">{{ notice.errors.licence_acceptance_ref }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="key-reason">Reason</label>
+    <textarea id="key-reason" name="reason" required>{{ values.reason or '' }}</textarea>
+  </div>
+  <button class="admin-button admin-button--primary" type="submit">Issue key</button>
+</form>
+{% endblock %}

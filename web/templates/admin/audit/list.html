@@ -1,0 +1,76 @@
+{% extends "admin/base.html" %}
+{% block title %}Audit -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-ops.css">{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+{% include "admin/_notice.html" %}
+
+<form class="admin-toolbar" method="get" action="/admin/audit">
+  <div class="field">
+    <label for="f-subject-type">Subject type</label>
+    <select id="f-subject-type" name="subject_type">
+      <option value="">Any</option>
+      {% for t in subject_types %}
+      <option value="{{ t }}"{% if filters.subject_type == t %} selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-event-type">Event type</label>
+    <input id="f-event-type" type="text" name="event_type" value="{{ filters.event_type or '' }}" placeholder="admin_edit, created, ...">
+  </div>
+  <div class="field">
+    <label for="f-actor">Actor user id</label>
+    <input id="f-actor" type="text" name="actor_user_id" value="{{ filters.actor_user_id or '' }}" placeholder="usr_...">
+  </div>
+  <div class="field">
+    <label for="f-since">Since (event seq or ISO date)</label>
+    <input id="f-since" type="text" name="since" value="{{ filters.since or '' }}">
+  </div>
+  <button class="admin-button" type="submit">Filter</button>
+  {% if filters %}<a class="admin-button" href="/admin/audit">Clear all</a>{% endif %}
+</form>
+
+{% if events %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead>
+      <tr><th>Observed</th><th>Actor</th><th>Subject</th><th>Event</th><th>Reason</th><th>Changed keys</th></tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+      <tr>
+        <td class="mono"><a href="/admin/audit/{{ e.id }}?subject_type={{ e.subject_type }}">{{ e.observed_at }}</a></td>
+        <td>{{ e.actor_user_id or "--" }}</td>
+        <td>
+          {{ e.subject_type }}
+          {% if e.subject_type == "user" %}<a href="/admin/users/{{ e.subject_id }}">{{ e.subject_id }}</a>
+          {% elif e.subject_type == "account" %}<a href="/admin/customers/{{ e.subject_id }}">{{ e.subject_id }}</a>
+          {% else %}<span class="mono">{{ e.subject_id }}</span>
+          {% endif %}
+        </td>
+        <td>{{ e.event_type }}</td>
+        <td>{{ e.reason or "--" }}</td>
+        <td class="mono">{{ e.changed_keys|join(", ") if e.changed_keys else "--" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="admin-empty">
+  {% if filters %}
+  <p>No audit events match {{ filters_description }}. <a href="/admin/audit">Clear all</a> to see the full log.</p>
+  {% else %}
+  <p>No audit events yet.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if next_href %}
+<div class="admin-pager"><a class="admin-button" href="{{ next_href }}">Next page</a></div>
+{% endif %}
+<p class="admin-muted">The API does not yet surface which admin user performed each action here
+  (`actor_user_id` is always empty in this response); the reason text and before/after values on
+  each event's detail page are the audit trail's detail for now (docs/04 S-4).</p>
+{% endblock %}

@@ -1,0 +1,8 @@
+/* Admin panel: Users and Customers screens (Sprint 3 item 3). Tokens only (docs/31 D-19); loaded
+   through web/templates/admin/base.html's `extra_head` block only on the pages that need it.
+   Everything shared across every admin screen (tables, forms, buttons, chips) already lives in
+   web/static/css/admin.css and web/static/css/styles.css -- this file holds only the handful of
+   layout tweaks specific to this agent's screens that would otherwise need an inline `style`. */
+.admin-toolbar__end { margin-left: auto; }
+.admin-cols dt { color: var(--text-muted); font-size: var(--text-1); margin-top: var(--space-3); }
+.admin-cols dd { margin: 0 0 var(--space-1) 0; }

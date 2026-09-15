@@ -1,0 +1,3919 @@
+{
+ "request": {
+  "updatedFrom": "2026-09-10T18:09:10"
+ },
+ "pages": [
+  {
+   "releases": [
+    {
+     "id": "086630-2026",
+     "tag": [
+      "tender"
+     ],
+     "date": "2026-09-11T16:52:33+01:00",
+     "initiationType": "tender",
+     "ocid": "ocds-h6vhtk-06a579",
+     "parties": [
+      {
+       "name": "The Association of North East Councils Limited (NEPO)",
+       "id": "GB-COH-05014821",
+       "identifier": {
+        "scheme": "GB-COH",
+        "id": "05014821"
+       },
+       "additionalIdentifiers": [
+        {
+         "scheme": "GB-PPON",
+         "id": "PYVX-2132-JNMM"
+        }
+       ],
+       "address": {
+        "streetAddress": "Northern Design Centre",
+        "locality": "Gateshead",
+        "postalCode": "NE8 3DF",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKC22"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "http://www.nepo.org",
+        "classifications": [
+         {
+          "scheme": "UK_CA_TYPE",
+          "id": "publicAuthoritySubCentralGovernment",
+          "description": "Public authority - sub-central government"
+         }
+        ]
+       }
+      },
+      {
+       "name": "THE PROCUREMENT PARTNERSHIP LIMITED",
+       "id": "GB-COH-05098402",
+       "identifier": {
+        "scheme": "GB-COH",
+        "id": "05098402"
+       },
+       "additionalIdentifiers": [
+        {
+         "scheme": "GB-PPON",
+         "id": "PXYT-5842-WRDY"
+        }
+       ],
+       "address": {
+        "streetAddress": "Suite 1, The Old Granary, Westwick",
+        "locality": "Cambridge",
+        "postalCode": "CB24 3AR",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKH12"
+       },
+       "roles": [
+        "procuringEntity"
+       ],
+       "roleDetails": "TPPL are supporting NEPO in the development of tender documentation, tender evaluation, and implementation of the resulting framework.",
+       "details": {
+        "url": "http://www.tppl.co.uk"
+       }
+      }
+     ],
+     "buyer": {
+      "id": "GB-COH-05014821",
+      "name": "The Association of North East Councils Limited (NEPO)"
+     },
+     "tender": {
+      "id": "NEPO219",
+      "legalBasis": {
+       "id": "2023/54",
+       "scheme": "UKPGA",
+       "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+      },
+      "title": "NEPO219 - Building Materials & Managed Stores",
+      "description": "The Association of North East Councils Trading as the North East Procurement Organisation (NEPO) is seeking to establish a multi-supplier, multi-lot Framework for Building Materials and Managed Stores.\nNEPO intends to publish an Invitation to Tender via the Open eTendering system. Suppliers wishing to be considered for this Framework Agreement must register their expression of interest and submit a tender through the NEPO eTendering system. If not already registered, candidates should register on the Open eTender system at:\nhttps://open-uk.org/\nTenders must be submitted using the link above. Tenders submitted via post or email methods will not be accepted.\nGuidance for how to create an account, search for opportunities and respond is included within the Supplier's hub.\nIf you require further support please email open.support@nepo.org",
+      "status": "active",
+      "items": [
+       {
+        "id": "1",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "31000000",
+          "description": "Electrical machinery, apparatus, equipment and consumables; lighting"
+         },
+         {
+          "scheme": "CPV",
+          "id": "39715000",
+          "description": "Water heaters and heating for buildings; plumbing equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44110000",
+          "description": "Construction materials"
+         },
+         {
+          "scheme": "CPV",
+          "id": "63120000",
+          "description": "Storage and warehousing services"
+         },
+         {
+          "scheme": "CPV",
+          "id": "79993000",
+          "description": "Building and facilities management services"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UK",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "1"
+       },
+       {
+        "id": "2",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "03419100",
+          "description": "Timber products"
+         },
+         {
+          "scheme": "CPV",
+          "id": "18100000",
+          "description": "Occupational clothing, special workwear and accessories"
+         },
+         {
+          "scheme": "CPV",
+          "id": "18800000",
+          "description": "Footwear"
+         },
+         {
+          "scheme": "CPV",
+          "id": "34928470",
+          "description": "Signage"
+         },
+         {
+          "scheme": "CPV",
+          "id": "39812500",
+          "description": "Sealants"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44000000",
+          "description": "Construction structures and materials; auxiliary products to construction (except electric apparatus)"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UK",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "2"
+       },
+       {
+        "id": "3",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "39715200",
+          "description": "Heating equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "39715210",
+          "description": "Central-heating equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "39715220",
+          "description": "Electric heating resistors"
+         },
+         {
+          "scheme": "CPV",
+          "id": "39715300",
+          "description": "Plumbing equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42122000",
+          "description": "Pumps"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42511110",
+          "description": "Heat pumps"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42520000",
+          "description": "Ventilation equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44115200",
+          "description": "Plumbing and heating materials"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44115210",
+          "description": "Plumbing materials"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44115220",
+          "description": "Heating materials"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44115500",
+          "description": "Sprinkler systems"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UK",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "3"
+       },
+       {
+        "id": "4",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "09331000",
+          "description": "Solar panels"
+         },
+         {
+          "scheme": "CPV",
+          "id": "31000000",
+          "description": "Electrical machinery, apparatus, equipment and consumables; lighting"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42500000",
+          "description": "Cooling and ventilation equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42961100",
+          "description": "Access control system"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UK",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "4"
+       },
+       {
+        "id": "5",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "03419000",
+          "description": "Timber"
+         },
+         {
+          "scheme": "CPV",
+          "id": "39141000",
+          "description": "Kitchen furniture and equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "39221000",
+          "description": "Kitchen equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44220000",
+          "description": "Builders' joinery"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44230000",
+          "description": "Builders' carpentry"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UK",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "5"
+       },
+       {
+        "id": "6",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "44211000",
+          "description": "Prefabricated buildings"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UK",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "6"
+       }
+      ],
+      "value": {
+       "amountGross": 960000000,
+       "amount": 800000000,
+       "currency": "GBP"
+      },
+      "procurementMethod": "open",
+      "procurementMethodDetails": "Open procedure",
+      "mainProcurementCategory": "goods",
+      "additionalProcurementCategories": [
+       "services"
+      ],
+      "aboveThreshold": true,
+      "participationFees": [
+       {
+        "type": [
+         "win"
+        ],
+        "relativeValue": {
+         "proportion": 0.01,
+         "monetaryValue": "award"
+        },
+        "description": "NEPO operates a Contract Rebate arrangement whereby Suppliers are asked to repay NEPO/TPPL a set percentage of each invoice in respect of orders placed by NEPO or any Contracting Authority accessing the Framework. The maximum rebate taken against the value of awarded contracts will not exceed 1%.",
+        "id": "ocds-h6vhtk-06a579"
+       }
+      ],
+      "techniques": {
+       "hasFrameworkAgreement": true,
+       "frameworkAgreement": {
+        "isOpenFrameworkScheme": true,
+        "method": "withAndWithoutReopeningCompetition",
+        "type": "open",
+        "buyerCategories": "The Framework will be open and accessible to all NEPO Member Authorities, Associate Members and TPPL Members.\nA full list of NEPO Member Authorities can be found - https://www.nepo.org/about\nA full list of Associate Members can be found - https://www.nepo.org/associate-membership/current-associate-members\nA list of members of TPPL can be obtained from  https://www.tppl.co.uk/membership/",
+        "description": "The successful Tenderer will enter into a Framework Agreement (NEPO219 - Building Materials and Managed Stores) with NEPO & TPPL. This Framework will be made accessible to the Member Authorities and the Associate Members of NEPO and TPPL via Call-Off contracts. NEPO will establish overarching terms and conditions that define the core principles of the Framework.\nPricing will be determined through the tender process and evaluated against predefined award criteria and associated weightings. All tenderers will be assessed accordingly.\nPricing submitted as part of this Framework will apply to requirements nationally.\nContracting Authorities may establish Call-Off contracts through either Direct Award or Mini/Further Competition. A Direct Award may be used where the Contracting Authority objectively determine that there are benefits and rationale, this rationale may include but is not limited to: necessity for urgency relating to timescales, the complexity of the project or continuity of works.\nThis is subject to the Contracting Authority's internal procurement and legal guidelines permitting a Direct Award.\nA basket of goods for each lot will be evaluated at framework level. This does not limit Contracting Authorities from accessing this lot of the Framework to purchase goods not covered by the pricing schedule. \nContracting Authorities may utilise one or more pricing methodologies available under the Framework, including fixed pricing arrangements, basket pricing models, schedule of rates, project-specific pricing, Open Book arrangements and Return on Sales (ROS) commercial models.\nAll suppliers awarded to the Framework may be invited to participate in Further Competitions. The evaluation criteria for any Further Competitions will be specified by the Contracting Authority and included in the competition documentation. Suppliers will be required to submit pricing based on the specific project requirements.\nNEPO and TPPL may, during the term of the Framework Agreement, make available digital tools, applications or technology solutions designed to assist Contracting Authorities in identifying Supplier locations, product availability and other operational information. Suppliers should cooperate with reasonable requests to support such initiatives where they are capable of doing so. Participation in such initiatives shall not be mandatory unless otherwise agreed between the parties.",
+        "openFrameworkSchemeEndDate": "2035-01-31T23:59:59Z"
+       }
+      },
+      "submissionMethodDetails": "NEPO intends to publish an Invitation to Tender via the Open eTendering system. Suppliers wishing to be considered for this Framework must register their expression of interest and submit a tender through the Open eTendering system at https://open-uk.org/\nTenders must be submitted via the link above. Submissions via email or post will not be accepted.\nGuidance for how to create an account, search for opportunities and respond is included within the Suppliers Hub. If you require further support please email open.support@nepo.org",
+      "submissionTerms": {
+       "electronicSubmissionPolicy": "allowed",
+       "languages": [
+        "en"
+       ]
+      },
+      "tenderPeriod": {
+       "endDate": "2026-10-16T12:00:00+01:00"
+      },
+      "enquiryPeriod": {
+       "endDate": "2026-10-02T12:00:00+01:00"
+      },
+      "awardPeriod": {
+       "endDate": "2027-01-18T23:59:59Z"
+      },
+      "lots": [
+       {
+        "id": "1",
+        "title": "Integrated Materials Management Solutions and Managed Stores",
+        "description": "Lot 1 covers the provision of integrated materials management solutions, managed stores, and associated materials management services to support the operational requirements of Contracting Authorities.\nThe Lot is intended to provide Contracting Authorities with access to integrated materials management solutions and managed stores environments that improve the availability, control and distribution of materials, products and consumables required to support responsive repairs, planned maintenance, asset management, facilities management and construction activities.\nThe primary service available under this Lot is an Integrated Materials Management Solution designed to support the efficient sourcing, control, distribution and management of materials, products and consumables. \nSuppliers shall be capable of delivering integrated materials management solutions designed to provide Contracting Authorities with efficient access to the materials, products and consumables required to support service delivery through one or more coordinated supply channels.\nSuch solutions may incorporate multiple supply chain partners, manufacturers, merchants, distributors and specialist providers operating through a coordinated stores environment or other integrated materials management solution.\nIntegrated materials management solutions may include:\nConsolidated materials supply arrangements;\t\nMulti-source inventory management;\nCoordinated replenishment services;\nCentralised issue and distribution points;\nIntegrated ordering solutions;\nSupply chain coordination;\nData analytics and management reporting;\nConsolidated reporting arrangements; and \nDemand planning and forecasting\nThe Supplier may deliver these services independently or in collaboration with manufacturers, merchants, distributors, specialist providers or other supply chain organisations. Such arrangements may include the coordination of multiple merchants and specialist suppliers operating through a single managed store or integrated materials management solution where this provides operational or commercial benefit to the Contracting Authority.\nIntegrated materials management solutions and managed stores solutions may be delivered from Contracting Authority premises, Supplier premises or other agreed locations and may include permanent, temporary or mobile facilities.\nThe services available under this Lot include, but are not limited to:\nManaged stores operations; \nCustomer-site stores; \nMerchant counter solutions; \nSatellite stores; \nMobile and temporary stores; \nInventory management services; \nMaterials management services; \nStock replenishment services; \nVendor managed inventory solutions; \nConsignment stock arrangements; \nVan stock management services; \nAutomated dispensing and vending solutions; \nSupply chain management services; \nProduct standardisation and rationalisation; \nElectronic ordering and materials management platforms;\nDigital materials management solutions;\nTechnical support services; and \nManagement information and reporting services.",
+        "status": "active",
+        "value": {
+         "amountGross": 960000000,
+         "amount": 800000000,
+         "currency": "GBP"
+        },
+        "awardCriteria": {
+         "criteria": [
+          {
+           "type": "quality",
+           "name": "Quality",
+           "numbers": [
+            {
+             "number": 70,
+             "weight": "percentageExact"
+            }
+           ]
+          },
+          {
+           "type": "price",
+           "name": "Price",
+           "numbers": [
+            {
+             "number": 30,
+             "weight": "percentageExact"
+            }
+           ]
+          }
+         ]
+        },
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-02-01T00:00:00Z",
+         "endDate": "2035-01-31T23:59:59Z"
+        },
+        "hasOptions": true,
+        "options": {
+         "description": "The framework includes an initial basket of commonly purchased goods for evaluation and pricing purposes. Contracting authorities may, during the term of the framework, procure any products falling within the scope of the relevant category/categories covered by the framework, including products not expressly listed within the initial basket, provided such products are consistent with the advertised scope, specification and CPV coverage of the framework."
+        }
+       },
+       {
+        "id": "2",
+        "title": "General Materials",
+        "description": "Lot 2 covers the supply of general building, construction, maintenance and repair materials to support the delivery of responsive repairs, planned maintenance, asset management, facilities management, capital works, construction projects, highways maintenance and civil engineering activities.\nThe Lot is intended to provide Contracting Authorities with access to a comprehensive range of building materials and associated products required for the construction, maintenance, repair, refurbishment and improvement of residential, commercial, industrial and public sector assets, together with highways, civil engineering and infrastructure projects.\nThe products available under this Lot include, but are not limited to:\nBuilding materials;\nBricks, blocks and masonry products;\nCement, aggregates and associated products;\nConcrete and precast products;\nTimber and timber products;\nSheet materials;\nRoofing materials and accessories;\nInsulation products;\nDrylining systems;\nPlaster and plasterboard products;\nDrainage products;\nLandscaping materials;\nFencing products;\nHighways and civil engineering materials;\nKerbs, channels, paving and block products, including alternative material products (e.g. rubber);\nStreet works and infrastructure materials;\nDucting and utility protection products\nDoors, windows and joinery products;\nIronmongery and architectural hardware;\nFixings, fasteners and adhesives;\nSealants and building chemicals;\nDecorating materials;\nHand tools;\nWorkwear and personal protective equipment (PPE);\nSite safety products;\nConstruction consumables; and\nAssociated accessories and ancillary products.\nProducts supplied under this Lot may be utilised across a broad range of maintenance, construction, highways, public realm, infrastructure and asset improvement projects.\nWhere applicable, Suppliers should be capable of providing sustainable, recycled, low-carbon or environmentally preferable alternatives to standard products and should support Contracting Authorities in achieving their environmental and net zero objectives.",
+        "status": "active",
+        "value": {
+         "amountGross": 960000000,
+         "amount": 800000000,
+         "currency": "GBP"
+        },
+        "awardCriteria": {
+         "criteria": [
+          {
+           "type": "quality",
+           "name": "Quality",
+           "numbers": [
+            {
+             "number": 55,
+             "weight": "percentageExact"
+            }
+           ]
+          },
+          {
+           "type": "price",
+           "name": "Price",
+           "numbers": [
+            {
+             "number": 45,
+             "weight": "percentageExact"
+            }
+           ]
+          }
+         ]
+        },
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-02-01T00:00:00Z",
+         "endDate": "2035-01-31T23:59:59Z"
+        },
+        "hasOptions": true,
+        "options": {
+         "description": "The framework includes an initial basket of commonly purchased goods for evaluation and pricing purposes. Contracting authorities may, during the term of the framework, procure any products falling within the scope of the relevant category/categories covered by the framework, including products not expressly listed within the initial basket, provided such products are consistent with the advertised scope, specification and CPV coverage of the framework."
+        }
+       },
+       {
+        "id": "3",
+        "title": "Plumbing, Heating, Gas & Building Services",
+        "description": "Lot 3 covers the supply of plumbing, heating, gas, water management and building services products to support the delivery of responsive repairs, planned maintenance, asset management, facilities management, capital works, construction projects and mechanical building services installations.\nThe Lot is intended to provide Contracting Authorities with access to a comprehensive range of domestic and commercial plumbing, heating and mechanical building services products required for the maintenance, repair, refurbishment, improvement and construction of residential, commercial, industrial and public sector assets.\nThe products available under this Lot include, but are not limited to:\nPlumbing materials and components;\nDomestic and commercial heating products;\nGas spares and associated equipment;\nBoilers and water heating systems;\nHeat pumps and renewable heating technologies;\nCylinders and hot water storage solutions;\nPumps and pumping equipment;\nValves and flow control products;\nPipework, fittings and associated accessories;\nHeating controls and building controls;\nThermostats and smart heating systems;\nRadiators and emitters;\nBathrooms and washroom products;\nWater management and water treatment products;\nCommercial plant room equipment;\nMetering and monitoring equipment;\nMechanical building services products;\nVentilation products associated with heating and plumbing installations;\nMaintenance, repair and replacement components;\nFixings, consumables and ancillary products; and\nAssociated accessories and ancillary items.\nProducts supplied under this Lot may be utilised across a broad range of domestic, commercial and public sector maintenance, refurbishment, decarbonisation, compliance and construction projects.\nThis Lot is intended to support both traditional heating and plumbing requirements and the transition to low-carbon technologies. Suppliers should therefore be capable of providing energy-efficient, low-carbon and renewable heating solutions where available, together with associated system components and technical support.\nWhere applicable, Suppliers should be capable of providing sustainable, recycled, low-carbon or environmentally preferable alternatives to standard products and should support Contracting Authorities in achieving their environmental, decarbonisation and net zero objectives.",
+        "status": "active",
+        "value": {
+         "amountGross": 960000000,
+         "amount": 800000000,
+         "currency": "GBP"
+        },
+        "awardCriteria": {
+         "criteria": [
+          {
+           "type": "quality",
+           "name": "Quality",
+           "numbers": [
+            {
+             "number": 55,
+             "weight": "percentageExact"
+            }
+           ]
+          },
+          {
+           "type": "price",
+           "name": "Price",
+           "numbers": [
+            {
+             "number": 45,
+             "weight": "percentageExact"
+            }
+           ]
+          }
+         ]
+        },
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-02-01T00:00:00Z",
+         "endDate": "2035-01-31T23:59:59Z"
+        },
+        "hasOptions": true,
+        "options": {
+         "description": "The framework includes an initial basket of commonly purchased goods for evaluation and pricing purposes. Contracting authorities may, during the term of the framework, procure any products falling within the scope of the relevant category/categories covered by the framework, including products not expressly listed within the initial basket, provided such products are consistent with the advertised scope, specification and CPV coverage of the framework."
+        }
+       },
+       {
+        "id": "4",
+        "title": "Electrical",
+        "description": "Lot 4 covers the supply of electrical products, components and associated accessories to support the delivery of responsive repairs, planned maintenance, asset management, facilities management, capital works, construction projects and electrical installations.\nThe Lot is intended to provide Contracting Authorities with access to a comprehensive range of electrical products required for the maintenance, repair, refurbishment, improvement and construction of residential, commercial, industrial and public sector assets.\nThe products available under this Lot include, but are not limited to:\nElectrical cables and wiring products;\nCable management and containment systems;\nDistribution equipment and switchgear;\nCircuit protection devices;\nConsumer units and distribution boards;\nWiring accessories;\nLighting products and associated controls;\nEmergency lighting systems;\nLamps and luminaires;\nFire detection and alarm products;\nSecurity and access control products;\nCCTV and surveillance equipment;\nData, communications and network infrastructure products;\nTesting and monitoring equipment;\nMetering and energy management products;\nBatteries and power supplies;\nElectric vehicle charging infrastructure and associated components;\nRenewable energy electrical components;\nElectrical maintenance, repair and replacement components;\nFixings, consumables and ancillary products; and\nAssociated accessories and ancillary items.\nProducts supplied under this Lot may be utilised across a broad range of domestic, commercial and public sector maintenance, refurbishment, compliance, decarbonisation and construction projects.\nThis Lot is intended to support both traditional electrical installations and emerging technologies. Suppliers should therefore be capable of providing energy-efficient and low-carbon solutions where available, including products which support electrification, renewable energy generation, energy management and electric vehicle infrastructure.\nWhere applicable, Suppliers should be capable of providing sustainable, energy-efficient or environmentally preferable alternatives to standard products and should support Contracting Authorities in achieving their environmental, decarbonisation and net zero objectives.",
+        "status": "active",
+        "value": {
+         "amountGross": 960000000,
+         "amount": 800000000,
+         "currency": "GBP"
+        },
+        "awardCriteria": {
+         "criteria": [
+          {
+           "type": "quality",
+           "name": "Quality",
+           "numbers": [
+            {
+             "number": 55,
+             "weight": "percentageExact"
+            }
+           ]
+          },
+          {
+           "type": "price",
+           "name": "Price",
+           "numbers": [
+            {
+             "number": 45,
+             "weight": "percentageExact"
+            }
+           ]
+          }
+         ]
+        },
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-02-01T00:00:00Z",
+         "endDate": "2035-01-31T23:59:59Z"
+        },
+        "hasOptions": true,
+        "options": {
+         "description": "The framework includes an initial basket of commonly purchased goods for evaluation and pricing purposes. Contracting authorities may, during the term of the framework, procure any products falling within the scope of the relevant category/categories covered by the framework, including products not expressly listed within the initial basket, provided such products are consistent with the advertised scope, specification and CPV coverage of the framework."
+        }
+       },
+       {
+        "id": "5",
+        "title": "Kitchens",
+        "description": "Lot 5 covers the supply of kitchens, kitchen components, associated appliances and related products to support the delivery of responsive repairs, planned maintenance, asset management, refurbishment programmes, void property works, capital investment programmes, new build projects and facilities management activities.\nThe Lot is intended to provide Contracting Authorities with access to a comprehensive range of kitchen products suitable for residential, commercial and public sector environments, including social housing, educational establishments, healthcare facilities, offices and other public buildings.\nThe products and services available under this Lot include, but are not limited to:\nComplete kitchen solutions;\nKitchen units and cabinets;\nKitchen doors and drawer fronts;\nKitchen carcases;\nKitchen fittings and hardware;\nWorktops and kitchen surfaces;\nSplashbacks and wall panels;\nSinks, taps and associated fittings;\nIntegrated and freestanding appliances;\nCooker hoods and extraction products;\nKitchen storage solutions;\nAccessible and adapted kitchens;\nReplacement doors, panels and components;\nBespoke and made-to-measure kitchen products;\nKitchen design and planning services;\nSurvey and measuring services;\nDelivery, assembly and installation services where required; and\nAssociated accessories and ancillary products.\nProducts supplied under this Lot may be utilised across a broad range of kitchen replacement, refurbishment, maintenance and construction projects.\nThis Lot is intended to support both complete kitchen replacement programmes and the supply of individual components required for repairs, maintenance and planned improvement works.\nSuppliers should be capable of providing a range of kitchen styles, specifications and budget options, including products suitable for social housing, residential, commercial and public sector applications. Where reasonably practicable, Suppliers should support the ongoing availability of replacement doors, drawer fronts, panels, fittings and other kitchen components to facilitate repairs, maintenance and partial refurbishment works throughout the lifecycle of installed kitchens.\nWhere applicable, Suppliers should be capable of providing sustainable, responsibly sourced or environmentally preferable products and should support Contracting Authorities in achieving their environmental, circular economy and net zero objectives.",
+        "status": "active",
+        "value": {
+         "amountGross": 960000000,
+         "amount": 800000000,
+         "currency": "GBP"
+        },
+        "awardCriteria": {
+         "criteria": [
+          {
+           "type": "quality",
+           "name": "Quality",
+           "numbers": [
+            {
+             "number": 55,
+             "weight": "percentageExact"
+            }
+           ]
+          },
+          {
+           "type": "price",
+           "name": "Price",
+           "numbers": [
+            {
+             "number": 45,
+             "weight": "percentageExact"
+            }
+           ]
+          }
+         ]
+        },
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-02-01T00:00:00Z",
+         "endDate": "2035-01-31T23:59:59Z"
+        },
+        "hasOptions": true,
+        "options": {
+         "description": "The framework includes an initial basket of commonly purchased goods for evaluation and pricing purposes. Contracting authorities may, during the term of the framework, procure any products falling within the scope of the relevant category/categories covered by the framework, including products not expressly listed within the initial basket, provided such products are consistent with the advertised scope, specification and CPV coverage of the framework."
+        }
+       },
+       {
+        "id": "6",
+        "title": "Modular & Portable Buildings",
+        "description": "Lot 6 covers the supply of modular, portable and temporary building solutions to support the operational, accommodation and estates requirements of Contracting Authorities.\nThe Lot is intended to provide Contracting Authorities with access to a range of modular building solutions suitable for temporary, semi-permanent and permanent use across education, office, welfare, operational and public sector environments.\nThe products and services available under this Lot include, but are not limited to:\nModular buildings;\nPortable buildings;\nTemporary accommodation units;\nTemporary classrooms;\nEducation facilities;\nOffice accommodation;\nWelfare facilities;\nMeeting and training facilities;\nSite and project offices;\nStorage facilities;\nModular extensions;\nRelocatable buildings;\nModular healthcare facilities;\nModular community facilities;\nDelivery and installation services where required; and\nAssociated accessories and ancillary products.\nProducts and services supplied under this Lot may be utilised across a broad range of education, local authority, housing, healthcare, infrastructure and public sector projects requiring temporary, additional or replacement accommodation.\nThis Lot is intended to support both short and long-term accommodation requirements where a modular or offsite manufactured solution provides an efficient alternative to traditional construction methods.\nWhere applicable, Suppliers should be capable of providing sustainable, low-carbon and environmentally preferable solutions and should support Contracting Authorities in achieving their environmental, decarbonisation and net zero objectives.",
+        "status": "active",
+        "value": {
+         "amountGross": 960000000,
+         "amount": 800000000,
+         "currency": "GBP"
+        },
+        "awardCriteria": {
+         "criteria": [
+          {
+           "type": "quality",
+           "name": "Quality",
+           "numbers": [
+            {
+             "number": 70,
+             "weight": "percentageExact"
+            }
+           ]
+          },
+          {
+           "type": "price",
+           "name": "Price",
+           "numbers": [
+            {
+             "number": 30,
+             "weight": "percentageExact"
+            }
+           ]
+          }
+         ]
+        },
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-02-01T00:00:00Z",
+         "endDate": "2035-01-31T23:59:59Z"
+        },
+        "hasOptions": true,
+        "options": {
+         "description": "The framework includes an initial basket of commonly purchased goods for evaluation and pricing purposes. Contracting authorities may, during the term of the framework, procure any products falling within the scope of the relevant category/categories covered by the framework, including products not expressly listed within the initial basket, provided such products are consistent with the advertised scope, specification and CPV coverage of the framework."
+        }
+       }
+      ],
+      "documents": [
+       {
+        "id": "conflictOfInterest",
+        "documentType": "conflictOfInterest",
+        "description": "Not published"
+       },
+       {
+        "id": "L-1",
+        "documentType": "biddingDocuments",
+        "description": "Bidders can view the opportunity by accessing the e-tendering platform open-uk.org. All associated tender documents can be found on the e-tendering platform. \nBidders are required to create an account on Open. If any issues are encountered, please contact open.support@nepo.org",
+        "url": "https://www.open-uk.org/"
+       },
+       {
+        "id": "086630-2026",
+        "documentType": "tenderNotice",
+        "noticeType": "UK4",
+        "description": "Tender notice on Find a Tender",
+        "url": "https://www.find-tender.service.gov.uk/Notice/086630-2026",
+        "datePublished": "2026-09-11T16:52:33+01:00",
+        "format": "text/html"
+       }
+      ],
+      "hasRecurrence": true,
+      "recurrence": {
+       "dates": [
+        {
+         "startDate": "2028-09-01T23:59:59+01:00"
+        }
+       ]
+      }
+     },
+     "language": "en"
+    },
+    {
+     "ocid": "ocds-h6vhtk-06f877",
+     "id": "086589-2026",
+     "date": "2026-09-11T16:04:29+01:00",
+     "tag": [
+      "tender"
+     ],
+     "description": "NOTE: To register your interest in this notice and obtain any additional information please visit the Public Contracts Scotland Web Site at https://www.publiccontractsscotland.gov.uk/Search/Search_Switch.aspx?ID=842768.\nThe buyer has indicated that it will accept electronic responses to this notice via the Postbox facility. A user guide is available at https://www.publiccontractsscotland.gov.uk/sitehelp/help_guides.aspx.\nSuppliers are advised to allow adequate time for uploading documents and to dispatch the electronic response well in advance of the closing time to avoid any last minute problems.\nA sub-contract clause has been included in this contract. For more information see: http://www.publiccontractsscotland.gov.uk/info/InfoCentre.aspx?ID=2363\n(SC Ref:842768)\nDownload the ESPD document here: https://www.publiccontractsscotland.gov.uk/ESPD/ESPD_Download.aspx?id=842768",
+     "initiationType": "tender",
+     "tender": {
+      "id": "ocds-h6vhtk-06f877",
+      "legalBasis": {
+       "id": "32014L0024",
+       "scheme": "CELEX"
+      },
+      "title": "Peatland ACTION FW02 Field Ecologists Framework",
+      "status": "active",
+      "classification": {
+       "scheme": "CPV",
+       "id": "90700000",
+       "description": "Environmental services"
+      },
+      "mainProcurementCategory": "services",
+      "description": "NatureScot work to improve our natural environment in Scotland and inspire everyone to care more about it. We work to ensure that all nature in Scotland - our key habitats and landscapes, all our green space and our native species - are maintained, enhanced and bring us benefits. Our priority is a nature-rich future for Scotland and an effective response to the climate emergency.\nPeatland ACTION funding - from Scottish Government - primarily supports on-the-ground peatland restoration activities and is open for applications from eligible land managers who have peatlands that would benefit from restoration. There are no geographical restrictions or target areas for Peatland ACTION funding. Peatlands are an iconic part of the Scottish landscape and have many benefits for people and nature. Healthy peatlands provide important ecosystem services including storing and sequestering carbon, supporting unique and specialised biodiversity, improving downstream water quality, and regulating water flow to provide natural flood management. In contrast, damage to peatlands reduces or reverses these benefits. For example, degraded peatlands release stored carbon and are a major global source of greenhouse gas emissions.\nPeatland ACTION is led and funded by Scottish Government and delivered in partnership with NatureScot, Cairngorms National Park Authority, Loch Lomond & the Trossachs National Park Authority, Forestry and Land Scotland, and Scottish Water.\nSince 2012, Peatland ACTION has set over 66,000 hectares of degraded peatland on the road to recovery, but this effort needs to accelerate rapidly in the coming years to help address the twin crises of the climate emergency and biodiversity loss.\nThe appointed Field Ecologists will work with the Peatland ACTION Technical Team and Project Officers located across Scotland to help support species and ecological survey requirements for Peatland ACTION restoration sites.",
+      "value": {
+       "amount": 450000,
+       "currency": "GBP"
+      },
+      "lots": [
+       {
+        "id": "1",
+        "description": "The primary role for the appointed Field Ecologists will be to carry out protected species surveys on request, which may include surveys for breeding birds (including Schedule 1 species), raptor roosts, mammals, freshwater pearl mussel, reptiles, or plants.\nField Ecologists must be suitably skilled and experienced in carrying out a range of species surveys of this nature. Surveys conducted prior to peatland restoration work commencing on site will be used to plan the restoration work and ensure all project personnel (agents, contractors / workers) are aware of the presence of any protected species on site and any mitigation and licensing requirements.\nSurveys conducted during restoration works will also be used to provide continued ecological support to project personnel, including mitigation requirements, safe working distances/buffer zones, preparation of species protection plans and may include giving toolbox talks. Additional information: Scotland Excel is acting on behalf of NatureScot in the execution of this tender but will not be party to the contract or the management of the contract throughout its lifetime.",
+        "awardCriteria": {
+         "criteria": [
+          {
+           "name": "Geographic Region",
+           "type": "quality",
+           "description": "Information Only"
+          },
+          {
+           "name": "Key Personnel",
+           "type": "quality",
+           "description": "25%"
+          },
+          {
+           "name": "Data Management and Submission Processes",
+           "type": "quality",
+           "description": "25%"
+          },
+          {
+           "name": "Capacity and Resourcing",
+           "type": "quality",
+           "description": "25%"
+          },
+          {
+           "name": "Health, Safety and Remote Site Working",
+           "type": "quality",
+           "description": "15%"
+          },
+          {
+           "name": "Sustainability",
+           "type": "quality",
+           "description": "5%"
+          },
+          {
+           "name": "Fair Work First",
+           "type": "quality",
+           "description": "5%"
+          },
+          {
+           "type": "price",
+           "description": "30%"
+          }
+         ]
+        },
+        "contractPeriod": {
+         "startDate": "2027-01-18T00:00:00Z",
+         "endDate": "2027-03-31T23:59:59+01:00"
+        },
+        "hasRenewal": true,
+        "renewal": {
+         "description": "Annual extension available until 31 March 2031"
+        },
+        "submissionTerms": {
+         "variantPolicy": "notAllowed"
+        },
+        "hasOptions": false,
+        "status": "active"
+       }
+      ],
+      "items": [
+       {
+        "id": "1",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "09112000",
+          "description": "Lignite and peat"
+         },
+         {
+          "scheme": "CPV",
+          "id": "09112200",
+          "description": "Peat"
+         },
+         {
+          "scheme": "CPV",
+          "id": "77000000",
+          "description": "Agricultural, forestry, horticultural, aquacultural and apicultural services"
+         },
+         {
+          "scheme": "CPV",
+          "id": "90700000",
+          "description": "Environmental services"
+         },
+         {
+          "scheme": "CPV",
+          "id": "90711500",
+          "description": "Environmental monitoring other than for construction"
+         },
+         {
+          "scheme": "CPV",
+          "id": "71350000",
+          "description": "Engineering-related scientific and technical services"
+         },
+         {
+          "scheme": "CPV",
+          "id": "71354100",
+          "description": "Digital mapping services"
+         },
+         {
+          "scheme": "CPV",
+          "id": "90711000",
+          "description": "Environmental impact assessment other than for construction"
+         },
+         {
+          "scheme": "CPV",
+          "id": "90711300",
+          "description": "Environmental indicators analysis other than for construction"
+         },
+         {
+          "scheme": "CPV",
+          "id": "90711400",
+          "description": "Environmental Impact Assessment (EIA) services other than for construction"
+         },
+         {
+          "scheme": "CPV",
+          "id": "45100000",
+          "description": "Site preparation work"
+         },
+         {
+          "scheme": "CPV",
+          "id": "45111240",
+          "description": "Ground-drainage work"
+         },
+         {
+          "scheme": "CPV",
+          "id": "45111230",
+          "description": "Ground-stabilisation work"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UKM"
+         }
+        ],
+        "relatedLot": "1"
+       }
+      ],
+      "submissionMethod": [
+       "electronicSubmission"
+      ],
+      "submissionMethodDetails": "https://www.publiccontractsscotland.gov.uk/",
+      "documents": [
+       {
+        "documentType": "economicSelectionCriteria",
+        "id": "economic"
+       },
+       {
+        "documentType": "technicalSelectionCriteria",
+        "id": "technical"
+       }
+      ],
+      "procurementMethod": "open",
+      "procurementMethodDetails": "Open procedure",
+      "techniques": {
+       "hasFrameworkAgreement": true,
+       "frameworkAgreement": {
+        "maximumParticipants": 20
+       }
+      },
+      "coveredBy": [
+       "GPA"
+      ],
+      "tenderPeriod": {
+       "endDate": "2026-11-06T12:00:00Z"
+      },
+      "submissionTerms": {
+       "languages": [
+        "en"
+       ],
+       "bidValidityPeriod": {
+        "durationInDays": 120
+       }
+      },
+      "awardPeriod": {
+       "startDate": "2026-11-06T12:00:00Z"
+      },
+      "bidOpening": {
+       "date": "2026-11-06T12:00:00Z"
+      },
+      "hasRecurrence": true,
+      "contractTerms": {
+       "hasElectronicOrdering": true,
+       "electronicInvoicingPolicy": "allowed",
+       "hasElectronicPayment": true
+      },
+      "recurrence": {
+       "description": "Prior to the expiry of the contract including any extension periods exercised."
+      }
+     },
+     "parties": [
+      {
+       "name": "Scottish Natural Heritage",
+       "id": "GB-FTS-2926",
+       "identifier": {
+        "legalName": "Scottish Natural Heritage"
+       },
+       "address": {
+        "streetAddress": "Great Glen House, Leachkin Road",
+        "locality": "Inverness",
+        "region": "UKM62",
+        "postalCode": "IV3 8NW",
+        "countryName": "United Kingdom"
+       },
+       "roles": [
+        "buyer",
+        "centralPurchasingBody"
+       ],
+       "details": {
+        "url": "http://www.nature.scot",
+        "buyerProfile": "https://www.publiccontractsscotland.gov.uk/search/Search_AuthProfile.aspx?ID=AA00383",
+        "classifications": [
+         {
+          "scheme": "TED_CA_TYPE",
+          "id": "NATIONAL_AGENCY",
+          "description": "National or federal agency/office"
+         },
+         {
+          "scheme": "COFOG",
+          "id": "05",
+          "description": "Environmental protection"
+         }
+        ]
+       }
+      },
+      {
+       "name": "Inverness Sheriff Court and Justice of the Peace Court",
+       "id": "GB-FTS-159053",
+       "identifier": {
+        "legalName": "Inverness Sheriff Court and Justice of the Peace Court"
+       },
+       "address": {
+        "streetAddress": "Inverness Justice Centre, Longman Road",
+        "locality": "Inverness",
+        "postalCode": "IV1 1AH",
+        "countryName": "United Kingdom"
+       },
+       "roles": [
+        "reviewBody"
+       ]
+      }
+     ],
+     "buyer": {
+      "id": "GB-FTS-2926",
+      "name": "Scottish Natural Heritage"
+     },
+     "links": [
+      {
+       "rel": "canonical",
+       "href": "https://api.publiccontractsscotland.gov.uk/v1/Notice?id=ocds-r6ebe6-0000842768"
+      }
+     ],
+     "language": "en"
+    },
+    {
+     "id": "086554-2026",
+     "tag": [
+      "tender"
+     ],
+     "date": "2026-09-11T15:29:21+01:00",
+     "initiationType": "tender",
+     "ocid": "ocds-h6vhtk-0696e6",
+     "parties": [
+      {
+       "name": "EASTERN PROCUREMENT LIMITED",
+       "id": "GB-COH-08351985",
+       "identifier": {
+        "scheme": "GB-COH",
+        "id": "08351985"
+       },
+       "additionalIdentifiers": [
+        {
+         "scheme": "GB-PPON",
+         "id": "PGRJ-3778-TPRL"
+        }
+       ],
+       "address": {
+        "streetAddress": "The Old Granary Grange Farm",
+        "locality": "Norwich",
+        "postalCode": "NR16 1ET",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKH17"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "https://eastern-procurement.co.uk/",
+        "classifications": [
+         {
+          "scheme": "UK_CA_TYPE",
+          "id": "publicUndertaking",
+          "description": "Public undertaking"
+         }
+        ]
+       }
+      }
+     ],
+     "buyer": {
+      "id": "GB-COH-08351985",
+      "name": "EASTERN PROCUREMENT LIMITED"
+     },
+     "tender": {
+      "id": "ocds-h6vhtk-0696e6",
+      "legalBasis": {
+       "id": "2023/54",
+       "scheme": "UKPGA",
+       "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+      },
+      "title": "Heating, Electrical, Mechanical and Decarbonisation Framework",
+      "description": "The procurement will establish a single combined, multi-supplier Heating, Electrical, Mechanical and Decarbonisation Framework, not divided into lots, for the provision of works and associated services to domestic and non-domestic properties and buildings, including occupied and void properties. The scope will include, but is not limited to, the provision, supply, installation, replacement, upgrading, servicing, statutory and safety inspection, testing, planned and responsive maintenance and repair of heating, electrical, mechanical, renewable, low-carbon and associated energy systems. Heating works and services will include domestic and commercial/communal systems and equipment using gas, oil, solid fuel, electricity and renewable or low-carbon technologies, including gas and oil boilers, electric storage and panel heaters, electric low-pressure hot water boilers, air source heat pumps, solar-assisted heat pumps, ground source heat pumps, biomass boilers, combined heat and power and micro-CHP systems, heat networks, solar thermal systems, microgeneration installations, wind turbines and other emerging renewable heating and energy technologies. Associated heating and hot-water systems may include hot and cold water services, vented and unvented hot-water cylinders, oil storage tanks, flues, pumps, filling loops, pipework, radiators, low-surface-temperature radiators, fan convectors, controls, smart thermostats and associated electrical controls, together with pipework system cleaning, flushing, de-sludging, de-scaling, sterilisation, water treatment and pipe insulation. The framework will include annual heating safety checks and servicing, Landlord safety and compliance requirements, servicing and maintenance of thermostatic mixing valves and unvented cylinders, planned and responsive repairs, breakdown services, replacement of defective components and systems, void and mutual-exchange checks and emergency and out-of-hours attendance, including 24-hour, 365/366-day services where required. Electrical works and services will include complete and partial rewiring, upgrading, alteration, inspection, testing, certification, Electrical Installation Condition Reports and associated remedial works; consumer units and distribution equipment; RCBOs, RCDs/RCCBs, AFDDs and surge protection devices; main service intake works and associated DNO requirements; earthing and bonding; power, lighting and final circuits; sockets, switches and appliance supplies; immersion heaters; electric showers; connections to heating and boiler systems; external and communal/landlord lighting; supplies to outbuildings and external stores; extract fans and ventilation-related electrical works; doorbells; TV aerial cabling and outlets; photocells, time switches and lighting controls; and associated electrical equipment and systems. The electrical scope will also include domestic fire detection and smoke, heat and carbon-monoxide alarm systems and associated equipment, including interconnection and radio-frequency equipment, together with servicing, maintenance and responsive repair of electric heating installations and 24-hour breakdown provision. Electric vehicle charging infrastructure may be supplied and installed, including associated equipment and services required to provide fully operational charging installations. Mechanical works and services will include mechanical ventilation with heat recovery systems and associated equipment, thermostatic mixing valves, boosted cold-water pump installations and other mechanical equipment associated with heating, hot water, ventilation and energy systems, including servicing and maintenance where required. The decarbonisation and energy scope will include solar photovoltaic systems and associated services, including inverters, controls, metering, monitoring and battery storage systems, together with solar thermal, air source heat pumps, ground source heat pumps, solar-assisted heat pumps, biomass, CHP/micro-CHP, heat networks, wind turbines, mechanical ventilation with heat recovery, smart heating controls, sensors and monitoring equipment and other emerging renewable, low-carbon and energy-efficiency technologies associated with the heating, electrical, mechanical and decarbonisation scope that may be required during the life of the framework. The framework may support retrofit, decarbonisation, ventilation, overheating, indoor-air-quality, EPC improvement, net-zero and future energy-performance requirements, including requirements arising from grant-funded programmes. Retrofit assessment, energy and technical support services may include pre- and post-works Energy Performance Certificates, energy assessments, SAP10 assessments, retrofit assessments, retrofit coordination, retrofit design, PAS 2035 site visits, air-pressure testing, technical monitoring and cavity-wall borescope services, together with associated services. Legionella risk assessments may also be instructed where required in connection with the works and systems covered by the framework. Project management services may be provided for heating, electrical, mechanical, retrofit and decarbonisation programmes, including grant-funded programmes, and may include management and coordination of the appointed supplier's own works and/or coordination of works delivered in collaboration with other framework suppliers. Requirements may be delivered as individual property works, grouped schemes, planned programmes, servicing and compliance programmes, responsive repairs, emergency works, grant-funded projects and larger retrofit or decarbonisation programmes, together with associated services. The framework is intended to remain sufficiently flexible to respond to changes in legislation, technical standards, funding requirements and technology during its term, including the introduction of emerging renewable and energy-efficiency measures falling within the heating, electrical, mechanical and decarbonisation scope. Suppliers appointed to the framework, either directly or through their declared supply chain, will be required to have the capability to deliver the overall range of works and services included within the scope.",
+      "status": "active",
+      "items": [
+       {
+        "id": "1",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "09300000",
+          "description": "Electricity, heating, solar and nuclear energy"
+         },
+         {
+          "scheme": "CPV",
+          "id": "31600000",
+          "description": "Electrical equipment and apparatus"
+         },
+         {
+          "scheme": "CPV",
+          "id": "38431100",
+          "description": "Gas-detection apparatus"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42160000",
+          "description": "Boiler installations"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42500000",
+          "description": "Cooling and ventilation equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44163121",
+          "description": "Heating pipes"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44620000",
+          "description": "Central-heating radiators and boilers and parts"
+         },
+         {
+          "scheme": "CPV",
+          "id": "45000000",
+          "description": "Construction work"
+         },
+         {
+          "scheme": "CPV",
+          "id": "51100000",
+          "description": "Installation services of electrical and mechanical equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "71300000",
+          "description": "Engineering services"
+         },
+         {
+          "scheme": "CPV",
+          "id": "71541000",
+          "description": "Construction project management services"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UKC",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKD",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKE",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKF",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKG",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKH",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKI",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKJ",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKK",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKL",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKM",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "GG",
+          "country": "GG",
+          "countryName": "Guernsey"
+         },
+         {
+          "region": "IM",
+          "country": "IM",
+          "countryName": "Isle of Man"
+         },
+         {
+          "region": "JE",
+          "country": "JE",
+          "countryName": "Jersey"
+         }
+        ],
+        "relatedLot": "1"
+       }
+      ],
+      "value": {
+       "amountGross": 1273166760.56,
+       "amount": 1060972300.47,
+       "currency": "GBP"
+      },
+      "procurementMethod": "open",
+      "procurementMethodDetails": "Open procedure",
+      "mainProcurementCategory": "works",
+      "aboveThreshold": true,
+      "participationFees": [
+       {
+        "type": [
+         "win"
+        ],
+        "relativeValue": {
+         "proportion": 0.02,
+         "monetaryValue": "award"
+        },
+        "id": "ocds-h6vhtk-0696e6"
+       }
+      ],
+      "techniques": {
+       "hasFrameworkAgreement": true,
+       "frameworkAgreement": {
+        "maximumParticipants": 10,
+        "method": "withAndWithoutReopeningCompetition",
+        "type": "open",
+        "buyerCategories": "Any entity which meets the definition of \"contracting authority\" under the PA2023 will be entitled to use the framework.",
+        "description": "Full details are available in the tender documents. The framework agreement is in the form of a FAC-1 contract with amendments allowing for call-off contracts to be awarded by award with or without further competition in accordance with the rules set out in the framework agreement. A copy of the framework agreement is available as part of the tender pack and interested bidders should read this carefully."
+       }
+      },
+      "submissionMethodDetails": "https://in-tendhost.co.uk/epl/aspx/home",
+      "submissionTerms": {
+       "electronicSubmissionPolicy": "allowed",
+       "languages": [
+        "en"
+       ]
+      },
+      "tenderPeriod": {
+       "endDate": "2026-10-21T12:00:00+01:00"
+      },
+      "enquiryPeriod": {
+       "endDate": "2026-10-12T12:00:00+01:00"
+      },
+      "awardPeriod": {
+       "endDate": "2026-12-09T23:59:59Z"
+      },
+      "lots": [
+       {
+        "id": "1",
+        "status": "active",
+        "value": {
+         "amountGross": 1273166760.56,
+         "amount": 1060972300.47,
+         "currency": "GBP"
+        },
+        "awardCriteria": {
+         "weightingDescription": "A price per quality point ratio will be applied. Each Tenderer's total price will be divided by their quality score to calculate a price per quality point. The Tenderer with the lowest ratio will be ranked first, with others ranked in ascending order.",
+         "criteria": [
+          {
+           "type": "price",
+           "name": "Price"
+          }
+         ]
+        },
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-01-06T00:00:00Z",
+         "endDate": "2031-01-05T23:59:59Z"
+        }
+       }
+      ],
+      "lotDetails": {
+       "noLotsDivisionRationale": "The Framework has not been divided into lots as pre-market engagement with Members identified a strong preference for a single, integrated turnkey solution covering the full scope of services. A combined delivery model is considered to best support Member requirements, provide effective coordination across the services, and deliver value for money."
+      },
+      "documents": [
+       {
+        "id": "conflictOfInterest",
+        "documentType": "conflictOfInterest",
+        "description": "Not published"
+       },
+       {
+        "id": "L-1",
+        "documentType": "biddingDocuments",
+        "url": "https://in-tendhost.co.uk/epl/aspx/home"
+       },
+       {
+        "id": "086554-2026",
+        "documentType": "tenderNotice",
+        "noticeType": "UK4",
+        "description": "Tender notice on Find a Tender",
+        "url": "https://www.find-tender.service.gov.uk/Notice/086554-2026",
+        "datePublished": "2026-09-11T15:29:21+01:00",
+        "format": "text/html"
+       }
+      ],
+      "hasRecurrence": true,
+      "recurrence": {
+       "dates": [
+        {
+         "startDate": "2030-06-01T23:59:59+01:00"
+        }
+       ]
+      }
+     },
+     "language": "en"
+    },
+    {
+     "ocid": "ocds-h6vhtk-06f82d",
+     "id": "086463-2026",
+     "tag": [
+      "tender"
+     ],
+     "date": "2026-09-11T14:21:35+01:00",
+     "initiationType": "tender",
+     "parties": [
+      {
+       "name": "North Wales Shared services Partnership",
+       "id": "GB-PPON-PXWV-6492-CGMN",
+       "identifier": {
+        "scheme": "GB-PPON",
+        "id": "PXWV-6492-CGMN"
+       },
+       "address": {
+        "streetAddress": "Alder House",
+        "locality": "St Asaph",
+        "postalCode": "LL17 0JL",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKL13"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "https://etenderwales.ukp.app.jaggaer.com/home.html",
+        "classifications": [
+         {
+          "scheme": "UK_CA_TYPE",
+          "id": "publicAuthorityCentralGovernment",
+          "description": "Public authority - central government"
+         },
+         {
+          "scheme": "UK_CA_DEVOLVED_REGULATIONS",
+          "id": "GB-WLS",
+          "description": "Welsh devolved regulations apply"
+         }
+        ]
+       }
+      },
+      {
+       "name": "Betsi Cadwaladr University Health Board",
+       "id": "GB-PPON-PHBY-3981-QBMR",
+       "identifier": {
+        "scheme": "GB-PPON",
+        "id": "PHBY-3981-QBMR"
+       },
+       "address": {
+        "streetAddress": "betsi Cadwaladr University Health Board",
+        "locality": "Wales",
+        "postalCode": "LL18 5UJ",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKL13"
+       },
+       "roles": [
+        "procuringEntity"
+       ],
+       "roleDetails": "End User",
+       "details": {
+        "url": "https://etenderwales.ukp.app.jaggaer.com/home.html"
+       }
+      }
+     ],
+     "buyer": {
+      "id": "GB-PPON-PXWV-6492-CGMN",
+      "name": "North Wales Shared services Partnership"
+     },
+     "planning": {
+      "noEngagementNoticeRationale": "Not Applicable."
+     },
+     "tender": {
+      "id": "BCU-FTS-63584",
+      "legalBasis": {
+       "id": "2023/54",
+       "scheme": "UKPGA",
+       "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+      },
+      "title": "BCU-FTS-63584 YGC CHILLIER REPLACEMENT",
+      "description": "Please use Etender Wales to search - itt_127330",
+      "status": "active",
+      "items": [
+       {
+        "id": "1",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "31000000",
+          "description": "Electrical machinery, apparatus, equipment and consumables; lighting"
+         },
+         {
+          "scheme": "CPV",
+          "id": "30000000",
+          "description": "Office and computing machinery, equipment and supplies except furniture and software packages"
+         },
+         {
+          "scheme": "CPV",
+          "id": "45000000",
+          "description": "Construction work"
+         },
+         {
+          "scheme": "CPV",
+          "id": "51000000",
+          "description": "Installation services (except software)"
+         },
+         {
+          "scheme": "CPV",
+          "id": "70000000",
+          "description": "Real estate services"
+         },
+         {
+          "scheme": "CPV",
+          "id": "72000000",
+          "description": "IT services: consulting, software development, Internet and support"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UK",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "1"
+       }
+      ],
+      "value": {
+       "amountGross": 300000.0,
+       "amount": 250000.0,
+       "currency": "GBP"
+      },
+      "procurementMethod": "open",
+      "procurementMethodDetails": "Open procedure",
+      "mainProcurementCategory": "works",
+      "aboveThreshold": true,
+      "submissionMethodDetails": "Must upload via itt_127330 - https://etenderwales.ukp.app.jaggaer.com/home.html",
+      "submissionTerms": {
+       "electronicSubmissionPolicy": "allowed",
+       "languages": [
+        "en"
+       ]
+      },
+      "tenderPeriod": {
+       "endDate": "2026-10-07T00:00:00+01:00"
+      },
+      "enquiryPeriod": {
+       "endDate": "2026-10-02T00:00:00+01:00"
+      },
+      "awardPeriod": {
+       "endDate": "2026-11-30T23:59:59+00:00"
+      },
+      "lots": [
+       {
+        "id": "1",
+        "status": "active",
+        "value": {
+         "amountGross": 300000.0,
+         "amount": 250000.0,
+         "currency": "GBP"
+        },
+        "awardCriteria": {
+         "criteria": [
+          {
+           "type": "quality",
+           "name": "Technical",
+           "numbers": [
+            {
+             "number": 60.0,
+             "weight": "percentageExact"
+            }
+           ]
+          },
+          {
+           "type": "price",
+           "name": "Commercial",
+           "numbers": [
+            {
+             "number": 40.0,
+             "weight": "percentageExact"
+            }
+           ]
+          }
+         ]
+        },
+        "suitability": {
+         "sme": true,
+         "vcse": true
+        },
+        "contractPeriod": {
+         "startDate": "2026-12-01T00:00:00+00:00",
+         "endDate": "2026-12-31T23:59:59+00:00"
+        },
+        "description": null
+       }
+      ],
+      "documents": [
+       {
+        "id": "L-1",
+        "documentType": "biddingDocuments",
+        "description": "itt_127330",
+        "url": "https://etenderwales.ukp.app.jaggaer.com/home.html"
+       },
+       {
+        "id": "L-2",
+        "documentType": "technicalSpecifications",
+        "description": "itt_127330",
+        "url": "https://etenderwales.ukp.app.jaggaer.com/home.html"
+       },
+       {
+        "id": "conflictOfInterest",
+        "documentType": "conflictOfInterest",
+        "description": "Not published"
+       },
+       {
+        "id": "086463-2026",
+        "documentType": "tenderNotice",
+        "noticeType": "UK4",
+        "description": "Tender notice on Find a Tender",
+        "url": "https://www.find-tender.service.gov.uk/Notice/086463-2026",
+        "datePublished": "2026-09-11T14:21:35+01:00",
+        "format": "text/html"
+       }
+      ]
+     },
+     "language": "en"
+    },
+    {
+     "id": "086423-2026",
+     "tag": [
+      "tender"
+     ],
+     "date": "2026-09-11T13:44:04+01:00",
+     "initiationType": "tender",
+     "ocid": "ocds-h6vhtk-0594ef",
+     "parties": [
+      {
+       "name": "MAG AIRPORT LIMITED",
+       "id": "GB-COH-11748654",
+       "identifier": {
+        "scheme": "GB-COH",
+        "id": "11748654"
+       },
+       "additionalIdentifiers": [
+        {
+         "scheme": "GB-PPON",
+         "id": "PHNZ-5718-LHXL"
+        }
+       ],
+       "address": {
+        "streetAddress": "6th Floor, Olympic House",
+        "locality": "Manchester",
+        "postalCode": "M90 1QX",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKD33"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "https://www.magairports.com/",
+        "classifications": [
+         {
+          "scheme": "UK_CA_TYPE",
+          "id": "publicUndertaking",
+          "description": "Public undertaking"
+         }
+        ]
+       }
+      }
+     ],
+     "buyer": {
+      "id": "GB-COH-11748654",
+      "name": "MAG AIRPORT LIMITED"
+     },
+     "tender": {
+      "id": "ID7429",
+      "legalBasis": {
+       "id": "2023/54",
+       "scheme": "UKPGA",
+       "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+      },
+      "title": "Group Plant & Tool Hire Tender",
+      "description": "MAG is seeking to award a contract for the provision of Plant and Tool Hire services across its UK airports through a Competitive Flexible Procedure in accordance with the Procurement Act 2023.\nThe successful supplier will be required to provide access to a comprehensive range of plant, powered access equipment, lifting equipment, accommodation units, generators, pumps, survey equipment, temporary site equipment, tools and associated accessories to support operational, maintenance and construction activities across Manchester, Stansted and East Midlands Airport. The contract will also support the requirements of approved third-party contractors operating on MAG sites.\nThe appointed supplier will be responsible for the supply, delivery, collection and ongoing support of hire assets, together with management information and spend reporting to support effective contract management and continuous improvement throughout the contract term.\nThe procurement seeks to establish a single contractual arrangement with a supplier capable of delivering a responsive, compliant and commercially competitive service across all MAG locations.\nBidders will be evaluated against the following criteria:\nTechnical\nCommercial\nESG\nLegal and Contractual Compliance",
+      "status": "active",
+      "items": [
+       {
+        "id": "1",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "31120000",
+          "description": "Generators"
+         },
+         {
+          "scheme": "CPV",
+          "id": "31518100",
+          "description": "Floodlights"
+         },
+         {
+          "scheme": "CPV",
+          "id": "38296000",
+          "description": "Surveying instruments"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42122000",
+          "description": "Pumps"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42123000",
+          "description": "Compressors"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42410000",
+          "description": "Lifting and handling equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42500000",
+          "description": "Cooling and ventilation equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "42650000",
+          "description": "Pneumatic or motorised hand tools"
+         },
+         {
+          "scheme": "CPV",
+          "id": "43200000",
+          "description": "Earthmoving and excavating machinery, and associated parts"
+         },
+         {
+          "scheme": "CPV",
+          "id": "43300000",
+          "description": "Construction machinery and equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "43830000",
+          "description": "Power tools"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44100000",
+          "description": "Construction materials and associated items"
+         },
+         {
+          "scheme": "CPV",
+          "id": "44211100",
+          "description": "Modular and portable buildings"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UKD",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKF",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKJ",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "1"
+       }
+      ],
+      "value": {
+       "amountGross": 1200000,
+       "amount": 1000000,
+       "currency": "GBP"
+      },
+      "procurementMethod": "open",
+      "procurementMethodDetails": "Competitive flexible procedure",
+      "procedure": {
+       "features": "This tender will be a multi-stage process following the below steps:\n\tStage 1 - PQQ / Selection questionnaire\n\tStage 2 - Tender response (ITN)\n\tStage 3 - BAFO (optional)\n\tStage 4 - Contract Award\nFurther information about what is to be expected within each stage will be described in the relevant documents provided by the MAG Procurement team."
+      },
+      "mainProcurementCategory": "goods",
+      "specialRegime": [
+       "utilities"
+      ],
+      "aboveThreshold": true,
+      "submissionMethodDetails": "If you are wishing to express an interest in this opportunity please register your company details on the MAG portal, on the following URL and select \"Register your interest\". Please note that the PQQ submission deadline is 15:00 12th October 2026. \nhttps://www.magairports.com/work-with-us/procurement-and-contracts/\nPlease contact Dan Garnett on dan.garnett@magairports.com with any questions.",
+      "submissionTerms": {
+       "electronicSubmissionPolicy": "allowed",
+       "languages": [
+        "en"
+       ]
+      },
+      "tenderPeriod": {
+       "endDate": "2026-11-30T23:59:59Z"
+      },
+      "awardPeriod": {
+       "endDate": "2027-02-01T23:59:59Z"
+      },
+      "lots": [
+       {
+        "id": "1",
+        "status": "active",
+        "value": {
+         "amountGross": 1200000,
+         "amount": 1000000,
+         "currency": "GBP"
+        },
+        "awardCriteria": {
+         "criteria": [
+          {
+           "type": "price",
+           "name": "Commercial",
+           "numbers": [
+            {
+             "number": 70,
+             "weight": "percentageExact"
+            }
+           ]
+          },
+          {
+           "type": "quality",
+           "name": "Technical",
+           "numbers": [
+            {
+             "number": 15,
+             "weight": "percentageExact"
+            }
+           ]
+          },
+          {
+           "type": "quality",
+           "name": "ESG",
+           "numbers": [
+            {
+             "number": 15,
+             "weight": "percentageExact"
+            }
+           ]
+          }
+         ]
+        },
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-03-04T00:00:00Z",
+         "endDate": "2030-03-03T23:59:59Z",
+         "maxExtentDate": "2032-03-03T23:59:59Z"
+        },
+        "hasRenewal": true,
+        "renewal": {
+         "description": "The proposed contract will include optional extension periods, exercisable at Manchester Airports Group's discretion.\nThe initial contract term is expected to be three (3) years, with the option to extend for up to two (2) additional one‑year periods, giving a maximum total contract duration of five (5) years."
+        },
+        "hasOptions": true,
+        "options": {
+         "description": "While this agreement has the primary purpose of enabling the hire of assets within the scope, there is also potential for purchases to be made through the contract period."
+        }
+       }
+      ],
+      "documents": [
+       {
+        "id": "conflictOfInterest",
+        "documentType": "conflictOfInterest",
+        "description": "Not published"
+       },
+       {
+        "id": "086423-2026",
+        "documentType": "tenderNotice",
+        "noticeType": "UK4",
+        "description": "Tender notice on Find a Tender",
+        "url": "https://www.find-tender.service.gov.uk/Notice/086423-2026",
+        "datePublished": "2026-09-11T13:44:04+01:00",
+        "format": "text/html"
+       }
+      ]
+     },
+     "language": "en"
+    },
+    {
+     "ocid": "ocds-h6vhtk-06f817",
+     "id": "086418-2026",
+     "date": "2026-09-11T13:34:50+01:00",
+     "tag": [
+      "award",
+      "contract"
+     ],
+     "initiationType": "tender",
+     "tender": {
+      "id": "746-AHL",
+      "legalBasis": {
+       "id": "32014L0024",
+       "scheme": "CELEX"
+      },
+      "title": "Electricity supplies (HH, NHH and UMS) - communal and offices",
+      "status": "complete",
+      "classification": {
+       "scheme": "CPV",
+       "id": "09310000",
+       "description": "Electricity"
+      },
+      "mainProcurementCategory": "goods",
+      "description": "Notification of award of contract for services related\nto the supply of electricity.\nThis contract has been called off from a Framework\nAgreement published in Find A Tender under Notice\nreference: 2025/S 000-005196.\nThis is a call-off contract and the values shown in\nthis award notice are based upon potential usage\nvolumes",
+      "lots": [
+       {
+        "id": "1",
+        "description": "Notification of award of contract for services related\nto the supply of electricity.\nThis contract has been called off from a Framework\nAgreement published in Find A Tender under Notice\nreference: 2025/S 000-005196.\nThis is a call-off contract and the values shown in\nthis award notice are based upon potential usage\nvolumes",
+        "awardCriteria": {
+         "criteria": [
+          {
+           "type": "price"
+          }
+         ]
+        },
+        "hasOptions": false,
+        "status": "cancelled"
+       }
+      ],
+      "items": [
+       {
+        "id": "1",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "09310000",
+          "description": "Electricity"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UKK1"
+         }
+        ],
+        "relatedLot": "1"
+       }
+      ],
+      "procurementMethod": "limited",
+      "procurementMethodDetails": "Award procedure without prior publication of a call for competition",
+      "coveredBy": [
+       "GPA"
+      ],
+      "procurementMethodRationaleClassifications": [
+       {
+        "scheme": "TED_PT_AWARD_CONTRACT_WITHOUT_CALL",
+        "id": "D_OUTSIDE_SCOPE",
+        "description": "The procurement falls outside the scope of application of the directive"
+       }
+      ],
+      "procurementMethodRationale": "Contract awarded by call off from a framework\nagreement"
+     },
+     "awards": [
+      {
+       "id": "086418-2026-1",
+       "relatedLots": [
+        "1"
+       ],
+       "status": "active",
+       "suppliers": [
+        {
+         "id": "GB-COH-02366852",
+         "name": "EDF ENERGY LIMITED"
+        }
+       ]
+      }
+     ],
+     "parties": [
+      {
+       "name": "NSAH (ALLIANCE HOMES) LIMITED",
+       "id": "GB-COH-IP29804R",
+       "identifier": {
+        "legalName": "NSAH (ALLIANCE HOMES) LIMITED",
+        "id": "IP29804R",
+        "scheme": "GB-COH"
+       },
+       "address": {
+        "streetAddress": "40 Martingale Way",
+        "locality": "Portishead",
+        "region": "UKK12",
+        "postalCode": "BS207AW",
+        "countryName": "United Kingdom"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "https://www.alliancehomes.org.uk/",
+        "classifications": [
+         {
+          "scheme": "TED_CA_TYPE",
+          "id": "BODY_PUBLIC",
+          "description": "Body governed by public law"
+         },
+         {
+          "scheme": "COFOG",
+          "id": "06",
+          "description": "Housing and community amenities"
+         }
+        ]
+       }
+      },
+      {
+       "name": "EDF ENERGY LIMITED",
+       "id": "GB-COH-02366852",
+       "identifier": {
+        "legalName": "EDF ENERGY LIMITED",
+        "id": "02366852",
+        "scheme": "GB-COH"
+       },
+       "address": {
+        "locality": "London",
+        "region": "UK",
+        "countryName": "United Kingdom"
+       },
+       "roles": [
+        "supplier"
+       ],
+       "details": {
+        "scale": "large"
+       }
+      },
+      {
+       "name": "NSAH (Alliance Homes) Ltd",
+       "id": "GB-FTS-14999",
+       "identifier": {
+        "legalName": "NSAH (Alliance Homes) Ltd"
+       },
+       "address": {
+        "locality": "Portishead",
+        "countryName": "United Kingdom"
+       },
+       "roles": [
+        "reviewBody"
+       ]
+      }
+     ],
+     "buyer": {
+      "id": "GB-COH-IP29804R",
+      "name": "NSAH (ALLIANCE HOMES) LIMITED"
+     },
+     "contracts": [
+      {
+       "id": "086418-2026-1",
+       "awardID": "086418-2026-1",
+       "status": "active",
+       "value": {
+        "amount": 666648,
+        "currency": "GBP"
+       },
+       "dateSigned": "2026-09-10T00:00:00+01:00"
+      }
+     ],
+     "bids": {
+      "statistics": [
+       {
+        "id": "1",
+        "measure": "bids",
+        "relatedLot": "1",
+        "value": 2
+       }
+      ]
+     },
+     "language": "en"
+    },
+    {
+     "buyerID": [],
+     "id": "086356-2026",
+     "tag": [
+      "planning"
+     ],
+     "date": "2026-09-11T12:10:34+01:00",
+     "initiationType": "tender",
+     "ocid": "ocds-h6vhtk-05881e",
+     "parties": [
+      {
+       "name": "FCDO Services",
+       "id": "GB-PPON-PXRT-4666-VHHJ",
+       "identifier": {
+        "scheme": "GB-PPON",
+        "id": "PXRT-4666-VHHJ"
+       },
+       "address": {
+        "streetAddress": "Hanslope Park",
+        "locality": "Milton Keynes",
+        "postalCode": "MK19 7BH",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKJ12"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "http://www.fcdoservices.gov.uk",
+        "classifications": [
+         {
+          "scheme": "UK_CA_TYPE",
+          "id": "publicAuthorityCentralGovernment",
+          "description": "Public authority - central government"
+         }
+        ]
+       }
+      }
+     ],
+     "buyer": {
+      "id": "GB-PPON-PXRT-4666-VHHJ",
+      "name": "FCDO Services"
+     },
+     "planning": {
+      "milestones": [
+       {
+        "id": "engagement",
+        "type": "engagement",
+        "description": "A market engagement session will take place on the morning of the Friday 25th September.  \nPlease email Tender.Request@fdco.gov.uk for an invitation to attend.",
+        "dueDate": "2026-09-25T23:59:59+01:00",
+        "status": "scheduled"
+       }
+      ],
+      "documents": [
+       {
+        "id": "086356-2026",
+        "documentType": "marketEngagementNotice",
+        "noticeType": "UK2",
+        "description": "Preliminary market engagement notice on Find a Tender",
+        "url": "https://www.find-tender.service.gov.uk/Notice/086356-2026",
+        "datePublished": "2026-09-11T12:10:34+01:00",
+        "format": "text/html"
+       }
+      ]
+     },
+     "tender": {
+      "id": "XLY120/069/25TP",
+      "legalBasis": {
+       "id": "2023/54",
+       "scheme": "UKPGA",
+       "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+      },
+      "title": "FCDO Services Global Works Framework",
+      "description": "The Authority is looking to establish a Global works framework split into multiple discipline lots. Separate ITT exercises will be conducted to award work packages to reputable contractors to complete works for FCDO Services around the World",
+      "items": [
+       {
+        "id": "1",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "50710000",
+          "description": "Repair and maintenance services of electrical and mechanical building installations"
+         },
+         {
+          "scheme": "CPV",
+          "id": "31625200",
+          "description": "Fire-alarm systems"
+         },
+         {
+          "scheme": "CPV",
+          "id": "45210000",
+          "description": "Building construction work"
+         },
+         {
+          "scheme": "CPV",
+          "id": "45262660",
+          "description": "Asbestos-removal work"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UK",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "1"
+       }
+      ],
+      "value": {
+       "amountGross": 144000000,
+       "amount": 120000000,
+       "currency": "GBP"
+      },
+      "mainProcurementCategory": "works",
+      "aboveThreshold": true,
+      "techniques": {
+       "hasFrameworkAgreement": true
+      },
+      "lots": [
+       {
+        "id": "1",
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-04-01T00:00:00+01:00",
+         "endDate": "2029-03-31T23:59:59+01:00",
+         "maxExtentDate": "2031-03-31T23:59:59+01:00"
+        },
+        "hasRenewal": true,
+        "description": null,
+        "status": "planned"
+       }
+      ],
+      "communication": {
+       "futureNoticeDate": "2026-10-15T23:59:59+01:00"
+      },
+      "status": "planned"
+     },
+     "language": "en"
+    },
+    {
+     "ocid": "ocds-h6vhtk-06f7ea",
+     "id": "086349-2026",
+     "tag": [
+      "planning"
+     ],
+     "date": "2026-09-11T12:03:03+01:00",
+     "initiationType": "tender",
+     "parties": [
+      {
+       "name": "UK Atomic Energy Authority",
+       "id": "GB-PPON-PLJV-1169-JTDD",
+       "identifier": {
+        "scheme": "GB-PPON",
+        "id": "PLJV-1169-JTDD"
+       },
+       "address": {
+        "streetAddress": "Culham Science Centre",
+        "locality": "Oxfordshire",
+        "postalCode": "OX14 3DB",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKJ14"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "https://www.gov.uk/government/organisations/uk-atomic-energy-authority",
+        "classifications": [
+         {
+          "scheme": "UK_CA_TYPE",
+          "id": "publicAuthorityCentralGovernment",
+          "description": "Public authority - central government"
+         }
+        ]
+       }
+      }
+     ],
+     "buyer": {
+      "id": "GB-PPON-PLJV-1169-JTDD",
+      "name": "UK Atomic Energy Authority"
+     },
+     "planning": {
+      "milestones": [
+       {
+        "id": "engagement",
+        "type": "engagement",
+        "description": "https://uk.eu-supply.com/app/rfq/rwlentrance_s.asp?PID=108965&TID=100114020&B=",
+        "dueDate": "2026-10-15T23:59:59+01:00",
+        "status": "scheduled"
+       }
+      ],
+      "documents": [
+       {
+        "id": "086349-2026",
+        "documentType": "marketEngagementNotice",
+        "noticeType": "UK2",
+        "description": "Preliminary market engagement notice on Find a Tender",
+        "url": "https://www.find-tender.service.gov.uk/Notice/086349-2026",
+        "datePublished": "2026-09-11T12:03:03+01:00",
+        "format": "text/html"
+       }
+      ]
+     },
+     "tender": {
+      "id": "T/085DB/26",
+      "legalBasis": {
+       "id": "2023/54",
+       "scheme": "UKPGA",
+       "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+      },
+      "title": "Control Software",
+      "description": "For this project We have 6 modules. Each module is made up of 3 stages. These stages are (1) an x-y stage, (2) a tilt goniometric stage, and (3) rotational stage. The links to these stages and the control box can be seen in the attached supporting document. The difference between our stages and the COTS stages is that each stage has a different motor to the COTS item (integrated 485 bus-type closed-loop stepper driver, IRS42E-K02, manual available). All modules are controlled via a single controller box. The controller box has power and user instructions from control software (via RS232 to USB cable) as inputs and has six output cables, each connected to one of the modules (RS232 to RS232). Each output cable is limited to 2m length. The cable from the controller connects to the bottom most stage of the module, that is the x-stage. The x-stage is then connected to the y-stage via a RS232 cable. The y-stage is connected to the goniometric stage via a RS232 cable. Finally, the goniometric stage is connected to the rotational stage via a RS232 cable. In this way, a controller with 6 outputs controls 6x4=24 motors. This setup is shown in the diagram and a picture of a single module is also provided on the attached supporting document. The control signal is sent via the control box to the desired module. If the control signal is not for the x-stage, the control signal is passed up the chain, and so on. We need the control software to interface with our existing hardware to control the 6 modules. The solution could interface with the existing control box, or alternatively provide a new controller to interface with the 6 modules. The requirements above are for the software/control of the 6 modules.",
+      "items": [
+       {
+        "id": "LOT-0000",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "72230000",
+          "description": "Custom software development services"
+         },
+         {
+          "scheme": "CPV",
+          "id": "31710000",
+          "description": "Electronic equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "38810000",
+          "description": "Industrial process control equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "38820000",
+          "description": "Remote-control equipment"
+         },
+         {
+          "scheme": "CPV",
+          "id": "48921000",
+          "description": "Automation system"
+         },
+         {
+          "scheme": "CPV",
+          "id": "72212100",
+          "description": "Industry specific software development services"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UKJ14",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "LOT-0000"
+       }
+      ],
+      "value": {
+       "amountGross": 24000,
+       "amount": 20000,
+       "currency": "GBP"
+      },
+      "mainProcurementCategory": "goods",
+      "aboveThreshold": false,
+      "lots": [
+       {
+        "id": "LOT-0000",
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2026-12-31T00:00:00Z",
+         "endDate": "2027-12-31T23:59:59Z"
+        },
+        "description": null,
+        "status": "planning"
+       }
+      ],
+      "communication": {
+       "futureNoticeDate": "2026-11-16T23:59:59Z"
+      },
+      "status": "planning"
+     },
+     "language": "en"
+    },
+    {
+     "buyerID": [],
+     "id": "086666-2026",
+     "tag": [
+      "planning"
+     ],
+     "date": "2026-09-12T00:23:40+01:00",
+     "initiationType": "tender",
+     "ocid": "ocds-h6vhtk-06af4f",
+     "parties": [
+      {
+       "name": "South Gloucestershire Council",
+       "id": "GB-PPON-PCMC-1241-BLJQ",
+       "identifier": {
+        "scheme": "GB-PPON",
+        "id": "PCMC-1241-BLJQ"
+       },
+       "address": {
+        "streetAddress": "Badminton Road",
+        "locality": "Bristol",
+        "postalCode": "BS37 5AF",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKK12"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "https://www.southglos.gov.uk",
+        "classifications": [
+         {
+          "scheme": "UK_CA_TYPE",
+          "id": "publicAuthoritySubCentralGovernment",
+          "description": "Public authority - sub-central government"
+         }
+        ]
+       }
+      }
+     ],
+     "buyer": {
+      "id": "GB-PPON-PCMC-1241-BLJQ",
+      "name": "South Gloucestershire Council"
+     },
+     "planning": {
+      "milestones": [
+       {
+        "id": "engagement",
+        "type": "engagement",
+        "description": "South Gloucestershire Council (SGC) is conducting a Preliminary Market Engagement (PME) exercise in relation to its procurement of Temporary Traffic Management services to assist it in developing its requirements and approach.\nThis engagement is conducted in accordance with Section 16 of the Procurement Act 2023, which permits contracting authorities to engage with the market prior to commencing a procurement procedure.\nThe purpose of this PME is to:\n• Understand market capacity and interest.\n• Check and develop procurement requirements.\n• Help design procedures, participation conditions and award criteria.\n• Identify any potential barriers to participation.\nSGC is sharing *DRAFT* Invitation to Tender (ITT) documentation and seeking feedback from the market on the information contained therein.\nParticipation in this PME is voluntary, but SGC encourages any organisation or group of organisations interested in bidding for this contract to respond to the questions contained within it's 'Preliminary Market Engagement Questionnaire'. Your feedback is valuable in helping us shape a fair, transparent and effective procurement process.\nSGC are still finalising their approach and documentation. The responses to its PME Questionnaire will be fed into this process and the finished tender documents are anticipated to be issued shortly after the engagement deadline.\nPLEASE NOTE: The e-sender form for the completion of this UK2 Preliminary Market Engagement Notice does not give the option for SGC to specify the closing time for the return of responses. We believe this will display on the notice as 23:59, but the Council asks please that PME Questionnaire responses are returned by 17:00 on Friday 25 September 2026.",
+        "dueDate": "2026-09-25T23:59:59+01:00",
+        "status": "scheduled"
+       }
+      ],
+      "documents": [
+       {
+        "id": "086666-2026",
+        "documentType": "marketEngagementNotice",
+        "noticeType": "UK2",
+        "description": "Preliminary market engagement notice on Find a Tender",
+        "url": "https://www.find-tender.service.gov.uk/Notice/086666-2026",
+        "datePublished": "2026-09-12T00:23:40+01:00",
+        "format": "text/html"
+       }
+      ]
+     },
+     "tender": {
+      "id": "DN818175",
+      "legalBasis": {
+       "id": "2023/54",
+       "scheme": "UKPGA",
+       "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+      },
+      "title": "Temporary Traffic Management 2026",
+      "description": "South Gloucestershire Council (SGC) requires a contractor to provide the Temporary Traffic Management on highway construction and maintenance schemes.\nSGC is procuring a single supplier through an NEC4 Term Service Contract. This is to support the delivery of SGC’s programme of works in South Gloucestershire and the wider West of England Mayoral Authority (WEMCA) area. The contract will include the ability to raise Task Orders for the aforementioned services and additional services that fall within the scope of the main contract. ",
+      "items": [
+       {
+        "id": "1",
+        "additionalClassifications": [
+         {
+          "scheme": "CPV",
+          "id": "63712700",
+          "description": "Traffic control services"
+         }
+        ],
+        "deliveryAddresses": [
+         {
+          "region": "UKK12",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKK11",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         },
+         {
+          "region": "UKK13",
+          "country": "GB",
+          "countryName": "United Kingdom"
+         }
+        ],
+        "relatedLot": "1"
+       }
+      ],
+      "value": {
+       "amountGross": 38400000.0,
+       "amount": 32000000.0,
+       "currency": "GBP"
+      },
+      "mainProcurementCategory": "services",
+      "aboveThreshold": true,
+      "lots": [
+       {
+        "id": "1",
+        "suitability": {
+         "sme": true
+        },
+        "contractPeriod": {
+         "startDate": "2027-04-01T00:00:00+01:00",
+         "endDate": "2032-03-31T23:59:59+01:00",
+         "maxExtentDate": "2034-03-31T23:59:59+01:00"
+        },
+        "hasRenewal": true,
+        "description": null,
+        "status": "planned"
+       }
+      ],
+      "communication": {
+       "futureNoticeDate": "2026-10-12T23:59:59+01:00"
+      },
+      "status": "planned"
+     },
+     "language": "en"
+    },
+    {
+     "id": "086665-2026",
+     "tag": [
+      "award",
+      "contract"
+     ],
+     "date": "2026-09-11T23:31:16+01:00",
+     "initiationType": "tender",
+     "ocid": "ocds-h6vhtk-0510f8",
+     "parties": [
+      {
+       "name": "Government Commercial Agency",
+       "id": "GB-PPON-PBZB-4962-TVLR",
+       "identifier": {
+        "scheme": "GB-PPON",
+        "id": "PBZB-4962-TVLR"
+       },
+       "address": {
+        "streetAddress": "9th Floor, The Capital, Old Hall Street",
+        "locality": "Liverpool",
+        "postalCode": "L3 9PP",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKD72"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "https://www.gov.gca.uk",
+        "classifications": [
+         {
+          "scheme": "UK_CA_TYPE",
+          "id": "publicAuthorityCentralGovernment",
+          "description": "Public authority - central government"
+         }
+        ]
+       }
+      },
+      {
+       "name": "CGI IT UK LIMITED",
+       "id": "GB-PPON-PHYV-4665-PNTX",
+       "identifier": {
+        "scheme": "GB-PPON",
+        "id": "PHYV-4665-PNTX"
+       },
+       "address": {
+        "streetAddress": "14th Floor, 20 Fenchurch Street",
+        "locality": "London",
+        "postalCode": "EC3M 3BY",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKI31"
+       },
+       "roles": [
+        "removedSupplier"
+       ]
+      }
+     ],
+     "buyer": {
+      "id": "GB-PPON-PBZB-4962-TVLR",
+      "name": "Government Commercial Agency"
+     },
+     "tender": {
+      "id": "RM6370",
+      "legalBasis": {
+       "id": "2023/54",
+       "scheme": "UKPGA",
+       "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+      },
+      "amendments": [
+       {
+        "date": "2026-09-11T00:00:00+01:00",
+        "id": "086665-2026"
+       }
+      ],
+      "title": "Space Technology Solutions",
+      "documents": [
+       {
+        "id": "086665-2026",
+        "documentType": "awardNotice",
+        "noticeType": "UK15",
+        "description": "Dynamic market modification notice on Find a Tender",
+        "url": "https://www.find-tender.service.gov.uk/Notice/086665-2026",
+        "datePublished": "2026-09-11T23:31:16+01:00",
+        "format": "text/html"
+       }
+      ]
+     },
+     "awards": [
+      {
+       "id": "2",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "6",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "7",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "8",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "9",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "11",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "12",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "13",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "14",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "19",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "22",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "23",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "25",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "26",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "27",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "28",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "30",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "31",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "42",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "44",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "45",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "47",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "48",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "50",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "51",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "53",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "56",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "57",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "58",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "60",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "61",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "62",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "65",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "66",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "67",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "68",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "75",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "76",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "78",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "79",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "82",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "84",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "85",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "87",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "96",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "97",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "98",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "103",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "104",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "105",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "106",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "109",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "111",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "114",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "115",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "122",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "123",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "125",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "126",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      },
+      {
+       "id": "127",
+       "amendments": [
+        {
+         "id": "086665-2026"
+        }
+       ]
+      }
+     ],
+     "language": "en"
+    },
+    {
+     "id": "086664-2026",
+     "tag": [
+      "award",
+      "contract"
+     ],
+     "date": "2026-09-11T23:30:39+01:00",
+     "initiationType": "tender",
+     "ocid": "ocds-h6vhtk-0510f8",
+     "parties": [
+      {
+       "name": "Government Commercial Agency",
+       "id": "GB-PPON-PBZB-4962-TVLR",
+       "identifier": {
+        "scheme": "GB-PPON",
+        "id": "PBZB-4962-TVLR"
+       },
+       "address": {
+        "streetAddress": "9th Floor, The Capital, Old Hall Street",
+        "locality": "Liverpool",
+        "postalCode": "L3 9PP",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKD72"
+       },
+       "roles": [
+        "buyer"
+       ],
+       "details": {
+        "url": "https://www.gov.gca.uk",
+        "classifications": [
+         {
+          "scheme": "UK_CA_TYPE",
+          "id": "publicAuthorityCentralGovernment",
+          "description": "Public authority - central government"
+         }
+        ]
+       }
+      },
+      {
+       "name": "FRAZER-NASH CONSULTANCY LIMITED",
+       "id": "GB-PPON-PVXN-4166-QPYR",
+       "identifier": {
+        "scheme": "GB-PPON",
+        "id": "PVXN-4166-QPYR"
+       },
+       "address": {
+        "streetAddress": "Hill Park Court",
+        "locality": "Leatherhead",
+        "postalCode": "KT22 7NL",
+        "country": "GB",
+        "countryName": "United Kingdom",
+        "region": "UKJ26"
+       },
+       "roles": [
+        "supplier"
+       ]
+      }
+     ],
+     "buyer": {
+      "id": "GB-PPON-PBZB-4962-TVLR",
+      "name": "Government Commercial Agency"
+     },
+     "tender": {
+      "id": "RM6370",
+      "legalBasis": {
+       "id": "2023/54",
+       "scheme": "UKPGA",
+       "uri": "https://www.legislation.gov.uk/ukpga/2023/54/contents"
+      },
+      "amendments": [
+       {
+        "date": "2026-09-11T00:00:00+01:00",
+        "id": "086664-2026"
+       }
+      ],
+      "title": "Space Technology Solutions",
+      "documents": [
+       {
+        "id": "086664-2026",
+        "documentType": "awardNotice",
+        "noticeType": "UK15",
+        "description": "Dynamic market modification notice on Find a Tender",
+        "url": "https://www.find-tender.service.gov.uk/Notice/086664-2026",
+        "datePublished": "2026-09-11T23:30:39+01:00",
+        "format": "text/html"
+       }
+      ]
+     },
+     "awards": [
+      {
+       "id": "1",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "2",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "4",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "6",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "8",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "9",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "11",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "12",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "13",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "15",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "16",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "18",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "19",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "20",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "21",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "22",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "26",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "27",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "28",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "29",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "30",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "44",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "45",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "46",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "47",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "48",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "50",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "51",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "56",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "59",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "60",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "61",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "62",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "63",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "65",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "66",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "67",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "73",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "74",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "76",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "80",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "84",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "86",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "87",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "103",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "104",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "105",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "106",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "107",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "109",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "111",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "112",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "113",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "114",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "115",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "116",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "117",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "118",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "119",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "123",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "126",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      },
+      {
+       "id": "127",
+       "amendments": [
+        {
+         "id": "086664-2026"
+        }
+       ],
+       "suppliers": [
+        {
+         "id": "GB-PPON-PVXN-4166-QPYR",
+         "name": "FRAZER-NASH CONSULTANCY LIMITED"
+        }
+       ]
+      }
+     ],
+     "language": "en"
+    }
+   ],
+   "links": {}
+  }
+ ]
+}

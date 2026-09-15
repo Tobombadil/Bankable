@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Attribution -- Infraque{% endblock %}
+{% block meta_description %}Every source, licence and attribution behind Infraque's data, basemap and context layers.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Attribution</h1>
+  <p>Every source this platform draws on, its operator and licence, plus the basemap and context layers rendered underneath the proposal and opportunity data on the map.</p>
+</div>
+
+<section id="sources">
+  {{ m.section_heading("1.", "Data sources") }}
+  <div class="table-scroll">
+  <table class="record-table source-table">
+    <thead>
+      <tr>
+        <th scope="col">Source</th>
+        <th scope="col">Operator</th>
+        <th scope="col">Licence</th>
+        <th scope="col">Reuse class</th>
+        <th scope="col">Attribution</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in sources %}
+      <tr>
+        <td data-label="Source"><a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a><br><span class="mono reuse-badge">{{ s.source_id }}</span></td>
+        <td data-label="Operator">{{ s.operator or '—' }}</td>
+        <td data-label="Licence">{% if s.licence.url %}<a href="{{ s.licence.url }}" rel="noopener nofollow">{{ s.licence.name }}</a>{% else %}{{ s.licence.name }}{% endif %}</td>
+        <td data-label="Reuse class"><span class="reuse-badge">{{ s.licence.reuse_class }}</span></td>
+        <td data-label="Attribution">{{ s.attribution_text or s.licence.attribution_text or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="basemap">
+  {{ m.section_heading("2.", "Basemap") }}
+  <ul>
+    <li>Basemap tiles: <a href="https://protomaps.com" rel="noopener">Protomaps</a>, built from &copy; <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap contributors</a>, ODbL.</li>
+    <li>Fallback outline layer (shown if the tile source is unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> (world country outlines) and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a> (US state outlines), both public domain.</li>
+  </ul>
+</section>
+
+<section id="context-layers">
+  {{ m.section_heading("3.", "Context layers") }}
+  <ul>
+    <li>Existing plants: US EIA-860M generator inventory (public domain), drawn beneath the proposal and opportunity data on the map, subordinate and toggled off by default.</li>
+  </ul>
+</section>
+{% endblock %}
