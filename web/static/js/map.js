@@ -18,7 +18,22 @@
   var TECH_LABEL = {
     solar: "SOL", wind: "WND", storage: "BES", wind_storage: "W+S",
     gas: "GAS", nuclear: "NUC", hydro: "HYD", transmission: "TRN",
-    geothermal: "GEO", hydrogen: "H2", other: "OTH"
+    geothermal: "GEO", hydrogen: "H2", coal: "COL", other: "OTH"
+  };
+  // docs/00-PLAN.md 2026-09-14/15 owner decision + task item 2: EIA-860M technology values
+  // mapped down to the seven token families the legend and marker fill use. Anything not listed
+  // here falls back to "coal" (labelled "Coal/other" in the legend) rather than inventing an
+  // eighth colour for every raw EIA fuel code.
+  var PLANT_TECH_FAMILY = {
+    solar: "solar", wind: "wind", gas: "gas", natural_gas: "gas",
+    nuclear: "nuclear", hydro: "hydro", hydroelectric: "hydro",
+    storage: "storage", battery: "storage", batteries: "storage",
+    coal: "coal", other: "coal"
+  };
+  var PLANT_TECH_TOKEN = {
+    solar: "--plant-solar", wind: "--plant-wind", gas: "--plant-gas",
+    nuclear: "--plant-nuclear", hydro: "--plant-hydro", storage: "--plant-storage",
+    coal: "--plant-coal"
   };
   var IN_VIEW_LIMIT = 500;
   var WORLD_BBOX = [-179, -85, 179, 85];
@@ -41,7 +56,20 @@
     return out;
   }
 
+  function plantFamilyColors() {
+    var out = {};
+    Object.keys(PLANT_TECH_TOKEN).forEach(function (f) {
+      out[f] = cssVar(PLANT_TECH_TOKEN[f]) || "#8a8a8a";
+    });
+    return out;
+  }
+
   function familyOf(state) { return LIFECYCLE_FAMILY[state] || "neutral"; }
+
+  function plantFamilyOf(tech) {
+    if (!tech) return "coal";
+    return PLANT_TECH_FAMILY[String(tech).toLowerCase()] || "coal";
+  }
 
   function techLabel(tech) {
     if (!tech) return "?";
@@ -58,12 +86,39 @@
     return value;
   }
 
+  // ---- measurement (task item 5): navigator.sendBeacon when available, fetch(keepalive) else ----
+  function sendUiEvent(name, props) {
+    var payload = JSON.stringify({ name: name, props: props || {} });
+    if (navigator.sendBeacon) {
+      try {
+        var ok = navigator.sendBeacon("/api/ui-events", new Blob([payload], { type: "application/json" }));
+        if (ok) return;
+      } catch (e) { /* fall through to fetch */ }
+    }
+    try {
+      fetch("/api/ui-events", {
+        method: "POST", body: payload, keepalive: true,
+        headers: { "Content-Type": "application/json" }
+      });
+    } catch (e) { /* best-effort only -- measurement never blocks the map */ }
+  }
+
+  var basemapFailedSent = false;
+  function reportBasemapFailedOnce() {
+    if (basemapFailedSent) return;
+    basemapFailedSent = true;
+    sendUiEvent("map.basemap_failed", {});
+  }
+
   function readFilters() {
     var params = new URLSearchParams(window.location.search);
+    var layersParam = params.get("layers") || "";
     return {
       technology: params.get("technology") || "",
       jurisdiction: params.get("jurisdiction") || "",
-      include_withdrawn: params.get("include_withdrawn") === "1"
+      include_withdrawn: params.get("include_withdrawn") === "1",
+      layers: layersParam ? layersParam.split(",").filter(Boolean) : [],
+      region: params.get("region") || ""
     };
   }
 
@@ -72,11 +127,21 @@
     if (filters.technology) params.set("technology", filters.technology);
     if (filters.jurisdiction) params.set("jurisdiction", filters.jurisdiction);
     if (filters.include_withdrawn) params.set("include_withdrawn", "1");
+    if (filters.layers && filters.layers.length) params.set("layers", filters.layers.join(","));
+    if (filters.region) params.set("region", filters.region);
     var qs = params.toString();
     var url = window.location.pathname + (qs ? "?" + qs : "");
     window.history.replaceState(null, "", url);
     var listLink = document.getElementById("mf-view-list");
     if (listLink) listLink.href = "/proposals" + (qs ? "?" + qs : "");
+    // Task item 5: the header "Sign in" link carries the current view (chiefly `layers`) as
+    // `next` so a sign-up started from the map still knows which layers were on when
+    // `web/auth.py::register_submit` posts `auth.registered {layers}` after the round trip.
+    var signInLink = document.querySelector('.primary-nav a[href^="/login"]');
+    if (signInLink) {
+      var here = window.location.pathname + (qs ? "?" + qs : "");
+      signInLink.href = "/login?next=" + encodeURIComponent(here);
+    }
   }
 
   function geoUrl(filters, bbox, zoom) {
@@ -89,6 +154,16 @@
     return "/api/proposals/geo?" + params.toString();
   }
 
+  // Task item 2: the `technology` filter applies to plants too; jurisdiction/include_withdrawn do
+  // not (plants have no lifecycle state and this context layer is US-only today).
+  function plantsGeoUrl(filters, bbox, zoom) {
+    var params = new URLSearchParams();
+    params.set("bbox", bbox.join(","));
+    params.set("zoom", String(zoom));
+    if (filters.technology) params.set("technology", filters.technology);
+    return "/api/context/plants/geo?" + params.toString();
+  }
+
   function chipHtml(family, label) {
     return (
       '<span class="chip chip--' + family + '">' +
@@ -97,22 +172,31 @@
     );
   }
 
+  var mapEl = document.getElementById("map");
+  var TILE_URL = mapEl.getAttribute("data-tile-url") || "";
+  var TILE_MODE = mapEl.getAttribute("data-tile-mode") || "dev";
+
   var filters = readFilters();
   document.getElementById("mf-technology").value = filters.technology;
   document.getElementById("mf-jurisdiction").value = filters.jurisdiction;
   document.getElementById("mf-include-withdrawn").checked = filters.include_withdrawn;
+  var plantsToggle = document.getElementById("mf-layer-plants");
+  plantsToggle.checked = filters.layers.indexOf("plants") !== -1;
   writeFilters(filters);
 
   var colors = familyColors();
+  var plantColors = plantFamilyColors();
   var mapColors = {
     land: cssVar("--map-land") || "#eae6da",
     water: cssVar("--map-water") || "#cfe0e8",
     border: cssVar("--map-border") || "#b9c4c9"
   };
 
-  // Same-origin fallback basemap (docs/04 D-13, web/README.md "Map basemap"): the OSM raster
-  // source is added only after `load` fires (below) so a blocked/slow tile host cannot keep the
-  // whole style from ever loading.
+  // Same-origin fallback basemap (docs/04 D-13, web/README.md "Map basemap"): the tile/pmtiles
+  // source is added only after `load` fires (below) so a blocked/slow/failed basemap source can
+  // never keep the whole style from ever loading -- this fallback is always in the initial style
+  // and is what the user sees whenever the real basemap fails, whichever of the three modes below
+  // is configured.
   var map = new maplibregl.Map({
     container: "map",
     style: {
@@ -155,8 +239,31 @@
     map.flyTo({ center: WORLD_CENTER, zoom: WORLD_ZOOM, duration: motionMs(600) });
   });
 
+  // ---- task item 3: regional quick views ----
+  document.querySelectorAll(".region-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var bbox = btn.getAttribute("data-bbox").split(",").map(Number);
+      var code = btn.getAttribute("data-region");
+      map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { duration: motionMs(600), padding: 24 });
+      filters.region = code;
+      writeFilters(filters);
+      sendUiEvent("map.region_jumped", { region: code });
+    });
+  });
+  // Restore a `region=` view from a shared/reloaded URL on load, instantly (this is page setup,
+  // not a user-initiated jump, so it does not re-emit `map.region_jumped`).
+  if (filters.region) {
+    var restoreBtn = document.querySelector('.region-btn[data-region="' + filters.region + '"]');
+    if (restoreBtn) {
+      var restoreBbox = restoreBtn.getAttribute("data-bbox").split(",").map(Number);
+      map.jumpTo({ center: [(restoreBbox[0] + restoreBbox[2]) / 2, (restoreBbox[1] + restoreBbox[3]) / 2] });
+      map.fitBounds([[restoreBbox[0], restoreBbox[1]], [restoreBbox[2], restoreBbox[3]]], { duration: 0, padding: 24 });
+    }
+  }
+
   var latestCollection = { type: "FeatureCollection", features: [], totals: {} };
   var latestMeta = {};
+  var latestPlantsTotal = 0;
 
   function currentBbox() {
     var b = map.getBounds();
@@ -169,6 +276,7 @@
   var liveRegion = document.getElementById("map-live-region");
   var template = document.getElementById("in-view-item-template");
   var unplacedNote = document.getElementById("unplaced-note");
+  var plantsLegend = document.getElementById("plants-legend");
 
   function refetch() {
     fetch(geoUrl(filters, currentBbox(), currentZoom()))
@@ -190,6 +298,28 @@
       })
       .catch(function () {
         // docs/31 §6 error state: keep the last-known view rather than blanking it.
+      });
+    if (plantsToggle.checked) refetchPlants();
+  }
+
+  function refetchPlants() {
+    fetch(plantsGeoUrl(filters, currentBbox(), currentZoom()))
+      .then(function (r) { return r.json(); })
+      .then(function (envelope) {
+        var fc = envelope.data;
+        fc.features.forEach(function (f) {
+          if (f.properties.feature_kind === "plant_cluster") {
+            f.properties.plant_family = plantFamilyOf(f.properties.dominant_technology);
+          } else {
+            f.properties.plant_family = plantFamilyOf(f.properties.technology);
+          }
+        });
+        latestPlantsTotal = (fc.totals || {}).records || 0;
+        if (map.getSource("plants")) map.getSource("plants").setData(fc);
+        render();
+      })
+      .catch(function () {
+        // Same error-state rule as the proposals fetch: keep whatever was last drawn.
       });
   }
 
@@ -223,7 +353,14 @@
         listEl.appendChild(node);
       });
     }
-    liveRegion.textContent = (totals.records || 0) + " proposals in view.";
+    // Task item 2: "Live region adds 'N existing plants in view'" -- appended as a second
+    // sentence so the proposals count (the accessible path's primary content) is never dropped
+    // when the plants layer is on.
+    var liveText = (totals.records || 0) + " proposals in view.";
+    if (plantsToggle.checked) {
+      liveText += " " + latestPlantsTotal + " existing plants in view.";
+    }
+    liveRegion.textContent = liveText;
 
     var unplacedCount = latestMeta.unplaced_count || 0;
     if (unplacedCount > 0) {
@@ -234,10 +371,11 @@
     }
   }
 
-  map.on("load", function () {
+  // ---- basemap (task item 1: three MAP_TILE_URL modes) ----
+  function addRasterBasemap(template_) {
     map.addSource("osm", {
       type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tiles: [template_],
       tileSize: 256,
       attribution: "&copy; OpenStreetMap contributors"
     });
@@ -247,6 +385,121 @@
       id: "osm", type: "raster", source: "osm",
       paint: { "raster-saturation": -0.75, "raster-brightness-min": 0.35, "raster-brightness-max": 1, "raster-contrast": -0.1 }
     });
+    map.on("error", function (e) {
+      if (e && e.sourceId === "osm") reportBasemapFailedOnce();
+    });
+  }
+
+  function addPmtilesBasemap() {
+    if (typeof pmtiles === "undefined" || typeof basemaps === "undefined") {
+      // One or both CDN scripts failed to load (home_map.html only includes them in pmtiles
+      // mode) -- the fallback outline layer already in the initial style is what the user sees.
+      reportBasemapFailedOnce();
+      return;
+    }
+    try {
+      var protocol = new pmtiles.Protocol();
+      maplibregl.addProtocol("pmtiles", protocol.tile);
+      map.addSource("protomaps", {
+        type: "vector",
+        url: "pmtiles://" + TILE_URL,
+        attribution: "&copy; OpenStreetMap contributors"
+      });
+      var flavor = basemaps.namedFlavor("light");
+      // Mute land/water/roads to the paper ground the same way the raster layer is tinted above,
+      // via token-derived colours rather than the flavor's own defaults (task item 1).
+      flavor.background = mapColors.land;
+      flavor.earth = mapColors.land;
+      flavor.water = mapColors.water;
+      flavor.major = mapColors.border;
+      flavor.minor_a = mapColors.border;
+      flavor.minor_b = mapColors.border;
+      flavor.highway = mapColors.border;
+      flavor.link = mapColors.border;
+      flavor.boundaries = mapColors.border;
+      var styleLayers = basemaps.layers("protomaps", flavor, { lang: "en" });
+      styleLayers.forEach(function (layer) { map.addLayer(layer); });
+      map.on("error", function (e) {
+        if (e && e.sourceId === "protomaps") reportBasemapFailedOnce();
+      });
+    } catch (e) {
+      reportBasemapFailedOnce();
+    }
+  }
+
+  function addBasemap() {
+    if (TILE_MODE === "pmtiles") {
+      addPmtilesBasemap();
+    } else if (TILE_MODE === "raster") {
+      addRasterBasemap(TILE_URL);
+    } else {
+      addRasterBasemap("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
+    }
+  }
+
+  // ---- plants context layer (task item 2) ----
+  function buildSquareIcon(size) {
+    var canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    var ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, size, size);
+    return ctx.getImageData(0, 0, size, size);
+  }
+
+  function addPlantsLayers() {
+    map.addImage("plant-square", buildSquareIcon(8), { sdf: true });
+    map.addSource("plants", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+
+    var plantColorExpr = [
+      "match", ["get", "plant_family"],
+      "solar", plantColors.solar, "wind", plantColors.wind, "gas", plantColors.gas,
+      "nuclear", plantColors.nuclear, "hydro", plantColors.hydro, "storage", plantColors.storage,
+      "coal", plantColors.coal, plantColors.coal
+    ];
+
+    // Beneath the proposals layers (`addLayer(..., "clusters")`, task item 2): inserted right
+    // above the basemap and below every proposals layer added further down.
+    map.addLayer({
+      id: "plant-clusters", type: "circle", source: "plants",
+      filter: ["==", ["get", "feature_kind"], "plant_cluster"],
+      paint: {
+        "circle-radius": ["step", ["get", "count"], 10, 10, 14, 50, 18],
+        "circle-color": "rgba(0,0,0,0)",
+        "circle-stroke-width": 1,
+        "circle-stroke-color": plantColorExpr,
+        "circle-stroke-opacity": 0.6
+      }
+    }, "clusters");
+    map.addLayer({
+      id: "plant-cluster-count", type: "symbol", source: "plants",
+      filter: ["==", ["get", "feature_kind"], "plant_cluster"],
+      layout: { "text-field": ["get", "count"], "text-size": 10, "text-font": ["Noto Sans Bold"] },
+      paint: { "text-color": plantColorExpr, "text-opacity": 0.7 }
+    }, "clusters");
+    map.addLayer({
+      id: "plant-points", type: "symbol", source: "plants",
+      filter: ["==", ["get", "feature_kind"], "plant"],
+      layout: { "icon-image": "plant-square", "icon-size": 0.55, "icon-allow-overlap": true },
+      paint: { "icon-color": plantColorExpr, "icon-opacity": 0.6 }
+    }, "clusters");
+
+    map.on("click", "plant-points", function (e) { openPlantDrawer(e.features[0].properties); });
+    map.on("mouseenter", "plant-points", function () { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mouseleave", "plant-points", function () { map.getCanvas().style.cursor = ""; });
+  }
+
+  function setPlantsLayerVisible(on) {
+    ["plant-clusters", "plant-cluster-count", "plant-points"].forEach(function (id) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    });
+    plantsLegend.hidden = !on;
+    plantsLegend.setAttribute("aria-hidden", on ? "false" : "true");
+  }
+
+  map.on("load", function () {
+    addBasemap();
 
     map.addSource("proposals", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
 
@@ -268,6 +521,11 @@
         "circle-stroke-width": 2, "circle-stroke-color": colorExpr
       }
     });
+    // Plants layers are added here -- after "clusters" exists (`addLayer(..., "clusters")`
+    // requires the reference layer to already be in the style) but before the remaining
+    // proposals layers, so plants render beneath every proposals layer, clusters included.
+    addPlantsLayers();
+    setPlantsLayerVisible(plantsToggle.checked);
     map.addLayer({
       id: "cluster-count", type: "symbol", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "cluster"],
@@ -329,7 +587,9 @@
     filters = {
       technology: document.getElementById("mf-technology").value,
       jurisdiction: document.getElementById("mf-jurisdiction").value,
-      include_withdrawn: document.getElementById("mf-include-withdrawn").checked
+      include_withdrawn: document.getElementById("mf-include-withdrawn").checked,
+      layers: filters.layers,
+      region: filters.region
     };
     writeFilters(filters);
     refetch();
@@ -337,6 +597,15 @@
   document.getElementById("mf-technology").addEventListener("change", applyFilters);
   document.getElementById("mf-jurisdiction").addEventListener("change", applyFilters);
   document.getElementById("mf-include-withdrawn").addEventListener("change", applyFilters);
+  plantsToggle.addEventListener("change", function () {
+    var on = plantsToggle.checked;
+    filters.layers = on ? ["plants"] : [];
+    writeFilters(filters);
+    setPlantsLayerVisible(on);
+    sendUiEvent("map.layer_toggled", { layer: "plants", on: on });
+    if (on) refetchPlants();
+    render();
+  });
   document.getElementById("mf-clear").addEventListener("click", function () {
     document.getElementById("mf-technology").value = "";
     document.getElementById("mf-jurisdiction").value = "";
@@ -351,6 +620,11 @@
     lastFocused = document.activeElement;
     var provenance = propObj(rawProps.provenance) || [];
     drawer.render(rawProps, provenance[0] || null);
+    drawer.open();
+  }
+  function openPlantDrawer(rawProps) {
+    lastFocused = document.activeElement;
+    drawer.renderPlant(rawProps);
     drawer.open();
   }
   function buildDrawer() {
@@ -398,6 +672,33 @@
           : "") +
         "<a class=\"drawer-open-link\" href=\"" + (p.url || "#") + "\">Open full record &rarr;</a>";
     }
-    return { open: open, close: close, render: render };
+    // Task item 2's drawer content for a plant: name, operator, technology split table, capacity,
+    // first operating year, source line (name, retrieved date, licence) -- no "Open full record"
+    // link, since a context-layer plant has no record page on this site.
+    function renderPlant(p) {
+      var techs = propObj(p.technologies) || {};
+      var techRows = Object.keys(techs).sort().map(function (k) {
+        return "<div class=\"drawer-fields__row\"><dt>" + k.replace(/_/g, " ") + "</dt><dd class=\"tnum\">" +
+          Number(techs[k]).toFixed(1) + " MW</dd></div>";
+      }).join("");
+      var source = propObj(p.source);
+      body.innerHTML =
+        "<h2>" + p.name + "</h2>" +
+        "<p class=\"reuse-badge\">Existing plant &middot; context layer</p>" +
+        "<dl class=\"drawer-fields\">" +
+        "<div class=\"drawer-fields__row\"><dt>Operator</dt><dd>" + (p.operator_name || "—") + "</dd></div>" +
+        (techRows || "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + (p.technology || "—") + "</dd></div>") +
+        "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : "—") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>First operating year</dt><dd class=\"tnum\">" + (p.earliest_operating_year || "—") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + (p.county_name || "—") + ", " + (p.state_code || "—") + "</dd></div>" +
+        "</dl>" +
+        (source
+          ? "<p class=\"drawer-source\"><span class=\"drawer-source__label\">Source</span>" +
+            "<a href=\"" + source.source_url + "\" rel=\"noopener nofollow\">" + source.source_name + "</a>, retrieved " +
+            "<span class=\"tnum\">" + (source.retrieved_at ? source.retrieved_at.slice(0, 10) : "unknown") + "</span>" +
+            (source.licence_name ? " &middot; " + source.licence_name : "") + "</p>"
+          : "");
+    }
+    return { open: open, close: close, render: render, renderPlant: renderPlant };
   }
 })();

@@ -4,6 +4,11 @@ call), driving `services.api.app.app` -- with `services/api/auth_routes.py` moun
 same guarded pattern `tests/test_api_auth.py` uses -- in-process, exactly as
 `tests/test_web_provenance.py` does for the read-only surfaces. No Playwright; plain
 `TestClient(web_app)` requests.
+
+The `auth.registered` tests below drive the real `POST /v1/ui-events`
+(`services/api/ui_events.py`, mounted on `services.api.app.app`) rather than a fake -- it landed
+in a parallel lane while this was built (`docs/CHANGELOG.md` 2026-09-15 backend-developer) -- and
+assert on the `UiEvent` row it wrote.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from services.api.app import app as api_app
@@ -20,6 +26,7 @@ from services.api.auth_routes import get_email_port
 from services.api.auth_routes import router as auth_router
 from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
+from services.db.models import UiEvent
 from services.db.session import get_engine, get_sessionmaker, init_db
 from tests.conftest import make_account, make_user
 from web.api_client import ApiClient
@@ -212,3 +219,50 @@ def test_logout_clears_cookie_and_account_then_redirects_to_login(web_client: Te
     account_resp = web_client.get("/account", follow_redirects=False)
     assert account_resp.status_code == 303
     assert account_resp.headers["location"] == "/login?next=/account"
+
+
+# -------------------------------------------------------------------------- auth.registered event
+def test_register_posts_auth_registered_event_with_layers_from_next(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    """Map task item 5: a sign-up started from the map page carries `?layers=plants` on `next`
+    (written onto the header "Sign in" link by `map.js`'s `writeFilters`); `register_submit` reads
+    it back off the now-validated `next_path` and posts `auth.registered {layers}` after redirect
+    cookies are set, without blocking or altering the redirect itself. `POST /v1/ui-events`
+    (`services/api/ui_events.py`) is real and mounted on `api_app` here -- this drives it for
+    real rather than a fake, and asserts on the `UiEvent` row it wrote (in-memory SQLite is
+    pinned to one shared connection, `services/db/session.py::get_engine`, so the register
+    request and this read see the same database)."""
+    resp = web_client.post(
+        "/register",
+        data={
+            "email": "layers@example.com",
+            "password": "correct horse battery",
+            "next": "/account?layers=plants",
+        },
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/account?layers=plants"
+    with db_sessionmaker() as session:
+        events = list(session.scalars(select(UiEvent).where(UiEvent.name == "auth.registered")))
+    assert len(events) == 1
+    assert events[0].props == {"layers": "plants"}
+
+
+def test_register_without_layers_posts_empty_layers_string(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    web_client.post(
+        "/register",
+        data={"email": "nolayers@example.com", "password": "correct horse battery", "next": "/account"},
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+
+    with db_sessionmaker() as session:
+        events = list(session.scalars(select(UiEvent).where(UiEvent.name == "auth.registered")))
+    assert len(events) == 1
+    assert events[0].props == {"layers": ""}

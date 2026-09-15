@@ -75,6 +75,28 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _load_plants_context_layer(session: Session, data_dir: Path) -> None:
+    """Task item 7: the existing-plants context layer (docs/00-PLAN.md 2026-09-14/15 owner
+    decision), loaded through the plants ingest lane's own `load_plants_parquet(session, path)` --
+    this script never invents its own load path for that data, matching `load_dev_database`'s rule
+    for every other source. Both the parquet file and the loader function are a separate,
+    parallel-built lane (`python -m services.ingest.plants`) that may not exist yet when this
+    runs, so both are optional: missing skips silently past the parquet check, and an import
+    failure (the module not landed yet) is caught the same way and logged once -- either way this
+    prints exactly one line, per the task brief, and never fails the rest of `dev_up`."""
+    parquet_path = data_dir / "normalized" / "context" / "us.eia.860m.plants.parquet"
+    if not parquet_path.exists():
+        log.info("plants context layer: %s not found, skipping", parquet_path)
+        return
+    try:
+        from services.ingest.plants import load_plants_parquet
+    except ImportError as exc:
+        log.info("plants context layer: services.ingest.plants not available yet (%s), skipping", exc)
+        return
+    report = load_plants_parquet(session, parquet_path)
+    log.info("plants context layer: loaded from %s (%s)", parquet_path, report)
+
+
 def _wait_for(url: str, timeout_s: float = 20.0) -> None:
     deadline = time.monotonic() + timeout_s
     last_error: Exception | None = None
@@ -106,6 +128,8 @@ def main(argv: list[str] | None = None) -> int:
                 preview=args.preview,
                 sample_per_state=args.sample_per_state,
             )
+            _load_plants_context_layer(session, args.data_dir)
+            session.commit()  # belt-and-braces: correct even if the plants loader also commits
         finally:
             session.close()
         log.info("loaded: %s", report)

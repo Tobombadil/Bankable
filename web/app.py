@@ -16,6 +16,7 @@ import datetime as dt
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -25,6 +26,7 @@ from starlette.datastructures import QueryParams
 
 from web.api_client import ApiClient, ApiError, ApiNotFound, build_client
 from web.auth import router as auth_router
+from web.regions import Region, regions_with_data
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
     ALL_OPPORTUNITY_STATUSES,
@@ -47,6 +49,41 @@ _PROPOSAL_SOURCE_IDS = {
     "us.eia.860m",
     "gb.neso.tec_register",
 }
+
+# docs/40-launch-runbook.md §2.7 / CLAUDE.md task brief "Basemap": three modes, keyed on the shape
+# of `MAP_TILE_URL` alone -- never a second env var -- so there is exactly one source of truth for
+# which basemap a deploy runs. `.pmtiles` -> Protomaps PMTiles self-hosted on R2 (owner decision,
+# docs/00-PLAN.md 2026-09-14/15); a `{z}` template -> a hosted raster provider (MapTiler/Stadia,
+# the runbook's other named option); unset (or neither shape) -> today's dev-only OSM raster.
+TileMode = str  # "pmtiles" | "raster" | "dev" -- not a real enum, only used inside this module
+
+
+def _tile_mode(tile_url: str | None) -> TileMode:
+    if not tile_url:
+        return "dev"
+    if tile_url.endswith(".pmtiles"):
+        return "pmtiles"
+    if "{z}" in tile_url:
+        return "raster"
+    return "dev"
+
+
+def _basemap_attribution(tile_mode: TileMode, tile_url: str | None) -> str:
+    """The credit line `home_map.html` renders next to the map (D-13's "attribution rendered").
+    Named by provider when the mode is known; the raster case names whatever host `MAP_TILE_URL`
+    points at, since this app has no registry of hosted tile providers to look the name up in."""
+    if tile_mode == "pmtiles":
+        return "Basemap: Protomaps, © OpenStreetMap contributors, ODbL."
+    if tile_mode == "raster":
+        host = urlsplit(tile_url).netloc if tile_url else ""
+        provider = host or "a hosted tile provider"
+        return f"Basemap: {provider}, © OpenStreetMap contributors, ODbL."
+    return "Basemap © OpenStreetMap contributors, ODbL (dev tile source; not for production use)."
+
+
+def _region_context(region: Region) -> dict[str, Any]:
+    return {"code": region.code, "label": region.label, "bbox": ",".join(str(v) for v in region.bbox)}
+
 
 WEB_ROOT = Path(__file__).resolve().parent
 
@@ -175,6 +212,13 @@ def home_map(request: Request) -> HTMLResponse:
     breakdown = lifecycle_breakdown(
         api, extra_filters={n: qp[n] for n in ("technology", "jurisdiction", "kind") if qp.get(n)}
     )
+    tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
+    tile_mode = _tile_mode(tile_url)
+    # docs/40 §2.7 / task item 3: only regions a published, non-gated source actually covers get a
+    # jump button -- reusing the same `/v1/sources` fetch `about()` already makes, filtered
+    # server-side to `publish_state=public` so a gated-but-listed source never counts.
+    sources_env = api.get("/v1/sources", params={"limit": 100, "publish_state": "public"})
+    regions = [_region_context(r) for r in regions_with_data(sources_env["data"])]
     return templates.TemplateResponse(
         request,
         "home_map.html",
@@ -188,6 +232,10 @@ def home_map(request: Request) -> HTMLResponse:
             "breakdown": breakdown,
             "active_states": ACTIVE_PROPOSAL_STATES,
             "withdrawn_states": WITHDRAWN_PROPOSAL_STATES,
+            "tile_url": tile_url,
+            "tile_mode": tile_mode,
+            "basemap_attribution": _basemap_attribution(tile_mode, tile_url),
+            "regions": regions,
         },
     )
 
@@ -214,6 +262,50 @@ def proposals_geo_proxy(request: Request) -> JSONResponse:
         return JSONResponse(exc.body, status_code=exc.status_code)
     envelope["data"] = relativize_geo_feature_urls(envelope["data"])
     return JSONResponse(envelope)
+
+
+@app.get("/api/context/plants/geo")
+def plants_geo_proxy(request: Request) -> JSONResponse:
+    """Same-origin proxy for `GET /v1/context/plants/geo` (task contract), mirroring
+    `proposals_geo_proxy` above: forwards `bbox`, `zoom`, `technology` only, no cookies. The API
+    lane had not landed this route while this was built -- `web/test_map_layers.py` monkeypatches
+    `ApiClient` rather than exercising a real API app for these tests."""
+    api = get_api(request)
+    qp = request.query_params
+    params: dict[str, str | None] = {
+        "bbox": qp.get("bbox") or WORLD_BBOX,
+        "zoom": qp.get("zoom") or "3",
+    }
+    if qp.get("technology"):
+        params["technology"] = qp["technology"]
+    try:
+        envelope = api.get("/v1/context/plants/geo", params=params)
+    except ApiError as exc:
+        return JSONResponse(exc.body, status_code=exc.status_code)
+    return JSONResponse(envelope)
+
+
+@app.post("/api/ui-events")
+async def ui_events_proxy(request: Request) -> JSONResponse:
+    """Same-origin proxy for `POST /v1/ui-events` (task contract): forwards only `name`/`props`
+    (never cookies or headers, never the caller's IP/UA to the API beyond what any HTTP request
+    already carries at the transport level) and always answers 202, whether or not the API call
+    behind it succeeds -- measurement must never be able to break the map page. `map.js` posts
+    here with `navigator.sendBeacon` (a `Blob`, so the request may arrive without a JSON
+    content-type; Starlette's `Request.json()` parses the body regardless)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    name = body.get("name") if isinstance(body, dict) else None
+    props = body.get("props") if isinstance(body, dict) and isinstance(body.get("props"), dict) else {}
+    if isinstance(name, str) and name:
+        api = get_api(request)
+        try:
+            api.post("/v1/ui-events", json={"name": name, "props": props})
+        except Exception:  # noqa: S110 -- measurement must never block or surface an error here
+            pass
+    return JSONResponse({}, status_code=202)
 
 
 @app.get("/proposals", response_class=HTMLResponse)
@@ -388,6 +480,20 @@ def about(request: Request) -> HTMLResponse:
         request,
         "about.html",
         {"sources": sources, "lag_days": get_lag_days(request)},
+    )
+
+
+@app.get("/attribution", response_class=HTMLResponse)
+def attribution(request: Request) -> HTMLResponse:
+    """Task item 4: every source the API lists, plus a Basemap section (Protomaps/OSM ODbL,
+    Natural Earth, Census) and a Context layers section (EIA-860M, public domain). Reuses the same
+    `/v1/sources` fetch `about()` makes rather than a second query shape."""
+    api = get_api(request)
+    sources_env = api.get("/v1/sources", params={"limit": 100})
+    return templates.TemplateResponse(
+        request,
+        "attribution.html",
+        {"sources": sources_env["data"]},
     )
 
 
