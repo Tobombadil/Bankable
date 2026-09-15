@@ -2,8 +2,12 @@
 
 Fetch: the index page lists `xls/<month>_generator<year>.xlsx` links in reverse chronological
 order, including *future* months as placeholders that answer 200 with an HTML page (docs/02 §7;
-observed 2026-09-12: december/october 2026 redirect to HTML, july 2026 is the real file). The
-first link whose bytes start with the zip magic wins; the HTML answers are kept in `meta`.
+observed 2026-09-12: december/october 2026 redirect to HTML, july 2026 is the real file). Links
+under `/archive/` are dropped before any request: eia.gov's robots.txt disallows `/*archive/`
+(a wildcard rule that Python's robots parser only honours from 3.13, so older interpreters
+would have fetched them), and the current month is always published under `xls/`. The first
+remaining link whose bytes start with the zip magic wins; HTML answers and any candidate the
+robots check refuses are kept in `meta` and skipped.
 Parse: sheet "Planned", header on the third row; trailing note rows (no Plant ID) dropped.
 source_record_id: `<Plant ID>-<Generator ID>`, the EIA identity that anchors resolution.
 Reuse: US federal work, public domain.
@@ -23,6 +27,7 @@ import pandas as pd
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot
 from pipeline.connectors.canonical import normalize_eia
+from pipeline.connectors.http import HttpBlocked
 
 INDEX_URL = "https://www.eia.gov/electricity/data/eia860m/"
 LINK_RE = re.compile(r'href="([^"]+?generator\d{4}\.xlsx)"', re.I)
@@ -30,12 +35,13 @@ XLSX_MAGIC = b"PK"
 
 
 def find_xlsx_links(html: str, base: str = INDEX_URL) -> list[str]:
-    """Candidate workbook URLs in page order, de-duplicated."""
+    """Candidate workbook URLs in page order, de-duplicated, `/archive/` paths excluded."""
     out: list[str] = []
     for href in LINK_RE.findall(html):
         url = href if href.startswith("http") else urljoin(base, href)
-        if url not in out:
-            out.append(url)
+        if "/archive/" in url or url in out:
+            continue
+        out.append(url)
     return out
 
 
@@ -63,7 +69,11 @@ class Connector(BaseConnector):
             raise ConnectorError("EIA-860M index page lists no generator workbooks")
         tried: list[dict[str, Any]] = []
         for url in links[: self.max_candidates]:
-            r = self.http.get(url, timeout=300)
+            try:
+                r = self.http.get(url, timeout=300)
+            except HttpBlocked as exc:
+                tried.append({"url": url, "blocked": str(exc)})
+                continue
             ok = r.status_code == 200 and r.content.startswith(XLSX_MAGIC)
             tried.append(
                 {
