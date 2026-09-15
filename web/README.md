@@ -533,3 +533,161 @@ Found 3 errors in 2 files (checked 12 source files)
 The three `mypy` errors are pre-existing (confirmed via `git stash`: present before this task's
 changes, in files this task does not touch) and unrelated to this surface — none are in
 `services/api/auth_routes.py`, `services/api/auth.py`, `web/auth.py` or `web/api_client.py`.
+
+## Map basemap (docs/40 §2.7; `docs/00-PLAN.md` 2026-09-14/15 owner decision: Protomaps)
+
+`web/app.py::_tile_mode` reads `MAP_TILE_URL` once per request and picks one of three modes,
+keyed on the shape of that single env var — there is no second variable to keep in sync:
+
+| `MAP_TILE_URL` | Mode | What `map.js` does |
+|---|---|---|
+| unset | `dev` | Today's behaviour, unchanged: raster tiles from `tile.openstreetmap.org` — fine for local development, not for production (OSM's usage policy forbids it; this is the gap `docs/40` §2.7 named). |
+| a `{z}`/`{x}`/`{y}` template | `raster` | A hosted raster provider (MapTiler/Stadia, `docs/40` §2.7's other named option) — same raster-source code path as `dev`, template swapped in. |
+| ends in `.pmtiles` | `pmtiles` | Protomaps PMTiles self-hosted on Cloudflare R2 (the owner's pick). `home_map.html` loads two extra pinned CDN scripts only in this mode — `pmtiles@4.5.0/dist/pmtiles.js` (`pmtiles.Protocol`, registered as MapLibre's `pmtiles://` protocol) and `@protomaps/basemaps@5.7.2/dist/basemaps.js` (`basemaps.layers()`/`basemaps.namedFlavor("light")`, which build the vector style layers) — pinned exact versions from jsdelivr, matching how `maplibre-gl` itself is already pinned. |
+
+The tile URL and the resolved mode reach the browser as `data-tile-url`/`data-tile-mode` on `#map`
+(never inline JS, never a second script tag with the value baked in) — `web/app.py::home_map` computes
+both server-side once and `web/static/js/map.js` reads them at startup.
+
+**Attribution line** (`web/app.py::_basemap_attribution`) names the provider: "Basemap: Protomaps,
+© OpenStreetMap contributors, ODbL." in `pmtiles` mode; the tile host's own hostname in `raster`
+mode (this app keeps no registry of hosted-provider display names to look one up in); a plain dev
+disclaimer in `dev` mode. The outline-layer credit (Natural Earth, US Census) is unchanged and
+always shown alongside it, since that fallback layer is basemap-mode-agnostic.
+
+**Fallback and `map.basemap_failed`.** The fallback outline layer (`web/data_ref/build_basemap_fallback.py`'s
+GeoJSON) is always in the map's *initial* style, before any tile/pmtiles source is added — so a
+failure in any of the three modes leaves the outline visible rather than a blank map. `map.js`
+beacons `map.basemap_failed` exactly once per page load in two failure shapes: (a) `pmtiles` mode
+where either CDN script failed to load (`typeof pmtiles === "undefined"` / `typeof basemaps ===
+"undefined"`, checked before ever touching `maplibregl.addProtocol`), and (b) a runtime tile/source
+error on the `osm` or `protomaps` source (`map.on("error", ...)` filtered by `sourceId`). A
+`basemapFailedSent` flag stops a second beacon regardless of which failure path fires first.
+`web/test_e2e.py` runs its whole suite in `pmtiles` mode with both CDN scripts aborted (the
+"keeps working if either script fails to load" case) and asserts the fallback renders and exactly
+one `map.basemap_failed` beacon reaches `/api/ui-events`.
+
+**Tinting.** Both raster and pmtiles paths mute the basemap toward the paper ground using the same
+`--map-land`/`--map-water`/`--map-border` tokens (`cssVar(...)`, never a literal hex): the raster
+layer via `raster-saturation`/`raster-brightness-*`/`raster-contrast` paint properties (unchanged
+from before this task); the pmtiles path by overriding `basemaps.namedFlavor("light")`'s own
+`background`/`earth`/`water`/`major`/`minor_a`/`minor_b`/`highway`/`link`/`boundaries` keys before
+calling `basemaps.layers(...)` — these are the actual colour-role keys in `@protomaps/basemaps`
+5.7.2's flavor object (confirmed by inspecting the published bundle; there is no published type
+declaration for a flavor's shape).
+
+**Glyphs/sprites.** Not wired — `basemaps.layers()` labels/roads use MapLibre's default glyph
+handling with no sprite/glyph URL configured in this build, so text labels on the pmtiles layer may
+not render (points/fills still do) until a glyph source is chosen (self-hosted under `web/static/`
+if within the D-13 budget, else the Protomaps assets host) and added to the style. Flagged here as
+a follow-up rather than silently shipped as "done": the task's read-list and contract did not name
+a specific glyph host to point at, and self-hosting versus the Protomaps host is a size-budget call
+better made once real PMTiles data (and therefore label density) exists.
+
+**Budget (D-13, ≤ 250 KB gzipped including libraries) — measured, not estimated:**
+
+| Asset | gzip bytes |
+|---|---|
+| `maplibre-gl.js` 5.24.0 (unchanged, pre-existing) | 276,052 |
+| `maplibre-gl.css` 5.24.0 (unchanged, pre-existing) | 10,110 |
+| `map.js` (this task's additions included) | 9,428 |
+| **`dev`/`raster` mode total** | **295,590 (≈ 288.7 KB)** |
+| `pmtiles@4.5.0/dist/pmtiles.js` (pmtiles mode only) | 7,958 |
+| `@protomaps/basemaps@5.7.2/dist/basemaps.js` (pmtiles mode only) | 7,019 |
+| **`pmtiles` mode total** | **310,567 (≈ 303.3 KB)** |
+
+**This budget was already blown before this task**: `maplibre-gl.js` 5.24.0 alone is 276 KB
+gzipped, over the 250 KB ceiling by itself, in every mode including the pre-existing `dev` one —
+not something this task's read-list authorized changing (a MapLibre version pin is outside
+`web/home_map.html`/`web/static/js/map.js`'s task scope as briefed, and downgrading it is a
+separate, deliberate call). This task's own additions are small and conditional: `map.js` grew by
+roughly 1 KB gzipped for every feature above, and the two pmtiles-mode-only scripts add ≈ 14.6 KB
+gzipped, loaded only when `MAP_TILE_URL` actually selects that mode. Flagged for the owner/coordinator
+rather than fixed unilaterally.
+
+## Existing-plants context layer (`docs/00-PLAN.md` 2026-09-14/15 owner decision)
+
+A checkbox "Existing plants (EIA-860M, US)" in the map filter bar toggles `layers=plants` in the
+URL (`replaceState`, D-17) and a same-origin proxy, `GET /api/context/plants/geo` (mirrors
+`GET /api/proposals/geo`: forwards `bbox`/`zoom`/`technology` only, no cookies, relays the API's
+error status verbatim) — **`GET /v1/context/plants/geo` had not landed on `services/api`** while
+this was built; `web/test_map_layers.py` drives the proxy against a hand-written fake `Transport`
+(see that file's own docstring) rather than a real API app.
+
+Rendering (`web/static/js/map.js`'s `addPlantsLayers()`): plants are added to the map's layer
+stack immediately after the proposals `clusters` layer is created (`addLayer(layer, "clusters")`
+requires that reference layer to already exist — the loop order in `map.on("load", ...)` was
+restructured so plants insert there, before `cluster-count`/`points`/`point-labels`), so plants
+render beneath every proposals layer. Individual plants are a small (4–5 px, `icon-size: 0.55` on
+an 8 px SDF square generated at runtime via `canvas`) `icon-color`-tinted symbol layer at
+`icon-opacity: 0.6`; plant clusters are faint rings (`circle-stroke-opacity: 0.6`, no fill) with
+count text, both keyed off `--plant-<technology>` tokens (`styles.css` tokens section: solar,
+wind, gas, nuclear, hydro, storage, coal/other — light and dark, each contrast-checked at ≥ 4.5:1
+against `--bg` per D-20 because the legend renders them as text, not only as marker fills). The
+technology filter applies to plants too; jurisdiction/`include_withdrawn` do not (plants have no
+lifecycle state; this layer is US-only today).
+
+The map's `technologies` legend gets a second row (`#plants-legend`, `hidden` until the checkbox is
+checked). Clicking a plant opens the same drawer component as a proposal, rendering a different
+body (`drawer.renderPlant`): name, operator, a technology-split table (from the feature's
+`technologies` map), capacity, first operating year, and the source line (name, retrieved date,
+licence) — no "Open full record" link, since a context-layer plant has no record page on this
+site. Plant markers are **not** individually keyboard-focusable (D-14's roving-tabindex path is
+for the proposals layer only, per the task brief); the drawer is reachable by click only. The
+`aria-live` region gains a second sentence, "N existing plants in view", appended after the
+proposals count rather than replacing it, only while the layer is on.
+
+## Regional quick views (`web/regions.py`)
+
+A static table of five regions (`us`, `gb`, `eu`, `ca`, `au`; code, label, bbox) — which of them
+actually gets a button on a given deploy is computed server-side in `home_map()` from
+`GET /v1/sources` filtered to `publish_state=public`, matched against each source's free-text
+`jurisdiction` field by a case-insensitive prefix (`web/regions.py::jurisdiction_matches_region` —
+the field has roughly ten distinct spellings across five regions in `data/sources.yaml`, e.g. `GB
+(England/Wales)`, `US+CA`, so an exact-set match would silently drop real rows). Clicking a button
+`fitBounds`s to that region's bbox (D-15 durations, reduced motion respected) and reflects
+`region=<code>` in the URL (`replaceState`); reloading a `region=` URL restores that view
+instantly (no re-fired `map.region_jumped` event, since that is page setup, not a user action).
+
+## Attribution page (`GET /attribution`)
+
+Renders every source `GET /v1/sources` lists (name, operator, licence name + link, reuse class,
+attribution text) plus a "Basemap" section (Protomaps/OSM ODbL, Natural Earth, US Census) and a
+"Context layers" section (EIA-860M, public domain) — reusing the same `/v1/sources` fetch
+`about()` already makes. The footer's "Sources and licences" link gets a sibling "Attribution"
+link on every page (`base.html`).
+
+## Measurement (`POST /api/ui-events` proxy, `web/app.py::ui_events_proxy`)
+
+Forwards only `name`/`props` to `POST /v1/ui-events` — never cookies, never headers beyond what
+any HTTP request already carries at the transport level — and always answers `202`, whether or not
+the upstream call succeeds (`try/except Exception: pass` around the one outbound call; measurement
+must never be able to break the map page). **`POST /v1/ui-events` had not landed on `services/api`**
+while this was built, so `web/test_map_layers.py`'s ui-events tests, and
+`web/test_auth.py::test_register_posts_auth_registered_event_with_layers_from_next`, both drive
+this against a fake/wrapped `Transport` rather than a real route — see each file's own docstring.
+
+`map.js` sends four event names from the contract (`map.layer_toggled`, `map.region_jumped`,
+`map.basemap_failed`, and — from `web/auth.py::register_submit` after a successful registration —
+`auth.registered`) via `navigator.sendBeacon` where available, falling back to
+`fetch(..., {keepalive: true})`. `register_submit` parses `layers` off the already-`_safe_next`-
+validated `next` URL's query string (comma-split, so `?layers=plants,foo` becomes `["plants",
+"foo"]`) and posts `auth.registered {layers}` after the redirect's cookies are set, wrapped the
+same way so it can never block or alter the redirect. The map page's header "Sign in" link is
+rewritten on every filter/layer change (`writeFilters`) to carry `?next=<current path+query>`, so
+`layers` survives the login/register round trip; `web/auth.py::_safe_next` already accepts any
+same-origin path+query unchanged, so no change was needed there.
+
+One sentence was added to `web/templates/legal/privacy.html`'s "What we store" section: map
+interaction counts (layer toggles, region jumps, basemap failures, sign-ups) carry no cookie, IP
+address, user agent or referrer, so they are not personal data.
+
+## Dev loop: existing plants (`web/dev_up.py`)
+
+`dev_up.py` loads `data/normalized/context/us.eia.860m.plants.parquet` through
+`services.ingest.plants.load_plants_parquet(session, path)` if the file exists, alongside the
+existing per-source load — **neither the parquet file nor that loader module existed yet** while
+this was built (a parallel-built lane, `python -m services.ingest.plants`), so
+`_load_plants_context_layer()` treats both as optional: a missing file is skipped silently, and an
+`ImportError` on the module is caught the same way — either branch prints exactly one log line, and
+neither ever fails the rest of `dev_up`.

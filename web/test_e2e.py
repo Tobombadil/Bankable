@@ -32,6 +32,14 @@ DB_PATH = REPO_ROOT / "web" / ".data" / "e2e-test.db"
 DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
 NARROW_VIEWPORT = {"width": 400, "height": 850}
 MAPLIBRE_VERSION = "5.24.0"  # must match templates/home_map.html
+PMTILES_VERSION = "4.5.0"  # must match templates/home_map.html
+BASEMAPS_VERSION = "5.7.2"  # must match templates/home_map.html
+# Exercises the pmtiles basemap mode (web/README.md "Map basemap") end to end: the URL itself is
+# never fetched (it only matters that it ends in `.pmtiles`, selecting that mode in
+# `web/app.py::_tile_mode`), and the two CDN scripts that mode depends on are aborted below the
+# same way the OSM tile host always has been, so this also proves the "keeps working if either
+# script fails to load" fallback path (docs/40 §2.7 task item 1).
+FAKE_PMTILES_URL = "https://tiles.example.invalid/basemap.pmtiles"
 
 # This sandbox's egress proxy resets Chromium's own TLS handshake to the CDN hosts the rendered
 # page references (a proxy/browser interaction, not a product defect -- plain Python `urllib`
@@ -72,6 +80,18 @@ def _install_offline_routes(page: Any) -> None:
     # against this build, not assumed.
     page.route("https://fonts.googleapis.com/**", lambda route: route.abort())
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    # The `server` fixture runs with `MAP_TILE_URL` set to a `.pmtiles` URL (pmtiles basemap
+    # mode) -- both CDN scripts that mode depends on are aborted here too, and any tile-shaped
+    # host generically, so `web/static/js/map.js`'s "keeps working if either script fails to
+    # load" fallback path is what this whole suite always exercises, not a separately-configured
+    # raster/dev path.
+    page.route(f"https://cdn.jsdelivr.net/npm/pmtiles@{PMTILES_VERSION}/**", lambda route: route.abort())
+    page.route(
+        f"https://cdn.jsdelivr.net/npm/@protomaps/basemaps@{BASEMAPS_VERSION}/**",
+        lambda route: route.abort(),
+    )
+    page.route("**/*.pmtiles", lambda route: route.abort())
+    page.route("https://*.tile.*/**", lambda route: route.abort())
 
 
 def _ensure_db_loaded(db_path: Path) -> str:
@@ -117,7 +137,7 @@ def _wait_for_server(url: str, timeout_s: float = 20.0) -> None:
 @pytest.fixture(scope="module")
 def server() -> object:
     database_url = _ensure_db_loaded(DB_PATH)
-    env = dict(os.environ, DATABASE_URL=database_url, WEB_DEV_PREVIEW="1")
+    env = dict(os.environ, DATABASE_URL=database_url, WEB_DEV_PREVIEW="1", MAP_TILE_URL=FAKE_PMTILES_URL)
     env.pop("API_BASE_URL", None)  # in-process API mount, backed by the same SQLite file
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", "8799"],
@@ -148,9 +168,23 @@ def _check_desktop_and_narrow(browser: object) -> None:
     # ---- desktop: home/map ----
     page = browser.new_page(viewport=DESKTOP_VIEWPORT)  # type: ignore[attr-defined]
     _install_offline_routes(page)
+    # docs/40 §2.7 task item 1's done-check for the fallback path: the pmtiles CDN scripts are
+    # aborted (`_install_offline_routes`), so `map.js` must beacon `map.basemap_failed` exactly
+    # once via `POST /api/ui-events` -- intercepted here rather than left to hit the real proxy,
+    # matching the task instruction to "intercept `/api/ui-events`".
+    basemap_failed_calls: list[str] = []
+
+    def _record_ui_event(route: Route) -> None:
+        post_data = route.request.post_data or ""
+        if "map.basemap_failed" in post_data:
+            basemap_failed_calls.append(post_data)
+        route.fulfill(status=202, content_type="application/json", body="{}")
+
+    page.route("**/api/ui-events", _record_ui_event)
     page.goto(BASE_URL + "/")
     map_container = page.locator("#map")
     assert map_container.count() == 1, "map container missing"
+    assert page.get_attribute("#map", "data-tile-mode") == "pmtiles"
     page.wait_for_selector("#map canvas", timeout=10000)
     # docs/04 E-10: map -> cluster/marker rendered. MapLibre exposes rendered features via the
     # `window.__map` handle map.js sets for exactly this check.
@@ -161,13 +195,25 @@ def _check_desktop_and_narrow(browser: object) -> None:
         timeout=15000,
     )
     assert "days delayed" in page.locator(".delayed-notice").inner_text()
-    # The OSM tile layer is aborted above (see _install_offline_routes) -- this proves the
+    # The pmtiles CDN scripts are aborted above (see _install_offline_routes) -- this proves the
     # same-origin fallback outline layer is what keeps the map from rendering blank.
     fallback_rendered = page.evaluate(
         "window.__map.queryRenderedFeatures({layers:['fallback-land']}).length > 0"
     )
     assert fallback_rendered, "fallback basemap layer did not render behind the (unavailable) tiles"
+    page.wait_for_timeout(300)  # let the sendBeacon's fulfilled route above finish recording
+    assert len(basemap_failed_calls) == 1, (
+        f"expected map.basemap_failed beaconed exactly once, got {len(basemap_failed_calls)}"
+    )
     page.screenshot(path=str(SCREENSHOT_DIR / "home-desktop.png"), full_page=True)
+
+    # ---- desktop: existing-plants context layer toggle (task item 2) ----
+    plants_checkbox = page.locator("#mf-layer-plants")
+    assert plants_checkbox.count() == 1, "existing-plants layer checkbox missing"
+    plants_checkbox.check()
+    page.wait_for_function("() => window.__map.getLayoutProperty('plant-points', 'visibility') === 'visible'")
+    assert "layers=plants" in page.url
+    plants_checkbox.uncheck()
 
     # ---- desktop: proposals list, attribution rendered ----
     page.goto(BASE_URL + "/proposals")

@@ -36,7 +36,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
@@ -117,6 +117,25 @@ def _relay_cookies(response: Response, set_cookie: list[str]) -> None:
         response.headers.append("set-cookie", value)
 
 
+def _post_registered_event(api: ApiClient, next_path: str) -> None:
+    """Map task item 5: a sign-up that started from the map page (`?next=/...&layers=plants`,
+    written by `map.js`'s `writeFilters` onto the header "Sign in" link so it survives the
+    login/register round trip) is measurement for the layer toggle's engagement effect, not the
+    account flow itself -- so this never blocks or shows on the redirect regardless of outcome.
+    `next_path` is already `_safe_next`-validated (same-origin path + query only).
+
+    `props.layers` is a single comma-joined string, not a list: `services/api/ui_events.py`'s
+    `_ALLOWED_PROPS["auth.registered"]` types it `(str, 64)`, matching `docs/21` §3.21's
+    `UI_EVENT_NAMES` table -- a JSON list would fail that endpoint's type check and the whole
+    event would be silently dropped by the `except Exception` below."""
+    raw_layers = parse_qs(urlsplit(next_path).query).get("layers", [])
+    layers = [item for raw in raw_layers for item in raw.split(",") if item]
+    try:
+        api.post("/v1/ui-events", json={"name": "auth.registered", "props": {"layers": ",".join(layers)}})
+    except Exception:  # noqa: S110 -- measurement must never block or surface an error here
+        pass
+
+
 # ---------------------------------------------------------------------------------------- login
 @router.get("/login", response_class=HTMLResponse)
 def login_form(request: Request) -> HTMLResponse:
@@ -178,6 +197,7 @@ def register_submit(
     if result.status_code == 201:
         redirect = RedirectResponse(url=next_path, status_code=303)
         _relay_cookies(redirect, result.set_cookie)
+        _post_registered_event(api, next_path)
         return redirect
     context = {
         "next": next_path,
