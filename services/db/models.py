@@ -1242,3 +1242,84 @@ class WorkerWatermark(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
     )
+
+
+# ============================================================== built_plant (docs/21 §3.20, 2026-09-14)
+class BuiltPlant(Base, TimestampMixin):
+    """One operating generating plant, drawn as *context* beneath the proposals map (docs/00-PLAN.md
+    decision 2026-09-14, "Built-infrastructure context layer"). It is never a proposal: no
+    lifecycle state, no events, no matches, no entity resolution against queue rows. Sources in
+    licence order: EIA-860M "Operating" sheet (US federal work, public domain) first; Global Energy
+    Monitor trackers (CC BY 4.0, TZ-ID rows dropped at ingest per docs/13 §2.2) later;
+    OpenStreetMap never until counsel has answered docs/00-PLAN.md open question 7(b).
+
+    Carries the provenance quartet like every stored record (CLAUDE.md). `technologies` is the
+    raw per-technology nameplate split (`{"Solar Photovoltaic": 120.0, ...}`) so a plant with
+    mixed units still reads honestly; `technology` is the dominant class in the
+    `pipeline.normalize.classify_tech` vocabulary. One row per `(source_id, source_plant_id)`;
+    a re-run of the loader updates in place, never duplicates.
+    """
+
+    __tablename__ = "built_plant"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    source_plant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    operator_name: Mapped[str | None] = mapped_column(sa.Text)
+    technology: Mapped[str | None] = mapped_column(sa.Text)
+    technology_raw: Mapped[str | None] = mapped_column(sa.Text)
+    technologies: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    capacity_mw: Mapped[float | None] = mapped_column(sa.Numeric(12, 3))
+    generator_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    earliest_operating_year: Mapped[int | None] = mapped_column(sa.Integer)
+    geom: Mapped[Any | None] = mapped_column(GeographyPoint())
+    state_code: Mapped[str | None] = mapped_column(sa.Text)
+    county_name: Mapped[str | None] = mapped_column(sa.Text)
+    country: Mapped[str] = mapped_column(sa.String(2), nullable=False)
+
+    source_id: Mapped[str] = mapped_column(sa.ForeignKey("source.id"), nullable=False)
+    source_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    retrieved_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
+
+    source: Mapped[Source] = relationship(lazy="joined")
+    licence: Mapped[Licence] = relationship(lazy="joined")
+
+    __table_args__ = (
+        sa.UniqueConstraint("source_id", "source_plant_id", name="uq_built_plant_source_record"),
+        sa.Index("ix_built_plant_country_technology", "country", "technology"),
+    )
+
+
+# ================================================================== ui_event (docs/21 §3.21, 2026-09-14)
+UI_EVENT_NAMES = (
+    "map.layer_toggled",  # props: {"layer": "plants", "on": true}
+    "map.region_jumped",  # props: {"region": "us"}
+    "map.basemap_failed",  # props: {} — tiles never loaded; the outline fallback was shown
+    "auth.registered",  # props: {"layers": "plants"} — layers on the page that linked to /register
+    "alert.created",  # props: {}
+)
+
+
+class UiEvent(Base):
+    """Identifier-free interaction counters (docs/00-PLAN.md decision 2026-09-14: the context
+    layer ships with a measurement, not an assumption). A row is a name from `UI_EVENT_NAMES`, a
+    small property bag and a time — never a user id, session id, IP address, user agent or
+    referrer URL — so a row is not personal data and the page needs no consent banner for it
+    (GDPR art. 4(1); PECR reg. 6 applies to storage on the device, which this never does).
+    Anything that could identify a person is rejected at the API (`services/api/ui_events.py`),
+    not merely omitted by the client. Read by the admin ops page as weekly counts per name."""
+
+    __tablename__ = "ui_event"
+
+    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    props: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    occurred_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    __table_args__ = (
+        sa.CheckConstraint(f"name IN {UI_EVENT_NAMES!r}", name="name_vocab"),
+        sa.Index("ix_ui_event_name_occurred_at", "name", "occurred_at"),
+    )

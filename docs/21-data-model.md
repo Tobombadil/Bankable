@@ -683,6 +683,44 @@ observation row so that a later licence change cannot retroactively rewrite what
 **Invariant L2:** `licence_id` on an observation row is immutable. Re-classifying a source writes a new `licence`
 row and future observations point at it; historical rows keep the licence that applied when they were fetched.
 
+### 3.20 `built_plant` — operating plants as context (added 2026-09-14)
+
+One row per operating generating plant, drawn *beneath* the proposals map as context (`docs/00-PLAN.md`
+decision 2026-09-14). Not a proposal: no lifecycle, events, matches or resolution against queue rows. Sources
+in licence order: EIA-860M "Operating" sheet (public domain) first; Global Energy Monitor (CC BY 4.0, TZ-ID
+rows dropped, `docs/13` §2.2) later; OpenStreetMap never until counsel answers `docs/00-PLAN.md` open
+question 7(b).
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `id` | uuid | No | Internal key | — |
+| `source_plant_id` | text | No | The source's plant key; unique with `source_id` | `6452` (EIA Plant ID) |
+| `name`, `operator_name` | text | No / Yes | Plant name; operating entity | `Roscoe Wind Farm` |
+| `technology` | text | Yes | Dominant class in the `pipeline.normalize.classify_tech` vocabulary | `wind` |
+| `technology_raw` | text | Yes | The source's own label for that dominant class | `Onshore Wind Turbine` |
+| `technologies` | jsonb | No | Raw technology → nameplate MW split across the plant's units | `{"Onshore Wind Turbine": 781.5}` |
+| `capacity_mw` | numeric(12,3) | Yes | Sum of nameplate over operating units | `781.500` |
+| `generator_count` | integer | No | Operating units at the plant | `627` |
+| `earliest_operating_year` | integer | Yes | First unit's operating year | `2007` |
+| `geom` | geography(Point,4326) | Yes | Source-supplied coordinate (public-domain source, so exact is allowed) | `POINT(-100.4 32.4)` |
+| `state_code`, `county_name`, `country` | text, text, char(2) | Yes, Yes, No | As §3.7 | `US-TX`, `Nolan`, `US` |
+| `source_id`, `source_url`, `retrieved_at`, `licence_id` | — | No | Provenance quartet | — |
+
+### 3.21 `ui_event` — identifier-free interaction counters (added 2026-09-14)
+
+The context layer's purpose is engagement, so it ships with a measurement. A row is an allowlisted `name`
+(`services/db/models.py::UI_EVENT_NAMES`), a small `props` bag and `occurred_at` — never a user id, session
+id, IP address, user agent or referrer. That is the whole privacy design: with no identifier the row is not
+personal data (GDPR art. 4(1)) and nothing is stored on the device (PECR reg. 6). The API rejects, not merely
+omits, any property that looks like an identifier. Read as weekly counts per name on the admin ops page.
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `id` | bigint identity | No | — | — |
+| `name` | text | No | One of `map.layer_toggled`, `map.region_jumped`, `map.basemap_failed`, `auth.registered`, `alert.created` | `map.layer_toggled` |
+| `props` | jsonb | No | Small, non-identifying: `layer`, `on`, `region`, `layers` | `{"layer": "plants", "on": true}` |
+| `occurred_at` | timestamptz | No | Server time of receipt | — |
+
 ## 4. Operational entities
 
 These carry the pipeline's own state. They are as much a part of the product as the graph: source health,

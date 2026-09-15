@@ -412,3 +412,59 @@ def test_source_run_and_snapshot(session: Session) -> None:
     session.add(snap)
     session.flush()
     assert snap.id is not None
+
+
+def test_built_plant_unique_per_source_record(session: Session) -> None:
+    from services.db.models import BuiltPlant
+
+    lic = make_licence(session)
+    src = make_source(session, lic)
+    now = dt.datetime.now(UTC)
+
+    def plant(plant_id: str) -> BuiltPlant:
+        return BuiltPlant(
+            source_plant_id=plant_id,
+            name="Test Plant",
+            technology="solar",
+            technologies={"Solar Photovoltaic": 12.5},
+            capacity_mw=12.5,
+            generator_count=1,
+            geom=(-101.5, 33.2),
+            state_code="US-TX",
+            country="US",
+            source_id=src.id,
+            source_url="https://example.org/860m",
+            retrieved_at=now,
+            licence_id=lic.id,
+        )
+
+    session.add(plant("1001"))
+    session.commit()
+    row = session.scalar(sa.select(BuiltPlant))
+    assert row is not None
+    assert row.geom == (-101.5, 33.2)
+    assert row.technologies == {"Solar Photovoltaic": 12.5}
+    session.add(plant("1001"))
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+
+def test_ui_event_name_vocab_and_no_identifier_columns(session: Session) -> None:
+    from services.db.models import UI_EVENT_NAMES, UiEvent
+
+    session.add(UiEvent(name="map.layer_toggled", props={"layer": "plants", "on": True}))
+    session.commit()
+    row = session.scalar(sa.select(UiEvent))
+    assert row is not None
+    assert row.id == 1
+    assert row.props == {"layer": "plants", "on": True}
+    # The table has no column that could carry an identifier: this is the privacy invariant
+    # docs/21 §3.21 relies on, so a future column named like one fails loudly here.
+    columns = {c.name for c in UiEvent.__table__.columns}
+    assert columns == {"id", "name", "props", "occurred_at"}
+    assert "auth.registered" in UI_EVENT_NAMES
+    session.add(UiEvent(name="not.allowed", props={}))
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
