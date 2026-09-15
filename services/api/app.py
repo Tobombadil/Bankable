@@ -239,8 +239,22 @@ def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select
     if v := qp.get("slug"):
         stmt = stmt.where(Proposal.slug == v)
     if v := qp.get("q"):
+        # Substring match over the three things a user actually types (web/templates/base.html
+        # promises "name, sponsor, queue ID"): the canonical name, the sponsor organisation's
+        # canonical name, and any active source record id (queue position, docket, plant-generator
+        # id). Subqueries rather than joins so a proposal with several sources is not repeated.
         like = f"%{v.lower()}%"
-        stmt = stmt.where(func.lower(Proposal.name_canonical).like(like))
+        sponsor_ids = select(Organization.id).where(func.lower(Organization.name_canonical).like(like))
+        record_hits = select(ProposalSource.proposal_id).where(
+            ProposalSource.active.is_(True), func.lower(ProposalSource.source_record_id).like(like)
+        )
+        stmt = stmt.where(
+            sa.or_(
+                func.lower(Proposal.name_canonical).like(like),
+                Proposal.sponsor_org_id.in_(sponsor_ids),
+                Proposal.id.in_(record_hits),
+            )
+        )
     return stmt
 
 
@@ -656,8 +670,19 @@ def _opportunity_query_with_filters(
     if v := qp.get("slug"):
         stmt = stmt.where(Opportunity.slug == v)
     if v := qp.get("q"):
+        # Same contract as proposals: title, issuer organisation name, or an active source record id.
         like = f"%{v.lower()}%"
-        stmt = stmt.where(func.lower(Opportunity.title).like(like))
+        issuer_ids = select(Organization.id).where(func.lower(Organization.name_canonical).like(like))
+        record_hits = select(OpportunitySource.opportunity_id).where(
+            OpportunitySource.active.is_(True), func.lower(OpportunitySource.source_record_id).like(like)
+        )
+        stmt = stmt.where(
+            sa.or_(
+                func.lower(Opportunity.title).like(like),
+                Opportunity.issuer_org_id.in_(issuer_ids),
+                Opportunity.id.in_(record_hits),
+            )
+        )
     return stmt
 
 
