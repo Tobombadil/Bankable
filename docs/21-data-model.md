@@ -392,7 +392,7 @@ document references only (`docs/20` §11; `docs/02` §4 last row).
 | `kind` | text | No | `point \| county \| state \| region \| service_territory` | `county` |
 | `geom` | geography(Point,4326) | Yes | Representative point; **never a raw restricted-source coordinate on public surfaces** (US-104 AC3, §8) | `POINT(-115.0 35.8)` |
 | `precision` | text | No | `exact \| county_centroid \| state_centroid \| unknown` — what `geom` actually means | `county_centroid` |
-| `county_fips` | char(5) | Yes | US county key | `32003` |
+| `county_fips` | char(5) | Yes | US county key. Set from the source row's own `county_name`/`state_code` against the vendored Census Gazetteer (`services/ingest/geocode.py`) whenever that resolves — for a `county_centroid` location and, separately, for an `exact` one whose source row also names a resolvable county — and left NULL otherwise; never inferred from `geom` (no point-in-polygon geocoder is vendored, 2026-09-15) | `32003` |
 | `county_name` | text | Yes | Display name | `Clark` |
 | `state_code` | text | Yes | ISO 3166-2 subdivision | `US-NV` |
 | `country` | char(2) | No | ISO 3166-1 | `US` |

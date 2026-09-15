@@ -10,7 +10,28 @@ categorically `county_centroid` / `state_centroid` precision, never `exact`.
 `https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2024_Gazetteer/2024_Gaz_counties_national.zip`
 (`2024_Gaz_counties_national.txt`). Columns kept: `USPS` (state), `NAME` (county/parish/borough/
 municipio), `INTPTLAT`, `INTPTLONG` — a county's internal point (Census's own representative-point
-field, not a bounding-box centroid).
+field, not a bounding-box centroid) — and, since 2026-09-15, `GEOID` (renamed `county_fips` in the
+vendored TSV): the source file's own 5-digit county FIPS (2-digit state + 3-digit county), used
+unmodified as the standard national county key.
+
+**2026-09-15 addition (`county_fips`):** the table as originally vendored had already dropped
+`GEOID` — only `USPS`/`NAME`/`INTPTLAT`/`INTPTLONG` were kept (see "Columns kept" above, unchanged
+since this README was written). The county-permit pilot (docs/00-PLAN.md decision 2026-09-15)
+needs counties keyed by FIPS, not name, so `GEOID` was re-derived by re-downloading the same 2024
+Gazetteer file linked above and joining each vendored row back to its source row: 3,205 of 3,222
+rows joined on an exact `(USPS, NAME)` match; the other 17 (16 Puerto Rico municipios plus NM's
+Doña Ana County) joined on `normalize_county_name()` instead, because the vendored `NAME` for
+those rows carries mojibake (UTF-8 bytes re-decoded as Latin-1, e.g. `BayamÃ³n Municipio` for
+`Bayamón Municipio`) predating this README — `normalize_county_name()` strips all non-ASCII
+characters from both sides so the mangled and correct spellings still normalise to the same key,
+and each of those 17 keys had exactly one candidate `GEOID` in the source file, so the join is
+unambiguous. The mojibake itself was left as found (out of scope for this addition: `NAME` values
+were not touched, only appended to). All 3,222 rows now carry a `GEOID`, including the six
+state/independent-city pairs that collide under `normalize_county_name()` (`Baltimore city`
+24510 vs `Baltimore County` 24005 (MD); `St. Louis city` 29510 vs `St. Louis County` 29189 (MO);
+`Fairfax`/`Franklin`/`Richmond`/`Roanoke` city vs county (VA), each pair keeping its own distinct,
+correct FIPS since the join used the row's exact name, not the collapsed key). Licence unchanged
+(same public-domain source file; no new attribution or reuse term).
 
 **Licence:** US federal government work, public domain (17 U.S.C. §105). No attribution required,
 no reuse restriction.
@@ -23,7 +44,7 @@ spot-checked field-by-field on Autauga County AL, Bibb County AL, Kings County N
 Municipio PR (`INTPTLAT`/`INTPTLONG` identical to the six decimal places both files carry). Row
 count: 3,222 US counties/county-equivalents/PR municipios + 1 header line = 3,223 lines.
 
-**Format:** UTF-8 TSV, header `state\tcounty_name\tlat\tlon`, one row per county.
+**Format:** UTF-8 TSV, header `state\tcounty_name\tlat\tlon\tcounty_fips`, one row per county.
 
 ## `gb_substations.tsv`
 
