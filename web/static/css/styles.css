@@ -206,6 +206,10 @@ a:visited { color: var(--link-visited); }
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
   overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
+/* The `hidden` attribute must win over any class that sets `display` (`.filter-field`,
+   `.legend`, ...): the UA's `[hidden] { display: none }` loses to a single-class rule, so without
+   this the plant-type select and plants legend showed with the layer off (owner, 2026-09-15). */
+[hidden] { display: none !important; }
 .skip-link {
   position: absolute; left: -9999px; top: 0; z-index: 100;
   background: var(--surface); color: var(--text); padding: var(--space-3) var(--space-4);
