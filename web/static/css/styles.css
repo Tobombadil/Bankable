@@ -61,6 +61,12 @@
   --plant-hydro: #2f6f68;
   --plant-storage: #3f6f4a;
   --plant-coal: #6a5a48;
+  /* Added 2026-09-15 with the plant-type filter (owner: biomass/waste must be distinct). Same
+     method: oil 6.81:1, biomass 5.11:1, geothermal 6.12:1, other 4.71:1 against --color-paper. */
+  --plant-oil: #6b4f3a;
+  --plant-biomass: #55702a;
+  --plant-geothermal: #8a4a3a;
+  --plant-other: #6d6d6d;
 
   /* 1.3 typography */
   --font-display: "Newsreader", Georgia, "Times New Roman", serif;
@@ -133,6 +139,10 @@
     --plant-hydro: #7cb8b0;
     --plant-storage: #86b98f;
     --plant-coal: #ac9c88;
+    --plant-oil: #c9a98a;
+    --plant-biomass: #a9c77a;
+    --plant-geothermal: #d29a86;
+    --plant-other: #b5b5b5;
   }
 }
 :root[data-theme="dark"] {
@@ -165,6 +175,10 @@
   --plant-hydro: #7cb8b0;
   --plant-storage: #86b98f;
   --plant-coal: #ac9c88;
+  --plant-oil: #c9a98a;
+  --plant-biomass: #a9c77a;
+  --plant-geothermal: #d29a86;
+  --plant-other: #b5b5b5;
 }
 
 /* ---------- 2. Reset ---------- */

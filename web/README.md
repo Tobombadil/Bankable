@@ -762,3 +762,17 @@ this was built (a parallel-built lane, `python -m services.ingest.plants`), so
 `_load_plants_context_layer()` treats both as optional: a missing file is skipped silently, and an
 `ImportError` on the module is caught the same way — either branch prints exactly one log line, and
 neither ever fails the rest of `dev_up`.
+
+### Plant type filter and labels (2026-09-15)
+
+The API classifies plants with `pipeline.normalize.classify_tech`'s full vocabulary (`gas_cc`, `gas_ct`,
+`wind_offshore`, `pumped_storage`, `waste`, ...). `map.js` groups those into eleven families
+(`PLANT_FAMILY_CLASSES`) so the legend stays readable and nothing falls into a catch-all colour: the first
+palette had seven families and mapped only the bare class names, so every `gas_*` plant, plus biomass,
+waste, oil and geothermal, drew in the "Coal/other" colour. A "Plant type" select (`plant_technology=` in
+the URL, shown only while the layer is on) sends the family's classes as the plants `technology` filter;
+the proposals technology filter no longer applies to plants. `web/test_map_layers.py` asserts the family
+map covers the API vocabulary exactly, both ways. From zoom 9 a three-letter family code is drawn under
+each square (`plant-labels`), the same convention as the proposal markers; below that zoom the colour and
+the drawer carry the type. Measured live (2026-09-15, 14,659 plants): `plant_technology=biomass` returns
+582 plants (527 biomass, 55 waste).

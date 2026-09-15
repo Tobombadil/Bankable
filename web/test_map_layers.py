@@ -377,3 +377,35 @@ def test_footer_links_to_attribution(web_client: TestClient) -> None:
     resp = web_client.get("/about")
     assert resp.status_code == 200
     assert 'href="/attribution"' in resp.text
+
+
+# ============================================================ plant type filter (2026-09-15)
+def test_plant_family_classes_are_all_in_the_api_vocabulary() -> None:
+    """`map.js` sends a family's classify_tech classes as the plants `technology` filter; a class
+    the API does not know is a 400, so every class named in the script must be in the vocabulary
+    and every vocabulary class must land in some family (nothing silently falls to a catch-all)."""
+    import json
+    import re
+    from pathlib import Path
+
+    from services.api.context_routes import TECHNOLOGY_VOCAB
+
+    source = (Path(__file__).parent / "static" / "js" / "map.js").read_text()
+    block = re.search(r"var PLANT_FAMILY_CLASSES = \{(.*?)\n  \};", source, re.S)
+    assert block is not None
+    classes: set[str] = set()
+    for family, arr in re.findall(r"(\w+): (\[[^\]]*\])", block.group(1)):
+        values = json.loads(arr)
+        assert values, family
+        classes.update(values)
+    assert classes <= set(TECHNOLOGY_VOCAB), classes - set(TECHNOLOGY_VOCAB)
+    assert set(TECHNOLOGY_VOCAB) <= classes, set(TECHNOLOGY_VOCAB) - classes
+
+
+def test_home_map_has_plant_type_filter_and_eleven_family_legend(web_client: TestClient) -> None:
+    resp = web_client.get("/?layers=plants")
+    assert resp.status_code == 200
+    assert 'id="mf-plant-technology"' in resp.text
+    assert '<option value="biomass">Biomass / waste</option>' in resp.text
+    for token in ("--plant-oil", "--plant-biomass", "--plant-geothermal", "--plant-other"):
+        assert token in resp.text, token
