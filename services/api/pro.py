@@ -58,6 +58,7 @@ from services.db.models import (
     ApiKey,
     Organization,
     SavedSearch,
+    UiEvent,
     User,
     WebhookDelivery,
     WebhookEndpoint,
@@ -246,6 +247,9 @@ def create_saved_search(
     db.flush()
     search.public_id = public_id("ss", search.id)
     db.flush()
+    # docs/00-PLAN.md 2026-09-14 "ships with a measurement": a saved search is the product's
+    # "alert" (services/db/models.py UI_EVENT_NAMES `alert.created`), identifier-free by design.
+    db.add(UiEvent(name="alert.created", props={}))
     return build_envelope(
         serialize_saved_search(search),
         meta=build_meta(lag_days=0, tier=ctx.entitlement),

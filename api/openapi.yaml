@@ -88,6 +88,8 @@ tags:
     description: Proposal ↔ opportunity matches with score and rationale (docs/21 §3.11).
   - name: Map
     description: Clustered GeoJSON for the map-first surface (docs/04 §2.2). Same filters and tier rules as the lists.
+  - name: Context
+    description: Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14) — existing plants under the proposals map, and its identifier-free interaction measurement (docs/21 §3.20-§3.21). Public on every tier; no proposal semantics.
   - name: Documents
     description: Document metadata; bytes only where the licence allows (docs/21 §3.8).
   - name: Sources & licences
@@ -1267,6 +1269,96 @@ paths:
                 $ref: '#/components/schemas/HealthResponse'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+
+  # ───────────────────────── Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14) ─────────────────────────
+  /v1/context/plants/geo:
+    get:
+      operationId: getContextPlantsGeo
+      tags: [Context]
+      summary: Map payload — existing plants beneath the proposals map
+      description: |
+        Built-infrastructure context layer (docs/00-PLAN.md decision 2026-09-14): operating plants drawn under the
+        proposals map. Every source in scope this sprint (EIA-860M) is public domain, so this is public on every
+        tier with no publish delay and no restricted-precision rule — unlike `GET /v1/proposals/geo`, a `built_plant`
+        row is never a proposal (no lifecycle, no matches, no entity resolution against queue rows, docs/21 §3.20).
+        Clustering is the same server-side grid as the proposals map (docs/04 D-10): below the split threshold
+        (≤ 500 visible plants) individual `plant` features are returned; above it, `plant_cluster` features with
+        `count`, `technology_counts`, `capacity_mw_sum` and their own `bbox`.
+
+        Budget: ≤ 2,000 features (docs/04 D-13).
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-101, US-104]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/Bbox'
+        - $ref: '#/components/parameters/Zoom'
+        - name: technology
+          in: query
+          description: Normalised technology tokens (`pipeline.normalize.classify_tech` vocabulary); comma-separated for OR. Unknown values are rejected.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              examples: [wind, solar, gas_cc]
+        - name: country
+          in: query
+          description: ISO 3166-1 alpha-2; comma-separated for OR. Default is every country in scope (US only this sprint).
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              pattern: '^[A-Z]{2}$'
+      responses:
+        '200':
+          description: Clustered plant features for the viewport inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContextPlantsGeoResponse'
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/ContextPlantsGeoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/ui-events:
+    post:
+      operationId: createUiEvent
+      tags: [Context]
+      summary: Record an identifier-free interaction counter
+      description: |
+        docs/00-PLAN.md 2026-09-14: the context layer ships with a measurement, not an assumption. `name` must be
+        one of the allowlisted UI event names (`services/db/models.py::UI_EVENT_NAMES`); `props` carries at most 8
+        keys from a fixed, per-name allowlist, and never a value shaped like an email, an IPv4/IPv6 address, a UUID
+        or a 20+ character token — those are rejected outright, not merely dropped (docs/21 §3.21). No auth; the
+        caller's IP is used only to enforce the rate limit below and is never read into the stored row, logged, or
+        otherwise retained. Rate-limited per IP at 60 per minute — well under the public tier's per-hour ceiling,
+        since this is a write with essentially zero cost per call and a real abuse surface (anonymous, no key).
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104]
+      security: *sec_public
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UiEventCreateRequest'
+      responses:
+        '202':
+          description: Accepted; body always empty.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
 
   # ───────────────────────────── §3.2 Pro and API — live, key or session required ─────────────────────────────
   /v1/auth/register:
@@ -4337,6 +4429,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        <<: *common_errors
+
+  /admin/v1/ui-events/summary:
+    servers: *admin_servers
+    get:
+      operationId: adminGetUiEventsSummary
+      tags: [Admin — operations]
+      summary: Weekly interaction counts per UI event name
+      description: |
+        Read side of the built-infrastructure context layer's engagement measurement (docs/00-PLAN.md 2026-09-14):
+        counts of `ui_event` rows (docs/21 §3.21) bucketed by ISO week and `name` over the trailing `weeks` window
+        (default 8). `map.layer_toggled` rows additionally split into `count_on`/`count_off` from `props.on`.
+      x-tier: admin
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-909]
+      security: *sec_admin
+      parameters:
+        - name: weeks
+          in: query
+          description: Trailing window in ISO weeks.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 52
+            default: 8
+      responses:
+        '200':
+          description: Weekly counts per event name.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UiEventsSummaryResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7644,6 +7774,191 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/GeoFeatureCollection'
+
+    # ---------- Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14; docs/21 §3.20-§3.21) ----------
+    ContextPlantSource:
+      type: object
+      description: Minimal per-plant provenance (docs/21 §3.20). No `reuse_class`/`attribution_text` — every source in scope this sprint (EIA-860M) is public domain.
+      required: [source_id, source_name, source_url, retrieved_at, licence_id, licence_name]
+      properties:
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        source_name:
+          type: string
+        source_url:
+          type: string
+          format: uri
+        retrieved_at:
+          type: string
+          format: date-time
+        licence_id:
+          $ref: '#/components/schemas/LicenceIdValue'
+        licence_name:
+          type: string
+    ContextPlantProperties:
+      type: object
+      description: An individual operating plant marker.
+      required: [feature_kind, name, technologies, generator_count, source]
+      properties:
+        feature_kind:
+          type: string
+          const: plant
+        name:
+          type: string
+        operator_name:
+          type: [string, 'null']
+        technology:
+          type: [string, 'null']
+        technology_raw:
+          type: [string, 'null']
+        technologies:
+          type: object
+          description: Raw per-technology nameplate MW split.
+          additionalProperties:
+            type: number
+        capacity_mw:
+          type: [number, 'null']
+        generator_count:
+          type: integer
+          minimum: 0
+        earliest_operating_year:
+          type: [integer, 'null']
+        state_code:
+          type: [string, 'null']
+        county_name:
+          type: [string, 'null']
+        source:
+          $ref: '#/components/schemas/ContextPlantSource'
+    ContextPlantClusterProperties:
+      type: object
+      required: [feature_kind, count, technology_counts, capacity_mw_sum, bbox, expands_to_zoom]
+      properties:
+        feature_kind:
+          type: string
+          const: plant_cluster
+        count:
+          type: integer
+          minimum: 1
+        technology_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        capacity_mw_sum:
+          type: number
+        dominant_technology:
+          type: [string, 'null']
+        bbox:
+          type: array
+          description: '`[min_lon, min_lat, max_lon, max_lat]` of the members; zoom into it to split the cluster.'
+          minItems: 4
+          maxItems: 4
+          items:
+            type: number
+        expands_to_zoom:
+          type: integer
+          minimum: 0
+          maximum: 22
+    ContextPlantFeature:
+      type: object
+      required: [type, geometry, properties]
+      properties:
+        type:
+          type: string
+          const: Feature
+        id:
+          type: string
+          description: Individual `plant` features only — the plant's internal id as a string.
+        geometry:
+          $ref: '#/components/schemas/GeoJsonPoint'
+        properties:
+          oneOf:
+            - $ref: '#/components/schemas/ContextPlantProperties'
+            - $ref: '#/components/schemas/ContextPlantClusterProperties'
+          discriminator:
+            propertyName: feature_kind
+            mapping:
+              plant: '#/components/schemas/ContextPlantProperties'
+              plant_cluster: '#/components/schemas/ContextPlantClusterProperties'
+    ContextPlantFeatureCollection:
+      type: object
+      description: RFC 7946 FeatureCollection of built-infrastructure context plants. Up to 2,000 features (docs/04 D-13).
+      required: [type, features, totals]
+      properties:
+        type:
+          type: string
+          const: FeatureCollection
+        bbox:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            type: number
+        features:
+          type: array
+          maxItems: 2000
+          items:
+            $ref: '#/components/schemas/ContextPlantFeature'
+        totals:
+          type: object
+          required: [records, clustered, technology_counts]
+          properties:
+            records:
+              type: integer
+            clustered:
+              type: boolean
+              description: '`false` when every record is an individual feature (≤ 500 visible).'
+            technology_counts:
+              type: object
+              additionalProperties:
+                type: integer
+    ContextPlantsGeoResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ContextPlantFeatureCollection'
+    UiEventCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          enum: [map.layer_toggled, map.region_jumped, map.basemap_failed, auth.registered, alert.created]
+        props:
+          type: object
+          description: At most 8 keys; allowed keys and types depend on `name` (docs/21 §3.21). No identifier-shaped value (email, IP, UUID, or a 20+ character token) is ever accepted.
+          maxProperties: 8
+    UiEventsSummaryRow:
+      type: object
+      required: [week, name, count]
+      properties:
+        week:
+          type: string
+          pattern: '^\d{4}-W\d{2}$'
+          examples: ['2026-W37']
+        name:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+        count_on:
+          type: integer
+          minimum: 0
+          description: '`map.layer_toggled` only.'
+        count_off:
+          type: integer
+          minimum: 0
+          description: '`map.layer_toggled` only.'
+    UiEventsSummaryResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/UiEventsSummaryRow'
 
     # ---------- Meta, intake, reports ----------
     VocabularyEntry:

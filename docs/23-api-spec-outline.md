@@ -70,10 +70,14 @@ is the minimum entitlement; a higher tier sees the same shape with `lag = 0` and
 | `POST /v1/intake/proposals` · `/v1/intake/opportunities` | Submit-a-project / submit-an-RFP; creates a pending record and an admin task; rate-limited and captcha-gated | US-1001, US-1003 |
 | `POST /v1/reports` | Report a problem on a record | US-204 |
 | `GET /v1/health` | Liveness and `data_as_of` | US-604, US-904 |
+| `GET /v1/context/plants/geo` | Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14): clustered `built_plant` points under the proposals map. No lag, no tier gating — every source in scope (EIA-860M) is public domain | US-101, US-104 |
+| `POST /v1/ui-events` | Identifier-free interaction counter for the context layer (`services/db/models.py::UI_EVENT_NAMES`); no auth, rate-limited 60/min per IP for limiting purposes only (the IP is never stored) | US-104 |
 
 Public tier behaviour is fixed by `docs/21` §5.4 and §8: records and events only where `public_at <= now()`;
 nothing from a gated, restricted or unknown-terms source; derived fields only where the licence withholds raw;
 county centroids instead of exact coordinates for restricted geo; attribution rendered in every response.
+`GET /v1/context/plants/geo` and `POST /v1/ui-events` are the two exceptions to "delayed": `built_plant` and
+`ui_event` are not proposals or opportunities, so neither the lag nor the tier/licence-gating rules apply to them.
 
 ### 3.2 Pro and API — live, key or session required
 
@@ -117,6 +121,7 @@ Everything in §3.1 with `lag = 0`, plus:
 | `GET /admin/v1/keys` · `POST` · `DELETE /{id}` | Issue and revoke keys on behalf of an account | US-701 |
 | `GET /admin/v1/costs` | Model spend by purpose, source and day; cost per changed record | US-909, `docs/20` §6 |
 | `GET /admin/v1/audit` | `event` filtered to `actor_type = user` | US-901 AC2 |
+| `GET /admin/v1/ui-events/summary` | Weekly counts of `ui_event` rows per name, with `map.layer_toggled` split on/off; the context layer's engagement measurement (docs/00-PLAN.md 2026-09-14) | US-909 |
 
 ## 5. Authentication and key scopes
 
