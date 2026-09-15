@@ -16,7 +16,7 @@ that generation must produce.
 | Schemas | 248 · Parameters 117 · Reusable responses 16 · Examples 9 |
 | PRD stories covered | 44 / 44 |
 | Validator | `openapi-spec-validator` 0.9.0 — `api/openapi.yaml: OK` |
-| Product name | pending (`docs/00-PLAN.md`). Every hostname and URL is `{{DOMAIN}}`; see [Placeholders](#placeholders) |
+| Product name | pending (`docs/00-PLAN.md`). Every hostname and URL is `infraque.com`; see [Placeholders](#placeholders) |
 
 ## Placeholders
 
@@ -24,7 +24,7 @@ The name is not chosen, so the document never coins one. Replace by find-and-rep
 
 | Placeholder | Appears in | Replace with |
 |---|---|---|
-| `{{DOMAIN}}` | `servers`, `info.termsOfService`, `info.license.url`, `info.contact`, every `type` URI in `Problem`, every example URL | the product domain |
+| `infraque.com` | `servers`, `info.termsOfService`, `info.license.url`, `info.contact`, every `type` URI in `Problem`, every example URL | the product domain |
 | `X-Platform-Signature`, `X-Platform-Delivery-Id`, `X-Platform-Event-Seq` | outbound webhook headers | the branded header prefix (`docs/23` §5 writes these with the codename — see open decision 2) |
 | `_platform` | JSON Feed extension key on every feed item | the branded extension key (`docs/23` §9.2 writes `_bankable`) |
 | `bk_live_` / `bk_test_` | `api_key.prefix`, the `ApiKey` security scheme, the key example | kept verbatim from `docs/23` §5 and `docs/21` §3.17 — see open decision 3 |
@@ -235,7 +235,7 @@ allowlists enforced by `pattern`. The grammar is restated once in the root `x-fi
 parameters are `400 unknown_parameter`, never ignored.
 
 **Errors** — one `Problem` schema (RFC 9457, `application/problem+json`) with the 15 `code` values of `docs/23` §8
-and a `pattern` binding `type` to `https://api.{{DOMAIN}}/errors/{code}`, so a typo in a `type` URI fails
+and a `pattern` binding `type` to `https://api.infraque.com/errors/{code}`, so a typo in a `type` URI fails
 validation. Every `4xx`/`5xx` in the document uses it.
 
 **Deprecation** — `Deprecation` and `Sunset` (RFC 8594) are documented headers on every operation, absent unless the

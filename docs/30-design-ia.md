@@ -5,11 +5,11 @@
 map model, motion, banned patterns) are the design inputs this doc builds screens against.
 **Inputs:** `CLAUDE.md`; `.claude/agents/product-designer.md`; `docs/10-prd-mvp.md` §4 (US-101…US-1003);
 `docs/23-api-spec-outline.md` §3–§4; `docs/21-data-model.md` §8.
-**Product name used in this doc:** Infraqueue (placeholder, `docs/12-naming-shortlist.md`).
+**Product name used in this doc:** Infraque (placeholder, `docs/12-naming-shortlist.md`).
 
 ## 1. Three surfaces, one grammar
 
-D-16 fixes the shape: Public (`{{DOMAIN}}`, delayed, no key), Pro (same host, entitlement-gated routes, live),
+D-16 fixes the shape: Public (`infraque.com`, delayed, no key), Pro (same host, entitlement-gated routes, live),
 Admin (`admin.` host, role `operator`/`owner`). D-4 and D-17 fix the rule governing every screen below: one filter
 vocabulary, one URL grammar (`docs/23` §7), shared across list, map and feed, on every tier — a tier changes what
 a query returns, never its shape. Primary nav is identical across public and Pro: **Proposals · Opportunities ·
@@ -69,7 +69,7 @@ is the identical URL a public visitor sees, with `lag_days = 0` in the envelope 
 
 ```mermaid
 flowchart TD
-  AH["admin.{{DOMAIN}} / — source health (US-904)"] --> SRC["/sources/{id} (US-904,905)"]
+  AH["admin.infraque.com / — source health (US-904)"] --> SRC["/sources/{id} (US-904,905)"]
   AH --> RUNS["/source-runs (DQ, snapshots)"]
   SRC --> GATE["publish-state + gate clearance (US-905, legal role)"]
   AH --> REC["/records — proposals/opportunities/orgs edit+merge (US-905,202)"]
@@ -269,7 +269,7 @@ Grid and breakpoints per `docs/30` §5 (400/720/1080/1440px, D-32).
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│ Infraqueue        Proposals · Opportunities · Map · Feed · Alerts      │ nav, identical all tiers
+│ Infraque        Proposals · Opportunities · Map · Feed · Alerts      │ nav, identical all tiers
 │ D-3 banner: "Public data is 14 days delayed (as of 29 Aug). Live Pro"  │ fixed, public tier only
 │ Filter bar: kind▾ technology▾ lifecycle▾ jurisdiction▾ capacity– –     │ D-19 tokens, URL-bound (D-17)
 │ View: [Map] List Feed              1,834 in view                       │

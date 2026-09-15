@@ -9,11 +9,11 @@
 # with different entrypoints"): infra/docker/Dockerfile (multi-stage, targets api/web/worker) and
 # infra/docker/Dockerfile.browser-worker (adds Playwright's Chromium).
 
-name: infraqueue
+name: infraque
 
 x-app-env: &app-env
-  DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://infraqueue:infraqueue@postgres:5432/infraqueue}
-  BANKABLE_DOMAIN: ${DOMAIN:-example-infraqueue.test}
+  DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://infraque:infraque@postgres:5432/infraque}
+  BANKABLE_DOMAIN: ${DOMAIN:-example-infraque.test}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   ENVIRONMENT: ${ENVIRONMENT:-dev}
 
@@ -23,15 +23,15 @@ services:
     profiles: ["local"] # `local`/`dev`/CI only — staging and production point DATABASE_URL at the managed provider (ADR 0003); activate with `--profile local` or `COMPOSE_PROFILES=local`
     restart: unless-stopped
     environment:
-      POSTGRES_DB: infraqueue
-      POSTGRES_USER: infraqueue
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-infraqueue-dev-only}
+      POSTGRES_DB: infraque
+      POSTGRES_USER: infraque
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-infraque-dev-only}
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
       - "127.0.0.1:5432:5432" # dev convenience only; not exposed in compose.prod.yml
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U infraqueue -d infraqueue"]
+      test: ["CMD-SHELL", "pg_isready -U infraque -d infraque"]
       interval: 10s
       timeout: 5s
       retries: 5

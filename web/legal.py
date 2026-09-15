@@ -19,7 +19,7 @@ suppressed, SoR deletion issued through the port"; the lawful bases follow
 `docs/13-legal-outreach-and-social.md` §7.2's five-item list and its CAN-SPAM/CASL sections; the
 postal address is the physical-address requirement that same document's §1 and §7.2 item 5 state
 (CAN-SPAM: "Your message must include your valid physical postal address"; CASL/GDPR/UK-GDPR:
-postal address and a privacy-notice link) -- like `{{DOMAIN}}` (`services/api/common.py`), a
+postal address and a privacy-notice link) -- like `infraque.com` (`services/api/common.py`), a
 literal placeholder token this build has not resolved yet, not a real address.
 """
 

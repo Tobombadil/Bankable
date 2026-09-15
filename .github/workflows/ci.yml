@@ -172,12 +172,12 @@ jobs:
       postgres:
         image: postgis/postgis:16-3.4
         env:
-          POSTGRES_DB: infraqueue_ci
-          POSTGRES_USER: infraqueue
-          POSTGRES_PASSWORD: infraqueue-ci-only
+          POSTGRES_DB: infraque_ci
+          POSTGRES_USER: infraque
+          POSTGRES_PASSWORD: infraque-ci-only
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U infraqueue -d infraqueue_ci"
+          --health-cmd "pg_isready -U infraque -d infraque_ci"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
@@ -187,7 +187,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt "psycopg[binary]>=3.1,<4"
       - env:
-          DATABASE_URL: postgresql+psycopg://infraqueue:infraqueue-ci-only@localhost:5432/infraqueue_ci
+          DATABASE_URL: postgresql+psycopg://infraque:infraque-ci-only@localhost:5432/infraque_ci
         run: |
           alembic -c services/db/migrations/alembic.ini upgrade head
           alembic -c services/db/migrations/alembic.ini downgrade -1
@@ -272,7 +272,7 @@ jobs:
           file: infra/docker/Dockerfile
           target: api
           push: false
-          tags: infraqueue-api:ci
+          tags: infraque-api:ci
           load: true  # trivy below scans the local daemon; buildx keeps images in its cache unless loaded (second CI run, 2026-09-15)
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -283,7 +283,7 @@ jobs:
           file: infra/docker/Dockerfile
           target: web
           push: false
-          tags: infraqueue-web:ci
+          tags: infraque-web:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: build worker
@@ -293,7 +293,7 @@ jobs:
           file: infra/docker/Dockerfile
           target: worker
           push: false
-          tags: infraqueue-worker:ci
+          tags: infraque-worker:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: build browser-worker
@@ -302,13 +302,13 @@ jobs:
           context: .
           file: infra/docker/Dockerfile.browser-worker
           push: false
-          tags: infraqueue-browser-worker:ci
+          tags: infraque-browser-worker:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: trivy scan (api image)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0; tags carry a v prefix and 0.24.0 never existed (first CI run, 2026-09-15)
         with:
-          image-ref: infraqueue-api:ci
+          image-ref: infraque-api:ci
           severity: CRITICAL,HIGH
           exit-code: "1"
           # Debian marks several HIGH findings in the slim base as "affected"/"fix deferred"/"will

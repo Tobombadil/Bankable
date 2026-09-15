@@ -13,7 +13,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
-    BANKABLE_DOMAIN=example-infraqueue.test
+    BANKABLE_DOMAIN=example-infraque.test
 
 COPY requirements.txt ./requirements.txt
 COPY infra/scheduler/requirements.txt ./infra-scheduler-requirements.txt

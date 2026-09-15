@@ -107,7 +107,7 @@ class ResendEmailAdapter:
             resp = httpx.post(
                 "https://api.resend.com/emails",
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                json={"from": "alerts@{{DOMAIN}}", "to": [to], "subject": subject, "text": body},
+                json={"from": "alerts@infraque.com", "to": [to], "subject": subject, "text": body},
                 timeout=10.0,
             )
             resp.raise_for_status()
@@ -235,7 +235,7 @@ def send_verification_email(email_port: EmailPort, user: User, *, token: str) ->
     return email_port.send(
         to=user.email or "",
         subject="Verify your email",
-        body=f"Confirm your account: https://{{{{DOMAIN}}}}/verify?token={token}",
+        body=f"Confirm your account: https://infraque.com/verify?token={token}",
     )
 
 

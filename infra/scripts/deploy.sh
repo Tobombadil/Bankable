@@ -38,7 +38,7 @@ image_tag="${2:-}"
 : "${SOPS_AGE_KEY:?set SOPS_AGE_KEY to the private age key contents for this environment}"
 ssh_user="${SSH_USER:-root}"
 compose_files="-f infra/compose/docker-compose.yml -f infra/compose/compose.prod.yml"
-remote_dir="/opt/infraqueue"
+remote_dir="/opt/infraque"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"

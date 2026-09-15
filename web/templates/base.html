@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Infraqueue (placeholder){% endblock %}</title>
+<title>{% block title %}Infraque{% endblock %}</title>
 <meta name="description" content="{% block meta_description %}Energy and infrastructure proposals and opportunities, fused into one record per project, with attribution to source registers.{% endblock %}">
 {% block canonical %}{% endblock %}
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,11 +24,11 @@
 {% set lag = footer_lag_days(request) %}
 <header class="site-header">
   <div class="masthead">
-    <span class="masthead__ref">Infraqueue register &middot; public edition</span>
+    <span class="masthead__ref">Infraque register &middot; public edition</span>
     <span class="masthead__lag">Proposals <span class="tnum">{{ lag.supply }}</span>d delayed &middot; Opportunities <span class="tnum">{{ lag.opportunities }}</span>d delayed</span>
   </div>
   <div class="site-header__bar">
-    <a class="wordmark" href="/">Infraqueue</a>
+    <a class="wordmark" href="/">Infraque</a>
     <nav class="primary-nav" aria-label="Primary">
       <a href="/">Map</a>
       <a href="/proposals">Proposals</a>

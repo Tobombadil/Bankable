@@ -1,6 +1,6 @@
-"""Small shared helpers: the `{{DOMAIN}}` placeholder, request ids, ISO timestamps.
+"""Small shared helpers: the `infraque.com` placeholder, request ids, ISO timestamps.
 
-`api/openapi.yaml` keeps the literal `{{DOMAIN}}` token everywhere a hostname is unavoidable —
+`api/openapi.yaml` keeps the literal `infraque.com` token everywhere a hostname is unavoidable —
 even inside the `Problem.type` regex — because the product name is not yet chosen
 (`docs/00-PLAN.md`; `docs/04-standards.md` §0.6). This service does the same rather than inventing
 a placeholder of its own, so responses validate against the committed contract byte-for-byte.
@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import secrets
 
-DOMAIN = "{{DOMAIN}}"
+DOMAIN = "infraque.com"
 API_HOST = f"https://api.{DOMAIN}"
 WEB_HOST = f"https://{DOMAIN}"
 TERMS_URL = f"{WEB_HOST}/legal/api-licence"

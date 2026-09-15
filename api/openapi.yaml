@@ -4,7 +4,7 @@
 # docs/04-standards.md §5 (API rules), docs/20-architecture.md §5 and §7 (tiers, auth), docs/10-prd-mvp.md §4
 # (story ids). Where this file and docs/23 disagree, docs/23 wins and this file is wrong (docs/23 preamble).
 #
-# Placeholders: {{DOMAIN}} is the product domain, pending the naming decision (docs/00-PLAN.md). Every hostname
+# Placeholders: infraque.com is the product domain, pending the naming decision (docs/00-PLAN.md). Every hostname
 # and URL in this file is replaced by one find-and-replace once the name is chosen.
 #
 # Conventions used in this file:
@@ -52,27 +52,27 @@ info:
 
     **Rate limits** per `x-rate-limits` below (docs/23 §6); `RateLimit-*` headers on every response, `429` with
     `Retry-After` on breach.
-  termsOfService: https://{{DOMAIN}}/legal/api-licence
+  termsOfService: https://infraque.com/legal/api-licence
   contact:
     name: Platform API support
-    url: https://{{DOMAIN}}/docs/api
-    email: api@{{DOMAIN}}
+    url: https://infraque.com/docs/api
+    email: api@infraque.com
   license:
     name: Platform API licence (drafted by legal-compliance; acceptance recorded per key, US-704 AC2)
-    url: https://{{DOMAIN}}/legal/api-licence
+    url: https://infraque.com/legal/api-licence
 
 servers:
-  - url: https://api.{{DOMAIN}}
+  - url: https://api.infraque.com
     description: |
       Public, Pro and API tiers. Every path in this group starts with `/v1`, so the effective base URL is
-      `https://api.{{DOMAIN}}/v1`. The host is unversioned here only because OpenAPI path keys must be unique
+      `https://api.infraque.com/v1`. The host is unversioned here only because OpenAPI path keys must be unique
       across the document and the admin group reuses several path shapes (`/sources`, `/keys`); see api/README.md.
-  - url: https://admin.{{DOMAIN}}
+  - url: https://admin.infraque.com
     description: |
       Operators only (role `operator` or `owner`), separate hostname, second factor enforced by the identity
       provider, optional IP allowlist. Every path in this group starts with `/admin/v1`, so the effective base
-      URL is `https://admin.{{DOMAIN}}/admin/v1`. Never issued to a customer key.
-  - url: https://{{DOMAIN}}
+      URL is `https://admin.infraque.com/admin/v1`. Never issued to a customer key.
+  - url: https://infraque.com
     description: Feeds and sitemaps (`/feeds/*`, `/sitemap.xml`); edge-cached, public tier, counted per IP at 120/hour.
 
 tags:
@@ -257,10 +257,10 @@ x-common-errors: &common_errors
 
 # Path-level server override for the admin group (docs/23 §1: separate hostname).
 x-admin-servers: &admin_servers
-  - url: https://admin.{{DOMAIN}}
-    description: Operator surface; effective base URL https://admin.{{DOMAIN}}/admin/v1.
+  - url: https://admin.infraque.com
+    description: Operator surface; effective base URL https://admin.infraque.com/admin/v1.
 x-feed-servers: &feed_servers
-  - url: https://{{DOMAIN}}
+  - url: https://infraque.com
     description: Feeds and sitemaps on the product host.
 
 paths:
@@ -1404,13 +1404,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
               example:
-                type: https://api.{{DOMAIN}}/errors/conflict
+                type: https://api.infraque.com/errors/conflict
                 title: Email already registered
                 status: 409
                 code: conflict
                 instance: /v1/auth/register
                 request_id: req_4b1eaa
-                docs: https://{{DOMAIN}}/docs/api/errors#conflict
+                docs: https://infraque.com/docs/api/errors#conflict
         <<: *common_errors
 
   /v1/auth/login:
@@ -1884,7 +1884,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
               example:
-                type: https://api.{{DOMAIN}}/errors/not_found
+                type: https://api.infraque.com/errors/not_found
                 title: Not found
                 status: 404
                 code: not_found
@@ -4645,7 +4645,7 @@ paths:
       tags: [Webhooks]
       summary: Receive an Attio CRM webhook
       description: |
-        Served on the API host (docs/34 §6 registers `https://api.{{DOMAIN}}/webhooks/attio`).
+        Served on the API host (docs/34 §6 registers `https://api.infraque.com/webhooks/attio`).
         Inbound `record.updated` (Companies) and `record.updated`/`record.created` (Lead Signals) events from
         Attio (docs/34 §5 "Inbound webhooks"). No session or API key — the `Attio-Signature` HMAC verified
         against `ATTIO_WEBHOOK_SECRET` is the credential; a missing or invalid signature is `401
@@ -4688,7 +4688,7 @@ paths:
       tags: [Billing]
       summary: Inbound Stripe webhook
       description: |
-        Served on the API host (`https://api.{{DOMAIN}}/webhooks/stripe`). Stripe calls this directly (`services/billing/stripe.py`'s `handle_webhook`; docs/34 §1
+        Served on the API host (`https://api.infraque.com/webhooks/stripe`). Stripe calls this directly (`services/billing/stripe.py`'s `handle_webhook`; docs/34 §1
         "Stripe writes it"). Verifies `Stripe-Signature: t=<unix>,v1=<hex>[,v1=<hex>...]` — HMAC-SHA256
         of `"{t}.{raw body}"` with the `STRIPE_WEBHOOK_SECRET`, ±300s tolerance — before touching the
         body; a bad signature is `401`, never processed. Maps `customer.subscription.created|updated|
@@ -5924,7 +5924,7 @@ components:
           examples:
             unknown_parameter:
               value:
-                type: https://api.{{DOMAIN}}/errors/unknown_parameter
+                type: https://api.infraque.com/errors/unknown_parameter
                 title: Unknown query parameter
                 status: 400
                 code: unknown_parameter
@@ -5934,17 +5934,17 @@ components:
                 errors:
                   - field: technolgy
                     message: unknown parameter
-                docs: https://{{DOMAIN}}/docs/api/errors#unknown_parameter
+                docs: https://infraque.com/docs/api/errors#unknown_parameter
             invalid_cursor:
               value:
-                type: https://api.{{DOMAIN}}/errors/invalid_cursor
+                type: https://api.infraque.com/errors/invalid_cursor
                 title: Cursor expired or malformed
                 status: 400
                 code: invalid_cursor
                 detail: Cursors are valid for 24 hours; restart from the first page.
                 instance: /v1/events
                 request_id: req_4b1e2d
-                docs: https://{{DOMAIN}}/docs/api/errors#invalid_cursor
+                docs: https://infraque.com/docs/api/errors#invalid_cursor
     Unauthenticated:
       description: Pro/API/admin path without a valid credential.
       headers: *std_headers
@@ -5953,14 +5953,14 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/unauthenticated
+            type: https://api.infraque.com/errors/unauthenticated
             title: Credential missing or invalid
             status: 401
             code: unauthenticated
             detail: This endpoint needs a session or an API key. Public reads are available without one at /v1/proposals.
             instance: /v1/saved-searches
             request_id: req_4b1e2e
-            docs: https://{{DOMAIN}}/docs/api/errors#unauthenticated
+            docs: https://infraque.com/docs/api/errors#unauthenticated
     ForbiddenTier:
       description: Credential valid but the plan does not include the endpoint, scope or quota; the body names the required tier.
       headers: *std_headers
@@ -5969,7 +5969,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/forbidden_tier
+            type: https://api.infraque.com/errors/forbidden_tier
             title: Plan does not include this endpoint
             status: 403
             code: forbidden_tier
@@ -5977,7 +5977,7 @@ components:
             instance: /v1/bulk/proposals
             request_id: req_4b1e2f
             required_tier: api
-            docs: https://{{DOMAIN}}/docs/api/errors#forbidden_tier
+            docs: https://infraque.com/docs/api/errors#forbidden_tier
     Forbidden:
       description: Role insufficient (admin routes) — e.g. `owner` or `legal` required.
       headers: *std_headers
@@ -5986,7 +5986,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/forbidden_tier
+            type: https://api.infraque.com/errors/forbidden_tier
             title: Role insufficient
             status: 403
             code: forbidden_tier
@@ -5994,7 +5994,7 @@ components:
             instance: /admin/v1/licences/pjm-data-miner-restricted/gate
             request_id: req_4b1e30
             required_tier: admin
-            docs: https://{{DOMAIN}}/docs/api/errors#forbidden_tier
+            docs: https://infraque.com/docs/api/errors#forbidden_tier
     LicenceGated:
       description: The requested representation (raw row, exact coordinates, document bytes) is withheld by the source licence. The derived view is still available at the parent resource; partial withholding on a `200` is reported in `redactions[]`, not here.
       headers: *std_headers
@@ -6003,14 +6003,14 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/licence_gated
+            type: https://api.infraque.com/errors/licence_gated
             title: Field withheld under source licence
             status: 403
             code: licence_gated
             detail: Raw fields from source us.iso.caiso.gen_queue are not redistributable; derived fields are returned at /v1/proposals/prop_01JBQ7Z8KD.
             instance: /v1/proposals/prop_01JBQ7Z8KD/sources
             request_id: req_9f2c1a
-            docs: https://{{DOMAIN}}/docs/api/errors#licence_gated
+            docs: https://infraque.com/docs/api/errors#licence_gated
     SeatLimit:
       description: Concurrent sessions above the account's seat count (US-602 AC2).
       headers: *std_headers
@@ -6019,14 +6019,14 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/seat_limit
+            type: https://api.infraque.com/errors/seat_limit
             title: Seat limit reached
             status: 403
             code: seat_limit
             detail: This account has 3 seats and 3 active sessions. Sign out another session or add a seat.
             instance: /v1/me
             request_id: req_4b1e31
-            docs: https://{{DOMAIN}}/docs/api/errors#seat_limit
+            docs: https://infraque.com/docs/api/errors#seat_limit
     NotFound:
       description: No such public id, or the record is not visible to this tier — indistinguishable by design so that a gated record's existence does not leak (docs/21 §8 item 3).
       headers: *std_headers
@@ -6035,14 +6035,14 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/not_found
+            type: https://api.infraque.com/errors/not_found
             title: Not found
             status: 404
             code: not_found
             detail: No proposal with this id is visible on the public tier.
             instance: /v1/proposals/prop_01JBQ7Z8ZZ
             request_id: req_4b1e32
-            docs: https://{{DOMAIN}}/docs/api/errors#not_found
+            docs: https://infraque.com/docs/api/errors#not_found
     MovedPermanently:
       description: The record was merged; `Location` points at the surviving public id (US-201 AC3). Old slugs resolve the same way.
       headers:
@@ -6060,14 +6060,14 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/unpublished
+            type: https://api.infraque.com/errors/unpublished
             title: Record unpublished
             status: 410
             code: unpublished
             detail: This record was withdrawn from publication. The id is reserved.
             instance: /v1/proposals/prop_01JBQ7Z8KD
             request_id: req_4b1e33
-            docs: https://{{DOMAIN}}/docs/api/errors#unpublished
+            docs: https://infraque.com/docs/api/errors#unpublished
     Conflict:
       description: Idempotency-key reuse with a different body, a stale merge preview, a state transition that is not legal from the current state, or a duplicate name.
       headers: *std_headers
@@ -6076,14 +6076,14 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/conflict
+            type: https://api.infraque.com/errors/conflict
             title: Conflict
             status: 409
             code: conflict
             detail: Merge preview is stale — prop_01JBQ7Z8KD changed since the preview token was issued. Preview again.
             instance: /admin/v1/proposals/prop_01JBQ7Z8KD/merge
             request_id: req_4b1e34
-            docs: https://{{DOMAIN}}/docs/api/errors#conflict
+            docs: https://infraque.com/docs/api/errors#conflict
     GateUnmet:
       description: Publication refused because a licence or budget gate is unmet (US-905 AC1); the body names the gate and the missing evidence.
       headers: *std_headers
@@ -6092,7 +6092,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/gate_unmet
+            type: https://api.infraque.com/errors/gate_unmet
             title: Licence gate unmet
             status: 422
             code: gate_unmet
@@ -6101,7 +6101,7 @@ components:
             request_id: req_4b1e35
             gate: G-PJM
             missing: [gate_flag, reuse_class]
-            docs: https://{{DOMAIN}}/docs/api/errors#gate_unmet
+            docs: https://infraque.com/docs/api/errors#gate_unmet
     RateLimited:
       description: '`rate_limited` (sliding window exceeded) or `quota_exceeded` (daily cap); `Retry-After` set.'
       headers:
@@ -6124,24 +6124,24 @@ components:
           examples:
             rate_limited:
               value:
-                type: https://api.{{DOMAIN}}/errors/rate_limited
+                type: https://api.infraque.com/errors/rate_limited
                 title: Rate limit exceeded
                 status: 429
                 code: rate_limited
                 detail: 60 requests per hour per IP on the public tier; retry in 120 seconds or use a key.
                 instance: /v1/proposals
                 request_id: req_4b1e36
-                docs: https://{{DOMAIN}}/docs/api/errors#rate_limited
+                docs: https://infraque.com/docs/api/errors#rate_limited
             quota_exceeded:
               value:
-                type: https://api.{{DOMAIN}}/errors/quota_exceeded
+                type: https://api.infraque.com/errors/quota_exceeded
                 title: Daily quota exhausted
                 status: 429
                 code: quota_exceeded
                 detail: 50,000 requests per day on this key; resets at 00:00 UTC.
                 instance: /v1/bulk/events
                 request_id: req_4b1e37
-                docs: https://{{DOMAIN}}/docs/api/errors#quota_exceeded
+                docs: https://infraque.com/docs/api/errors#quota_exceeded
     ServiceUnavailable:
       description: '`unavailable` (maintenance; public reads keep serving from the edge cache) or `sor_unavailable` (CRM/ERP adapter down and no cached value acceptable).'
       headers:
@@ -6154,14 +6154,14 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/unavailable
+            type: https://api.infraque.com/errors/unavailable
             title: Temporarily unavailable
             status: 503
             code: unavailable
             detail: Maintenance in progress; cached public reads continue to be served.
             instance: /v1/exports
             request_id: req_4b1e38
-            docs: https://{{DOMAIN}}/docs/api/errors#unavailable
+            docs: https://infraque.com/docs/api/errors#unavailable
     SorUnavailable:
       description: CRM/ERP adapter down and no cached value acceptable for this operation (US-902 AC3). Reads fall back to the mirror with `meta.sor_stale = true`; writes get this response.
       headers:
@@ -6174,14 +6174,14 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: https://api.{{DOMAIN}}/errors/sor_unavailable
+            type: https://api.infraque.com/errors/sor_unavailable
             title: System of record unavailable
             status: 503
             code: sor_unavailable
             detail: The CRM adapter did not respond; writes are refused until it recovers. Cached data is shown with a staleness banner.
             instance: /admin/v1/customers
             request_id: req_4b1e39
-            docs: https://{{DOMAIN}}/docs/api/errors#sor_unavailable
+            docs: https://infraque.com/docs/api/errors#sor_unavailable
     NoContent:
       description: Done; no body.
       headers: *std_headers
@@ -6697,13 +6697,13 @@ components:
         - unavailable
     Problem:
       type: object
-      description: RFC 9457 problem details. No stack traces, internal ids or source payloads ever appear here. `type` is `https://api.{{DOMAIN}}/errors/{code}`.
+      description: RFC 9457 problem details. No stack traces, internal ids or source payloads ever appear here. `type` is `https://api.infraque.com/errors/{code}`.
       required: [type, title, status, code, request_id]
       properties:
         type:
           type: string
           format: uri
-          pattern: '^https://api\.\{\{DOMAIN\}\}/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable)$'
+          pattern: '^https://api\.infraque\.com/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable)$'
         title:
           type: string
         status:
@@ -6746,14 +6746,14 @@ components:
           type: string
           format: uri
       examples:
-        - type: https://api.{{DOMAIN}}/errors/licence_gated
+        - type: https://api.infraque.com/errors/licence_gated
           title: Field withheld under source licence
           status: 403
           code: licence_gated
           detail: Raw fields from source us.iso.caiso.gen_queue are not redistributable; derived fields are returned.
           instance: /v1/proposals/prop_01JBQ7Z8KD/sources
           request_id: req_9f2c1a
-          docs: https://{{DOMAIN}}/docs/api/errors#licence_gated
+          docs: https://infraque.com/docs/api/errors#licence_gated
 
     # ---------- Domain entities (docs/21 §3) ----------
     OrganizationSummary:
@@ -6874,7 +6874,7 @@ components:
         url:
           type: string
           format: uri
-          description: Canonical detail page (`https://{{DOMAIN}}/proposals/{slug}`).
+          description: Canonical detail page (`https://infraque.com/proposals/{slug}`).
         kind:
           $ref: '#/components/schemas/ProposalKind'
         name_canonical:
@@ -10954,7 +10954,7 @@ components:
         data:
           - public_id: prop_01JBQ7Z8KD
             slug: gemini-solar-bess-clark-nv
-            url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+            url: https://infraque.com/proposals/gemini-solar-bess-clark-nv
             kind: storage
             name_canonical: Gemini Solar + Storage
             sponsor:
@@ -10962,7 +10962,7 @@ components:
               slug: nextera-energy-resources
               name_canonical: NextEra Energy Resources, LLC
               type: developer
-              url: https://{{DOMAIN}}/organizations/nextera-energy-resources
+              url: https://infraque.com/organizations/nextera-energy-resources
             technology: bess_li_ion
             capacity_mw: 690
             storage_mwh: 1380
@@ -11035,7 +11035,7 @@ components:
           data_as_of: '2026-08-29T05:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1a
-          terms_url: https://{{DOMAIN}}/legal/api-licence
+          terms_url: https://infraque.com/legal/api-licence
           total: 1834
           total_is_estimate: false
         licence_summary:
@@ -11080,7 +11080,7 @@ components:
         data:
           public_id: prop_01JBQ7Z8KD
           slug: gemini-solar-bess-clark-nv
-          url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+          url: https://infraque.com/proposals/gemini-solar-bess-clark-nv
           kind: storage
           name_canonical: Gemini Solar + Storage
           sponsor:
@@ -11088,7 +11088,7 @@ components:
             slug: nextera-energy-resources
             name_canonical: NextEra Energy Resources, LLC
             type: developer
-            url: https://{{DOMAIN}}/organizations/nextera-energy-resources
+            url: https://infraque.com/organizations/nextera-energy-resources
           technology: bess_li_ion
           capacity_mw: 690
           storage_mwh: 1380
@@ -11148,7 +11148,7 @@ components:
               title: Phase II Interconnection Study Report
               doc_type: report
               published_date: '2026-07-18'
-              url: https://api.{{DOMAIN}}/v1/documents/doc_01JBQ8J9T3
+              url: https://api.infraque.com/v1/documents/doc_01JBQ8J9T3
               provenance:
                 source_id: us.iso.caiso.gen_queue
                 source_url: https://www.caiso.com/…
@@ -11161,7 +11161,7 @@ components:
           data_as_of: '2026-08-29T05:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1b
-          terms_url: https://{{DOMAIN}}/legal/api-licence
+          terms_url: https://infraque.com/legal/api-licence
         licence_summary:
           sources:
             - source_id: us.iso.caiso.gen_queue
@@ -11208,14 +11208,14 @@ components:
         data:
           - public_id: opp_01JBQ8A2M0
             slug: apsc-2027-all-source-rfp
-            url: https://{{DOMAIN}}/opportunities/apsc-2027-all-source-rfp
+            url: https://infraque.com/opportunities/apsc-2027-all-source-rfp
             kind: rfp
             issuer:
               public_id: org_01JBQ8D7Y4
               slug: arizona-public-service
               name_canonical: Arizona Public Service Company
               type: utility
-              url: https://{{DOMAIN}}/organizations/arizona-public-service
+              url: https://infraque.com/organizations/arizona-public-service
             title: 2027 All-Source Request for Proposals
             summary: Up to 1,200 MW of resources for delivery from 2028; storage, solar and wind eligible.
             jurisdiction: US-AZ
@@ -11268,7 +11268,7 @@ components:
           data_as_of: '2026-09-05T05:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1c
-          terms_url: https://{{DOMAIN}}/legal/api-licence
+          terms_url: https://infraque.com/legal/api-licence
         licence_summary:
           sources:
             - source_id: us.utility_rfps
@@ -11296,7 +11296,7 @@ components:
             subject:
               public_id: prop_01JBQ7Z8KD
               name: Gemini Solar + Storage
-              url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+              url: https://infraque.com/proposals/gemini-solar-bess-clark-nv
             event_type: status_change
             headline: 'Entered study phase: Gemini Solar + Storage'
             observed_at: '2026-08-27T00:00:00Z'
@@ -11328,7 +11328,7 @@ components:
           data_as_of: '2026-08-29T05:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1d
-          terms_url: https://{{DOMAIN}}/legal/api-licence
+          terms_url: https://infraque.com/legal/api-licence
         licence_summary:
           sources:
             - source_id: us.iso.caiso.gen_queue
@@ -11385,7 +11385,7 @@ components:
                 feature_kind: proposal
                 public_id: prop_01JBQ7Z8KD
                 name: Gemini Solar + Storage
-                url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+                url: https://infraque.com/proposals/gemini-solar-bess-clark-nv
                 kind: storage
                 technology: bess_li_ion
                 lifecycle_state: studied
@@ -11422,7 +11422,7 @@ components:
           data_as_of: '2026-08-29T05:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1e
-          terms_url: https://{{DOMAIN}}/legal/api-licence
+          terms_url: https://infraque.com/legal/api-licence
           unplaced_count: 37
         licence_summary:
           sources:
@@ -11464,12 +11464,12 @@ components:
             proposal:
               public_id: prop_01JBQ7Z8KD
               name_canonical: Gemini Solar + Storage
-              url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+              url: https://infraque.com/proposals/gemini-solar-bess-clark-nv
             opportunity:
               public_id: opp_01JBQ8A2M0
               title: 2027 All-Source Request for Proposals
               due_at: '2026-12-15T22:00:00Z'
-              url: https://{{DOMAIN}}/opportunities/apsc-2027-all-source-rfp
+              url: https://infraque.com/opportunities/apsc-2027-all-source-rfp
             score: 0.82
             rationale:
               rules_passed: [technology, jurisdiction_adjacent, size_window, timing]
@@ -11495,7 +11495,7 @@ components:
           data_as_of: '2026-09-12T08:58:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1f
-          terms_url: https://{{DOMAIN}}/legal/api-licence
+          terms_url: https://infraque.com/legal/api-licence
         licence_summary:
           sources:
             - source_id: us.iso.caiso.gen_queue
@@ -11551,7 +11551,7 @@ components:
           data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c20
-          terms_url: https://{{DOMAIN}}/legal/api-licence
+          terms_url: https://infraque.com/legal/api-licence
         licence_summary:
           sources: []
           attribution_line: ''
@@ -11562,12 +11562,12 @@ components:
       value:
         version: https://jsonfeed.org/version/1.1
         title: Proposals — Public feed, 14 days delayed — live in Pro
-        home_page_url: https://{{DOMAIN}}/proposals?technology=bess_li_ion&jurisdiction=US-NV
-        feed_url: https://{{DOMAIN}}/feeds/proposals.json?technology=bess_li_ion&jurisdiction=US-NV
+        home_page_url: https://infraque.com/proposals?technology=bess_li_ion&jurisdiction=US-NV
+        feed_url: https://infraque.com/feeds/proposals.json?technology=bess_li_ion&jurisdiction=US-NV
         description: Published changes to matching proposals, 14 days after the live tier. Source credit in every item.
         items:
           - id: evt_01JBQ8F0N2
-            url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+            url: https://infraque.com/proposals/gemini-solar-bess-clark-nv
             title: 'Entered study phase: Gemini Solar + Storage'
             content_text: 'Gemini Solar + Storage (storage, 690 MW / 1,380 MWh, Clark County, NV) moved from filed to studied. Source: California ISO. Data as of 2026-08-29.'
             date_published: '2026-09-11T05:04:12Z'
@@ -11577,7 +11577,7 @@ components:
               subject:
                 public_id: prop_01JBQ7Z8KD
                 name: Gemini Solar + Storage
-                url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+                url: https://infraque.com/proposals/gemini-solar-bess-clark-nv
               provenance:
                 source_id: us.iso.caiso.gen_queue
                 source_url: https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx
@@ -11635,14 +11635,14 @@ components:
           subject:
             public_id: prop_01JBQ7Z8KD
             name_canonical: Gemini Solar + Storage
-            url: https://{{DOMAIN}}/proposals/gemini-solar-bess-clark-nv
+            url: https://infraque.com/proposals/gemini-solar-bess-clark-nv
         meta:
           tier: api
           lag_days: 0
           data_as_of: '2026-09-11T05:04:12Z'
           generated_at: '2026-09-11T05:04:13Z'
           request_id: req_9f2c21
-          terms_url: https://{{DOMAIN}}/legal/api-licence
+          terms_url: https://infraque.com/legal/api-licence
         licence_summary:
           sources:
             - source_id: us.iso.caiso.gen_queue

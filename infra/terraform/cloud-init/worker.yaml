@@ -5,5 +5,5 @@
 package_update: true
 
 runcmd:
-  - mkdir -p /opt/infraqueue/compose /opt/infraqueue/secrets /opt/infraqueue/backups
+  - mkdir -p /opt/infraque/compose /opt/infraque/secrets /opt/infraque/backups
   - timedatectl set-timezone UTC

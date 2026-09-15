@@ -98,3 +98,4 @@
 - 2026-09-15 coordinator: CI run 4 on PR #1 — twelve of thirteen jobs green; image scan: Debian packages upgraded in the Dockerfile (libpcre2), scan fails only on fixable findings, .trivyignore records the cryptography finding blocked by the gridstatus pin.
 - 2026-09-15 coordinator: CI run 5 — image scan: wheel and jaraco.context upgraded in the image; cryptography and lxml findings blocked by the gridstatus pin added to .trivyignore with reasons.
 - 2026-09-15 coordinator: CI run 6 — the two remaining image-scan findings are setuptools' vendored wheel and jaraco.context (pinned via gridstatus); recorded in .trivyignore, ineffective upgrade line removed.
+- 2026-09-15 coordinator: name adopted — Infraque at infraque.com (owner); Infraqueue and the {{DOMAIN}}/{{PRODUCT}} placeholders replaced across 84 files; docs/12 §11 records round four; counsel clearance, registrations and the wordmark brief remain.

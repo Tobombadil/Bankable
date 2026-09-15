@@ -26,7 +26,7 @@ resource "cloudflare_r2_bucket" "tiles" {
   location   = "ENAM"
 }
 
-# --- Custom domain (tiles.{{DOMAIN}}) for the tiles bucket ---
+# --- Custom domain (tiles.infraque.com) for the tiles bucket ---
 #
 # NOT created here: the `cloudflare_r2_custom_domain` resource does not exist in the pinned
 # provider (`versions.tf`: cloudflare ~> 4.36). Confirmed against the provider's published schema

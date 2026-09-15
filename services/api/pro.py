@@ -71,7 +71,7 @@ router = APIRouter()
 #: exactly this value. One constant, not read from `api/openapi.yaml`'s `info.license`, to avoid a
 #: YAML parse at import time for a value that only changes with a deliberate licence revision.
 API_LICENCE_VERSION = "api-licence-1.0"
-API_LICENCE_URL = "https://{{DOMAIN}}/legal/api-licence"
+API_LICENCE_URL = "https://infraque.com/legal/api-licence"
 SAVED_SEARCH_QUOTA = 25
 MAX_API_KEYS_PER_USER = 5
 MAX_WEBHOOKS_PER_ACCOUNT = 10

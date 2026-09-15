@@ -69,9 +69,9 @@ def _load_source_meta() -> dict[str, dict[str, str]]:
 def _page_url_for(row: dict[str, Any]) -> str:
     subject_type = editorial.infer_subject_type(str(row["source_id"]))
     kind = "opportunities" if subject_type == "opportunity" else "proposals"
-    # "{{DOMAIN}}" is a literal placeholder (repo convention, CLAUDE.md/task brief), not an
+    # "infraque.com" is a literal placeholder (repo convention, CLAUDE.md/task brief), not an
     # f-string substitution -- kept out of the f-string itself so the double braces survive.
-    return "https://{{DOMAIN}}" + f"/{kind}/{row['record_id']}"
+    return "https://infraque.com" + f"/{kind}/{row['record_id']}"
 
 
 def _lag_days_for(row: dict[str, Any]) -> int | None:
