@@ -70,6 +70,7 @@ services:
     environment:
       <<: *app-env
       API_BASE_URL: http://api:8000
+      MAP_TILE_URL: ${MAP_TILE_URL:-} # docs/40 §2.7, docs/adr/0007 — unset falls back to dev-only OSM raster in web/
     depends_on:
       - api
     ports:

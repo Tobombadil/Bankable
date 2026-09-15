@@ -136,11 +136,28 @@ do not exist yet (`docs/60` §11 item 3). Creating that file is itself a first-d
 
 ---
 
-### 2.7 Map basemap tiles (found while the owner tested the prototype, 2026-09-14)
+### 2.7 Map basemap tiles (found while the owner tested the prototype, 2026-09-14; decided 2026-09-15)
+
+**Decided** (`docs/00-PLAN.md` 2026-09-14/15; `docs/adr/0007-basemap-protomaps-on-r2.md`): Protomaps
+PMTiles, self-hosted on Cloudflare R2, served at `https://tiles.{{DOMAIN}}/basemap.pmtiles`. This
+replaces the prototype's `tile.openstreetmap.org` raster load, whose usage policy forbids
+production apps and rate-limits or blocks them (when blocked, the map is a beige outline with
+clusters on it and zooming looks like it does nothing). The two hosted-provider options
+(MapTiler/Stadia) considered alongside it are recorded, with why they were not chosen, in the ADR.
 
 | Item | Environment variable | Who creates | Done-check |
 |---|---|---|---|
-| A tile provider for the map. The prototype loads raster tiles from `tile.openstreetmap.org`, whose usage policy forbids production apps and rate-limits or blocks them; when the tiles are blocked the map is a beige outline with clusters on it and zooming looks like it does nothing. Options: MapTiler or Stadia (hosted, free tier, key in an env var) or Protomaps PMTiles self-hosted on R2 (no per-view cost, fits ADR 0005) | `MAP_TILE_URL` (and a key if hosted) | Owner picks; frontend-developer wires it into `web/static/js/map.js` | Street-level detail renders at zoom 10 on the deployed site; the attribution line names the provider |
+| Apply the Terraform: the tiles R2 bucket (`infra/terraform/storage.tf`'s `cloudflare_r2_bucket.tiles`) | — | Owner (`tofu apply`, part of §3 step 1's normal `tofu apply`) | `tofu output tiles_bucket_name` returns a real bucket name |
+| Connect the custom domain — a manual dashboard step; the pinned Cloudflare provider does not support `cloudflare_r2_custom_domain` (`infra/terraform/storage.tf`'s comment block has the exact steps) | — | Owner | Cloudflare dashboard shows `tiles.{{DOMAIN}}` connected and enabled on the tiles bucket |
+| Set the bucket's CORS policy (`GET, HEAD` with `Range`, from the site origin) — also manual, same reason (`storage.tf`'s comment block has the exact `curl` call) | — | Owner | The `curl` call in `storage.tf` returns 200; a browser map load does not fail cross-origin |
+| Run the refresh workflow once (`.github/workflows/basemap.yml`, `workflow_dispatch`) to populate `basemap.pmtiles` for the first time | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_TILES_BUCKET` (GitHub Actions `production` environment secrets — the first three already exist per §2.6; `R2_TILES_BUCKET` is new, set to `tofu output tiles_bucket_name`) | Owner (triggers the run) | The workflow's own verification step passes (`accept-ranges: bytes` on the uploaded object); `infra/scripts/build_basemap.sh`'s log names the build date used |
+| Set `MAP_TILE_URL=https://tiles.{{DOMAIN}}/basemap.pmtiles` in the environment's secrets/config | `MAP_TILE_URL` | Owner | frontend-developer's `web/` change (out of this task's scope) reads it and renders the map |
+
+**Done-check for the whole item:** street-level detail renders at zoom 10 on the deployed site; the
+attribution line names Protomaps/OpenStreetMap (`docs/adr/0007`'s licence note: "© OpenStreetMap
+contributors" must render wherever the basemap does); and the `map.basemap_failed` counter on the
+admin ops page stays at zero after the deploy (that counter is `web/`'s to implement — flagged here
+as a gap this task's write scope does not cover, not assumed done).
 
 ## 3. First deploy, step by step
 
