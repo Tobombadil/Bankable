@@ -1197,3 +1197,104 @@ sample skews cleaner than the wild).
   `Location.geocoder` as `None` (unchanged) rather than retroactively backfilling `"census_tiger"`
   onto it — out of this task's scope ("otherwise fall through to the existing county/state
   geocoding unchanged").
+
+## Context layer endpoints (2026-09-15)
+
+`services/api/context_geo.py`, `services/api/context_routes.py` and `services/api/ui_events.py`
+implement the two API surfaces `docs/00-PLAN.md`'s 2026-09-14 "Built-infrastructure context layer"
+decision needs: `built_plant` (docs/21 §3.20) drawn under the proposals map, and `ui_event`
+(docs/21 §3.21) as its identifier-free engagement measurement. Neither table is a proposal or
+opportunity: no lifecycle, no lag, no tier or licence gating (every source in scope this sprint,
+EIA-860M, is public domain) — both endpoints are public on every tier.
+
+### Endpoints
+
+| Method & path | Notes |
+|---|---|
+| `GET /v1/context/plants/geo` | `bbox`/`zoom` required; `technology` (csv, `pipeline.normalize.classify_tech` vocabulary, unknown → 400) and `country` (csv) optional. Same grid clustering as `services/api/geo.py` (`_grid_cell`/`SPLIT_THRESHOLD`/`_in_bbox` imported, not copied); ≤ 2,000 features |
+| `POST /v1/ui-events` | No auth; 202, empty body; `name` must be in `UI_EVENT_NAMES`, `props` allowlisted per name and rejected outright (not merely dropped) if any string value looks like an email, IPv4/IPv6, UUID or a 20+ char token; 60/min per IP (IP used for limiting only, never stored) |
+| `GET /admin/v1/ui-events/summary` | Operator/owner only; `weeks` (default 8, 1-52); weekly counts per event name, `map.layer_toggled` split into `count_on`/`count_off` |
+
+`services/api/pro.py`'s `POST /v1/saved-searches` (the product's "alert") now also writes a
+`UiEvent(name="alert.created", props={})` in the same session on success.
+
+### Response shapes
+
+`GET /v1/context/plants/geo` returns the standard envelope
+(`{data, meta, licence_summary, redactions}`) with `data` a GeoJSON `FeatureCollection`:
+- individual: `feature_kind: "plant"`, `id` = the plant's uuid as a string, `properties` carries
+  `name, operator_name, technology, technology_raw, technologies (object), capacity_mw,
+  generator_count, earliest_operating_year, state_code, county_name, source: {source_id,
+  source_name, source_url, retrieved_at, licence_id, licence_name}`.
+- cluster: `feature_kind: "plant_cluster"`, `properties` carries `count, technology_counts,
+  capacity_mw_sum, dominant_technology, bbox, expands_to_zoom`.
+- `totals: {records, clustered, technology_counts}` — `records`/`technology_counts` are the full
+  filter match (not bbox-scoped), matching `services/api/geo.py`'s convention for the proposals map.
+
+`GET /admin/v1/ui-events/summary` returns the standard envelope with `data` an array of
+`{week: "2026-Www", name, count, count_on?, count_off?}` (the `on`/`off` split present only for
+`map.layer_toggled` rows).
+
+### Decisions
+
+1. **`validation_error` is 400, not 422, everywhere it is used in this codebase**
+   (`services/api/errors.py::ERROR_CODES["validation_error"] = 400`, confirmed by every existing
+   caller and by `services/api/test_routes.py::test_unknown_query_parameter_is_400`). The task
+   brief describes the technology-vocabulary and `ui-events` `props` rejections as "422"; this
+   implementation follows the shared helper's actual, codebase-wide status (400) rather than
+   introduce a one-off inconsistent code, since `errors.py` was read-only for this task. Flagging
+   for the architect: if 422 is genuinely wanted here, `errors.py` needs a second helper (or
+   `ERROR_CODES` needs a second `validation_error`-shaped code), not a local workaround.
+2. **`_grid_cell`/`_in_bbox` imported directly from `services/api/geo.py`, not aliased.** Both are
+   already private-by-convention but not access-restricted by any ruff rule in this repo's
+   `pyproject.toml`; importing them directly (rather than duplicating the tuned grid formula, or
+   renaming with a compatibility alias the task allowed as a fallback) keeps the one tuned
+   implementation in one place and `services/api/geo.py`'s own tests are unaffected — verified by
+   running its test module unchanged as part of the full suite.
+3. **`GET /v1/context/plants/geo` has no `AuthContext`/tier dependency at all** — not even the
+   `ctx.entitlement` used purely for `meta.tier` elsewhere. The layer is public on every tier by
+   design (docs/00-PLAN.md 2026-09-14), so there is no behaviour a caller's credential could
+   change; `meta` is built with `tier="public", lag_days=0` unconditionally. The endpoint still
+   goes through `services/api/app.py`'s `standard_headers` middleware, so anonymous callers are
+   still metered by the existing per-IP public bucket (60/hour) like every other route.
+4. **`country` filter is CSV (`in_(...)`)**, matching this codebase's "comma-separated for OR"
+   convention (docs/23 §7) even though the task brief's wording ("optional, default none = all")
+   reads as a single value; a single value is also valid CSV, so this is a superset, not a
+   deviation.
+5. **`records_total`/`technology_counts` in `totals` are restricted to `geom IS NOT NULL` rows**,
+   same as the plottable set, rather than counting every matching plant regardless of placement —
+   docs/21 §3.20 has no "unplaced" concept for context plants (every row in scope this sprint has a
+   source-supplied coordinate), unlike `services/api/geo.py`'s proposals, which do count unplaced
+   rows into `meta.unplaced_count`.
+6. **`x-sprint: 4`** on the three new OpenAPI operations — the first operations in the repo past
+   Sprint 3's close; no sprint number is otherwise assigned to this post-launch work in
+   `docs/00-PLAN.md` yet, so this documents "the sprint after Sprint 3" rather than inventing a
+   name for it.
+
+### Verbatim gates (this task, 2026-09-15)
+
+```
+$ .venv/bin/ruff check services api && .venv/bin/ruff format --check services api
+All checks passed!
+118 files already formatted
+
+$ .venv/bin/mypy services
+Success: no issues found in 77 source files
+
+$ .venv/bin/lint-imports --config infra/importlinter.ini
+Contracts: 2 kept, 0 broken.
+
+$ .venv/bin/python -m openapi_spec_validator api/openapi.yaml && .venv/bin/python api/check_story_coverage.py --quiet
+api/openapi.yaml: OK
+RESULT: PASS — 44/44 PRD stories covered by 134 operations; all $refs resolve
+
+$ .venv/bin/python -m pytest services/api -q
+....................................................................... [100%]
+```
+
+Operation count rose from 131 to 134 (exactly 3: the geo op, the ui-events POST, the admin
+summary), as required. Full-repo `pytest tests pipeline web services` also run: one pre-existing,
+unrelated failure (`web/test_e2e.py::test_smoke_map_list_detail_with_attribution`, a Playwright/
+chromium browser assertion — `docs/00-PLAN.md`'s "Sprint 3 closed" row already records this smoke
+path as "not verified ... no browser run this session"); everything else, including every other
+`services/`, `tests/` and `pipeline/` test, passed.

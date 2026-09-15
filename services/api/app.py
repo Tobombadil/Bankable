@@ -126,6 +126,15 @@ from services.api.admin_records import router as admin_records_router  # noqa: E
 
 app.include_router(admin_records_router)
 
+# Built-infrastructure context layer (docs/00-PLAN.md decision 2026-09-14; docs/21 §3.20-§3.21):
+# existing plants under the proposals map, and its identifier-free interaction measurement. Each
+# lives in its own module; this file only mounts them.
+from services.api.context_routes import router as context_router  # noqa: E402
+from services.api.ui_events import router as ui_events_router  # noqa: E402
+
+app.include_router(context_router)
+app.include_router(ui_events_router)
+
 
 @app.middleware("http")
 async def standard_headers(request: Request, call_next: Any) -> Response:
