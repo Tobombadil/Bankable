@@ -16,6 +16,73 @@ decision S3-5 is closed; "Infraqueue" is the working placeholder name, not yet p
 
 ---
 
+## 0. Owner's morning checklist (written 2026-09-15 evening for 2026-09-16)
+
+Everything the coordinator could do without the owner is done and pushed (`docs/00-PLAN.md` decisions log,
+2026-09-14/15). What remains needs a human: a decision, an account, a signature, or a browser that can pass a
+bot challenge. Ordered by what each item unblocks. Times are estimates, not measurements.
+
+### 0.1 Decisions (reply in chat; about 5 minutes each)
+
+| # | Decision | Why now | Recommendation |
+|---|---|---|---|
+| D1 | "Open the PR" for `claude/sprint-3-attio-adapter-5t0517` → `main` | `ci.yml` runs only on pushes to `main` and PRs against `main`, so real CI has never run on this branch; every red mark you saw was a misfiled worker script, now moved (`infra/cloudflare/README.md`). The coordinator opens the PR only on your word and then watches CI | Yes, open it; merge after CI is green |
+| D2 | Cost ceiling per permit event for the county pilot (`docs/00-PLAN.md` 2026-09-15 "Permits are stages", item 3) | The kill criterion is half a criterion without a number | Pick a dollar figure per extracted permit event; the pilot reports measured cost against it |
+| D3 | D-13 map-bundle budget: re-base from 250 KB to 300 KB gzipped, or swap the renderer | MapLibre GL 5.24 alone is 276 KB gzipped; measured, pre-existing, recorded 2026-09-15 | Re-base; a renderer swap costs a sprint for no user-visible gain |
+| D4 | Product name permanent (Infraqueue) or not (`docs/00-PLAN.md` open question 1) | Domain registration, Stripe product names, Attio workspace name and the wordmark all wait on it | Decide before creating any account below, or every account gets renamed later |
+
+### 0.2 See it yourself (15 minutes, at your desk)
+
+```
+git pull
+python -m pipeline.context.eia_plants --latest-snapshot
+python -m web.dev_up --preview
+```
+Then open http://127.0.0.1:8000/?layers=plants and: tick **Existing plants**, pick **Plant type → Biomass /
+waste**, zoom past level 9 for labels, tap a square, open **Attribution** in the footer. Done-check: the first
+command prints `"plants": 14659`; the biomass filter reports 582 plants. For the admin Engagement page, run
+`python -m services.api.bootstrap owner --email you@example.com --db web/.data/dev.db`, sign in, open
+`/admin/engagement`: the basemap-failure counter should read the number of times you loaded the map with
+tiles blocked (the OpenStreetMap dev raster is often blocked; that is the launch reason for §2.7).
+
+### 0.3 Accounts and secrets, in the order they unblock each other (§2 has every done-check)
+
+1. **Cloudflare** — zone for the domain, API token, R2 enabled (§2.6). Unblocks: `tofu apply`, the tiles
+   bucket, DNS. About 30 minutes.
+2. **`tofu apply`** from `infra/terraform` with `HCLOUD_TOKEN` and `CLOUDFLARE_API_TOKEN` (§3 step 1). Creates
+   the app VM and both R2 buckets. Then the two dashboard steps for the tiles bucket (custom domain, CORS with
+   `Range`) in `infra/terraform/storage.tf`'s comment block (§2.7). About 30 minutes.
+3. **Basemap** — add the four R2 secrets to the `production` GitHub environment and run
+   `.github/workflows/basemap.yml` once (`workflow_dispatch`); it extracts the 3.9 GB file (measured 28 s in the
+   sandbox, longer on Actions) and promotes it to `basemap.pmtiles`. Set `MAP_TILE_URL`. Done-check: §2.7.
+4. **Managed Postgres** (Neon or Crunchy Bridge) with the four extensions; run the migrations (§2.6, §3 step 2).
+   First-ever run outside SQLite: expect surprises and report them. About 30 minutes plus fixes.
+5. **Resend** (§2.4), **Stripe** (§2.3), **Attio** (§2.2, `docs/34` §6 has the exact objects and slugs).
+   Attio is the longest: about 90 minutes to build the two custom objects, five lists, key and webhooks.
+6. **Sentry, Grafana Cloud, SOPS age keys** (§2.6). About 30 minutes together.
+
+### 0.4 Browser tasks no script can do (save a PDF of each page; paste the operative clause into `docs/13`, or send it to the coordinator to record)
+
+| Site | Why it needs you | Record in |
+|---|---|---|
+| https://ourgridfuture.org/ terms/licence | Cloudflare challenge blocks scripted clients (HTTP 403 on ten paths, 2026-09-15) | `docs/13` §2.9, `data/sources.yaml` `us.ourgridfuture.transmission_projects` |
+| EIA Energy Atlas pipelines dataset, its own licence field | The Hub catalogue API returned no row for the slug | `data/sources.yaml` `us.eia.atlas.gas_pipelines` |
+| EPA permit-search dashboard terms (RBLC) | New dashboard replaced the old pages; terms not retrieved | `data/sources.yaml` `us.epa.rblc` |
+| FERC major pipeline projects pending page | WAF blocks scripted fetch; a headless-browser connector is the plan | `data/sources.yaml` `us.ferc.pipelines_pending` (verified note) |
+
+### 0.5 With counsel (§2.1; not this morning, but book it)
+
+PJM planning-page question and redistribution licence; MISO terms; and open question 7(b): whether the paid
+tier may sit on an OpenStreetMap-derived *data* layer. Take `docs/13` §2.10 with you: rendering Protomaps
+tiles is a produced work and is already comfortable; ingesting OSM data is the separate question, and the
+ODbL text and the OSM Foundation guideline disagree on one point that counsel should see.
+
+### 0.6 What the coordinator does without you, and what waits
+
+Without you: opens the PR on D1 and drives CI; keeps the tree green; records whatever you paste from 0.4.
+Waits on 0.3 items 1–4: the first real deploy, the first Postgres migration run, and the basemap done-check.
+Waits on D2: nothing before launch. Waits on D3: one line in `docs/04`. Waits on D4: every account name.
+
 ## 1. Coverage statement at launch (S3-4)
 
 Per-source licence basis is `docs/13-legal-data-rights.md` §6's publication matrix; the launch subset is
