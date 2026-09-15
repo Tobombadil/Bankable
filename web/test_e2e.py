@@ -25,7 +25,7 @@ import pytest
 from playwright.sync_api import Route, sync_playwright
 
 from services.db.session import get_engine, get_sessionmaker, init_db
-from web.data_loading import load_dev_database
+from web.data_loading import load_dev_database, load_test_database
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHROMIUM_PATH = "/opt/pw-browsers/chromium"
@@ -35,6 +35,8 @@ def _launch_kwargs() -> dict[str, Any]:
     """The sandbox pre-installs Chromium at `CHROMIUM_PATH`; CI runs `playwright install chromium`
     and has nothing there, so it falls back to Playwright's own managed browser (first CI run,
     2026-09-15: "executable doesn't exist at /opt/pw-browsers/chromium")."""
+    if os.environ.get("E2E_USE_PLAYWRIGHT_CHROMIUM") == "1":
+        return {}  # reproduce the CI browser locally even where the sandbox build exists
     return {"executable_path": CHROMIUM_PATH} if os.path.exists(CHROMIUM_PATH) else {}
 
 
@@ -265,10 +267,23 @@ def _ensure_db_loaded(db_path: Path) -> str:
     init_db(engine)
     session = get_sessionmaker(engine)()
     try:
-        load_dev_database(session, preview=True)
+        data_root = Path(os.environ.get("E2E_DATA_ROOT", str(REPO_ROOT / "data")))
+        status = load_dev_database(session, data_root=data_root, preview=True)
+        if _rows_loaded(status) == 0:
+            # A fresh checkout (CI) has no `data/normalized/*` -- that tree is git-ignored, only
+            # connector runs create it -- so the map would render no marker and the smoke test's
+            # "cluster or point rendered" wait would time out (second CI run, 2026-09-15). The
+            # committed entity-resolution fixture (`data/eval/normalized.parquet`, docs/22) is
+            # loaded instead: real rows, real geometry, no network.
+            load_test_database(session, sample_per_state=None, include_opportunities=False)
     finally:
         session.close()
     return database_url
+
+
+def _rows_loaded(status: dict[str, Any]) -> int:
+    """`load_dev_database` reports `{source_id: "loaded" | "missing" | "skipped: ..."}` per source."""
+    return sum(1 for value in (status.get("sources") or {}).values() if value == "loaded")
 
 
 def _wait_for_server(url: str, timeout_s: float = 20.0) -> None:
