@@ -390,6 +390,22 @@
     });
   }
 
+  // Protomaps' own hosted fonts/sprites (coordinator follow-up, 2026-09-15: "close the glyphs
+  // gap"), pmtiles mode only -- the dev raster mode and the outline fallback never touch these
+  // and gain no new network dependency. Quoted verbatim from
+  // https://protomaps.github.io/basemaps-assets/ ("Linking to Assets in Styles"):
+  // `glyphs:'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf'`. The
+  // sprite path (`sprites/v4/<flavor>`, no extension -- MapLibre appends `.json`/`.png`/`@2x`
+  // itself) is versioned separately from the npm package (the assets repo's own "for each major
+  // version" convention): `v4` is the set that actually contains the icon names
+  // `@protomaps/basemaps@5.7.2`'s generated layers reference (e.g. "arrow" for one-way-road
+  // markers) -- confirmed by fetching both `sprites/v3/light.json` and `sprites/v4/light.json`
+  // and checking which one has the icon names this bundle's own compiled layers use; `v3`'s
+  // sheet is a different, older icon set. Kept as one flavor's worth (`light`, matching
+  // `namedFlavor("light")` below) rather than every flavor, since this style only ever uses one.
+  var PROTOMAPS_GLYPHS_URL = "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf";
+  var PROTOMAPS_SPRITE_URL = "https://protomaps.github.io/basemaps-assets/sprites/v4/light";
+
   function addPmtilesBasemap() {
     if (typeof pmtiles === "undefined" || typeof basemaps === "undefined") {
       // One or both CDN scripts failed to load (home_map.html only includes them in pmtiles
@@ -405,6 +421,11 @@
         url: "pmtiles://" + TILE_URL,
         attribution: "&copy; OpenStreetMap contributors"
       });
+      // Style-wide (not per-source/per-layer): `setGlyphs`/`setSprite` mutate the current style
+      // in place, matching the incremental addLayer approach here rather than a full setStyle
+      // that would also replace the fallback and proposals layers.
+      map.setGlyphs(PROTOMAPS_GLYPHS_URL);
+      map.setSprite(PROTOMAPS_SPRITE_URL);
       var flavor = basemaps.namedFlavor("light");
       // Mute land/water/roads to the paper ground the same way the raster layer is tinted above,
       // via token-derived colours rather than the flavor's own defaults (task item 1).
@@ -472,10 +493,16 @@
         "circle-stroke-opacity": 0.6
       }
     }, "clusters");
+    // "Noto Sans Medium", not "Bold": once `addPmtilesBasemap()` points `glyphs` at the real
+    // Protomaps assets host (pmtiles mode), a font name that host doesn't carry 404s and the
+    // label silently never renders -- confirmed against the real host, which hosts only Regular/
+    // Medium/Italic (`@protomaps/basemaps` itself falls back to "Noto Sans Medium" for its own
+    // bold text, `basemaps.layers()`'s compiled default). Every "Bold" text-font in this file was
+    // changed to "Medium" for that reason, all three below and the proposals ones further down.
     map.addLayer({
       id: "plant-cluster-count", type: "symbol", source: "plants",
       filter: ["==", ["get", "feature_kind"], "plant_cluster"],
-      layout: { "text-field": ["get", "count"], "text-size": 10, "text-font": ["Noto Sans Bold"] },
+      layout: { "text-field": ["get", "count"], "text-size": 10, "text-font": ["Noto Sans Medium"] },
       paint: { "text-color": plantColorExpr, "text-opacity": 0.7 }
     }, "clusters");
     map.addLayer({
@@ -529,7 +556,7 @@
     map.addLayer({
       id: "cluster-count", type: "symbol", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "cluster"],
-      layout: { "text-field": ["get", "count"], "text-size": 12, "text-font": ["Noto Sans Bold"] },
+      layout: { "text-field": ["get", "count"], "text-size": 12, "text-font": ["Noto Sans Medium"] },
       paint: { "text-color": colorExpr }
     });
     map.addLayer({
@@ -545,7 +572,7 @@
     map.addLayer({
       id: "point-labels", type: "symbol", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "proposal"],
-      layout: { "text-field": ["get", "tech_label"], "text-size": 8, "text-font": ["Noto Sans Bold"] },
+      layout: { "text-field": ["get", "tech_label"], "text-size": 8, "text-font": ["Noto Sans Medium"] },
       paint: { "text-color": "#ffffff" }
     });
 

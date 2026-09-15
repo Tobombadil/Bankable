@@ -576,13 +576,84 @@ calling `basemaps.layers(...)` — these are the actual colour-role keys in `@pr
 5.7.2's flavor object (confirmed by inspecting the published bundle; there is no published type
 declaration for a flavor's shape).
 
-**Glyphs/sprites.** Not wired — `basemaps.layers()` labels/roads use MapLibre's default glyph
-handling with no sprite/glyph URL configured in this build, so text labels on the pmtiles layer may
-not render (points/fills still do) until a glyph source is chosen (self-hosted under `web/static/`
-if within the D-13 budget, else the Protomaps assets host) and added to the style. Flagged here as
-a follow-up rather than silently shipped as "done": the task's read-list and contract did not name
-a specific glyph host to point at, and self-hosting versus the Protomaps host is a size-budget call
-better made once real PMTiles data (and therefore label density) exists.
+**Glyphs/sprites (coordinator follow-up, 2026-09-15: closed).** `addPmtilesBasemap()` calls
+`map.setGlyphs(...)`/`map.setSprite(...)` — style-wide, in-place mutations, matching the
+incremental `addLayer` approach here rather than a full `setStyle` that would also replace the
+fallback and proposals layers — pointed at Protomaps' own hosted assets, **pmtiles mode only**;
+the dev raster mode and the outline fallback never call either, so they gain no new network
+dependency. Both URLs are quoted from `https://protomaps.github.io/basemaps-assets/` itself
+("Linking to Assets in Styles"):
+
+- Glyphs: `glyphs:'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf'`
+  (quoted verbatim from that page).
+- Sprite: `sprites/v4/light` (no extension — MapLibre appends `.json`/`.png`/`@2x` itself). The
+  assets repo versions its sprite sheets "for each major version" of the icon set, separately from
+  the npm package's own semver; confirmed empirically which one matches
+  `@protomaps/basemaps@5.7.2` by fetching both `sprites/v3/light.json` and `sprites/v4/light.json`
+  and checking which contains the icon names this bundle's compiled layers actually reference
+  (e.g. `"arrow"` for one-way-road markers, `minzoom: 16`) — `v4` does, `v3` is a different, older
+  icon set (its top-level keys don't even overlap).
+
+**Why hosted, not self-hosted:** self-hosting means vendoring the OFL-licensed font PBFs and a
+`spreet`-built spritesheet and keeping both in lockstep with whichever `@protomaps/basemaps`
+version this app pins — real ongoing maintenance for assets Protomaps already publishes and
+versions specifically for basemaps consumers, at a scale this app has no way to shrink (below).
+Measured (Playwright network log, this app's own default `WORLD_ZOOM` view, the map page's first
+paint, `/tmp/measure_glyphs.py`-style capture): 3 glyph range requests (`Noto Sans
+Regular`/`Medium`/`Italic`, range `0-255`, the only fontstacks this app's flavor/options actually
+reference) at **76,044 / 77,628 / 79,344 bytes = 233,016 bytes (≈ 227.6 KiB) total**, plus the
+sprite JSON+PNG at **3,549 + 16,174 = 19,723 bytes (≈ 19.3 KiB)** — **≈ 252.7 KiB** on the initial
+view, none of it gzip-compressed by GitHub Pages (`Content-Encoding` absent on both), cached only
+`max-age=600` (10 minutes; GitHub Pages' own default, not something this app configures). This is
+meaningfully more than the ≈ 14.6 KiB the two basemap *scripts* add (D-13's own budget line above)
+— glyph atlases are just large — but it is font/icon *data*, not code, so it sits outside D-13's
+"map bundle" (script) budget the same way OSM raster tiles and proposal GeoJSON payloads always
+have; flagged here with real numbers rather than left unmeasured.
+
+**A real bug this surfaced and fixed:** every one of this app's own map layers (`cluster-count`,
+`plant-cluster-count`, `point-labels`) used `"text-font": ["Noto Sans Bold"]`. Protomaps' assets
+host does not carry a "Bold" weight at all (only Regular/Medium/Italic — confirmed by requesting
+it: `404`), so once `setGlyphs` pointed real requests at that host, those three labels would have
+silently stopped rendering in pmtiles mode specifically (dev/raster mode never set `glyphs` at
+all, so this was latent there, not a new regression the switch introduces). Changed all three to
+`"Noto Sans Medium"` — `@protomaps/basemaps` itself falls back to "Noto Sans Medium" for its own
+bold text (confirmed in the compiled bundle: `text-font":[e.bold||"Noto Sans Medium"]`), so this
+also keeps this app's own label weight consistent with the basemap's.
+
+### Real-archive proof (coordinator follow-up, 2026-09-15)
+
+`web/test_e2e.py::test_pmtiles_basemap_renders_real_labels_end_to_end` proves the pmtiles mode
+end to end against a real archive — not merely that the fallback survives the mode being
+unreachable (the module's other test, which runs the *fake*-URL, both-CDN-scripts-aborted case).
+It is `pytest.mark.skipif`-skipped, not failed, when the archive named below is absent, so the
+default `pytest web/test_e2e.py` run stays fully offline; extract one first (not checked into the
+repo):
+
+```
+/root/go/bin/go-pmtiles extract https://build.protomaps.com/20260914.pmtiles \
+  /tmp/bankable-e2e-pmtiles/austin.pmtiles --bbox=-98.1,30.0,-97.4,30.6 --maxzoom=10
+```
+
+(`go-pmtiles` is installed by the infra lane at that path, not on `PATH`; the extract is ≈1.3 MB
+and takes a few seconds — measured 4.0 s, 15 requests, 1.4 MB transferred at overfetch 0.05.) The
+test spins up its own local HTTP server with a from-scratch, ~90-line `Range`-capable, CORS-
+permissive handler (`_RangeCorsHandler`) — Python's stdlib `http.server` has no `Range` support,
+which `pmtiles.js`'s partial-archive fetches need, and `Range` is not a CORS-safelisted header so
+the handler also answers the browser's `OPTIONS` preflight. `MAP_TILE_URL` points at that local
+server; the real `pmtiles.js`/`basemaps.js`/glyph/sprite requests are served via the same
+Python-`urllib`-then-`route.fulfill` pattern the rest of this suite uses for CDN assets (this
+sandbox's proxy resets Chromium's own TLS handshake to third-party hosts — `ERR_CERT_AUTHORITY_
+INVALID`, confirmed directly — while plain `urllib`/`curl` through the same proxy succeed).
+
+Verified, jumping to Austin, TX at zoom 10 (inside the extracted archive's own coverage):
+`window.__map.getSource('protomaps').serialize().url` starts `pmtiles://`; at least one archive
+request returned `206`; `queryRenderedFeatures` over `water`/`roads_minor`/`roads_major`/`earth`/
+`buildings` returns real features (119 in the measured run, across 82 real style layers); at least
+one glyph `.pbf` request returned `200` (all three did, after the Bold→Medium fix above); zero
+`map.basemap_failed` beacons. The saved screenshot (`web/screenshots/pmtiles-austin-real.png`)
+shows a real, legible Austin-area map — roads, place labels (Volente, Pflugerville, Austin, Manor,
+Webberville, ...), green landuse polygons, Lake Travis — tinted to this app's paper palette exactly
+as the raster mode is.
 
 **Budget (D-13, ≤ 250 KB gzipped including libraries) — measured, not estimated:**
 

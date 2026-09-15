@@ -9,9 +9,12 @@ in-process) on a fixed local port.
 
 from __future__ import annotations
 
+import functools
+import http.server
 import os
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -41,6 +44,20 @@ BASEMAPS_VERSION = "5.7.2"  # must match templates/home_map.html
 # script fails to load" fallback path (docs/40 §2.7 task item 1).
 FAKE_PMTILES_URL = "https://tiles.example.invalid/basemap.pmtiles"
 
+# Coordinator follow-up (2026-09-15): real end-to-end proof against an actual PMTiles archive,
+# separate from the fake-URL fallback test above. Not checked into the repo -- extract one first:
+#   /root/go/bin/go-pmtiles extract https://build.protomaps.com/20260914.pmtiles \
+#     /tmp/bankable-e2e-pmtiles/austin.pmtiles --bbox=-98.1,30.0,-97.4,30.6 --maxzoom=10
+# (a few MB, a few seconds; `go-pmtiles` is installed by the infra lane at `/root/go/bin/go-pmtiles`,
+# not on PATH). `test_pmtiles_basemap_renders_real_labels_end_to_end` below is skipped, not failed,
+# when this path does not exist, so the default suite stays fully offline.
+PMTILES_ARCHIVE_PATH = Path(
+    os.environ.get("PMTILES_TEST_ARCHIVE") or "/tmp/bankable-e2e-pmtiles/austin.pmtiles"  # noqa: S108 -- documented, overridable test fixture path
+)
+AUSTIN_CENTER = [-97.75, 30.3]
+AUSTIN_ZOOM = 10
+GLYPHS_SPRITE_HOST_PREFIX = "https://protomaps.github.io/basemaps-assets/"
+
 # This sandbox's egress proxy resets Chromium's own TLS handshake to the CDN hosts the rendered
 # page references (a proxy/browser interaction, not a product defect -- plain Python `urllib`
 # through the same proxy works fine, as does `curl`). The smoke test fetches the two MapLibre
@@ -49,25 +66,148 @@ FAKE_PMTILES_URL = "https://tiles.example.invalid/basemap.pmtiles"
 _ASSET_CACHE: dict[str, bytes] = {}
 
 
-def _fetch(url: str) -> bytes:
+def _fetch(url: str) -> tuple[int, bytes]:
+    """`(status, body)` rather than raising on a non-2xx -- a glyph range the real Protomaps
+    assets host does not carry (task follow-up: confirmed only "Noto Sans Regular"/"Medium"/
+    "Italic" are hosted there, not "Bold") must reach the browser as the same 404 a live deploy
+    would give it, not blow up this route handler. Retries transient network errors (a handful
+    of real third-party hosts are fetched here, through this sandbox's proxy) a couple of times
+    before giving up -- a real timeout/connection error still raises, since that is a genuine
+    test-environment failure this function has no honest fallback body for."""
     if url not in _ASSET_CACHE:
-        with urllib.request.urlopen(url, timeout=20) as r:  # noqa: S310 -- pinned https CDN urls
-            _ASSET_CACHE[url] = r.read()
+        last_exc: OSError | None = None
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(url, timeout=20) as r:  # noqa: S310 -- pinned https/local urls
+                    _ASSET_CACHE[url] = (r.status, r.read())
+                break
+            except urllib.error.HTTPError as exc:
+                _ASSET_CACHE[url] = (exc.code, b"")
+                break
+            except OSError as exc:
+                last_exc = exc
+                time.sleep(0.5 * (attempt + 1))
+        else:
+            raise RuntimeError(f"failed to fetch {url} after 3 attempts") from last_exc
     return _ASSET_CACHE[url]
 
 
-def _install_offline_routes(page: Any) -> None:
+def _guess_content_type(url: str) -> str:
+    if url.endswith(".pbf"):
+        return "application/x-protobuf"
+    if url.endswith(".json"):
+        return "application/json"
+    if url.endswith(".png"):
+        return "image/png"
+    if url.endswith(".js"):
+        return "application/javascript"
+    if url.endswith(".css"):
+        return "text/css"
+    return "application/octet-stream"
+
+
+def _install_glyphs_and_sprite_routes(page: Any) -> None:
+    """Real Protomaps-hosted glyphs/sprites (task follow-up: PMTiles mode must render basemap
+    labels) hit the same sandbox TLS problem as the CDN scripts above -- fetched once via Python
+    `urllib` (through the working proxy) and served back from memory, keyed by URL in the same
+    `_ASSET_CACHE` `_fetch` already uses, rather than routed straight through to the real host."""
+
+    def serve(route: Route) -> None:
+        status, body = _fetch(route.request.url)
+        route.fulfill(
+            status=status,
+            content_type=_guess_content_type(route.request.url),
+            body=body,
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+
+    page.route(f"{GLYPHS_SPRITE_HOST_PREFIX}**", serve)
+
+
+class _RangeCorsHandler(http.server.SimpleHTTPRequestHandler):
+    """Minimal Range-capable static file server (task follow-up: stdlib `http.server` has no
+    `Range` support, which `pmtiles.js`'s partial archive fetches need) with permissive CORS --
+    this runs on its own local port, a different origin from the app under test in the browser's
+    eyes, and `Range` is not a CORS-safelisted header so a preflight `OPTIONS` must succeed too."""
+
+    def end_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Range")
+        self.send_header("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+        super().end_headers()
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        self._serve(body=True)
+
+    def do_HEAD(self) -> None:
+        self._serve(body=False)
+
+    def _serve(self, *, body: bool) -> None:
+        path = self.translate_path(self.path)
+        if not os.path.isfile(path):
+            self.send_error(404)
+            return
+        file_size = os.path.getsize(path)
+        range_header = self.headers.get("Range")
+        if range_header and range_header.startswith("bytes="):
+            start_s, _, end_s = range_header[len("bytes=") :].partition("-")
+            start = int(start_s) if start_s else 0
+            end = min(int(end_s), file_size - 1) if end_s else file_size - 1
+            length = end - start + 1
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+            self.send_header("Content-Length", str(length))
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+            if body:
+                with open(path, "rb") as f:
+                    f.seek(start)
+                    self.wfile.write(f.read(length))
+        else:
+            self.send_response(200)
+            self.send_header("Content-Length", str(file_size))
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+            if body:
+                with open(path, "rb") as f:
+                    self.wfile.write(f.read())
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass  # keep pytest's own -s output focused on this test's prints, not access logs
+
+
+def _start_range_server(directory: Path) -> tuple[http.server.ThreadingHTTPServer, int]:
+    handler = functools.partial(_RangeCorsHandler, directory=str(directory))
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    return httpd, httpd.server_address[1]
+
+
+def _install_offline_routes(page: Any, *, serve_pmtiles_scripts: bool = False) -> None:
+    """`serve_pmtiles_scripts=False` (default, the fallback-path smoke test): both pmtiles-mode
+    CDN scripts are aborted, exercising `map.js`'s "keeps working if either script fails to load"
+    path. `serve_pmtiles_scripts=True` (the real-archive proof test below): the same two scripts
+    are served for real instead, via `_fetch` -- they must actually run for that test to prove
+    anything."""
     js_url = f"https://cdn.jsdelivr.net/npm/maplibre-gl@{MAPLIBRE_VERSION}/dist/maplibre-gl.js"
     css_url = f"https://cdn.jsdelivr.net/npm/maplibre-gl@{MAPLIBRE_VERSION}/dist/maplibre-gl.css"
+    pmtiles_js_url = f"https://cdn.jsdelivr.net/npm/pmtiles@{PMTILES_VERSION}/dist/pmtiles.js"
+    basemaps_js_url = f"https://cdn.jsdelivr.net/npm/@protomaps/basemaps@{BASEMAPS_VERSION}/dist/basemaps.js"
 
-    def serve_js(route: Route) -> None:
-        route.fulfill(status=200, content_type="application/javascript", body=_fetch(js_url))
+    def serve(url: str) -> Any:
+        def _handler(route: Route) -> None:
+            status, body = _fetch(url)
+            route.fulfill(status=status, content_type=_guess_content_type(url), body=body)
 
-    def serve_css(route: Route) -> None:
-        route.fulfill(status=200, content_type="text/css", body=_fetch(css_url))
+        return _handler
 
-    page.route(js_url, serve_js)
-    page.route(css_url, serve_css)
+    page.route(js_url, serve(js_url))
+    page.route(css_url, serve(css_url))
     # Fonts fall back gracefully. OSM tiles fail the same way whether aborted here or left to hit
     # the real proxy -- confirmed by testing tile.openstreetmap.org, tiles.openfreemap.org and
     # demotiles.maplibre.org directly from this Chromium build: all reset mid-handshake even
@@ -80,18 +220,19 @@ def _install_offline_routes(page: Any) -> None:
     # against this build, not assumed.
     page.route("https://fonts.googleapis.com/**", lambda route: route.abort())
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
-    # The `server` fixture runs with `MAP_TILE_URL` set to a `.pmtiles` URL (pmtiles basemap
-    # mode) -- both CDN scripts that mode depends on are aborted here too, and any tile-shaped
-    # host generically, so `web/static/js/map.js`'s "keeps working if either script fails to
-    # load" fallback path is what this whole suite always exercises, not a separately-configured
-    # raster/dev path.
-    page.route(f"https://cdn.jsdelivr.net/npm/pmtiles@{PMTILES_VERSION}/**", lambda route: route.abort())
-    page.route(
-        f"https://cdn.jsdelivr.net/npm/@protomaps/basemaps@{BASEMAPS_VERSION}/**",
-        lambda route: route.abort(),
-    )
-    page.route("**/*.pmtiles", lambda route: route.abort())
-    page.route("https://*.tile.*/**", lambda route: route.abort())
+    if serve_pmtiles_scripts:
+        page.route(pmtiles_js_url, serve(pmtiles_js_url))
+        page.route(basemaps_js_url, serve(basemaps_js_url))
+    else:
+        # The `server` fixture runs with `MAP_TILE_URL` set to a `.pmtiles` URL (pmtiles basemap
+        # mode) -- both CDN scripts that mode depends on are aborted here too, and any tile-shaped
+        # host generically, so `web/static/js/map.js`'s "keeps working if either script fails to
+        # load" fallback path is what this whole suite always exercises, not a separately-configured
+        # raster/dev path.
+        page.route(pmtiles_js_url, lambda route: route.abort())
+        page.route(basemaps_js_url, lambda route: route.abort())
+        page.route("**/*.pmtiles", lambda route: route.abort())
+        page.route("https://*.tile.*/**", lambda route: route.abort())
 
 
 def _ensure_db_loaded(db_path: Path) -> str:
@@ -254,3 +395,138 @@ def _check_desktop_and_narrow(browser: object) -> None:
     narrow.screenshot(path=str(SCREENSHOT_DIR / "detail-400px.png"), full_page=True)
     page.close()
     narrow.close()
+
+
+# ============================================================================================
+# Real-archive proof (coordinator follow-up, 2026-09-15): the fake-URL test above proves the
+# *fallback* path (both CDN scripts blocked); this proves pmtiles mode actually renders a real
+# basemap, with real glyphs, end to end. Its own DB (a 5-row sample, not the full load above) and
+# its own uvicorn subprocess/port, both module-scoped so the whole class of tests here pays the
+# archive-serving setup cost once.
+_PMTILES_PROOF_DB_PATH = REPO_ROOT / "web" / ".data" / "pmtiles-proof-test.db"
+_PMTILES_PROOF_PORT = 8798
+_PMTILES_PROOF_BASE_URL = f"http://127.0.0.1:{_PMTILES_PROOF_PORT}"
+
+
+@pytest.fixture(scope="module")
+def pmtiles_range_server() -> object:
+    httpd, port = _start_range_server(PMTILES_ARCHIVE_PATH.parent)
+    try:
+        yield port
+    finally:
+        httpd.shutdown()
+
+
+@pytest.fixture(scope="module")
+def pmtiles_proof_server(pmtiles_range_server: int) -> object:
+    _PMTILES_PROOF_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _PMTILES_PROOF_DB_PATH.unlink(missing_ok=True)
+    database_url = f"sqlite+pysqlite:///{_PMTILES_PROOF_DB_PATH}"
+    engine = get_engine(database_url)
+    init_db(engine)
+    session = get_sessionmaker(engine)()
+    try:
+        # A small sample, not the full ~11,400-row set: this test proves the basemap, not the
+        # data layer (already proven above) -- the full load's ~2 minutes would be paid for
+        # nothing this test asserts on.
+        load_dev_database(session, preview=True, sample_per_state=5)
+    finally:
+        session.close()
+
+    tile_url = f"http://127.0.0.1:{pmtiles_range_server}/{PMTILES_ARCHIVE_PATH.name}"
+    env = dict(os.environ, DATABASE_URL=database_url, WEB_DEV_PREVIEW="1", MAP_TILE_URL=tile_url)
+    env.pop("API_BASE_URL", None)
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", "8798"],
+        cwd=REPO_ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    try:
+        _wait_for_server(_PMTILES_PROOF_BASE_URL + "/health")
+        yield proc
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+@pytest.mark.skipif(
+    not PMTILES_ARCHIVE_PATH.exists(),
+    reason=(
+        f"real PMTiles archive not present at {PMTILES_ARCHIVE_PATH} -- extract one first: "
+        "/root/go/bin/go-pmtiles extract https://build.protomaps.com/20260914.pmtiles "
+        f"{PMTILES_ARCHIVE_PATH} --bbox=-98.1,30.0,-97.4,30.6 --maxzoom=10"
+    ),
+)
+def test_pmtiles_basemap_renders_real_labels_end_to_end(pmtiles_proof_server: object) -> None:
+    """Coordinator follow-up (2026-09-15): closes the "basemap glyph/sprite gap not done" item
+    and proves pmtiles mode end to end against a real, small (~1.3 MB) archive -- not merely that
+    the fallback survives the mode being unreachable (the test above), but that the real thing
+    renders: a real vector tile fetched over HTTP Range, real glyphs from the real Protomaps
+    assets host, real basemap features query-able back out of MapLibre.
+    """
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=CHROMIUM_PATH)
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page, serve_pmtiles_scripts=True)
+            _install_glyphs_and_sprite_routes(page)
+
+            tile_range_requests: list[int] = []
+            glyph_statuses: list[int] = []
+            basemap_failed_calls: list[str] = []
+
+            def _on_response(response: Any) -> None:
+                url = response.url
+                if url.endswith(PMTILES_ARCHIVE_PATH.name):
+                    tile_range_requests.append(response.status)
+                elif url.startswith(GLYPHS_SPRITE_HOST_PREFIX) and url.endswith(".pbf"):
+                    glyph_statuses.append(response.status)
+
+            page.on("response", _on_response)
+
+            def _record_ui_event(route: Route) -> None:
+                post_data = route.request.post_data or ""
+                if "map.basemap_failed" in post_data:
+                    basemap_failed_calls.append(post_data)
+                route.fulfill(status=202, content_type="application/json", body="{}")
+
+            page.route("**/api/ui-events", _record_ui_event)
+
+            page.goto(_PMTILES_PROOF_BASE_URL + "/")
+            assert page.get_attribute("#map", "data-tile-mode") == "pmtiles"
+            page.wait_for_selector("#map canvas", timeout=10000)
+            page.wait_for_function("() => window.__map && window.__map.isStyleLoaded()", timeout=15000)
+            # (a) MapLibre `load` fired
+            assert page.evaluate("() => window.__map.loaded()")
+
+            # Zoom to the extracted archive's own coverage (Austin, TX, up to zoom 10) -- the
+            # world-view default the page loads at is below the archive's data.
+            page.evaluate(f"() => window.__map.jumpTo({{center: {AUSTIN_CENTER}, zoom: {AUSTIN_ZOOM}}})")
+            page.wait_for_timeout(1500)  # let the range-fetched tile and glyphs finish rendering
+
+            # (b) basemap source is pmtiles://... and at least one tile request returned 206
+            source_url = page.evaluate("() => window.__map.getSource('protomaps').serialize().url")
+            assert source_url.startswith("pmtiles://"), source_url
+            assert 206 in tile_range_requests, f"no 206 Range response for the archive: {tile_range_requests}"
+
+            # (c) real basemap features rendered from the archive at zoom 10 over Austin
+            basemap_feature_count = page.evaluate(
+                "() => window.__map.queryRenderedFeatures("
+                "{layers: ['water', 'roads_minor', 'roads_major', 'earth', 'buildings']}"
+                ").length"
+            )
+            assert basemap_feature_count > 0, "no basemap features rendered from the real archive"
+
+            # (d) a symbol layer rendered text -- a glyph .pbf request returned 200
+            assert 200 in glyph_statuses, f"no glyph request returned 200: {glyph_statuses}"
+
+            # (e) no basemap_failed beacon -- the real thing worked, nothing to report as failed
+            page.wait_for_timeout(300)
+            assert basemap_failed_calls == [], basemap_failed_calls
+
+            page.screenshot(path=str(SCREENSHOT_DIR / "pmtiles-austin-real.png"), full_page=True)
+        finally:
+            browser.close()
