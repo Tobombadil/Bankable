@@ -36,10 +36,10 @@ COPY infra/scheduler/requirements.txt ./infra-scheduler-requirements.txt
 # `worker` target actually runs it, but one shared base layer keeps the image count at two
 # (docs/20 §4.1 "one container image with different entrypoints").
 RUN pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt "psycopg[binary]>=3.1,<4"
-# The python base image ships wheel and jaraco.context at versions the CI image scan flags as
-# HIGH with fixes available (CVE-2026-24049, CVE-2026-23949; 2026-09-15). Neither is pinned by
-# anything in requirements.txt (checked with `pip check`), so they are simply upgraded.
-RUN pip install --no-cache-dir --upgrade "wheel>=0.46.2" "jaraco.context>=6.1"
+# The CI image scan flags wheel 0.45.1 and jaraco.context 5.3.0 (CVE-2026-24049, CVE-2026-23949).
+# Those are the copies vendored inside setuptools 78.1.1 (`setuptools/_vendor/*.dist-info`), not
+# top-level installs, so upgrading the top-level packages changes nothing (tried, 2026-09-15). They
+# move only when setuptools does, and gridstatus 0.36.0 pins setuptools<79; see .trivyignore.
 
 COPY pyproject.toml ./pyproject.toml
 COPY pipeline ./pipeline
