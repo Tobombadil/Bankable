@@ -640,8 +640,20 @@ def _get_or_create_location(
     a derived-only source never gets promoted regardless of what its raw payload carries, and keeps
     falling through to the county/state centroid with `precision_reason = "licence"` stamped (so
     the API can render the restricted-precision note) exactly as before this promotion existed.
+
+    `county_fips` (docs/21 §3.7, added 2026-09-15) is looked up from the row's own `state`/`county`
+    strings against the same vendored gazetteer `geocode()` uses -- never derived from `point`,
+    exact or geocoded: there is no point-in-polygon here, so a coordinate alone never fills this
+    column (docs/21 §3.7). That makes the lookup independent of which branch below produced the
+    `Location`: a `county_centroid` row gets it from the same county name `geocode()` just resolved,
+    and an `exact` row gets it too when the source row happens to name a real county alongside its
+    coordinate (EIA-860M does). A GB row (`country_code == "US"` is false) never gets one -- `county`
+    there is a substation name, not a US county, and FIPS is a US-only key.
     """
     country_code = "GB" if (source.jurisdiction or "").upper().startswith("GB") else "US"
+    county_fips: str | None = None
+    if country_code == "US":
+        county_fips = (gaz if gaz is not None else default_gazetteer()).county_fips(state, county)
     exact_point = None if derived_only else _extract_exact_point(raw_payload or {})
     if exact_point is not None:
         kind = "point"
@@ -664,6 +676,7 @@ def _get_or_create_location(
         geom=point,
         precision=precision,
         precision_reason="licence" if derived_only else None,
+        county_fips=county_fips,
         county_name=county or None,
         state_code=(f"US-{state.upper()}" if state and country_code == "US" else None),
         country=country_code,

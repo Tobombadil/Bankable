@@ -17,6 +17,15 @@ The vendored TSV (`services/ingest/data/us_county_centroids.tsv`) is a copy of
 connector already parsed geocodes the same way whether it is loaded through `web/dev_up.py` or a
 real ingestion run — `services/` no longer needs `web/` to plot anything on a map.
 
+2026-09-15: the vendored TSV had dropped the source Gazetteer's `GEOID` (county FIPS) column,
+leaving `docs/21` §3.7's `location.county_fips` NULL on every row. `GEOID` was re-derived from the
+same 2024 Gazetteer file and appended as a fifth `county_fips` column (`services/ingest/data/
+README.md` has the join method and edge cases); `web/data_ref/us_county_centroids.tsv` is
+untouched and still has four columns, so it is no longer byte-identical to this copy. `geocode()`
+still returns the same `(point, precision)` 2-tuple; a caller wanting FIPS calls
+`CountyGazetteer.county_fips(state, county_name)` directly (`loader.py::_get_or_create_location`
+does, for both the county-centroid and exact-point paths).
+
 Sprint 3 item 5 adds a second, unrelated tier: `gb.neso.tec_register` rows carry a "Connection
 Site" -- a transmission substation name -- and nothing else geographic (docs/02 NESO row). A
 substation is not the project's location (the plant can be kilometres away), so this is not, and
@@ -41,9 +50,16 @@ extending there too.
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 DEFAULT_COUNTY_CENTROID_TSV = Path(__file__).resolve().parent / "data" / "us_county_centroids.tsv"
 DEFAULT_GB_SUBSTATION_TSV = Path(__file__).resolve().parent / "data" / "gb_substations.tsv"
@@ -85,6 +101,14 @@ class CountyGazetteer:
 
     counties: dict[tuple[str, str], tuple[float, float]] = field(default_factory=dict)
     state_centroids: dict[str, tuple[float, float]] = field(default_factory=dict)
+    #: US county FIPS (docs/21 §3.7 `county_fips`, char(5): 2-digit state + 3-digit county), keyed
+    #: identically to `counties` and populated in the same pass over the same TSV line, so a given
+    #: `(state, norm)` key's FIPS always names the same row that key's lat/lon came from -- even
+    #: for the half-dozen state/independent-city pairs that collide under `normalize_county_name`
+    #: (e.g. VA's "Fairfax County" vs "Fairfax city" both normalise to `("VA", "FAIRFAX")`; the
+    #: last row in the TSV wins for both dicts together, never a mismatched pairing of one row's
+    #: point with another row's FIPS).
+    fips: dict[tuple[str, str], str] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path = DEFAULT_COUNTY_CENTROID_TSV) -> CountyGazetteer:
@@ -93,11 +117,12 @@ class CountyGazetteer:
         with path.open(encoding="utf-8") as f:
             next(f)  # header
             for line in f:
-                state, county_name, lat_s, lon_s = line.rstrip("\n").split("\t")
+                state, county_name, lat_s, lon_s, fips_s = line.rstrip("\n").split("\t")
                 lat, lon = float(lat_s), float(lon_s)
                 norm = normalize_county_name(county_name)
                 if norm:
                     gaz.counties[(state, norm)] = (lat, lon)
+                    gaz.fips[(state, norm)] = fips_s
                 slat, slon, n = sums.get(state, (0.0, 0.0, 0))
                 sums[state] = (slat + lat, slon + lon, n + 1)
         gaz.state_centroids = {s: (slat / n, slon / n) for s, (slat, slon, n) in sums.items() if n}
@@ -110,6 +135,17 @@ class CountyGazetteer:
         if not norm:
             return None
         return self.counties.get((state.upper(), norm))
+
+    def county_fips(self, state: str | None, county_name: str | None) -> str | None:
+        """The county's 5-digit FIPS (Census Gazetteer `GEOID`), or `None` if `state`/`county_name`
+        is missing or does not resolve to a vendored county -- never derived from a coordinate
+        (docs/21 §3.7: `county_fips` is set only when a source's own county name resolves)."""
+        if not state:
+            return None
+        norm = normalize_county_name(county_name)
+        if not norm:
+            return None
+        return self.fips.get((state.upper(), norm))
 
     def state_point(self, state: str | None) -> tuple[float, float] | None:
         if not state:
@@ -243,3 +279,74 @@ def geocode(
             lat, lon = point
             return (lon, lat), "state_centroid"
     return None, "unknown"
+
+
+# ============================================================ county_fips backfill CLI (2026-09-15)
+# The gazetteer logic above is pure and DB-free; this section is the one place in the module that
+# talks to the store, added only because the county_fips defect fix needed a standalone,
+# idempotent backfill command and this module already owns the lookup it runs
+# (`CountyGazetteer.county_fips`). `services.db` is imported lazily inside `main()`, not at module
+# level, so importing `geocode` for its pure gazetteer classes (as `test_geocode.py` and
+# `pipeline/` code do) never pulls in SQLAlchemy model wiring just to run.
+def backfill_county_fips(session: Session, gaz: CountyGazetteer | None = None) -> dict[str, Any]:
+    """Fill `location.county_fips` (docs/21 §3.7) on every existing row where it is currently NULL
+    and resolvable, using the exact same lookup `loader.py::_get_or_create_location` runs at load
+    time (`CountyGazetteer.county_fips`, keyed on the row's own stored `state_code`/`county_name`
+    -- never on `geom`: there is no point-in-polygon here, so a coordinate never fills this column).
+
+    Idempotent: only rows with `county_fips IS NULL` are examined, so a row this call fills is
+    never touched again, and a second run over the same data fills 0. A non-US row, or a US row
+    whose `county_name` doesn't resolve in the vendored gazetteer (misspelling, multi-county span,
+    no county at all), is left NULL and counted under `unresolved` -- not guessed.
+    """
+    from services.db.models import Location  # local import: see module note above
+
+    county_gaz = gaz if gaz is not None else default_gazetteer()
+    by_precision: dict[str, dict[str, int]] = {}
+    rows_seen = 0
+    filled = 0
+    for loc in session.scalars(select(Location).where(Location.county_fips.is_(None))):
+        rows_seen += 1
+        bucket = by_precision.setdefault(loc.precision, {"seen": 0, "filled": 0})
+        bucket["seen"] += 1
+        if loc.country != "US" or not loc.county_name:
+            continue
+        state = loc.state_code[3:] if loc.state_code and loc.state_code.startswith("US-") else None
+        fips = county_gaz.county_fips(state, loc.county_name)
+        if fips:
+            loc.county_fips = fips
+            filled += 1
+            bucket["filled"] += 1
+    session.commit()
+    return {
+        "rows_seen": rows_seen,
+        "filled": filled,
+        "unresolved": rows_seen - filled,
+        "by_precision": by_precision,
+    }
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    backfill_parser = subparsers.add_parser(
+        "backfill-fips",
+        help="Fill location.county_fips on existing rows where it is NULL and resolvable.",
+    )
+    backfill_parser.add_argument("--db", type=Path, default=Path("web/.data/dev.db"))
+    args = parser.parse_args(argv)
+
+    if args.command == "backfill-fips":
+        from services.db.session import get_engine, get_sessionmaker, init_db  # local: see note above
+
+        db_url = os.environ.get("DATABASE_URL") or f"sqlite+pysqlite:///{args.db}"
+        engine = get_engine(db_url)
+        init_db(engine)
+        session_factory = get_sessionmaker(engine)
+        with session_factory() as session:
+            result = backfill_county_fips(session)
+        print(json.dumps(result))  # noqa: T201 — CLI summary line
+
+
+if __name__ == "__main__":
+    main()

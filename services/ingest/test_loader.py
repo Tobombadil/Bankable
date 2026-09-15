@@ -623,6 +623,47 @@ def test_county_gazetteer_normalizes_suffixes_and_case() -> None:
     assert gaz.state_point("TX") is not None
 
 
+# --------------------------------------------------------------- county_fips (added 2026-09-15)
+def test_loader_sets_county_fips_for_a_county_centroid_location(session: Session) -> None:
+    entry = open_source_entry("us.test.fips_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    row = sample_proposal_row("F1")
+    row["source_id"] = entry.id
+    row["record_id"] = f"{entry.id}:F1"
+    row["state"] = "TX"
+    row["county"] = "Travis"
+    df = pd.DataFrame([row])
+    load_dataframe(session, src, "proposal", df, None)
+
+    proposal = session.scalar(select(Proposal))
+    assert proposal is not None
+    loc = session.get(Location, proposal.location_id)
+    assert loc is not None
+    assert loc.precision == "county_centroid"
+    assert loc.county_fips == "48453"
+
+
+def test_loader_leaves_county_fips_null_for_an_unresolvable_county(session: Session) -> None:
+    entry = open_source_entry("us.test.fips_unresolved_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    row = sample_proposal_row("F2")
+    row["source_id"] = entry.id
+    row["record_id"] = f"{entry.id}:F2"
+    row["state"] = "TX"
+    row["county"] = "Not A Real County"
+    df = pd.DataFrame([row])
+    load_dataframe(session, src, "proposal", df, None)
+
+    proposal = session.scalar(select(Proposal))
+    assert proposal is not None
+    loc = session.get(Location, proposal.location_id)
+    assert loc is not None
+    assert loc.precision == "state_centroid"
+    assert loc.county_fips is None
+
+
 # ------------------------------------------------------- EIA exact-point promotion (Sprint 3)
 def eia_row(
     record_id: str,
@@ -668,6 +709,10 @@ def test_row_with_valid_coordinates_is_promoted_to_exact(session: Session) -> No
     assert loc.geocoder == "source_provided"
     assert loc.geom == (-119.0394, 39.8536)  # (lon, lat), matching services/ingest/geocode.py
     assert loc.precision_reason is None
+    # county_fips (added 2026-09-15): an exact-point row still names a real county (NV/Churchill,
+    # `eia_row`'s default) alongside its coordinate, so it gets a FIPS too -- looked up from that
+    # county name, never from the coordinate itself (docs/21 §3.7).
+    assert loc.county_fips == "32001"
 
 
 @pytest.mark.parametrize(
@@ -1060,3 +1105,52 @@ def test_loader_places_gb_rows_at_their_connection_substation(session: Session) 
     loc2 = session.get(Location, missed.location_id)
     assert loc2 is not None
     assert loc2.precision == "unknown" and loc2.geom is None and loc2.geocoder is None
+
+
+# ------------------------------------------------ county_fips backfill CLI (added 2026-09-15)
+def test_backfill_county_fips_fills_resolvable_rows_and_is_idempotent(session: Session) -> None:
+    """`services.ingest.geocode.backfill_county_fips`: existing rows are get-or-create (module
+    docstring), so a defect fixed after rows already exist needs a standalone backfill -- this
+    fills every row where `county_fips` is NULL and resolvable, leaves an unresolvable one NULL,
+    and a second run over the same data fills nothing more."""
+    from services.ingest.geocode import backfill_county_fips
+
+    entry = open_source_entry("us.test.backfill_queue")
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+
+    resolvable = sample_proposal_row("B1")
+    resolvable["source_id"] = entry.id
+    resolvable["record_id"] = f"{entry.id}:B1"
+    resolvable["state"] = "TX"
+    resolvable["county"] = "Travis"
+
+    unresolvable = sample_proposal_row("B2")
+    unresolvable["source_id"] = entry.id
+    unresolvable["record_id"] = f"{entry.id}:B2"
+    unresolvable["state"] = "TX"
+    unresolvable["county"] = "Not A Real County"
+
+    load_dataframe(session, src, "proposal", pd.DataFrame([resolvable, unresolvable]), None)
+
+    # Simulate the pre-fix state: every row loaded before this defect was fixed has
+    # `county_fips IS NULL` regardless of whether it would have resolved.
+    for loc in session.scalars(select(Location)):
+        loc.county_fips = None
+    session.commit()
+
+    result1 = backfill_county_fips(session)
+    assert result1["rows_seen"] == 2
+    assert result1["filled"] == 1
+    assert result1["unresolved"] == 1
+    assert result1["by_precision"]["county_centroid"] == {"seen": 1, "filled": 1}
+    assert result1["by_precision"]["state_centroid"] == {"seen": 1, "filled": 0}
+
+    locs = {loc.precision: loc for loc in session.scalars(select(Location))}
+    assert locs["county_centroid"].county_fips == "48453"
+    assert locs["state_centroid"].county_fips is None
+
+    # Idempotent: nothing left to fill, so a second run touches 0 rows.
+    result2 = backfill_county_fips(session)
+    assert result2["rows_seen"] == 1  # only the still-unresolved row remains NULL
+    assert result2["filled"] == 0
+    assert result2["unresolved"] == 1

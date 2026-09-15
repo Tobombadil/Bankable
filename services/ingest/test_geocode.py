@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from services.ingest.geocode import (
+    CountyGazetteer,
     SubstationGazetteer,
     default_substation_gazetteer,
     geocode,
@@ -52,6 +53,33 @@ def test_geocode_us_unknown_unchanged() -> None:
     point, precision = geocode("ZZ", "Nowhere County")
     assert point is None
     assert precision == "unknown"
+
+
+# -------------------------------------------------------------- county_fips (added 2026-09-15)
+def test_county_gazetteer_returns_fips_for_a_known_county() -> None:
+    gaz = CountyGazetteer.load()
+    assert gaz.county_fips("TX", "Travis") == "48453"
+
+
+def test_county_gazetteer_same_county_name_two_states_gets_two_different_fips() -> None:
+    """ "Washington County" exists in many states -- the FIPS must be state-specific, never guessed
+    from the name alone (docs/21 §3.7)."""
+    gaz = CountyGazetteer.load()
+    al_fips = gaz.county_fips("AL", "Washington")
+    ar_fips = gaz.county_fips("AR", "Washington")
+    assert al_fips == "01129"
+    assert ar_fips == "05143"
+    assert al_fips != ar_fips
+
+
+def test_county_gazetteer_fips_is_none_for_an_unresolvable_county() -> None:
+    gaz = CountyGazetteer.load()
+    assert gaz.county_fips("TX", "Not A Real County") is None
+
+
+def test_county_gazetteer_fips_is_none_without_state() -> None:
+    gaz = CountyGazetteer.load()
+    assert gaz.county_fips(None, "Travis") is None
 
 
 def test_geocode_country_none_ignores_a_gb_looking_county_string() -> None:
