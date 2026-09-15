@@ -278,7 +278,7 @@ sources:
     product with no fusion layer.
 
 - id: us.eia.860m
-  name: EIA-860M Preliminary Monthly Electric Generator Inventory (Planned sheet)
+  name: EIA-860M Preliminary Monthly Electric Generator Inventory
   jurisdiction: US
   category: registry
   operator: US Energy Information Administration
