@@ -433,6 +433,30 @@ sources:
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok}
 
+- id: us.epa.rblc
+  name: EPA RACT/BACT/LAER Clearinghouse (RBLC) — New Source Review preconstruction air permit determinations
+  jurisdiction: US
+  category: permit
+  operator: US EPA Office of Air and Radiation, Clean Air Technology Center
+  url: https://www.epa.gov/catc/rblc
+  access: html
+  auth: none
+  format: search dashboard (https://permitsearch.epa.gov/oms-permit-hub/) with export; legacy cfpub search decommissioning
+  cadence: continuous (state submissions)
+  license: 'US federal work — public domain; EIA-style reuse quote for EPA in docs/13 is not yet recorded for this site: data.gov catalogue entry (https://catalog.data.gov/dataset/ract-bact-laer-clearninghouse-rblc, retrieved 2026-09-15) shows Access Level public, publisher EPA OAR, dataset last updated 2015-09-23 with no licence text beyond a bare "License" link; read the dashboard terms before ingest'
+  reuse: open
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-15, result: ok, note: 'epa.gov/catc/rblc 200 and links to the new OMS permit hub search dashboard plus an August 2026 user guide PDF; the legacy cfpub.epa.gov/rblc URLs return 404; EPA says submissions since 2025-09-25 migrate into the dashboard and the old entry system is being decommissioned'}
+  notes: >-
+    The one national source for new-source air permits (PSD/BACT in attainment areas, LAER in nonattainment):
+    one record per permit determination with facility, state, process, pollutant, control and permit dates.
+    Feeds `permit.air_*` events in the permit-events sprint (docs/00-PLAN.md decision 2026-09-15 "Permits are
+    stages"). Linkage to queue proposals is by facility name and state; expect precision like the FERC backfill
+    until the resolver improves. Existing-facility Title V/operating permits are a different dataset (ECHO/ICIS-Air)
+    and are not this entry.
+
 - id: us.permits_dashboard
   name: Federal Permitting Dashboard (FAST-41) full dataset — Socrata
   jurisdiction: US
