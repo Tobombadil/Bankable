@@ -53,7 +53,7 @@ droplet size; (3) Hetzner Cloud has a mature, actively maintained OpenTofu/Terra
 (`docs/20` §4.3, §11) is built on in `infra/terraform/main.tf`. DNS and object storage stay on **Cloudflare**
 (R2 + Cloudflare DNS) rather than moving to Hetzner's own DNS/Object Storage offerings: this ADR's decision
 text above and ADR 0003 already commit to Cloudflare R2 specifically (zero egress fees), and Cloudflare
-already fronts bankablehq.com (`.github/workflows/blank.yml`) — one Cloudflare account, one set of
+already fronts bankablehq.com (`infra/cloudflare/lovable-proxy-worker.js`, moved from `.github/workflows/blank.yml` on 2026-09-15) — one Cloudflare account, one set of
 credentials to rotate for the edge tier, independent of which VM provider hosts compute. See
 `infra/terraform/versions.tf` for the provider-choice note recorded next to the code.
 
