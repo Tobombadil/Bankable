@@ -91,3 +91,4 @@
 - 2026-09-15 coordinator: permits decision recorded in docs/00-PLAN.md (federal permit events first post-launch sprint; state permits per customer state; local land-use permits declined) and EPA RBLC registered as us.epa.rblc for new-source air permits.
 - 2026-09-15 coordinator: county land-use permits reversed from no to a bounded 25-county pilot with kill criteria (docs/00-PLAN.md); county_fips gap recorded as a prerequisite defect.
 - 2026-09-15 coordinator: ruff/mypy pinned to the verified versions; the misplaced Cloudflare worker moved out of .github/workflows (it failed as a workflow on every push; real CI only runs on main pushes and PRs).
+- 2026-09-15 coordinator: docs/40 §0 owner's morning checklist (decisions, local test, account order, browser-only terms tasks, counsel items, what waits on what).
