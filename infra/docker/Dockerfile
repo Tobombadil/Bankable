@@ -36,6 +36,10 @@ COPY infra/scheduler/requirements.txt ./infra-scheduler-requirements.txt
 # `worker` target actually runs it, but one shared base layer keeps the image count at two
 # (docs/20 §4.1 "one container image with different entrypoints").
 RUN pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt "psycopg[binary]>=3.1,<4"
+# The python base image ships wheel and jaraco.context at versions the CI image scan flags as
+# HIGH with fixes available (CVE-2026-24049, CVE-2026-23949; 2026-09-15). Neither is pinned by
+# anything in requirements.txt (checked with `pip check`), so they are simply upgraded.
+RUN pip install --no-cache-dir --upgrade "wheel>=0.46.2" "jaraco.context>=6.1"
 
 COPY pyproject.toml ./pyproject.toml
 COPY pipeline ./pipeline
