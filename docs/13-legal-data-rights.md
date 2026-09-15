@@ -692,6 +692,192 @@ that news must be treated as a **signal to trigger a lookup in a licensed source
 content. That is consistent with `02-data-sources.md` §4 ("headline, link, snippet, extracted facts only") but
 stricter on abstracts.
 
+### 2.9 OurGridFuture (planned transmission) — NOT RETRIEVED
+
+Candidate source for the built-infrastructure context layer (owner decision, `00-PLAN.md` 2026-09-14/09-15:
+"OurGridFuture registered as a candidate source with a terms check").
+
+Source attempted: https://ourgridfuture.org/ — 2026-09-15, **HTTP 403** (Cloudflare managed challenge,
+"Just a moment…" interstitial) from a datacentre IP, on the root page and on nine guessed paths (`/terms`,
+`/license`, `/licence`, `/about`, `/data`, `/faq`, `/terms-of-use`, `/data-use`, `/privacy`) — all nine returned
+the identical 403 challenge page. `/robots.txt` returned **HTTP 404** (no robots file present), which at least
+confirms this is Cloudflare bot-management on the app, not a full site outage. A Wayback Machine snapshot exists
+(`web.archive.org/web/20260324231145/https://ourgridfuture.org/`, dated 2026-03-24) but this sandbox's egress
+policy blocks `archive.org`, so it could not be read either, by curl or by the fetch tool.
+
+The secondary page named in this task — https://opengridworks.com/attribution, where OurGridFuture's data is
+credited per opengridworks.com's own attribution page — returned **HTTP 429** ("Vercel Security Checkpoint"
+interstitial) on three attempts across roughly 15 seconds of backoff, on both `/attribution` and the site root.
+
+What turned up in general web search, **not retrieved from primary text and not evidence of licence terms**:
+OurGridFuture is described as maintained by Horizon Energy Systems in association with the Great Plains
+Institute; the planned-transmission GIS shapefile/database is described as available after a user "provides
+contact information" (a registration gate, not an open download); OpenGridWorks describes itself as
+incorporating select OurGridFuture layers. None of this states a reuse licence, and a registration gate alone
+is not a signal either way — GEM (§2.2) also gates behind email registration but is CC BY 4.0 underneath.
+
+**To retrieve by hand:** open https://ourgridfuture.org/ in a real browser — this passes the interactive
+Cloudflare challenge that a headless/datacentre client fails — and find the terms/licence/attribution page
+(most likely in the site footer or attached to the data-request/registration form). Register with an identity
+that can accept terms on Bankable's behalf, not an anonymous address, since accepting terms is itself a fact
+worth recording (§3.2 browsewrap/clickwrap distinction). Record the operative clause here verbatim with the
+retrieval date. Great Plains Institute is also worth asking directly, since GPI publishes other datasets under
+open licences elsewhere.
+
+Classification: `unknown`. Publication rule: do not ingest; not published in any tier until terms are read.
+**Confidence: none** on reuse — this section documents a blocked retrieval, not a legal reading.
+
+### 2.10 OpenStreetMap-derived basemap tiles (Protomaps) — produced work, not derivative database
+
+Basemap decision (owner, `00-PLAN.md` 2026-09-15): Protomaps PMTiles, self-hosted, pre-launch. This section
+reads the licence question that decision depends on: rendering someone else's OSM-derived tile build is a
+different act, under ODbL, from ingesting OSM's underlying data — and only the first is decided. The second is
+open question 7(b), left for counsel, and nothing below resolves it.
+
+**ODbL 1.0 definitions** (retrieved https://opendatacommons.org/licenses/odbl/1-0/, 2026-09-15, HTTP 200):
+
+> "Produced Work" – a work (such as an image, audiovisual material, text, or sounds) resulting from using the
+> whole or a Substantial part of the Contents (via a search or other query) from this Database, a Derivative
+> Database, or this Database as part of a Collective Database.
+
+**ODbL 1.0 §4.4–4.6** (same source):
+
+> 4.4 Share alike. a. Any Derivative Database that You Publicly Use must be only under the terms of: i. This
+> License; ii. A later version of this License similar in spirit to this License; or iii. A compatible
+> license. … b. For the avoidance of doubt, Extraction or Re-utilisation of the whole or a Substantial part of
+> the Contents into a new database is a Derivative Database and must comply with Section 4.4. c. Derivative
+> Databases and Produced Works. A Derivative Database is Publicly Used and so must comply with Section 4.4. if
+> a Produced Work created from the Derivative Database is Publicly Used. d. Share Alike and additional
+> Contents. For the avoidance of doubt, You must not add Contents to Derivative Databases under Section 4.4 a
+> that are incompatible with the rights granted under this License.
+
+> 4.5 Limits of Share Alike. The requirements of Section 4.4 do not apply in the following: a. … You are not
+> required to license Collective Databases under this License if You incorporate this Database or a Derivative
+> Database in the collection, but this License still applies to this Database or a Derivative Database as a
+> part of the Collective Database; b. Using this Database, a Derivative Database, or this Database as part of a
+> Collective Database to create a Produced Work does not create a Derivative Database for purposes of Section
+> 4.4; and c. Use of a Derivative Database internally within an organisation is not to the public and therefore
+> does not fall under the requirements of Section 4.4.
+
+> 4.6 Access to Derivative Databases. If You Publicly Use a Derivative Database or a Produced Work from a
+> Derivative Database, You must also offer to recipients of the Derivative Database or Produced Work a copy in
+> a machine readable form of: a. The entire Derivative Database; or b. A file containing all of the alterations
+> made to the Database or the method of making the alterations to the Database (such as an algorithm) …
+
+Note precisely what §4.6 conditions on: a Produced Work made **from a Derivative Database**. Read against
+§4.5(b) — making a Produced Work does not itself create a Derivative Database — the share-back duty in §4.6
+does not, on this text, attach to a Produced Work made directly from an unmodified Database or unmodified
+extract of one.
+
+**OSM Foundation, Produced Work Guideline** (retrieved
+https://osmfoundation.org/wiki/Licence/Community_Guidelines/Produced_Work_-_Guideline, 2026-09-15, HTTP 200;
+endorsed by the OSMF board 2014-06-06):
+
+> The published result of your project is either a Produced Worked or a Derivative Database within the meaning
+> of the ODbL. If the published result of your project is intended for the extraction of the original data,
+> then it is a database and not a Produced Work. Otherwise it is a Produced Work. However, if you publish a
+> produced work, the underlying database has to be published as well (or alternations to the original database
+> as is the case of derived databases), according to section 4.6 of ODbL.
+>
+> We can clearly define things that are USUALLY Produced Works: .PNG, JPG, .PDF, SVG images and any raster
+> image; a map in a physically printed work. Database dumps are usually not Produced Works, e.g a Planet dump.
+
+*Inference:* the guideline's last sentence above reads, on its plain words, as extending a publish-the-database
+duty to Produced Works generally — broader than ODbL §4.4(c)/§4.5(b)'s narrower trigger (only a Produced Work
+made *from a Derivative Database*). I flag this tension rather than resolve it. The Attribution Guideline
+(quoted next) itself says the legal text controls over the guidance where the two disagree, which favours
+ODbL's narrower reading, but this is precisely a "which text governs" question I am not positioned to close.
+**Confidence: low** on which of the two texts controls if they diverge.
+
+**OSM Foundation, Attribution Guideline** (retrieved https://osmfoundation.org/wiki/Licence/Attribution_Guidelines,
+2026-09-15, HTTP 200; adopted by the OSMF board 2021-06-25):
+
+> OpenStreetMap (OSM) data is distributed under the Open Database License (ODbL). If you want to use
+> OpenStreetMap data in something you create and distribute, you must attribute OpenStreetMap. … These
+> guidelines are not a substitute for the legal text itself. If the two texts disagree, the legal text takes
+> precedence.
+
+> Attribution text: Attribution must be to "OpenStreetMap". Attribution must also make it clear that the data
+> is available under the Open Database License. This may be done by making the text "OpenStreetMap" a link to
+> openstreetmap.org/copyright … The historical forms of attribution "© OpenStreetMap contributors" or
+> "© OpenStreetMap" are acceptable.
+
+> Interactive maps: For a browsable map (e.g., embedded in a web page or application), the credit should
+> typically appear in a corner of the map. … You may use a mechanism to fade/collapse the attribution under
+> certain conditions: immediately with a dismiss interaction … automatically on map interaction such as
+> panning, clicking, or zooming … automatically after five seconds … If the attribution has been collapsed, the
+> user must still be able to find the licence information if they look for it, for example from an "(i)" button
+> in the corner.
+
+**Protomaps' own statement for its basemap builds** (retrieved https://docs.protomaps.com/basemaps/downloads
+and https://docs.protomaps.com/, 2026-09-15, HTTP 200):
+
+> The Protomaps Basemap is a general purpose vector base map - city labels, roads, water features and other
+> essential location context derived from OpenStreetMap. It's available as a single PMTiles archive,
+> distributed as an Open Database License Produced Work (OpenStreetMap attribution required)
+
+> An open source mapping system released under the BSD and ODbL licenses. (site-wide footer, docs.protomaps.com)
+
+I checked the docs homepage, the Downloads/Basemap Layers/Flavors/Build pages, and protomaps.com's root for a
+Protomaps-branding attribution clause beyond the OSM one; I found none (`protomaps.com/terms` and
+`protomaps.com/license` both return HTTP 404). **Confidence: moderate** that no separate Protomaps-attribution
+term exists — absence of a found clause is not proof none exists elsewhere, and Protomaps LLC's own software
+licence (BSD, per the footer) is a distinct question from the basemap build's data terms and is not reviewed
+here.
+
+**Position** (mine, not counsel's):
+
+1. Rendering Protomaps PMTiles into map imagery is, on the ODbL definition and on Protomaps' own
+   characterisation quoted above, a **Produced Work**: rendered tiles are the paradigm example in the OSMF
+   guideline's own list.
+2. As a Produced Work, visible attribution is required (§4.3, and the Attribution Guideline above): legible,
+   near the map, and either persistent or collapsible with an always-reachable way to find the licence
+   information (the OSMF "Interactive maps" safe harbour). This is an implementation requirement for the map
+   component, not a policy question.
+3. Bankable stores no OSM data itself — it self-hosts a Protomaps-built PMTiles archive and serves tiles from
+   it, without extracting, retaining, or re-publishing the underlying vector database. On that basis Bankable's
+   own database is not a Derivative Database of OSM, and §4.4's share-alike duty does not attach to it.
+   **Confidence: moderate-high** on this reading as applied to *serving someone else's unmodified tile build*,
+   precisely because it turns on the ODbL-vs-guideline tension flagged above, which is unresolved.
+4. A **separate** question — pulling OSM vector data itself (roads, boundaries, points of interest as
+   structured rows) into Bankable's own database, e.g. to enrich or geocode context-layer or project records in
+   the paid tier — is a different act (arguably "Extraction or Re-utilisation… into a new database" under
+   §4.4(b)) and remains **open question 7(b)** per the owner's 2026-09-14 decision. Point 3 does not answer it,
+   and nothing above should be read as answering it.
+
+Classification: n/a — this is a licence question for produced-work tiles, not a data-source register row.
+Publication rule: visible OSM attribution required on every map view per the guideline above; no OSM vector
+data is ingested into Bankable's own database under this decision.
+
+### 2.11 EIA-860M for the built-infrastructure context layer — public domain, addendum
+
+`us.eia.860m` is already recorded at §6 as `public-domain`/`raw-ok` under 17 U.S.C. §105 (US federal government
+work; see the register table). For the context layer specifically (`00-PLAN.md` 2026-09-15: "Context layer =
+EIA-860M operating plants, US only first"), I retrieved and quote EIA's own reuse statement directly rather
+than relying only on the general federal-work inference.
+
+Source: https://www.eia.gov/about/copyrights_reuse.php — "Copyrights and Reuse", retrieved 2026-09-15
+(HTTP 200).
+
+> U.S. government publications are in the public domain and are not subject to copyright protection. You may
+> use and/or distribute any of our data, files, databases, reports, graphs, charts, and other information
+> products that are on our website or that you receive through our email distribution service. However, if you
+> use or reproduce any of our information products, you should use an acknowledgment, which includes the
+> publication date, such as: "Source: U.S. Energy Information Administration (Oct 2008)."
+
+> When quoting EIA text, the acknowledgment should clearly indicate which text is EIA content and which is not.
+
+*Inference:* this confirms the §105 public-domain reading directly rather than by analogy, and gives the exact
+form of the requested (not required) acknowledgment. Adopt "Source: U.S. Energy Information Administration
+(<EIA-860M release month/year>)" as the rendered attribution string for context-layer plant records, matching
+EIA's own example. Crediting is a request, not a licence condition — the data is public domain whether credited
+or not — but it costs nothing and matches the platform's attribution-by-default posture. Separately: EIA's logo
+and some third-party-contributed photographs/illustrations on eia.gov *are* protected and must not be used;
+this has no bearing on the 860M data file. **Confidence: high.**
+
+Classification: `public-domain` (unchanged). Publication rule: `raw-ok` (unchanged); attribution string above
+adopted specifically for context-layer plant records.
+
 ---
 
 ## 3. US scraping law
@@ -1028,7 +1214,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.iso.miso.gen_queue` | **unknown** | link-out-only; do not publish | §1.7 not retrieved | n/a |
 | `us.lbnl.queued_up` | **unknown** (CC BY unverified) | derived-only, credit LBNL + GridTracker | §2.1 not retrieved | low |
 | `us.gridtracker.interconnection_fyi` | restricted | do not ingest at all | ToS + hot-news §3.4 | high |
-| `us.eia.860m` | public-domain | raw-ok | 17 U.S.C. §105 | high |
+| `us.eia.860m` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted | high |
 | `us.eia.api` | public-domain | raw-ok | 17 U.S.C. §105 | high |
 | `us.oasis.non_iso_queues` | unknown (per-utility) | derived-only; read per-utility terms before each connector | not retrieved | low |
 | `us.ferc.elibrary` | public-domain | raw-ok | 17 U.S.C. §105 | high |
@@ -1071,6 +1257,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `mdb.worldbank.projects` | open-attribution (CC BY 4.0) | raw-ok + credit | not re-verified | mod |
 | `mdb.others` | unknown (per-institution) | derived-only | not retrieved | low |
 | `global.gem.trackers` | open-attribution (CC BY 4.0) **except TZ-ID rows (CC BY-NC 4.0)** | raw-ok + recommended citation; **drop TZ rows at ingest** | §2.2 quoted | high |
+| `us.ourgridfuture.transmission_projects` | **unknown** | do not ingest | §2.9 not retrieved (403/429) | n/a |
 | `global.iea.demo_projects` | unknown (IEA CC licences are dataset-specific) | derived-only | not re-verified | low |
 | `news.gdelt.doc` | open-attribution (GDELT) / third-party copyright in article text | derived-only: metadata + link; never article body | not re-verified | mod |
 | `news.google_rss` | restricted (robots `Disallow`) | **link-out-only — recommend dropping the connector** | §2.6 quoted | high |
