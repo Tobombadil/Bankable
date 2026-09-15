@@ -1,0 +1,8 @@
+# Findings the CI image scan (trivy, ci.yml "build images") ignores, each with the reason and the
+# condition for removing it. Unfixable Debian findings are already excluded by `ignore-unfixed`.
+#
+# cryptography 46.0.7 -> fixed in 50.0.0. Blocked: gridstatus 0.36.0 (the ISO queue parsers) pins
+# cryptography<47, so the patched release does not resolve. Same exception as pip-audit's
+# PYSEC-2026-3552/3553/3554 in ci.yml; tracked in docs/00-PLAN.md (2026-09-15, "First CI runs").
+# Remove the day gridstatus relaxes the pin.
+CVE-2026-69247

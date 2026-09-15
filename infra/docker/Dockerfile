@@ -15,7 +15,10 @@ FROM python:3.11-slim-bookworm AS base
 # image's release date breaks the next `docker build` after a security update lands in bookworm;
 # the base image itself is pinned by digest and scanned in CI (docs/04 E-20).
 # hadolint ignore=DL3008
+# `apt-get upgrade` pulls the Debian security point releases the slim base image lags behind
+# (first CI image scan, 2026-09-15: libpcre2 10.42-1 flagged HIGH, fixed in 10.42-1+deb12u1).
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends libpq5 curl \
     && rm -rf /var/lib/apt/lists/*
 
