@@ -233,6 +233,29 @@ sources:
     statement. Derived-only with credit "Lawrence Berkeley National Laboratory and GridTracker" until
     verified. See docs/13-legal-data-rights.md section 2.1.
 
+- id: us.ourgridfuture.transmission_projects
+  name: OurGridFuture planned transmission projects database (GIS shapefile)
+  jurisdiction: US
+  category: planning
+  operator: Horizon Energy Systems, in association with the Great Plains Institute (per web search; not primary-source verified)
+  url: https://ourgridfuture.org/
+  access: html
+  auth: registration gate (contact info requested before download, per web search; not primary-source verified)
+  format: shapefile/geodatabase (per web search; not primary-source verified)
+  cadence: unknown
+  license: 'NOT RETRIEVED — https://ourgridfuture.org/ returned HTTP 403 (Cloudflare challenge) on the root page and nine guessed terms/about paths, 2026-09-15; https://opengridworks.com/attribution (the citing page named in the task) returned HTTP 429 ("Vercel Security Checkpoint"), 2026-09-15; archive.org blocked by sandbox egress policy'
+  reuse: unknown
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-15, result: blocked, note: '403 Cloudflare "Just a moment..." challenge on ourgridfuture.org (root + /terms, /license, /licence, /about, /data, /faq, /terms-of-use, /data-use, /privacy, all 403); robots.txt returned 404 (no robots file, confirms app-level challenge not outage); opengridworks.com/attribution returned 429 on 3 attempts'}
+  notes: >-
+    Candidate source for the built-infrastructure context layer's transmission layer (owner decision,
+    00-PLAN.md 2026-09-14/09-15). NOT RETRIEVED: no operative licence clause obtained; do not ingest or publish
+    until a human retrieves the terms in a real browser (passes the interactive Cloudflare challenge that this
+    sandbox's clients fail) and records the operative clause here verbatim with a retrieval date. See
+    docs/13-legal-data-rights.md section 2.9.
+
 - id: us.gridtracker.interconnection_fyi
   name: Interconnection.fyi (GridTracker)
   jurisdiction: US+CA
