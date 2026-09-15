@@ -76,7 +76,7 @@ def test_get_proposal_detail_and_404_for_hidden(client, db):
     assert resp404.status_code == 404
     body = resp404.json()
     assert body["code"] == "not_found"
-    assert body["type"].startswith("https://api.{{DOMAIN}}/errors/")
+    assert body["type"].startswith("https://api.infraque.com/errors/")
 
 
 def test_source_gate_refusal_hides_records_from_public_api(client, db):

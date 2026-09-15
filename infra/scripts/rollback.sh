@@ -26,7 +26,7 @@ if [[ "$downgrade" == "--downgrade-migration" ]]; then
   : "${APP_HOST:?set APP_HOST}"
   echo "[rollback] downgrading one migration step on $APP_HOST (confirmed reversible by the operator)"
   ssh "${SSH_USER:-root}@${APP_HOST}" \
-    "cd /opt/infraqueue/compose && docker compose -f docker-compose.yml -f compose.prod.yml run --rm api alembic -c services/db/migrations/alembic.ini downgrade -1"
+    "cd /opt/infraque/compose && docker compose -f docker-compose.yml -f compose.prod.yml run --rm api alembic -c services/db/migrations/alembic.ini downgrade -1"
 fi
 
 echo "[rollback] redeploying previous image tag: $previous_tag"

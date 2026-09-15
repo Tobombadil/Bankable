@@ -12,7 +12,7 @@ as an anchor rather than a measured price.
 
 ## Coverage line (shared, above the pricing table)
 
-> {{PRODUCT}} tracks every major US interconnection queue and the open international tender registers.
+> Infraque tracks every major US interconnection queue and the open international tender registers.
 > ERCOT, CAISO and NYISO are published today; PJM, MISO, SPP and ISO-NE are linked out pending licence
 > clearance (`docs/13-legal-data-rights.md` §6; `docs/00-PLAN.md` decision S3-4).
 
@@ -86,7 +86,7 @@ Adds:
 ## Legal footer
 
 > Access to restricted-source data under an API/Data plan is governed by a per-record licence field and
-> customer terms that bind subscribers to each upstream source's restrictions. See {{DOMAIN}}/terms and the
+> customer terms that bind subscribers to each upstream source's restrictions. See infraque.com/terms and the
 > API licence summary in every API response envelope.
 
 **Not yet drafted — do not publish the API/Data tier's "licence pass-through" claim until these exist:**

@@ -63,10 +63,10 @@ typecheck: venv
 ## build: build every service image (needs a running Docker daemon — absent in some sandboxes,
 ## including the one this task was authored in; see docs/60-deployment.md §9).
 build:
-	docker build -f infra/docker/Dockerfile --target api -t infraqueue-api:local .
-	docker build -f infra/docker/Dockerfile --target web -t infraqueue-web:local .
-	docker build -f infra/docker/Dockerfile --target worker -t infraqueue-worker:local .
-	docker build -f infra/docker/Dockerfile.browser-worker -t infraqueue-browser-worker:local .
+	docker build -f infra/docker/Dockerfile --target api -t infraque-api:local .
+	docker build -f infra/docker/Dockerfile --target web -t infraque-web:local .
+	docker build -f infra/docker/Dockerfile --target worker -t infraque-worker:local .
+	docker build -f infra/docker/Dockerfile.browser-worker -t infraque-browser-worker:local .
 
 ## deploy-stub: the only target that cannot work locally (task brief) — no cloud account exists
 ## yet (docs/60-deployment.md §11 item 1). Prints what a real deploy needs instead of pretending.

@@ -452,7 +452,7 @@ for a form whose cookie is already `HttpOnly` + `SameSite=Lax`.
 credential exists in this environment to make a real send possible). In dry-run,
 `POST /v1/auth/register` and `POST /v1/auth/resend-verification` include a `dev_verification_url`
 field alongside the normal response — the exact URL that went into the (unsent) email body. The
-API builds it from `services.api.common.WEB_HOST`, which is still the literal `{{DOMAIN}}`
+API builds it from `services.api.common.WEB_HOST`, which is still the literal `infraque.com`
 placeholder (docs/00-PLAN.md: product name not chosen yet) and therefore not a navigable link on
 whatever host this site is actually served from; `web/auth.py`'s `/account/resend` handler runs it
 through `web/viewmodels.py::web_relative_url` — the exact same fix already applied to every

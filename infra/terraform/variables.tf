@@ -21,9 +21,9 @@ variable "hcloud_region" {
 }
 
 variable "domain" {
-  description = "Placeholder root domain ({{DOMAIN}} in docs until the owner names the product, docs/04 §0.6)."
+  description = "Placeholder root domain (infraque.com in docs until the owner names the product, docs/04 §0.6)."
   type        = string
-  default     = "example-infraqueue.test"
+  default     = "example-infraque.test"
 }
 
 variable "cloudflare_zone_id" {
@@ -74,7 +74,7 @@ variable "vm_count_workers" {
 variable "r2_bucket_name" {
   description = "Cloudflare R2 bucket for raw snapshots, documents, exports and post media (docs/20 §4.4)."
   type        = string
-  default     = "infraqueue-object-storage"
+  default     = "infraque-object-storage"
 }
 
 variable "backup_retention_days" {

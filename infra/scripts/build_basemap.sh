@@ -10,7 +10,7 @@
 # One file, not one-per-region: a single bbox spanning CONUS + GB at --maxzoom=12 measured at
 # ~3.9 GB (see the sizing note below) — well inside the cost ceiling (R2 storage is
 # $0.015/GB-month, so ~$0.06/month) and it keeps the owner's decided single URL
-# (`https://tiles.{{DOMAIN}}/basemap.pmtiles`) intact, matching what the frontend lane is already
+# (`https://tiles.infraque.com/basemap.pmtiles`) intact, matching what the frontend lane is already
 # wiring into `web/` via MAP_TILE_URL without needing a multi-source map style. PMTiles serves
 # per-viewport tiles via HTTP range requests regardless of the archive's total size, so one larger
 # file costs nothing at request time — only slightly more build time and storage than a two-file

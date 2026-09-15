@@ -248,7 +248,7 @@ def _licence_quote_text(licence: dict[str, Any] | None) -> str:
 
 def web_relative_url(url: str | None) -> str | None:
     """The API's own `url` fields are absolute, built from `services/api/common.WEB_HOST` --
-    which is still the literal `{{DOMAIN}}` placeholder token (docs/00-PLAN.md: the product name
+    which is still the literal `infraque.com` placeholder token (docs/00-PLAN.md: the product name
     is not chosen yet), so they are not navigable links on whatever host this site is actually
     served from. Anywhere the map (`web/static/js/map.js`, via the `/api/proposals/geo` proxy)
     needs to link to a full record, this strips that placeholder host down to a same-origin path.

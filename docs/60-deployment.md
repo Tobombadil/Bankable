@@ -299,7 +299,7 @@ job build-and-pushed an image and the digest/tag is known.
    on the app VM (public pages keep serving from the Cloudflare edge cache throughout, `docs/20` §12) →
    restarts the workers → restarts the scheduler last.
 4. It appends a row to `infra/deploy-log.md` (timestamp, environment, tag, deployer, commit).
-**Verification:** `curl https://{{DOMAIN}}/health` and `curl https://{{DOMAIN}}/v1/health` return 200; the
+**Verification:** `curl https://infraque.com/health` and `curl https://infraque.com/v1/health` return 200; the
 E-10 Playwright smoke suite passes against the environment; `infra/deploy-log.md`'s new row looks right.
 **Rollback:** see 10.2.
 **Escalation:** if migrations fail, do not proceed to step 3 — fix forward or roll back the migration per

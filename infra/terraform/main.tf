@@ -19,9 +19,9 @@ provider "cloudflare" {
 }
 
 locals {
-  name_prefix = "infraqueue-${var.environment}"
+  name_prefix = "infraque-${var.environment}"
   common_labels = {
-    project     = "infraqueue" # placeholder name, docs/00-PLAN.md D6
+    project     = "infraque" # placeholder name, docs/00-PLAN.md D6
     environment = var.environment
     managed_by  = "opentofu"
   }

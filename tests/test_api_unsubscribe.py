@@ -241,5 +241,5 @@ def test_digest_body_carries_the_unsubscribe_link_and_sender_identity(client: Te
     assert len(created) == 1
     body = email_port.sent[0].body
     token = created[0].unsubscribe_token
-    assert f"https://{{{{DOMAIN}}}}/unsubscribe?token={token}" in body
-    assert "alerts@{{DOMAIN}}" in body
+    assert f"https://infraque.com/unsubscribe?token={token}" in body
+    assert "alerts@infraque.com" in body

@@ -443,3 +443,33 @@ mutually exclusive: registering both costs little and defers the decision until 
 
 Before adoption as the permanent name: counsel knock-out search in classes 9, 35 and 42; re-check `.io`, `.co`
 and `.energy` against an authoritative registry; and register the obvious typo variants if Infraqueue is chosen.
+
+
+## 11. Round four (2026-09-15) — the owner's list, checked, and the decision
+
+**Brief refined by the owner:** the name should carry motion, projects moving through a system, and read well
+on the page. Switchyard (round one's top rank) was rejected for naming a physical place rather than the routing.
+
+**Method:** the same RDAP check for `.com` (404 = unregistered) and the Bluesky `getProfile` check as §3; a web
+search per candidate for a live company or mark. `.energy`/`.io` registries rate-limited every call (429) and
+are unverified this round. Trademark lines are preliminary; counsel must clear the chosen name.
+
+| Candidate | .com | Bluesky | Collision found | Principle failed |
+|---|---|---|---|---|
+| PowerPath | registered | taken | Dell/EMC PowerPath (software, registered since 1999); Sunquest, Dura-Line, BPT IP, Aiqueous marks | 5 (prefix shelf), 6 |
+| PowerPulse | registered | free | PowerPulse (energy consultancy, Mechelen); Power Pulse Energy (batteries); PulseTech's registered PowerPulse | 5, 6 |
+| Powerline | registered | taken | Powerline (energy-AI, Palo Alto, ex-gigElev); Power Line Systems and Power Line Reporting marks | 5, 6 |
+| Power Pipeline | registered | free | generic; "Pipeline" claimed as a software mark | 1, 5 |
+| WattWatch | registered | free | Wattwatchers (energy, Australia, since 2007); a WattWatch app | 5, 6 |
+| Switchyard | registered, dormant | taken | Tulsa class-9 magazine mark (§4.1) | owner: names a place, not the routing |
+| **Infraque** | **free** | **free** | none found (web search 2026-09-15) | 2, partly: English readers say "in-FRAK" for a final "-que" (unique, plaque, torque) |
+
+Sixty-two further names across the three families were checked the same evening (compounds of docket, permit,
+site, load, queue, infra with watch, map, book, ledger, line, feed; single industry words such as tieline, offtake,
+busbar); 58 had a registered `.com`. The four free `.com`s were infraque, infraqueue, queueledger and kilolist.
+
+**Decision (owner, 2026-09-15): Infraque at infraque.com.** Applied to code, templates, spec, infrastructure and
+current documents the same evening; this file, the decisions log and the changelog keep the earlier names as
+history. Before the name is final: counsel's knock-out search in classes 9, 35 and 42; registration of
+infraque.com and infraqueue.com (both free at 22:00 UTC) plus the typo variants counsel suggests; and a wordmark
+brief in `docs/31` that makes the "-que" ending read as "cue", the one weakness the owner accepted with open eyes.

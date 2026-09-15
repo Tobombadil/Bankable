@@ -1,6 +1,6 @@
 """Polite HTTP for `egress: plain` connectors (docs/20 §4.3, docs/02 §7, docs/04 O-*).
 
-- Browser-like User-Agent that names the platform and a contact URL (`{{DOMAIN}}` until the owner
+- Browser-like User-Agent that names the platform and a contact URL (`infraque.com` until the owner
   names the product, docs/04 §0 item 6).
 - One token bucket per host: `rate_limits` maps host -> max requests per second (default 1 rps).
 - Retry with exponential backoff and jitter on 5xx, 429 and connection errors (max 4 attempts);
@@ -23,14 +23,14 @@ from urllib.parse import urlsplit
 
 import requests
 
-#: The platform has no name or domain yet, so the contact URL carries the `{{DOMAIN}}` placeholder
+#: The platform has no name or domain yet, so the contact URL carries the `infraque.com` placeholder
 #: of docs/04 §0 item 6. It is rendered DNS-safe before it goes on the wire: braces in a header
 #: value are rejected by at least one host we ingest (search.worldbank.org answered 403 to the
-#: literal `{{DOMAIN}}` form and 200 to this one, measured 2026-09-12). Set `BANKABLE_DOMAIN` once
+#: literal `infraque.com` form and 200 to this one, measured 2026-09-12). Set `BANKABLE_DOMAIN` once
 #: the owner names the product and the placeholder disappears with no code change.
 USER_AGENT_TEMPLATE = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 "
-    "Bankable/0.2 (+https://{{DOMAIN}}/bot; contact https://{{DOMAIN}}/contact)"
+    "Bankable/0.2 (+https://infraque.com/bot; contact https://infraque.com/contact)"
 )
 DOMAIN_PLACEHOLDER = "domain-placeholder.invalid"
 
@@ -38,7 +38,7 @@ DOMAIN_PLACEHOLDER = "domain-placeholder.invalid"
 def user_agent(domain: str | None = None) -> str:
     """Render the UA: browser-like, names the platform, carries a contact URL (docs/20 §4.3)."""
     return USER_AGENT_TEMPLATE.replace(
-        "{{DOMAIN}}", domain or os.environ.get("BANKABLE_DOMAIN") or DOMAIN_PLACEHOLDER
+        "infraque.com", domain or os.environ.get("BANKABLE_DOMAIN") or DOMAIN_PLACEHOLDER
     )
 
 

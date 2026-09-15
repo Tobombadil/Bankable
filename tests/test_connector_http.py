@@ -61,7 +61,7 @@ def test_user_agent_is_browser_like_names_the_platform_and_carries_a_contact_url
     assert ua.startswith("Mozilla/5.0")
     assert "Bankable" in ua
     assert "/bot" in ua and "contact" in ua
-    assert "{{DOMAIN}}" in USER_AGENT_TEMPLATE  # the placeholder lives in the template
+    assert "infraque.com" in USER_AGENT_TEMPLATE  # the placeholder lives in the template
     assert "{" not in ua and "}" not in ua  # and never reaches the wire (WAFs reject it)
     assert DOMAIN_PLACEHOLDER in ua
 

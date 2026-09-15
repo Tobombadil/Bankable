@@ -26,7 +26,7 @@ def make_event(**overrides: object) -> editorial.SocialEvent:
         "source_url": "https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx",
         "retrieved_at": RETRIEVED_AT,
         "reuse_class": "attribution",
-        "page_url": "https://{{DOMAIN}}/proposals/caiso:1",
+        "page_url": "https://infraque.com/proposals/caiso:1",
         "lag_days": 14,
         "technology": "solar",
         "capacity_mw": 250.0,
@@ -188,7 +188,7 @@ class TestScheduling:
                 event_id=f"e{i}",
                 subject_id=f"caiso:{i}",
                 queue_id=f"Q{i}",
-                page_url=f"https://{{{{DOMAIN}}}}/proposals/caiso:{i}",
+                page_url=f"https://infraque.com/proposals/caiso:{i}",
             )
             draft = editorial.build_draft(event, "linkedin")
             q.add_draft(draft)
@@ -238,13 +238,13 @@ class TestCostAndStats:
     def test_review_stats_counts(self, q: queue_mod.ReviewQueue) -> None:
         d1 = editorial.build_draft(
             make_event(
-                event_id="e1", subject_id="a", queue_id="QA", page_url="https://{{DOMAIN}}/proposals/a"
+                event_id="e1", subject_id="a", queue_id="QA", page_url="https://infraque.com/proposals/a"
             ),
             "bluesky",
         )
         d2 = editorial.build_draft(
             make_event(
-                event_id="e2", subject_id="b", queue_id="QB", page_url="https://{{DOMAIN}}/proposals/b"
+                event_id="e2", subject_id="b", queue_id="QB", page_url="https://infraque.com/proposals/b"
             ),
             "bluesky",
         )

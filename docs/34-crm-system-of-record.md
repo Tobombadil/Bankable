@@ -127,7 +127,7 @@ fields) and on Lead Signals (`handled` → close the platform task). Verified wi
 2. Create the five lists with their stages.
 3. Create an API key scoped to read/write on records, lists and webhooks; hand it back as an environment
    secret (`ATTIO_API_KEY`), never in the repo.
-4. Register the two outbound webhooks (§5) pointing at `https://api.{{DOMAIN}}/webhooks/attio`; record the
+4. Register the two outbound webhooks (§5) pointing at `https://api.infraque.com/webhooks/attio`; record the
    signing secret as `ATTIO_WEBHOOK_SECRET`.
 5. Import the curated RFP-issuer list and the 20 discovery targets from `docs/33` §4 as Companies with
    `segment` set; that gives the adapter something to attach signals to on day one.

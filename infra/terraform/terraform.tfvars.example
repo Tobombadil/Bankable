@@ -2,8 +2,8 @@
 # from HCLOUD_TOKEN / CLOUDFLARE_API_TOKEN environment variables (see variables.tf header).
 
 environment            = "dev"
-domain                 = "example-infraqueue.test"   # {{DOMAIN}} until the owner names the product
+domain                 = "example-infraque.test"   # infraque.com until the owner names the product
 cloudflare_zone_id     = ""                          # leave blank until the domain is registered
 cloudflare_account_id  = ""                          # leave blank to skip R2 bucket creation
-ssh_public_key         = "ssh-ed25519 AAAA...replace-with-the-operator-key... deploy@infraqueue"
+ssh_public_key         = "ssh-ed25519 AAAA...replace-with-the-operator-key... deploy@infraque"
 vm_count_workers       = 1

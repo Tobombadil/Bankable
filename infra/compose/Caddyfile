@@ -1,5 +1,5 @@
 # Caddy terminates TLS with automatic Let's Encrypt certificates (docs/20 §11, ADR 0005).
-# {$DOMAIN} is the {{DOMAIN}} placeholder (docs/04 §0.6) — set the real DOMAIN env var at deploy
+# {$DOMAIN} is the infraque.com placeholder (docs/04 §0.6) — set the real DOMAIN env var at deploy
 # time. Cloudflare (proxied DNS) sits in front of this at the edge (docs/20 §2); Caddy still needs
 # a real certificate because Cloudflare's edge TLS terminates to origin over HTTPS ("Full (strict)"
 # SSL mode) — see docs/60-deployment.md.

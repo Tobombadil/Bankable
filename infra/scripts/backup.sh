@@ -13,9 +13,9 @@ set -euo pipefail
 : "${R2_SECRET_ACCESS_KEY:?set R2_SECRET_ACCESS_KEY}"
 
 retention_days="${BACKUP_RETENTION_DAYS:-35}"
-backup_dir="${BACKUP_DIR:-/opt/infraqueue/backups}"
+backup_dir="${BACKUP_DIR:-/opt/infraque/backups}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-dump_file="${backup_dir}/infraqueue-${timestamp}.dump"
+dump_file="${backup_dir}/infraque-${timestamp}.dump"
 r2_endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
 mkdir -p "$backup_dir"
@@ -30,6 +30,6 @@ AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_K
   --endpoint-url "$r2_endpoint"
 
 echo "[backup] pruning local dumps older than ${retention_days}d"
-find "$backup_dir" -name 'infraqueue-*.dump' -mtime "+${retention_days}" -print -delete
+find "$backup_dir" -name 'infraque-*.dump' -mtime "+${retention_days}" -print -delete
 
 echo "[backup] done: $(basename "$dump_file") ($(du -h "$dump_file" | cut -f1))"

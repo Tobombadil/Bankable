@@ -40,7 +40,7 @@ SOPS_AGE_KEY_FILE=keys/example-age-key.txt sops -d secrets.dev.example.enc.yaml
    the operator's password manager, and this repo's GitHub Actions environment secret
    `SOPS_AGE_KEY` (for the CI/CD deploy job to decrypt at deploy time) — never as a repo file.
 5. On the target VM, the deploy script (`infra/scripts/deploy.sh`) decrypts the file into
-   `/opt/infraqueue/secrets/.env` immediately before `docker compose up`, and the plaintext never
+   `/opt/infraque/secrets/.env` immediately before `docker compose up`, and the plaintext never
    touches disk outside that one root-owned, `0600` file.
 
 ## Rotation

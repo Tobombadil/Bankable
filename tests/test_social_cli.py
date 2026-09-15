@@ -108,7 +108,7 @@ class TestDraftCommand:
         assert {d.channel for d in drafts} == {"bluesky", "x", "linkedin"}
         assert all(d.subject_id == "caiso:1" for d in drafts)
         for d in drafts:
-            assert "{{DOMAIN}}" in d.link_url  # placeholder hostname convention preserved verbatim
+            assert "infraque.com" in d.link_url  # placeholder hostname convention preserved verbatim
 
     def test_draft_is_idempotent_on_rerun(
         self,

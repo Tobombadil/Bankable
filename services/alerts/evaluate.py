@@ -128,7 +128,7 @@ def render_digest_body(search: SavedSearch, items: list[MatchedItem], *, unsubsc
     """`unsubscribe_token` is `Alert.unsubscribe_token` for the digest this body belongs to (the
     caller creates that row first so the token exists here — module docstring, US-908/US-502 AC3).
     The last two lines are the CAN-SPAM/PECR/CASL minimum every outbound marketing message needs
-    (docs/13-legal-outreach-and-social.md §1/§8): the sender identity (the same `alerts@{{DOMAIN}}`
+    (docs/13-legal-outreach-and-social.md §1/§8): the sender identity (the same `alerts@infraque.com`
     address `ResendEmailAdapter.send` sends *from*, `services/api/auth.py`) and a one-click
     unsubscribe link built from that alert's own token, never a shared or guessable one."""
     lines = [f'Saved search "{search.name}": {len(items)} new match(es).', ""]
@@ -137,7 +137,7 @@ def render_digest_body(search: SavedSearch, items: list[MatchedItem], *, unsubsc
         lines.append(f"- {item.name} — {item.url} (source: {credit})")
     lines.append("")
     lines.append(f"Manage this saved search: {WEB_HOST}/account/saved-searches")
-    lines.append(f"Sent by Infraqueue <alerts@{DOMAIN}>")
+    lines.append(f"Sent by Infraque <alerts@{DOMAIN}>")
     lines.append(f"Unsubscribe from this alert: {WEB_HOST}/unsubscribe?token={unsubscribe_token}")
     return "\n".join(lines)
 

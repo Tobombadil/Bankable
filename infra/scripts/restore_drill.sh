@@ -16,7 +16,7 @@ set -euo pipefail
 : "${R2_SECRET_ACCESS_KEY:?set R2_SECRET_ACCESS_KEY}"
 
 r2_endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-scratch_container="infraqueue-restore-drill"
+scratch_container="infraque-restore-drill"
 scratch_port="${SCRATCH_PG_PORT:-55432}"
 work_dir="$(mktemp -d)"
 trap 'docker rm -f "$scratch_container" >/dev/null 2>&1 || true; rm -rf "$work_dir"' EXIT

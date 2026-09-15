@@ -5,7 +5,7 @@
 (scales), §6 (colour), §7 (map model), §8 (motion), §9 (banned patterns) — this doc derives its tokens and
 components from that study and does not re-derive it. IA and page inventory: `docs/30-design-ia.md`.
 **Inputs:** `docs/10-prd-mvp.md` §4; `docs/23-api-spec-outline.md` §3–§4, §10; `docs/21-data-model.md` §8.
-**Product name used in this doc:** Infraqueue (placeholder).
+**Product name used in this doc:** Infraque.
 
 ## 1. Tokens
 

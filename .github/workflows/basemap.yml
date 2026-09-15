@@ -48,6 +48,6 @@ jobs:
         run: |
           curl -fsSI "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_TILES_BUCKET}/basemap.pmtiles" \
             | tee /dev/stderr | grep -qi "accept-ranges: bytes"
-          # Checks the R2 S3-compatible endpoint directly, not the tiles.{{DOMAIN}} custom domain —
+          # Checks the R2 S3-compatible endpoint directly, not the tiles.infraque.com custom domain —
           # that domain is a manual one-time dashboard step (infra/terraform/storage.tf's comment
           # block) this workflow cannot assume exists yet in every environment that runs it.

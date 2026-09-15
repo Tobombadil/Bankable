@@ -20,7 +20,7 @@ blocks the app during testing (`docs/40` §2.7's own words: "when the tiles are 
 a beige outline with clusters on it and zooming looks like it does nothing"). `docs/04` D-13 sets
 the actual requirement: tiles must be "self-hosted or from a provider whose terms permit commercial
 use, with attribution." The owner decided the specific answer on 2026-09-14/15 (`docs/00-PLAN.md`):
-Protomaps PMTiles, self-hosted on Cloudflare R2, served at `https://tiles.{{DOMAIN}}/basemap.pmtiles`,
+Protomaps PMTiles, self-hosted on Cloudflare R2, served at `https://tiles.infraque.com/basemap.pmtiles`,
 with the web app reading a `MAP_TILE_URL` environment variable. This ADR is that decision's record
 and the implementation it authorises, per `docs/adr/0001` rule 3 (hosting/infra choices need an
 ADR) — this one is narrow (a single asset pipeline, not a new hosting posture) but material because
@@ -46,7 +46,7 @@ sourced from the weekly Protomaps planet build at `https://build.protomaps.com/<
 `infra/scripts/build_basemap.sh`, upload it to a dated key, then promote that key to the canonical
 `basemap.pmtiles` name the web app's `MAP_TILE_URL` points at. Refresh monthly via
 `.github/workflows/basemap.yml` (plus on-demand `workflow_dispatch`). Serve it at
-`https://tiles.{{DOMAIN}}/basemap.pmtiles` once the R2 custom-domain step (a manual, one-time
+`https://tiles.infraque.com/basemap.pmtiles` once the R2 custom-domain step (a manual, one-time
 dashboard action — see `storage.tf`'s comment block; the pinned Cloudflare provider does not
 support that resource, `versions.tf`) is done.
 

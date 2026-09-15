@@ -51,7 +51,7 @@ COPY infra/scheduler ./infra/scheduler
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    BANKABLE_DOMAIN=example-infraqueue.test
+    BANKABLE_DOMAIN=example-infraque.test
 
 RUN useradd --create-home --uid 10001 appuser
 USER appuser

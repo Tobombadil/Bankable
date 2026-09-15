@@ -87,7 +87,7 @@ def _region_context(region: Region) -> dict[str, Any]:
 
 WEB_ROOT = Path(__file__).resolve().parent
 
-app = FastAPI(title="Infraqueue (placeholder) -- public site")
+app = FastAPI(title="Infraque -- public site")
 app.mount("/static", StaticFiles(directory=str(WEB_ROOT / "static")), name="static")
 templates = Jinja2Templates(directory=str(WEB_ROOT / "templates"))
 # Sprint 3 "login and registration surface": /login, /register, /logout, /verify, /account (own

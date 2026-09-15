@@ -153,7 +153,7 @@ def test_privacy_page_renders_the_required_sections(web_client: TestClient) -> N
     assert "Why we use it" in body
     assert "Retention and deletion" in body
     assert "US-910" in body
-    assert "privacy@{{DOMAIN}}" in body
+    assert "privacy@infraque.com" in body
     assert "{{POSTAL_ADDRESS}}" in body
     assert "Last updated" in body
 
