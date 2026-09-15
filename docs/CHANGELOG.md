@@ -90,3 +90,4 @@
 - 2026-09-15 coordinator: plant palette widened to eleven families (biomass/waste, oil, geothermal, other get their own tokens), a Plant type filter (`plant_technology`) decoupled from the proposals technology filter, three-letter plant labels from zoom 9; real-archive e2e polls for map load.
 - 2026-09-15 coordinator: permits decision recorded in docs/00-PLAN.md (federal permit events first post-launch sprint; state permits per customer state; local land-use permits declined) and EPA RBLC registered as us.epa.rblc for new-source air permits.
 - 2026-09-15 coordinator: county land-use permits reversed from no to a bounded 25-county pilot with kill criteria (docs/00-PLAN.md); county_fips gap recorded as a prerequisite defect.
+- 2026-09-15 coordinator: ruff/mypy pinned to the verified versions; the misplaced Cloudflare worker moved out of .github/workflows (it failed as a workflow on every push; real CI only runs on main pushes and PRs).

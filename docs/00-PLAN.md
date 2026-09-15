@@ -228,5 +228,6 @@ CLAUDE.md                  instructions every session/agent loads first
 data/sources.yaml          machine-readable source registry (connector manifest)
 data/probes/<date>.json    evidence from scripts/probe_sources.py
 scripts/probe_sources.py   reproducible reachability + gridstatus check
-.github/workflows/         existing Cloudflare worker proxying to the Lovable app
+.github/workflows/         ci.yml (main pushes and PRs), connectors-nightly.yml, basemap.yml
+infra/cloudflare/          the pre-existing bankablehq.com → Lovable proxy worker (was .github/workflows/blank.yml)
 ```
