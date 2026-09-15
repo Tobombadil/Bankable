@@ -295,7 +295,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: trivy scan (api image)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0; tags carry a v prefix and 0.24.0 never existed (first CI run, 2026-09-15)
         with:
           image-ref: infraqueue-api:ci
           severity: CRITICAL,HIGH
@@ -324,7 +324,11 @@ jobs:
       - name: axe-core scan (map, list, detail — D-30)
         run: |
           npm install --no-save @axe-core/cli
+          # The runner image ships a chromedriver matched to its Chrome under $CHROMEWEBDRIVER;
+          # axe's bundled driver was one major version ahead of the runner's Chrome on the first
+          # CI run (2026-09-15: driver 153, browser 152) and refused to start a session.
           npx axe http://127.0.0.1:8000/ http://127.0.0.1:8000/proposals http://127.0.0.1:8000/about \
+            --chromedriver-path "$CHROMEWEBDRIVER/chromedriver" \
             --exit
       - name: Lighthouse CI (D-31 budgets)
         run: |

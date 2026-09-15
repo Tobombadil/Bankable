@@ -29,6 +29,15 @@ from web.data_loading import load_dev_database
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHROMIUM_PATH = "/opt/pw-browsers/chromium"
+
+
+def _launch_kwargs() -> dict[str, Any]:
+    """The sandbox pre-installs Chromium at `CHROMIUM_PATH`; CI runs `playwright install chromium`
+    and has nothing there, so it falls back to Playwright's own managed browser (first CI run,
+    2026-09-15: "executable doesn't exist at /opt/pw-browsers/chromium")."""
+    return {"executable_path": CHROMIUM_PATH} if os.path.exists(CHROMIUM_PATH) else {}
+
+
 BASE_URL = "http://127.0.0.1:8799"
 SCREENSHOT_DIR = REPO_ROOT / "web" / "screenshots"
 DB_PATH = REPO_ROOT / "web" / ".data" / "e2e-test.db"
@@ -298,7 +307,7 @@ def server() -> object:
 def test_smoke_map_list_detail_with_attribution(server: object) -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=CHROMIUM_PATH)
+        browser = p.chromium.launch(**_launch_kwargs())
         try:
             _check_desktop_and_narrow(browser)
         finally:
@@ -468,7 +477,7 @@ def test_pmtiles_basemap_renders_real_labels_end_to_end(pmtiles_proof_server: ob
     """
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=CHROMIUM_PATH)
+        browser = p.chromium.launch(**_launch_kwargs())
         try:
             page = browser.new_page(viewport=DESKTOP_VIEWPORT)
             _install_offline_routes(page, serve_pmtiles_scripts=True)
