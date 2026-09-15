@@ -114,11 +114,13 @@ app.include_router(admin_sources_router)
 app.include_router(admin_records_router)
 app.include_router(admin_tasks_router)
 app.include_router(admin_posts_router)
+from web.admin.engagement import router as admin_engagement_router  # noqa: E402
 from web.admin.ops import router as admin_ops_router  # noqa: E402
 from web.admin.people import router as admin_people_router  # noqa: E402
 
 app.include_router(admin_people_router)
 app.include_router(admin_ops_router)
+app.include_router(admin_engagement_router)
 
 
 def get_api(request: Request) -> ApiClient:
