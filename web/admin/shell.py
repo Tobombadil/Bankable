@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 from fastapi.templating import Jinja2Templates
 
 from web.api_client import ApiClient, ApiResult
+from web.assets import ASSET_VERSION
 from web.auth import _csrf_rejection, _is_same_origin, get_api
 
 SESSION_COOKIE_NAME = "session"
@@ -45,6 +46,7 @@ ADMIN_NAV: tuple[tuple[str, str, str], ...] = (
     ("/admin/audit", "Audit", "audit"),
 )
 templates.env.globals["ADMIN_NAV"] = ADMIN_NAV
+templates.env.globals["asset_version"] = ASSET_VERSION
 
 router = APIRouter()
 

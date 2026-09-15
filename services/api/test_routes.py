@@ -447,3 +447,43 @@ def test_source_and_licence_expose_a_quote_text_field(client, db):
 
     lic_resp = client.get(f"/v1/licences/{lic.id}")
     assert lic_resp.json()["data"]["quote_text"] == lic.quote_text
+
+
+# ---- `q` matches name, sponsor/issuer organisation, or an active source record id -------------
+# (web/templates/base.html promises "Search by name, sponsor, queue ID"; until 2026-09-15 the API
+# matched the canonical name only, so a developer's name found nothing.)
+
+
+def test_proposal_q_matches_sponsor_name_and_source_record_id(client, db):
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    sponsor = make_org(db, "Tallgrass Energy Partners")
+    by_sponsor = make_visible_proposal(db, src, public_id_suffix="41", sponsor=sponsor)
+    other = make_visible_proposal(db, src, public_id_suffix="42")
+    db.commit()
+
+    ids = lambda resp: [p["public_id"] for p in resp.json()["data"]]  # noqa: E731
+    hit = client.get("/v1/proposals", params={"q": "tallgrass"})
+    assert ids(hit) == [by_sponsor.public_id]
+    by_record = client.get("/v1/proposals", params={"q": "Q42"})
+    assert ids(by_record) == [other.public_id]
+    by_name = client.get("/v1/proposals", params={"q": "storage project 41"})
+    assert ids(by_name) == [by_sponsor.public_id]
+    miss = client.get("/v1/proposals", params={"q": "no such developer"})
+    assert ids(miss) == []
+
+
+def test_opportunity_q_matches_issuer_name_and_source_record_id(client, db):
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    issuer = make_org(db, "Salt River Project")
+    by_issuer = make_visible_opportunity(db, src, public_id_suffix="51")
+    by_issuer.issuer_org_id = issuer.id
+    other = make_visible_opportunity(db, src, public_id_suffix="52")
+    db.commit()
+
+    ids = lambda resp: [o["public_id"] for o in resp.json()["data"]]  # noqa: E731
+    assert ids(client.get("/v1/opportunities", params={"q": "salt river"})) == [by_issuer.public_id]
+    assert ids(client.get("/v1/opportunities", params={"q": "N52"})) == [other.public_id]
+    assert ids(client.get("/v1/opportunities", params={"q": "rfp 51"})) == [by_issuer.public_id]
+    assert ids(client.get("/v1/opportunities", params={"q": "nothing here"})) == []

@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.datastructures import QueryParams
 
 from web.api_client import ApiClient, ApiError, ApiNotFound, build_client
+from web.assets import ASSET_VERSION
 from web.auth import router as auth_router
 from web.regions import Region, regions_with_data
 from web.viewmodels import (
@@ -165,6 +166,7 @@ def is_htmx(request: Request) -> bool:
 # `{{ is_preview_active(request) }}` / `{{ footer_lag_days(request) }}` work from any template.
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
+templates.env.globals["asset_version"] = ASSET_VERSION
 
 
 def querystring_without(params: QueryParams, *drop: str) -> str:
