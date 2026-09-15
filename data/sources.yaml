@@ -320,6 +320,28 @@ sources:
 # ─────────────────────────────────────────────────────────────────────────────
 # B. US NON-ISO UTILITIES (Southeast, West, Mountain) — the coverage gap
 # ─────────────────────────────────────────────────────────────────────────────
+- id: us.eia.atlas.gas_pipelines
+  name: EIA US Energy Atlas — Natural Gas Interstate and Intrastate Pipelines (line geometries)
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration (ArcGIS Hub site)
+  url: https://atlas.eia.gov/datasets/eia::natural-gas-interstate-and-intrastate-pipelines/about
+  access: api
+  auth: none
+  format: geojson/shapefile (ArcGIS feature service export)
+  cadence: annual
+  license: 'US federal work — public domain; EIA copyright/reuse page quoted in docs/13-legal-data-rights.md section 2.11 (retrieved 2026-09-15) asks that EIA be cited as the source. The dataset-level licenseInfo field on the Atlas item was not retrieved (the Hub catalogue API returned no row for the slug, 2026-09-15); read it in a browser before the layer ships'
+  reuse: open
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-15, result: not_probed, note: 'about page answers 200 (JS app, no static licence text); catalogue API returned no row for the slug'}
+  notes: >-
+    Candidate for the second built-infrastructure context layer (existing pipelines; docs/00-PLAN.md decision
+    2026-09-15 "Pipelines join the plan"). Line geometries, so the layer is pre-built vector tiles on the tiles
+    bucket, not clustered GeoJSON from the API. HIFLD's natural gas pipeline layer is the alternative used by
+    Open Grid Works; its public availability has changed and needs its own terms check before use.
+
 - id: us.oasis.non_iso_queues
   name: Non-ISO utility generator interconnection queues via OASIS / utility sites
   jurisdiction: US (Duke, Southern, TVA, Dominion-non-PJM, PacifiCorp, APS, NV Energy, Xcel-CO, BPA, WAPA, etc.)
