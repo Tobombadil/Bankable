@@ -17,6 +17,7 @@ is live (`lag_days = 0`) for the owner's tier (docs/23 §9.2 `feedSavedSearch` d
 from __future__ import annotations
 
 import secrets
+import string
 from typing import Any
 
 from sqlalchemy import ColumnElement, select
@@ -29,7 +30,9 @@ from services.db.models import Account, Event, Opportunity, Proposal, SavedSearc
 
 from .matching import event_matches_query, matches_query
 
-RSS_TOKEN_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"  # noqa: S105 - a charset, not a secret
+#: `[0-9A-Za-z]` as `string` spells it -- built from the stdlib constants rather than written out
+#: as one literal, which gitleaks' generic-api-key rule flagged as a high-entropy secret in CI.
+RSS_TOKEN_ALPHABET = string.ascii_letters + string.digits
 
 
 def generate_rss_token() -> str:

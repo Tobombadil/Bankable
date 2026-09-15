@@ -29,5 +29,7 @@ python-multipart>=0.0.9,<0.1  # form parsing for FastAPI/Starlette
 playwright>=1.47              # web/test_e2e.py smoke path (docs/04 E-10); browsers pre-installed
 
 # lint and type gates (docs/04 E-5)
+procrastinate==3.9.0          # infra/scheduler (ADR 0004); CI mypy --strict and the cadence tests import it
+coverage>=7.6                 # ci.yml "pytest with branch coverage, 80% floor" (docs/04 E-7)
 ruff==0.16.7                  # pinned 2026-09-15: unpinned upgrades turned the base branch red (docs/00-PLAN.md Sprint 3 close)
 mypy==2.3.1                   # pinned 2026-09-15, same reason

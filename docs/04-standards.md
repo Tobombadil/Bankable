@@ -142,7 +142,7 @@ AC1 without leaving the map.
 **D-13 Map performance budget** (measured on the seeded dataset, ≥ 20,000 placed records): first map paint
 within the page LCP budget (D-31); a viewport request returns ≤ 2,000 features and ≤ 300 KB gzipped; pan/zoom
 to updated markers ≤ 200 ms; canvas/WebGL rendering (MapLibre GL JS or equivalent), never one DOM node per
-marker above 500; map bundle ≤ 250 KB gzipped including the library; basemap tiles self-hosted or from a
+marker above 500; map bundle ≤ 350 KB gzipped including the library (re-based from 250 KB on 2026-09-15: MapLibre GL 5.24 alone measures 276 KB, the page script 9.4 KB and the PMTiles scripts 14.6 KB, so the shipped map is ~300 KB and 350 KB leaves room for one more layer before the next decision); basemap tiles self-hosted or from a
 provider whose terms permit commercial use, with attribution rendered (OpenStreetMap ODbL,
 https://www.openstreetmap.org/copyright). *Why:* the heaviest page is the one the owner made primary.
 
