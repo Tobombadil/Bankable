@@ -409,3 +409,13 @@ def test_home_map_has_plant_type_filter_and_eleven_family_legend(web_client: Tes
     assert '<option value="biomass">Biomass / waste</option>' in resp.text
     for token in ("--plant-oil", "--plant-biomass", "--plant-geothermal", "--plant-other"):
         assert token in resp.text, token
+
+
+def test_stylesheet_makes_the_hidden_attribute_win_over_class_display_rules() -> None:
+    """`map.js` toggles `#mf-plant-technology-field` and `#plants-legend` with `el.hidden`; both
+    carry classes that set `display`, which outrank the UA's `[hidden]` rule unless the sheet
+    restores it with `!important` (owner's screenshot, 2026-09-15: select visible with layer off)."""
+    from pathlib import Path
+
+    css = (Path(__file__).parent / "static" / "css" / "styles.css").read_text()
+    assert "[hidden] { display: none !important; }" in css
