@@ -26,9 +26,9 @@ bot challenge. Ordered by what each item unblocks. Times are estimates, not meas
 
 | # | Decision | Why now | Recommendation |
 |---|---|---|---|
-| D1 | "Open the PR" for `claude/sprint-3-attio-adapter-5t0517` → `main` | `ci.yml` runs only on pushes to `main` and PRs against `main`, so real CI has never run on this branch; every red mark you saw was a misfiled worker script, now moved (`infra/cloudflare/README.md`). The coordinator opens the PR only on your word and then watches CI | Yes, open it; merge after CI is green |
-| D2 | Cost ceiling per permit event for the county pilot (`docs/00-PLAN.md` 2026-09-15 "Permits are stages", item 3) | The kill criterion is half a criterion without a number | Pick a dollar figure per extracted permit event; the pilot reports measured cost against it |
-| D3 | D-13 map-bundle budget: re-base from 250 KB to 300 KB gzipped, or swap the renderer | MapLibre GL 5.24 alone is 276 KB gzipped; measured, pre-existing, recorded 2026-09-15 | Re-base; a renderer swap costs a sprint for no user-visible gain |
+| D1 | ~~"Open the PR"~~ **Done 2026-09-15 evening:** PR #1 open, 13/13 CI jobs green after seven runs, mergeable; remaining decision is merge | `ci.yml` runs only on pushes to `main` and PRs against `main`, so real CI has never run on this branch; every red mark you saw was a misfiled worker script, now moved (`infra/cloudflare/README.md`). The coordinator opens the PR only on your word and then watches CI | Yes, open it; merge after CI is green |
+| D2 | ~~Cost ceiling~~ **Done:** US$2 per accepted permit event, escalation to $5 only by owner ask for the county pilot (`docs/00-PLAN.md` 2026-09-15 "Permits are stages", item 3) | The kill criterion is half a criterion without a number | Pick a dollar figure per extracted permit event; the pilot reports measured cost against it |
+| D3 | ~~D-13 budget~~ **Done:** re-based to 350 KB gzipped (docs/04 D-13) | MapLibre GL 5.24 alone is 276 KB gzipped; measured, pre-existing, recorded 2026-09-15 | Re-base; a renderer swap costs a sprint for no user-visible gain |
 | D4 | Product name permanent (Infraqueue) or not (`docs/00-PLAN.md` open question 1) | Domain registration, Stripe product names, Attio workspace name and the wordmark all wait on it | Decide before creating any account below, or every account gets renamed later |
 
 ### 0.2 See it yourself (15 minutes, at your desk)
