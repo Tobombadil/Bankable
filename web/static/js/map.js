@@ -24,16 +24,45 @@
   // mapped down to the seven token families the legend and marker fill use. Anything not listed
   // here falls back to "coal" (labelled "Coal/other" in the legend) rather than inventing an
   // eighth colour for every raw EIA fuel code.
-  var PLANT_TECH_FAMILY = {
-    solar: "solar", wind: "wind", gas: "gas", natural_gas: "gas",
-    nuclear: "nuclear", hydro: "hydro", hydroelectric: "hydro",
-    storage: "storage", battery: "storage", batteries: "storage",
-    coal: "coal", other: "coal"
+  // Plant technology families. The API classifies plants with pipeline.normalize.classify_tech's
+  // finer vocabulary (gas_cc, gas_ct, wind_offshore, pumped_storage, waste ...); the map draws
+  // eleven families so the legend stays readable and every class lands in a named colour rather
+  // than a catch-all (owner, 2026-09-15: biomass/waste must be toggleable and labelled).
+  var PLANT_FAMILY_ORDER = [
+    "solar", "wind", "gas", "oil", "coal", "nuclear", "hydro", "storage", "biomass", "geothermal", "other"
+  ];
+  // family -> classify_tech classes (services/api/context_routes.py TECHNOLOGY_VOCAB); the plant
+  // type filter sends these classes, so an unknown one would be a 400 from the API -- guarded by
+  // web/test_map_layers.py::test_plant_family_classes_are_all_in_the_api_vocabulary.
+  var PLANT_FAMILY_CLASSES = {
+    solar: ["solar", "solar_storage", "solar_thermal"],
+    wind: ["wind", "wind_offshore", "wind_storage"],
+    gas: ["gas_cc", "gas_ct", "gas_steam", "gas_ice", "gas_other", "fuel_cell", "hydrogen"],
+    oil: ["oil"],
+    coal: ["coal"],
+    nuclear: ["nuclear"],
+    hydro: ["hydro"],
+    storage: ["storage", "pumped_storage"],
+    biomass: ["biomass", "waste"],
+    geothermal: ["geothermal"],
+    other: ["other", "unknown", "load", "transmission"]
   };
-  var PLANT_TECH_TOKEN = {
-    solar: "--plant-solar", wind: "--plant-wind", gas: "--plant-gas",
-    nuclear: "--plant-nuclear", hydro: "--plant-hydro", storage: "--plant-storage",
-    coal: "--plant-coal"
+  var PLANT_TECH_FAMILY = {};
+  PLANT_FAMILY_ORDER.forEach(function (family) {
+    PLANT_FAMILY_CLASSES[family].forEach(function (cls) { PLANT_TECH_FAMILY[cls] = family; });
+  });
+  // Legacy/loose spellings some proposal rows carry; harmless for plants.
+  PLANT_TECH_FAMILY.gas = "gas"; PLANT_TECH_FAMILY.natural_gas = "gas";
+  PLANT_TECH_FAMILY.hydroelectric = "hydro"; PLANT_TECH_FAMILY.battery = "storage"; PLANT_TECH_FAMILY.batteries = "storage";
+  var PLANT_TECH_TOKEN = {};
+  PLANT_FAMILY_ORDER.forEach(function (family) { PLANT_TECH_TOKEN[family] = "--plant-" + family; });
+  var PLANT_FAMILY_LABEL = {
+    solar: "SOL", wind: "WND", gas: "GAS", oil: "OIL", coal: "COL", nuclear: "NUC",
+    hydro: "HYD", storage: "BES", biomass: "BIO", geothermal: "GEO", other: "OTH"
+  };
+  var PLANT_FAMILY_NAME = {
+    solar: "Solar", wind: "Wind", gas: "Gas", oil: "Oil", coal: "Coal", nuclear: "Nuclear",
+    hydro: "Hydro", storage: "Storage", biomass: "Biomass / waste", geothermal: "Geothermal", other: "Other"
   };
   var IN_VIEW_LIMIT = 500;
   var WORLD_BBOX = [-179, -85, 179, 85];
@@ -67,8 +96,8 @@
   function familyOf(state) { return LIFECYCLE_FAMILY[state] || "neutral"; }
 
   function plantFamilyOf(tech) {
-    if (!tech) return "coal";
-    return PLANT_TECH_FAMILY[String(tech).toLowerCase()] || "coal";
+    if (!tech) return "other";
+    return PLANT_TECH_FAMILY[String(tech).toLowerCase()] || "other";
   }
 
   function techLabel(tech) {
@@ -118,7 +147,8 @@
       jurisdiction: params.get("jurisdiction") || "",
       include_withdrawn: params.get("include_withdrawn") === "1",
       layers: layersParam ? layersParam.split(",").filter(Boolean) : [],
-      region: params.get("region") || ""
+      region: params.get("region") || "",
+      plant_technology: PLANT_FAMILY_CLASSES[params.get("plant_technology") || ""] ? params.get("plant_technology") : ""
     };
   }
 
@@ -129,6 +159,7 @@
     if (filters.include_withdrawn) params.set("include_withdrawn", "1");
     if (filters.layers && filters.layers.length) params.set("layers", filters.layers.join(","));
     if (filters.region) params.set("region", filters.region);
+    if (filters.plant_technology) params.set("plant_technology", filters.plant_technology);
     var qs = params.toString();
     var url = window.location.pathname + (qs ? "?" + qs : "");
     window.history.replaceState(null, "", url);
@@ -160,7 +191,11 @@
     var params = new URLSearchParams();
     params.set("bbox", bbox.join(","));
     params.set("zoom", String(zoom));
-    if (filters.technology) params.set("technology", filters.technology);
+    // The plant-type filter is its own control (`plant_technology`, a family), sent to the API as
+    // that family's classify_tech classes; the proposals technology filter does not apply here.
+    if (filters.plant_technology && PLANT_FAMILY_CLASSES[filters.plant_technology]) {
+      params.set("technology", PLANT_FAMILY_CLASSES[filters.plant_technology].join(","));
+    }
     return "/api/context/plants/geo?" + params.toString();
   }
 
@@ -182,6 +217,10 @@
   document.getElementById("mf-include-withdrawn").checked = filters.include_withdrawn;
   var plantsToggle = document.getElementById("mf-layer-plants");
   plantsToggle.checked = filters.layers.indexOf("plants") !== -1;
+  var plantTypeSelect = document.getElementById("mf-plant-technology");
+  var plantTypeField = document.getElementById("mf-plant-technology-field");
+  plantTypeSelect.value = filters.plant_technology;
+  plantTypeField.hidden = !plantsToggle.checked;
   writeFilters(filters);
 
   var colors = familyColors();
@@ -312,6 +351,7 @@
             f.properties.plant_family = plantFamilyOf(f.properties.dominant_technology);
           } else {
             f.properties.plant_family = plantFamilyOf(f.properties.technology);
+            f.properties.plant_label = PLANT_FAMILY_LABEL[f.properties.plant_family];
           }
         });
         latestPlantsTotal = (fc.totals || {}).records || 0;
@@ -473,12 +513,9 @@
     map.addImage("plant-square", buildSquareIcon(8), { sdf: true });
     map.addSource("plants", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
 
-    var plantColorExpr = [
-      "match", ["get", "plant_family"],
-      "solar", plantColors.solar, "wind", plantColors.wind, "gas", plantColors.gas,
-      "nuclear", plantColors.nuclear, "hydro", plantColors.hydro, "storage", plantColors.storage,
-      "coal", plantColors.coal, plantColors.coal
-    ];
+    var plantColorExpr = ["match", ["get", "plant_family"]];
+    PLANT_FAMILY_ORDER.forEach(function (family) { plantColorExpr.push(family, plantColors[family]); });
+    plantColorExpr.push(plantColors.other);
 
     // Beneath the proposals layers (`addLayer(..., "clusters")`, task item 2): inserted right
     // above the basemap and below every proposals layer added further down.
@@ -512,13 +549,25 @@
       paint: { "icon-color": plantColorExpr, "icon-opacity": 0.6 }
     }, "clusters");
 
+    // Labels appear once the squares are far enough apart to read (zoom 9+): the family code
+    // beneath the square, same three-letter convention as the proposal markers' tech codes.
+    map.addLayer({
+      id: "plant-labels", type: "symbol", source: "plants", minzoom: 9,
+      filter: ["==", ["get", "feature_kind"], "plant"],
+      layout: {
+        "text-field": ["get", "plant_label"], "text-size": 8, "text-font": ["Noto Sans Medium"],
+        "text-anchor": "top", "text-offset": [0, 0.6], "text-allow-overlap": false
+      },
+      paint: { "text-color": plantColorExpr, "text-opacity": 0.85 }
+    }, "clusters");
+
     map.on("click", "plant-points", function (e) { openPlantDrawer(e.features[0].properties); });
     map.on("mouseenter", "plant-points", function () { map.getCanvas().style.cursor = "pointer"; });
     map.on("mouseleave", "plant-points", function () { map.getCanvas().style.cursor = ""; });
   }
 
   function setPlantsLayerVisible(on) {
-    ["plant-clusters", "plant-cluster-count", "plant-points"].forEach(function (id) {
+    ["plant-clusters", "plant-cluster-count", "plant-points", "plant-labels"].forEach(function (id) {
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     });
     plantsLegend.hidden = !on;
@@ -616,17 +665,20 @@
       jurisdiction: document.getElementById("mf-jurisdiction").value,
       include_withdrawn: document.getElementById("mf-include-withdrawn").checked,
       layers: filters.layers,
-      region: filters.region
+      region: filters.region,
+      plant_technology: plantTypeSelect.value
     };
     writeFilters(filters);
     refetch();
   }
+  plantTypeSelect.addEventListener("change", applyFilters);
   document.getElementById("mf-technology").addEventListener("change", applyFilters);
   document.getElementById("mf-jurisdiction").addEventListener("change", applyFilters);
   document.getElementById("mf-include-withdrawn").addEventListener("change", applyFilters);
   plantsToggle.addEventListener("change", function () {
     var on = plantsToggle.checked;
     filters.layers = on ? ["plants"] : [];
+    plantTypeField.hidden = !on;
     writeFilters(filters);
     setPlantsLayerVisible(on);
     sendUiEvent("map.layer_toggled", { layer: "plants", on: on });
@@ -637,6 +689,7 @@
     document.getElementById("mf-technology").value = "";
     document.getElementById("mf-jurisdiction").value = "";
     document.getElementById("mf-include-withdrawn").checked = false;
+    plantTypeSelect.value = "";
     applyFilters();
   });
 
@@ -711,7 +764,7 @@
       var source = propObj(p.source);
       body.innerHTML =
         "<h2>" + p.name + "</h2>" +
-        "<p class=\"reuse-badge\">Existing plant &middot; context layer</p>" +
+        "<p class=\"reuse-badge\">Existing plant &middot; " + (PLANT_FAMILY_NAME[plantFamilyOf(p.technology)] || "Other") + "</p>" +
         "<dl class=\"drawer-fields\">" +
         "<div class=\"drawer-fields__row\"><dt>Operator</dt><dd>" + (p.operator_name || "—") + "</dd></div>" +
         (techRows || "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + (p.technology || "—") + "</dd></div>") +

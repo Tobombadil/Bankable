@@ -499,8 +499,10 @@ def test_pmtiles_basemap_renders_real_labels_end_to_end(pmtiles_proof_server: ob
             assert page.get_attribute("#map", "data-tile-mode") == "pmtiles"
             page.wait_for_selector("#map canvas", timeout=10000)
             page.wait_for_function("() => window.__map && window.__map.isStyleLoaded()", timeout=15000)
-            # (a) MapLibre `load` fired
-            assert page.evaluate("() => window.__map.loaded()")
+            # (a) MapLibre `load` fired and the first render settled -- polled rather than read at
+            # one instant, since `loaded()` is false whenever any tile or glyph is still in flight
+            # (it flickered false under CPU load from a parallel data reload, 2026-09-15).
+            page.wait_for_function("() => window.__map.loaded()", timeout=30000)
 
             # Zoom to the extracted archive's own coverage (Austin, TX, up to zoom 10) -- the
             # world-view default the page loads at is below the archive's data.

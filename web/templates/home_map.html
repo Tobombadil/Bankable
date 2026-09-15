@@ -36,6 +36,23 @@
       Existing plants (EIA-860M, US)
     </label>
   </div>
+  <div class="filter-field" id="mf-plant-technology-field" hidden>
+    <label for="mf-plant-technology">Plant type</label>
+    <select id="mf-plant-technology" name="plant_technology">
+      <option value="">All types</option>
+      <option value="solar">Solar</option>
+      <option value="wind">Wind</option>
+      <option value="gas">Gas</option>
+      <option value="oil">Oil</option>
+      <option value="coal">Coal</option>
+      <option value="nuclear">Nuclear</option>
+      <option value="hydro">Hydro</option>
+      <option value="storage">Storage</option>
+      <option value="biomass">Biomass / waste</option>
+      <option value="geothermal">Geothermal</option>
+      <option value="other">Other</option>
+    </select>
+  </div>
   <button class="filter-bar__submit" type="button" id="mf-clear">Clear all</button>
   <a class="filter-bar__clear" href="/proposals" id="mf-view-list">View as list &rarr;</a>
 </form>
@@ -68,10 +85,14 @@
       <span class="legend__item" style="color:var(--plant-solar)">&#9632; Solar</span>
       <span class="legend__item" style="color:var(--plant-wind)">&#9632; Wind</span>
       <span class="legend__item" style="color:var(--plant-gas)">&#9632; Gas</span>
+      <span class="legend__item" style="color:var(--plant-oil)">&#9632; Oil</span>
+      <span class="legend__item" style="color:var(--plant-coal)">&#9632; Coal</span>
       <span class="legend__item" style="color:var(--plant-nuclear)">&#9632; Nuclear</span>
       <span class="legend__item" style="color:var(--plant-hydro)">&#9632; Hydro</span>
       <span class="legend__item" style="color:var(--plant-storage)">&#9632; Storage</span>
-      <span class="legend__item" style="color:var(--plant-coal)">&#9632; Coal/other</span>
+      <span class="legend__item" style="color:var(--plant-biomass)">&#9632; Biomass / waste</span>
+      <span class="legend__item" style="color:var(--plant-geothermal)">&#9632; Geothermal</span>
+      <span class="legend__item" style="color:var(--plant-other)">&#9632; Other</span>
     </div>
     <p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <a href="/about#sources">see About &amp; sources</a>. Full credits: <a href="/attribution">Attribution</a>.</p>
   </div>
