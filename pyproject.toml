@@ -21,6 +21,7 @@ ignore = ["RUF001", "RUF002", "RUF003", "N818"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S107"]  # asserts are the point; test fixtures use literal test credentials
 "pipeline/connectors/**/test_connector.py" = ["S101"]
+"pipeline/context/test_*.py" = ["S101"]      # asserts are the point (docs/04 E-6)
 "conftest.py" = ["E402"]                    # sys.path must be set before the pipeline imports
 "pipeline/normalize.py" = ["T20"]           # prototype CLI reporting, superseded by the runner
 "pipeline/resolve.py" = ["T20"]
@@ -48,6 +49,7 @@ exclude = [
     "test_connector\\.py$",
     "web/test_.*\\.py$",
     "services/.*/test_.*\\.py$",
+    "pipeline/context/test_.*\\.py$",
     "services/api/conftest\\.py$",
     "services/db/migrations/versions/.*\\.py$",  # Alembic op.* calls have no useful stubs
 ]

@@ -144,3 +144,56 @@ specific generator or BESS project, which no general gazetteer covers. Unmatched
 guessed. Full provenance, the other candidates checked and why they were not used (NESO's own GIS boundary
 datasets, National Grid Electricity Transmission's open data), and the coverage measurement are in
 `services/ingest/data/README.md`.
+
+## 9. EIA-860M operating plants (context layer)
+
+`docs/00-PLAN.md`'s 2026-09-14 decision ("Built-infrastructure context layer") calls for a layer of existing
+generating plants drawn beneath the proposals map — US first, from EIA-860M, public domain. This is a context
+source, not a proposal source: it has no lifecycle, no events, no matching against queue rows
+(docs/21-data-model.md §3.20 `built_plant`). It reuses `us.eia.860m`'s existing registry row (`data/sources.yaml`)
+and licence, but reads the workbook's "Operating" sheet instead of "Planned" — same file, same header-on-the-
+third-row convention as `pipeline/connectors/us_eia_860m/connector.py`.
+
+**Parsing** (`pipeline/context/eia_plants.py`): `parse_operating_sheet` reads sheet "Operating" with `header=2`
+and drops rows with no Plant ID (the workbook's trailing note rows, same shape the Planned-sheet connector
+already drops). `aggregate_plants` then collapses the sheet from one row per generator to one row per Plant ID:
+
+- **Dominant technology**: each unit's raw `Technology` label is summed by nameplate MW across the plant; the
+  label with the largest summed MW is the plant's `technology_raw`, run through `pipeline.normalize.classify_tech`
+  for the canonical `technology` token. Ties keep the first-encountered label (file order) — deterministic, not
+  yet observed to matter in the live workbook.
+- **Technologies split**: every raw label seen at the plant, summed and rounded to 3 dp — a plant with mixed
+  units (e.g. a coal unit + a co-located BESS) reads honestly instead of collapsing to one label.
+- **Capacity rule**: reuses `pipeline.normalize.capacity`'s existing rule — a reported `0` or blank nameplate is
+  treated as missing, not a real zero-MW unit, and is excluded from the summed `capacity_mw` (though the unit's
+  raw label still appears, at 0 MW, in the technologies split above; that split is a per-label ledger, not a
+  capacity total).
+- **Generator count**: number of generator rows at the plant, regardless of whether each unit's nameplate was
+  valid.
+- **Earliest operating year**: `min` of `Operating Year` across all units, independent of the capacity rule.
+- **Coordinate rule**: identical to `services/ingest/loader.py::_extract_exact_point`'s validity check for this
+  same workbook's `Latitude`/`Longitude` columns on the Planned sheet — numeric, finite, inside world bounds, and
+  not the `(0, 0)` placeholder. A plant failing this check gets `lon`/`lat` = `None` (NaN once assembled into the
+  output frame) rather than a wrong point; nothing is guessed.
+
+**Loading** (`services/ingest/plants.py`): `load_plants` upserts by `(source_id, source_plant_id)` — no
+`proposal_source`/`event` rows, since `built_plant` carries none. A re-run always overwrites every mapped field
+on an existing row (see that module's docstring for why this is simpler than a field diff here, and still
+idempotent because of the unique constraint) and reports it as `updated`, not skipped.
+
+**Measured** (2026-09-15, `data/snapshots/us.eia.860m/20260913T202539Z.xlsx`, the July 2026 workbook already on
+disk from the Planned-sheet connector's last run):
+
+```
+{"plants": 14659, "with_coordinates": 14659, "without_coordinates": 0, "by_technology": {"solar": 7397,
+"hydro": 1394, "wind": 1365, "oil": 867, "gas_ct": 720, "storage": 655, "gas_cc": 528, "biomass": 527,
+"gas_ice": 388, "gas_steam": 211, "coal": 192, "gas_other": 118, "other": 74, "geothermal": 66, "nuclear": 56,
+"waste": 55, "pumped_storage": 33, "solar_storage": 8, "wind_offshore": 4, "unknown": 1}, "elapsed_s": 13.58}
+{"plants_seen": 14659, "inserted": 14659, "updated": 0, "placed": 14659, "unplaced": 0, "elapsed_s": 1.83}
+```
+
+Every one of the 14,659 operating plants in this workbook carries a real coordinate (EIA-860M's own
+`Latitude`/`Longitude` columns are populated for the whole Operating sheet, unlike the Planned sheet's
+mixed completeness), so this run has no unplaced plants to fall back on a county/state centroid for. A
+second loader run against the same parquet reported `inserted: 0, updated: 14659` — no duplicate rows,
+confirming the unique constraint on `(source_id, source_plant_id)` holds across re-runs.
