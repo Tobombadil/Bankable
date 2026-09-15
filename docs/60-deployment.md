@@ -248,6 +248,36 @@ authentication (confirms the configuration is structurally complete) but no real
 created, and no HCLOUD_TOKEN/CLOUDFLARE_API_TOKEN exists in this sandbox to go further. Both are §11's
 first two "unvalidated" items with the exact commands to run once real credentials exist.
 
+### 9.1 Basemap tile refresh
+
+Added 2026-09-15 (`docs/adr/0007-basemap-protomaps-on-r2.md`; `docs/40` §2.7). A fourth workflow,
+`.github/workflows/basemap.yml`, separate from the three above because its trigger (monthly cron +
+manual dispatch) and its dependency (`go` for `go install`ing the `pmtiles` CLI, not the Python
+toolchain the others use) are both different in kind:
+
+- **What it does:** runs `infra/scripts/build_basemap.sh` against the `production` GitHub
+  Environment's R2 secrets, then verifies the uploaded object is range-request-capable.
+- **The script:** extracts a single region (contiguous US + Great Britain, `--maxzoom=12`) from the
+  current Protomaps weekly planet build, uploads it to a dated key on the tiles R2 bucket
+  (`infra/terraform/storage.tf`'s `cloudflare_r2_bucket.tiles`, output as `tiles_bucket_name`), then
+  promotes that key to the canonical `basemap.pmtiles` name — the same "never half-replace the live
+  artefact" discipline §10.1's deploy runbook uses for the database, applied here to a static file
+  instead of a migration.
+- **Measured in this sandbox** (real, non-dry-run extracts against the 2026-09-14 planet build):
+  the combined US+GB region at `--maxzoom=12` is 3,892,675,048 bytes, extracted via HTTP range
+  requests in 28.1 s wall-clock with 8 download threads; a smaller sanity check (Texas alone,
+  `--maxzoom=10`) was 19,897,851 bytes in 4.1 s. Both are network-bound measurements against this
+  task's sandbox bandwidth, not a production-network guarantee, but they establish the order of
+  magnitude the monthly job actually moves — a few GB, well under any GitHub Actions job timeout.
+- **Validated here:** the script end-to-end (real `pmtiles extract`/`verify` against the live
+  Protomaps build, a faked `aws` in `PATH` standing in for the real upload so the logic runs without
+  real R2 credentials) — see `docs/CHANGELOG.md`; `bash -n` and `shellcheck` clean; the workflow
+  YAML passes `actionlint`.
+- **Not validated here:** an actual upload to a real R2 bucket (no `R2_ACCOUNT_ID`/credentials exist
+  in this sandbox — the same gap as §11 item 1); the manual custom-domain and CORS dashboard/API
+  steps `infra/terraform/storage.tf`'s comment block documents (nothing to click against without a
+  real zone and bucket yet).
+
 ## 10. Runbooks
 
 Format per `docs/04` O-9. Kept as sections of this file rather than one file each under `docs/6x-runbooks/`
