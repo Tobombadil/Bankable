@@ -23,11 +23,6 @@ SPLIT_THRESHOLD = 500  # docs/04 D-10: clusters split into markers at <=500 visi
 #: `none` grade and is never drawn here (`meta.unplaced_count` only, computed by the caller).
 REGION_PRECISIONS = ("county_centroid", "state_centroid", "country_centroid")
 #: `location.precision` -> the level `GET /v1/geo/regions` serves that region's polygon under.
-_REGION_LEVEL_BY_PRECISION = {
-    "county_centroid": "county",
-    "state_centroid": "state",
-    "country_centroid": "country",
-}
 
 
 def placement_grade(precision: str) -> str:
@@ -40,13 +35,18 @@ def placement_grade(precision: str) -> str:
     return "none"
 
 
-def _region_id_for(loc: Location) -> str | None:
-    if loc.precision == "county_centroid":
-        return loc.county_fips
-    if loc.precision == "state_centroid":
-        return loc.state_code
-    if loc.precision == "country_centroid":
-        return loc.country
+def _region_key(loc: Location) -> tuple[str, str] | None:
+    """`(region_level, region_id)` for a region-grade location. A county-precision location with
+    no `county_fips` (a fixture or source row the gazetteer could not key, e.g. the 2026-09-12
+    eval parquet CI's browser test loads) falls back to its state, then its country, rather than
+    vanishing from the map: region grade means "somewhere in this area", and the larger area is
+    still true. `None` only when the location carries no usable region at all."""
+    if loc.precision == "county_centroid" and loc.county_fips:
+        return ("county", loc.county_fips)
+    if loc.precision in ("county_centroid", "state_centroid") and loc.state_code:
+        return ("state", loc.state_code)
+    if loc.precision in REGION_PRECISIONS and loc.country:
+        return ("country", loc.country)
     return None
 
 
@@ -155,12 +155,12 @@ def build_geo_feature_collection(
     )
     for member in region_in_view:
         _, loc, _ = member
-        region_id = _region_id_for(loc)
-        if region_id is None:  # pragma: no cover - defensive; the loader always sets this field
+        key = _region_key(loc)
+        if key is None:
             continue
-        region_groups[(loc.precision, region_id)].append(member)
-    for (precision, region_id), members in region_groups.items():
-        features.append(_region_feature(precision, region_id, members))
+        region_groups[key].append(member)
+    for (level, region_id), members in region_groups.items():
+        features.append(_region_feature(level, region_id, members))
 
     return {
         "type": "FeatureCollection",
@@ -250,9 +250,9 @@ def _cluster_feature(members: list[tuple[Proposal, Location, tuple[float, float]
 
 
 def _region_feature(
-    precision: str, region_id: str, members: list[tuple[Proposal, Location, tuple[float, float]]]
+    level: str, region_id: str, members: list[tuple[Proposal, Location, tuple[float, float]]]
 ) -> dict[str, Any]:
-    """One `feature_kind: region` feature per `(precision, region_id)` group (ADR 0008, docs/23
+    """One `feature_kind: region` feature per `(region_level, region_id)` group (ADR 0008, docs/23
     §3.1): geometry is the group's representative point (every member shares the same vendored
     centroid for that region, so the first member's point is exact, not an approximation)."""
     lifecycle_counts: dict[str, int] = defaultdict(int)
@@ -266,11 +266,11 @@ def _region_feature(
         if p.capacity_mw:
             capacity_sum += float(p.capacity_mw)
         if name is None:
-            if precision == "county_centroid":
+            if level == "county":
                 name = loc.county_name
-            elif precision == "state_centroid":
+            elif level == "state":
                 name = loc.state_code
-            elif precision == "country_centroid":
+            else:
                 name = loc.country
 
     _, _, (lon, lat) = members[0]
@@ -279,7 +279,7 @@ def _region_feature(
         "geometry": {"type": "Point", "coordinates": [lon, lat]},
         "properties": {
             "feature_kind": "region",
-            "region_level": _REGION_LEVEL_BY_PRECISION[precision],
+            "region_level": level,
             "region_id": region_id,
             "name": name,
             "count": len(members),

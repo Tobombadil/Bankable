@@ -356,7 +356,8 @@ def _check_desktop_and_narrow(browser: object) -> None:
     page.wait_for_function(
         "() => window.__map && window.__map.isStyleLoaded() && "
         "(window.__map.queryRenderedFeatures({layers:['clusters']}).length > 0 || "
-        " window.__map.queryRenderedFeatures({layers:['points']}).length > 0)",
+        " window.__map.queryRenderedFeatures({layers:['points']}).length > 0 || "
+        " window.__map.queryRenderedFeatures({layers:['region-fill']}).length > 0)",
         timeout=15000,
     )
     assert "days delayed" in page.locator(".delayed-notice").inner_text()
@@ -402,7 +403,8 @@ def _check_desktop_and_narrow(browser: object) -> None:
     narrow.wait_for_function(
         "() => window.__map && window.__map.isStyleLoaded() && "
         "(window.__map.queryRenderedFeatures({layers:['clusters']}).length > 0 || "
-        " window.__map.queryRenderedFeatures({layers:['points']}).length > 0)",
+        " window.__map.queryRenderedFeatures({layers:['points']}).length > 0 || "
+        " window.__map.queryRenderedFeatures({layers:['region-fill']}).length > 0)",
         timeout=15000,
     )
     body_width = narrow.evaluate("document.documentElement.scrollWidth")

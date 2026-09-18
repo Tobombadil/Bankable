@@ -187,3 +187,21 @@ def test_county_fips_filter_on_proposal_list(client, db):
     data = resp.json()["data"]
     assert len(data) == 1
     assert data[0]["location"]["county_name"] == "Anderson"
+
+
+def test_county_centroid_without_fips_falls_back_to_its_state_region(client, db):
+    """CI's browser test loads the 2026-09-12 eval parquet, which predates the county-FIPS
+    backfill; such rows are region grade and must not vanish from the map. They group at the
+    next honest level up (state), never as points."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    loc = make_location(db, src, lic, geom=(-97.7, 30.3), county_name="Travis", county_fips=None)
+    make_visible_proposal(db, src, public_id_suffix="71", location=loc)
+    db.commit()
+
+    resp = client.get("/v1/proposals/geo", params={"bbox": "-125,24,-66,50", "zoom": 4})
+    assert resp.status_code == 200, resp.text
+    kinds = [f["properties"]["feature_kind"] for f in resp.json()["data"]["features"]]
+    assert kinds == ["region"]
+    region = resp.json()["data"]["features"][0]["properties"]
+    assert (region["region_level"], region["region_id"], region["count"]) == ("state", "US-TX", 1)
