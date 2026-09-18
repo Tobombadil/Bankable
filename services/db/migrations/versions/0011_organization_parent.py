@@ -27,8 +27,16 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _recreate() -> str:
+    """SQLite cannot ALTER most of what these batches do, so the table is rebuilt there. Postgres
+    can, and rebuilding it there trips geoalchemy2's `after_create` hook on the TypeDecorator-wrapped
+    geometry column (CI, 2026-09-18: `AttributeError: 'Text' object has no attribute
+    'spatial_index'`), so Postgres gets plain ALTER statements via `recreate="auto"`."""
+    return "always" if op.get_bind().dialect.name == "sqlite" else "auto"
+
+
 def upgrade() -> None:
-    with op.batch_alter_table("organization", recreate="always") as batch_op:
+    with op.batch_alter_table("organization", recreate=_recreate()) as batch_op:
         batch_op.add_column(
             sa.Column(
                 "parent_org_id",
@@ -50,6 +58,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_organization_parent_org_id", table_name="organization")
-    with op.batch_alter_table("organization", recreate="always") as batch_op:
+    with op.batch_alter_table("organization", recreate=_recreate()) as batch_op:
         batch_op.drop_column("parent_source_id")
         batch_op.drop_column("parent_org_id")

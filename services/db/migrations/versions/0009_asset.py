@@ -17,10 +17,10 @@ region-grade precision, docs/21 §3.7) — folded into this migration rather tha
 since it is one `CHECK` clause on a table this migration already touches structurally adjacent
 code for (`services/db/models.py::LOCATION_PRECISIONS`).
 
-Written with `op.batch_alter_table(..., recreate="always")` throughout (not plain `op.add_column`/
+Written with `op.batch_alter_table(..., recreate=_recreate())` throughout (not plain `op.add_column`/
 `op.alter_column`) so the same code path renames columns, drops the old unique constraint/indexes
 and adds the new check constraints on **both** SQLite (which cannot do most of this with a plain
-`ALTER TABLE`) and Postgres (where `recreate="always"` costs a table copy this migration only pays
+`ALTER TABLE`) and Postgres (where `recreate=_recreate()` costs a table copy this migration only pays
 once, in exchange for one tested code path instead of two). `public_id`/`slug` are added nullable
 first, backfilled with `services.ids.public_id`/`slugify` (slug = name + state, de-duplicated with
 a numeric suffix on collision, matching `services/ingest/loader.py`'s organisation-slug
@@ -78,14 +78,22 @@ def _now_default() -> Any:
     return sa.text("now()") if dialect == "postgresql" else sa.text("CURRENT_TIMESTAMP")
 
 
+def _recreate() -> str:
+    """SQLite cannot ALTER most of what these batches do, so the table is rebuilt there. Postgres
+    can, and rebuilding it there trips geoalchemy2's `after_create` hook on the TypeDecorator-wrapped
+    geometry column (CI, 2026-09-18: `AttributeError: 'Text' object has no attribute
+    'spatial_index'`), so Postgres gets plain ALTER statements via `recreate="auto"`."""
+    return "always" if op.get_bind().dialect.name == "sqlite" else "auto"
+
+
 def upgrade() -> None:
     op.rename_table("built_plant", "asset")
 
     # ---- pass 1: add every new column (nullable where a backfill or default fills it), rename
     # the three columns whose meaning survives under a new name, and drop the constructs whose
-    # names/definitions change. `recreate="always"` so SQLite (no ALTER for most of this) and
+    # names/definitions change. `recreate=_recreate()` so SQLite (no ALTER for most of this) and
     # Postgres run one identical code path.
-    with op.batch_alter_table("asset", recreate="always") as batch_op:
+    with op.batch_alter_table("asset", recreate=_recreate()) as batch_op:
         batch_op.add_column(sa.Column("public_id", sa.Text, nullable=True))
         batch_op.add_column(sa.Column("slug", sa.Text, nullable=True))
         batch_op.add_column(sa.Column("asset_type", sa.Text, nullable=False, server_default="power_plant"))
@@ -144,7 +152,7 @@ def upgrade() -> None:
     # ---- pass 2: tighten public_id/slug, drop the columns they replace, add the vocab checks
     # and the renamed unique constraint/indexes (docs/21 §3.22: "Unique: (source_id,
     # source_asset_id). Index: asset_type, state_code, geom").
-    with op.batch_alter_table("asset", recreate="always") as batch_op:
+    with op.batch_alter_table("asset", recreate=_recreate()) as batch_op:
         batch_op.alter_column("public_id", nullable=False)
         batch_op.alter_column("slug", nullable=False)
         batch_op.drop_column("created_at")
@@ -159,7 +167,7 @@ def upgrade() -> None:
         batch_op.create_index("ix_asset_geom", ["geom"], postgresql_using="gist")
 
     # ---- ADR 0008's third region-grade precision, folded in here (module docstring).
-    with op.batch_alter_table("location", recreate="always") as batch_op:
+    with op.batch_alter_table("location", recreate=_recreate()) as batch_op:
         batch_op.drop_constraint("ck_location_precision_vocab", type_="check")
         batch_op.create_check_constraint(
             "precision_vocab", _in_condition("precision", NEW_LOCATION_PRECISIONS)
@@ -167,13 +175,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("location", recreate="always") as batch_op:
+    with op.batch_alter_table("location", recreate=_recreate()) as batch_op:
         batch_op.drop_constraint("precision_vocab", type_="check")
         batch_op.create_check_constraint(
             "ck_location_precision_vocab", _in_condition("precision", OLD_LOCATION_PRECISIONS)
         )
 
-    with op.batch_alter_table("asset", recreate="always") as batch_op:
+    with op.batch_alter_table("asset", recreate=_recreate()) as batch_op:
         batch_op.drop_index("ix_asset_geom")
         batch_op.drop_index("ix_asset_state_code")
         batch_op.drop_index("ix_asset_asset_type")
@@ -201,7 +209,7 @@ def downgrade() -> None:
     # the constraint on SQLite (reproduced with a minimal `alter_column(new_column_name=...)` +
     # `create_unique_constraint` repro) — the same reason `upgrade()` above already splits into
     # two passes.
-    with op.batch_alter_table("asset", recreate="always") as batch_op:
+    with op.batch_alter_table("asset", recreate=_recreate()) as batch_op:
         batch_op.drop_column("last_changed")
         batch_op.drop_column("first_seen")
         batch_op.drop_column("county_fips")
@@ -219,7 +227,7 @@ def downgrade() -> None:
         batch_op.drop_column("slug")
         batch_op.drop_column("public_id")
 
-    with op.batch_alter_table("asset", recreate="always") as batch_op:
+    with op.batch_alter_table("asset", recreate=_recreate()) as batch_op:
         batch_op.create_unique_constraint("uq_built_plant_source_record", ["source_id", "source_plant_id"])
         batch_op.create_index("ix_built_plant_country_technology", ["country", "technology"])
         batch_op.create_index("ix_built_plant_geom", ["geom"], postgresql_using="gist")
