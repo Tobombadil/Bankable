@@ -1473,6 +1473,28 @@ sources:
     subsidiaries; many project LLCs do not). Match on legal name plus jurisdiction; store the LEI on
     organization.identifiers. Coverage of small RNG and ethanol owners will be thin; that is expected.
 
+- id: us.census.cartographic_boundaries
+  name: US Census Bureau Cartographic Boundary Files — counties and states, 1:20,000,000 (region polygons for the map's region-grade proposals)
+  jurisdiction: US
+  category: registry
+  operator: US Census Bureau, Geography Division
+  url: https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html
+  access: bulk_file
+  auth: none
+  format: shapefile zips (cb_2024_us_county_20m.zip, cb_2024_us_state_20m.zip under www2.census.gov/geo/tiger/GENZ2024/shp/)
+  cadence: annual
+  license: 'US federal work — public domain (17 U.S.C. §105); same basis as the vendored Census Gazetteer used by services/ingest/geocode.py'
+  reuse: open
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'cb_2024_us_county_20m.zip and cb_2024_us_state_20m.zip answer 200 on www2.census.gov (sizes recorded in the probe log); the 20m generalisation is the right weight for highlight polygons, 500k is not needed'}
+  notes: >-
+    ADR 0008: region-grade proposals (county/state/country precision) are drawn as highlighted polygons, not
+    points. Counties and states come from these files, vendored as simplified GeoJSON under
+    data/vendored/regions/; country outlines reuse web/static/data/basemap_fallback.geojson. Served by
+    GET /v1/geo/regions.
+
 # ─────────────────────────────────────────────────────────────────────────────
 # J. SOCIAL DISTRIBUTION CHANNELS (outbound, not data sources — recorded for cost/feasibility)
 # ─────────────────────────────────────────────────────────────────────────────

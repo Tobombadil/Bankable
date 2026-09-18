@@ -59,7 +59,7 @@ is the minimum entitlement; a higher tier sees the same shape with `lag = 0` and
 | `GET /v1/proposals/{public_id}/events` | Lifecycle timeline, newest first | US-202 |
 | `GET /v1/proposals/{public_id}/sources` | Provenance rows (licence-gated, `docs/21` §8) | US-201 AC1 |
 | `GET /v1/proposals/{public_id}/matches` | Matches with score and rationale | US-203 AC2, US-402 |
-| `GET /v1/proposals/geo` | Map payload: clustered points/county aggregates within a bbox | US-104 |
+| `GET /v1/proposals/geo` | Map payload within a bbox. Exact-grade proposals as `proposal`/`cluster` features; region-grade proposals as `region` features (`feature_kind: region`, `region_level`, `region_id`, `name`, `count`, `lifecycle_state_counts`, `technology_counts`, `capacity_mw_sum`; geometry is the region's representative point, the polygon comes from `/v1/geo/regions`); none-grade counted in `totals.unplaced` only. New filters: `placement` (csv of `exact \| region \| none`, default `exact,region`) and `county_fips` (csv) on this and on `GET /v1/proposals` | US-104 |
 | `GET /v1/opportunities` · `/{public_id}` · `/{public_id}/events` · `/{public_id}/sources` | Same shapes for the demand side | US-301, US-302 |
 | `GET /v1/organizations` · `/{public_id}` · `/{public_id}/proposals` · `/{public_id}/opportunities` | Sponsor and issuer pages | US-203 AC1, US-303 |
 | `GET /v1/events` | Global change feed, `since` cursor, filterable by subject and type | US-703 AC1 |
@@ -71,6 +71,12 @@ is the minimum entitlement; a higher tier sees the same shape with `lag = 0` and
 | `POST /v1/reports` | Report a problem on a record | US-204 |
 | `GET /v1/health` | Liveness and `data_as_of` | US-604, US-904 |
 | `GET /v1/context/plants/geo` | Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14): clustered `built_plant` points under the proposals map. No lag, no tier gating — every source in scope (EIA-860M) is public domain | US-101, US-104 |
+| `GET /v1/assets` · `/{public_id}` | Asset list and page (ADR 0008): filters `asset_type`, `technology`, `state`, `organization` (public id), `q` (name, operator, owner); detail carries `owners[]` (organisation public id, name, role, share_pct, as_of, source) and `attributes`. No lag, no tier gating: sources are public domain or CC BY | US-104, US-203 |
+| `GET /v1/assets/geo` | Clustered asset points within a bbox: same envelope and cluster shape as `/v1/context/plants/geo`, plus `asset_type` (csv) and `technology` (csv) filters; `feature_kind` is `asset` or `asset_cluster` with `dominant_asset_type`. `/v1/context/plants/geo` stays as an alias for `asset_type=power_plant` | US-104 |
+| `GET /v1/assets/{public_id}/nearby-proposals` | Exact-grade proposals within `radius_km` (default 25, max 100) of the asset's point, public-tier rules applied; region-grade and none-grade proposals are never returned here | US-104, US-203 |
+| `GET /v1/organizations/{public_id}/assets` | The organisation's assets through `asset_owner`, with role and share; cursor-paginated | US-203 AC1 |
+| `GET /v1/geo/regions` | Region polygons for the map: `level` (`county \| state \| country`) and `ids` (csv of `county_fips`, `state_code` or `country`, max 500) → GeoJSON `MultiPolygon` features with `region_id`, `name`, `level`; from the vendored Census cartographic boundaries (20m, US) and the existing country outlines; cacheable for a day | US-104 |
+
 | `POST /v1/ui-events` | Identifier-free interaction counter for the context layer (`services/db/models.py::UI_EVENT_NAMES`); no auth, rate-limited 60/min per IP for limiting purposes only (the IP is never stored) | US-104 |
 
 Public tier behaviour is fixed by `docs/21` §5.4 and §8: records and events only where `public_at <= now()`;

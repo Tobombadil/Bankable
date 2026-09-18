@@ -391,7 +391,7 @@ document references only (`docs/20` §11; `docs/02` §4 last row).
 | `id` | uuid | No | Internal key | `018f3e…` |
 | `kind` | text | No | `point \| county \| state \| region \| service_territory` | `county` |
 | `geom` | geography(Point,4326) | Yes | Representative point; **never a raw restricted-source coordinate on public surfaces** (US-104 AC3, §8) | `POINT(-115.0 35.8)` |
-| `precision` | text | No | `exact \| county_centroid \| state_centroid \| unknown` — what `geom` actually means | `county_centroid` |
+| `precision` | text | No | `exact \| county_centroid \| state_centroid \| country_centroid \| unknown` — what `geom` actually means. **Placement grade** (ADR 0008, derived, never stored): `exact` → `exact` (drawn as a point); `county_centroid`, `state_centroid`, `country_centroid` → `region` (drawn as the highlighted county/state/country polygon with a count, never a point); `unknown` → `none` (list, search, alerts only). `region_id` for the region grade is `county_fips`, `state_code` or `country` respectively | `county_centroid` |
 | `county_fips` | char(5) | Yes | US county key. Set from the source row's own `county_name`/`state_code` against the vendored Census Gazetteer (`services/ingest/geocode.py`) whenever that resolves — for a `county_centroid` location and, separately, for an `exact` one whose source row also names a resolvable county — and left NULL otherwise; never inferred from `geom` (no point-in-polygon geocoder is vendored, 2026-09-15) | `32003` |
 | `county_name` | text | Yes | Display name | `Clark` |
 | `state_code` | text | Yes | ISO 3166-2 subdivision | `US-NV` |
@@ -705,6 +705,55 @@ question 7(b).
 | `geom` | geography(Point,4326) | Yes | Source-supplied coordinate (public-domain source, so exact is allowed) | `POINT(-100.4 32.4)` |
 | `state_code`, `county_name`, `country` | text, text, char(2) | Yes, Yes, No | As §3.7 | `US-TX`, `Nolan`, `US` |
 | `source_id`, `source_url`, `retrieved_at`, `licence_id` | — | No | Provenance quartet | — |
+
+### 3.22 `asset` — registry-sourced infrastructure with identity (ADR 0008, 2026-09-18; generalises §3.20)
+
+One row per existing infrastructure asset from a public registry. Has a page and owners; has no lifecycle,
+events, matches or alerts. `built_plant` rows migrate into this table as `asset_type = power_plant`
+(migration 0009 renames the table and widens it; the §3.20 columns keep their meaning). A registry row whose
+status is planned or under construction is a proposal, not an asset.
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `id` | uuid | No | Internal key | — |
+| `public_id`, `slug` | text | No | Public identity, as §3.2 (`asset_…` prefix); slug from name + state | `asset_01j…`, `roscoe-wind-farm-tx` |
+| `asset_type` | text | No | `power_plant \| gas_pipeline \| gas_processing_plant \| gas_storage \| lng_terminal \| compressor_station \| ethanol_plant \| biodiesel_plant \| rng_project \| transmission_line \| substation \| refinery` (check constraint) | `power_plant` |
+| `source_asset_id` | text | No | The source's own key; unique with `source_id` (was `source_plant_id`) | `6452` |
+| `name` | text | No | Display name | `Roscoe Wind Farm` |
+| `operator_name` | text | Yes | Operating entity as the source spells it (resolved edge lives in §3.23) | `Roscoe Wind Farm LLC` |
+| `status` | text | No | `operating \| standby \| retired \| unknown` — the source's current status; never a lifecycle | `operating` |
+| `technology`, `technology_raw`, `technologies` | text, text, jsonb | Yes | As §3.20; for non-generation types `technology` is the type's own class (`interstate`, `salt_cavern`, `landfill_gas`) | `wind` |
+| `capacity_mw` | numeric(12,3) | Yes | Electrical capacity where the asset has one | `781.500` |
+| `capacity_value`, `capacity_unit` | numeric(14,3), text | Yes | The registry's native capacity for non-electrical assets | `1200.000`, `MMcf/d` |
+| `commissioned_year` | integer | Yes | First operating year (was `earliest_operating_year`) | `2007` |
+| `unit_count` | integer | Yes | Generators, trains, tanks (was `generator_count`) | `627` |
+| `geom` | geography(Point,4326) | Yes | Representative point; source-supplied for public-domain registries | — |
+| `geom_line` | geography(LineString,4326) on Postgres; text (WKT) on SQLite | Yes | Line geometry for pipelines and transmission; used for pages and joins, not for drawing (lines are tiles) | — |
+| `attributes` | jsonb | No | The type's **objective feature set** only (ADR 0008 §4): e.g. `{"heat_rate_btu_kwh": 7150, "capacity_factor_2025": 0.41}` for plants; `{"diameter_in_mix": {...}, "miles": 412, "incidents_5y": 2}` for pipelines; `{"rin_pathway": "D3", "feedstock": "landfill_gas"}` for RNG. No valuation, tariff or contract fields | `{}` |
+| `state_code`, `county_name`, `county_fips`, `country` | text, text, char(5), char(2) | Yes/Yes/Yes/No | As §3.7 | `US-TX` |
+| `source_id`, `source_url`, `retrieved_at`, `licence_id` | — | No | Provenance quartet | — |
+| `first_seen`, `last_changed` | timestamptz | No | Load bookkeeping | — |
+
+Unique: (`source_id`, `source_asset_id`). Index: `asset_type`, `state_code`, `geom` (GiST on Postgres).
+
+### 3.23 `asset_owner` — ownership and operation edges (ADR 0008, 2026-09-18)
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `id` | uuid | No | Internal key | — |
+| `asset_id` | uuid | No | FK `asset` | — |
+| `organization_id` | uuid | No | FK `organization` (resolved through §3.5/§3.6 aliases; a new organisation is created when the resolver finds none) | — |
+| `role` | text | No | `owner \| operator` | `owner` |
+| `share_pct` | numeric(6,3) | Yes | Ownership share where the source states one (EIA-860 Schedule 4); NULL for operator edges and registries without shares | `50.000` |
+| `as_of` | date | Yes | The source's reporting date | `2024-12-31` |
+| `owner_name_raw` | text | No | The source's spelling, kept for audit | `NextEra Energy Resources, LLC` |
+| `source_id`, `source_url`, `retrieved_at`, `licence_id` | — | No | Provenance quartet | — |
+
+Unique: (`asset_id`, `organization_id`, `role`, `source_id`). Sources in order: EIA-860 Schedule 4 (`us.eia.860`,
+shares), EIA-860M and EIA Atlas operator fields (`operator`), EPA LMOP/AgSTAR owner and developer fields, GEM
+owner fields (CC BY, TZ-ID rows dropped). `organization.parent_org_id` (added in the same migration, nullable FK
+to `organization`, with `parent_source_id`) records the GLEIF Level 2 direct accounting parent where an LEI
+matches; the LEI itself goes in `organization.ids.lei`.
 
 ### 3.21 `ui_event` — identifier-free interaction counters (added 2026-09-14)
 
