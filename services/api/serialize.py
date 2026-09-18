@@ -17,6 +17,8 @@ from services.db.models import (
     Account,
     Alert,
     ApiKey,
+    Asset,
+    AssetOwner,
     Event,
     Licence,
     Location,
@@ -374,6 +376,73 @@ def serialize_organization(
         out["proposal_count"] = proposal_count
     if opportunity_count is not None:
         out["opportunity_count"] = opportunity_count
+    return out
+
+
+# --------------------------------------------------------------------------------------- assets
+def asset_source_row(asset: Asset) -> dict[str, Any]:
+    return provenance_quartet(
+        asset.source, asset.licence, source_url=asset.source_url, retrieved_at=asset.retrieved_at
+    )
+
+
+def serialize_asset_owner(edge: AssetOwner) -> dict[str, Any]:
+    return {
+        "organization": serialize_organization_summary(edge.organization),
+        "role": edge.role,
+        "share_pct": float(edge.share_pct) if edge.share_pct is not None else None,
+        "as_of": iso(edge.as_of),
+        "owner_name_raw": edge.owner_name_raw,
+        "provenance": provenance_quartet(
+            edge.source, edge.licence, source_url=edge.source_url, retrieved_at=edge.retrieved_at
+        ),
+    }
+
+
+def serialize_asset_summary(asset: Asset) -> dict[str, Any]:
+    return {
+        "public_id": asset.public_id,
+        "slug": asset.slug,
+        "url": f"{WEB_HOST}/assets/{asset.slug}",
+        "asset_type": asset.asset_type,
+        "name": asset.name,
+        "technology": asset.technology,
+        "capacity_mw": float(asset.capacity_mw) if asset.capacity_mw is not None else None,
+        "state_code": asset.state_code,
+        "country": asset.country,
+    }
+
+
+def serialize_asset(
+    asset: Asset, *, owners: list[AssetOwner] | None = None, include_owners: bool = True
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "public_id": asset.public_id,
+        "slug": asset.slug,
+        "url": f"{WEB_HOST}/assets/{asset.slug}",
+        "asset_type": asset.asset_type,
+        "name": asset.name,
+        "operator_name": asset.operator_name,
+        "status": asset.status,
+        "technology": asset.technology,
+        "technology_raw": asset.technology_raw,
+        "technologies": asset.technologies or {},
+        "capacity_mw": float(asset.capacity_mw) if asset.capacity_mw is not None else None,
+        "capacity_value": float(asset.capacity_value) if asset.capacity_value is not None else None,
+        "capacity_unit": asset.capacity_unit,
+        "commissioned_year": asset.commissioned_year,
+        "unit_count": asset.unit_count,
+        "attributes": asset.attributes or {},
+        "state_code": asset.state_code,
+        "county_name": asset.county_name,
+        "county_fips": asset.county_fips,
+        "country": asset.country,
+        "first_seen": iso(asset.first_seen),
+        "last_changed": iso(asset.last_changed),
+        "provenance": [asset_source_row(asset)],
+    }
+    if include_owners:
+        out["owners"] = [serialize_asset_owner(o) for o in (owners if owners is not None else asset.owners)]
     return out
 
 

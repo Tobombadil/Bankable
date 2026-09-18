@@ -178,7 +178,10 @@ def build_client(*, api_base_url: str | None = None) -> ApiClient:
     """
     base_url = api_base_url if api_base_url is not None else os.environ.get("API_BASE_URL")
     if base_url:
-        return ApiClient(httpx.Client(base_url=base_url, timeout=10.0))
+        headers = {}
+        if token := os.environ.get("API_INTERNAL_TOKEN"):
+            headers["X-Internal-Token"] = token  # the site's service identity; see services/api/app.py
+        return ApiClient(httpx.Client(base_url=base_url, timeout=10.0, headers=headers))
     # In-process: import lazily so `DATABASE_URL` can be set by the caller (a dev script, or a
     # test fixture) before `services.api.deps` resolves its engine on first use.
     from starlette.testclient import TestClient

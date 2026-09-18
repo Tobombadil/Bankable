@@ -20,3 +20,6 @@ web/.data/
 # Private keys never enter the repository; generate with infra/scripts/bootstrap_age_key.sh
 infra/sops/keys/*.txt
 .coverage
+
+# Harness-managed isolated worktrees for review agents (never repository content)
+.claude/worktrees/

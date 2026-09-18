@@ -266,3 +266,21 @@ def test_register_without_layers_posts_empty_layers_string(
         events = list(session.scalars(select(UiEvent).where(UiEvent.name == "auth.registered")))
     assert len(events) == 1
     assert events[0].props == {"layers": ""}
+
+
+def test_safe_next_rejects_backslash_and_host_bearing_paths() -> None:
+    """Web audit 2026-09-18: browsers normalise `/\\host` to `//host` when following a redirect."""
+    from web.auth import _safe_next
+
+    assert _safe_next("/account?tab=alerts") == "/account?tab=alerts"
+    bad_values = (
+        "/\\evil.com",
+        "/\\\\evil.com/x",
+        "//evil.com",
+        "https://evil.com",
+        "/ok\r\nLocation: x",
+        "",
+        None,
+    )
+    for bad in bad_values:
+        assert _safe_next(bad) == "/account"

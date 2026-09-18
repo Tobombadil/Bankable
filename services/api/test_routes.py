@@ -309,8 +309,15 @@ def test_geo_bbox_is_enforced(client, db):
     proposal placed in Texas, one in New York; a Texas-only bbox must return only the Texas one."""
     lic = make_open_licence(db)
     src = make_public_source(db, lic)
-    tx = make_location(db, src, lic, geom=(-97.7, 30.3), county_name="Travis", state_code="US-TX")
-    ny = make_location(db, src, lic, geom=(-73.9, 42.9), county_name="Albany", state_code="US-NY")
+    # `precision="exact"` (ADR 0008): this test is about bbox scoping of point/cluster features,
+    # not about region grouping (`services/api/test_placement.py` covers that) -- the default
+    # `county_centroid` precision would render both as `region` features instead.
+    tx = make_location(
+        db, src, lic, geom=(-97.7, 30.3), precision="exact", county_name="Travis", state_code="US-TX"
+    )
+    ny = make_location(
+        db, src, lic, geom=(-73.9, 42.9), precision="exact", county_name="Albany", state_code="US-NY"
+    )
     make_visible_proposal(db, src, public_id_suffix="701", location=tx)
     make_visible_proposal(db, src, public_id_suffix="702", location=ny)
     db.commit()
@@ -350,6 +357,13 @@ def test_geo_unplaced_records_are_counted_not_dropped(client, db):
 
 
 def test_geo_restricted_precision_reason_renders_for_derived_only_sources(client, db):
+    """ADR 0008 (2026-09-18): a `county_centroid` location — whether the source only ever gave a
+    county, or an exact one was downgraded by a derived-only licence (docs/04 D-9) — is now the
+    `region` placement grade and renders as a `region` feature, grouped with every other proposal
+    in that county, not as an individual point carrying its own `precision_reason`. The
+    restricted-precision *rule itself* (never publish the exact point) still holds — it now holds
+    by construction, since a `region` feature never carries a point geometry finer than the
+    region's own representative centroid."""
     lic = make_attribution_licence(db)
     lic.allows_raw_publication = False
     src = make_public_source(db, lic, id_="us.test.derived_only_source")
@@ -359,8 +373,10 @@ def test_geo_restricted_precision_reason_renders_for_derived_only_sources(client
 
     resp = client.get("/v1/proposals/geo?bbox=-179,-85,179,85&zoom=10")
     feature = resp.json()["data"]["features"][0]
-    assert feature["properties"]["precision_reason"] == "licence"
-    assert feature["properties"]["precision_note"] == "location shown at county level (source licence)"
+    assert feature["properties"]["feature_kind"] == "region"
+    assert feature["properties"]["region_level"] == "county"
+    assert feature["properties"]["count"] == 1
+    assert "precision_reason" not in feature["properties"]
 
 
 def test_slug_filter_looks_up_a_proposal_and_an_opportunity(client, db):
@@ -487,3 +503,43 @@ def test_opportunity_q_matches_issuer_name_and_source_record_id(client, db):
     assert ids(client.get("/v1/opportunities", params={"q": "N52"})) == [other.public_id]
     assert ids(client.get("/v1/opportunities", params={"q": "rfp 51"})) == [by_issuer.public_id]
     assert ids(client.get("/v1/opportunities", params={"q": "nothing here"})) == []
+
+
+def test_organizations_list_filters_by_slug(client, db):
+    """The company page resolves a slug through the list endpoint, as proposal pages do."""
+    org = make_org(db, "Slug Filter Power LLC")
+    make_org(db, "Another Power LLC")
+    db.commit()
+    resp = client.get("/v1/organizations", params={"slug": org.slug})
+    assert [o["public_id"] for o in resp.json()["data"]] == [org.public_id]
+    assert client.get("/v1/organizations", params={"slug": "no-such-slug"}).json()["data"] == []
+
+
+def test_cursor_pagination_survives_a_null_sort_value(client, db):
+    """API audit 2026-09-18 (S5): `due_at` is nullable and the default opportunity sort; a page
+    ending on a NULL value produced a cursor that 500ed on the next request and, on Postgres,
+    silently dropped NULL rows. Every row must be seen exactly once, in either direction."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    made = [make_visible_opportunity(db, src, public_id_suffix=str(60 + i)) for i in range(7)]
+    for opp in made[::2]:
+        opp.due_at = None
+    db.commit()
+    expected = {o.public_id for o in made}
+
+    for sort in ("due_at", "-due_at"):
+        seen: list[str] = []
+        cursor = None
+        for _ in range(10):
+            params = {"limit": 2, "sort": sort, "status": "open"}
+            if cursor:
+                params["cursor"] = cursor
+            resp = client.get("/v1/opportunities", params=params)
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            seen += [o["public_id"] for o in body["data"]]
+            if not body["page"]["has_more"]:
+                break
+            cursor = body["page"]["next_cursor"]
+        assert sorted(seen) == sorted(expected), sort
+        assert len(seen) == len(set(seen)), sort

@@ -14,6 +14,8 @@ from services.api.app import app
 from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
 from services.db.models import (
+    Asset,
+    AssetOwner,
     Event,
     Licence,
     Location,
@@ -156,6 +158,79 @@ def make_org(session: Session, name: str = "Acme Power LLC") -> Organization:
     return org
 
 
+def make_asset(
+    session: Session,
+    source: Source,
+    licence: Licence,
+    *,
+    source_asset_id: str = "1",
+    asset_type: str = "power_plant",
+    name: str = "Test Plant",
+    status: str = "operating",
+    technology: str | None = "wind",
+    capacity_mw: float | None = 100.0,
+    geom: tuple[float, float] | None = (-100.0, 32.0),
+    state_code: str | None = "US-TX",
+    county_name: str | None = "Nolan",
+    country: str = "US",
+) -> Asset:
+    from services.ids import public_id, slugify
+
+    asset = Asset(
+        public_id="",
+        slug="",
+        asset_type=asset_type,
+        source_asset_id=source_asset_id,
+        name=name,
+        status=status,
+        technology=technology,
+        technologies={technology: capacity_mw} if technology and capacity_mw else {},
+        capacity_mw=capacity_mw,
+        unit_count=1,
+        geom=geom,
+        attributes={},
+        state_code=state_code,
+        county_name=county_name,
+        country=country,
+        source_id=source.id,
+        source_url=source.url,
+        retrieved_at=dt.datetime(2026, 9, 1, tzinfo=UTC),
+        licence_id=licence.id,
+    )
+    session.add(asset)
+    session.flush()
+    asset.public_id = public_id("asset", asset.id)
+    asset.slug = slugify(f"{name} {state_code}" if state_code else name) + f"-{source_asset_id}"
+    session.flush()
+    return asset
+
+
+def make_asset_owner(
+    session: Session,
+    asset: Asset,
+    organization: Organization,
+    source: Source,
+    licence: Licence,
+    *,
+    role: str = "owner",
+    share_pct: float | None = 100.0,
+) -> AssetOwner:
+    edge = AssetOwner(
+        asset_id=asset.id,
+        organization_id=organization.id,
+        role=role,
+        share_pct=share_pct,
+        owner_name_raw=organization.name_canonical,
+        source_id=source.id,
+        source_url=source.url,
+        retrieved_at=dt.datetime(2026, 9, 1, tzinfo=UTC),
+        licence_id=licence.id,
+    )
+    session.add(edge)
+    session.flush()
+    return edge
+
+
 def make_location(
     session: Session,
     source: Source,
@@ -165,16 +240,28 @@ def make_location(
     precision: str = "county_centroid",
     precision_reason: str | None = None,
     county_name: str | None = "Travis",
+    county_fips: str | None = "48453",
     state_code: str | None = "US-TX",
+    country: str = "US",
 ) -> Location:
+    """`county_fips` (ADR 0008, docs/21 §3.7) defaults to Travis County, TX's real FIPS (48453),
+    matching the default `county_name`/`state_code` -- a caller passing a different `county_name`
+    without also passing a matching `county_fips` gets a syntactically valid but semantically
+    mismatched code, which is harmless for tests exercising region *grouping*/*counting* (they
+    never assert the fips-to-name correspondence itself) but wrong for tests of
+    `GET /v1/geo/regions` or of `region_id` values specifically, which must pass both explicitly.
+    `GET /v1/proposals/geo`'s region-grade grouping (`services/api/geo.py::_region_id_for`) drops
+    a `county_centroid` location with no `county_fips` entirely (it cannot key a region group),
+    which is why this default exists rather than leaving the field null as before ADR 0008."""
     loc = Location(
         kind="county" if county_name else "state",
         geom=geom,
         precision=precision,
         precision_reason=precision_reason,
         county_name=county_name,
+        county_fips=county_fips if precision == "county_centroid" else None,
         state_code=state_code,
-        country="US",
+        country=country,
         source_id=source.id,
         source_url=source.url,
         retrieved_at=dt.datetime(2026, 9, 10, tzinfo=UTC),

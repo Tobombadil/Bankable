@@ -419,3 +419,16 @@ def test_stylesheet_makes_the_hidden_attribute_win_over_class_display_rules() ->
 
     css = (Path(__file__).parent / "static" / "css" / "styles.css").read_text()
     assert "[hidden] { display: none !important; }" in css
+
+
+def test_map_script_escapes_register_text_before_it_reaches_markup() -> None:
+    """Web audit 2026-09-18: the drawer and tooltips interpolate queue names, operator names and
+    source URLs from upstream registers into `innerHTML`/`setHTML`; every such value now passes
+    through `esc()` (text) or `safeUrl()` (href)."""
+    from pathlib import Path
+
+    source = (Path(__file__).parent / "static" / "js" / "map.js").read_text()
+    assert "function esc(value)" in source and "function safeUrl(value)" in source
+    assert '"<h2>" + p.name' not in source and '"<h2>" + esc(p.name)' in source
+    assert 'href=\\"" + source.source_url' not in source and "safeUrl(source.source_url)" in source
+    assert "esc(p.operator_name" in source and "encodeURIComponent(String(p.slug))" in source

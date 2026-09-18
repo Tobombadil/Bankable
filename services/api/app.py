@@ -16,6 +16,8 @@ Deliberately not implemented this sprint (see services/README.md "Open decisions
 from __future__ import annotations
 
 import datetime as dt
+import hmac
+import os
 import uuid as _uuid
 from collections import defaultdict
 from typing import Any
@@ -126,14 +128,21 @@ from services.api.admin_records import router as admin_records_router  # noqa: E
 
 app.include_router(admin_records_router)
 
-# Built-infrastructure context layer (docs/00-PLAN.md decision 2026-09-14; docs/21 §3.20-§3.21):
-# existing plants under the proposals map, and its identifier-free interaction measurement. Each
-# lives in its own module; this file only mounts them.
-from services.api.context_routes import router as context_router  # noqa: E402
+# Its identifier-free interaction measurement (docs/00-PLAN.md decision 2026-09-14; docs/21 §3.21).
 from services.api.ui_events import router as ui_events_router  # noqa: E402
 
-app.include_router(context_router)
 app.include_router(ui_events_router)
+
+# Assets (ADR 0008, 2026-09-18): registry-sourced infrastructure with identity, generalising the
+# 2026-09-14 built-infrastructure context layer. `GET /v1/context/plants/geo` (the old context
+# layer's route) is mounted from here too, as an alias forcing `asset_type=power_plant`
+# (services/api/assets.py's own module docstring) -- services/api/context_routes.py is kept only
+# as a `TECHNOLOGY_VOCAB` re-export for web/test_map_layers.py, never mounted.
+from services.api.assets import router as assets_router  # noqa: E402
+from services.api.regions import router as regions_router  # noqa: E402
+
+app.include_router(assets_router)
+app.include_router(regions_router)
 
 
 @app.middleware("http")
@@ -157,7 +166,15 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
     from services.api.ratelimit import TIER_LIMITS, default_limiter, policy_header
 
     is_credentialed = bool(request.headers.get("authorization")) or bool(request.cookies.get("session"))
-    if not is_credentialed:
+    # The public site calls this API server-side for every visitor from one address, so without a
+    # service identity the whole site would share one anonymous bucket (live probe 2026-09-18: a
+    # sitemap render plus a few map pans returned 429). A matching `X-Internal-Token` marks the
+    # request as the site's own; the site is then responsible for per-visitor limits.
+    internal_token = os.environ.get("API_INTERNAL_TOKEN")
+    is_internal = bool(internal_token) and hmac.compare_digest(
+        request.headers.get("x-internal-token", ""), internal_token or ""
+    )
+    if not is_credentialed and not is_internal:
         client_ip = request.client.host if request.client else "unknown"
         result = default_limiter.check(f"public:{client_ip}", limit=TIER_LIMITS["public"])
         if not result.allowed:
@@ -193,7 +210,12 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
         response = await call_next(request)
     response.headers["X-Request-Id"] = new_request_id()
     if request.url.path.startswith("/v1/") and request.method == "GET":
-        response.headers["Cache-Control"] = "public, max-age=300"
+        # A response produced for a credential (valid or not) is never shareable: `/v1/me`, live
+        # Pro rows and saved searches must not land in a CDN or proxy cache (API audit 2026-09-18,
+        # finding S1; docs/23 §1 "Pro/API responses are private, no-store").
+        credentialed = bool(request.headers.get("authorization")) or bool(request.cookies.get("session"))
+        response.headers["Cache-Control"] = "private, no-store" if credentialed else "public, max-age=300"
+        response.headers["Vary"] = "Authorization, Cookie"
     return response
 
 
@@ -212,8 +234,51 @@ PROPOSAL_FILTERS = {
     "capacity_mw[gte]",
     "capacity_mw[lte]",
     "slug",
+    "county_fips",
+    "placement",
 }
 PROPOSAL_SORT_ALLOWLIST = {"last_changed", "first_seen", "capacity_mw", "name_canonical"}
+
+#: ADR 0008, docs/21 §3.7: the three region-grade precisions a `placement=region` filter expands
+#: to, and the `none` grade's own precision value. Mirrors `services/api/geo.py::REGION_PRECISIONS`
+#: (not imported from there to avoid this module depending on `geo.py` for a plain tuple it only
+#: needs for one `IN` clause; both are asserted equal in `services/api/test_placement.py`).
+PLACEMENT_REGION_PRECISIONS = ("county_centroid", "state_centroid", "country_centroid")
+
+
+def _placement_precisions(grades: list[str]) -> list[str]:
+    precisions: list[str] = []
+    if "exact" in grades:
+        precisions.append("exact")
+    if "region" in grades:
+        precisions.extend(PLACEMENT_REGION_PRECISIONS)
+    if "none" in grades:
+        precisions.append("unknown")
+    return precisions
+
+
+def _apply_placement_filter(
+    stmt: sa.Select[Any], request: Request, *, default: list[str] | None
+) -> sa.Select[Any]:
+    """Applied separately from `_apply_proposal_filters` (docstring there) because it must *not*
+    run inside `_proposal_geo_totals`: `placement` controls which grades are drawn as map
+    features, never `meta.unplaced_count`/`totals.records`/the lifecycle and technology counts,
+    which always cover every visible record matching every other filter (docs/23 §3.1, ADR 0008).
+    `default` is `None` on `GET /v1/proposals` (every grade returned unless the caller asks
+    otherwise) and `["exact", "region"]` on `GET /v1/proposals/geo` (docs/23 §3.1's stated
+    default for that endpoint)."""
+    v = request.query_params.get("placement")
+    grades = csv_param(v) if v else default
+    if grades is None:
+        return stmt
+    unknown = [g for g in grades if g not in ("exact", "region", "none")]
+    if unknown:
+        raise validation_error(
+            "placement", f"unknown placement value(s): {', '.join(unknown)}", request.url.path
+        )
+    precisions = _placement_precisions(grades)
+    loc_subquery = select(Location.id).where(Location.precision.in_(precisions))
+    return stmt.where(Proposal.location_id.in_(loc_subquery))
 
 
 def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]:
@@ -238,6 +303,14 @@ def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select
         stmt = stmt.where(Proposal.capacity_mw <= float(v))
     if v := qp.get("slug"):
         stmt = stmt.where(Proposal.slug == v)
+    if v := qp.get("county_fips"):
+        # A subquery on `Proposal.location_id`, not a `.join(Location, ...)`, because this
+        # function runs both before and after `Location` is already joined at some call sites
+        # (`_proposal_geo_plottable_query` inner-joins it, `_proposal_geo_totals` outer-joins it)
+        # -- a second join to the same table there would be invalid SQL, and a subquery is correct
+        # regardless of what the caller already joined.
+        loc_subquery = select(Location.id).where(Location.county_fips.in_(csv_param(v)))
+        stmt = stmt.where(Proposal.location_id.in_(loc_subquery))
     if v := qp.get("q"):
         # Substring match over the three things a user actually types (web/templates/base.html
         # promises "name, sponsor, queue ID"): the canonical name, the sponsor organisation's
@@ -274,7 +347,11 @@ def _proposal_query_with_filters(request: Request, entitlement: str = "public") 
         .where(*proposal_visibility_filter(entitlement))
         .options(selectinload(Proposal.sources))
     )
-    return _apply_proposal_filters(stmt, request)
+    stmt = _apply_proposal_filters(stmt, request)
+    # No default (ADR 0008): every placement grade is returned unless the caller filters
+    # explicitly — a `none`-grade proposal (unknown location) belongs in list/search by design
+    # (docs/21 §3.7), unlike the map, which defaults to `exact,region`.
+    return _apply_placement_filter(stmt, request, default=None)
 
 
 #: Exactly the `Proposal`/`Location` columns `services/api/geo.py` reads for a placed feature
@@ -304,7 +381,9 @@ _GEO_LOCATION_COLUMNS = (
     Location.geom,
     Location.precision,
     Location.county_name,
+    Location.county_fips,
     Location.state_code,
+    Location.country,
     Location.licence_id,
 )
 
@@ -347,7 +426,11 @@ def _proposal_geo_plottable_query(
             loc_load.lazyload(Location.licence),
         )
     )
-    return _apply_proposal_filters(stmt, request)
+    stmt = _apply_proposal_filters(stmt, request)
+    # Default `exact,region` (docs/23 §3.1): a caller who never passes `placement` sees exactly
+    # the pre-ADR-0008 shape (points/clusters) plus the new region features, never bare `none`
+    # rows -- those have no `geom` anyway and are excluded by this query's own join already.
+    return _apply_placement_filter(stmt, request, default=["exact", "region"])
 
 
 def _proposal_geo_totals(
@@ -504,6 +587,9 @@ def get_proposals_geo(
     id_subquery = _apply_proposal_filters(
         select(Proposal.id).where(*proposal_visibility_filter(ctx.entitlement)), request
     )
+    # Same default as the plottable query, so the licence summary credits exactly the sources
+    # behind what is actually drawn.
+    id_subquery = _apply_placement_filter(id_subquery, request, default=["exact", "region"])
     licence_summary = _source_licence_aggregate(db, ProposalSource, ProposalSource.proposal_id, id_subquery)
     return build_envelope(fc, meta=meta, licence_summary=licence_summary)
 
@@ -875,11 +961,13 @@ def list_opportunity_sources(
 # ------------------------------------------------------------------------------------ organizations
 @app.get("/v1/organizations")
 def list_organizations(request: Request, db: Session = Depends(get_db)) -> Any:
-    check_allowed(request, LIST_COMMON | {"type", "country", "is_curated_issuer"})
+    check_allowed(request, LIST_COMMON | {"type", "country", "is_curated_issuer", "slug"})
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, {"name_canonical"}, "name_canonical")
     stmt = select(Organization).where(Organization.merged_into_id.is_(None))
     qp = request.query_params
+    if v := qp.get("slug"):
+        stmt = stmt.where(Organization.slug == v)
     if v := qp.get("type"):
         stmt = stmt.where(Organization.type.in_(csv_param(v)))
     if v := qp.get("country"):

@@ -101,6 +101,45 @@ class TextArray(TypeDecorator[Any]):
         return result
 
 
+class GeographyLine(TypeDecorator[Any]):
+    """`geography(LineString,4326)` on Postgres (docs/21 §3.22 `asset.geom_line`); WKT text on
+    SQLite. ADR 0008 accepts this as a known limitation ("the test target cannot exercise spatial
+    operations on lines... lines are drawn from tiles, not queried") — `geom_line` exists on
+    `asset` for pages and joins, never for map rendering, so a lossless-enough SQLite
+    representation (a plain `LINESTRING(lon lat, ...)` WKT string, parsed back into a list of
+    `(lon, lat)` tuples) is sufficient for this sprint's tests. Bind and read as a list of
+    `(lon, lat)` pairs, mirroring `GeographyPoint`'s `(lon, lat)` tuple convention.
+    """
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect: Dialect) -> TypeEngine[Any]:
+        if dialect.name == "postgresql":
+            from geoalchemy2 import Geography
+
+            return dialect.type_descriptor(Geography(geometry_type="LINESTRING", srid=4326))
+        return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value: Any, dialect: Dialect) -> Any:
+        if value is None or dialect.name == "postgresql":
+            return value
+        points = ", ".join(f"{lon} {lat}" for lon, lat in value)
+        return f"LINESTRING({points})"
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> Any:
+        if value is None or dialect.name == "postgresql":
+            return value
+        inner = value.strip()
+        if inner.upper().startswith("LINESTRING("):
+            inner = inner[len("LINESTRING(") : -1]
+        pairs: list[tuple[float, float]] = []
+        for pair in inner.split(","):
+            lon_s, lat_s = pair.strip().split(" ")
+            pairs.append((float(lon_s), float(lat_s)))
+        return pairs
+
+
 class GeographyPoint(TypeDecorator[Any]):
     """`geography(Point,4326)` on Postgres (docs/21 §1, §3.7 `location.geom`).
 

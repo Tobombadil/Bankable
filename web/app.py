@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import time
+from html import escape
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import QueryParams
@@ -31,9 +34,13 @@ from web.regions import Region, regions_with_data
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
     ALL_OPPORTUNITY_STATUSES,
+    ALL_PROPOSAL_LIFECYCLE_STATES,
     WITHDRAWN_PROPOSAL_STATES,
     WORLD_BBOX,
+    flatten_asset,
     flatten_opportunity,
+    flatten_org_asset_row,
+    flatten_organization,
     flatten_proposal,
     lifecycle_breakdown,
     opportunity_status_param,
@@ -43,6 +50,7 @@ from web.viewmodels import (
 )
 
 ALL_OPPORTUNITY_STATUSES_CSV = ",".join(ALL_OPPORTUNITY_STATUSES)
+ALL_PROPOSAL_LIFECYCLE_STATES_CSV = ",".join(ALL_PROPOSAL_LIFECYCLE_STATES)
 _PROPOSAL_SOURCE_IDS = {
     "us.iso.ercot.gen_queue",
     "us.iso.caiso.gen_queue",
@@ -197,6 +205,10 @@ PROPOSAL_PASSTHROUGH_FILTERS = (
     "capacity_mw[gte]",
     "capacity_mw[lte]",
     "q",
+    # ADR 0008 placement grades (docs/23 §3.1): both on `/proposals/geo` (the map) and on
+    # `/proposals` (the list) -- a region-polygon click lands on `/proposals?county_fips=...`.
+    "placement",
+    "county_fips",
 )
 OPPORTUNITY_PASSTHROUGH_FILTERS = ("kind", "jurisdiction", "technologies", "q")
 
@@ -284,6 +296,47 @@ def plants_geo_proxy(request: Request) -> JSONResponse:
         params["technology"] = qp["technology"]
     try:
         envelope = api.get("/v1/context/plants/geo", params=params)
+    except ApiError as exc:
+        return JSONResponse(exc.body, status_code=exc.status_code)
+    return JSONResponse(envelope)
+
+
+@app.get("/api/assets/geo")
+def assets_geo_proxy(request: Request) -> JSONResponse:
+    """Same-origin proxy for `GET /v1/assets/geo` (ADR 0008): forwards `bbox`, `zoom`,
+    `asset_type`, `technology` only, no cookies -- `web/static/js/map.js`'s assets layer fetches
+    this instead of `/api/context/plants/geo` (which stays, unchanged, as its own proxy for the
+    `/v1/context/plants/geo` alias route)."""
+    api = get_api(request)
+    qp = request.query_params
+    params: dict[str, str | None] = {
+        "bbox": qp.get("bbox") or WORLD_BBOX,
+        "zoom": qp.get("zoom") or "3",
+    }
+    if qp.get("asset_type"):
+        params["asset_type"] = qp["asset_type"]
+    if qp.get("technology"):
+        params["technology"] = qp["technology"]
+    try:
+        envelope = api.get("/v1/assets/geo", params=params)
+    except ApiError as exc:
+        return JSONResponse(exc.body, status_code=exc.status_code)
+    return JSONResponse(envelope)
+
+
+#: `web/static/js/map.js` fetches regions in one batch per level (docs/23 §3.1 `ids` csv, max
+#: 500); cached client-side for the page's session, not here -- this proxy is a stateless
+#: pass-through, forwarding only `level`/`ids` (never cookies), matching every other geo proxy in
+#: this module. `/v1/geo/regions` is "cacheable for a day" per docs/23; no separate server-side
+#: cache is added here, since `StaticFiles`/the API's own caching is where that would belong, not
+#: a same-origin relay with no storage of its own.
+@app.get("/api/geo/regions")
+def geo_regions_proxy(request: Request) -> JSONResponse:
+    api = get_api(request)
+    qp = request.query_params
+    params: dict[str, str | None] = {"level": qp.get("level"), "ids": qp.get("ids")}
+    try:
+        envelope = api.get("/v1/geo/regions", params=params)
     except ApiError as exc:
         return JSONResponse(exc.body, status_code=exc.status_code)
     return JSONResponse(envelope)
@@ -441,12 +494,106 @@ def opportunity_detail(request: Request, slug: str) -> HTMLResponse:
     )
 
 
+def _resolve_asset_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | None:
+    """Same slug-filter lookup as `_resolve_proposal_by_slug` (ADR 0008: `asset` carries a
+    `slug`, `docs/21` §3.22)."""
+    envelope = api.get("/v1/assets", params={"slug": slug, "limit": 1})
+    entities: list[dict[str, Any]] = envelope["data"]
+    return entities[0] if entities else None
+
+
+def _resolve_organization(api: ApiClient, ident: str) -> dict[str, Any] | None:
+    """Company pages are linked to from two places that may hand this route different kinds of
+    identifier: `/search`'s organisations section links by slug (matching every other search
+    result on this site), while `asset_detail.html`'s owners table links by the organisation
+    `public_id` `docs/23`'s `/v1/assets/{public_id}` owners embed is documented to carry (that
+    table row does not promise a `slug` on each owner). Tried as a slug first (the common case,
+    one list call); a miss falls back to a direct `public_id` lookup rather than resolving every
+    owner row's slug up front for a page that may render dozens of them.
+    """
+    envelope = api.get("/v1/organizations", params={"slug": ident, "limit": 1})
+    entities: list[dict[str, Any]] = envelope["data"]
+    if entities:
+        return entities[0]
+    try:
+        result: dict[str, Any] = api.get(f"/v1/organizations/{ident}")["data"]
+        return result
+    except ApiNotFound:
+        return None
+
+
+@app.get("/assets/{slug}", response_class=HTMLResponse)
+def asset_detail(request: Request, slug: str) -> HTMLResponse:
+    """ADR 0008 asset page: identity, attributes, owners and nearby exact-grade proposals."""
+    api = get_api(request)
+    entity = _resolve_asset_by_slug(api, slug)
+    if entity is None:
+        return not_found_response(request, "asset")
+    record = flatten_asset(entity)
+    try:
+        nearby_env = api.get(f"/v1/assets/{record['public_id']}/nearby-proposals")
+        nearby = [flatten_proposal(e) for e in nearby_env["data"]]
+    except ApiError:
+        nearby = []
+    return templates.TemplateResponse(
+        request,
+        "asset_detail.html",
+        {
+            "record": record,
+            "nearby_proposals": nearby,
+            "provenance_rows": provenance_panel_rows(api, record["provenance"]),
+        },
+    )
+
+
+@app.get("/organizations/{ident}", response_class=HTMLResponse)
+def organization_detail(request: Request, ident: str) -> HTMLResponse:
+    """ADR 0008 company page: assets (through `asset_owner`, with role/share), proposals,
+    opportunities, provenance."""
+    api = get_api(request)
+    entity = _resolve_organization(api, ident)
+    if entity is None:
+        return not_found_response(request, "organisation")
+    record = flatten_organization(entity)
+    public_id = record["public_id"]
+    try:
+        assets_env = api.get(f"/v1/organizations/{public_id}/assets", params={"limit": 100})
+        assets = [flatten_org_asset_row(r) for r in assets_env["data"]]
+    except ApiError:
+        assets = []
+    try:
+        proposals_env = api.get(f"/v1/organizations/{public_id}/proposals", params={"limit": 100})
+        proposals = [flatten_proposal(e) for e in proposals_env["data"]]
+    except ApiError:
+        proposals = []
+    try:
+        opportunities_env = api.get(
+            f"/v1/organizations/{public_id}/opportunities",
+            params={"limit": 100, "status": ALL_OPPORTUNITY_STATUSES_CSV},
+        )
+        opportunities = [flatten_opportunity(e) for e in opportunities_env["data"]]
+    except ApiError:
+        opportunities = []
+    return templates.TemplateResponse(
+        request,
+        "organization_detail.html",
+        {
+            "record": record,
+            "assets": assets,
+            "proposals": proposals,
+            "opportunities": opportunities,
+            "provenance_rows": provenance_panel_rows(api, record["provenance"]),
+        },
+    )
+
+
 @app.get("/search", response_class=HTMLResponse)
 def search(request: Request) -> HTMLResponse:
     api = get_api(request)
     q = request.query_params.get("q", "").strip()
     proposals: list[dict[str, Any]] = []
     opportunities: list[dict[str, Any]] = []
+    organizations: list[dict[str, Any]] = []
     if q:
         proposals_env = api.get("/v1/proposals", params={"q": q, "limit": 50})
         proposals = [flatten_proposal(e) for e in proposals_env["data"]]
@@ -454,8 +601,13 @@ def search(request: Request) -> HTMLResponse:
             "/v1/opportunities", params={"q": q, "limit": 50, "status": ALL_OPPORTUNITY_STATUSES_CSV}
         )
         opportunities = [flatten_opportunity(e) for e in opportunities_env["data"]]
+        # ADR 0008 task item 3: an "Organisations" section on /search.
+        organizations_env = api.get("/v1/organizations", params={"q": q, "limit": 50})
+        organizations = [flatten_organization(e) for e in organizations_env["data"]]
     return templates.TemplateResponse(
-        request, "search.html", {"q": q, "proposals": proposals, "opportunities": opportunities}
+        request,
+        "search.html",
+        {"q": q, "proposals": proposals, "opportunities": opportunities, "organizations": organizations},
     )
 
 
@@ -501,6 +653,83 @@ def attribution(request: Request) -> HTMLResponse:
     )
 
 
+#: docs/23 §3.1 "Detail pages visible on the public tier only; regenerated hourly with the
+#: delayed view" -- "regenerated hourly" describes a would-be cache in front of this route, not
+#: this route's own logic: every call here reads the live API, which already applies the delay
+#: and tier gating itself (the same visibility predicate every other page in this module reads
+#: through), so the sitemap is honest on every request with no separate cache of its own.
+#: "capped at a sensible page count" (task brief): 25 pages of 200 rows is 5,000 URLs per
+#: resource, generous for this data set's actual size (docs/adr/0008 ~7,700 active proposals) while
+#: bounding one request's worst case to 100 upstream calls total across the four resources.
+SITEMAP_MAX_PAGES_PER_RESOURCE = 25
+SITEMAP_PAGE_SIZE = 200
+SITEMAP_CACHE_SECONDS = 3600
+
+
+def _sitemap_paths_for(
+    api: ApiClient, path: str, url_prefix: str, *, extra_params: dict[str, str] | None = None
+) -> list[str]:
+    paths: list[str] = []
+    cursor: str | None = None
+    for _ in range(SITEMAP_MAX_PAGES_PER_RESOURCE):
+        params: dict[str, str | None] = {"limit": str(SITEMAP_PAGE_SIZE), "cursor": cursor}
+        params.update(extra_params or {})
+        envelope = api.get(path, params=params)
+        for row in envelope["data"]:
+            slug = row.get("slug")
+            if slug:
+                paths.append(f"{url_prefix}/{slug}")
+        page = envelope.get("page") or {}
+        if not page.get("has_more"):
+            break
+        cursor = page.get("next_cursor")
+        if cursor is None:
+            break
+    return paths
+
+
+def _render_sitemap_xml(base_url: str, paths: list[str]) -> str:
+    urls = "".join(f"<url><loc>{escape(base_url + p)}</loc></url>" for p in paths)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls + "</urlset>"
+    )
+
+
+@app.get("/sitemap.xml")
+def sitemap(request: Request) -> Response:
+    """Task item 3: proposals, opportunities, assets and organisations, cursor-paginated per
+    resource and capped (see `SITEMAP_MAX_PAGES_PER_RESOURCE`). No such route existed before this
+    task (`docs/23` §3.1's `/sitemap.xml`/`/sitemaps/proposals-{n}.xml` split-by-resource-file
+    shape is not implemented here -- one file covering all four resources is what "if none exists,
+    create one ... and say so in the CHANGELOG line" asks for). A resource whose list call errors
+    is skipped rather than failing the whole sitemap."""
+    api = get_api(request)
+    base = str(request.base_url).rstrip("/")
+    # Rendering costs up to 100 sequential upstream list calls (web audit 2026-09-18: an
+    # uncached amplifier on a public route, and a connection reset mid-way 500ed the whole
+    # response). Cache the rendered XML per base URL for an hour; the sitemap changes daily at most.
+    cache: dict[str, tuple[float, str]] = request.app.state.__dict__.setdefault("sitemap_cache", {})
+    cached = cache.get(base)
+    if cached and time.monotonic() - cached[0] < SITEMAP_CACHE_SECONDS:
+        return Response(content=cached[1], media_type="application/xml")
+    paths: list[str] = ["/", "/proposals", "/opportunities", "/search"]
+    resources: list[tuple[str, str, dict[str, str]]] = [
+        ("/v1/proposals", "/proposals", {"lifecycle_state": ALL_PROPOSAL_LIFECYCLE_STATES_CSV}),
+        ("/v1/opportunities", "/opportunities", {"status": ALL_OPPORTUNITY_STATUSES_CSV}),
+        ("/v1/assets", "/assets", {}),
+        ("/v1/organizations", "/organizations", {}),
+    ]
+    for api_path, prefix, extra in resources:
+        try:
+            paths += _sitemap_paths_for(api, api_path, prefix, extra_params=extra)
+        except (ApiError, httpx.HTTPError):
+            continue  # one resource's list call failing must not blank the whole sitemap
+    xml = _render_sitemap_xml(base, paths)
+    cache[base] = (time.monotonic(), xml)
+    return Response(content=xml, media_type="application/xml")
+
+
 @app.get("/health")
 def health(request: Request) -> dict[str, Any]:
     api = get_api(request)
@@ -516,5 +745,13 @@ def health(request: Request) -> dict[str, Any]:
 
 @app.exception_handler(ApiNotFound)
 async def api_not_found_handler(request: Request, _exc: ApiNotFound) -> HTMLResponse:
-    kind = "opportunity" if "/opportunities" in request.url.path else "proposal"
+    path = request.url.path
+    if "/opportunities" in path:
+        kind = "opportunity"
+    elif "/assets" in path:
+        kind = "asset"
+    elif "/organizations" in path:
+        kind = "organisation"
+    else:
+        kind = "proposal"
     return not_found_response(request, kind)

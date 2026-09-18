@@ -776,3 +776,111 @@ map covers the API vocabulary exactly, both ways. From zoom 9 a three-letter fam
 each square (`plant-labels`), the same convention as the proposal markers; below that zoom the colour and
 the drawer carry the type. Measured live (2026-09-15, 14,659 plants): `plant_technology=biomass` returns
 582 plants (527 biomass, 55 waste).
+
+## ADR 0008 — placement grades and the region layer (2026-09-18, frontend-developer)
+
+**`GET /v1/proposals/geo`, `GET /v1/assets/geo` and `GET /v1/geo/regions` had not landed on
+`services/api` while this was built** (the parallel backend lane's own ADR 0008 migration was
+mid-flight in this same checkout: `services/db/models.py`'s `BuiltPlant` → `Asset` rename had
+landed, but `services/api/context_routes.py`/`context_geo.py` still referenced the old column
+names — `generator_count`, `earliest_operating_year`, `source_plant_id` — so importing
+`services.api.app` raised `AttributeError` at collection time for every web test that mounts it
+in-process, `web/test_e2e.py` included). `web/test_asset_pages.py` and the new proxy tests in
+`web/test_map_layers.py`'s style drive a hand-written fake `Transport` instead, coded against
+`docs/23-api-spec-outline.md` §3.1's table rows, the same pattern every other geo proxy test here
+already uses.
+
+**Placement control.** A "Placement" `<fieldset>` (three checkboxes: Exact, Region, None — a
+`<fieldset>`/`<legend>` rather than three independent `filter-field--checkbox`s, so assistive tech
+gets a group label for a related set of checkboxes, docs/31 §7) writes `placement=` into the URL
+as a csv in `exact,region,none` order and sends it to `/api/proposals/geo` unconditionally
+(`geoUrl()`), rather than only when non-default — the URL-reflects-view rule wants every load to
+round-trip, not leave the default ambiguous with "not yet applied". Default: Exact and Region
+checked, None unchecked, matching the API's own stated default. "None" is deliberately a no-op on
+what is fetched or drawn: a none-grade proposal has no geometry either way (ADR 0008 §3), so its
+only observable effect is whether `totals.unplaced` — the sole source of the "Unplaced" note text
+now (previously `meta.unplaced_count`, which this task retired) — is populated. Each checkbox
+change beacons the existing `map.layer_toggled` event with `layer: "placement"` (no new event name
+introduced, per the task brief).
+
+**Region rendering.** `feature_kind: region` features from `/v1/proposals/geo` carry a
+representative point (for an always-available count label) plus `region_level`/`region_id`; their
+polygons come from a separate proxy, `GET /api/geo/regions` (forwards `level`/`ids` only, no
+cookies — a stateless relay, no server-side cache added since docs/23 already calls the upstream
+route "cacheable for a day"). `map.js` batches one request per `region_level` present in the
+current viewport (`ensureRegionPolygons`) and caches every polygon it receives for the life of the
+tab (`regionPolygonCache`, keyed `level:id`) — "cached in the page for the session" — so panning
+back over an already-seen region costs nothing. One geojson source ("regions") holds both the
+polygon features (once fetched) and the point features (always), with `fill`/`outline` layers
+filtered to `["geometry-type"] == "Polygon"` and the count-label `symbol` layer filtered to
+`"Point"`, so a label appears immediately and the fill catches up when its polygon arrives.
+Fill opacity is data-driven per feature (`region_opacity`, computed client-side as
+`0.15 + 0.55 × count⁄maxCount` across the regions currently in view) so a quiet county is still
+visible and a busy one never obscures the assets/proposals layers drawn above it. Stacking order
+(fallback → regions → assets → proposal clusters/points) falls out of insertion order alone: region
+layers are added with `beforeId: "clusters"` immediately before `addPlantsLayers()` runs with the
+same `beforeId`, and MapLibre's "insert directly below the named layer" semantics naturally push
+each later batch above the earlier one without either layer needing to know about the other — see
+the comment on `addRegionLayers()`.
+
+Hover shows name and count in the same `Popup` component the cluster tooltip uses. Click navigates
+per level: county → `/proposals?county_fips=<id>`; state → `/proposals?jurisdiction=<id>` (region
+IDs at state level are already `US-XX`); country → if a `.region-btn` quick-view button exists for
+that code (`web/regions.py`'s five-region table), that button is clicked instead (staying on the
+map, matching its own behaviour) — else `/proposals?jurisdiction=<id>`. Both `/proposals` filters
+(`county_fips`, `placement`) are new passthrough entries in `web/app.py::PROPOSAL_PASSTHROUGH_FILTERS`,
+so the list page honours a region click's query string.
+
+**Assets layer.** The existing-plants fetch now points at `GET /api/assets/geo?asset_type=...`
+(a new proxy forwarding `bbox`/`zoom`/`asset_type`/`technology`) instead of
+`/api/context/plants/geo`, which is untouched and still works (`web/test_asset_pages.py` asserts
+both). The checkbox label is now "Existing assets (EIA)"; a new "Asset type" `<select>`
+(`#mf-asset-type`) sits beside the existing "Plant type" family select, `power_plant` selected and
+the other eleven ADR 0008 asset types present but `disabled title="coming"` (no data behind them
+yet) — the URL does not persist `asset_type` (only one value is ever selectable today; nothing to
+round-trip). `feature_kind` moved from `plant`/`plant_cluster` to `asset`/`asset_cluster`
+(`dominant_asset_type` on clusters); layer/source ids (`plant-points`, `plants`, ...) were kept
+unchanged so `web/test_e2e.py`'s existing layer-visibility assertions did not need to change.
+Clicking an asset opens the same drawer, now with an "Open asset page →" link to `/assets/{slug}`
+when the feature carries one (a context-layer point that predates ADR 0008 may not).
+
+**Pages.** `/assets/{slug}` (`web/templates/asset_detail.html`) and `/organizations/{ident}`
+(`web/templates/organization_detail.html`) follow the proposal/opportunity detail pages'
+conventions: `field-grid` for scalar fields, a generic `record-table`-based attributes table
+(`_macros.html::attributes_table`, since `asset.attributes` is an arbitrary label/value bag — ADR
+0008 §4's "objective features only"), an owners/assets table linking organisations by `public_id`
+(docs/23's owners embed on `/v1/assets/{id}` is only documented to carry that, not a slug), and the
+`provenance_panel`/`attribution_line` macros. `/organizations/{ident}` resolves its path segment as
+a slug first (one `?slug=` list call, matching every other detail page here) and falls back to a
+direct `GET /v1/organizations/{id}` lookup on a miss, so both a `/search` link (by slug) and an
+asset page's owner link (by `public_id`) resolve without an owners-table N+1. `/search` gained an
+"Organisations" section (`GET /v1/organizations?q=`), only queried when `q` is set.
+
+**Sitemap.** No `/sitemap.xml` existed before this task; `web/app.py::sitemap` builds one XML file
+covering all four resources (proposals, opportunities, assets, organisations) rather than the
+per-resource-file split `docs/23` §3.1 sketches (`/sitemaps/proposals-{n}.xml`, ...), since nothing
+in this task's scope needed a file per resource yet. Each resource is cursor-paginated up to
+`SITEMAP_MAX_PAGES_PER_RESOURCE = 25` pages of 200 rows (5,000 URLs per resource, ~100 upstream
+calls worst case for the whole file) — a resource whose list call errors is skipped, not fatal to
+the rest of the sitemap. Proposals are listed across every lifecycle state
+(`ALL_PROPOSAL_LIFECYCLE_STATES`, unlike the default map/list view's active-only filter) and
+opportunities across every status, since a sitemap must reach every page the API will actually
+serve, not just the default view's subset. No caching layer was added in front of it — every
+request reads the live, already tier-/delay-gated API, which is what "regenerated hourly with the
+delayed view" describes as the eventual cache's job, not this route's.
+
+**`web/dev_up.py`.** After the plants context-layer load, `_load_ownership()` loads
+`data/normalized/context/us.eia.860.owners.parquet` through
+`services.ingest.ownership.load_owner_shares_parquet(session, path)` if the file exists — same
+optional-both-ways guard as `_load_plants_context_layer` (neither the parquet nor
+`services.ingest.ownership` existed yet while this was built; a missing file or a missing module
+is one log line each, never a failed `dev_up`).
+
+**Not done / could not verify from here:** the real end-to-end path (map → region click →
+filtered list; asset drawer → asset page) could not be exercised against a live API in this
+session, for the collection-time `AttributeError` reason above — `web/test_e2e.py`'s existing
+smoke test fails the same way (times out waiting for `/health`) with or without this task's
+changes (confirmed by re-running it against the pre-task tree). Payload sizes for the regions
+proxy could not be measured live for the same reason; `docs/adr/0008`'s own "measured facts to
+record when implemented" (row counts per asset type, placement-grade share, regions payload size)
+are for whoever lands the API side to fill in once `services/api` imports cleanly.

@@ -139,6 +139,17 @@
     sendUiEvent("map.basemap_failed", {});
   }
 
+  // ADR 0008 placement grades: the three checkboxes' allowed values, in the fixed order the URL
+  // and the API's `placement` csv both use.
+  var PLACEMENT_GRADES = ["exact", "region", "none"];
+  var DEFAULT_PLACEMENT = ["exact", "region"];
+
+  function readPlacement(params) {
+    if (!params.has("placement")) return DEFAULT_PLACEMENT.slice();
+    var raw = (params.get("placement") || "").split(",").map(function (s) { return s.trim(); });
+    return PLACEMENT_GRADES.filter(function (g) { return raw.indexOf(g) !== -1; });
+  }
+
   function readFilters() {
     var params = new URLSearchParams(window.location.search);
     var layersParam = params.get("layers") || "";
@@ -148,7 +159,11 @@
       include_withdrawn: params.get("include_withdrawn") === "1",
       layers: layersParam ? layersParam.split(",").filter(Boolean) : [],
       region: params.get("region") || "",
-      plant_technology: PLANT_FAMILY_CLASSES[params.get("plant_technology") || ""] ? params.get("plant_technology") : ""
+      plant_technology: PLANT_FAMILY_CLASSES[params.get("plant_technology") || ""] ? params.get("plant_technology") : "",
+      // Only `power_plant` has data behind it today (task item 2: the other eleven asset types
+      // are listed but disabled) -- an unrecognised or missing value always falls back to it.
+      asset_type: params.get("asset_type") === "power_plant" ? "power_plant" : "power_plant",
+      placement: readPlacement(params)
     };
   }
 
@@ -160,6 +175,10 @@
     if (filters.layers && filters.layers.length) params.set("layers", filters.layers.join(","));
     if (filters.region) params.set("region", filters.region);
     if (filters.plant_technology) params.set("plant_technology", filters.plant_technology);
+    // Always written (task item 1: "written to the URL as placement=exact,region") -- unlike the
+    // other filters above, omitting it would leave the default state ambiguous with "not yet
+    // loaded", and the URL-reflects-view rule wants every load of this page to round-trip.
+    params.set("placement", (filters.placement && filters.placement.length ? filters.placement : DEFAULT_PLACEMENT).join(","));
     var qs = params.toString();
     var url = window.location.pathname + (qs ? "?" + qs : "");
     window.history.replaceState(null, "", url);
@@ -182,28 +201,82 @@
     if (filters.technology) params.set("technology", filters.technology);
     if (filters.jurisdiction) params.set("jurisdiction", filters.jurisdiction);
     if (filters.include_withdrawn) params.set("include_withdrawn", "1");
+    // ADR 0008 placement grades (docs/23 §3.1): csv of exact|region|none, API default
+    // "exact,region" -- sent explicitly rather than relying on that default so the map always
+    // requests exactly what the three checkboxes show, including when "none" is checked (its
+    // only visible effect: `totals.unplaced` is then populated, see `render()`'s unplaced note).
+    params.set("placement", (filters.placement && filters.placement.length ? filters.placement : DEFAULT_PLACEMENT).join(","));
     return "/api/proposals/geo?" + params.toString();
   }
 
-  // Task item 2: the `technology` filter applies to plants too; jurisdiction/include_withdrawn do
-  // not (plants have no lifecycle state and this context layer is US-only today).
-  function plantsGeoUrl(filters, bbox, zoom) {
+  // ADR 0008 task item 2: the existing-plants fetch now points at `/v1/assets/geo` (asset_type
+  // defaults to power_plant, the only type with data behind it today); the `technology` filter
+  // still applies within that type via the plant-type family control.
+  function assetsGeoUrl(filters, bbox, zoom) {
     var params = new URLSearchParams();
     params.set("bbox", bbox.join(","));
     params.set("zoom", String(zoom));
+    params.set("asset_type", filters.asset_type || "power_plant");
     // The plant-type filter is its own control (`plant_technology`, a family), sent to the API as
     // that family's classify_tech classes; the proposals technology filter does not apply here.
     if (filters.plant_technology && PLANT_FAMILY_CLASSES[filters.plant_technology]) {
       params.set("technology", PLANT_FAMILY_CLASSES[filters.plant_technology].join(","));
     }
-    return "/api/context/plants/geo?" + params.toString();
+    return "/api/assets/geo?" + params.toString();
   }
 
+  // `/api/geo/regions` (ADR 0008): batched per level, cached for the page's session -- a region
+  // polygon is fetched once per (level, region_id) and never re-requested for the life of the tab.
+  var regionPolygonCache = {}; // "level:region_id" -> GeoJSON geometry
+
+  function ensureRegionPolygons(regionFeatures, done) {
+    var missingByLevel = {};
+    regionFeatures.forEach(function (f) {
+      var level = f.properties.region_level;
+      var id = f.properties.region_id;
+      var key = level + ":" + id;
+      if (regionPolygonCache[key]) return;
+      missingByLevel[level] = missingByLevel[level] || [];
+      if (missingByLevel[level].indexOf(id) === -1) missingByLevel[level].push(id);
+    });
+    var levels = Object.keys(missingByLevel);
+    if (!levels.length) { done(); return; }
+    var remaining = levels.length;
+    levels.forEach(function (level) {
+      // docs/23 §3.1: `ids` csv, max 500 -- one request per level, capped defensively even
+      // though a single viewport is never expected to name more than a handful of regions.
+      var ids = missingByLevel[level].slice(0, 500);
+      fetch("/api/geo/regions?level=" + encodeURIComponent(level) + "&ids=" + encodeURIComponent(ids.join(",")))
+        .then(function (r) { return r.json(); })
+        .then(function (envelope) {
+          (envelope.data && envelope.data.features || []).forEach(function (feat) {
+            var key = level + ":" + (feat.properties.region_id != null ? feat.properties.region_id : feat.properties.id);
+            regionPolygonCache[key] = feat.geometry;
+          });
+        })
+        .catch(function () { /* this batch's polygons stay unrendered until a future fetch succeeds */ })
+        .then(function () { remaining -= 1; if (remaining === 0) done(); });
+    });
+  }
+
+  // Every value interpolated into markup below comes from upstream registers (queue names,
+  // operator names, source URLs), so it is untrusted: escape text, and only allow http(s) or
+  // site-relative URLs in href attributes (web audit 2026-09-18, DOM injection in the drawer).
+  function esc(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function safeUrl(value) {
+    var v = String(value == null ? "" : value).trim();
+    if (/^https?:\/\//i.test(v) || (v.charAt(0) === "/" && v.charAt(1) !== "/" && v.charAt(1) !== "\\")) return esc(v);
+    return "#";
+  }
   function chipHtml(family, label) {
     return (
-      '<span class="chip chip--' + family + '">' +
-      '<svg class="chip__icon" aria-hidden="true" width="12" height="12"><use href="#icon-' + family + '"></use></svg>' +
-      '<span class="chip__label">' + (label || "unknown").replace(/_/g, " ") + "</span></span>"
+      '<span class="chip chip--' + esc(family) + '">' +
+      '<svg class="chip__icon" aria-hidden="true" width="12" height="12"><use href="#icon-' + esc(family) + '"></use></svg>' +
+      '<span class="chip__label">' + esc((label || "unknown").replace(/_/g, " ")) + "</span></span>"
     );
   }
 
@@ -219,8 +292,18 @@
   plantsToggle.checked = filters.layers.indexOf("plants") !== -1;
   var plantTypeSelect = document.getElementById("mf-plant-technology");
   var plantTypeField = document.getElementById("mf-plant-technology-field");
+  var assetTypeSelect = document.getElementById("mf-asset-type");
   plantTypeSelect.value = filters.plant_technology;
+  assetTypeSelect.value = filters.asset_type;
   plantTypeField.hidden = !plantsToggle.checked;
+  var placementCheckboxes = {
+    exact: document.getElementById("mf-placement-exact"),
+    region: document.getElementById("mf-placement-region"),
+    none: document.getElementById("mf-placement-none")
+  };
+  PLACEMENT_GRADES.forEach(function (grade) {
+    placementCheckboxes[grade].checked = filters.placement.indexOf(grade) !== -1;
+  });
   writeFilters(filters);
 
   var colors = familyColors();
@@ -229,6 +312,12 @@
     land: cssVar("--map-land") || "#eae6da",
     water: cssVar("--map-water") || "#cfe0e8",
     border: cssVar("--map-border") || "#b9c4c9"
+  };
+  // ADR 0008 region features: a single hue (not a status-family colour, same reasoning as the
+  // plant palette) so a highlighted region never reads as a lifecycle state.
+  var regionColors = {
+    fill: cssVar("--region-fill") || "#5b6b7c",
+    line: cssVar("--region-line") || "#5b6b7c"
   };
 
   // Same-origin fallback basemap (docs/04 D-13, web/README.md "Map basemap"): the tile/pmtiles
@@ -301,7 +390,7 @@
   }
 
   var latestCollection = { type: "FeatureCollection", features: [], totals: {} };
-  var latestMeta = {};
+  var latestMeta = {};  // the envelope's `meta` (unplaced_count lives there, not in totals)
   var latestPlantsTotal = 0;
 
   function currentBbox() {
@@ -317,37 +406,78 @@
   var unplacedNote = document.getElementById("unplaced-note");
   var plantsLegend = document.getElementById("plants-legend");
 
+  // ADR 0008 region features: rebuilds the "regions" source from the region-kind features in the
+  // latest proposals/geo response, once their polygons are cached (`ensureRegionPolygons`). Every
+  // region also contributes a Point feature (its representative point, always available
+  // immediately) so the count label can render before the polygon fetch finishes; fill/outline
+  // layers below are filtered to `["geometry-type"] == "Polygon"`, the label layer to `"Point"`.
+  function updateRegionsLayer(regionFeatures) {
+    if (!map.getSource("regions")) return;
+    var maxCount = 0;
+    regionFeatures.forEach(function (f) { maxCount = Math.max(maxCount, f.properties.count || 0); });
+    var out = [];
+    regionFeatures.forEach(function (f) {
+      var key = f.properties.region_level + ":" + f.properties.region_id;
+      var ratio = maxCount > 0 ? (f.properties.count || 0) / maxCount : 1;
+      // 0.15..0.7 fill-opacity range: even the smallest region in view stays visible, the busiest
+      // never obscures the layers drawn above it (proposals points/clusters, the assets layer).
+      var opacity = 0.15 + ratio * 0.55;
+      out.push({
+        type: "Feature", geometry: f.geometry,
+        properties: { region_level: f.properties.region_level, region_id: f.properties.region_id, name: f.properties.name, count: f.properties.count, region_opacity: opacity }
+      });
+      var polygon = regionPolygonCache[key];
+      if (polygon) {
+        out.push({
+          type: "Feature", geometry: polygon,
+          properties: { region_level: f.properties.region_level, region_id: f.properties.region_id, name: f.properties.name, count: f.properties.count, region_opacity: opacity }
+        });
+      }
+    });
+    map.getSource("regions").setData({ type: "FeatureCollection", features: out });
+  }
+
   function refetch() {
     fetch(geoUrl(filters, currentBbox(), currentZoom()))
       .then(function (r) { return r.json(); })
       .then(function (envelope) {
         var fc = envelope.data;
+        var pointFeatures = [];
+        var regionFeatures = [];
         fc.features.forEach(function (f) {
+          if (f.properties.feature_kind === "region") {
+            regionFeatures.push(f);
+            return;
+          }
           if (f.properties.feature_kind === "cluster") {
             f.properties.family = familyOf(f.properties.dominant_lifecycle_state);
           } else {
             f.properties.family = familyOf(f.properties.lifecycle_state);
             f.properties.tech_label = techLabel(f.properties.technology);
           }
+          pointFeatures.push(f);
         });
         latestCollection = fc;
         latestMeta = envelope.meta || {};
-        if (map.getSource("proposals")) map.getSource("proposals").setData(fc);
+        if (map.getSource("proposals")) {
+          map.getSource("proposals").setData({ type: "FeatureCollection", features: pointFeatures });
+        }
+        ensureRegionPolygons(regionFeatures, function () { updateRegionsLayer(regionFeatures); });
         render();
       })
       .catch(function () {
         // docs/31 §6 error state: keep the last-known view rather than blanking it.
       });
-    if (plantsToggle.checked) refetchPlants();
+    if (plantsToggle.checked) refetchAssets();
   }
 
-  function refetchPlants() {
-    fetch(plantsGeoUrl(filters, currentBbox(), currentZoom()))
+  function refetchAssets() {
+    fetch(assetsGeoUrl(filters, currentBbox(), currentZoom()))
       .then(function (r) { return r.json(); })
       .then(function (envelope) {
         var fc = envelope.data;
         fc.features.forEach(function (f) {
-          if (f.properties.feature_kind === "plant_cluster") {
+          if (f.properties.feature_kind === "asset_cluster") {
             f.properties.plant_family = plantFamilyOf(f.properties.dominant_technology);
           } else {
             f.properties.plant_family = plantFamilyOf(f.properties.technology);
@@ -371,7 +501,7 @@
     countEl.removeAttribute("aria-hidden");
 
     var individual = latestCollection.features.filter(function (f) {
-      return f.properties.feature_kind !== "cluster";
+      return f.properties.feature_kind !== "cluster" && f.properties.feature_kind !== "region";
     });
     listEl.innerHTML = "";
     if (totals.clustered) {
@@ -402,7 +532,12 @@
     }
     liveRegion.textContent = liveText;
 
-    var unplacedCount = latestMeta.unplaced_count || 0;
+    // ADR 0008: "none" grade (no usable location) is counted only in `totals.unplaced`, never
+    // drawn -- checking the "None" placement checkbox has no effect on what is fetched or drawn
+    // (a none-grade proposal has no geometry either way); its only visible effect is whether this
+    // total is requested from the API at all, which is exactly the "count text" the task brief
+    // says it is limited to.
+    var unplacedCount = Number(latestMeta.unplaced_count || (latestCollection.totals || {}).unplaced || 0);
     if (unplacedCount > 0) {
       unplacedNote.hidden = false;
       unplacedNote.textContent = "Unplaced (" + unplacedCount + "): no usable county or state on these sources' records; view them in the list instead of on the map.";
@@ -496,6 +631,63 @@
     } else {
       addRasterBasemap("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
     }
+  }
+
+  // ---- ADR 0008 region features (placement grade "region") ----
+  // Added below "clusters" (beforeId), then `addPlantsLayers()` runs next with the same beforeId
+  // -- each subsequent `addLayer(..., "clusters")` call lands directly below "clusters" and above
+  // whatever was already inserted there, so the final bottom-to-top order is: fallback, regions,
+  // assets, proposal clusters/points. That satisfies "region polygons draw beneath exact points
+  // and clusters and beneath the assets layer" without the two layers needing to know about each
+  // other's existence.
+  function addRegionLayers() {
+    map.addSource("regions", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({
+      id: "region-fill", type: "fill", source: "regions",
+      filter: ["==", ["geometry-type"], "Polygon"],
+      paint: { "fill-color": regionColors.fill, "fill-opacity": ["get", "region_opacity"] }
+    }, "clusters");
+    map.addLayer({
+      id: "region-outline", type: "line", source: "regions",
+      filter: ["==", ["geometry-type"], "Polygon"],
+      paint: { "line-color": regionColors.line, "line-width": 1, "line-opacity": 0.6 }
+    }, "clusters");
+    map.addLayer({
+      id: "region-labels", type: "symbol", source: "regions",
+      filter: ["==", ["geometry-type"], "Point"],
+      layout: { "text-field": ["get", "count"], "text-size": 11, "text-font": ["Noto Sans Medium"] },
+      paint: { "text-color": regionColors.line, "text-halo-color": mapColors.land, "text-halo-width": 1.5 }
+    }, "clusters");
+
+    map.on("click", "region-fill", function (e) { onRegionClick(e.features[0].properties); });
+    map.on("mouseenter", "region-fill", function (e) {
+      map.getCanvas().style.cursor = "pointer";
+      showRegionTooltip(e);
+    });
+    map.on("mouseleave", "region-fill", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
+  }
+
+  // Task item 1's click rule: county -> the filtered list; state -> the filtered list; country ->
+  // pan the map via the matching quick-view region button when this deploy has one for it (so a
+  // country click stays on the map, matching that button's own behaviour), else the filtered list.
+  function onRegionClick(p) {
+    if (p.region_level === "county") {
+      window.location.href = "/proposals?county_fips=" + encodeURIComponent(p.region_id);
+    } else if (p.region_level === "state") {
+      window.location.href = "/proposals?jurisdiction=" + encodeURIComponent(p.region_id);
+    } else {
+      var btn = document.querySelector('.region-btn[data-region="' + String(p.region_id).toLowerCase() + '"]');
+      if (btn) { btn.click(); } else { window.location.href = "/proposals?jurisdiction=" + encodeURIComponent(p.region_id); }
+    }
+  }
+
+  function showRegionTooltip(e) {
+    var p = e.features[0].properties;
+    hideTooltip();
+    tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
+      .setLngLat(e.lngLat)
+      .setHTML("<strong>" + esc(p.name || p.region_id) + "</strong><br>" + Number(p.count || 0) + " proposals")
+      .addTo(map);
   }
 
   // ---- plants context layer (task item 2) ----
@@ -597,9 +789,12 @@
         "circle-stroke-width": 2, "circle-stroke-color": colorExpr
       }
     });
-    // Plants layers are added here -- after "clusters" exists (`addLayer(..., "clusters")`
-    // requires the reference layer to already be in the style) but before the remaining
-    // proposals layers, so plants render beneath every proposals layer, clusters included.
+    // Region and plants layers are added here -- after "clusters" exists (`addLayer(...,
+    // "clusters")` requires the reference layer to already be in the style) but before the
+    // remaining proposals layers, so both render beneath every proposals layer, clusters
+    // included; region layers are added first so they end up beneath the assets layer too (see
+    // `addRegionLayers`'s comment for why insertion order alone gives that stacking).
+    addRegionLayers();
     addPlantsLayers();
     setPlantsLayerVisible(plantsToggle.checked);
     map.addLayer({
@@ -646,12 +841,12 @@
     var f = e.features[0];
     var p = f.properties;
     var counts = propObj(p.lifecycle_state_counts) || {};
-    var lines = Object.keys(counts).sort().map(function (k) { return k.replace(/_/g, " ") + " " + counts[k]; });
+    var lines = Object.keys(counts).sort().map(function (k) { return esc(k.replace(/_/g, " ")) + " " + Number(counts[k] || 0); });
     hideTooltip();
     tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
       .setLngLat(f.geometry.coordinates)
       .setHTML(
-        "<strong>" + p.count + " proposals</strong><br>" + lines.join(" &middot; ") +
+        "<strong>" + Number(p.count || 0) + " proposals</strong><br>" + lines.join(" &middot; ") +
         (p.capacity_mw_sum ? "<br>Capacity sum: " + Math.round(p.capacity_mw_sum).toLocaleString() + " MW" : "")
       )
       .addTo(map);
@@ -659,6 +854,10 @@
   function hideTooltip() { if (tooltip) { tooltip.remove(); tooltip = null; } }
 
   // ---- filters ----
+  function currentPlacement() {
+    return PLACEMENT_GRADES.filter(function (grade) { return placementCheckboxes[grade].checked; });
+  }
+
   function applyFilters() {
     filters = {
       technology: document.getElementById("mf-technology").value,
@@ -666,12 +865,15 @@
       include_withdrawn: document.getElementById("mf-include-withdrawn").checked,
       layers: filters.layers,
       region: filters.region,
-      plant_technology: plantTypeSelect.value
+      plant_technology: plantTypeSelect.value,
+      asset_type: assetTypeSelect.value || "power_plant",
+      placement: currentPlacement()
     };
     writeFilters(filters);
     refetch();
   }
   plantTypeSelect.addEventListener("change", applyFilters);
+  assetTypeSelect.addEventListener("change", applyFilters);
   document.getElementById("mf-technology").addEventListener("change", applyFilters);
   document.getElementById("mf-jurisdiction").addEventListener("change", applyFilters);
   document.getElementById("mf-include-withdrawn").addEventListener("change", applyFilters);
@@ -682,14 +884,26 @@
     writeFilters(filters);
     setPlantsLayerVisible(on);
     sendUiEvent("map.layer_toggled", { layer: "plants", on: on });
-    if (on) refetchPlants();
+    if (on) refetchAssets();
     render();
+  });
+  // Task item 1: one `map.layer_toggled` beacon per checkbox change, `layer: "placement"` --
+  // the existing allowed event name, not a new one, per the task brief.
+  PLACEMENT_GRADES.forEach(function (grade) {
+    placementCheckboxes[grade].addEventListener("change", function () {
+      applyFilters();
+      sendUiEvent("map.layer_toggled", { layer: "placement", on: placementCheckboxes[grade].checked });
+    });
   });
   document.getElementById("mf-clear").addEventListener("click", function () {
     document.getElementById("mf-technology").value = "";
     document.getElementById("mf-jurisdiction").value = "";
     document.getElementById("mf-include-withdrawn").checked = false;
     plantTypeSelect.value = "";
+    assetTypeSelect.value = "power_plant";
+    placementCheckboxes.exact.checked = true;
+    placementCheckboxes.region.checked = true;
+    placementCheckboxes.none.checked = false;
     applyFilters();
   });
 
@@ -738,46 +952,51 @@
     }
     function render(p, source) {
       body.innerHTML =
-        "<h2>" + p.name + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
+        "<h2>" + esc(p.name) + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
         "<dl class=\"drawer-fields\">" +
-        "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + (p.technology || "—") + "</dd></div>" +
-        "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? p.capacity_mw.toFixed(1) + " MW" : "—") + "</dd></div>" +
-        "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + (p.county_name || "—") + ", " + (p.state_code || "—") +
-        (p.precision_note ? " (" + p.precision_note + ")" : "") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + esc(p.technology || "—") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : "—") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + esc(p.county_name || "—") + ", " + esc(p.state_code || "—") +
+        (p.precision_note ? " (" + esc(p.precision_note) + ")" : "") + "</dd></div>" +
         "</dl>" +
         (source
           ? "<p class=\"drawer-source\"><span class=\"drawer-source__label\">Source</span>" +
-            "<a href=\"" + source.source_url + "\" rel=\"noopener nofollow\">" + source.source_name + "</a>, retrieved " +
-            "<span class=\"tnum\">" + (source.retrieved_at ? source.retrieved_at.slice(0, 10) : "unknown") + "</span></p>"
+            "<a href=\"" + safeUrl(source.source_url) + "\" rel=\"noopener nofollow\">" + esc(source.source_name) + "</a>, retrieved " +
+            "<span class=\"tnum\">" + esc(source.retrieved_at ? String(source.retrieved_at).slice(0, 10) : "unknown") + "</span></p>"
           : "") +
-        "<a class=\"drawer-open-link\" href=\"" + (p.url || "#") + "\">Open full record &rarr;</a>";
+        "<a class=\"drawer-open-link\" href=\"" + safeUrl(p.url || "#") + "\">Open full record &rarr;</a>";
     }
     // Task item 2's drawer content for a plant: name, operator, technology split table, capacity,
     // first operating year, source line (name, retrieved date, licence) -- no "Open full record"
     // link, since a context-layer plant has no record page on this site.
+    // ADR 0008 task item 2: name, operator, technology, capacity, plus a link to the asset's own
+    // page when the feature carries a `slug` (an asset backed by a real `asset` row does; a
+    // context-layer feature that predates ADR 0008 may not).
     function renderPlant(p) {
       var techs = propObj(p.technologies) || {};
       var techRows = Object.keys(techs).sort().map(function (k) {
-        return "<div class=\"drawer-fields__row\"><dt>" + k.replace(/_/g, " ") + "</dt><dd class=\"tnum\">" +
+        return "<div class=\"drawer-fields__row\"><dt>" + esc(k.replace(/_/g, " ")) + "</dt><dd class=\"tnum\">" +
           Number(techs[k]).toFixed(1) + " MW</dd></div>";
       }).join("");
       var source = propObj(p.source);
+      var commissionedYear = p.commissioned_year || p.earliest_operating_year;
       body.innerHTML =
-        "<h2>" + p.name + "</h2>" +
-        "<p class=\"reuse-badge\">Existing plant &middot; " + (PLANT_FAMILY_NAME[plantFamilyOf(p.technology)] || "Other") + "</p>" +
+        "<h2>" + esc(p.name) + "</h2>" +
+        "<p class=\"reuse-badge\">Existing asset &middot; " + esc(PLANT_FAMILY_NAME[plantFamilyOf(p.technology)] || "Other") + "</p>" +
         "<dl class=\"drawer-fields\">" +
-        "<div class=\"drawer-fields__row\"><dt>Operator</dt><dd>" + (p.operator_name || "—") + "</dd></div>" +
-        (techRows || "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + (p.technology || "—") + "</dd></div>") +
+        "<div class=\"drawer-fields__row\"><dt>Operator</dt><dd>" + esc(p.operator_name || "—") + "</dd></div>" +
+        (techRows || "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + esc(p.technology || "—") + "</dd></div>") +
         "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : "—") + "</dd></div>" +
-        "<div class=\"drawer-fields__row\"><dt>First operating year</dt><dd class=\"tnum\">" + (p.earliest_operating_year || "—") + "</dd></div>" +
-        "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + (p.county_name || "—") + ", " + (p.state_code || "—") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>First operating year</dt><dd class=\"tnum\">" + esc(commissionedYear || "—") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + esc(p.county_name || "—") + ", " + esc(p.state_code || "—") + "</dd></div>" +
         "</dl>" +
         (source
           ? "<p class=\"drawer-source\"><span class=\"drawer-source__label\">Source</span>" +
-            "<a href=\"" + source.source_url + "\" rel=\"noopener nofollow\">" + source.source_name + "</a>, retrieved " +
-            "<span class=\"tnum\">" + (source.retrieved_at ? source.retrieved_at.slice(0, 10) : "unknown") + "</span>" +
-            (source.licence_name ? " &middot; " + source.licence_name : "") + "</p>"
-          : "");
+            "<a href=\"" + safeUrl(source.source_url) + "\" rel=\"noopener nofollow\">" + esc(source.source_name) + "</a>, retrieved " +
+            "<span class=\"tnum\">" + esc(source.retrieved_at ? String(source.retrieved_at).slice(0, 10) : "unknown") + "</span>" +
+            (source.licence_name ? " &middot; " + esc(source.licence_name) : "") + "</p>"
+          : "") +
+        (p.slug ? "<a class=\"drawer-open-link\" href=\"/assets/" + encodeURIComponent(String(p.slug)) + "\">Open asset page &rarr;</a>" : "");
     }
     return { open: open, close: close, render: render, renderPlant: renderPlant };
   }

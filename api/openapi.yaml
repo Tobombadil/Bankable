@@ -296,6 +296,7 @@ paths:
         - $ref: '#/components/parameters/Iso'
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
+        - $ref: '#/components/parameters/Placement'
         - $ref: '#/components/parameters/SponsorId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
@@ -334,12 +335,20 @@ paths:
       summary: Map payload — clustered proposals within a bounding box
       description: |
         Returns a GeoJSON `FeatureCollection` for the viewport (US-104). Accepts every filter of `GET /v1/proposals`
-        so list, map and feed share one filter grammar (docs/04 D-4). Clustering is server-side by `zoom`
-        (docs/04 D-10): each cluster feature carries `count`, `lifecycle_state_counts`, `technology_counts`,
-        `capacity_mw_sum` and its own `bbox`; below the split threshold (≤ 500 visible records) individual
-        `proposal` features are returned. Placement precedence (docs/04 D-8): `precision = exact` → point;
-        `county_centroid` → point at the centroid, marked; state only → a `state_aggregate` feature;
-        no geography → counted in `meta.unplaced_count`, never dropped.
+        so list, map and feed share one filter grammar (docs/04 D-4).
+
+        **Placement grades (ADR 0008, docs/21 §3.7), derived from `location.precision`, never stored:**
+        `exact` → `exact` (drawn as a point/cluster, joinable to assets); `county_centroid`, `state_centroid`,
+        `country_centroid` → `region` (drawn as a `feature_kind: region` feature — `region_level`, `region_id`
+        [`county_fips` / `state_code` / `country`], `name`, `count`, `lifecycle_state_counts`, `technology_counts`,
+        `capacity_mw_sum`; the geometry is the region's representative point, never a polygon — the filled polygon a
+        client draws comes from `GET /v1/geo/regions`, keyed by `region_id`); `unknown` → `none` (never drawn,
+        counted in `meta.unplaced_count` only). `exact`-grade proposals cluster server-side by `zoom` (docs/04
+        D-10) below the split threshold (≤ 500 visible records); above it, `cluster` features. The `placement`
+        filter (csv of `exact,region,none`, default `exact,region` here) controls which grades render as features
+        — it never changes `meta.unplaced_count`, `totals.records`, `lifecycle_state_counts` or `technology_counts`,
+        which always cover every visible record matching the other filters. `county_fips` filters records to the
+        listed county FIPS codes (any placement grade).
 
         **Restricted-precision rule (docs/04 D-9, US-104 AC3).** A record whose geometry provenance is a source with
         `allows_raw_publication = false` or `reuse_class ∈ {restricted, unknown}` never renders an exact point on a
@@ -364,6 +373,7 @@ paths:
         - $ref: '#/components/parameters/Iso'
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
+        - $ref: '#/components/parameters/Placement'
         - $ref: '#/components/parameters/SponsorId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
@@ -1270,20 +1280,214 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  # ───────────────────────────────────── Assets (docs/21 §3.22-§3.23, ADR 0008) ─────────────────────────────────────
+  /v1/assets:
+    get:
+      operationId: listAssets
+      tags: [Assets]
+      summary: List assets
+      description: >
+        Registry-sourced infrastructure with identity (ADR 0008): power plants, pipelines, storage and the other
+        eleven asset types (docs/21 §3.22). No lag, no tier gating — every source in scope this sprint is public
+        domain or CC BY. `q` matches name, operator name, or an owning/operating organisation's name.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-203]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/AssetType'
+        - $ref: '#/components/parameters/Technology'
+        - $ref: '#/components/parameters/StateCode'
+        - $ref: '#/components/parameters/AssetOrganizationFilter'
+        - $ref: '#/components/parameters/SlugFilter'
+      responses:
+        '200':
+          description: A page of assets inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/assets/geo:
+    get:
+      operationId: getAssetsGeo
+      tags: [Map, Assets]
+      summary: Map payload — clustered assets within a bounding box
+      description: >
+        Same envelope and clustering contract as `GET /v1/proposals/geo` (docs/04 D-10), over `asset` instead of
+        `proposal`: below the split threshold (≤ 500 visible) individual `asset` features are returned, each
+        carrying `dominant_asset_type` on clusters above it. No lag, no tier gating.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/Bbox'
+        - $ref: '#/components/parameters/Zoom'
+        - $ref: '#/components/parameters/AssetType'
+        - $ref: '#/components/parameters/Technology'
+        - name: country
+          in: query
+          description: ISO 3166-1 alpha-2; comma-separated for OR.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              pattern: '^[A-Z]{2}$'
+      responses:
+        '200':
+          description: Clustered asset features for the viewport inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetGeoResponse'
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/AssetGeoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/assets/{public_id}:
+    parameters:
+      - $ref: '#/components/parameters/AssetPublicId'
+    get:
+      operationId: getAsset
+      tags: [Assets]
+      summary: Asset detail
+      description: Canonical fields, `attributes` (the type's objective feature set only), and `owners[]` (docs/21 §3.23).
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-203]
+      security: *sec_public
+      responses:
+        '200':
+          description: The asset inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/assets/{public_id}/nearby-proposals:
+    parameters:
+      - $ref: '#/components/parameters/AssetPublicId'
+    get:
+      operationId: listAssetNearbyProposals
+      tags: [Assets, Proposals, Map]
+      summary: Exact-grade proposals near this asset
+      description: >
+        Proposals whose `location.precision = exact` (ADR 0008: region-grade and none-grade proposals are never
+        returned here) within `radius_km` of the asset's point, public-tier visibility rules applied, nearest first.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-203]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/RadiusKm'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Nearby proposals inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NearbyProposalsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/organizations/{public_id}/assets:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationPublicId'
+    get:
+      operationId: listOrganizationAssets
+      tags: [Organizations, Assets]
+      summary: The organisation's assets
+      description: Assets this organisation owns or operates, through `asset_owner`, with `role` and `share_pct` (docs/21 §3.23).
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-203]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: A page of the organisation's assets inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetListResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/geo/regions:
+    get:
+      operationId: getGeoRegions
+      tags: [Map]
+      summary: Region polygons for the map
+      description: >
+        `MultiPolygon` GeoJSON features for the `level` requested, from the vendored Census cartographic-boundary
+        files (county, state) and the existing country outlines (ADR 0008) — the polygon a `region`-placement
+        proposal/asset feature's `region_id` keys into. Cacheable for a day.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/RegionLevel'
+        - $ref: '#/components/parameters/RegionIds'
+      responses:
+        '200':
+          description: Region polygon features inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegionsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
   # ───────────────────────── Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14) ─────────────────────────
   /v1/context/plants/geo:
     get:
       operationId: getContextPlantsGeo
       tags: [Context]
-      summary: Map payload — existing plants beneath the proposals map
+      summary: Map payload — existing plants beneath the proposals map (alias for asset_type=power_plant)
       description: |
-        Built-infrastructure context layer (docs/00-PLAN.md decision 2026-09-14): operating plants drawn under the
-        proposals map. Every source in scope this sprint (EIA-860M) is public domain, so this is public on every
-        tier with no publish delay and no restricted-precision rule — unlike `GET /v1/proposals/geo`, a `built_plant`
-        row is never a proposal (no lifecycle, no matches, no entity resolution against queue rows, docs/21 §3.20).
-        Clustering is the same server-side grid as the proposals map (docs/04 D-10): below the split threshold
-        (≤ 500 visible plants) individual `plant` features are returned; above it, `plant_cluster` features with
-        `count`, `technology_counts`, `capacity_mw_sum` and their own `bbox`.
+        Kept for the shipped map (ADR 0008 consequence): an alias for `GET /v1/assets/geo` with `asset_type` forced
+        to `power_plant` — same response shape (`feature_kind: asset` / `asset_cluster`), same clustering contract
+        (docs/04 D-10). `asset_type` itself is not an accepted parameter here; it is what this path means, not a
+        choice. Every source in scope this sprint (EIA-860M) is public domain, so this is public on every tier with
+        no publish delay and no restricted-precision rule.
 
         Budget: ≤ 2,000 features (docs/04 D-13).
       x-tier: public
@@ -1316,15 +1520,15 @@ paths:
               pattern: '^[A-Z]{2}$'
       responses:
         '200':
-          description: Clustered plant features for the viewport inside the attribution envelope.
+          description: Clustered plant (asset) features for the viewport inside the attribution envelope.
           headers: *std_headers
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ContextPlantsGeoResponse'
+                $ref: '#/components/schemas/AssetGeoResponse'
             application/geo+json:
               schema:
-                $ref: '#/components/schemas/ContextPlantsGeoResponse'
+                $ref: '#/components/schemas/AssetGeoResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         <<: *common_errors
@@ -5170,6 +5374,74 @@ components:
         items:
           type: string
           pattern: '^[0-9]{5}$'
+    Placement:
+      name: placement
+      in: query
+      description: >-
+        Placement grade (ADR 0008, derived from `location.precision`, docs/21 §3.7): `exact`
+        (point, joinable to assets), `region` (county/state/country polygon with a count, never a
+        point), `none` (unplaced — list/search/alerts only). Comma-separated for OR. Default
+        `exact,region` on `GET /v1/proposals/geo` (controls which features are drawn, never
+        `meta.unplaced_count`, which always counts every `none`-grade record matching the other
+        filters); no default on `GET /v1/proposals` (omitted, every grade is returned).
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [exact, region, none]
+    AssetType:
+      name: asset_type
+      in: query
+      description: Asset type (docs/21 §3.22, ADR 0008); comma-separated for OR.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/AssetType'
+    AssetOrganizationFilter:
+      name: organization
+      in: query
+      description: Organisation public id (owner or operator, via `asset_owner`); comma-separated for OR.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/OrganizationPublicId'
+    RadiusKm:
+      name: radius_km
+      in: query
+      description: Search radius in kilometres. Default 25, maximum 100.
+      schema:
+        type: number
+        exclusiveMinimum: 0
+        maximum: 100
+        default: 25
+    RegionLevel:
+      name: level
+      in: query
+      required: true
+      description: Region granularity.
+      schema:
+        type: string
+        enum: [county, state, country]
+    RegionIds:
+      name: ids
+      in: query
+      description: >-
+        `region_id`s to return (`county_fips` for `level=county`, `state_code` for `level=state`,
+        ISO 3166-1 alpha-2 for `level=country`); comma-separated, at most 500. Omitted returns
+        every region at that level.
+      style: form
+      explode: false
+      schema:
+        type: array
+        maxItems: 500
+        items:
+          type: string
     SponsorId:
       name: sponsor_id
       in: query
@@ -5751,6 +6023,12 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/AnyPublicIdValue'
+    AssetPublicId:
+      name: public_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/AssetPublicId'
     RecordType:
       name: record_type
       in: path
@@ -6259,6 +6537,10 @@ components:
     SubscriptionPublicId:
       type: string
       pattern: '^subn_[0-9A-HJKMNP-TV-Z]{10,26}$'
+    AssetPublicId:
+      type: string
+      pattern: '^asset_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      examples: [asset_01J3Z8C4X1]
     AnyPublicIdValue:
       type: string
       description: |
@@ -6301,8 +6583,41 @@ components:
       enum: [point, county, state, region, service_territory]
     LocationPrecision:
       type: string
-      description: What `geom` actually means. `county_centroid` with `precision_reason = licence` is the restricted-precision rule (docs/04 D-9).
-      enum: [exact, county_centroid, state_centroid, unknown]
+      description: >-
+        What `geom` actually means. `county_centroid` with `precision_reason = licence` is the
+        restricted-precision rule (docs/04 D-9). `country_centroid` added by ADR 0008 (2026-09-18)
+        as the third region-grade precision alongside `county_centroid`/`state_centroid`.
+      enum: [exact, county_centroid, state_centroid, country_centroid, unknown]
+    PlacementGrade:
+      type: string
+      description: >-
+        Derived from `location.precision`, never stored (ADR 0008, docs/21 §3.7): `exact` ->
+        `exact`; `county_centroid`/`state_centroid`/`country_centroid` -> `region`; `unknown` ->
+        `none`.
+      enum: [exact, region, none]
+    AssetType:
+      type: string
+      description: Registry-sourced infrastructure type (docs/21 §3.22, ADR 0008).
+      enum:
+        - power_plant
+        - gas_pipeline
+        - gas_processing_plant
+        - gas_storage
+        - lng_terminal
+        - compressor_station
+        - ethanol_plant
+        - biodiesel_plant
+        - rng_project
+        - transmission_line
+        - substation
+        - refinery
+    AssetStatus:
+      type: string
+      description: The source's current operating status (docs/21 §3.22) — never a lifecycle.
+      enum: [operating, standby, retired, unknown]
+    AssetOwnerRole:
+      type: string
+      enum: [owner, operator]
     DocType:
       type: string
       enum: [filing, order, notice, rfp_document, news_article, press_release, report, other]
@@ -7706,6 +8021,39 @@ components:
             type: integer
         capacity_mw_sum:
           type: number
+    GeoRegionProperties:
+      type: object
+      description: >-
+        A region-placement group (ADR 0008, docs/21 §3.7): every visible proposal whose
+        `location.precision` is `county_centroid`, `state_centroid` or `country_centroid`,
+        grouped by `region_id`. The geometry is the region's representative point, never a
+        polygon — the filled shape comes from `GET /v1/geo/regions`.
+      required: [feature_kind, region_level, region_id, name, count, lifecycle_state_counts, technology_counts, capacity_mw_sum]
+      properties:
+        feature_kind:
+          type: string
+          const: region
+        region_level:
+          type: string
+          enum: [county, state, country]
+        region_id:
+          type: string
+          description: '`county_fips` (county), `state_code` (state), or ISO 3166-1 alpha-2 (country).'
+        name:
+          type: [string, 'null']
+        count:
+          type: integer
+          minimum: 1
+        lifecycle_state_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        technology_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        capacity_mw_sum:
+          type: number
     GeoFeature:
       type: object
       required: [type, geometry, properties]
@@ -7724,6 +8072,7 @@ components:
             - $ref: '#/components/schemas/GeoClusterProperties'
             - $ref: '#/components/schemas/GeoRecordProperties'
             - $ref: '#/components/schemas/GeoAggregateProperties'
+            - $ref: '#/components/schemas/GeoRegionProperties'
           discriminator:
             propertyName: feature_kind
             mapping:
@@ -7731,6 +8080,7 @@ components:
               proposal: '#/components/schemas/GeoRecordProperties'
               opportunity: '#/components/schemas/GeoRecordProperties'
               state_aggregate: '#/components/schemas/GeoAggregateProperties'
+              region: '#/components/schemas/GeoRegionProperties'
     GeoFeatureCollection:
       type: object
       description: RFC 7946 FeatureCollection. Up to 2,000 features.
@@ -7775,38 +8125,25 @@ components:
             data:
               $ref: '#/components/schemas/GeoFeatureCollection'
 
-    # ---------- Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14; docs/21 §3.20-§3.21) ----------
-    ContextPlantSource:
+    # ---------- Assets (docs/21 §3.22-§3.23, ADR 0008 — generalises the 2026-09-14 context layer) ----------
+    AssetGeoProperties:
       type: object
-      description: Minimal per-plant provenance (docs/21 §3.20). No `reuse_class`/`attribution_text` — every source in scope this sprint (EIA-860M) is public domain.
-      required: [source_id, source_name, source_url, retrieved_at, licence_id, licence_name]
-      properties:
-        source_id:
-          $ref: '#/components/schemas/SourceIdValue'
-        source_name:
-          type: string
-        source_url:
-          type: string
-          format: uri
-        retrieved_at:
-          type: string
-          format: date-time
-        licence_id:
-          $ref: '#/components/schemas/LicenceIdValue'
-        licence_name:
-          type: string
-    ContextPlantProperties:
-      type: object
-      description: An individual operating plant marker.
-      required: [feature_kind, name, technologies, generator_count, source]
+      description: An individual asset marker (`GET /v1/assets/geo`, and `GET /v1/context/plants/geo` forcing `asset_type=power_plant`).
+      required: [feature_kind, public_id, name, asset_type, status, technologies, source]
       properties:
         feature_kind:
           type: string
-          const: plant
+          const: asset
+        public_id:
+          $ref: '#/components/schemas/AssetPublicId'
         name:
           type: string
         operator_name:
           type: [string, 'null']
+        asset_type:
+          $ref: '#/components/schemas/AssetType'
+        status:
+          $ref: '#/components/schemas/AssetStatus'
         technology:
           type: [string, 'null']
         technology_raw:
@@ -7818,33 +8155,38 @@ components:
             type: number
         capacity_mw:
           type: [number, 'null']
-        generator_count:
-          type: integer
-          minimum: 0
-        earliest_operating_year:
+        unit_count:
+          type: [integer, 'null']
+        commissioned_year:
           type: [integer, 'null']
         state_code:
           type: [string, 'null']
         county_name:
           type: [string, 'null']
         source:
-          $ref: '#/components/schemas/ContextPlantSource'
-    ContextPlantClusterProperties:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    AssetClusterProperties:
       type: object
-      required: [feature_kind, count, technology_counts, capacity_mw_sum, bbox, expands_to_zoom]
+      required: [feature_kind, count, asset_type_counts, technology_counts, capacity_mw_sum, bbox, expands_to_zoom]
       properties:
         feature_kind:
           type: string
-          const: plant_cluster
+          const: asset_cluster
         count:
           type: integer
           minimum: 1
+        asset_type_counts:
+          type: object
+          additionalProperties:
+            type: integer
         technology_counts:
           type: object
           additionalProperties:
             type: integer
         capacity_mw_sum:
           type: number
+        dominant_asset_type:
+          $ref: '#/components/schemas/AssetType'
         dominant_technology:
           type: [string, 'null']
         bbox:
@@ -7858,7 +8200,7 @@ components:
           type: integer
           minimum: 0
           maximum: 22
-    ContextPlantFeature:
+    AssetGeoFeature:
       type: object
       required: [type, geometry, properties]
       properties:
@@ -7867,21 +8209,21 @@ components:
           const: Feature
         id:
           type: string
-          description: Individual `plant` features only — the plant's internal id as a string.
+          description: Individual `asset` features only — the asset's public id.
         geometry:
           $ref: '#/components/schemas/GeoJsonPoint'
         properties:
           oneOf:
-            - $ref: '#/components/schemas/ContextPlantProperties'
-            - $ref: '#/components/schemas/ContextPlantClusterProperties'
+            - $ref: '#/components/schemas/AssetGeoProperties'
+            - $ref: '#/components/schemas/AssetClusterProperties'
           discriminator:
             propertyName: feature_kind
             mapping:
-              plant: '#/components/schemas/ContextPlantProperties'
-              plant_cluster: '#/components/schemas/ContextPlantClusterProperties'
-    ContextPlantFeatureCollection:
+              asset: '#/components/schemas/AssetGeoProperties'
+              asset_cluster: '#/components/schemas/AssetClusterProperties'
+    AssetGeoFeatureCollection:
       type: object
-      description: RFC 7946 FeatureCollection of built-infrastructure context plants. Up to 2,000 features (docs/04 D-13).
+      description: RFC 7946 FeatureCollection of assets. Up to 2,000 features (docs/04 D-13).
       required: [type, features, totals]
       properties:
         type:
@@ -7897,27 +8239,214 @@ components:
           type: array
           maxItems: 2000
           items:
-            $ref: '#/components/schemas/ContextPlantFeature'
+            $ref: '#/components/schemas/AssetGeoFeature'
         totals:
           type: object
-          required: [records, clustered, technology_counts]
+          required: [records, clustered, asset_type_counts, technology_counts]
           properties:
             records:
               type: integer
             clustered:
               type: boolean
               description: '`false` when every record is an individual feature (≤ 500 visible).'
+            asset_type_counts:
+              type: object
+              additionalProperties:
+                type: integer
             technology_counts:
               type: object
               additionalProperties:
                 type: integer
-    ContextPlantsGeoResponse:
+    AssetGeoResponse:
       allOf:
         - $ref: '#/components/schemas/Envelope'
         - type: object
           properties:
             data:
-              $ref: '#/components/schemas/ContextPlantFeatureCollection'
+              $ref: '#/components/schemas/AssetGeoFeatureCollection'
+
+    # ---------- Asset entity (list/detail, docs/21 §3.22-§3.23) ----------
+    AssetOwnerRow:
+      type: object
+      required: [organization, role, provenance]
+      properties:
+        organization:
+          $ref: '#/components/schemas/OrganizationSummary'
+        role:
+          $ref: '#/components/schemas/AssetOwnerRole'
+        share_pct:
+          type: [number, 'null']
+        as_of:
+          type: [string, 'null']
+          format: date
+        owner_name_raw:
+          type: string
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    AssetSummary:
+      type: object
+      required: [public_id, slug, url, asset_type, name]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/AssetPublicId'
+        slug:
+          type: string
+        url:
+          type: string
+          format: uri
+        asset_type:
+          $ref: '#/components/schemas/AssetType'
+        name:
+          type: string
+        technology:
+          type: [string, 'null']
+        capacity_mw:
+          type: [number, 'null']
+        state_code:
+          type: [string, 'null']
+        country:
+          type: string
+    Asset:
+      type: object
+      required: [public_id, slug, url, asset_type, name, status, technologies, attributes, country]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/AssetPublicId'
+        slug:
+          type: string
+        url:
+          type: string
+          format: uri
+        asset_type:
+          $ref: '#/components/schemas/AssetType'
+        name:
+          type: string
+        operator_name:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/AssetStatus'
+        technology:
+          type: [string, 'null']
+        technology_raw:
+          type: [string, 'null']
+        technologies:
+          type: object
+          additionalProperties:
+            type: number
+        capacity_mw:
+          type: [number, 'null']
+        capacity_value:
+          type: [number, 'null']
+        capacity_unit:
+          type: [string, 'null']
+        commissioned_year:
+          type: [integer, 'null']
+        unit_count:
+          type: [integer, 'null']
+        attributes:
+          type: object
+          description: The type's objective feature set only (ADR 0008 §4) — no valuation, tariff or contract fields.
+        state_code:
+          type: [string, 'null']
+        county_name:
+          type: [string, 'null']
+        county_fips:
+          type: [string, 'null']
+        country:
+          type: string
+        first_seen:
+          type: string
+          format: date-time
+        last_changed:
+          type: string
+          format: date-time
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProvenanceQuartet'
+        owners:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetOwnerRow'
+    AssetListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AssetSummary'
+    AssetDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Asset'
+    NearbyProposalSummary:
+      allOf:
+        - $ref: '#/components/schemas/Proposal'
+        - type: object
+          required: [distance_km]
+          properties:
+            distance_km:
+              type: number
+              minimum: 0
+    NearbyProposalsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/NearbyProposalSummary'
+
+    # ---------- Region polygons (docs/23 §3.1, ADR 0008) ----------
+    RegionFeature:
+      type: object
+      description: One vendored Census cartographic-boundary (county/state) or country outline feature.
+      required: [type, geometry, properties]
+      properties:
+        type:
+          type: string
+          const: Feature
+        geometry:
+          $ref: '#/components/schemas/GeoJsonPolygon'
+        properties:
+          type: object
+          required: [region_id, name, level]
+          properties:
+            region_id:
+              type: string
+              description: '`county_fips` (county), `state_code` (state, e.g. `US-TX`), or ISO 3166-1 alpha-2 (country).'
+            name:
+              type: string
+            level:
+              type: string
+              enum: [county, state, country]
+            state_code:
+              type: string
+              description: County features only.
+    RegionFeatureCollection:
+      type: object
+      required: [type, features]
+      properties:
+        type:
+          type: string
+          const: FeatureCollection
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegionFeature'
+    RegionsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/RegionFeatureCollection'
     UiEventCreateRequest:
       type: object
       required: [name]

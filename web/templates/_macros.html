@@ -65,6 +65,27 @@
 </section>
 {%- endmacro %}
 
+{# ADR 0008 asset page: attributes is `asset.attributes` -- objective features only (heat rate,
+   capacity factor, mileage, ...), an arbitrary label/value bag, so it renders generically rather
+   than field by named field the way field-grid does for the fixed proposal/opportunity shape. #}
+{% macro attributes_table(attributes) -%}
+{% if attributes %}
+<div class="table-scroll">
+<table class="record-table">
+  <caption class="visually-hidden">Attributes</caption>
+  <thead><tr><th scope="col">Attribute</th><th scope="col" class="num">Value</th></tr></thead>
+  <tbody>
+  {% for key, value in attributes.items() %}
+  <tr><td data-label="Attribute">{{ key | replace('_', ' ') }}</td><td data-label="Value" class="num tnum">{{ value }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="provenance-panel__empty">No attributes recorded for this asset.</p>
+{% endif %}
+{%- endmacro %}
+
 {% macro pager(prev_cursor, next_cursor, querystring, base_path) -%}
 <nav class="pager" aria-label="Pagination">
   {% if prev_cursor is not none -%}

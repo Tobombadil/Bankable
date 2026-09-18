@@ -51,6 +51,17 @@ ACTIVE_PROPOSAL_STATES: tuple[str, ...] = (
     "under_construction",
 )
 WITHDRAWN_PROPOSAL_STATES: tuple[str, ...] = ("withdrawn", "cancelled")
+# ADR 0008 sitemap task: every lifecycle state a proposal can carry, `built`/`unknown` included --
+# unlike ACTIVE_PROPOSAL_STATES (product defect A's default view), the sitemap must list every
+# published proposal's page regardless of which lifecycle-state bucket it is in.
+ALL_PROPOSAL_LIFECYCLE_STATES: tuple[str, ...] = (
+    ACTIVE_PROPOSAL_STATES
+    + WITHDRAWN_PROPOSAL_STATES
+    + (
+        "built",
+        "unknown",
+    )
+)
 
 ALL_OPPORTUNITY_STATUSES: tuple[str, ...] = (
     "unknown",
@@ -194,6 +205,95 @@ def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
         "reuse_class": primary_source.get("reuse_class"),
         "attribution_text": primary_source.get("attribution_text"),
         "allows_raw": primary_source.get("source_record_id") is not None,
+        "provenance": entity.get("provenance") or [],
+    }
+
+
+def flatten_asset(entity: Mapping[str, Any]) -> dict[str, Any]:
+    """ADR 0008 `asset` shape (`docs/21` §3.22) -> the flat dict `asset_detail.html` reads.
+    `owners[]` (docs/23 §3.1 `/v1/assets/{public_id}`: "organisation public id, name, role,
+    share_pct, as_of, source") is kept as its own list of small dicts rather than merged into the
+    top level, since a page renders it as its own table.
+    """
+    primary_source = _primary_provenance(entity.get("provenance") or [])
+    owners = [
+        {
+            "public_id": o.get("public_id") or o.get("organization_public_id"),
+            "name": o.get("name") or o.get("name_canonical"),
+            "role": o.get("role"),
+            "share_pct": o.get("share_pct"),
+            "as_of": o.get("as_of"),
+            "source_name": o.get("source_name") or o.get("source"),
+        }
+        for o in (entity.get("owners") or [])
+    ]
+    return {
+        "public_id": entity["public_id"],
+        "slug": entity["slug"],
+        "name": entity.get("name"),
+        "asset_type": entity.get("asset_type"),
+        "status": entity.get("status"),
+        "operator_name": entity.get("operator_name"),
+        "technology": entity.get("technology"),
+        "technology_raw": entity.get("technology_raw"),
+        "technologies": entity.get("technologies") or {},
+        "capacity_mw": entity.get("capacity_mw"),
+        "capacity_value": entity.get("capacity_value"),
+        "capacity_unit": entity.get("capacity_unit"),
+        "commissioned_year": entity.get("commissioned_year"),
+        "unit_count": entity.get("unit_count"),
+        "state": entity.get("state_code"),
+        "county": entity.get("county_name"),
+        "county_fips": entity.get("county_fips"),
+        "country": entity.get("country"),
+        "attributes": entity.get("attributes") or {},
+        "owners": owners,
+        "source_id": primary_source.get("source_id"),
+        "source_name": primary_source.get("source_name"),
+        "source_url": primary_source.get("source_url"),
+        "retrieved_at": primary_source.get("retrieved_at"),
+        "reuse_class": primary_source.get("reuse_class"),
+        "attribution_text": primary_source.get("attribution_text"),
+        "allows_raw": primary_source.get("source_record_id") is not None,
+        "provenance": entity.get("provenance") or [],
+    }
+
+
+def flatten_org_asset_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """`GET /v1/organizations/{public_id}/assets` row (docs/23 §3.1: "through `asset_owner`, with
+    role and share") -> the flat dict `organization_detail.html`'s assets table reads. Tolerant of
+    either an embedded `asset` sub-object or a row whose asset fields are already flattened onto
+    it, since the exact embed shape is not pinned down in `docs/23`'s terse table row.
+    """
+    asset_raw = row.get("asset")
+    asset = asset_raw if isinstance(asset_raw, Mapping) else row
+    return {
+        "public_id": asset.get("public_id"),
+        "slug": asset.get("slug"),
+        "name": asset.get("name"),
+        "asset_type": asset.get("asset_type"),
+        "capacity_mw": asset.get("capacity_mw"),
+        "role": row.get("role"),
+        "share_pct": row.get("share_pct"),
+    }
+
+
+def flatten_organization(entity: Mapping[str, Any]) -> dict[str, Any]:
+    """`organization` shape (`docs/21` §3.5, plus ADR 0008's `parent_org_id`) -> the flat dict
+    `organization_detail.html` and the `/search` organisations section read."""
+    parent_raw = entity.get("parent")
+    parent: Mapping[str, Any] = parent_raw if isinstance(parent_raw, Mapping) else {}
+    return {
+        "public_id": entity["public_id"],
+        "slug": entity.get("slug"),
+        "name": entity.get("name_canonical") or entity.get("name"),
+        "type": entity.get("type"),
+        "country": entity.get("country"),
+        "jurisdiction": entity.get("jurisdiction"),
+        "website": entity.get("website"),
+        "is_curated_issuer": entity.get("is_curated_issuer", False),
+        "parent_public_id": parent.get("public_id"),
+        "parent_name": parent.get("name_canonical") or parent.get("name"),
         "provenance": entity.get("provenance") or [],
     }
 

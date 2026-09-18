@@ -1234,12 +1234,16 @@ sources:
   tier: 2
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'index 200; archive/xls/eia8602024.zip 200, 22,100,342 bytes, application/x-zip-compressed, contains 4___Owner_Y2024.xlsx (495,686 bytes); xls/eia8602025ER.zip answers 200 with a 55 KB HTML placeholder, same pattern as EIA-860M future months — check the zip magic before parsing'}
+  verified: {date: 2026-09-18, result: ok, note: 'index 200; archive/xls/eia8602024.zip 200, 22,100,342 bytes, application/x-zip-compressed, contains 4___Owner_Y2024.xlsx (495,686 bytes); xls/eia8602025ER.zip answers 200 with a 55 KB HTML placeholder, same pattern as EIA-860M future months — check the zip magic before parsing. Connector built (pipeline/connectors/us_eia_860/): Ownership sheet header is on the second row (row index 1, one row earlier than the Planned/Operating sheets); parsed 0.76s for the real 5,496-row sheet (openpyxl, zip already on disk). Row filter measured against the real 2024 sheet: 1 row has no Generator ID (dropped, plant 62844) and 2 rows have a blank Percent Owned (kept, ownership_pct null) -> 5,495 owner rows via pipeline/context/eia_owners.py --archive. Percent Owned is a 0-1 fraction in the source, multiplied by 100 for the documented 0-100 range. 60-row test fixture (tests/fixtures/eia860_owner_2024_sample.zip, 9,630 bytes) built from this same download, including the three messy rows above.'}
   notes: >-
     The ownership graph's spine for generation: Schedule 4 lists each owner and its percentage share per
     generator, keyed by Plant ID + Generator ID, the same identity EIA-860M uses, so it joins straight onto
     built_plant and onto EIA-860M proposals. Owner names are free text; resolve to organization via the
     existing resolver, then to a parent via GLEIF where an LEI exists. Annual, so it lags 860M by up to a year.
+    2026-09-18 (ADR 0008): the annual archive lives at `archive/xls/eia860<year>.zip`, a path eia.gov's
+    robots.txt disallows (`/*archive/`); the connector crawls only `xls/` and records a human-downloaded
+    archive's row counts here (see `verified.note`) rather than fetching it itself. See the docstring of
+    `pipeline/connectors/us_eia_860/connector.py` and `pipeline/context/eia_owners.py`.
 
 - id: us.eia.atlas.gas_processing_plants
   name: EIA US Energy Atlas — Natural Gas Processing Plants (point geometries, operator, capacity)
@@ -1488,12 +1492,15 @@ sources:
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'cb_2024_us_county_20m.zip and cb_2024_us_state_20m.zip answer 200 on www2.census.gov (sizes recorded in the probe log); the 20m generalisation is the right weight for highlight polygons, 500k is not needed'}
+  verified: {date: 2026-09-18, result: ok, note: 'cb_2024_us_county_20m.zip and cb_2024_us_state_20m.zip answer 200 on www2.census.gov (sizes recorded in the probe log); the 20m generalisation is the right weight for highlight polygons, 500k is not needed. Vendored (pipeline/context/regions.py), 2026-09-18: county zip 900,230 bytes -> 3,222 counties, state zip 187,671 bytes -> 52 states/equivalents; www2.census.gov/robots.txt has no Disallow under User-agent: * (checked live). Output: data/vendored/regions/us_counties.geojson 1,604,893 bytes at 4-decimal coordinates (under the 4 MB budget, so no fallback to 3 decimals needed), us_states.geojson 270,052 bytes. All 3,222 counties resolved a state_code via the state files own STATEFP-to-STUSPS records (no county had an unmapped FIPS). countries.geojson (219,447 bytes, 177 features) came from Natural Earth 1:110m Admin 0 Countries via its GitHub mirror (raw.githubusercontent.com/robots.txt answers 404, treated as permissive), not from web/static/data/basemap_fallback.geojson as an earlier note here assumed -- see revised notes below. Two of 177 countries (N. Cyprus, Somaliland) have no ISO 3166-1 alpha-2 code in either ISO_A2 or its ISO_A2_EH fallback and share region_id -99, a Natural Earth data gap, not a parser bug.'}
   notes: >-
     ADR 0008: region-grade proposals (county/state/country precision) are drawn as highlighted polygons, not
     points. Counties and states come from these files, vendored as simplified GeoJSON under
-    data/vendored/regions/; country outlines reuse web/static/data/basemap_fallback.geojson. Served by
-    GET /v1/geo/regions.
+    data/vendored/regions/. Country outlines are vendored separately as data/vendored/regions/countries.geojson
+    from Natural Earth 1:110m Admin 0 Countries (public domain), not reused from
+    web/static/data/basemap_fallback.geojson as a prior version of this note assumed -- that file was read only
+    for its geometry shape while building pipeline/context/regions.py, and is a separate basemap fallback with
+    no region_id property, not a region-polygon source. Served by GET /v1/geo/regions.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # J. SOCIAL DISTRIBUTION CHANNELS (outbound, not data sources — recorded for cost/feasibility)

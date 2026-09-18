@@ -33,10 +33,25 @@
   <div class="filter-field filter-field--checkbox">
     <label for="mf-layer-plants">
       <input id="mf-layer-plants" type="checkbox" name="layer_plants" value="1">
-      Existing plants (EIA-860M, US)
+      Existing assets (EIA)
     </label>
   </div>
   <div class="filter-field" id="mf-plant-technology-field" hidden>
+    <label for="mf-asset-type">Asset type</label>
+    <select id="mf-asset-type" name="asset_type">
+      <option value="power_plant">Power plant</option>
+      <option value="gas_pipeline" disabled title="coming">Gas pipeline</option>
+      <option value="gas_processing_plant" disabled title="coming">Gas processing plant</option>
+      <option value="gas_storage" disabled title="coming">Gas storage</option>
+      <option value="lng_terminal" disabled title="coming">LNG terminal</option>
+      <option value="compressor_station" disabled title="coming">Compressor station</option>
+      <option value="ethanol_plant" disabled title="coming">Ethanol plant</option>
+      <option value="biodiesel_plant" disabled title="coming">Biodiesel plant</option>
+      <option value="rng_project" disabled title="coming">RNG project</option>
+      <option value="transmission_line" disabled title="coming">Transmission line</option>
+      <option value="substation" disabled title="coming">Substation</option>
+      <option value="refinery" disabled title="coming">Refinery</option>
+    </select>
     <label for="mf-plant-technology">Plant type</label>
     <select id="mf-plant-technology" name="plant_technology">
       <option value="">All types</option>
@@ -53,6 +68,21 @@
       <option value="other">Other</option>
     </select>
   </div>
+  <fieldset class="filter-field filter-field--placement">
+    <legend>Placement</legend>
+    <label for="mf-placement-exact">
+      <input id="mf-placement-exact" type="checkbox" name="placement_exact" value="1" checked>
+      Exact
+    </label>
+    <label for="mf-placement-region">
+      <input id="mf-placement-region" type="checkbox" name="placement_region" value="1" checked>
+      Region
+    </label>
+    <label for="mf-placement-none">
+      <input id="mf-placement-none" type="checkbox" name="placement_none" value="1">
+      None
+    </label>
+  </fieldset>
   <button class="filter-bar__submit" type="button" id="mf-clear">Clear all</button>
   <a class="filter-bar__clear" href="/proposals" id="mf-view-list">View as list &rarr;</a>
 </form>

@@ -19,6 +19,37 @@ from services.db.models import Location, Proposal
 
 SPLIT_THRESHOLD = 500  # docs/04 D-10: clusters split into markers at <=500 visible records
 
+#: ADR 0008 (2026-09-18): the three region-grade precisions, alongside `exact`; `unknown` is the
+#: `none` grade and is never drawn here (`meta.unplaced_count` only, computed by the caller).
+REGION_PRECISIONS = ("county_centroid", "state_centroid", "country_centroid")
+#: `location.precision` -> the level `GET /v1/geo/regions` serves that region's polygon under.
+_REGION_LEVEL_BY_PRECISION = {
+    "county_centroid": "county",
+    "state_centroid": "state",
+    "country_centroid": "country",
+}
+
+
+def placement_grade(precision: str) -> str:
+    """Derived placement grade (ADR 0008, docs/21 §3.7), never stored: `exact` -> `exact`; the
+    three `*_centroid` precisions -> `region`; `unknown` -> `none`."""
+    if precision == "exact":
+        return "exact"
+    if precision in REGION_PRECISIONS:
+        return "region"
+    return "none"
+
+
+def _region_id_for(loc: Location) -> str | None:
+    if loc.precision == "county_centroid":
+        return loc.county_fips
+    if loc.precision == "state_centroid":
+        return loc.state_code
+    if loc.precision == "country_centroid":
+        return loc.country
+    return None
+
+
 #: Grid-cell size in degrees at `zoom = 1`; halves each zoom level thereafter (`_grid_cell`).
 #: Chosen empirically against the full proposal set placed by `services/ingest/geocode.py`
 #: (~8,150 continental-US points): 36° at zoom 1 yields on the order of 20-60 grid cells with any
@@ -77,13 +108,32 @@ def build_geo_feature_collection(
 
     Returns the feature collection dict (`meta.unplaced_count` is the caller's concern, computed
     alongside `records_total` from the same aggregate query — not derived here).
+
+    ADR 0008 (2026-09-18): `plottable_proposals` may now carry region-grade rows too (`precision`
+    `county_centroid`/`state_centroid`/`country_centroid`, not just `exact`) — the caller's SQL
+    query already restricts to placeable rows regardless of grade (`Location.geom.is_not(None)`
+    covers all four). This function splits them by `placement_grade`: `exact` rows keep the
+    point/cluster behaviour above unchanged; region-grade rows are grouped by `region_id`
+    (`_region_id_for`) into one `region` feature per group, geometry = the group's representative
+    point (identical for every member — the vendored gazetteer centroid — so the first member's
+    point is used rather than an average). Both kinds of feature can appear in the same response
+    (a mixed-precision viewport is normal); `SPLIT_THRESHOLD` clustering applies only to the
+    `exact` grade, per docs/23 §3.1's "keep proposal and cluster features for exact precision only".
     """
-    plottable: list[tuple[Proposal, Location, tuple[float, float]]] = [
-        (p, p.location, p.location.geom)
-        for p in plottable_proposals
-        if p.location is not None and p.location.geom is not None
-    ]
-    in_view = [member for member in plottable if _in_bbox(member[2][0], member[2][1], bbox)]
+    exact: list[tuple[Proposal, Location, tuple[float, float]]] = []
+    region: list[tuple[Proposal, Location, tuple[float, float]]] = []
+    for p in plottable_proposals:
+        if p.location is None or p.location.geom is None:
+            continue
+        member = (p, p.location, p.location.geom)
+        grade = placement_grade(p.location.precision)
+        if grade == "exact":
+            exact.append(member)
+        elif grade == "region":
+            region.append(member)
+        # grade == "none" never reaches here (no geom), defensive only.
+
+    in_view = [member for member in exact if _in_bbox(member[2][0], member[2][1], bbox)]
 
     features: list[dict[str, Any]] = []
     if len(in_view) <= SPLIT_THRESHOLD:
@@ -98,6 +148,19 @@ def build_geo_feature_collection(
             groups[_grid_cell(lon, lat, zoom)].append(member)
         for members in groups.values():
             features.append(_cluster_feature(members))
+
+    region_in_view = [m for m in region if _in_bbox(m[2][0], m[2][1], bbox)]
+    region_groups: dict[tuple[str, str], list[tuple[Proposal, Location, tuple[float, float]]]] = defaultdict(
+        list
+    )
+    for member in region_in_view:
+        _, loc, _ = member
+        region_id = _region_id_for(loc)
+        if region_id is None:  # pragma: no cover - defensive; the loader always sets this field
+            continue
+        region_groups[(loc.precision, region_id)].append(member)
+    for (precision, region_id), members in region_groups.items():
+        features.append(_region_feature(precision, region_id, members))
 
     return {
         "type": "FeatureCollection",
@@ -182,5 +245,46 @@ def _cluster_feature(members: list[tuple[Proposal, Location, tuple[float, float]
             "bbox": [min(lons), min(lats), max(lons), max(lats)],
             "precision": precision,
             "expands_to_zoom": 10,
+        },
+    }
+
+
+def _region_feature(
+    precision: str, region_id: str, members: list[tuple[Proposal, Location, tuple[float, float]]]
+) -> dict[str, Any]:
+    """One `feature_kind: region` feature per `(precision, region_id)` group (ADR 0008, docs/23
+    §3.1): geometry is the group's representative point (every member shares the same vendored
+    centroid for that region, so the first member's point is exact, not an approximation)."""
+    lifecycle_counts: dict[str, int] = defaultdict(int)
+    technology_counts: dict[str, int] = defaultdict(int)
+    capacity_sum = 0.0
+    name: str | None = None
+    for p, loc, _ in members:
+        lifecycle_counts[p.lifecycle_state] += 1
+        if p.technology:
+            technology_counts[p.technology] += 1
+        if p.capacity_mw:
+            capacity_sum += float(p.capacity_mw)
+        if name is None:
+            if precision == "county_centroid":
+                name = loc.county_name
+            elif precision == "state_centroid":
+                name = loc.state_code
+            elif precision == "country_centroid":
+                name = loc.country
+
+    _, _, (lon, lat) = members[0]
+    return {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [lon, lat]},
+        "properties": {
+            "feature_kind": "region",
+            "region_level": _REGION_LEVEL_BY_PRECISION[precision],
+            "region_id": region_id,
+            "name": name,
+            "count": len(members),
+            "lifecycle_state_counts": dict(lifecycle_counts),
+            "technology_counts": dict(technology_counts),
+            "capacity_mw_sum": capacity_sum,
         },
     }

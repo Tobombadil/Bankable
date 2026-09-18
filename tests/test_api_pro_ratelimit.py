@@ -80,3 +80,46 @@ def test_pro_route_429s_once_the_bucket_is_exhausted(client, db):
     assert limited.status_code == 429
     assert limited.json()["code"] == "rate_limited"
     assert "Retry-After" in limited.headers
+
+
+def test_a_junk_credential_does_not_escape_the_public_bucket(client, db):
+    """API audit 2026-09-18 (S3): a request carrying any `Authorization` header skipped the
+    middleware's anonymous bucket and, when the credential resolved to nothing, was served on the
+    public tier unmetered. The auth dependency now meters such requests on the caller's IP bucket."""
+    from services.api.ratelimit import default_limiter
+
+    for _ in range(TIER_LIMITS["public"] - 1):
+        default_limiter.check("public:testclient", limit=TIER_LIMITS["public"])
+    ok = client.get("/v1/proposals", headers={"Authorization": "Bearer totally-invalid"})
+    assert ok.status_code == 200
+    limited = client.get("/v1/proposals", headers={"Authorization": "Bearer totally-invalid"})
+    assert limited.status_code == 429
+    assert limited.headers["Retry-After"]
+
+
+def test_cache_control_is_private_for_any_credentialed_request(client):
+    """API audit 2026-09-18 (S1): every /v1 GET was `public, max-age=300`, including `/v1/me`
+    and live Pro rows. Anonymous responses stay shareable; anything carrying a credential is not."""
+    anon = client.get("/v1/proposals")
+    assert anon.headers["Cache-Control"] == "public, max-age=300"
+    assert "Authorization" in anon.headers["Vary"] and "Cookie" in anon.headers["Vary"]
+    cred = client.get("/v1/proposals", headers={"Authorization": "Bearer anything"})
+    assert cred.headers["Cache-Control"] == "private, no-store"
+    cookie = client.get("/v1/proposals", headers={"Cookie": "session=anything"})
+    assert cookie.headers["Cache-Control"] == "private, no-store"
+
+
+def test_internal_token_bypasses_the_anonymous_bucket(client, monkeypatch):
+    """The public site calls the API server-side from one address for every visitor; with a
+    matching `X-Internal-Token` those calls are not metered on the anonymous per-IP bucket
+    (live probe 2026-09-18: a sitemap render exhausted 60/h and every map pan returned 429)."""
+    from services.api.ratelimit import default_limiter
+
+    monkeypatch.setenv("API_INTERNAL_TOKEN", "test-internal-token-not-a-secret")
+    for _ in range(TIER_LIMITS["public"]):
+        default_limiter.check("public:testclient", limit=TIER_LIMITS["public"])
+    assert client.get("/v1/proposals").status_code == 429
+    ok = client.get("/v1/proposals", headers={"X-Internal-Token": "test-internal-token-not-a-secret"})
+    assert ok.status_code == 200
+    wrong = client.get("/v1/proposals", headers={"X-Internal-Token": "wrong"})
+    assert wrong.status_code == 429

@@ -339,7 +339,28 @@ def get_auth_context(
     session: Annotated[str | None, Cookie()] = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> AuthContext:
-    return build_auth_context(db, session_cookie=session, authorization=authorization)
+    ctx = build_auth_context(db, session_cookie=session, authorization=authorization)
+    if ctx is PUBLIC_CONTEXT and (session or authorization):
+        # The middleware skips the anonymous bucket for any request that carries a credential, on
+        # the assumption that a Pro/API bucket meters it further down. A credential that resolves
+        # to nothing would otherwise be served on the public tier unmetered (API audit 2026-09-18,
+        # finding S3: 110 of 110 requests with a junk bearer token served). Meter it here, on the
+        # same per-IP bucket an anonymous caller uses.
+        from services.api.ratelimit import TIER_LIMITS, default_limiter
+
+        client_ip = request.client.host if request.client else "unknown"
+        result = default_limiter.check(f"public:{client_ip}", limit=TIER_LIMITS["public"])
+        if not result.allowed:
+            raise ProblemError(
+                "rate_limited",
+                "Rate limit exceeded",
+                detail=(
+                    "Public-tier request limit reached for this address; "
+                    "the credential presented did not resolve."
+                ),
+                headers={"Retry-After": str(result.reset_seconds)},
+            )
+    return ctx
 
 
 _ENTITLEMENT_ORDER = {"public": 0, "pro": 1, "api": 2, "admin": 3}

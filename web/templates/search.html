@@ -6,7 +6,7 @@
 {% if not q %}
 <p>Search by project name, sponsor, queue ID, county, issuer or title using the box above.</p>
 {% else %}
-<p class="result-count">Results for &ldquo;{{ q }}&rdquo;: {{ proposals | length }} proposal{{ 's' if proposals|length != 1 }}, {{ opportunities | length }} opportunit{{ 'y' if opportunities|length == 1 else 'ies' }}.</p>
+<p class="result-count">Results for &ldquo;{{ q }}&rdquo;: {{ proposals | length }} proposal{{ 's' if proposals|length != 1 }}, {{ opportunities | length }} opportunit{{ 'y' if opportunities|length == 1 else 'ies' }}, {{ organizations | length }} organisation{{ 's' if organizations|length != 1 }}.</p>
 
 <h2>Proposals</h2>
 {% if proposals %}
@@ -29,5 +29,16 @@
   {% endfor %}
 </ul>
 {% else %}<p>No matching opportunities.</p>{% endif %}
+
+<h2>Organisations</h2>
+{% if organizations %}
+<ul class="in-view-list">
+  {% for r in organizations %}
+  <li><a href="/organizations/{{ r.slug or r.public_id }}">{{ r.name }}</a>
+    <span class="meta">{{ (r.type or '—') | replace('_', ' ') }}{% if r.jurisdiction %} &middot; {{ r.jurisdiction }}{% endif %}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<p>No matching organisations.</p>{% endif %}
 {% endif %}
 {% endblock %}

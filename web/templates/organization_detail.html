@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ record.name }} -- Infraque{% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.type or 'organisation' }}{% if record.jurisdiction %}, {{ record.jurisdiction }}{% endif %}.{% endblock %}
+{% block canonical %}<link rel="canonical" href="/organizations/{{ record.slug or record.public_id }}">{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
+<div class="detail-header">
+  <h1>{{ record.name }}</h1>
+  {% if record.type %}<span class="reuse-badge">{{ record.type | replace('_', ' ') }}</span>{% endif %}
+</div>
+
+<dl class="field-grid">
+  <div><dt>Type</dt><dd>{{ (record.type or '—') | replace('_', ' ') }}</dd></div>
+  <div><dt>Country</dt><dd>{{ record.country or '—' }}</dd></div>
+  <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
+  <div><dt>Website</dt><dd>{% if record.website %}<a href="{{ record.website }}" rel="noopener">{{ record.website }}</a>{% else %}—{% endif %}</dd></div>
+  {% if record.parent_public_id %}
+  <div><dt>Parent organisation</dt><dd><a class="row-link" href="/organizations/{{ record.parent_public_id }}">{{ record.parent_name or record.parent_public_id }}</a></dd></div>
+  {% endif %}
+</dl>
+
+<section aria-label="Assets">
+  {{ m.section_heading("1.", "Assets") }}
+  {% if assets %}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">Assets this organisation owns or operates.</caption>
+    <thead>
+      <tr><th scope="col">Asset</th><th scope="col">Type</th><th scope="col">Role</th><th scope="col" class="num">Share</th></tr>
+    </thead>
+    <tbody>
+      {% for a in assets %}
+      <tr>
+        <td data-label="Asset">{% if a.slug %}<a class="row-link" href="/assets/{{ a.slug }}">{{ a.name or a.slug }}</a>{% else %}{{ a.name or '—' }}{% endif %}</td>
+        <td data-label="Type">{{ (a.asset_type or '—') | replace('_', ' ') }}</td>
+        <td data-label="Role">{{ a.role or '—' }}</td>
+        <td data-label="Share" class="num tnum">{{ '%.1f%%'|format(a.share_pct) if a.share_pct is not none else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="provenance-panel__empty">No assets recorded for this organisation.</p>
+  {% endif %}
+</section>
+
+<section aria-label="Proposals">
+  {{ m.section_heading("2.", "Proposals") }}
+  {% if proposals %}
+  <ul class="in-view-list">
+    {% for r in proposals %}
+    <li>{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
+      <span class="meta">{{ r.technology or '—' }} &middot; {{ r.state or r.jurisdiction or '—' }}{% if r.capacity_mw %} &middot; {{ '%.1f'|format(r.capacity_mw) }} MW{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No proposals sponsored by this organisation.</p>
+  {% endif %}
+</section>
+
+<section aria-label="Opportunities">
+  {{ m.section_heading("3.", "Opportunities") }}
+  {% if opportunities %}
+  <ul class="in-view-list">
+    {% for r in opportunities %}
+    <li>{{ m.status_chip(r.status, r.lifecycle_family) }} <a href="/opportunities/{{ r.slug }}">{{ r.title }}</a>
+      <span class="meta">{{ r.kind or '—' }}{% if r.due_at %} &middot; due {{ r.due_at[:10] }}{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No opportunities issued by this organisation.</p>
+  {% endif %}
+</section>
+
+{{ m.provenance_panel(provenance_rows, number="4.") }}
+{% endblock %}

@@ -7,6 +7,7 @@ pyyaml>=6
 openpyxl>=3.1
 rapidfuzz>=3.9
 pytest>=8
+pyshp>=2.3               # pipeline/context/regions.py: Census/Natural Earth shapefiles, pure-Python (no geopandas, ADR 0008)
 
 # services/db, services/ingest, services/api (Sprint 2 backend)
 sqlalchemy>=2.0,<2.1

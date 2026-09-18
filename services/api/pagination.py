@@ -73,15 +73,28 @@ def paginate(
                 value = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
             except ValueError:
                 pass  # a non-datetime sort field (name, score, seq as string) — leave as-is
-        if ascending:
-            where: ColumnElement[bool] = or_(
-                sort_column > value, sa.and_(sort_column == value, id_column > tiebreaker)
+        # NULL sort values sort last in both directions (explicit `NULLS LAST`, so SQLite and
+        # Postgres agree; API audit 2026-09-18, S5: a cursor whose sort value was NULL raised
+        # ArgumentError and 500ed, and `due_at`, the default opportunity sort, is nullable).
+        where: ColumnElement[bool]
+        if value is None:
+            after_id = id_column > tiebreaker if ascending else id_column < tiebreaker
+            where = sa.and_(sort_column.is_(None), after_id)
+        elif ascending:
+            where = or_(
+                sort_column > value,
+                sort_column.is_(None),
+                sa.and_(sort_column == value, id_column > tiebreaker),
             )
         else:
-            where = or_(sort_column < value, sa.and_(sort_column == value, id_column < tiebreaker))
+            where = or_(
+                sort_column < value,
+                sort_column.is_(None),
+                sa.and_(sort_column == value, id_column < tiebreaker),
+            )
         stmt = stmt.where(where)
 
-    order = sort_column.asc() if ascending else sort_column.desc()
+    order = (sort_column.asc() if ascending else sort_column.desc()).nulls_last()
     tiebreak = id_column.asc() if ascending else id_column.desc()
     stmt = stmt.order_by(order, tiebreak).limit(limit + 1)
 

@@ -29,7 +29,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from services.db.base import Base
-from services.db.types import GUID, GeographyPoint, JSONVariant, TextArray, uuid7
+from services.db.types import GUID, GeographyLine, GeographyPoint, JSONVariant, TextArray, uuid7
 
 # ---------------------------------------------------------------------------------------------
 # Vocabularies enforced as CHECK constraints (docs/21 §1, §7). Kept here so the DB layer, the API
@@ -66,7 +66,34 @@ LINK_METHODS = ("deterministic_key", "rule", "model", "user")
 MATCH_STATUSES = ("active", "removed", "superseded")
 SOURCE_RUN_STATUSES = ("running", "ok", "unchanged", "partial", "failed", "blocked", "budget")
 LOCATION_KINDS = ("point", "county", "state", "region", "service_territory")
-LOCATION_PRECISIONS = ("exact", "county_centroid", "state_centroid", "unknown")
+#: `country_centroid` added by ADR 0008 (2026-09-18): the third region-grade precision, alongside
+#: `county_centroid`/`state_centroid` — a proposal or opportunity known only to a country. Placement
+#: grade (derived, never stored, docs/21 §3.7): `exact` -> exact; the three `*_centroid` values ->
+#: region; `unknown` -> none.
+LOCATION_PRECISIONS = ("exact", "county_centroid", "state_centroid", "country_centroid", "unknown")
+
+# --------------------------------------------------------------------------------------- ADR 0008
+#: Asset types at the ADR 0008 decision (docs/21 §3.22). A registry row whose status is `planned`
+#: or `under_construction` is a proposal, never an asset — these twelve are existing,
+#: already-built infrastructure only.
+ASSET_TYPES = (
+    "power_plant",
+    "gas_pipeline",
+    "gas_processing_plant",
+    "gas_storage",
+    "lng_terminal",
+    "compressor_station",
+    "ethanol_plant",
+    "biodiesel_plant",
+    "rng_project",
+    "transmission_line",
+    "substation",
+    "refinery",
+)
+#: The source's current operating status (docs/21 §3.22) -- never a lifecycle; assets have none.
+ASSET_STATUSES = ("operating", "standby", "retired", "unknown")
+#: `asset_owner.role` (docs/21 §3.23).
+ASSET_OWNER_ROLES = ("owner", "operator")
 
 # --------------------------------------------------------------------------------------------
 # Pro tier and alerts (Sprint 2 backend brief: auth, tier enforcement, saved searches/alerts,
@@ -318,6 +345,13 @@ class Organization(Base, TimestampMixin):
         sa.DateTime(timezone=True), nullable=False, default=utcnow
     )
     merged_into_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("organization.id"))
+    #: ADR 0008 (2026-09-18), docs/21 §3.23: the GLEIF Level 2 direct accounting parent, where an
+    #: LEI matches. The LEI itself lives in `ids["lei"]`, not here. `parent_source_id` names the
+    #: `source` row the parent link came from (GLEIF Level 2), same provenance-pointer convention
+    #: as `event.source_id` — not a full provenance quartet, since this is a single denormalised
+    #: edge on the organisation row rather than a versioned fact with its own retrieval history.
+    parent_org_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("organization.id"))
+    parent_source_id: Mapped[str | None] = mapped_column(sa.ForeignKey("source.id"))
 
 
 # ====================================================================== organization_alias (§3.6)
@@ -1244,37 +1278,49 @@ class WorkerWatermark(Base):
     )
 
 
-# ============================================================== built_plant (docs/21 §3.20, 2026-09-14)
-class BuiltPlant(Base, TimestampMixin):
-    """One operating generating plant, drawn as *context* beneath the proposals map (docs/00-PLAN.md
-    decision 2026-09-14, "Built-infrastructure context layer"). It is never a proposal: no
-    lifecycle state, no events, no matches, no entity resolution against queue rows. Sources in
-    licence order: EIA-860M "Operating" sheet (US federal work, public domain) first; Global Energy
-    Monitor trackers (CC BY 4.0, TZ-ID rows dropped at ingest per docs/13 §2.2) later;
-    OpenStreetMap never until counsel has answered docs/00-PLAN.md open question 7(b).
+# ===================================================================== asset (docs/21 §3.22, ADR 0008)
+class Asset(Base):
+    """One existing infrastructure asset from a public registry (ADR 0008, 2026-09-18; generalises
+    the 2026-09-14 "built-infrastructure context layer", `docs/21` §3.20 -> §3.22). Has a page and
+    owners (`AssetOwner`); has no lifecycle, events, matches or alerts — a registry row whose status
+    is `planned` or `under_construction` is a proposal, not an asset. `technology`/`technology_raw`/
+    `technologies`/`capacity_mw` keep their §3.20 meaning for `power_plant` rows (migration 0009
+    renames `built_plant` into this table, `power_plant` first); `capacity_value`/`capacity_unit`
+    are the registry's native capacity for the eleven non-electrical types (e.g. `1200.000`,
+    `"MMcf/d"` for a pipeline). `attributes` holds only the type's *objective* feature set (ADR
+    0008 §4) — no valuation, tariff or contract economics. One row per `(source_id,
+    source_asset_id)`; a re-run of the loader updates in place, never duplicates.
 
-    Carries the provenance quartet like every stored record (CLAUDE.md). `technologies` is the
-    raw per-technology nameplate split (`{"Solar Photovoltaic": 120.0, ...}`) so a plant with
-    mixed units still reads honestly; `technology` is the dominant class in the
-    `pipeline.normalize.classify_tech` vocabulary. One row per `(source_id, source_plant_id)`;
-    a re-run of the loader updates in place, never duplicates.
+    `BuiltPlant` is kept as a deprecated alias of this class for one release (see below) so any
+    code outside this task's file area that still spells the old name does not break; no import
+    outside `services/db`, `services/api` and `services/ingest` was found to depend on it as of
+    this migration, so the alias is a safety margin, not a load-bearing compatibility shim.
     """
 
-    __tablename__ = "built_plant"
+    __tablename__ = "asset"
 
     id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
-    source_plant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    asset_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    source_asset_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
     operator_name: Mapped[str | None] = mapped_column(sa.Text)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="operating")
     technology: Mapped[str | None] = mapped_column(sa.Text)
     technology_raw: Mapped[str | None] = mapped_column(sa.Text)
     technologies: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     capacity_mw: Mapped[float | None] = mapped_column(sa.Numeric(12, 3))
-    generator_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
-    earliest_operating_year: Mapped[int | None] = mapped_column(sa.Integer)
+    capacity_value: Mapped[float | None] = mapped_column(sa.Numeric(14, 3))
+    capacity_unit: Mapped[str | None] = mapped_column(sa.Text)
+    commissioned_year: Mapped[int | None] = mapped_column(sa.Integer)
+    unit_count: Mapped[int | None] = mapped_column(sa.Integer)
     geom: Mapped[Any | None] = mapped_column(GeographyPoint())
+    geom_line: Mapped[Any | None] = mapped_column(GeographyLine())
+    attributes: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     state_code: Mapped[str | None] = mapped_column(sa.Text)
     county_name: Mapped[str | None] = mapped_column(sa.Text)
+    county_fips: Mapped[str | None] = mapped_column(sa.String(5))
     country: Mapped[str] = mapped_column(sa.String(2), nullable=False)
 
     source_id: Mapped[str] = mapped_column(sa.ForeignKey("source.id"), nullable=False)
@@ -1282,13 +1328,70 @@ class BuiltPlant(Base, TimestampMixin):
     retrieved_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
 
+    first_seen: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    last_changed: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    source: Mapped[Source] = relationship(lazy="joined")
+    licence: Mapped[Licence] = relationship(lazy="joined")
+    owners: Mapped[list[AssetOwner]] = relationship(back_populates="asset", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"asset_type IN {ASSET_TYPES!r}", name="asset_type_vocab"),
+        sa.CheckConstraint(f"status IN {ASSET_STATUSES!r}", name="status_vocab"),
+        sa.UniqueConstraint("source_id", "source_asset_id", name="uq_asset_source_record"),
+        sa.Index("ix_asset_asset_type", "asset_type"),
+        sa.Index("ix_asset_state_code", "state_code"),
+        sa.Index("ix_asset_geom", "geom", postgresql_using="gist"),
+    )
+
+
+# ================================================================= asset_owner (docs/21 §3.23, ADR 0008)
+class AssetOwner(Base):
+    """One ownership or operation edge from `asset` to `organization` (ADR 0008, 2026-09-18).
+    `share_pct` is set only where the source states one (EIA-860 Schedule 4); NULL for `operator`
+    edges and for registries that carry no ownership share. Sources in order: EIA-860 Schedule 4
+    (`us.eia.860`, shares), EIA-860M and EIA Atlas operator fields (`operator` role), EPA
+    LMOP/AgSTAR owner/developer fields, GEM owner fields (CC BY, TZ-ID rows dropped)."""
+
+    __tablename__ = "asset_owner"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    asset_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("asset.id"), nullable=False)
+    organization_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("organization.id"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    share_pct: Mapped[float | None] = mapped_column(sa.Numeric(6, 3))
+    as_of: Mapped[dt.date | None] = mapped_column(sa.Date)
+    owner_name_raw: Mapped[str] = mapped_column(sa.Text, nullable=False)
+
+    source_id: Mapped[str] = mapped_column(sa.ForeignKey("source.id"), nullable=False)
+    source_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    retrieved_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
+
+    asset: Mapped[Asset] = relationship(back_populates="owners")
+    organization: Mapped[Organization] = relationship(lazy="joined")
     source: Mapped[Source] = relationship(lazy="joined")
     licence: Mapped[Licence] = relationship(lazy="joined")
 
     __table_args__ = (
-        sa.UniqueConstraint("source_id", "source_plant_id", name="uq_built_plant_source_record"),
-        sa.Index("ix_built_plant_country_technology", "country", "technology"),
+        sa.CheckConstraint(f"role IN {ASSET_OWNER_ROLES!r}", name="role_vocab"),
+        sa.UniqueConstraint("asset_id", "organization_id", "role", "source_id", name="uq_asset_owner_edge"),
     )
+
+
+#: Deprecated alias (ADR 0008, one release): `built_plant` -> `asset`. Old field names
+#: (`source_plant_id`, `generator_count`, `earliest_operating_year`) do not exist on `Asset` — this
+#: is a name-only alias, not a shim that also translates kwargs, since nothing outside
+#: `services/db`, `services/api` and `services/ingest` was found importing `BuiltPlant`
+#: (`grep -rl BuiltPlant`, 2026-09-18) and every caller inside those areas was updated to `Asset` in
+#: this same change.
+BuiltPlant = Asset
 
 
 # ================================================================== ui_event (docs/21 §3.21, 2026-09-14)

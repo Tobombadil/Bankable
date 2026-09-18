@@ -414,22 +414,27 @@ def test_source_run_and_snapshot(session: Session) -> None:
     assert snap.id is not None
 
 
-def test_built_plant_unique_per_source_record(session: Session) -> None:
-    from services.db.models import BuiltPlant
+def test_asset_unique_per_source_record(session: Session) -> None:
+    from services.db.models import Asset
 
     lic = make_licence(session)
     src = make_source(session, lic)
     now = dt.datetime.now(UTC)
 
-    def plant(plant_id: str) -> BuiltPlant:
-        return BuiltPlant(
-            source_plant_id=plant_id,
+    def plant(source_asset_id: str) -> Asset:
+        return Asset(
+            public_id=f"asset_{source_asset_id}",
+            slug=f"test-plant-{source_asset_id}",
+            asset_type="power_plant",
+            source_asset_id=source_asset_id,
             name="Test Plant",
+            status="operating",
             technology="solar",
             technologies={"Solar Photovoltaic": 12.5},
             capacity_mw=12.5,
-            generator_count=1,
+            unit_count=1,
             geom=(-101.5, 33.2),
+            attributes={},
             state_code="US-TX",
             country="US",
             source_id=src.id,
@@ -440,7 +445,7 @@ def test_built_plant_unique_per_source_record(session: Session) -> None:
 
     session.add(plant("1001"))
     session.commit()
-    row = session.scalar(sa.select(BuiltPlant))
+    row = session.scalar(sa.select(Asset))
     assert row is not None
     assert row.geom == (-101.5, 33.2)
     assert row.technologies == {"Solar Photovoltaic": 12.5}
@@ -448,6 +453,128 @@ def test_built_plant_unique_per_source_record(session: Session) -> None:
     with pytest.raises(IntegrityError):
         session.commit()
     session.rollback()
+
+
+def test_asset_type_and_status_vocab_enforced(session: Session) -> None:
+    from services.db.models import Asset
+
+    lic = make_licence(session)
+    src = make_source(session, lic)
+    now = dt.datetime.now(UTC)
+    session.add(
+        Asset(
+            public_id="asset_bad",
+            slug="asset-bad",
+            asset_type="not_a_real_type",
+            source_asset_id="X1",
+            name="Bad Asset",
+            status="operating",
+            country="US",
+            source_id=src.id,
+            source_url="https://example.org",
+            retrieved_at=now,
+            licence_id=lic.id,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+
+def test_asset_owner_edge_and_role_vocab(session: Session) -> None:
+    from services.db.models import Asset, AssetOwner
+
+    lic = make_licence(session)
+    src = make_source(session, lic)
+    now = dt.datetime.now(UTC)
+    asset = Asset(
+        public_id="asset_owned",
+        slug="asset-owned",
+        asset_type="power_plant",
+        source_asset_id="X2",
+        name="Owned Plant",
+        status="operating",
+        country="US",
+        source_id=src.id,
+        source_url="https://example.org",
+        retrieved_at=now,
+        licence_id=lic.id,
+    )
+    session.add(asset)
+    session.flush()
+    org = Organization(
+        public_id="org_owner1",
+        slug="owner-one",
+        name_canonical="Owner One LLC",
+        name_normalised="owner one llc",
+        type="developer",
+        country="US",
+    )
+    session.add(org)
+    session.flush()
+    session.add(
+        AssetOwner(
+            asset_id=asset.id,
+            organization_id=org.id,
+            role="owner",
+            share_pct=50.0,
+            owner_name_raw="Owner One LLC",
+            source_id=src.id,
+            source_url="https://example.org",
+            retrieved_at=now,
+            licence_id=lic.id,
+        )
+    )
+    session.commit()
+    edge = session.scalar(sa.select(AssetOwner))
+    assert edge is not None
+    assert edge.asset.name == "Owned Plant"
+    assert edge.organization.name_canonical == "Owner One LLC"
+
+    session.add(
+        AssetOwner(
+            asset_id=asset.id,
+            organization_id=org.id,
+            role="not_a_role",
+            owner_name_raw="Owner One LLC",
+            source_id=src.id,
+            source_url="https://example.org",
+            retrieved_at=now,
+            licence_id=lic.id,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+
+def test_organization_parent_org_id(session: Session) -> None:
+    parent = Organization(
+        public_id="org_parent1",
+        slug="parent-one",
+        name_canonical="Parent Holdco",
+        name_normalised="parent holdco",
+        type="developer",
+        country="US",
+    )
+    session.add(parent)
+    session.flush()
+    child = Organization(
+        public_id="org_child1",
+        slug="child-one",
+        name_canonical="Child Sub LLC",
+        name_normalised="child sub llc",
+        type="developer",
+        country="US",
+        parent_org_id=parent.id,
+        ids={"lei": "5493001KJTIIGC8Y1R12"},
+    )
+    session.add(child)
+    session.commit()
+    row = session.scalar(sa.select(Organization).where(Organization.public_id == "org_child1"))
+    assert row is not None
+    assert row.parent_org_id == parent.id
+    assert row.ids["lei"] == "5493001KJTIIGC8Y1R12"
 
 
 def test_ui_event_name_vocab_and_no_identifier_columns(session: Session) -> None:

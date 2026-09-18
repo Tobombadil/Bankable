@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -97,6 +98,26 @@ def _load_plants_context_layer(session: Session, data_dir: Path) -> None:
     log.info("plants context layer: loaded from %s (%s)", parquet_path, report)
 
 
+def _load_ownership(session: Session, data_dir: Path) -> None:
+    """ADR 0008 task item 4: the EIA-860 Schedule 4 ownership-share parquet, loaded through the
+    ownership ingest lane's own `load_owner_shares_parquet(session, path)` -- same rule as
+    `_load_plants_context_layer` above: this script never invents its own load path, both the
+    parquet and the loader module are optional (a parallel-built lane that may not exist yet when
+    this runs), and either kind of "not ready" is one log line, never a failure of the rest of
+    `dev_up`."""
+    parquet_path = data_dir / "normalized" / "context" / "us.eia.860.owners.parquet"
+    if not parquet_path.exists():
+        log.info("asset ownership: %s not found, skipping", parquet_path)
+        return
+    try:
+        from services.ingest.ownership import load_owner_shares_parquet  # type: ignore[import-not-found]
+    except ImportError as exc:
+        log.info("asset ownership: services.ingest.ownership not available yet (%s), skipping", exc)
+        return
+    report = load_owner_shares_parquet(session, parquet_path)
+    log.info("asset ownership: loaded from %s (%s)", parquet_path, report)
+
+
 def _wait_for(url: str, timeout_s: float = 20.0) -> None:
     deadline = time.monotonic() + timeout_s
     last_error: Exception | None = None
@@ -129,7 +150,8 @@ def main(argv: list[str] | None = None) -> int:
                 sample_per_state=args.sample_per_state,
             )
             _load_plants_context_layer(session, args.data_dir)
-            session.commit()  # belt-and-braces: correct even if the plants loader also commits
+            _load_ownership(session, args.data_dir)
+            session.commit()  # belt-and-braces: correct even if either loader above also commits
         finally:
             session.close()
         log.info("loaded: %s", report)
@@ -140,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     env["DATABASE_URL"] = database_url
 
     api_env = dict(env)
+    internal_token = secrets.token_urlsafe(24)  # per-run; the site's calls bypass the anonymous bucket
+    api_env["API_INTERNAL_TOKEN"] = internal_token
     api_proc = subprocess.Popen(  # noqa: S603 -- fixed argv (sys.executable + literal strings)
         [
             sys.executable,
@@ -157,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
 
     web_env = dict(env)
     web_env["API_BASE_URL"] = f"http://{args.api_host}:{args.api_port}"
+    web_env["API_INTERNAL_TOKEN"] = internal_token
     if args.preview:
         web_env["WEB_DEV_PREVIEW"] = "1"
     web_proc = subprocess.Popen(  # noqa: S603 -- fixed argv (sys.executable + literal strings)

@@ -107,6 +107,11 @@ def _safe_next(value: str | None, *, default: str = "/account") -> str:
     is rejected in favour of `default` (open-redirect prevention)."""
     if not value or not value.startswith("/") or value.startswith("//"):
         return default
+    # Browsers normalise a backslash to a slash when following a Location header, so `/\evil.com`
+    # resolves as `//evil.com` (web audit 2026-09-18); reject it, control characters, and anything
+    # that parses to a host.
+    if "\\" in value or "\r" in value or "\n" in value or urlsplit(value).netloc:
+        return default
     return value
 
 
