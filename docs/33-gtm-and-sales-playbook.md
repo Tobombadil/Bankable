@@ -110,6 +110,23 @@ org.activity_spike           ≥3 events on one org's proposals in 30 days
 2. Lenders/funds (higher ACV, longer cycle; start discovery now, sell in Q2).
 3. Data-centre operators (highest urgency in 2026, but they are well served by Cleanview/Halcyon; enter via co-location and large-load events once dockets are covered).
 4. Advisory/law and EPC/OEM as channels first (§5), customers second.
+5. *(added 2026-09-18)* Midstream, RNG and ethanol operators (§1.8): three of the twenty discovery
+   conversations (§4.1), no outreach sequence until the midstream and fuels wave ships.
+
+### 1.8 Midstream, RNG and ethanol operators — candidate segment (owner, 2026-09-18)
+
+| | |
+|---|---|
+| Who | Gas pipeline and storage operators (Tallgrass, Kinder Morgan, Williams, Energy Transfer, Boardwalk), RNG developers and offtakers (landfill and dairy project developers, gas utilities with RNG programmes), ethanol producers (the plants in EIA's annual capacity table, from POET and Valero to single-plant co-ops). Owner's read (2026-09-18): ethanol and RNG operators are "potential buyers for sure"; midstream is first a conversation-prep need (Tallgrass). |
+| Timely when | Gas-fired generation proposals near their pipelines (`proposal.filed`, `proposal.status_change` with `technology` in the gas classes, joined to the pipeline layer by distance); large-load requests in their corridors; RNG: new landfill or digester projects entering LMOP/AgSTAR as planned or under construction; ethanol: RFS pathway registrations, Class VI carbon-storage applications near their plants, Clean Fuel Production Credit guidance. |
+| Buyer / champion | Midstream: VP Commercial / Business Development, origination leads. RNG: development director, offtake manager at the gas utility. Ethanol: CEO or commercial VP at a single-plant company; corporate development at the multi-plant groups. |
+| Job to be done | Midstream: "Which generation and load proposals will need gas along my system, and who is behind them?" RNG and ethanol: "Which projects and policy events near my assets change my offtake or credit position, and who owns the assets next to mine?" |
+| Objections | "Our commercial team already tracks every gas plant announcement." · "Wood Mackenzie / Enverus give us this with the economics." · Ethanol: "We are a plant, not a data buyer." |
+| Proof needed | The ownership view: their own assets rendered from public registries with the objective feature set (capacity, vintage, pathway, mileage) and the proposals around them, so the first conversation is a correction exercise on their own data rather than a demo. Honest scoping: no tariff, contract or valuation data. |
+
+**What this segment does not change.** The proposals thesis and the ranking above stand; this segment enters
+through discovery, not through a sequence, and the midstream and fuels context layers it depends on are
+gated on the plants-layer engagement signal (`00-PLAN.md` decision 2026-09-18).
 
 ## 2. Account research method (public sources only)
 

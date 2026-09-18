@@ -68,6 +68,10 @@ tiles blocked (the OpenStreetMap dev raster is often blocked; that is the launch
 | https://ourgridfuture.org/ terms/licence | Cloudflare challenge blocks scripted clients (HTTP 403 on ten paths, 2026-09-15) | `docs/13` §2.9, `data/sources.yaml` `us.ourgridfuture.transmission_projects` |
 | EIA Energy Atlas pipelines dataset, its own licence field | The Hub catalogue API returned no row for the slug | `data/sources.yaml` `us.eia.atlas.gas_pipelines` |
 | EPA permit-search dashboard terms (RBLC) | New dashboard replaced the old pages; terms not retrieved | `data/sources.yaml` `us.epa.rblc` |
+| EIA Atlas dataset-level `licenseInfo` for the six context layers (pipelines, processing plants, storage, LNG terminals, ethanol plants, biodiesel plants) | About pages are a JS app; the field is not readable by script (2026-09-15, 2026-09-18) | `data/sources.yaml` `us.eia.atlas.*` |
+| Argonne RNG Database terms | Cloudflare challenge (HTTP 403) to the script probe, 2026-09-18; Argonne is contractor-operated so §105 does not apply automatically; `reuse: unknown` until read | `docs/13` §2.14, `data/sources.yaml` `us.anl.rng_database` |
+| PHMSA pipeline annual-report data page | Cloudflare challenge (HTTP 403), 2026-09-18; confirm the file layout and any data-page notice | `data/sources.yaml` `us.phmsa.pipeline_operator_reports` |
+| EPA RFS public-data file links | Page renders 200 but the xlsx/csv links are JS-rendered; open in a browser and record the file URLs | `data/sources.yaml` `us.epa.rfs_public_data` |
 | FERC major pipeline projects pending page | WAF blocks scripted fetch; a headless-browser connector is the plan | `data/sources.yaml` `us.ferc.pipelines_pending` (verified note) |
 
 ### 0.5 With counsel (§2.1; not this morning, but book it)

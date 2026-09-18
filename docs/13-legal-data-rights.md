@@ -880,6 +880,57 @@ adopted specifically for context-layer plant records.
 
 ---
 
+### 2.12 EPA databases (LMOP, AgSTAR, RFS public data) — public domain by §105, with EPA's own hedge quoted
+
+Source: https://www.epa.gov/web-policies-and-procedures/epa-disclaimers — "EPA Disclaimers", section "Copyright
+Status", retrieved 2026-09-18 (HTTP 200).
+
+> The U.S. Government retains a nonexclusive, royalty-free license to publish or reproduce these documents, or
+> allow others to do so, for U.S. Government purposes. These documents may be freely distributed and used for
+> non-commercial, scientific and educational purposes. Commercial use of the documents available from the EPA
+> websites may be protected under the U.S. and Foreign Copyright Laws. Individual documents on the EPA website
+> may have different copyright conditions, and that will be noted in those documents.
+
+*Inference:* the paragraph is written for "documents", many of which EPA hosts but did not author (contractor
+reports, submitted studies, third-party images), and it is those that "may be protected". A database compiled
+by EPA staff in the course of their duties (the LMOP landfill and project database, the AgSTAR digester
+database, the EMTS RIN and registration tables) is a work of the United States Government under 17 U.S.C. §105
+and has no copyright to assert, commercial use included. The hedge does not change that; it warns that not
+everything on epa.gov is a §105 work. Two cautions follow. First, LMOP and AgSTAR rows are partly
+operator-submitted; the facts are not copyrightable either way, but the databases carry no licence grant we can
+quote, so the position rests on §105 alone. Second, "individual documents may have different copyright
+conditions": check each downloaded workbook's cover sheet for a notice before ingest and record it in the
+register. **Confidence: moderate-high** (§105 reading strong; EPA's own wording weaker than EIA's).
+
+Classification: `public-domain`. Publication rule: `raw-ok`, with the cover-sheet check above. Counsel item 13.
+
+### 2.13 GLEIF LEI data — CC0 1.0, retrieved
+
+Source: https://www.gleif.org/en/meta/lei-data-terms-of-use — "LEI Data Terms of Use", retrieved 2026-09-18
+(HTTP 200).
+
+> The data available through the Access Service are provided under the CC0 licence, see CC0 1.0 Universal
+
+*Inference:* CC0 is a public-domain dedication; the Level 1 entity records and Level 2 relationship records
+(direct and ultimate parents) can be stored, joined and republished, commercially, without attribution.
+GLEIF asks to be cited as the source in its documentation, which the platform's attribution-by-default
+rendering does anyway. **Confidence: high.**
+
+Classification: `open` (CC0). Publication rule: `raw-ok`.
+
+### 2.14 Argonne RNG Database and PHMSA pipeline data pages — NOT RETRIEVED
+
+Both pages answered a Cloudflare challenge (HTTP 403, "Just a moment...") to the scripted probe on 2026-09-18,
+so nothing can be quoted. They differ in what that means. PHMSA is a DOT agency; its compiled annual-report and
+incident tables are §105 works and the only open point is the file layout and any notice on the data page
+(classification `public-domain`, confidence high, pending a browser read). Argonne National Laboratory is
+operated for DOE by UChicago Argonne, LLC; works of contractor employees are not automatically §105 works, and
+DOE laboratories publish data under their own terms, so `us.anl.rng_database` stays `reuse: unknown` and is
+gated until the owner or counsel reads its terms in a browser (`docs/40` §0). If the terms are restrictive,
+LMOP, AgSTAR and the RFS tables cover operational RNG assets without it; only the planned-project view is lost.
+
+---
+
 ## 3. US scraping law
 
 I am summarising the state of the law as relevant to Bankable's design decisions. This section is the one
@@ -1269,6 +1320,13 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `social.meta` | platform terms — see doc B | n/a (outbound) | see doc B | — |
 | `social.reddit` | restricted — commercial API use requires a paid agreement; see doc B | n/a (outbound) | see doc B §5.5 | mod |
 | `social.owned` | n/a — our own channel | raw-ok | — | high |
+| `us.eia.860` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted | high |
+| `us.eia.atlas.gas_processing_plants`, `us.eia.atlas.gas_storage`, `us.eia.atlas.lng_terminals`, `us.eia.atlas.ethanol_plants` | public-domain | raw-ok; Atlas `licenseInfo` unread (browser task) | 17 U.S.C. §105; §2.11 quoted | high |
+| `us.eia.ethanol_capacity` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted | high |
+| `us.epa.lmop`, `us.epa.agstar`, `us.epa.rfs_public_data` | public-domain | raw-ok, cover-sheet check per workbook | §2.12 quoted (EPA hedge) | mod-high |
+| `us.anl.rng_database` | **unknown** | do not store; gated until terms read | §2.14 not retrieved | n/a |
+| `us.phmsa.pipeline_operator_reports` | public-domain | raw-ok | 17 U.S.C. §105; §2.14 page not retrieved | high |
+| `global.gleif.lei` | open (CC0) | raw-ok | §2.13 quoted | high |
 
 **Tier-1 MVP consequence.** Of the seven US ISO queues, only ERCOT (×2) is clearly publishable raw at launch.
 CAISO and NYISO are publishable derived. SPP, ISO-NE, MISO and PJM are link-out-only until resolved. A US-first
@@ -1347,6 +1405,13 @@ Numbered, in the order they block work.
     partly a tort exposure; it should be written into the runbook either way.
 
 ---
+
+13. **EPA databases: confirm the §105 reading against EPA's copyright hedge** (§2.12). LMOP, AgSTAR and the
+    RFS public tables are the RNG and ethanol registries for the midstream and fuels wave (`00-PLAN.md`
+    2026-09-18). EPA's disclaimer page says commercial use of "documents available from the EPA websites may
+    be protected"; our reading is that EPA-authored databases are §105 works and the hedge covers third-party
+    documents. Confirm before the RNG layer is published; low legal risk, but it is the one federal source
+    whose own wording does not say "public domain".
 
 ## 8. What changed in the repo as a result
 

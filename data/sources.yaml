@@ -1213,6 +1213,267 @@ sources:
   effort: S
 
 # ─────────────────────────────────────────────────────────────────────────────
+# K. US MIDSTREAM, FUELS AND OWNERSHIP REGISTRIES (existing-asset context layers + ownership graph)
+#    Owner decision 2026-09-18 (docs/00-PLAN.md): pipelines, gas processing/storage/LNG, ethanol and RNG
+#    assets on the map with owner and the objective feature set; valuation excluded. Gated on the plants-layer
+#    engagement signal and sequenced after the federal permit events sprint. Probed 2026-09-18 by curl through
+#    the sandbox proxy (coordinator); "challenge" = Cloudflare interstitial, terms not retrievable by script.
+# ─────────────────────────────────────────────────────────────────────────────
+- id: us.eia.860
+  name: EIA-860 Annual Electric Generator Report — Schedule 4 Owner (ownership shares per generator), plus Plant/Generator schedules
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration
+  url: https://www.eia.gov/electricity/data/eia860/
+  access: bulk_file
+  auth: none
+  format: 'zip of xlsx (2024 final archive 22.1 MB: 1___Utility, 2___Plant, 3_1_Generator, 3_2 Wind, 3_3 Solar, 3_4 Energy_Storage, 3_5 Multifuel, 4___Owner, 6_x Enviro, LayoutY2024)'
+  cadence: annual (final in Q3/Q4 of the following year; early release earlier)
+  license: 'US federal work — public domain; EIA reuse statement quoted in docs/13-legal-data-rights.md section 2.11'
+  reuse: open
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'index 200; archive/xls/eia8602024.zip 200, 22,100,342 bytes, application/x-zip-compressed, contains 4___Owner_Y2024.xlsx (495,686 bytes); xls/eia8602025ER.zip answers 200 with a 55 KB HTML placeholder, same pattern as EIA-860M future months — check the zip magic before parsing'}
+  notes: >-
+    The ownership graph's spine for generation: Schedule 4 lists each owner and its percentage share per
+    generator, keyed by Plant ID + Generator ID, the same identity EIA-860M uses, so it joins straight onto
+    built_plant and onto EIA-860M proposals. Owner names are free text; resolve to organization via the
+    existing resolver, then to a parent via GLEIF where an LEI exists. Annual, so it lags 860M by up to a year.
+
+- id: us.eia.atlas.gas_processing_plants
+  name: EIA US Energy Atlas — Natural Gas Processing Plants (point geometries, operator, capacity)
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration (ArcGIS Hub site)
+  url: https://atlas.eia.gov/datasets/eia::natural-gas-processing-plants/about
+  access: api
+  auth: none
+  format: geojson/csv (ArcGIS feature service export)
+  cadence: annual
+  license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11. Dataset-level licenseInfo on the Atlas item not retrieved by script (JS app); read it in a browser before the layer ships, same task as us.eia.atlas.gas_pipelines'
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'about page 200 (JS app, no static licence text)'}
+  notes: >-
+    Point layer, so it rides the plants lane unchanged (parse, geocode from the layer's own coordinates,
+    load, cluster). Objective features: plant capacity (MMcf/d), operator, county, status. Source of the
+    underlying attributes is EIA-757 Schedule A.
+
+- id: us.eia.atlas.gas_storage
+  name: EIA US Energy Atlas — Natural Gas Underground Storage (fields; operator, working gas capacity, field type)
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration (ArcGIS Hub site)
+  url: https://atlas.eia.gov/datasets/eia::natural-gas-underground-storage/about
+  access: api
+  auth: none
+  format: geojson/csv (ArcGIS feature service export)
+  cadence: annual
+  license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11. Dataset-level licenseInfo not retrieved by script; read in a browser before the layer ships'
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'about page 200 (JS app)'}
+  notes: >-
+    Point layer. Objective features: field type (depleted field, aquifer, salt cavern), total and working gas
+    capacity, maximum deliverability, operator. Underlying attributes come from EIA-191.
+
+- id: us.eia.atlas.lng_terminals
+  name: EIA US Energy Atlas — Natural Gas Import/Export Terminals (LNG; operator, capacity, status)
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration (ArcGIS Hub site)
+  url: https://atlas.eia.gov/datasets/eia::natural-gas-import-export-terminals/about
+  access: api
+  auth: none
+  format: geojson/csv (ArcGIS feature service export)
+  cadence: annual
+  license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11. Dataset-level licenseInfo not retrieved by script; read in a browser before the layer ships'
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'about page 200 (JS app)'}
+  notes: >-
+    Point layer for existing terminals. Proposed and under-construction terminals are proposals, covered by
+    us.ferc.pipelines_pending and us.doe.lng_exports, not by this context layer. FERC's own LNG page
+    (https://www.ferc.gov/industries-data/natural-gas/overview/lng) answered a Cloudflare challenge (403)
+    to the probe on 2026-09-18; the Atlas layer carries the same terminals with coordinates.
+
+- id: us.eia.atlas.ethanol_plants
+  name: EIA US Energy Atlas — Ethanol Plants (point geometries, owner, nameplate capacity)
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration (ArcGIS Hub site)
+  url: https://atlas.eia.gov/datasets/eia::ethanol-plants/about
+  access: api
+  auth: none
+  format: geojson/csv (ArcGIS feature service export)
+  cadence: annual
+  license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11. Dataset-level licenseInfo not retrieved by script; read in a browser before the layer ships'
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'about page 200 (JS app); the biodiesel-plants sibling layer also answers 200 and can ride the same connector'}
+  notes: >-
+    Coordinates for the ethanol fleet; capacity and owner cross-checked against us.eia.ethanol_capacity,
+    which is the tabular primary. Ethanol operators are a candidate buyer segment (owner, 2026-09-18;
+    docs/33 section 1.8), so this layer is both context and account research.
+
+- id: us.eia.ethanol_capacity
+  name: EIA U.S. Fuel Ethanol Plant Production Capacity — annual plant-level table (plant, owner, city, state, nameplate capacity)
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration
+  url: https://www.eia.gov/petroleum/ethanolcapacity/
+  access: bulk_file
+  auth: none
+  format: xlsx (ethanolcapacity.xlsx, linked from the report page)
+  cadence: annual (as of January 1, published mid-year)
+  license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11'
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'report page 200, title "U.S. Fuel Ethanol Plant Production Capacity", links ethanolcapacity.xlsx'}
+  notes: >-
+    Tabular primary for the ethanol fleet: nameplate capacity per plant is the objective feature; owner is the
+    ownership-graph edge. Monthly production and stocks by PADD come from EIA-819 through us.eia.api if a
+    utilisation feature is wanted later.
+
+- id: us.epa.lmop
+  name: EPA Landfill Methane Outreach Program (LMOP) Landfill and Project Database — landfill gas energy projects (owner/developer, project type, capacity, status)
+  jurisdiction: US
+  category: registry
+  operator: US EPA, LMOP
+  url: https://www.epa.gov/lmop/lmop-landfill-and-project-database
+  access: bulk_file
+  auth: none
+  format: xlsx (lmopcompositedata.xlsx, 2024-09 build) plus a zip of per-year files 2001-2023
+  cadence: periodic (roughly annual composite refresh)
+  license: 'US federal work — public domain under 17 U.S.C. §105 for EPA-authored data; EPA''s copyright-status page hedges ("Commercial use of the documents available from the EPA websites may be protected"), quoted and assessed in docs/13-legal-data-rights.md section 2.12; counsel item 7.x before publication'
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'old URL /lmop/lmop-landfill-and-landfill-gas-energy-database 404; current page 200 with lmopcompositedata.xlsx (2024-09) and national_lmopdata_files_2001-2023.zip'}
+  notes: >-
+    The RNG fleet's largest public registry: landfill gas projects with project type (electricity, RNG to
+    pipeline, direct use), owner/developer, MW or mmscfd, status (operational, construction, planned, shut
+    down). Planned and construction rows are proposals in our vocabulary, not context; route them through the
+    normal lifecycle. RNG operators are a candidate buyer segment (owner, 2026-09-18).
+
+- id: us.epa.agstar
+  name: EPA AgSTAR Livestock Anaerobic Digester Database (farm digesters; owner/developer, biogas end use, status)
+  jurisdiction: US
+  category: registry
+  operator: US EPA, AgSTAR
+  url: https://www.epa.gov/agstar/livestock-anaerobic-digester-database
+  access: bulk_file
+  auth: none
+  format: xlsx (agstar-livestock-ad-database.xlsx; the linked file path carries a 2020-10 upload date, check the "last updated" note on the page)
+  cadence: periodic
+  license: 'US federal work — public domain under 17 U.S.C. §105 for EPA-authored data; same EPA hedge as us.epa.lmop, docs/13 section 2.12'
+  reuse: open
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'page 200, links agstar-livestock-ad-database.xlsx'}
+  notes: >-
+    Second RNG registry (dairy and swine digesters), most of the pipeline-injection RNG growth since 2020.
+    Locations are county/city level, not coordinates; geocode through the Census gazetteer like proposals.
+
+- id: us.epa.rfs_public_data
+  name: EPA Public Data for the Renewable Fuel Standard — registered fuel producers and RIN generation by fuel and pathway (D3/D5 RNG, D6 ethanol)
+  jurisdiction: US
+  category: registry
+  operator: US EPA, Office of Transportation and Air Quality (EMTS)
+  url: https://www.epa.gov/fuels-registration-reporting-and-compliance-help/public-data-renewable-fuel-standard
+  access: html
+  auth: none
+  format: linked xlsx/csv tables (not discoverable from the page HTML by script; JS-rendered links)
+  cadence: monthly (RIN data), continuous (registrations)
+  license: 'US federal work — public domain under 17 U.S.C. §105; same EPA hedge, docs/13 section 2.12'
+  reuse: open
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'page 200, title "Public Data for the Renewable Fuel Standard"; no xlsx/csv hrefs in the static HTML, the tables are behind JS — browser task to locate the file URLs'}
+  notes: >-
+    Adds the RIN pathway (the objective feature that separates RNG economics: D3 cellulosic vs D5 advanced)
+    and the registered producer list. Third in priority behind LMOP and AgSTAR because it needs a browser
+    session to find the file links.
+
+- id: us.anl.rng_database
+  name: 'Argonne National Laboratory Renewable Natural Gas Database (RNG projects: operational, under construction, planned; feedstock, end use, capacity)'
+  jurisdiction: US
+  category: registry
+  operator: Argonne National Laboratory (DOE contractor-operated laboratory)
+  url: https://www.anl.gov/esia/reference/renewable-natural-gas-database
+  access: html
+  auth: none
+  format: web tables and a downloadable spreadsheet (per ANL description; not verified)
+  cadence: periodic (ANL updates on its own schedule)
+  license: 'NOT RETRIEVED — the page answered a Cloudflare challenge (403 "Just a moment...") to the script probe on 2026-09-18. Argonne is contractor-operated (UChicago Argonne, LLC), so 17 U.S.C. §105 does not apply automatically; ANL data terms must be read in a browser before any row is stored'
+  reuse: unknown
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: blocked, note: '403 Cloudflare challenge page; terms not retrievable by script'}
+  notes: >-
+    The one registry that carries planned RNG projects across feedstocks in one table, so it is worth the
+    terms read. Gated (reuse unknown) until the owner or counsel reads the terms: docs/40 section 0 browser
+    task. If restrictive, LMOP + AgSTAR + RFS cover operational assets without it.
+
+- id: us.phmsa.pipeline_operator_reports
+  name: 'PHMSA gas transmission and gathering annual reports (per operator: mileage by diameter, decade installed, material, plus incident data)'
+  jurisdiction: US
+  category: registry
+  operator: US DOT Pipeline and Hazardous Materials Safety Administration
+  url: https://www.phmsa.dot.gov/data-and-statistics/pipeline/gas-distribution-gas-gathering-gas-transmission-hazardous-liquids
+  access: bulk_file
+  auth: none
+  format: zip of xlsx/txt annual report tables, per year; incident tables separately
+  cadence: annual (reports due March 15 for the prior year)
+  license: 'US federal work — public domain under 17 U.S.C. §105 (DOT-authored compilations of operator filings); page NOT RETRIEVED by script (403 challenge, 2026-09-18) so the data-page notice is unread'
+  reuse: open
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: blocked, note: '403 challenge to the script probe; browser task to confirm the file layout'}
+  notes: >-
+    The pipeline objective feature set (mileage, diameter mix, vintage, incident count per operator) keyed by
+    PHMSA Operator ID, which joins to the EIA Atlas pipeline layer's operator name only by name resolution.
+    Tabular, not geometric: it decorates the pipeline layer rather than drawing it.
+
+- id: global.gleif.lei
+  name: GLEIF Legal Entity Identifier Golden Copy and Level 2 relationship data (who owns whom, direct and ultimate parents)
+  jurisdiction: global
+  category: registry
+  operator: Global Legal Entity Identifier Foundation
+  url: https://www.gleif.org/en/lei-data/gleif-golden-copy/download-the-golden-copy
+  access: bulk_file
+  auth: none
+  format: csv/json/xml full files and deltas (Level 1 entity records; Level 2 relationship records RR-CDF)
+  cadence: 3× daily deltas; full file daily
+  license: 'CC0 1.0 Universal — GLEIF LEI Data Terms of Use (https://www.gleif.org/en/meta/lei-data-terms-of-use, retrieved 2026-09-18): "The data available through the Access Service are provided under the CC0 licence, see CC0 1.0 Universal"; quoted in docs/13 section 2.13'
+  reuse: open
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-18, result: ok, note: 'download page 200; terms page 200 with the CC0 statement'}
+  notes: >-
+    The corporate-hierarchy edge of the ownership graph: Level 2 relationship records give direct and
+    ultimate accounting parents for entities that hold an LEI (most listed companies and their financing
+    subsidiaries; many project LLCs do not). Match on legal name plus jurisdiction; store the LEI on
+    organization.identifiers. Coverage of small RNG and ethanol owners will be thin; that is expected.
+
+# ─────────────────────────────────────────────────────────────────────────────
 # J. SOCIAL DISTRIBUTION CHANNELS (outbound, not data sources — recorded for cost/feasibility)
 # ─────────────────────────────────────────────────────────────────────────────
 - id: social.bluesky
