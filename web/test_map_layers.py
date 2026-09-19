@@ -432,3 +432,22 @@ def test_map_script_escapes_register_text_before_it_reaches_markup() -> None:
     assert '"<h2>" + p.name' not in source and '"<h2>" + esc(p.name)' in source
     assert 'href=\\"" + source.source_url' not in source and "safeUrl(source.source_url)" in source
     assert "esc(p.operator_name" in source and "encodeURIComponent(String(p.slug))" in source
+
+
+# ============================================================ midstream asset palette (2026-09-19)
+def test_stylesheet_defines_asset_type_tokens_in_light_and_both_dark_blocks() -> None:
+    """docs/31 §1.6: one hue per midstream asset type, declared for the light theme and for both
+    dark-theme blocks (system preference and the explicit `data-theme="dark"` override)."""
+    from pathlib import Path
+
+    css = (Path(__file__).parent / "static" / "css" / "styles.css").read_text()
+    for token in (
+        "--asset-gas-pipeline",
+        "--asset-gas-processing",
+        "--asset-gas-storage",
+        "--asset-lng-terminal",
+        "--asset-ethanol",
+        "--asset-rng",
+    ):
+        assert css.count(f"{token}:") == 3, token
+    assert ".mini-map" in css and ".legend__group" in css and ".filter-field--asset-types" in css

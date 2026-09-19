@@ -68,6 +68,22 @@
   --plant-geothermal: #8a4a3a;
   --plant-other: #6d6d6d;
 
+  /* Midstream asset layers (docs/00-PLAN.md 2026-09-19 owner decision, option (a); docs/31 §1.6):
+     one hue per asset type, drawn beside the plant palette and, like it, dimmer than the status
+     families so an existing asset never reads as a proposal state. Type is never carried by
+     colour alone (D-5): pipelines are lines, processing plants diamonds, storage rings, LNG
+     terminals triangles, ethanol hexagons, RNG pentagons -- see map.js `ASSET_TYPE_SHAPE`.
+     Contrast on --color-paper (WCAG relative-luminance formula, docs/31 §1.1's method), legend
+     text usage: pipeline 6.48:1, processing 5.96:1, storage 6.04:1, LNG 5.52:1, ethanol 4.87:1,
+     RNG 4.71:1. Interstate vs intrastate pipelines share the hue and differ by dash (solid vs
+     dashed), plus the label. */
+  --asset-gas-pipeline: #6e4b7a;
+  --asset-gas-processing: #8a4a5a;
+  --asset-gas-storage: #4f5a8a;
+  --asset-lng-terminal: #2f6a7a;
+  --asset-ethanol: #7a6a2a;
+  --asset-rng: #2f7a5a;
+
   /* ADR 0008 region features (placement grade "region") -- one hue, not a status-family colour
      (same reasoning as the plant palette above): a highlighted county/state/country must never
      read as a lifecycle state. 5.3:1 against --color-paper (WCAG relative-luminance formula,
@@ -152,6 +168,14 @@
     --plant-geothermal: #d29a86;
     --plant-other: #b5b5b5;
 
+  /* Midstream asset layers, dark tints: 7.95 / 7.87 / 8.15 / 8.96 / 9.20 / 9.48 : 1 on --bg. */
+  --asset-gas-pipeline: #c9a6d6;
+  --asset-gas-processing: #d9a3b0;
+  --asset-gas-storage: #a9b3dc;
+  --asset-lng-terminal: #8ec6d3;
+  --asset-ethanol: #cfc07a;
+  --asset-rng: #8fd0b0;
+
     --region-fill: #9ab6d1;
     --region-line: #9ab6d1;
   }
@@ -190,6 +214,14 @@
   --plant-biomass: #a9c77a;
   --plant-geothermal: #d29a86;
   --plant-other: #b5b5b5;
+
+  /* Midstream asset layers, dark tints: 7.95 / 7.87 / 8.15 / 8.96 / 9.20 / 9.48 : 1 on --bg. */
+  --asset-gas-pipeline: #c9a6d6;
+  --asset-gas-processing: #d9a3b0;
+  --asset-gas-storage: #a9b3dc;
+  --asset-lng-terminal: #8ec6d3;
+  --asset-ethanol: #cfc07a;
+  --asset-rng: #8fd0b0;
 
   --region-fill: #9ab6d1;
   --region-line: #9ab6d1;
@@ -491,6 +523,75 @@ h3 { font-size: var(--text-4); }
 @media (max-width: 1079px) {
   .map-layout { grid-template-columns: 1fr; }
   .map-side { max-height: none; }
+}
+
+/* Existing-assets type picker (docs/00-PLAN.md 2026-09-19 option (a)): one checkbox per asset
+   type, laid out like the placement fieldset so the two read as the same control family. A type
+   listed but not yet loaded is disabled with its "(coming)" text, never silently absent. */
+.filter-field--asset-types {
+  border: none; margin: 0; padding: 0; gap: var(--space-2);
+  flex-direction: row; align-items: center; flex-wrap: wrap;
+}
+.filter-field--asset-types legend {
+  font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+  padding: 0; margin-inline-end: var(--space-1);
+}
+.filter-field--asset-types label {
+  display: flex; align-items: center; gap: var(--space-1); color: var(--text);
+  font-family: var(--font-body); font-size: var(--text-2); text-transform: none; letter-spacing: normal;
+}
+.filter-field--asset-types label.is-disabled { color: var(--text-muted); }
+.filter-field--asset-types input[type="checkbox"] { width: 1.15rem; height: 1.15rem; min-height: 0; }
+
+/* Legend groups per visible asset type: each group hides with its type (map.js toggles `hidden`),
+   so the legend only ever names what is drawn. Line samples carry the interstate/intrastate dash
+   rule (D-5: dash + label, never hue alone). */
+.legend--assets { flex-direction: column; gap: var(--space-2); }
+.legend__group { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; }
+.legend__group-name { font-weight: 600; color: var(--text-muted); }
+.legend__sample { flex: none; }
+
+/* In-view list: proposals first (the accessible path's primary content, D-14), then region
+   records and existing assets as their own labelled groups. A row that opens the map drawer does
+   so through a real button (keyboard-reachable, SC 2.1.1; audit 2026-09-18: region records were
+   not), beside the link to the record's own page where one exists. */
+.in-view-list__group-name {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted); margin: var(--space-4) 0 var(--space-1);
+}
+.in-view-list__kind { font-size: var(--text-1); color: var(--text-muted); margin-inline-end: var(--space-1); }
+.in-view-list .details-btn {
+  font: inherit; font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em;
+  background: none; border: 1px solid var(--border); border-radius: var(--radius-2); color: var(--link);
+  cursor: pointer; padding: 0 var(--space-2); min-height: 1.5rem; margin-inline-start: var(--space-2);
+}
+.in-view-list .details-btn:hover { border-color: var(--link); }
+
+/* ---------- 8.2 Static asset / company maps (asset_detail.html, organization_detail.html) ----------
+   Server-rendered SVG of the record's own geometry (no JS needed; docs/30 §3.1 asset page note),
+   replaced by a MapLibre mini-map at a fixed fit when web/static/js/asset_map.js runs. */
+.mini-map {
+  position: relative; height: 40vh; min-height: 16rem; max-height: 32rem;
+  border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--map-water);
+  overflow: hidden; margin: var(--space-4) 0;
+}
+.mini-map svg { display: block; width: 100%; height: 100%; background: var(--map-land); }
+.mini-map__line { fill: none; stroke: var(--asset-gas-pipeline); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.mini-map__line--intrastate { stroke-dasharray: 6 4; }
+.mini-map__point { fill: var(--asset-gas-processing); stroke: var(--surface); stroke-width: 1; }
+.mini-map__proposal { fill: var(--family-progress-text); stroke: var(--surface); stroke-width: 1; }
+.mini-map__caption { font-size: var(--text-1); color: var(--text-muted); margin: 0 0 var(--space-4); }
+.mini-map .maplibregl-canvas-container { height: 100%; }
+
+/* Company page: assets grouped by role and type; the summary line reads as one sentence. */
+.org-summary { font-size: var(--text-3); color: var(--text-muted); margin: 0 0 var(--space-4); }
+.asset-group { margin-bottom: var(--space-5); }
+.asset-group h3 { margin-bottom: var(--space-2); }
+.org-links { list-style: none; margin: 0; padding: 0; }
+.org-links li { padding: var(--space-1) 0; }
+
+@media (max-width: 719px) {
+  .mini-map { height: 34vh; min-height: 13rem; }
 }
 
 /* ---------- 8.1 Map detail drawer -- document panel, not a modal card (D-12, D-15) ---------- */

@@ -118,6 +118,74 @@ def _load_ownership(session: Session, data_dir: Path) -> None:
     log.info("asset ownership: loaded from %s (%s)", parquet_path, report)
 
 
+#: `data/normalized/context/<file>` -> `asset_type` for the midstream and fuels context layers
+#: (owner option (a), 2026-09-19; file names and types as the data lanes landed them, coordinator
+#: note 2026-09-19). Two files may feed one type (ethanol from EIA capacity and the Atlas layer;
+#: RNG from EPA LMOP and AgSTAR); the `*.proposals.parquet` siblings of the EPA files hold planned
+#: rows that are proposals, not assets, and are not listed here. A file that is not there is one
+#: log line, never a failure.
+_CONTEXT_ASSET_FILES: tuple[tuple[str, str], ...] = (
+    ("us.eia.atlas.gas_pipelines.parquet", "gas_pipeline"),
+    ("us.eia.atlas.gas_processing_plants.parquet", "gas_processing_plant"),
+    ("us.eia.atlas.gas_storage.parquet", "gas_storage"),
+    ("us.eia.atlas.lng_terminals.parquet", "lng_terminal"),
+    ("us.eia.ethanol_capacity.parquet", "ethanol_plant"),
+    ("us.eia.atlas.ethanol_plants.parquet", "ethanol_plant"),
+    ("us.epa.lmop.parquet", "rng_project"),
+    ("us.epa.agstar.parquet", "rng_project"),
+)
+
+
+def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
+    """Load the midstream/fuels asset layers through the ingest lanes' own loaders -- same rule as
+    `_load_plants_context_layer`: this script never invents a load path. Per file, in order:
+    `services.ingest.assets.load_assets_parquet(session, path, asset_type)` (the rows) then
+    `services.ingest.midstream.load_operator_edges_parquet(session, path, asset_type)` (the
+    `asset_owner` operator edges); once every file is done, `services.ingest.midstream.
+    load_parents(session)` applies the curated parent links (`data/vendored/organizations/
+    parents.yaml`). Any file or module that is not there yet, or an `asset_type` the loader has
+    not wired, is one log line with the reason, never a failure of the rest of `dev_up`; every
+    successful step logs its counts."""
+    context_dir = data_dir / "normalized" / "context"
+    try:
+        from services.ingest.assets import UnsupportedAssetTypeError, load_assets_parquet
+    except ImportError as exc:
+        log.info("context asset layers: services.ingest.assets not available yet (%s), skipping", exc)
+        return
+    try:
+        from services.ingest.midstream import load_operator_edges_parquet, load_parents
+    except ImportError as exc:
+        log.info("context asset layers: services.ingest.midstream not available yet (%s); rows only", exc)
+        load_operator_edges_parquet = None  # type: ignore[assignment]
+        load_parents = None  # type: ignore[assignment]
+
+    loaded = 0
+    for file_name, asset_type in _CONTEXT_ASSET_FILES:
+        parquet_path = context_dir / file_name
+        if not parquet_path.exists():
+            log.info("context asset layers: %s not found, skipping", parquet_path)
+            continue
+        try:
+            report = load_assets_parquet(session, parquet_path, asset_type)
+        except UnsupportedAssetTypeError as exc:
+            log.info("context asset layers: %s skipped (%s)", file_name, exc)
+            continue
+        loaded += 1
+        log.info("context asset layers: loaded %s rows from %s (%s)", asset_type, file_name, report)
+        if load_operator_edges_parquet is not None:
+            edges = load_operator_edges_parquet(session, parquet_path, asset_type)
+            log.info("context asset layers: operator edges from %s (%s)", file_name, edges)
+    if loaded and load_parents is not None:
+        try:
+            parents = load_parents(session)
+        except FileNotFoundError as exc:
+            log.info("context asset layers: curated parents file not found (%s), skipping", exc)
+        else:
+            log.info("context asset layers: curated parents applied (%s)", parents)
+    if not loaded:
+        log.info("context asset layers: no midstream/fuels parquet under %s yet, skipping", context_dir)
+
+
 def _wait_for(url: str, timeout_s: float = 20.0) -> None:
     deadline = time.monotonic() + timeout_s
     last_error: Exception | None = None
@@ -150,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
                 sample_per_state=args.sample_per_state,
             )
             _load_plants_context_layer(session, args.data_dir)
+            _load_context_asset_layers(session, args.data_dir)
             _load_ownership(session, args.data_dir)
             session.commit()  # belt-and-braces: correct even if either loader above also commits
         finally:

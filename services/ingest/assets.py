@@ -30,6 +30,7 @@ import os
 import pathlib
 import time
 from dataclasses import asdict, dataclass
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import select
@@ -44,16 +45,56 @@ from services.ingest.loader import upsert_licence_and_source
 
 DEFAULT_DB_PATH = pathlib.Path("web/.data/dev.db")
 
-#: `asset_type` -> the `data/sources.yaml` id its loader reads from, for the sources wired up so
-#: far. Extending this to a new asset type is "one parser each" (ADR 0008 consequences) -- add the
-#: connector, the manifest row and one entry here; never adds a case to the loader body itself.
-ASSET_TYPE_SOURCE_IDS: dict[str, str] = {
-    "power_plant": "us.eia.860m",
+#: `asset_type` -> the `data/sources.yaml` ids its loader may read from, for the sources wired up
+#: so far. Extending this to a new asset type is "one parser each" (ADR 0008 consequences) -- add
+#: the connector, the manifest row and one entry here; never adds a case to the loader body itself.
+#: A type may have several registries (fuels lane, 2026-09-19: RNG from EPA LMOP *and* AgSTAR,
+#: ethanol from the EIA Atlas points *and* the EIA capacity table); `(source_id, source_asset_id)`
+#: keeps their rows apart. The frame's own `source_id` column picks the source (`resolve_source_id`),
+#: the first id listed is the default for a frame that has none.
+ASSET_TYPE_SOURCE_IDS: dict[str, tuple[str, ...]] = {
+    "power_plant": ("us.eia.860m",),
+    # EIA Atlas natural gas layers, `pipeline/context/eia_atlas.py` (midstream lane, 2026-09-19).
+    "gas_pipeline": ("us.eia.atlas.gas_pipelines",),
+    "gas_processing_plant": ("us.eia.atlas.gas_processing_plants",),
+    "gas_storage": ("us.eia.atlas.gas_storage",),
+    "lng_terminal": ("us.eia.atlas.lng_terminals",),
+    # Fuels lane, 2026-09-19 (`pipeline/context/lmop.py`, `agstar.py`, `ethanol_*.py`).
+    "rng_project": ("us.epa.lmop", "us.epa.agstar"),
+    "ethanol_plant": ("us.eia.atlas.ethanol_plants", "us.eia.ethanol_capacity"),
 }
 
 
 class UnsupportedAssetTypeError(ValueError):
-    """Raised for an `asset_type` with no wired source yet (see `ASSET_TYPE_SOURCE_IDS`)."""
+    """Raised for an `asset_type` with no wired source yet, or a `source_id` the type does not
+    allow (see `ASSET_TYPE_SOURCE_IDS`)."""
+
+
+def resolve_source_id(df: pd.DataFrame, asset_type: str, source_id: str | None = None) -> str:
+    """The manifest id this frame loads under: the explicit `source_id` argument, else the frame's
+    single `source_id` column value, else the type's first wired source. Anything outside
+    `ASSET_TYPE_SOURCE_IDS[asset_type]` -- or a frame mixing two sources -- is refused rather than
+    loaded under the wrong provenance."""
+    if asset_type not in ASSET_TYPES:
+        raise UnsupportedAssetTypeError(f"{asset_type!r} is not one of {ASSET_TYPES!r}")
+    allowed = ASSET_TYPE_SOURCE_IDS.get(asset_type)
+    if not allowed:
+        raise UnsupportedAssetTypeError(
+            f"no source wired for asset_type={asset_type!r} yet (ASSET_TYPE_SOURCE_IDS)"
+        )
+    if source_id is None and "source_id" in df.columns and len(df):
+        found = sorted({str(v) for v in df["source_id"].dropna().unique()})
+        if len(found) > 1:
+            raise UnsupportedAssetTypeError(f"frame mixes source ids {found}; load one source at a time")
+        if found:
+            source_id = found[0]
+    if source_id is None:
+        return allowed[0]
+    if source_id not in allowed:
+        raise UnsupportedAssetTypeError(
+            f"source_id={source_id!r} is not wired for asset_type={asset_type!r}; allowed: {allowed!r}"
+        )
+    return source_id
 
 
 def utcnow() -> dt.datetime:
@@ -130,6 +171,36 @@ def _to_json_dict(value: object) -> dict[str, float]:
     return {str(k): float(v) for k, v in value.items() if v is not None and not pd.isna(v)}
 
 
+def _to_attributes(value: object) -> dict[str, Any]:
+    """`attributes` is the type's objective feature set (docs/21 §3.22) and holds strings, lists
+    and nulls as well as numbers (`states_crossed`, `status_raw`, `field_type`, ...), so unlike
+    `technologies` it is *not* coerced to floats -- only parsed from the JSON string
+    `to_parquet_safe` wrote, with a non-dict payload becoming `{}`."""
+    value = _none_if_missing(value)
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        try:
+            value = json.loads(value) if value else {}
+        except json.JSONDecodeError:
+            return {}
+    if not isinstance(value, dict):
+        return {}
+    return {str(k): (None if isinstance(v, float) and pd.isna(v) else v) for k, v in value.items()}
+
+
+def _to_geom_line(value: object) -> str | None:
+    """`geom_line_wkt` column -> the WKT string `services.db.types.GeographyLine` binds on both
+    dialects (a `MULTILINESTRING(...)`; a bare `LINESTRING` is promoted by the type)."""
+    text = _to_str(value)
+    if text is None:
+        return None
+    text = text.strip()
+    if not text or text.upper().endswith(" EMPTY"):
+        return None
+    return text
+
+
 def _slug_for(name: str, state_code: str | None, used_slugs: set[str]) -> str:
     base = slugify(f"{name} {state_code}" if state_code else name)
     slug = base
@@ -142,7 +213,12 @@ def _slug_for(name: str, state_code: str | None, used_slugs: set[str]) -> str:
 
 
 def load_assets(
-    session: Session, df: pd.DataFrame, asset_type: str, *, manifest_version: str = ""
+    session: Session,
+    df: pd.DataFrame,
+    asset_type: str,
+    *,
+    source_id: str | None = None,
+    manifest_version: str = "",
 ) -> AssetsLoadResult:
     """Upsert one asset-shaped frame by `(source_id, source_asset_id)`. Bulk-friendly: the
     registry/licence/source rows and every existing `asset` key for this `(source, asset_type)`
@@ -153,18 +229,14 @@ def load_assets(
     `source_plant_id`): `source_asset_id`, `name`, `operator_name`, `technology`,
     `technology_raw`, `technologies`, `capacity_mw`, `capacity_value`, `capacity_unit`,
     `unit_count`, `commissioned_year`, `lon`/`lat`, `state_code`, `county_name`, `county_fips`,
-    `country`, `attributes`, `status`, `source_url`, `retrieved_at`. Every column is optional
-    except `source_asset_id` and `name`; a missing column is treated as absent for every row.
+    `country`, `attributes`, `status`, `source_url`, `retrieved_at`, plus `geom_line_wkt` (a
+    `MULTILINESTRING` WKT string for line assets, `pipeline.context.eia_atlas`) -> `geom_line`.
+    Every column is optional except `source_asset_id` and `name`; a missing column is treated as
+    absent for every row. `operator_name`/`owner_name` are stored as spelled and turned into
+    `asset_owner` edges by `services/ingest/midstream.py`, not here.
     """
-    if asset_type not in ASSET_TYPES:
-        raise UnsupportedAssetTypeError(f"{asset_type!r} is not one of {ASSET_TYPES!r}")
-    if asset_type not in ASSET_TYPE_SOURCE_IDS:
-        raise UnsupportedAssetTypeError(
-            f"no source wired for asset_type={asset_type!r} yet (ASSET_TYPE_SOURCE_IDS)"
-        )
-
     registry = Registry()
-    entry = registry.get(ASSET_TYPE_SOURCE_IDS[asset_type])
+    entry = registry.get(resolve_source_id(df, asset_type, source_id))
     source = upsert_licence_and_source(session, entry, manifest_version or registry.version)
 
     result = AssetsLoadResult(assets_seen=len(df))
@@ -203,7 +275,8 @@ def load_assets(
             "commissioned_year": _to_int(row.get("commissioned_year")),
             "unit_count": _to_int(row.get("unit_count")),
             "geom": geom,
-            "attributes": _to_json_dict(row.get("attributes")),
+            "geom_line": _to_geom_line(row.get("geom_line_wkt")),
+            "attributes": _to_attributes(row.get("attributes")),
             "state_code": state_code,
             "county_name": _to_str(row.get("county_name")),
             "county_fips": _to_str(row.get("county_fips")),
@@ -245,15 +318,21 @@ def load_assets(
     return result
 
 
-def load_assets_parquet(session: Session, path: pathlib.Path, asset_type: str) -> AssetsLoadResult:
+def load_assets_parquet(
+    session: Session, path: pathlib.Path, asset_type: str, *, source_id: str | None = None
+) -> AssetsLoadResult:
+    """`source_id` defaults to the parquet's own `source_id` column (`resolve_source_id`)."""
     df = pd.read_parquet(path)
-    return load_assets(session, df, asset_type)
+    return load_assets(session, df, asset_type, source_id=source_id)
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--parquet", type=pathlib.Path, required=True)
     parser.add_argument("--asset-type", required=True, choices=sorted(ASSET_TYPES))
+    parser.add_argument(
+        "--source-id", help="Override the parquet's source_id column (must be wired for the type)"
+    )
     parser.add_argument("--db", type=pathlib.Path, default=DEFAULT_DB_PATH)
     args = parser.parse_args(argv)
 
@@ -268,7 +347,7 @@ def main(argv: list[str] | None = None) -> None:
     session_factory = get_sessionmaker(engine)
     session = session_factory()
     try:
-        result = load_assets_parquet(session, args.parquet, args.asset_type)
+        result = load_assets_parquet(session, args.parquet, args.asset_type, source_id=args.source_id)
     finally:
         session.close()
     elapsed = round(time.monotonic() - t0, 2)

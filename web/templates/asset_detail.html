@@ -1,37 +1,61 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
-{% block meta_description %}{{ record.name }}: {{ record.asset_type or 'asset' }}{% if record.technology %}, {{ record.technology }}{% endif %}{% if record.capacity_mw %}, {{ '%.1f'|format(record.capacity_mw) }} MW{% endif %}{% if record.county %}, {{ record.county }}{% endif %}{% if record.state %}, {{ record.state }}{% endif %}.{% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.type_label }}{% if record.technology %}, {{ record.technology }}{% endif %}{% if record.capacity_mw %}, {{ '%.1f'|format(record.capacity_mw) }} MW{% endif %}{% if record.length_miles %}, {{ '{:,.0f}'.format(record.length_miles) }} miles{% endif %}{% if record.operator.name %}, operated by {{ record.operator.name }}{% endif %}{% if record.states %}, {{ record.states }}{% elif record.state %}, {{ record.state }}{% endif %}.{% endblock %}
 {% block canonical %}<link rel="canonical" href="/assets/{{ record.slug }}">{% endblock %}
+{% block extra_head %}
+{% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
+{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
-  <span class="reuse-badge">{{ (record.asset_type or 'asset') | replace('_', ' ') }} &middot; {{ (record.status or 'unknown') | replace('_', ' ') }}</span>
+  <span class="reuse-badge">{{ record.type_label }}{% if record.line_class %} &middot; {{ record.line_class }}{% endif %}{% if record.status %} &middot; {{ record.status | replace('_', ' ') }}{% endif %}</span>
 </div>
 
+{# Every row is conditional on its value (blockers-sprint "None" gate): an absent field is not a
+   row, never "None" or "—". Pipeline rows (length, diameter, states, interstate/intrastate) and
+   plant rows (technology, capacity, units) share one grid; only the ones with data appear. #}
 <dl class="field-grid">
-  <div><dt>Type</dt><dd>{{ (record.asset_type or '—') | replace('_', ' ') }}</dd></div>
-  <div><dt>Status</dt><dd>{{ (record.status or '—') | replace('_', ' ') }}</dd></div>
-  <div><dt>Operator</dt><dd>{{ record.operator_name or '—' }}</dd></div>
-  <div><dt>Technology</dt><dd>{{ record.technology or '—' }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="visually-hidden">(source value: {{ record.technology_raw }})</span>{% endif %}</dd></div>
-  <div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}</dd></div>
+  <div><dt>Type</dt><dd>{{ record.type_label }}</dd></div>
+  {% if record.status %}<div><dt>Status</dt><dd>{{ record.status | replace('_', ' ') }}</dd></div>{% endif %}
+  {% if record.operator.name %}
+  <div><dt>Operator</dt><dd>{% if record.operator.public_id %}<a class="row-link" href="/organizations/{{ record.operator.slug or record.operator.public_id }}">{{ record.operator.name }}</a>{% else %}{{ record.operator.name }}{% endif %}</dd></div>
+  {% endif %}
+  {% if record.line_class %}<div><dt>Pipeline class</dt><dd>{{ record.line_class }}</dd></div>{% endif %}
+  {% if record.length_miles is not none %}<div><dt>Length (miles)</dt><dd class="tnum">{{ '{:,.0f}'.format(record.length_miles) }}</dd></div>{% endif %}
+  {% if record.diameter %}<div><dt>Diameter</dt><dd class="tnum">{{ record.diameter }}</dd></div>{% endif %}
+  {% if record.states %}<div><dt>States crossed</dt><dd>{{ record.states }}</dd></div>{% endif %}
+  {% if record.technology %}
+  <div><dt>Technology</dt><dd>{{ record.technology }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="visually-hidden">(source value: {{ record.technology_raw }})</span>{% endif %}</dd></div>
+  {% endif %}
+  {% if record.capacity_mw is not none %}<div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) }}</dd></div>{% endif %}
   {% if record.capacity_value is not none %}
   <div><dt>Capacity ({{ record.capacity_unit or 'native unit' }})</dt><dd class="tnum">{{ '{:,.1f}'.format(record.capacity_value) }}</dd></div>
   {% endif %}
-  <div><dt>Commissioned</dt><dd class="tnum">{{ record.commissioned_year or '—' }}</dd></div>
-  <div><dt>Units</dt><dd class="tnum">{{ record.unit_count or '—' }}</dd></div>
-  <div><dt>County</dt><dd>{{ record.county or '—' }}</dd></div>
-  <div><dt>State</dt><dd>{{ record.state or '—' }}</dd></div>
+  {% if record.commissioned_year %}<div><dt>Commissioned</dt><dd class="tnum">{{ record.commissioned_year }}</dd></div>{% endif %}
+  {% if record.unit_count %}<div><dt>Units</dt><dd class="tnum">{{ record.unit_count }}</dd></div>{% endif %}
+  {% if record.county %}<div><dt>County</dt><dd>{{ record.county }}</dd></div>{% endif %}
+  {% if record.state and not record.states %}<div><dt>State</dt><dd>{{ record.state }}</dd></div>{% endif %}
+  {% if record.source_name %}
+  <div><dt>Source</dt><dd><a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text or record.source_name }}</a>{% if record.retrieved_at %}, retrieved <span class="tnum">{{ record.retrieved_at[:10] }}</span>{% endif %}</dd></div>
+  {% endif %}
 </dl>
 
+{% if mini_map %}
+<section aria-label="Map">
+  {{ m.section_heading("1.", "Map") }}
+  {{ m.mini_map(mini_map, tile_url, tile_mode) }}
+</section>
+{% endif %}
+
 <section aria-label="Attributes">
-  {{ m.section_heading("1.", "Attributes") }}
-  {{ m.attributes_table(record.attributes) }}
+  {{ m.section_heading("2.", "Attributes") }}
+  {{ m.attributes_table(record.attributes, omit=record.promoted_attributes) }}
 </section>
 
-<section aria-label="Owners">
-  {{ m.section_heading("2.", "Owners") }}
+<section aria-label="Owners and operators">
+  {{ m.section_heading("3.", "Owners and operators") }}
   {% if record.owners %}
   <div class="table-scroll">
   <table class="record-table">
@@ -42,10 +66,10 @@
     <tbody>
       {% for o in record.owners %}
       <tr>
-        <td data-label="Organisation">{% if o.public_id %}<a class="row-link" href="/organizations/{{ o.public_id }}">{{ o.name or o.public_id }}</a>{% else %}{{ o.name or '—' }}{% endif %}</td>
-        <td data-label="Role">{{ o.role or '—' }}</td>
-        <td data-label="Share" class="num tnum">{{ '%.1f%%'|format(o.share_pct) if o.share_pct is not none else '—' }}</td>
-        <td data-label="As of" class="tnum">{{ o.as_of or '—' }}</td>
+        <td data-label="Organisation">{% if o.public_id %}<a class="row-link" href="/organizations/{{ o.slug or o.public_id }}">{{ o.name or o.public_id }}</a>{% elif o.name %}{{ o.name }}{% endif %}</td>
+        <td data-label="Role">{% if o.role %}{{ o.role }}{% endif %}</td>
+        <td data-label="Share" class="num tnum">{% if o.share_pct is not none %}{{ '%.1f%%'|format(o.share_pct) }}{% endif %}</td>
+        <td data-label="As of" class="tnum">{% if o.as_of %}{{ o.as_of[:10] }}{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -57,22 +81,31 @@
 </section>
 
 <section aria-label="Nearby proposals">
-  {{ m.section_heading("3.", "Nearby proposals") }}
-  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of this asset's point (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
+  {{ m.section_heading("4.", "Nearby proposals") }}
+  {% if record.is_line %}
+  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of this pipeline&rsquo;s route, nearest first (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
+  {% else %}
+  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of this asset&rsquo;s point, nearest first (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
+  {% endif %}
   {% if nearby_proposals %}
-  <ul class="in-view-list">
-    {% for r in nearby_proposals %}
-    <li>{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
-      <span class="meta">{{ r.technology or '—' }} &middot; {{ r.state or r.jurisdiction or '—' }}{% if r.capacity_mw %} &middot; {{ '%.1f'|format(r.capacity_mw) }} MW{% endif %}</span>
-    </li>
-    {% endfor %}
-  </ul>
+  {{ m.nearby_proposals_list(nearby_proposals) }}
   {% else %}
   <p>No exact-grade proposals nearby.</p>
   {% endif %}
 </section>
 
-{{ m.provenance_panel(provenance_rows, number="4.") }}
+{{ m.provenance_panel(provenance_rows, number="5.") }}
 
 {{ m.attribution_line(record) }}
+{% endblock %}
+{% block extra_scripts %}
+{% if mini_map %}
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+{% if tile_mode == "pmtiles" %}
+<script src="https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/dist/pmtiles.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/dist/basemaps.js"></script>
+{% endif %}
+<script src="/static/js/basemap.js?v={{ asset_version }}"></script>
+<script src="/static/js/asset_map.js?v={{ asset_version }}"></script>
+{% endif %}
 {% endblock %}

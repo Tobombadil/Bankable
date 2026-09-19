@@ -1,58 +1,99 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
-{% block meta_description %}{{ record.name }}: {{ record.type or 'organisation' }}{% if record.jurisdiction %}, {{ record.jurisdiction }}{% endif %}.{% endblock %}
+{% block meta_description %}{{ record.name }}{% if record.type %}: {{ record.type | replace('_', ' ') }}{% endif %}{% if summary_parts %}. {{ summary_parts | join('; ') }}{% endif %}{% if record.jurisdiction %} ({{ record.jurisdiction }}){% endif %}.{% endblock %}
 {% block canonical %}<link rel="canonical" href="/organizations/{{ record.slug or record.public_id }}">{% endblock %}
+{% block extra_head %}
+{% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
+{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
   {% if record.type %}<span class="reuse-badge">{{ record.type | replace('_', ' ') }}</span>{% endif %}
 </div>
+{# "Operates 3 gas pipelines · Owns 12 power plants": one clause per (role, type) group, from the
+   API's `asset_counts` where it sends them, else counted over the rows on this page. #}
+{% if summary_parts %}<p class="org-summary" id="org-summary">{{ summary_parts | join(' · ') }}</p>{% endif %}
 
 <dl class="field-grid">
-  <div><dt>Type</dt><dd>{{ (record.type or '—') | replace('_', ' ') }}</dd></div>
-  <div><dt>Country</dt><dd>{{ record.country or '—' }}</dd></div>
-  <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
-  <div><dt>Website</dt><dd>{% if record.website %}<a href="{{ record.website }}" rel="noopener">{{ record.website }}</a>{% else %}—{% endif %}</dd></div>
+  {% if record.type %}<div><dt>Type</dt><dd>{{ record.type | replace('_', ' ') }}</dd></div>{% endif %}
+  {% if record.country %}<div><dt>Country</dt><dd>{{ record.country }}</dd></div>{% endif %}
+  {% if record.jurisdiction %}<div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction }}</dd></div>{% endif %}
+  {% if record.website %}<div><dt>Website</dt><dd><a href="{{ record.website }}" rel="noopener">{{ record.website }}</a></dd></div>{% endif %}
   {% if record.parent_public_id %}
-  <div><dt>Parent organisation</dt><dd><a class="row-link" href="/organizations/{{ record.parent_public_id }}">{{ record.parent_name or record.parent_public_id }}</a></dd></div>
+  <div><dt>Parent organisation</dt><dd><a class="row-link" href="/organizations/{{ record.parent_slug or record.parent_public_id }}">{{ record.parent_name or record.parent_public_id }}</a></dd></div>
   {% endif %}
 </dl>
 
+{% if subsidiaries %}
+<section aria-label="Subsidiaries">
+  <h2>Subsidiaries{% if record.subsidiary_count and record.subsidiary_count > subsidiaries | length %} <span class="section-num">{{ subsidiaries | length }} of {{ record.subsidiary_count }}</span>{% endif %}</h2>
+  <ul class="org-links">
+    {% for s in subsidiaries %}
+    <li><a class="row-link" href="/organizations/{{ s.slug or s.public_id }}">{{ s.name or s.public_id }}</a>{% if s.type %} <span class="reuse-badge">{{ s.type | replace('_', ' ') }}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <section aria-label="Assets">
   {{ m.section_heading("1.", "Assets") }}
-  {% if assets %}
-  <div class="table-scroll">
-  <table class="record-table">
-    <caption class="visually-hidden">Assets this organisation owns or operates.</caption>
-    <thead>
-      <tr><th scope="col">Asset</th><th scope="col">Type</th><th scope="col">Role</th><th scope="col" class="num">Share</th></tr>
-    </thead>
-    <tbody>
-      {% for a in assets %}
-      <tr>
-        <td data-label="Asset">{% if a.slug %}<a class="row-link" href="/assets/{{ a.slug }}">{{ a.name or a.slug }}</a>{% else %}{{ a.name or '—' }}{% endif %}</td>
-        <td data-label="Type">{{ (a.asset_type or '—') | replace('_', ' ') }}</td>
-        <td data-label="Role">{{ a.role or '—' }}</td>
-        <td data-label="Share" class="num tnum">{{ '%.1f%%'|format(a.share_pct) if a.share_pct is not none else '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% if mini_map %}{{ m.mini_map(mini_map, tile_url, tile_mode) }}{% endif %}
+  {% if asset_groups %}
+  {% for g in asset_groups %}
+  <div class="asset-group">
+    <h3 id="assets-{{ g.role }}-{{ g.asset_type }}">{{ g.role_label }} {{ g.count }} {{ g.type_label if g.count != 1 else g.type_label_singular }}</h3>
+    <div class="table-scroll">
+    <table class="record-table">
+      <caption class="visually-hidden">Assets this organisation {{ g.role_label | lower }}: {{ g.type_label }}.</caption>
+      <thead>
+        <tr><th scope="col">Asset</th>{% if g.show_capacity %}<th scope="col" class="num">Capacity (MW)</th>{% endif %}{% if g.show_length %}<th scope="col" class="num">Length (miles)</th>{% endif %}{% if g.show_states %}<th scope="col">States</th>{% endif %}{% if g.show_share %}<th scope="col" class="num">Share</th>{% endif %}{% if g.show_held_by %}<th scope="col">Held by</th>{% endif %}</tr>
+      </thead>
+      <tbody>
+        {% for a in g.rows %}
+        <tr>
+          <td data-label="Asset">{% if a.slug %}<a class="row-link" href="/assets/{{ a.slug }}">{{ a.name or a.slug }}</a>{% elif a.name %}{{ a.name }}{% endif %}</td>
+          {% if g.show_capacity %}<td data-label="Capacity (MW)" class="num tnum">{% if a.capacity_mw is not none %}{{ '%.1f'|format(a.capacity_mw) }}{% endif %}</td>{% endif %}
+          {% if g.show_length %}<td data-label="Length (miles)" class="num tnum">{% if a.length_miles is not none %}{{ '{:,.0f}'.format(a.length_miles) }}{% endif %}</td>{% endif %}
+          {% if g.show_states %}<td data-label="States">{% if a.states %}{{ a.states }}{% elif a.state %}{{ a.state }}{% endif %}</td>{% endif %}
+          {% if g.show_share %}<td data-label="Share" class="num tnum">{% if a.share_pct is not none %}{{ '%.1f%%'|format(a.share_pct) }}{% endif %}</td>{% endif %}
+          {% if g.show_held_by %}<td data-label="Held by">{% if a.held_by %}{% if a.held_by.slug %}<a href="/organizations/{{ a.held_by.slug }}">{{ a.held_by.name or a.held_by.slug }}</a>{% else %}{{ a.held_by.name }}{% endif %}{% endif %}</td>{% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
   </div>
+  {% endfor %}
   {% else %}
   <p class="provenance-panel__empty">No assets recorded for this organisation.</p>
   {% endif %}
 </section>
 
+<section aria-label="Nearby proposals">
+  {{ m.section_heading("2.", "Proposals near these assets") }}
+  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of any asset this organisation owns or operates, nearest first, each with the asset it is closest to (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
+  {% if nearby_proposals %}
+  {{ m.nearby_proposals_list(nearby_proposals) }}
+  {% else %}
+  <p>No exact-grade proposals within 25&nbsp;km of these assets.</p>
+  {% endif %}
+</section>
+
 <section aria-label="Proposals">
-  {{ m.section_heading("2.", "Proposals") }}
+  {{ m.section_heading("3.", "Proposals") }}
   {% if proposals %}
   <ul class="in-view-list">
     {% for r in proposals %}
     <li>{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
-      <span class="meta">{{ r.technology or '—' }} &middot; {{ r.state or r.jurisdiction or '—' }}{% if r.capacity_mw %} &middot; {{ '%.1f'|format(r.capacity_mw) }} MW{% endif %}</span>
+      <span class="meta">
+        {%- set parts = [] -%}
+        {%- if r.technology %}{% set _ = parts.append(r.technology) %}{% endif -%}
+        {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
+        {%- if r.capacity_mw %}{% set _ = parts.append('%.1f MW'|format(r.capacity_mw)) %}{% endif -%}
+        {{ parts | join(' · ') }}
+      </span>
     </li>
     {% endfor %}
   </ul>
@@ -62,12 +103,12 @@
 </section>
 
 <section aria-label="Opportunities">
-  {{ m.section_heading("3.", "Opportunities") }}
+  {{ m.section_heading("4.", "Opportunities") }}
   {% if opportunities %}
   <ul class="in-view-list">
     {% for r in opportunities %}
     <li>{{ m.status_chip(r.status, r.lifecycle_family) }} <a href="/opportunities/{{ r.slug }}">{{ r.title }}</a>
-      <span class="meta">{{ r.kind or '—' }}{% if r.due_at %} &middot; due {{ r.due_at[:10] }}{% endif %}</span>
+      <span class="meta">{% if r.kind %}{{ r.kind }}{% endif %}{% if r.due_at %}{% if r.kind %} &middot; {% endif %}due {{ r.due_at[:10] }}{% endif %}</span>
     </li>
     {% endfor %}
   </ul>
@@ -76,5 +117,21 @@
   {% endif %}
 </section>
 
-{{ m.provenance_panel(provenance_rows, number="4.") }}
+{# An organisation row carries no source rows of its own; the panel shows the sources behind its
+   assets and proposals instead. With none of those either, no panel at all -- never a "withheld
+   under licence" claim that is not true (docs/31 §5.2 empty state is for gated evidence only). #}
+{% if provenance_rows %}
+{{ m.provenance_panel(provenance_rows, number="5.", note=provenance_note) }}
+{% endif %}
+{% endblock %}
+{% block extra_scripts %}
+{% if mini_map %}
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+{% if tile_mode == "pmtiles" %}
+<script src="https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/dist/pmtiles.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/dist/basemaps.js"></script>
+{% endif %}
+<script src="/static/js/basemap.js?v={{ asset_version }}"></script>
+<script src="/static/js/asset_map.js?v={{ asset_version }}"></script>
+{% endif %}
 {% endblock %}

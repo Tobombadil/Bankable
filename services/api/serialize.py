@@ -13,6 +13,18 @@ import datetime as dt
 from typing import Any
 
 from services.api.common import TERMS_URL, WEB_HOST, iso, utcnow
+from services.api.lines import (
+    DETAIL_ZOOM,
+    Parts,
+    decimals_for_tolerance,
+    km_to_miles,
+    parse_line_parts,
+    parts_length_km,
+    parts_to_geojson,
+    round_parts,
+    simplify_parts,
+    tolerance_for_zoom,
+)
 from services.db.models import (
     Account,
     Alert,
@@ -441,7 +453,11 @@ def serialize_asset_summary(asset: Asset) -> dict[str, Any]:
 
 
 def serialize_asset(
-    asset: Asset, *, owners: list[AssetOwner] | None = None, include_owners: bool = True
+    asset: Asset,
+    *,
+    owners: list[AssetOwner] | None = None,
+    include_owners: bool = True,
+    include_geometry: bool = True,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "public_id": asset.public_id,
@@ -466,11 +482,79 @@ def serialize_asset(
         "country": asset.country,
         "first_seen": iso(asset.first_seen),
         "last_changed": iso(asset.last_changed),
+        "length_miles": asset_length_miles(asset),
         "provenance": [asset_source_row(asset)],
     }
+    if include_geometry:
+        out["geometry"] = asset_geometry(asset)
     if include_owners:
         out["owners"] = [serialize_asset_owner(o) for o in (owners if owners is not None else asset.owners)]
     return out
+
+
+def asset_line_parts(asset: Asset) -> Parts | None:
+    """`asset.geom_line` as parts (`services/api/lines.py`), or `None`. The ORM hands back a list of
+    `(lon, lat)` pairs on SQLite; a Postgres `WKBElement` is not parsed here -- the geo index and the
+    nearby endpoints read lines through `ST_AsGeoJSON` in SQL instead, and a detail response on
+    Postgres goes through the same `parse_line_parts` once the row's line is fetched as GeoJSON
+    (`services/api/assets.py::_line_parts_for`)."""
+    raw = asset.geom_line
+    if raw is None or not isinstance(raw, (str, list, tuple, dict)):
+        return None
+    return parse_line_parts(raw)
+
+
+def asset_geometry(asset: Asset, *, parts: Parts | None = None) -> dict[str, Any] | None:
+    """The asset's GeoJSON geometry for a detail response: the line (simplified at
+    `DETAIL_ZOOM`'s tolerance, ~75 m) for a line asset, else its representative point, else
+    `None`. Withheld -- `None`, with a `redactions[]` row from `asset_geometry_redactions` --
+    when the asset's licence forbids raw publication (`services/api/visibility.py::
+    asset_geometry_visible`, the generic gate; no source in scope today triggers it)."""
+    from services.api.visibility import asset_geometry_visible
+
+    if not asset_geometry_visible(asset):
+        return None
+    line = parts if parts is not None else asset_line_parts(asset)
+    if line is not None:
+        tolerance = tolerance_for_zoom(DETAIL_ZOOM)
+        return parts_to_geojson(
+            round_parts(simplify_parts(line, tolerance), decimals_for_tolerance(tolerance))
+        )
+    if asset.geom is not None and isinstance(asset.geom, (list, tuple)):
+        lon, lat = asset.geom
+        return {"type": "Point", "coordinates": [float(lon), float(lat)]}
+    return None
+
+
+def asset_length_miles(asset: Asset, *, parts: Parts | None = None) -> float | None:
+    """`attributes.length_miles` or `attributes.miles` as the registry states it, else the geodesic
+    length of the stored line (the objective derivation ADR 0008 §4 allows), else `None` for a
+    point asset."""
+    for key in ("length_miles", "miles"):  # the brief's name, then EIA Atlas's as the data lane records it
+        stated = (asset.attributes or {}).get(key)
+        if isinstance(stated, (int, float)) and not isinstance(stated, bool):
+            return round(float(stated), 1)
+    line = parts if parts is not None else asset_line_parts(asset)
+    if line is None:
+        return None
+    return round(km_to_miles(parts_length_km(line)), 1)
+
+
+def asset_geometry_redactions(asset: Asset) -> list[dict[str, Any]]:
+    """The envelope's `redactions[]` entry when `asset_geometry` withheld the coordinates."""
+    from services.api.visibility import asset_geometry_visible
+
+    if asset_geometry_visible(asset) or (asset.geom is None and asset.geom_line is None):
+        return []
+    return [
+        {
+            "public_id": asset.public_id,
+            "field": "geometry",
+            "reason": "licence",
+            "source_id": asset.source_id,
+            "note": "coordinates withheld under the source licence; derived fields returned",
+        }
+    ]
 
 
 def serialize_event(

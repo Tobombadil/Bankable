@@ -197,3 +197,108 @@ Every one of the 14,659 operating plants in this workbook carries a real coordin
 mixed completeness), so this run has no unplaced plants to fall back on a county/state centroid for. A
 second loader run against the same parquet reported `inserted: 0, updated: 14659` — no duplicate rows,
 confirming the unique constraint on `(source_id, source_plant_id)` holds across re-runs.
+
+## 10. Ethanol and RNG point layers (fuels lane, 2026-09-19)
+
+Owner decision 2026-09-19 option (a): ethanol and RNG points join the midstream wave as `asset` rows (ADR 0008),
+objective features only, no valuation. Four `data/sources.yaml` section K sources, one parser each under
+`pipeline/context/` on a shared seam (`fuels.py`: column contract, manifest gate, polite fetch, snapshot/run
+records, coordinate rule, county placement). `us.anl.rng_database` stays out: its terms are unread (docs/13 §2.14).
+Every parquet below loads through `services/ingest/assets.py::load_assets_parquet` unchanged (verified into an
+in-memory SQLite, re-run reports `inserted 0 / updated N`); the two loader limits this exposes are in §10.5.
+
+### 10.1 Sources, runs and terms (measured 2026-09-19, sandbox proxy)
+
+| `source_id` | Fetched | `retrieved_at` | Bytes | Asset rows | Parquet | Terms observed |
+|---|---|---|---|---|---|---|
+| `us.eia.ethanol_capacity` | `https://www.eia.gov/petroleum/ethanolcapacity/ethanolcapacity.xlsx` (as of January 1, 2025) | 15:49:01Z | 23,446 | 191 | 46,519 B | US federal work; EIA reuse statement (docs/13 §2.11). Footnote: "Data Source: Form 819". |
+| `us.epa.lmop` | `https://www.epa.gov/system/files/documents/2024-09/lmopcompositedata.xlsx`, link followed from the database page (page "Last updated on July 31, 2026") | 15:49:08Z | 1,465,367 | 1,353 (+129 proposals) | 1,006,024 B (+135,678 B) | §105 under the EPA hedge (docs/13 §2.12). Cover sheet ("Summary") carries the status vocabulary and a data-quality caveat, no copyright or reuse notice; page text: "Because the data are compiled from a variety of voluntary sources ... cannot guarantee the accuracy". |
+| `us.epa.agstar` | `https://www.epa.gov/sites/default/files/2020-10/agstar-livestock-ad-database.xlsx`, link followed from the page (page "Last updated on July 10, 2026", file "based on data available through June 2024") | 15:49:18Z | 98,977 | 498 (+73 proposals) | 170,711 B (+43,160 B) | Same hedge. No cover sheet; page carries a data-accuracy caveat and "does not constitute or imply the endorsement or recommendation of EPA"; no copyright or reuse notice. |
+| `us.eia.atlas.ethanol_plants` | `https://www.eia.gov/maps/map_data/Ethanol_Plants_US_EIA.zip` (EIA's shapefile copy, data "As of January 1, 2021"), after the ArcGIS service answered `Token Required` | 15:49:24Z | 37,644 | 197 | 65,797 B | Shapefile metadata `useLimit`: "None (public use). Users are advised to thoroughly review the metadata ... The U.S. Energy Information Administration gives no warranty ..."; credit "U.S. Energy Information Administration". |
+
+**Atlas access finding.** The feature service every Atlas item and third-party copy points at
+(`services7.arcgis.com/FGr1D95XCGALKXqM/.../Ethanol_Plants_US_EIA/FeatureServer/112`; org `FGr1D95XCGALKXqM` is EIA,
+urlKey `eia`) answered `{"error": {"code": 499, "message": "Token Required"}}` anonymously, as did the sibling
+biodiesel, pipelines and processing-plant services. None of them is among the org's 79 public feature-service items,
+the Atlas DCAT feed (101 datasets, no infrastructure layers) or a Hub v3 search for "ethanol plants" (151,405 items,
+no EIA-owned hit); the Hub slug lookup answered 403 and the `.geojson` download route 500. The connector treats the
+token reply as a block (never a retry) and falls through to EIA's own `www.eia.gov/maps/map_data/*.zip` copy, whose
+FGDC metadata carries the dataset-level terms the docs/40 §0 browser task was meant to read (quoted above). That copy
+is a 2021-01-01 vintage; the annual capacity table is the current capacity primary and the layer supplies coordinates.
+`atlas.eia.gov/robots.txt` sets `Crawl-delay: 60` for every agent; the lane's session honours it (one request a minute
+there; EPA and EIA hosts at 0.5 rps).
+
+### 10.2 Column contract and placement
+
+Same loader-mapped columns as the EIA-860M plants frame (`source_asset_id`, `name`, `operator_name`, `status`,
+`technology`, `technology_raw`, `technologies`, `capacity_mw`, `capacity_value`, `capacity_unit`, `commissioned_year`,
+`unit_count`, `lon`, `lat`, `state_code`, `county_name`, `county_fips`, `country`, `attributes`, `source_url`,
+`retrieved_at`) plus the provenance and feature columns the loader ignores today: `source_id`, `licence`
+(`public-domain`), `licence_id` (the registry key the loader mints), `attributes_text` (JSON of the string-valued
+features), `feedstock`, `owner_raw`, `developer_raw`, `status_raw`, `placement_precision`, `centroid_lon`,
+`centroid_lat`, `raw` (the source row, verbatim).
+
+- `attributes` holds numbers only: the loader's `_to_json_dict` casts every value with `float()`, so a string
+  there would abort the load. String features live in `attributes_text` and the dedicated columns.
+- `lon`/`lat` are set only from a coordinate the source itself states (the `eia_plants` validity rule: numeric,
+  in bounds, not `(0, 0)`). A source that gives county or city only is left unplaced for the loader — never a point
+  at a centroid (ADR 0008) — and carries its county FIPS and centroid with `placement_precision`
+  (`county_centroid` | `state_centroid` | `unknown`) for a region-grade rendering.
+- `status` is the `asset.status` vocabulary. Rows whose registry status is planned or under construction are
+  proposals (ADR 0008 §1): each EPA parser returns them separately and writes them to
+  `data/normalized/context/<source_id>.proposals.parquet` for the proposals lane; they never enter an asset frame.
+
+### 10.3 Objective feature sets
+
+- **Ethanol** (`ethanol_plant`; `ethanol_capacity.py`, `ethanol_plants.py`): nameplate capacity in MMgal/yr
+  (`capacity_value`, `attributes.nameplate_capacity_mmgal_yr`), as-of year / data period, respondent or company
+  string (`operator_name`, `owner_raw`), city or site, PADD, and — from the Atlas layer only — the exact point.
+  Neither EIA product carries a feedstock field, so `feedstock` is null rather than assumed. Every listed plant is
+  operating by construction of both products, so `status = operating`. Identity: `<STATE>-<respondent|company slug>-<city|site slug>`.
+  The capacity table has no coordinate (city is not a coordinate): 191 rows at `state_centroid`; the Atlas copy has
+  197 plants, all exact. EIA's `(s)` symbol ("less than 0.5 MMgal/yr") is a suppressed value, not zero (none in the
+  2025 table).
+- **LMOP** (`rng_project`; `lmop.py`): project type category → `technology` (`lfg_electricity` | `rng` |
+  `lfg_direct_use`), LFG energy project type (`technology_raw`), RNG delivery method, LFG use details, rated MW
+  (`capacity_mw`) and actual MW, LFG flow to project in mmscfd (`capacity_value`), start/shutdown years
+  (`commissioned_year`), end users, owner and developer strings (`owner_raw`, `developer_raw`; `operator_name` =
+  owner, else developer), plus the host landfill's name, ids, status, ownership type, owner/operator, waste in
+  place, LFG generated/collected and the current-year emission reductions. Identity is `Project ID`; a project fed
+  by several landfills (25 assets) collapses to one row keeping the first landfill's point and county and listing
+  all landfills. Of 3,399 source rows: 669 Operational + 712 Shutdown rows → 652 + 701 assets (1,339 exact points,
+  14 at county centroid — all 15 asset-status rows without a Latitude are Shutdown); 133 Planned/Construction rows →
+  129 proposals; 1,883 landfill-potential rows (Candidate, Low Potential, Future Potential, Unknown) dropped with a
+  count. One Shutdown project (`65-0`) has no category → `technology = unknown`.
+- **AgSTAR** (`rng_project`; `agstar.py`): digester type (`technology_raw`; `technology = farm_digester`),
+  animal/farm type as `feedstock`, biogas end use(s), project type, biogas generation estimate in cu-ft/day
+  (`capacity_value`), electricity generated kWh/yr, head counts, co-digestion, LCFS pathway and USDA funding flags,
+  receiving utility, total emission reductions, year operational (`commissioned_year`), year and reason of shutdown,
+  designer/developer string (`developer_raw`; the farm is the operator and is named in the project name, so
+  `operator_name` is null). Identity is a content key over (Project Name, State) — no duplicates in the 2024-06 build.
+  571 rows: 400 Operational + 98 Shut down → 498 assets, 73 Construction → proposals. No coordinates: 482 at county
+  centroid, 16 at state centroid where the source county does not resolve (typos such as "Niagra", "Caroll",
+  "Mantiowoc"; Connecticut's four legacy counties, which the 2024 Gazetteer replaced with planning regions; one blank).
+
+### 10.4 Tests and fixtures
+
+`pipeline/context/test_{fuels,ethanol_capacity,lmop,agstar,ethanol_plants}.py` (113 tests in `pipeline/context`,
+all fixture-based, no network). Fixtures under `pipeline/context/fixtures/` are the real 2026-09-19 downloads,
+trimmed: `eia_ethanol_capacity_sample.xlsx` (title/header, PADD 1, Illinois' first row, Kansas with the `(s)` and
+formula cells, PADD 5, total, footnotes; 19 plants), `lmop_composite_sample.xlsx` (whole Summary and Field
+Descriptions sheets, 27 database rows including both multi-landfill projects and a no-Latitude Shutdown project),
+`agstar_digesters_sample.xlsx` (18 + 7 rows including three Construction rows and the city-less row),
+`eia_atlas_ethanol_plants_sample.zip` (12 real shapefile records with the `.prj`). The feature-service GeoJSON shape
+could not be recorded (token block) and is exercised in-test with a synthetic two-feature collection, labelled as such.
+
+### 10.5 Open for the coordinator
+
+1. `services/ingest/assets.py::ASSET_TYPE_SOURCE_IDS` maps one source per asset type; `rng_project` has two here
+   (LMOP, AgSTAR) and `ethanol_plant` two (capacity table, Atlas copy). Reading `source_id` from the frame, or a
+   `(asset_type, source_id)` map, is the one-line loader change; until then a load attaches rows to the mapped source.
+2. `_to_json_dict` in the same loader floats every attribute; folding `attributes_text` into `asset.attributes`
+   needs that cast relaxed for strings.
+3. `data/sources.yaml` `verified` rows for the four sources should record the URLs, `retrieved_at`, byte counts and
+   the Atlas token finding above (the file was mid-edit by another lane during this run and unparsable; the lane's
+   CLIs took `--manifest` pointing at the committed copy).
+4. Browser task (docs/40 §0): confirm whether EIA now requires a login on the Atlas feature services or has moved
+   them; until then the `map_data` zips are the route for every Atlas point layer.

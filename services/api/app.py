@@ -34,6 +34,7 @@ from sqlalchemy.orm import (
     noload,
     selectinload,
 )
+from starlette.middleware.gzip import GZipMiddleware
 
 from services.api.auth import AuthContext, get_auth_context
 from services.api.common import API_HOST, WEB_HOST, new_request_id, utcnow
@@ -89,6 +90,11 @@ app = FastAPI(
     description="Public tier only (Sprint 2 backend brief). See api/openapi.yaml for the full contract.",
 )
 app.add_exception_handler(ProblemError, problem_exception_handler)
+# Response compression (2026-09-19, line layer): a national `GET /v1/assets/geo` over the 3,000-line
+# synthetic pipeline fixture is ~1.3 MB of JSON and ~200 KB gzipped, because a GeoJSON feature list
+# repeats keys and provenance quartets that compress ~6:1. Every response over 1 KB is compressed
+# when the client accepts gzip; smaller responses and clients that do not are untouched.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # Pro/API tier and alerts (Sprint 2 backend brief "Pro tier and alerts"): session and API-key
 # auth, saved searches, alerts, keys, webhooks, the private saved-search feed, and the interim
@@ -143,6 +149,7 @@ app.include_router(ui_events_router)
 # layer's route) is mounted from here too, as an alias forcing `asset_type=power_plant`
 # (services/api/assets.py's own module docstring) -- services/api/context_routes.py is kept only
 # as a `TECHNOLOGY_VOCAB` re-export for web/test_map_layers.py, never mounted.
+from services.api.assets import organization_asset_totals, organization_hierarchy  # noqa: E402
 from services.api.assets import router as assets_router  # noqa: E402
 from services.api.regions import router as regions_router  # noqa: E402
 
@@ -1030,6 +1037,15 @@ def get_organization(public_id: str, request: Request, db: Session = Depends(get
         raise not_found(request.url.path)
     p_count, o_count = _counts_for_org(db, org)
     data = serialize_organization(org, proposal_count=p_count, opportunity_count=o_count)
+    # Company page (ADR 0008 §2; 2026-09-19 line layer): what the organisation owns or operates by
+    # type and role, and its GLEIF parent/subsidiaries where the data lane has set `parent_org_id`.
+    data["asset_counts"] = organization_asset_totals(db, org)
+    data.update(organization_hierarchy(db, org))
+    data["group_asset_counts"] = (
+        organization_asset_totals(db, org, include_subsidiaries=True)
+        if data["subsidiary_count"]
+        else data["asset_counts"]
+    )
     meta = build_meta(lag_days=0)
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary([]))
 

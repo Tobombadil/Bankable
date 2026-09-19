@@ -626,3 +626,71 @@ and the ~20-minute time-box; no throttling, no `success: false` retries, no wind
   the evidence on hand, not a certified precision number — `docs/22` §10's two-person, held-out labelling
   protocol is what turns an estimate like this into one quotable externally. Owner/data-scientist should
   confirm before this number is cited outside this document.
+
+## 15. Operator edges and curated parent links for the midstream layers (2026-09-19)
+
+Inputs: the four EIA Atlas natural gas parquets written by `pipeline/context/eia_atlas.py` on 2026-09-19
+(pipelines 259 rows, processing plants 478, underground storage 412, LNG terminals 8; `data/sources.yaml` §K
+`verified` notes carry the URLs, byte counts and vintages). Loader: `services/ingest/midstream.py`. Numbers
+below are from one run against a fresh SQLite database, `python -m services.ingest.assets` then
+`python -m services.ingest.midstream edges` per layer, then `python -m services.ingest.midstream parents`.
+
+### 15.1 What an operator string becomes
+
+Every non-blank `Operator` (pipelines, processing plants, LNG) or `Company` (storage) string is one
+`asset_owner` edge with `role = operator`, and every non-blank `Owner` string (processing plants, LNG) one with
+`role = owner`; `share_pct` is NULL because the Atlas states no shares, `owner_name_raw` is the source
+spelling, and the edge's `source_id`/`source_url`/`retrieved_at`/`licence_id` are the layer's own (the same
+`source` row the asset carries), never a synthetic id. The string resolves to an `organization` through the
+same key §13.3 uses — `pipeline.normalize.norm_org`, corp suffixes and punctuation stripped, over
+`organization.name_canonical` and every `organization_alias.alias` — so the Atlas strings join the sponsors and
+filers the proposal loaders already created rather than duplicating them, and a string that matches nothing
+creates one organisation plus a `filing_spelling` alias (confidence 0.9, the same reasoning
+`services/ingest/ownership.py` records for its lower-than-exact confidence).
+
+Measured: 1,126 operator edges and 457 owner edges over 1,157 assets; 628 organisations created from 253 +
+191 + 133 + 8 distinct raw strings (the four layers share operators, and case/suffix variants collapse). A
+re-run wrote 0 new organisations and 0 duplicate edges (edges are keyed by the table's unique constraint
+`(asset_id, organization_id, role, source_id)` and looked up before insert).
+
+Two limits worth knowing before a company page is read literally:
+
+- The Atlas truncates some strings. EIA-191's company field gives `TALLGRASS INTERSTATE GAS TRANSMISSIO`
+  (36 characters) where the pipeline layer gives `Tallgrass Interstate Gas Transmission`; `norm_org` cannot
+  equate a truncated token with its full form, so these are two organisations. The curated parent file (§15.2)
+  links both to the parent, which is what the company page needs; a merge of the two children is a §13
+  resolver decision, not something this loader guesses.
+- An owner string and an operator string that are the same organisation produce two edges with different
+  roles on the same asset (Douglas Plant: owner and operator both `Tallgrass Energy Midstream LLC`). That is
+  the intended shape — the roles are facts the registry states separately.
+
+### 15.2 Curated parent links (interim for GLEIF Level 2)
+
+`data/vendored/organizations/parents.yaml` holds rules of the form (child name pattern, parent canonical
+name, source URL, retrieved_at, note). `load_parents` matches each pattern (a case-insensitive regular
+expression) against every organisation's canonical name and aliases, creates the parent organisation if no
+existing organisation normalises to its name, and sets `organization.parent_org_id` plus
+`parent_source_id = curated.organization_parents` — a source registered in `data/sources.yaml` §K with
+reuse `open`, publication `raw_ok` and the licence text "curated by Infraque from the companies' own
+published statements; each row cites its URL", so the provenance rule (every stored fact names its source)
+holds for a fact a human read off a company page. A child that is itself the parent is skipped; a rule that
+matches nothing is reported, not silently accepted.
+
+Seed, 2026-09-19: six rules for Tallgrass Energy from
+<https://www.tallgrass.com/energy-solutions/natural-gas>, read live that day ("Rockies Express Pipeline (REX),
+Ruby, Tallgrass Interstate Gas Transmission, Trailblazer, Cheyenne Connector, and East Cheyenne Gas Storage",
+plus the gathering/processing statement). Against the loaded Atlas data the rules linked nine organisations:
+`Rockies Express Pipeline`, `Rockies Express (Entrega)`, `Rockies Express (Echo Springs Lateral)`,
+`Tallgrass Interstate Gas Transmission`, `TALLGRASS INTERSTATE GAS TRANSMISSIO`, `Trailblazer Pipeline Co`,
+`Ruby Pipeline LLC`, `EAST CHEYENNE GAS STORAGE LLC`, `Tallgrass Energy Midstream LLC` — which is every
+Tallgrass-related string the four layers contain (Cheyenne Connector post-dates the 202001 pipeline vintage
+and has no row to match; `Cheyenne Plains Pipeline Co` is a different company and is deliberately not
+matched). A re-run changed nothing (0 created, 0 linked, 9 unchanged).
+
+What replaces it: GLEIF Level 2 relationship records (CC0, docs/13 §2.14) keyed by LEI in
+`organization.ids.lei`, loaded with `parent_source_id = gleif.level2` (to be registered). Where an LEI
+matches, that loader overwrites the curated link; where it does not (most Atlas operator strings are
+operating subsidiaries without an LEI of their own, and the strings are not legal names), the curated row
+stays. Nothing in the curated file asserts a share, a legal form or an ownership chain beyond one parent
+hop, and none of it is inferred from a name alone — each row is a statement the company itself published.
+

@@ -1,32 +1,45 @@
 """Asset endpoints (docs/23 §3.1, ADR 0008): `GET /v1/assets`, `/{public_id}`, `/geo`,
-`/{public_id}/nearby-proposals`, and `GET /v1/organizations/{public_id}/assets`.
+`/{public_id}/nearby-proposals`, `GET /v1/organizations/{public_id}/assets` and
+`GET /v1/organizations/{public_id}/nearby-proposals`.
 
 Assets carry no lag and no tier gating (ADR 0008: every source in scope this sprint is public
 domain or CC BY) -- every caller, credentialed or not, sees the same response, same as
 `GET /v1/context/plants/geo` before it (`services/api/context_routes.py`'s module docstring).
 They do carry the licence gate (2026-09-18 audit, docs/50 §3.1 "the asset endpoint had no licence
-gate"): every read path here -- list, detail, geo index (and its cache key), nearby, organisation
+gate"): every read path here -- list, detail, geo indexes (and their cache key), nearby, organisation
 assets and the plants alias -- filters through `services/api/visibility.py::
 asset_visibility_filter`, so an asset whose licence is `restricted`/`unknown` or whose source is
-not on the public surface is absent, not greyed out (docs/21 §8 checklist items 1 and 4).
+not on the public surface is absent, not greyed out (docs/21 §8 checklist items 1 and 4). Stored
+coordinates additionally pass `asset_geometry_permitted` (2026-09-19): a licence that allows
+derived data but not raw coordinates keeps the asset on the list and its page, but off the map,
+with `geometry: null` and a `redactions[]` row -- generic, not triggered by any source today.
 
-`GET /v1/assets/geo`'s clustering follows `services/api/context_routes.py`'s pan/zoom-performance
-design exactly (`AssetIndexRow` generalises that module's `PlantIndexRow`): a process-local cache
-of the *whole* asset table as lightweight tuples, invalidated by one `(count, max(last_changed))`
-aggregate query per request (`last_changed`, not `updated_at` -- `asset` has no `TimestampMixin`,
-docs/21 §3.22), with `asset_type`/`technology`/`country` filtering done in Python over the cached
-index so a re-filter never touches the database. A full `Asset` row (name, technologies split,
-owners, source block) is fetched by id, bounded to the `<= SPLIT_THRESHOLD` rows that actually
-render as individual markers.
+Two process-local indexes back `GET /v1/assets/geo`, both following
+`services/api/context_routes.py`'s pan/zoom-performance design: a cache of the whole visible asset
+table as lightweight tuples, invalidated by one `(count, max(last_changed))` aggregate query per
+request plus the source/licence `updated_at` maxima (`_asset_index_cache_key`), filtered in Python
+so a re-filter never touches the database.
+
+* Points (`AssetIndexRow`, generalising that module's `PlantIndexRow`): every visible asset with a
+  representative `geom` and no `geom_line`; clustered by grid cell above `SPLIT_THRESHOLD`, full
+  `Asset` rows fetched by id for the <= 500 that render as individual markers.
+* Lines (`LineIndexRow`, 2026-09-19, owner option (a): pipelines as a GeoJSON line layer first,
+  simplified by zoom, vector tiles later): every visible asset with a `geom_line`, held at full
+  resolution with its bbox and length, simplified per integer zoom on first use and memoised on
+  the cache (`_LineIndexCache.simplified`), so a warm request at a given zoom is a bbox test and a
+  serialisation. Lines are never clustered; a viewport test is bbox overlap and then an exact
+  segment-vs-viewport check, never centroid containment. Above `LINE_FEATURE_CAP` lines in view
+  the longest are kept (what a tile pipeline's low-zoom drop rule does), and the totals say so.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import math
 import threading
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Any
 
 import sqlalchemy as sa
@@ -35,12 +48,33 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, load_only, selectinload
 
 from pipeline.normalize import TECH_RULES
+from services.api.common import WEB_HOST
 from services.api.deps import get_db
 from services.api.errors import not_found, validation_error
 from services.api.geo import SPLIT_THRESHOLD, _in_bbox, effective_placement
+from services.api.lines import (
+    Bbox,
+    Parts,
+    bbox_overlaps,
+    decimals_for_tolerance,
+    km_to_miles,
+    parse_line_parts,
+    parts_bbox,
+    parts_intersect_bbox,
+    parts_length_km,
+    parts_to_geojson,
+    point_to_parts_km,
+    round_parts,
+    simplify_parts,
+    tolerance_for_zoom,
+)
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import check_allowed, csv_param
 from services.api.serialize import (
+    asset_geometry,
+    asset_geometry_redactions,
+    asset_length_miles,
+    asset_line_parts,
     asset_source_row,
     build_envelope,
     build_licence_summary,
@@ -49,16 +83,22 @@ from services.api.serialize import (
     build_page,
     licence_summary_from_source_aggregates,
     licence_summary_row,
+    provenance_quartet,
     serialize_asset,
+    serialize_asset_summary,
+    serialize_organization_summary,
     serialize_proposal,
 )
 from services.api.visibility import (
     PUBLISHABLE_REUSE_CLASSES,
+    asset_geometry_permitted,
+    asset_geometry_visible,
     asset_visibility_filter,
     location_exact_permitted,
     proposal_public_filter,
 )
 from services.db.models import (
+    ASSET_OWNER_ROLES,
     ASSET_TYPES,
     Asset,
     AssetOwner,
@@ -74,6 +114,55 @@ router = APIRouter()
 #: Same classification vocabulary the connectors write, imported rather than re-listed so this
 #: never drifts from `services/api/context_routes.py`'s identical constant.
 TECHNOLOGY_VOCAB: frozenset[str] = frozenset({tech for _, tech, _ in TECH_RULES} | {"unknown", "other"})
+
+#: Asset types whose rows are expected to carry `geom_line` (ADR 0008 §1's line types). Drawing is
+#: decided per row by the presence of `geom_line`, not by type: a pipeline row loaded with only a
+#: representative point is drawn as a point (honest: "roughly here"), never as a fabricated line.
+LINE_ASSET_TYPES: frozenset[str] = frozenset({"gas_pipeline", "transmission_line"})
+
+#: Most `asset_line` features one response carries. With `SPLIT_THRESHOLD` (500) individual point
+#: markers the total stays within `AssetGeoFeatureCollection.features.maxItems` (2,000; docs/04
+#: D-13). When more lines intersect the viewport the longest are kept -- at national zoom the
+#: dropped ones are sub-pixel laterals -- and `totals.line_count` / `totals.lines_shown` differ.
+LINE_FEATURE_CAP = 1500
+
+#: `attributes` keys copied onto an `asset_line` feature (a subset, so a national payload stays
+#: small; the detail response carries the whole objective set). The first group is what
+#: `pipeline/context/eia_atlas.py` records for a `gas_pipeline` row (one row per operator x
+#: pipeline type, dissolved: `pipeline_type`, `miles`, `states_crossed`, `segment_count`,
+#: `part_count`); the rest are the names the brief anticipated and the transmission equivalents,
+#: kept so a later source needs no API change. An absent key is simply absent.
+LINE_FEATURE_ATTRIBUTE_KEYS: tuple[str, ...] = (
+    "pipeline_type",
+    "miles",
+    "states_crossed",
+    "segment_count",
+    "part_count",
+    "operator",
+    "interstate",
+    "intrastate",
+    "diameter",
+    "diameter_in",
+    "diameter_mix",
+    "length_miles",
+    "states",
+    "voltage_kv",
+)
+
+
+def stated_length_miles(attributes: dict[str, Any] | None) -> float | None:
+    """The registry's stated length: `attributes.miles` (EIA Atlas, as the data lane names it)
+    or `attributes.length_miles` (the name the brief anticipated), whichever is present."""
+    for key in ("length_miles", "miles"):
+        v = (attributes or {}).get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return round(float(v), 1)
+    return None
+
+
+#: Most assets `GET /v1/organizations/{id}/nearby-proposals` measures from, in `asset_owner.id`
+#: order; `totals.assets_considered` reports the number actually used.
+ORG_NEARBY_ASSET_CAP = 200
 
 
 def _int_param(request: Request, name: str) -> int | None:
@@ -112,6 +201,16 @@ _ASSET_DETAIL_COLUMNS = (
 )
 
 
+def _is_postgres(db: Session) -> bool:
+    return db.bind is not None and db.bind.dialect.name == "postgresql"
+
+
+def _line_geojson_column() -> Any:
+    """`geom_line` as GeoJSON text on Postgres (`ST_AsGeoJSON` over geography); the stored WKT
+    text on SQLite. `parse_line_parts` reads both."""
+    return sa.func.ST_AsGeoJSON(Asset.geom_line)
+
+
 # ------------------------------------------------------------------------- geo: index + clusters
 @dataclass(frozen=True, slots=True)
 class AssetIndexRow:
@@ -124,33 +223,75 @@ class AssetIndexRow:
     country: str
 
 
+@dataclass(frozen=True, slots=True)
+class LineIndexRow:
+    """One line asset at full stored resolution plus what its map feature needs, so a warm request
+    builds `asset_line` features without touching `asset` again (provenance comes from the
+    `source`/`licence` rows fetched by id per request, a handful at most)."""
+
+    id: str
+    public_id: str
+    slug: str
+    name: str
+    operator_name: str | None
+    asset_type: str
+    status: str
+    state_code: str | None
+    country: str
+    capacity_value: float | None
+    capacity_unit: str | None
+    source_id: str
+    source_url: str
+    retrieved_at: dt.datetime
+    licence_id: str
+    attributes: dict[str, Any]
+    parts: Parts
+    bbox: Bbox
+    length_km: float
+
+
+_CacheKey = tuple[int, int, str | None, str | None, str | None]
+
+
 @dataclass(frozen=True)
 class _AssetIndexCache:
-    key: tuple[int, int, str | None, str | None, str | None]
+    key: _CacheKey
     rows: tuple[AssetIndexRow, ...]
 
 
+@dataclass(frozen=True)
+class _LineIndexCache:
+    key: _CacheKey
+    rows: tuple[LineIndexRow, ...]
+    #: zoom -> asset id -> parts simplified at `tolerance_for_zoom(zoom)`; filled lazily under
+    #: `_index_cache_lock` by `_simplified_for_zoom`.
+    simplified: dict[int, dict[str, Parts]] = field(default_factory=dict)
+
+
 _index_cache: _AssetIndexCache | None = None
+_line_cache: _LineIndexCache | None = None
 _index_cache_lock = threading.Lock()
 
 
 def _reset_asset_index_cache() -> None:
     """Test-only hook (mirrors `services.api.context_routes._reset_plant_index_cache`)."""
-    global _index_cache
+    global _index_cache, _line_cache
     with _index_cache_lock:
         _index_cache = None
+        _line_cache = None
 
 
-def _asset_index_cache_key(db: Session) -> tuple[int, int, str | None, str | None, str | None]:
-    """`(bind, visible placed count, max last_changed over the visible set, max source.updated_at,
+def _asset_index_cache_key(db: Session) -> _CacheKey:
+    """`(bind, visible asset count, max last_changed over the visible set, max source.updated_at,
     max licence.updated_at)`: the last two are what make a licence reclassification or a source
     `publish_state` flip invalidate the cache -- neither touches `asset.last_changed`, so a key
-    over the asset table alone would keep serving a gated asset until an unrelated asset moved."""
+    over the asset table alone would keep serving a gated asset until an unrelated asset moved.
+    One key serves both the point and the line index (the count is over every visible asset, a
+    superset of either index's rows, so any change to either invalidates both -- rebuilds only
+    happen when data actually changed, so the shared key costs nothing on the warm path)."""
     bind_id = id(db.get_bind())
     count, max_last_changed = db.execute(
-        select(sa.func.count(), sa.func.max(Asset.last_changed)).where(
-            Asset.geom.is_not(None), *asset_visibility_filter()
-        )
+        select(sa.func.count(), sa.func.max(Asset.last_changed)).where(*asset_visibility_filter())
     ).one()
     max_source_updated = db.scalar(select(sa.func.max(Source.updated_at)))
     max_licence_updated = db.scalar(select(sa.func.max(Licence.updated_at)))
@@ -163,16 +304,24 @@ def _asset_index_cache_key(db: Session) -> tuple[int, int, str | None, str | Non
     )
 
 
+def _point_index_where() -> list[Any]:
+    return [
+        Asset.geom.is_not(None),
+        Asset.geom_line.is_(None),
+        asset_geometry_permitted(),
+        *asset_visibility_filter(),
+    ]
+
+
 def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
-    dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
     rows: list[AssetIndexRow] = []
-    if dialect == "postgresql":
+    if _is_postgres(db):
         id_col = sa.cast(Asset.id, sa.Text)
         lon_col = sa.func.ST_X(Asset.geom)
         lat_col = sa.func.ST_Y(Asset.geom)
         stmt = select(
             id_col, lon_col, lat_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country
-        ).where(Asset.geom.is_not(None), *asset_visibility_filter())
+        ).where(*_point_index_where())
         for asset_id, lon, lat, asset_type, technology, capacity_mw, country in db.execute(stmt).all():
             rows.append(
                 AssetIndexRow(
@@ -191,7 +340,7 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
     geom_col = sa.cast(Asset.geom, sa.Text)
     stmt = select(
         id_col, geom_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country
-    ).where(Asset.geom.is_not(None), *asset_visibility_filter())
+    ).where(*_point_index_where())
     for asset_id, geom_text, asset_type, technology, capacity_mw, country in db.execute(stmt).all():
         if geom_text is None:  # pragma: no cover - excluded by the WHERE clause; defensive only
             continue
@@ -223,6 +372,93 @@ def _get_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
     return rows
 
 
+def _line_feature_attributes(attributes: dict[str, Any] | None) -> dict[str, Any]:
+    src = attributes or {}
+    return {k: src[k] for k in LINE_FEATURE_ATTRIBUTE_KEYS if k in src}
+
+
+def _rebuild_line_index(db: Session) -> tuple[LineIndexRow, ...]:
+    line_col = _line_geojson_column() if _is_postgres(db) else sa.cast(Asset.geom_line, sa.Text)
+    stmt = select(
+        sa.cast(Asset.id, sa.Text),
+        Asset.public_id,
+        Asset.name,
+        Asset.operator_name,
+        Asset.asset_type,
+        Asset.status,
+        Asset.state_code,
+        Asset.country,
+        Asset.capacity_value,
+        Asset.capacity_unit,
+        Asset.source_id,
+        Asset.source_url,
+        Asset.retrieved_at,
+        Asset.licence_id,
+        Asset.attributes,
+        line_col,
+        Asset.slug,
+    ).where(Asset.geom_line.is_not(None), asset_geometry_permitted(), *asset_visibility_filter())
+    rows: list[LineIndexRow] = []
+    for row in db.execute(stmt).all():
+        try:
+            parts = parse_line_parts(row[15])
+        except ValueError:
+            parts = None  # an unparseable geometry is a data defect, not a map outage
+        if parts is None:
+            continue
+        rows.append(
+            LineIndexRow(
+                id=row[0],
+                public_id=row[1],
+                slug=row[16],
+                name=row[2],
+                operator_name=row[3],
+                asset_type=row[4],
+                status=row[5],
+                state_code=row[6],
+                country=row[7],
+                capacity_value=float(row[8]) if row[8] is not None else None,
+                capacity_unit=row[9],
+                source_id=row[10],
+                source_url=row[11],
+                retrieved_at=row[12],
+                licence_id=row[13],
+                attributes=_line_feature_attributes(row[14]),
+                parts=parts,
+                bbox=parts_bbox(parts),
+                length_km=parts_length_km(parts),
+            )
+        )
+    return tuple(rows)
+
+
+def _get_line_index(db: Session, key: _CacheKey) -> _LineIndexCache:
+    global _line_cache
+    with _index_cache_lock:
+        cached = _line_cache
+        if cached is not None and cached.key == key:
+            return cached
+    rows = _rebuild_line_index(db)
+    with _index_cache_lock:
+        if _line_cache is None or _line_cache.key != key:
+            _line_cache = _LineIndexCache(key=key, rows=rows)
+        return _line_cache
+
+
+def _simplified_for_zoom(cache: _LineIndexCache, zoom: int) -> dict[str, Parts]:
+    zoom = max(0, min(zoom, 22))
+    with _index_cache_lock:
+        ready = cache.simplified.get(zoom)
+    if ready is not None:
+        return ready
+    tolerance = tolerance_for_zoom(zoom)
+    decimals = decimals_for_tolerance(tolerance)
+    built = {row.id: round_parts(simplify_parts(row.parts, tolerance), decimals) for row in cache.rows}
+    with _index_cache_lock:
+        cache.simplified.setdefault(zoom, built)
+        return cache.simplified[zoom]
+
+
 def _filter_index(
     index: tuple[AssetIndexRow, ...],
     asset_types: list[str] | None,
@@ -242,6 +478,27 @@ def _filter_index(
     return rows
 
 
+def _filter_line_index(
+    index: tuple[LineIndexRow, ...],
+    asset_types: list[str] | None,
+    technologies: list[str] | None,
+    countries: list[str] | None,
+) -> list[LineIndexRow]:
+    """Lines carry no `technology` (pipelines and transmission have none in the vocabulary), so a
+    `technology` filter excludes every line -- the same result `Asset.technology IN (...)` gives
+    in SQL for a NULL column."""
+    if technologies is not None:
+        return []
+    rows: list[LineIndexRow] = list(index)
+    if asset_types is not None:
+        type_set = set(asset_types)
+        rows = [r for r in rows if r.asset_type in type_set]
+    if countries is not None:
+        country_set = set(countries)
+        rows = [r for r in rows if r.country in country_set]
+    return rows
+
+
 def _asset_feature(asset: Asset, lon: float, lat: float) -> dict[str, Any]:
     return {
         "type": "Feature",
@@ -250,6 +507,8 @@ def _asset_feature(asset: Asset, lon: float, lat: float) -> dict[str, Any]:
         "properties": {
             "feature_kind": "asset",
             "public_id": asset.public_id,
+            "slug": asset.slug,
+            "url": f"{WEB_HOST}/assets/{asset.slug}",
             "name": asset.name,
             "operator_name": asset.operator_name,
             "asset_type": asset.asset_type,
@@ -263,6 +522,39 @@ def _asset_feature(asset: Asset, lon: float, lat: float) -> dict[str, Any]:
             "state_code": asset.state_code,
             "county_name": asset.county_name,
             "source": asset_source_row(asset),
+        },
+    }
+
+
+def _line_feature(
+    row: LineIndexRow, parts: Parts, sources: dict[str, Source], licences: dict[str, Licence]
+) -> dict[str, Any]:
+    stated = stated_length_miles(row.attributes)
+    length_miles = stated if stated is not None else round(km_to_miles(row.length_km), 1)
+    return {
+        "type": "Feature",
+        "id": row.public_id,
+        "geometry": parts_to_geojson(parts),
+        "properties": {
+            "feature_kind": "asset_line",
+            "public_id": row.public_id,
+            "slug": row.slug,
+            "url": f"{WEB_HOST}/assets/{row.slug}",
+            "name": row.name,
+            "operator_name": row.operator_name,
+            "asset_type": row.asset_type,
+            "status": row.status,
+            "state_code": row.state_code,
+            "capacity_value": row.capacity_value,
+            "capacity_unit": row.capacity_unit,
+            "length_miles": length_miles,
+            "attributes": dict(row.attributes),
+            "source": provenance_quartet(
+                sources[row.source_id],
+                licences[row.licence_id],
+                source_url=row.source_url,
+                retrieved_at=row.retrieved_at,
+            ),
         },
     }
 
@@ -320,6 +612,8 @@ def build_asset_feature_collection(
     asset_type_counts: dict[str, int],
     technology_counts: dict[str, int],
     asset_details: dict[str, Asset] | None = None,
+    line_features: list[dict[str, Any]] | None = None,
+    line_count: int = 0,
 ) -> dict[str, Any]:
     in_view = [row for row in index if _in_bbox(row.lon, row.lat, bbox)]
 
@@ -338,6 +632,9 @@ def build_asset_feature_collection(
         for members in groups.values():
             features.append(_asset_cluster_feature(members))
 
+    lines = line_features or []
+    features.extend(lines)
+
     return {
         "type": "FeatureCollection",
         "bbox": list(bbox),
@@ -347,6 +644,9 @@ def build_asset_feature_collection(
             "clustered": len(in_view) > SPLIT_THRESHOLD,
             "asset_type_counts": asset_type_counts,
             "technology_counts": technology_counts,
+            "line_count": line_count,
+            "lines_shown": len(lines),
+            "line_tolerance_deg": tolerance_for_zoom(zoom),
         },
     }
 
@@ -356,6 +656,28 @@ def _fetch_asset_details(db: Session, ids: list[str]) -> dict[str, Asset]:
         return {}
     stmt = select(Asset).where(Asset.id.in_(ids)).options(load_only(*_ASSET_DETAIL_COLUMNS))
     return {str(a.id): a for a in db.scalars(stmt).all()}
+
+
+def _line_features_in_view(
+    db: Session, cache: _LineIndexCache, rows: list[LineIndexRow], bbox: Bbox, zoom: int
+) -> tuple[list[dict[str, Any]], int]:
+    """`asset_line` features for the lines that touch `bbox`, at `zoom`'s simplification, longest
+    first and capped at `LINE_FEATURE_CAP`. Returns `(features, lines in view before the cap)`."""
+    simplified = _simplified_for_zoom(cache, zoom)
+    in_view = [
+        row
+        for row in rows
+        if bbox_overlaps(row.bbox, bbox) and parts_intersect_bbox(simplified[row.id], bbox)
+    ]
+    if not in_view:
+        return [], 0
+    shown = sorted(in_view, key=lambda r: r.length_km, reverse=True)[:LINE_FEATURE_CAP]
+    source_ids = {r.source_id for r in shown}
+    licence_ids = {r.licence_id for r in shown}
+    sources = {s.id: s for s in db.scalars(select(Source).where(Source.id.in_(source_ids))).all()}
+    licences = {lic.id: lic for lic in db.scalars(select(Licence).where(Licence.id.in_(licence_ids))).all()}
+    features = [_line_feature(r, simplified[r.id], sources, licences) for r in shown]
+    return features, len(in_view)
 
 
 def _parse_bbox(value: str, instance: str) -> tuple[float, float, float, float]:
@@ -399,6 +721,17 @@ def _country_filter_values(request: Request) -> list[str] | None:
     return [c.upper() for c in (csv_param(v) or [])]
 
 
+def _role_filter_values(request: Request) -> list[str] | None:
+    v = request.query_params.get("role")
+    if not v:
+        return None
+    roles = csv_param(v) or []
+    unknown = [r for r in roles if r not in ASSET_OWNER_ROLES]
+    if unknown:
+        raise validation_error("role", f"unknown role value(s): {', '.join(unknown)}", request.url.path)
+    return roles
+
+
 def _apply_sql_filters(
     stmt: sa.Select[Any],
     asset_types: list[str] | None,
@@ -414,23 +747,60 @@ def _apply_sql_filters(
     return stmt
 
 
+#: Viewport and zoom assumed by `GET /v1/assets/geo?organization=...` when the caller passes
+#: neither (the company page map wants "everything this organisation has" in one request): the
+#: whole world, simplified for a state-to-region page map (zoom 5, tolerance 0.022 deg ~ 2.4 km).
+ORGANIZATION_GEO_DEFAULT_BBOX: Bbox = (-180.0, -90.0, 180.0, 90.0)
+ORGANIZATION_GEO_DEFAULT_ZOOM = 5
+
+
+def _organization_asset_ids(db: Session, org_public_ids: list[str], include_subsidiaries: bool) -> set[str]:
+    """Ids of the assets any of `org_public_ids` owns or operates (`asset_owner`, either role),
+    plus their direct subsidiaries' when `include_subsidiaries`. An unknown organisation simply
+    matches nothing, as `GET /v1/assets?organization=` does."""
+    org_ids = select(Organization.id).where(Organization.public_id.in_(org_public_ids))
+    holder: sa.ColumnElement[bool] = Organization.id.in_(org_ids)
+    if include_subsidiaries:
+        holder = sa.or_(holder, Organization.parent_org_id.in_(org_ids))
+    stmt = (
+        select(sa.cast(AssetOwner.asset_id, sa.Text))
+        .join(Organization, Organization.id == AssetOwner.organization_id)
+        .where(holder)
+    )
+    return set(db.scalars(stmt).all())
+
+
 def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | None) -> Any:
+    org_filter = csv_param(request.query_params.get("organization") or None)
     bbox_param = request.query_params.get("bbox")
     zoom_param = request.query_params.get("zoom")
-    if not bbox_param or zoom_param is None:
-        raise validation_error("bbox", "bbox and zoom are required", request.url.path)
+    if org_filter is None and (not bbox_param or zoom_param is None):
+        raise validation_error(
+            "bbox", "bbox and zoom are required unless organization is set", request.url.path
+        )
     try:
-        bbox = _parse_bbox(bbox_param, request.url.path)
-        zoom = int(zoom_param)
+        bbox = _parse_bbox(bbox_param, request.url.path) if bbox_param else ORGANIZATION_GEO_DEFAULT_BBOX
+        zoom = int(zoom_param) if zoom_param is not None else ORGANIZATION_GEO_DEFAULT_ZOOM
     except ValueError as exc:
         raise validation_error("bbox", "bbox/zoom malformed", request.url.path) from exc
 
     asset_types = [forced_asset_type] if forced_asset_type else _asset_type_filter_values(request)
     technologies = _technology_filter_values(request)
     countries = _country_filter_values(request)
+    org_asset_ids = (
+        _organization_asset_ids(db, org_filter, _include_subsidiaries_param(request))
+        if org_filter is not None
+        else None
+    )
 
+    key = _asset_index_cache_key(db)
     index = _get_asset_index(db)
     filtered = _filter_index(index, asset_types, technologies, countries)
+    line_cache = _get_line_index(db, key)
+    filtered_lines = _filter_line_index(line_cache.rows, asset_types, technologies, countries)
+    if org_asset_ids is not None:
+        filtered = [row for row in filtered if row.id in org_asset_ids]
+        filtered_lines = [row for row in filtered_lines if row.id in org_asset_ids]
 
     asset_type_counts: dict[str, int] = defaultdict(int)
     technology_counts: dict[str, int] = defaultdict(int)
@@ -438,12 +808,15 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
         asset_type_counts[row.asset_type] += 1
         if row.technology:
             technology_counts[row.technology] += 1
-    records_total = len(filtered)
+    for line in filtered_lines:
+        asset_type_counts[line.asset_type] += 1
+    records_total = len(filtered) + len(filtered_lines)
 
     in_view = [row for row in filtered if _in_bbox(row.lon, row.lat, bbox)]
     asset_details = (
         _fetch_asset_details(db, [row.id for row in in_view]) if len(in_view) <= SPLIT_THRESHOLD else None
     )
+    line_features, line_count = _line_features_in_view(db, line_cache, filtered_lines, bbox, zoom)
 
     fc = build_asset_feature_collection(
         filtered,
@@ -453,6 +826,8 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
         asset_type_counts=dict(asset_type_counts),
         technology_counts=dict(technology_counts),
         asset_details=asset_details,
+        line_features=line_features,
+        line_count=line_count,
     )
 
     agg_stmt = _apply_sql_filters(
@@ -472,11 +847,17 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
         .select_from(Asset)
         .join(Source, Source.id == Asset.source_id)
         .join(Licence, Licence.id == Asset.licence_id)
-        .where(Asset.geom.is_not(None), *asset_visibility_filter()),
+        .where(
+            sa.or_(Asset.geom.is_not(None), Asset.geom_line.is_not(None)),
+            asset_geometry_permitted(),
+            *asset_visibility_filter(),
+        ),
         asset_types,
         technologies,
         countries,
     ).group_by(Source.id, Licence.id)
+    if org_asset_ids is not None:
+        agg_stmt = agg_stmt.where(sa.cast(Asset.id, sa.Text).in_(sorted(org_asset_ids)))
     licence_rows = [tuple(row) for row in db.execute(agg_stmt).all()]
     licence_summary = licence_summary_from_source_aggregates(licence_rows)
 
@@ -486,7 +867,10 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
 
 @router.get("/v1/assets/geo")
 def get_assets_geo(request: Request, db: Annotated[Session, Depends(get_db)]) -> Any:
-    check_allowed(request, {"bbox", "zoom", "asset_type", "technology", "country"})
+    check_allowed(
+        request,
+        {"bbox", "zoom", "asset_type", "technology", "country", "organization", "include_subsidiaries"},
+    )
     return _asset_geo_impl(request, db, forced_asset_type=None)
 
 
@@ -572,7 +956,7 @@ def list_assets(request: Request, db: Annotated[Session, Depends(get_db)]) -> An
         limit=limit,
         instance=request.url.path,
     )
-    data = [serialize_asset(a, include_owners=False) for a in rows]
+    data = [serialize_asset(a, include_owners=False, include_geometry=False) for a in rows]
     meta = build_meta(lag_days=0, tier="public")
     licence_rows = [licence_summary_row(a.source, a.licence, a.retrieved_at) for a in rows]
     return build_list_envelope(
@@ -581,6 +965,40 @@ def list_assets(request: Request, db: Annotated[Session, Depends(get_db)]) -> An
         licence_summary=build_licence_summary(licence_rows),
         page=build_page(next_cursor, None, has_more),
     )
+
+
+def _line_parts_for(db: Session, asset: Asset) -> Parts | None:
+    """The asset's full-resolution line as parts, on either dialect: parsed from the ORM value on
+    SQLite, fetched as GeoJSON in one scalar query on Postgres (a `WKBElement` is not parsed in
+    Python -- no `shapely`)."""
+    if asset.geom_line is None:
+        return None
+    if _is_postgres(db):
+        text = db.scalar(select(_line_geojson_column()).where(Asset.id == asset.id))
+        return parse_line_parts(text)
+    return asset_line_parts(asset)
+
+
+def _line_parts_by_id(db: Session, assets: list[Asset]) -> dict[str, Parts]:
+    """`_line_parts_for` over many assets in one query (the organisation nearby endpoint)."""
+    line_assets = [a for a in assets if a.geom_line is not None]
+    if not line_assets:
+        return {}
+    out: dict[str, Parts] = {}
+    if _is_postgres(db):
+        stmt = select(sa.cast(Asset.id, sa.Text), _line_geojson_column()).where(
+            Asset.id.in_([a.id for a in line_assets])
+        )
+        for asset_id, text in db.execute(stmt).all():
+            parts = parse_line_parts(text)
+            if parts is not None:
+                out[asset_id] = parts
+        return out
+    for a in line_assets:
+        parts = asset_line_parts(a)
+        if parts is not None:
+            out[str(a.id)] = parts
+    return out
 
 
 @router.get("/v1/assets/{public_id}")
@@ -596,11 +1014,16 @@ def get_asset(public_id: str, request: Request, db: Annotated[Session, Depends(g
     # gated licence is omitted from the visible asset's `owners[]`, same rule as a proposal's
     # restricted `proposal_source` row (docs/21 §8 item 3).
     owners = [o for o in asset.owners if o.licence.reuse_class in PUBLISHABLE_REUSE_CLASSES]
+    parts = _line_parts_for(db, asset)
     data = serialize_asset(asset, owners=owners)
+    data["geometry"] = asset_geometry(asset, parts=parts)
+    data["length_miles"] = asset_length_miles(asset, parts=parts)
     meta = build_meta(lag_days=0, tier="public")
     licence_row = licence_summary_row(asset.source, asset.licence, asset.retrieved_at)
     licence_summary = build_licence_summary([licence_row])
-    return build_envelope(data, meta=meta, licence_summary=licence_summary)
+    return build_envelope(
+        data, meta=meta, licence_summary=licence_summary, redactions=asset_geometry_redactions(asset)
+    )
 
 
 # --------------------------------------------------------------------------------- nearby proposals
@@ -615,19 +1038,7 @@ def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
     return 2 * EARTH_RADIUS_KM * math.asin(min(1.0, math.sqrt(a)))
 
 
-@router.get("/v1/assets/{public_id}/nearby-proposals")
-def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Session, Depends(get_db)]) -> Any:
-    check_allowed(request, {"radius_km", "limit", "slug"})
-    asset = db.scalar(select(Asset).where(Asset.public_id == public_id, *asset_visibility_filter()))
-    if asset is None:
-        raise not_found(request.url.path)
-    if asset.geom is None:
-        data: list[dict[str, Any]] = []
-        meta = build_meta("proposal", tier="public")
-        return build_list_envelope(
-            data, meta=meta, licence_summary=build_licence_summary([]), page=build_page(None, None, False)
-        )
-
+def _radius_km_param(request: Request) -> float:
     radius_param = request.query_params.get("radius_km")
     radius_km = 25.0
     if radius_param is not None:
@@ -637,24 +1048,61 @@ def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Sessio
             raise validation_error("radius_km", "radius_km must be a number", request.url.path) from exc
     if not (0 < radius_km <= 100):
         raise validation_error("radius_km", "radius_km must be > 0 and <= 100", request.url.path)
+    return radius_km
 
-    limit = clamp_limit(_int_param(request, "limit"))
-    asset_lon, asset_lat = asset.geom
 
-    # Exact-precision proposals only (ADR 0008: "region-grade and none-grade proposals are never
-    # returned here") *as served*: an exact row whose licence forbids raw publication is region
-    # grade on this surface (`location_exact_permitted`, the restricted-precision rule) and is
-    # excluded, since "within N km of this asset" would otherwise disclose the withheld point.
-    # Public-tier visibility rules -- a bounding box in SQL first (cheap,
-    # generous: 1 degree of latitude is ~111 km, so `radius_km / 100` degrees is always an
-    # over-approximation at `radius_km <= 100`), the exact haversine cut in Python after.
+def _asset_measure_parts(asset: Asset, line: Parts | None) -> Parts | None:
+    """What distance is measured to: the full-resolution line for a line asset (never its
+    representative point -- "near this pipeline" means near the pipe), else the point as a
+    one-vertex part, else `None` for an asset with no geometry."""
+    if line is not None:
+        return line
+    if asset.geom is not None and isinstance(asset.geom, (list, tuple)):
+        lon, lat = asset.geom
+        return (((float(lon), float(lat)),),)
+    return None
+
+
+#: `(lon, lat, proposal)` for an exact-grade, publicly visible, raw-permitted proposal.
+_Candidate = tuple[float, float, Proposal]
+
+
+def _location_in_bbox_clause(db: Session, bbox: Bbox) -> Any:
+    """SQL half of the candidate cut: the location's stored point inside `bbox`. On SQLite
+    `location.geom` is the JSON text `{"lon": ..., "lat": ...}` (`services/db/types.py::
+    GeographyPoint`), so `json_extract` reads it; on Postgres it is a geography, so the clause is
+    `ST_Intersects` against the envelope (GiST-indexed, docs/21 §5.2). Both are over-approximations
+    of the radius that `_within_radius` then measures exactly, so neither changes a result -- only
+    how many rows are loaded (measured 2026-09-19 on a 10,000-proposal fixture: 2.1 s to load every
+    exact row versus ~100 ms for the bbox cut plus the distance loop). The Postgres branch is not
+    exercised by the SQLite test target."""
+    min_lon, min_lat, max_lon, max_lat = bbox
+    if _is_postgres(db):
+        from geoalchemy2 import Geography
+
+        envelope = sa.cast(sa.func.ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat, 4326), Geography)
+        return sa.func.ST_Intersects(Location.geom, envelope)
+    lon = sa.cast(sa.func.json_extract(Location.geom, "$.lon"), sa.Float)
+    lat = sa.cast(sa.func.json_extract(Location.geom, "$.lat"), sa.Float)
+    return sa.and_(lon >= min_lon, lon <= max_lon, lat >= min_lat, lat <= max_lat)
+
+
+def _padded_bbox(parts: Parts, radius_km: float) -> Bbox:
+    """The geometry's bbox grown by a generous degree pad (1 degree of latitude is ~111 km, so
+    `radius_km / 100` degrees over-approximates every radius the endpoints allow)."""
     deg_pad = max(radius_km / 100.0, 0.05)
-    bbox = (
-        asset_lon - deg_pad,
-        asset_lat - deg_pad,
-        asset_lon + deg_pad,
-        asset_lat + deg_pad,
-    )
+    min_lon, min_lat, max_lon, max_lat = parts_bbox(parts)
+    return (min_lon - deg_pad, min_lat - deg_pad, max_lon + deg_pad, max_lat + deg_pad)
+
+
+def _exact_proposal_candidates(db: Session, bbox: Bbox) -> list[_Candidate]:
+    """Exact-precision proposals only (ADR 0008: "region-grade and none-grade proposals are never
+    returned here") *as served*: an exact row whose licence forbids raw publication is region
+    grade on this surface (`location_exact_permitted`, the restricted-precision rule) and is
+    excluded, since "within N km of this asset" would otherwise disclose the withheld point.
+    Public-tier visibility rules applied, and only rows inside `bbox` loaded
+    (`_location_in_bbox_clause`); the exact radius cut is `_within_radius`, one Python code path
+    on both dialects."""
     stmt = (
         select(Proposal)
         .join(Location, Location.id == Proposal.location_id)
@@ -663,62 +1111,218 @@ def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Sessio
             Location.precision == "exact",
             location_exact_permitted(),
             Location.geom.is_not(None),
+            _location_in_bbox_clause(db, bbox),
         )
         .options(selectinload(Proposal.sources))
     )
-    candidates = list(db.scalars(stmt).all())
-    within: list[tuple[float, Proposal]] = []
-    for p in candidates:
+    out: list[_Candidate] = []
+    for p in db.scalars(stmt).all():
         if p.location is None:
             continue
         placement = effective_placement(p.location)
         if placement.downgraded or placement.geom is None:  # pragma: no cover - excluded in SQL
             continue
         lon, lat = placement.geom
+        out.append((lon, lat, p))
+    return out
+
+
+def _within_radius(
+    parts: Parts, candidates: list[_Candidate], radius_km: float
+) -> list[tuple[float, Proposal]]:
+    """`(distance_km, proposal)` for every candidate within `radius_km` of `parts`, measured to the
+    nearest point of the geometry (`services/api/lines.py::point_to_parts_km`: haversine for a
+    point asset, point-to-segment for a line). The padded bounding box first (cheap; the same
+    box the SQL cut used, re-applied here because an organisation's candidate set spans every
+    asset's box), the exact cut after."""
+    bbox = _padded_bbox(parts, radius_km)
+    within: list[tuple[float, Proposal]] = []
+    for lon, lat, p in candidates:
         if not (bbox[0] <= lon <= bbox[2] and bbox[1] <= lat <= bbox[3]):
             continue
-        distance_km = _haversine_km(asset_lon, asset_lat, lon, lat)
+        distance_km = point_to_parts_km(lon, lat, parts)
         if distance_km <= radius_km:
             within.append((distance_km, p))
+    return within
+
+
+def _nearby_licence_rows(proposals: list[Proposal]) -> list[dict[str, Any]]:
+    rows = []
+    for p in proposals:
+        for s in p.sources:
+            if s.active:
+                rows.append(licence_summary_row(s.source, s.source.licence, s.retrieved_at))
+    return rows
+
+
+@router.get("/v1/assets/{public_id}/nearby-proposals")
+def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Session, Depends(get_db)]) -> Any:
+    check_allowed(request, {"radius_km", "limit", "slug"})
+    asset = db.scalar(select(Asset).where(Asset.public_id == public_id, *asset_visibility_filter()))
+    if asset is None:
+        raise not_found(request.url.path)
+    radius_km = _radius_km_param(request)
+    limit = clamp_limit(_int_param(request, "limit"))
+    meta = build_meta("proposal", tier="public")
+
+    parts = _asset_measure_parts(asset, _line_parts_for(db, asset)) if asset_geometry_visible(asset) else None
+    if parts is None:
+        # No geometry, or geometry withheld under the licence: a distance list would disclose
+        # what `geometry: null` withholds, so the list is empty and the redaction says why.
+        return build_list_envelope(
+            [],
+            meta=meta,
+            licence_summary=build_licence_summary([]),
+            page=build_page(None, None, False),
+            redactions=asset_geometry_redactions(asset),
+        )
+
+    within = _within_radius(parts, _exact_proposal_candidates(db, _padded_bbox(parts, radius_km)), radius_km)
     within.sort(key=lambda pair: pair[0])
     page = within[:limit]
 
     data = []
-    licence_rows = []
     for distance_km, p in page:
         row = serialize_proposal(p)
         row["distance_km"] = round(distance_km, 3)
         data.append(row)
-        for s in p.sources:
-            if s.active:
-                licence_rows.append(licence_summary_row(s.source, s.source.licence, s.retrieved_at))
 
-    meta = build_meta("proposal", tier="public")
     return build_list_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(licence_rows),
+        licence_summary=build_licence_summary(_nearby_licence_rows([p for _, p in page])),
         page=build_page(None, None, len(within) > limit),
     )
 
 
 # ---------------------------------------------------------------------- organization -> assets
+def _subsidiary_ids(db: Session, org: Organization) -> list[Any]:
+    """Ids of the organisations whose `parent_org_id` is `org` (one level, the GLEIF/curated
+    direct-parent edge; not merged away)."""
+    return list(
+        db.scalars(
+            select(Organization.id).where(
+                Organization.parent_org_id == org.id, Organization.merged_into_id.is_(None)
+            )
+        ).all()
+    )
+
+
+def _org_scope_ids(db: Session, org: Organization, include_subsidiaries: bool) -> list[Any]:
+    """The organisation ids an "organisation's assets" query spans: the organisation itself, plus
+    its direct subsidiaries when asked (`include_subsidiaries=true`). The group parent the data
+    lane links (e.g. Tallgrass Energy -> nine operating subsidiaries) holds no `asset_owner` edge
+    of its own, so a company page for the parent reads the group's assets through this."""
+    ids: list[Any] = [org.id]
+    if include_subsidiaries:
+        ids.extend(_subsidiary_ids(db, org))
+    return ids
+
+
+def _include_subsidiaries_param(request: Request) -> bool:
+    v = request.query_params.get("include_subsidiaries")
+    if v is None:
+        return False
+    if v.lower() in ("true", "1"):
+        return True
+    if v.lower() in ("false", "0"):
+        return False
+    raise validation_error(
+        "include_subsidiaries", "include_subsidiaries must be true or false", request.url.path
+    )
+
+
+def organization_asset_totals(
+    db: Session, org: Organization, *, include_subsidiaries: bool = False
+) -> dict[str, Any]:
+    """Counts of the organisation's visible assets through `asset_owner`, for the company page's
+    "operates 3 pipelines, owns 2 plants" line: `assets` (distinct), `by_role`, `by_type` (both
+    distinct assets per key) and `by_role_and_type`. An asset the organisation both owns and
+    operates counts once in `assets` and `by_type`, and once under each role. With
+    `include_subsidiaries` the direct subsidiaries' edges are counted too."""
+    stmt = (
+        select(AssetOwner.role, Asset.asset_type, sa.cast(Asset.id, sa.Text))
+        .join(Asset, Asset.id == AssetOwner.asset_id)
+        .where(
+            AssetOwner.organization_id.in_(_org_scope_ids(db, org, include_subsidiaries)),
+            *asset_visibility_filter(),
+        )
+        .distinct()
+    )
+    by_role: dict[str, set[str]] = defaultdict(set)
+    by_type: dict[str, set[str]] = defaultdict(set)
+    by_role_and_type: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    all_ids: set[str] = set()
+    for role, asset_type, asset_id in db.execute(stmt).all():
+        by_role[role].add(asset_id)
+        by_type[asset_type].add(asset_id)
+        by_role_and_type[role][asset_type] += 1
+        all_ids.add(asset_id)
+    return {
+        "assets": len(all_ids),
+        "by_role": {role: len(ids) for role, ids in sorted(by_role.items())},
+        "by_type": {t: len(ids) for t, ids in sorted(by_type.items())},
+        "by_role_and_type": {
+            role: dict(sorted(types.items())) for role, types in sorted(by_role_and_type.items())
+        },
+    }
+
+
+SUBSIDIARY_CAP = 50
+
+
+def organization_hierarchy(db: Session, org: Organization) -> dict[str, Any]:
+    """`parent` (the GLEIF Level 2 direct parent, docs/21 §3.5 `parent_org_id`) as an organisation
+    summary or `null`, `subsidiaries` (organisations whose `parent_org_id` is this one, name order,
+    at most `SUBSIDIARY_CAP`) and `subsidiary_count` (the full number)."""
+    parent = db.get(Organization, org.parent_org_id) if org.parent_org_id is not None else None
+    subs_stmt = (
+        select(Organization)
+        .where(Organization.parent_org_id == org.id, Organization.merged_into_id.is_(None))
+        .order_by(Organization.name_canonical, Organization.id)
+    )
+    subs = list(db.scalars(subs_stmt.limit(SUBSIDIARY_CAP + 1)).all())
+    count = len(subs)
+    if count > SUBSIDIARY_CAP:
+        count = (
+            db.scalar(
+                select(sa.func.count())
+                .select_from(Organization)
+                .where(Organization.parent_org_id == org.id, Organization.merged_into_id.is_(None))
+            )
+            or count
+        )
+    return {
+        "parent": serialize_organization_summary(parent) if parent is not None else None,
+        "subsidiaries": [serialize_organization_summary(s) for s in subs[:SUBSIDIARY_CAP]],
+        "subsidiary_count": count,
+    }
+
+
 @router.get("/v1/organizations/{public_id}/assets")
 def list_organization_assets(
     public_id: str, request: Request, db: Annotated[Session, Depends(get_db)]
 ) -> Any:
-    check_allowed(request, {"limit", "cursor"})
+    check_allowed(request, {"limit", "cursor", "role", "asset_type", "include_subsidiaries"})
     org = db.scalar(select(Organization).where(Organization.public_id == public_id))
     if org is None:
         raise not_found(request.url.path)
 
     limit = clamp_limit(_int_param(request, "limit"))
+    roles = _role_filter_values(request)
+    asset_types = _asset_type_filter_values(request)
+    include_subsidiaries = _include_subsidiaries_param(request)
+    scope = _org_scope_ids(db, org, include_subsidiaries)
     stmt = (
         select(AssetOwner)
         .join(Asset, Asset.id == AssetOwner.asset_id)
-        .where(AssetOwner.organization_id == org.id, *asset_visibility_filter())
-        .options(selectinload(AssetOwner.asset))
+        .where(AssetOwner.organization_id.in_(scope), *asset_visibility_filter())
+        .options(selectinload(AssetOwner.asset), selectinload(AssetOwner.organization))
     )
+    if roles is not None:
+        stmt = stmt.where(AssetOwner.role.in_(roles))
+    if asset_types is not None:
+        stmt = stmt.where(Asset.asset_type.in_(asset_types))
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
@@ -732,18 +1336,106 @@ def list_organization_assets(
     data = []
     licence_rows = []
     for edge in rows:
-        asset_row = serialize_asset(edge.asset, include_owners=False)
+        asset_row = serialize_asset(edge.asset, include_owners=False, include_geometry=False)
         asset_row["role"] = edge.role
         asset_row["share_pct"] = float(edge.share_pct) if edge.share_pct is not None else None
+        asset_row["as_of"] = edge.as_of.isoformat() if edge.as_of is not None else None
+        asset_row["held_by"] = serialize_organization_summary(edge.organization)
         data.append(asset_row)
         licence_rows.append(
             licence_summary_row(edge.asset.source, edge.asset.licence, edge.asset.retrieved_at)
         )
 
     meta = build_meta(lag_days=0, tier="public")
-    return build_list_envelope(
+    env = build_list_envelope(
         data,
         meta=meta,
         licence_summary=build_licence_summary(licence_rows),
         page=build_page(next_cursor, None, has_more),
     )
+    env["totals"] = organization_asset_totals(db, org, include_subsidiaries=include_subsidiaries)
+    return env
+
+
+@router.get("/v1/organizations/{public_id}/nearby-proposals")
+def list_organization_nearby_proposals(
+    public_id: str, request: Request, db: Annotated[Session, Depends(get_db)]
+) -> Any:
+    """Exact-grade proposals within `radius_km` of *any* of the organisation's assets (owned or
+    operated), each once, at its distance to the nearest of those assets, which is named in
+    `nearest_asset`. Distance is to the geometry: to the pipe for a line asset, to the point for
+    a plant. Assets are taken in `asset_owner.id` order up to `ORG_NEARBY_ASSET_CAP`; the
+    candidate proposal set is loaded once and cut per asset by bounding box, so the cost is one
+    proposal query plus bbox tests, with segment distance only for candidates near a line."""
+    check_allowed(request, {"radius_km", "limit", "role", "asset_type", "include_subsidiaries"})
+    org = db.scalar(select(Organization).where(Organization.public_id == public_id))
+    if org is None:
+        raise not_found(request.url.path)
+    radius_km = _radius_km_param(request)
+    limit = clamp_limit(_int_param(request, "limit"))
+    roles = _role_filter_values(request)
+    asset_types = _asset_type_filter_values(request)
+    scope = _org_scope_ids(db, org, _include_subsidiaries_param(request))
+
+    stmt = (
+        select(Asset)
+        .join(AssetOwner, AssetOwner.asset_id == Asset.id)
+        .where(
+            AssetOwner.organization_id.in_(scope),
+            sa.or_(Asset.geom.is_not(None), Asset.geom_line.is_not(None)),
+            asset_geometry_permitted(),
+            *asset_visibility_filter(),
+        )
+        .order_by(AssetOwner.id)
+        .distinct()
+        .limit(ORG_NEARBY_ASSET_CAP)
+    )
+    if roles is not None:
+        stmt = stmt.where(AssetOwner.role.in_(roles))
+    if asset_types is not None:
+        stmt = stmt.where(Asset.asset_type.in_(asset_types))
+    assets = list(db.scalars(stmt).all())
+    line_parts = _line_parts_by_id(db, assets)
+
+    measured: list[tuple[Asset, Parts]] = []
+    for asset in assets:
+        parts = _asset_measure_parts(asset, line_parts.get(str(asset.id)))
+        if parts is not None:
+            measured.append((asset, parts))
+    considered = len(measured)
+
+    best: dict[str, tuple[float, Proposal, Asset]] = {}
+    if measured:
+        # One candidate load over the union of every asset's padded box, then the per-asset cut.
+        boxes = [_padded_bbox(parts, radius_km) for _, parts in measured]
+        union = (
+            min(b[0] for b in boxes),
+            min(b[1] for b in boxes),
+            max(b[2] for b in boxes),
+            max(b[3] for b in boxes),
+        )
+        candidates = _exact_proposal_candidates(db, union)
+        for asset, parts in measured:
+            for distance_km, p in _within_radius(parts, candidates, radius_km):
+                current = best.get(p.public_id)
+                if current is None or distance_km < current[0]:
+                    best[p.public_id] = (distance_km, p, asset)
+
+    ranked = sorted(best.values(), key=lambda t: (t[0], t[1].public_id))
+    page = ranked[:limit]
+    data = []
+    for distance_km, p, asset in page:
+        row = serialize_proposal(p)
+        row["distance_km"] = round(distance_km, 3)
+        row["nearest_asset"] = serialize_asset_summary(asset)
+        data.append(row)
+
+    meta = build_meta("proposal", tier="public")
+    env = build_list_envelope(
+        data,
+        meta=meta,
+        licence_summary=build_licence_summary(_nearby_licence_rows([p for _, p, _ in page])),
+        page=build_page(None, None, len(ranked) > limit),
+    )
+    env["totals"] = {"assets_considered": considered, "proposals_within_radius": len(ranked)}
+    return env

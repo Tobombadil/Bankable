@@ -127,7 +127,8 @@ announces "N proposals, M opportunities in view" debounced 500ms; above 500, the
 | `/proposals/{slug}` | Public/Pro | Canonical record, provenance, timeline | US-201, US-202, US-203, US-204 | `GET /v1/proposals/{id}`, `/events`, `/sources`, `/matches` | US-201 AC4 "as of now−lag" banner; Sources panel omits gated rows (D-27); `field_provenance` Pro+ only |
 | `/opportunities` | Public/Pro | Filtered, sorted opportunity list | US-301 | `GET /v1/opportunities` | Same tier rules as US-101 AC3–4 |
 | `/opportunities/{slug}` | Public/Pro | Record, provenance, status timeline, matches | US-302, US-402 | `GET /v1/opportunities/{id}`, `/events`, `/sources` | Linked documents = title+link only (no article bodies, `docs/02` §4) |
-| `/organizations/{slug}` | Public/Pro | Sponsor/issuer page | US-203 AC1, US-303 | `GET /v1/organizations/{id}`, `/proposals`, `/opportunities` | None beyond list-level tier rules |
+| `/organizations/{slug}` | Public/Pro | Company page: summary line by role and type, map of every asset with geometry, assets grouped by role then type, parent/subsidiaries, proposals, opportunities, sources of those records | US-203 AC1, US-303 | `GET /v1/organizations/{id}`, `/assets`, `/proposals`, `/opportunities`; `GET /v1/assets?organization=` when asset rows carry no geometry | None beyond list-level tier rules; no lag (assets are public-domain / CC BY) |
+| `/assets/{slug}` | Public/Pro | Existing-asset page (ADR 0008): fields by type, static map (SVG, MapLibre-enhanced), attributes, owners/operators, nearby exact-grade proposals with distance, sources | US-104, US-203 | `GET /v1/assets?slug=`, `/v1/assets/{id}/nearby-proposals` | None; no lag |
 | `/search` | Public/Pro | Free-text + identifier search | US-103 | `GET /v1/proposals?q=`, `/v1/opportunities?q=` | Same as list |
 | `/alerts` | Pro | Saved searches, delivery mode, history | US-501, US-502, US-504 | `GET/POST/PATCH/DELETE /v1/saved-searches`, `/v1/alerts` | Pro-only route; entitlement check (US-602) |
 | `/account` | Pro | Seats, subscription, keys, export log | US-602, US-603, US-701 | `GET /v1/me`, `/v1/keys` | Pro/API scopes; billing read-through CRM adapter |
@@ -138,6 +139,34 @@ announces "N proposals, M opportunities in view" debounced 500ms; above 500, the
 | `admin/tasks` | Admin | Reports, intake review, deletions | US-907, US-204, US-1002, US-910 | `GET/PATCH /admin/v1/tasks`, `POST …/approve-intake` | — |
 | `admin/posts` | Admin | Social review queue | US-802, US-803, US-804 | `GET/PATCH /admin/v1/posts`, `PUT …/auto-publish` | `auto-publish` toggle is owner-role only, default off per channel |
 | `admin/users` `admin/customers` | Admin | Roles, entitlement, CRM read-through | US-901, US-902, US-903 | `GET/PATCH /admin/v1/users`, `/customers`, `/subscriptions` | Staleness banner + refused writes if adapter down (US-902 AC3) |
+
+### 3.1 Asset and company pages (added 2026-09-19, midstream slice)
+
+Both pages are server-rendered records in the `/proposals/{slug}` idiom (D-18), reachable from the map drawer
+("Open asset page"), the in-view list, `/search` (which now has an **Assets** section beside Organisations, so a
+pipeline name and its operator both resolve) and `/sitemap.xml`.
+
+- **Asset page** `/assets/{slug}`: header with type, pipeline class and status; a key/value grid whose rows
+  exist only where the source carries the value (the "None" gate: no "None", no "—" rows); for a pipeline —
+  operator (linked to the company page through its `operator` edge), class, length, diameter, states crossed,
+  status, source and retrieval date; for a plant — technology, capacity, commissioned year, units, county,
+  state. Then **Map** (SVG of the geometry with nearby proposals as dots; MapLibre replaces it when scripts
+  run), Attributes, Owners and operators, Nearby proposals (nearest first, each with its distance; the
+  wording says "route" for a line, "point" for a point), Sources. No map section when the record has no
+  geometry.
+- **Company page** `/organizations/{slug}`: header, a one-line summary "Operates 3 gas pipelines · Owns 12
+  power plants" (from the API's `asset_counts`, else counted over the page's rows), fields present only where
+  set, parent and subsidiaries where the API embeds them, **Assets** (map of everything with geometry, then one
+  table per role → type group with the columns that group fills: length and states for pipelines, capacity and
+  share for plants), Proposals, Opportunities, and **Sources** listing the distinct registers behind the
+  organisation's assets, proposals and opportunities — an organisation row carries no sources of its own, and
+  the page never shows the "withheld under licence" empty state for that case; with no sources anywhere it shows
+  no panel at all.
+- **Map** (`/`): the "Existing assets" toggle now carries an **Asset types** checkbox set (power plants, gas
+  pipelines, gas processing, gas storage, LNG terminals; ethanol and RNG disabled as coming), written to the URL
+  as `asset_type=` csv. The in-view list gains labelled groups for **Regions** (links to the filtered list) and
+  **Existing assets** (points and lines; each row links to the asset page and has a Details button that opens
+  the same drawer a map click does), so both are keyboard-reachable (audit finding 2026-09-18).
 
 ## 4. Core-job flows
 
@@ -398,3 +427,5 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 ## 8. Change history
 
 - 2026-09-12 v1 — first draft (product-designer), following `docs/30-design-references.md` v1.
+- 2026-09-19 — §3 page inventory rows for `/assets/{slug}` and the company page updated, §3.1 added
+  (frontend-developer, midstream slice).

@@ -7,7 +7,7 @@
 {% block content %}
 <div class="page-header">
   <h1>Map</h1>
-  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO. Filters apply to the map and the list together; the URL always reflects the current view.</p>
+  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO, with existing power plants and gas infrastructure as a context layer. Filters apply to the map and the list together; the URL always reflects the current view.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
 {% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
@@ -33,25 +33,23 @@
   <div class="filter-field filter-field--checkbox">
     <label for="mf-layer-plants">
       <input id="mf-layer-plants" type="checkbox" name="layer_plants" value="1">
-      Existing assets (EIA)
+      Existing assets
     </label>
   </div>
+  {# Existing-asset types (docs/00-PLAN.md 2026-09-19, option (a)): the five live types are
+     checkboxes so pipelines and plants can be drawn together; ethanol and RNG are listed but
+     disabled until their loaders land, never silently absent. map.js reads/writes `asset_type=`
+     as a csv and shows this fieldset only while the layer is on. #}
+  <fieldset class="filter-field filter-field--asset-types" id="mf-asset-types" hidden>
+    <legend>Asset types</legend>
+    {% for value, label, live in asset_types %}
+    <label for="mf-asset-type-{{ value }}"{% if not live %} class="is-disabled"{% endif %}>
+      <input id="mf-asset-type-{{ value }}" type="checkbox" name="asset_type" value="{{ value }}"{% if not live %} disabled{% endif %}>
+      {{ label }}{% if not live %} (coming){% endif %}
+    </label>
+    {% endfor %}
+  </fieldset>
   <div class="filter-field" id="mf-plant-technology-field" hidden>
-    <label for="mf-asset-type">Asset type</label>
-    <select id="mf-asset-type" name="asset_type">
-      <option value="power_plant">Power plant</option>
-      <option value="gas_pipeline" disabled title="coming">Gas pipeline</option>
-      <option value="gas_processing_plant" disabled title="coming">Gas processing plant</option>
-      <option value="gas_storage" disabled title="coming">Gas storage</option>
-      <option value="lng_terminal" disabled title="coming">LNG terminal</option>
-      <option value="compressor_station" disabled title="coming">Compressor station</option>
-      <option value="ethanol_plant" disabled title="coming">Ethanol plant</option>
-      <option value="biodiesel_plant" disabled title="coming">Biodiesel plant</option>
-      <option value="rng_project" disabled title="coming">RNG project</option>
-      <option value="transmission_line" disabled title="coming">Transmission line</option>
-      <option value="substation" disabled title="coming">Substation</option>
-      <option value="refinery" disabled title="coming">Refinery</option>
-    </select>
     <label for="mf-plant-technology">Plant type</label>
     <select id="mf-plant-technology" name="plant_technology">
       <option value="">All types</option>
@@ -111,22 +109,48 @@
       <span class="legend__item" style="color:var(--family-success-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-success"></use></svg> Success</span>
       <span class="legend__item" style="color:var(--family-danger-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-danger"></use></svg> Danger</span>
     </div>
-    <div class="legend legend--plants" id="plants-legend" aria-hidden="true" hidden>
-      <span class="legend__item" style="color:var(--plant-solar)">&#9632; Solar</span>
-      <span class="legend__item" style="color:var(--plant-wind)">&#9632; Wind</span>
-      <span class="legend__item" style="color:var(--plant-gas)">&#9632; Gas</span>
-      <span class="legend__item" style="color:var(--plant-oil)">&#9632; Oil</span>
-      <span class="legend__item" style="color:var(--plant-coal)">&#9632; Coal</span>
-      <span class="legend__item" style="color:var(--plant-nuclear)">&#9632; Nuclear</span>
-      <span class="legend__item" style="color:var(--plant-hydro)">&#9632; Hydro</span>
-      <span class="legend__item" style="color:var(--plant-storage)">&#9632; Storage</span>
-      <span class="legend__item" style="color:var(--plant-biomass)">&#9632; Biomass / waste</span>
-      <span class="legend__item" style="color:var(--plant-geothermal)">&#9632; Geothermal</span>
-      <span class="legend__item" style="color:var(--plant-other)">&#9632; Other</span>
+    {# One legend group per existing-asset type; map.js hides the groups whose type is not
+       checked, so the legend only ever names what is drawn (docs/31 §1.6). Shape + label carry
+       the type, hue is secondary (D-5). #}
+    <div class="legend legend--plants legend--assets" id="plants-legend" aria-hidden="true" hidden>
+      <div class="legend__group" data-legend-type="power_plant">
+        <span class="legend__group-name">Power plants</span>
+        <span class="legend__item" style="color:var(--plant-solar)">&#9632; Solar</span>
+        <span class="legend__item" style="color:var(--plant-wind)">&#9632; Wind</span>
+        <span class="legend__item" style="color:var(--plant-gas)">&#9632; Gas</span>
+        <span class="legend__item" style="color:var(--plant-oil)">&#9632; Oil</span>
+        <span class="legend__item" style="color:var(--plant-coal)">&#9632; Coal</span>
+        <span class="legend__item" style="color:var(--plant-nuclear)">&#9632; Nuclear</span>
+        <span class="legend__item" style="color:var(--plant-hydro)">&#9632; Hydro</span>
+        <span class="legend__item" style="color:var(--plant-storage)">&#9632; Storage</span>
+        <span class="legend__item" style="color:var(--plant-biomass)">&#9632; Biomass / waste</span>
+        <span class="legend__item" style="color:var(--plant-geothermal)">&#9632; Geothermal</span>
+        <span class="legend__item" style="color:var(--plant-other)">&#9632; Other</span>
+      </div>
+      <div class="legend__group" data-legend-type="gas_pipeline" style="color:var(--asset-gas-pipeline)">
+        <span class="legend__group-name">Gas pipelines</span>
+        <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg> Interstate</span>
+        <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="6 4"/></svg> Intrastate</span>
+      </div>
+      <div class="legend__group" data-legend-type="gas_processing_plant" style="color:var(--asset-gas-processing)">
+        <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.5 6 6 11.5 0.5 6Z" fill="currentColor"/></svg> Gas processing plants</span>
+      </div>
+      <div class="legend__group" data-legend-type="gas_storage" style="color:var(--asset-gas-storage)">
+        <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.2" fill="none" stroke="currentColor" stroke-width="2.4"/></svg> Gas storage</span>
+      </div>
+      <div class="legend__group" data-legend-type="lng_terminal" style="color:var(--asset-lng-terminal)">
+        <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.8 11.4 10.6 0.6 10.6Z" fill="currentColor"/></svg> LNG terminals</span>
+      </div>
+      <div class="legend__group" data-legend-type="ethanol_plant" style="color:var(--asset-ethanol)">
+        <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M11.5 6 8.75 10.76 3.25 10.76 0.5 6 3.25 1.24 8.75 1.24Z" fill="currentColor"/></svg> Ethanol plants</span>
+      </div>
+      <div class="legend__group" data-legend-type="rng_project" style="color:var(--asset-rng)">
+        <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.23 4.3 9.23 10.45 2.77 10.45 0.77 4.3Z" fill="currentColor"/></svg> RNG projects</span>
+      </div>
     </div>
     <p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <a href="/about#sources">see About &amp; sources</a>. Full credits: <a href="/attribution">Attribution</a>.</p>
   </div>
-  <aside class="map-side" aria-label="Proposals in view">
+  <aside class="map-side" aria-label="Proposals, regions and existing assets in view">
     <a id="in-view-list" tabindex="-1"></a>
     <h2>In view</h2>
     <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
@@ -149,5 +173,6 @@
 <script src="https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/dist/pmtiles.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/dist/basemaps.js"></script>
 {% endif %}
+<script src="/static/js/basemap.js?v={{ asset_version }}"></script>
 <script src="/static/js/map.js?v={{ asset_version }}"></script>
 {% endblock %}
