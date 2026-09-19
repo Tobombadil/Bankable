@@ -557,27 +557,41 @@ def test_home_map_has_placement_checkboxes_default_exact_and_region_checked(web_
     assert "checked" not in none_tag
 
 
-def test_home_map_lists_asset_type_checkboxes_five_live_two_coming(web_client: TestClient) -> None:
+SEVEN_LIVE_ASSET_TYPES = (
+    "power_plant",
+    "gas_pipeline",
+    "gas_processing_plant",
+    "gas_storage",
+    "lng_terminal",
+    "ethanol_plant",
+    "rng_project",
+)
+
+
+def test_home_map_lists_asset_type_checkboxes_all_seven_live(web_client: TestClient) -> None:
     """Midstream slice (docs/00-PLAN.md 2026-09-19, option (a)): the type control is a checkbox
-    per type so pipelines draw beside plants; ethanol and RNG are listed but disabled."""
+    per type so pipelines draw beside plants; ethanol and RNG are enabled since the second slice
+    loaded them (EIA Atlas ethanol plants, EPA LMOP, EPA AgSTAR) -- nothing is "(coming)" today."""
     _install(_default_transport())
     resp = web_client.get("/")
     assert resp.status_code == 200
     body = resp.text
     assert 'id="mf-asset-types"' in body
     assert "Existing assets" in body and "Existing assets (EIA)" not in body
-    for value in ("power_plant", "gas_pipeline", "gas_processing_plant", "gas_storage", "lng_terminal"):
+    for value in SEVEN_LIVE_ASSET_TYPES:
         tag = body.split(f'id="mf-asset-type-{value}"')[1].split(">")[0]
         assert "disabled" not in tag, value
-    for value in ("ethanol_plant", "rng_project"):
-        tag = body.split(f'id="mf-asset-type-{value}"')[1].split(">")[0]
-        assert "disabled" in tag, value
-    assert "(coming)" in body
+    assert "(coming)" not in body and "is-disabled" not in body
     assert 'id="mf-asset-type-refinery"' not in body
-    # One legend group per type, each hidden/shown by map.js with the checkbox.
-    for value in ("power_plant", "gas_pipeline", "gas_processing_plant", "gas_storage", "lng_terminal"):
+    # One legend group per type, each hidden/shown by map.js with the checkbox; the ethanol and
+    # RNG groups say which rows are not points (state-grade capacity table, county-grade digesters).
+    for value in SEVEN_LIVE_ASSET_TYPES:
         assert f'data-legend-type="{value}"' in body, value
     assert "Interstate" in body and "Intrastate" in body
+    ethanol_group = body.split('data-legend-type="ethanol_plant"')[1].split("</div>")[0]
+    assert "state grade" in ethanol_group and 'class="legend__note"' in ethanol_group
+    rng_group = body.split('data-legend-type="rng_project"')[1].split("</div>")[0]
+    assert "county grade" in rng_group
     assert 'src="/static/js/basemap.js' in body
 
 
@@ -1234,3 +1248,681 @@ def test_organization_detail_requests_the_group_and_names_the_holding_subsidiary
     assert "Held by" in pipelines_table
     assert 'href="/organizations/rockies-express-pipeline">Rockies Express Pipeline</a>' in pipelines_table
     assert ">None<" not in resp.text
+
+
+# ============================================================ second midstream slice (2026-09-19)
+# Ethanol plants (us.eia.atlas.ethanol_plants exact points; us.eia.ethanol_capacity at state grade)
+# and RNG projects (us.epa.lmop landfill-gas projects with exact points; us.epa.agstar digesters at
+# county grade). The fakes below carry the fields the live API serialises today (checked against
+# the running dev API, 2026-09-19 evening): numeric `attributes` only -- `attributes_text` (PADD,
+# data period, biogas end use, landfill name) is not exposed yet, so the rows that need it are
+# absent, never placeholders.
+_FUEL_SOURCE = {
+    "source_id": "us.eia.atlas.ethanol_plants",
+    "source_name": "EIA US Energy Atlas — Ethanol Plants",
+    "source_url": "https://www.eia.gov/maps/map_data/Ethanol_Plants_US_EIA.zip",
+    "retrieved_at": "2026-09-19T15:49:24Z",
+    "reuse_class": "open",
+    "attribution_text": None,
+}
+
+
+def _ethanol_entity(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "public_id": "asset_01ETH",
+        "slug": "absolute-energy-llc-st-ansgar-ia-us-ia",
+        "name": "Absolute Energy LLC (St Ansgar, IA)",
+        "asset_type": "ethanol_plant",
+        "status": "operating",
+        "operator_name": "Absolute Energy LLC",
+        "technology": "ethanol",
+        "technology_raw": None,
+        "technologies": {},
+        "capacity_mw": None,
+        "capacity_value": 125.0,
+        "capacity_unit": "MMgal/yr",
+        "commissioned_year": None,
+        "unit_count": None,
+        "state_code": "US-IA",
+        "county_name": None,
+        "county_fips": None,
+        "country": "US",
+        "attributes": {"nameplate_capacity_mmgal_yr": 125.0, "as_of_year": 2025.0},
+        "geometry": {"type": "Point", "coordinates": [-92.9445, 43.4997]},
+        "owners": [
+            {
+                "organization": {
+                    "public_id": "org_01ABS",
+                    "slug": "absolute-energy-llc",
+                    "name_canonical": "Absolute Energy LLC",
+                    "type": "other",
+                },
+                "role": "operator",
+                "share_pct": None,
+                "as_of": None,
+            }
+        ],
+        "provenance": [_FUEL_SOURCE],
+    }
+    base.update(overrides)
+    return base
+
+
+def _lmop_entity(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "public_id": "asset_01LMOP",
+        "slug": "project-2-city-of-charleston-landfill-us-wv",
+        "name": "Project #2 - City of Charleston Landfill",
+        "asset_type": "rng_project",
+        "status": "operating",
+        "operator_name": "Tallarico Energy",
+        "technology": "rng",
+        "technology_raw": "Vehicle Fuel",
+        "technologies": {},
+        "capacity_mw": None,
+        "capacity_value": 0.677,
+        "capacity_unit": "mmscfd",
+        "commissioned_year": 2018,
+        "unit_count": None,
+        "state_code": "US-WV",
+        "county_name": "Kanawha",
+        "county_fips": "54039",
+        "country": "US",
+        "attributes": {
+            "lfg_flow_to_project_mmscfd": 0.677,
+            "landfill_count": 1.0,
+            "project_start_year": 2018.0,
+            "landfill_year_opened": 1971.0,
+            "landfill_waste_in_place_tons": 5743184.0,
+        },
+        "geometry": {"type": "Point", "coordinates": [-81.61854, 38.31279]},
+        "owners": [],
+        "provenance": [
+            {
+                **_FUEL_SOURCE,
+                "source_id": "us.epa.lmop",
+                "source_name": "EPA LMOP Landfill and Project Database",
+                "source_url": "https://www.epa.gov/lmop",
+                "retrieved_at": "2026-09-19T15:49:08Z",
+            }
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+def _agstar_entity(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "public_id": "asset_01AGSTAR",
+        "slug": "tinedale-farms-digester-us-wi",
+        "name": "Tinedale Farms Digester",
+        "asset_type": "rng_project",
+        "status": "retired",
+        "operator_name": None,
+        "technology": "farm_digester",
+        "technology_raw": "Fixed Film/Attached Media",
+        "technologies": {},
+        "capacity_mw": None,
+        "capacity_value": 200000.0,
+        "capacity_unit": "cu-ft/day",
+        "commissioned_year": 1999,
+        "unit_count": None,
+        "state_code": "US-WI",
+        "county_name": "Jackson",
+        "county_fips": "55053",
+        "country": "US",
+        "attributes": {
+            "biogas_generation_estimate_cuft_day": 200000.0,
+            "electricity_generated_kwh_yr": 5584500.0,
+            "cattle": 0.0,
+            "dairy": 1800.0,
+            "poultry": 0.0,
+            "swine": 0.0,
+            "year_operational": 1999.0,
+            "year_shutdown": 2005.0,
+        },
+        "geometry": None,  # county grade: no point, so no map section
+        "owners": [],
+        "provenance": [
+            {
+                **_FUEL_SOURCE,
+                "source_id": "us.epa.agstar",
+                "source_name": "EPA AgSTAR Livestock Anaerobic Digester Database",
+                "source_url": "https://www.epa.gov/agstar",
+                "retrieved_at": "2026-09-19T15:49:18Z",
+            }
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+def _fuel_transport(entity: dict[str, Any], nearby: list[dict[str, Any]] | None = None) -> FakeTransport:
+    return _default_transport(
+        {
+            "/v1/assets": (200, {"data": [entity]}),
+            f"/v1/assets/{entity['public_id']}": (200, {"data": entity}),
+            f"/v1/assets/{entity['public_id']}/nearby-proposals": (200, {"data": nearby or []}),
+        }
+    )
+
+
+def _rows(body: str) -> dict[str, str]:
+    """`{dt: dd}` of the page's field grid, tags stripped, for row-level assertions."""
+    import re
+
+    grid = body.split('<dl class="field-grid">')[1].split("</dl>")[0]
+    out: dict[str, str] = {}
+    for dt, dd in re.findall(r"<dt>(.*?)</dt><dd[^>]*>(.*?)</dd>", grid, re.S):
+        out[dt] = re.sub(r"<[^>]+>", "", dd).strip()
+    return out
+
+
+def test_asset_detail_ethanol_promotes_nameplate_as_of_and_operator(web_client: TestClient) -> None:
+    _install(_fuel_transport(_ethanol_entity()))
+
+    resp = web_client.get("/assets/absolute-energy-llc-st-ansgar-ia-us-ia")
+
+    assert resp.status_code == 200
+    body = resp.text
+    rows = _rows(body)
+    assert rows["Type"] == "Ethanol plant"
+    assert rows["Nameplate capacity"] == "125 MMgal/yr"
+    assert rows["Capacity as of"] == "2025"
+    assert rows["Operator"] == "Absolute Energy LLC"
+    assert 'href="/organizations/absolute-energy-llc"' in body
+    assert rows["State"] == "US-IA"
+    # The plant-shaped rows do not double up the same numbers, and "ethanol" is not a Technology row.
+    assert "Capacity (MMgal/yr)" not in rows and "Capacity (native unit)" not in rows
+    assert "Technology" not in rows and "Commissioned" not in rows
+    # Consumed attribute keys leave the generic Attributes table; nothing shows twice.
+    assert "nameplate capacity mmgal yr" not in body and "as of year" not in body
+    assert "No attributes recorded" in body
+    assert 'retrieved <span class="tnum">2026-09-19' in body
+    assert 'id="asset-map"' in body  # exact point -> map section
+    assert "125 MMgal/yr" in body.split('name="description"')[1].split(">")[0]
+    assert ">None<" not in body and "None</" not in body
+
+
+def test_asset_detail_rng_landfill_project_promotes_project_fields(web_client: TestClient) -> None:
+    _install(_fuel_transport(_lmop_entity()))
+
+    body = web_client.get("/assets/project-2-city-of-charleston-landfill-us-wv").text
+
+    rows = _rows(body)
+    assert rows["Type"] == "RNG project"
+    assert rows["Project type"] == "Vehicle Fuel"
+    assert rows["Technology"] == "Renewable natural gas"
+    assert rows["LFG flow to project"] == "0.677 MMscf/d"
+    assert rows["Host landfill"] == "City of Charleston Landfill"
+    assert rows["Start year"] == "2018"
+    assert rows["Operator"] == "Tallarico Energy"
+    assert rows["County"] == "Kanawha"
+    # No rated MW on a vehicle-fuel project, no end use in today's payload: no such rows.
+    assert "Rated capacity" not in rows and "Biogas end use" not in rows and "Digester type" not in rows
+    assert "Capacity (mmscfd)" not in rows and "Commissioned" not in rows
+    # Header badge carries the family in words (D-5), not a hue.
+    badge = body.split('<span class="reuse-badge">')[1].split("</span>")[0]
+    assert "RNG project" in badge and "Renewable natural gas" in badge and "operating" in badge
+    # Unconsumed landfill numbers stay in the Attributes table.
+    assert "landfill waste in place tons" in body and "5743184" in body
+    assert "lfg flow to project mmscfd" not in body
+    assert ">None<" not in body
+
+
+def test_asset_detail_rng_landfill_electricity_shows_rated_mw(web_client: TestClient) -> None:
+    entity = _lmop_entity(
+        technology="lfg_electricity",
+        technology_raw="Reciprocating Engine",
+        capacity_mw=5.6,
+        attributes={"rated_mw": 5.6, "lfg_flow_to_project_mmscfd": 1.725, "project_start_year": 2012.0},
+    )
+    _install(_fuel_transport(entity))
+
+    rows = _rows(web_client.get("/assets/project-2-city-of-charleston-landfill-us-wv").text)
+
+    assert rows["Technology"] == "Landfill gas to electricity"
+    assert rows["Project type"] == "Reciprocating Engine"
+    assert rows["Rated capacity"] == "5.6 MW"
+    assert rows["LFG flow to project"] == "1.725 MMscf/d"
+    assert rows["Start year"] == "2012"
+    assert "Capacity (MW)" not in rows  # promoted once as "Rated capacity", never twice
+
+
+def test_asset_detail_rng_digester_promotes_digester_type_feedstock_and_years(web_client: TestClient) -> None:
+    _install(_fuel_transport(_agstar_entity()))
+
+    body = web_client.get("/assets/tinedale-farms-digester-us-wi").text
+
+    rows = _rows(body)
+    assert rows["Technology"] == "Farm digester"
+    assert rows["Digester type"] == "Fixed Film/Attached Media"
+    assert rows["Biogas generation (est.)"] == "200,000 cu ft/day"
+    assert rows["Feedstock"] == "Dairy (1,800 head)"  # from the herd counts; zero herds omitted
+    assert rows["Start year"] == "1999" and rows["Shutdown year"] == "2005"
+    assert rows["Status"] == "retired"
+    assert "Project type" not in rows and "Host landfill" not in rows and "Operator" not in rows
+    # Herd-count columns are consumed by the Feedstock row; the kWh figure is not, so it stays.
+    assert ">dairy<" not in body and ">swine<" not in body
+    assert "electricity generated kwh yr" in body
+    assert 'id="asset-map"' not in body  # county grade -> no geometry -> no map section
+    assert ">None<" not in body and "None</" not in body
+
+
+def test_asset_detail_fuel_rows_drop_absent_values(web_client: TestClient) -> None:
+    """The "None" gate on the promoted fuel rows: a capacity-table ethanol row without an as-of
+    year, or a landfill project without flow, start year or a parseable landfill name, has no
+    such rows -- and never "None", "—" or "0"."""
+    ethanol = _ethanol_entity(
+        attributes={}, capacity_value=None, capacity_unit=None, geometry=None, owners=[]
+    )
+    _install(_fuel_transport(ethanol))
+    rows = _rows(web_client.get("/assets/absolute-energy-llc-st-ansgar-ia-us-ia").text)
+    assert "Nameplate capacity" not in rows and "Capacity as of" not in rows and "PADD" not in rows
+    assert rows["Operator"] == "Absolute Energy LLC"
+
+    lmop = _lmop_entity(
+        name="Charleston Gas Project",
+        attributes={},
+        capacity_value=None,
+        capacity_unit=None,
+        commissioned_year=None,
+        technology_raw=None,
+    )
+    _install(_fuel_transport(lmop))
+    body = web_client.get("/assets/project-2-city-of-charleston-landfill-us-wv").text
+    rows = _rows(body)
+    assert rows["Technology"] == "Renewable natural gas"
+    for label in ("Project type", "LFG flow to project", "Host landfill", "Start year", "Rated capacity"):
+        assert label not in rows, label
+    assert ">None<" not in body and "None</" not in body and "<dd>—</dd>" not in body
+
+
+def test_group_nearby_proposals_collapses_generator_units() -> None:
+    """EIA-860M lists a project once per generator unit: same name, sponsor and county, one row
+    per unit with its own capacity and distance. One list row, "× n units", summed capacity,
+    nearest distance and that unit's link; unrelated rows and same-named rows in another county
+    stay separate; order (nearest first, as the API returns it) is kept."""
+    from web.app import group_nearby_proposals
+
+    rows = [
+        {
+            "slug": "a-1",
+            "name": "Danish Fields Solar",
+            "sponsor": "Acme",
+            "county": "Wharton",
+            "capacity_mw": 100.0,
+            "distance_km": 3.2,
+        },
+        {
+            "slug": "b-1",
+            "name": "Other Wind",
+            "sponsor": "Beta",
+            "county": "Wharton",
+            "capacity_mw": 50.0,
+            "distance_km": 4.0,
+        },
+        {
+            "slug": "a-2",
+            "name": "Danish Fields Solar",
+            "sponsor": "Acme",
+            "county": "Wharton",
+            "capacity_mw": 200.0,
+            "distance_km": 2.9,
+        },
+        {
+            "slug": "a-3",
+            "name": "Danish Fields Solar",
+            "sponsor": "Acme",
+            "county": "Wharton",
+            "capacity_mw": None,
+            "distance_km": 5.0,
+        },
+        {
+            "slug": "a-x",
+            "name": "Danish Fields Solar",
+            "sponsor": "Acme",
+            "county": "Matagorda",
+            "capacity_mw": 10.0,
+            "distance_km": 9.0,
+        },
+    ]
+
+    grouped = group_nearby_proposals(rows)
+
+    assert [g["slug"] for g in grouped] == ["a-2", "b-1", "a-x"]
+    danish = grouped[0]
+    assert danish["unit_count"] == 3
+    assert danish["capacity_mw"] == 300.0
+    assert danish["distance_km"] == 2.9
+    assert grouped[1]["unit_count"] == 1 and grouped[1]["capacity_mw"] == 50.0
+    assert grouped[2]["unit_count"] == 1 and grouped[2]["county"] == "Matagorda"
+    # No capacity on any member -> None, not 0.
+    assert (
+        group_nearby_proposals([{"name": "x", "sponsor": None, "county": None, "capacity_mw": None}])[0][
+            "capacity_mw"
+        ]
+        is None
+    )
+    assert group_nearby_proposals([]) == []
+
+
+def test_group_nearby_proposals_keeps_nearest_units_nearest_asset() -> None:
+    from web.app import group_nearby_proposals
+
+    rows = [
+        {
+            "slug": "u1",
+            "name": "P",
+            "sponsor": "S",
+            "county": "C",
+            "capacity_mw": 1.0,
+            "distance_km": 8.0,
+            "nearest_asset_name": "Far Pipe",
+            "nearest_asset_slug": "far",
+        },
+        {
+            "slug": "u2",
+            "name": "P",
+            "sponsor": "S",
+            "county": "C",
+            "capacity_mw": 1.0,
+            "distance_km": 1.5,
+            "nearest_asset_name": "Near Pipe",
+            "nearest_asset_slug": "near",
+        },
+    ]
+    [g] = group_nearby_proposals(rows)
+    assert g["distance_km"] == 1.5 and g["nearest_asset_slug"] == "near" and g["slug"] == "u2"
+
+
+def test_asset_detail_nearby_list_shows_units_and_summed_capacity(web_client: TestClient) -> None:
+    sponsor = {"name_canonical": "Acme Solar LLC"}
+    units = [
+        _nearby_row(
+            public_id="prop_u1",
+            slug="danish-fields-1",
+            name_canonical="Danish Fields Solar",
+            technology="solar",
+            capacity_mw=100.0,
+            distance_km=3.2,
+            sponsor=sponsor,
+            location={
+                "geom": {"type": "Point", "coordinates": [-92.9, 43.5]},
+                "state_code": "US-IA",
+                "county_name": "Mitchell",
+                "precision": "exact",
+            },
+        ),
+        _nearby_row(
+            public_id="prop_u2",
+            slug="danish-fields-2",
+            name_canonical="Danish Fields Solar",
+            technology="solar",
+            capacity_mw=200.0,
+            distance_km=2.9,
+            sponsor=sponsor,
+            location={
+                "geom": {"type": "Point", "coordinates": [-92.91, 43.51]},
+                "state_code": "US-IA",
+                "county_name": "Mitchell",
+                "precision": "exact",
+            },
+        ),
+        _nearby_row(
+            public_id="prop_o",
+            slug="lone-wind",
+            name_canonical="Lone Wind",
+            technology="wind",
+            capacity_mw=50.0,
+            distance_km=6.0,
+        ),
+    ]
+    _install(_fuel_transport(_ethanol_entity(), nearby=units))
+
+    body = web_client.get("/assets/absolute-energy-llc-st-ansgar-ia-us-ia").text
+
+    nearby = body.split('aria-label="Nearby proposals"')[1].split("</section>")[0]
+    assert nearby.count("<li>") == 2
+    assert "&times; 2 units" in nearby and "300.0 MW" in nearby and "2.9 km away" in nearby
+    assert 'href="/proposals/danish-fields-2"' in nearby  # the nearest unit's page
+    assert "100.0 MW" not in nearby and "200.0 MW" not in nearby
+    assert "Lone Wind" in nearby and "units" not in nearby.split("Lone Wind")[1]
+    # The mini-map still draws every unit's dot: grouping is a list rule, not a map rule.
+    geojson = body.split('id="asset-map-data">')[1].split("</script>")[0]
+    assert geojson.count('"kind":"proposal"') == 3
+    assert "3 exact-grade proposals within 25" in body
+
+
+def test_org_descriptor_from_holdings() -> None:
+    from web.app import org_descriptor
+
+    assert org_descriptor("other", {"ethanol_plant": 1}) == "Ethanol producer"
+    assert org_descriptor("other", {"rng_project": 4}) == "RNG developer"
+    assert (
+        org_descriptor("other", {"gas_pipeline": 3, "power_plant": 12})
+        == "Power plant owner and Gas pipeline operator"
+    )
+    # Top two by count; ties fall back to the descriptor table's order.
+    assert (
+        org_descriptor("other", {"ethanol_plant": 2, "rng_project": 2, "power_plant": 1})
+        == "Ethanol producer and RNG developer"
+    )
+    # A real type is left alone; no holdings -> nothing to say; unknown types contribute nothing.
+    assert org_descriptor("developer", {"ethanol_plant": 1}) is None
+    assert org_descriptor("other", {}) is None
+    assert org_descriptor("other", {"widget": 5}) is None
+    assert org_descriptor(None, {"gas_pipeline": 1}) == "Gas pipeline operator"
+    # Two types that share a descriptor collapse to one.
+    assert org_descriptor("other", {"gas_pipeline": 1, "compressor_station": 9}) == "Gas pipeline operator"
+
+
+def test_organization_detail_shows_descriptor_for_other_typed_holder_and_keeps_raw_type(
+    web_client: TestClient,
+) -> None:
+    org = _tallgrass_org(
+        public_id="org_01POET",
+        slug="poet-biorefining-north-manches",
+        name_canonical="Poet Biorefining - North Manches",
+        type="other",
+        subsidiaries=[],
+        subsidiary_count=0,
+        asset_counts={
+            "assets": 1,
+            "by_role": {"operator": 1},
+            "by_type": {"ethanol_plant": 1},
+            "by_role_and_type": {"operator": {"ethanol_plant": 1}},
+        },
+    )
+    asset_row = {
+        "asset": _ethanol_entity(
+            public_id="asset_01POET",
+            slug="poet-north-manchester",
+            name="Poet Biorefining (North Manchester, IN)",
+        ),
+        "role": "operator",
+        "share_pct": None,
+    }
+    _install(
+        _default_transport(
+            {
+                "/v1/organizations": (200, {"data": [org]}),
+                "/v1/organizations/org_01POET/assets": (200, {"data": [asset_row]}),
+                "/v1/organizations/org_01POET/proposals": (200, {"data": []}),
+                "/v1/organizations/org_01POET/opportunities": (200, {"data": []}),
+                "/v1/organizations/org_01POET/nearby-proposals": (200, {"data": []}),
+            }
+        )
+    )
+
+    body = web_client.get("/organizations/poet-biorefining-north-manches").text
+
+    header = body.split('<div class="detail-header">')[1].split("</div>")[0]
+    assert 'id="org-descriptor">Ethanol producer</span>' in header
+    assert ">other<" not in header
+    assert "<dt>Type</dt><dd>other</dd>" in body  # the raw type stays in the fields table
+    summary = body.split('id="org-summary">')[1].split("</p>")[0]
+    assert summary == "Operates 1 ethanol plant"
+    assert ">None<" not in body
+
+
+def test_organization_detail_keeps_a_real_type_badge(web_client: TestClient) -> None:
+    _install(_tallgrass_transport(type="pipeline_operator"))
+
+    body = web_client.get("/organizations/tallgrass-energy").text
+
+    header = body.split('<div class="detail-header">')[1].split("</div>")[0]
+    assert 'id="org-descriptor"' not in header and ">pipeline operator<" in header
+
+
+def test_organization_detail_two_part_descriptor_counts_rows_without_asset_counts(
+    web_client: TestClient,
+) -> None:
+    _install(_tallgrass_transport(type="other", asset_counts=None))
+
+    body = web_client.get("/organizations/tallgrass-energy").text
+
+    header = body.split('<div class="detail-header">')[1].split("</div>")[0]
+    # 3 pipelines, 1 processing plant, 1 power plant on the page: pipelines first, then the tie
+    # between processing and power plant falls to the table order (gas processing first).
+    assert 'id="org-descriptor">Gas pipeline operator and Gas processing operator</span>' in header
+
+
+def test_organization_nearby_list_groups_generator_units(web_client: TestClient) -> None:
+    sponsor = {"name_canonical": "Acme Solar LLC"}
+    nearest = {
+        "public_id": "asset_01REX",
+        "slug": "rockies-express-pipeline",
+        "name": "Rockies Express Pipeline",
+    }
+    rows = [
+        _nearby_row(
+            public_id="prop_u1",
+            slug="unit-1",
+            name_canonical="Prairie Solar",
+            capacity_mw=80.0,
+            distance_km=4.0,
+            sponsor=sponsor,
+            nearest_asset=nearest,
+        ),
+        _nearby_row(
+            public_id="prop_u2",
+            slug="unit-2",
+            name_canonical="Prairie Solar",
+            capacity_mw=70.0,
+            distance_km=3.5,
+            sponsor=sponsor,
+            nearest_asset=nearest,
+        ),
+    ]
+    transport = _tallgrass_transport()
+    transport.responses["/v1/organizations/org_01TALLGRASS/nearby-proposals"] = (200, {"data": rows})
+    _install(transport)
+
+    body = web_client.get("/organizations/tallgrass-energy").text
+
+    nearby = body.split('aria-label="Nearby proposals"')[1].split("</section>")[0]
+    assert nearby.count("<li>") == 1
+    assert "&times; 2 units" in nearby and "150.0 MW" in nearby and "3.5 km away" in nearby
+    assert 'href="/proposals/unit-2"' in nearby and "Rockies Express Pipeline" in nearby
+
+
+def test_search_assets_section_labels_ethanol_and_rng_types(web_client: TestClient) -> None:
+    transport = _default_transport(
+        {
+            "/v1/proposals": (200, {"data": []}),
+            "/v1/opportunities": (200, {"data": []}),
+            "/v1/organizations": (200, {"data": []}),
+            "/v1/assets": (
+                200,
+                {"data": [_ethanol_entity(), _lmop_entity(technology="lfg_electricity"), _agstar_entity()]},
+            ),
+        }
+    )
+    _install(transport)
+
+    body = web_client.get("/search?q=energy").text
+
+    section = body.split("<h2>Assets</h2>")[1].split("<h2>Organisations</h2>")[0]
+    assert "3 assets" in body
+    ethanol = section.split("Absolute Energy LLC (St Ansgar, IA)</a>")[1].split("</li>")[0]
+    assert "Ethanol plant · Absolute Energy LLC · US-IA" in ethanol
+    lmop = section.split("City of Charleston Landfill</a>")[1].split("</li>")[0]
+    assert "RNG project · Landfill gas to electricity · Tallarico Energy · US-WV" in lmop
+    agstar = section.split("Tinedale Farms Digester</a>")[1].split("</li>")[0]
+    assert "RNG project · Farm digester · US-WI" in agstar
+    assert "—" not in section and ">None<" not in section
+
+
+def test_asset_detail_proxy_relays_the_detail_envelope_without_cookies(web_client: TestClient) -> None:
+    """The drawer's enrichment call (`/api/assets/{public_id}`): geo point features carry no
+    capacity value, unit or attributes, so the drawer fetches the detail row and re-renders."""
+    entity = _lmop_entity()
+    transport = _default_transport({"/v1/assets/asset_01LMOP": (200, {"data": entity})})
+    _install(transport)
+
+    resp = web_client.get("/api/assets/asset_01LMOP", cookies={"session": "secret"})
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["attributes"]["lfg_flow_to_project_mmscfd"] == 0.677
+    call = next(c for c in transport.calls if c[1] == "/v1/assets/asset_01LMOP")
+    assert not call[3]  # no cookies forwarded
+    assert call[2] == {}
+    # The geo proxy still answers its own route: `/api/assets/geo` is not swallowed by the id route.
+    transport.responses["/v1/assets/geo"] = (200, {"data": {"type": "FeatureCollection", "features": []}})
+    assert web_client.get("/api/assets/geo?bbox=-1,-1,1,1&zoom=4").json()["data"]["features"] == []
+
+
+def test_asset_detail_proxy_relays_api_error_status(web_client: TestClient) -> None:
+    transport = _default_transport({"/v1/assets/asset_MISSING": (404, {"title": "not_found"})})
+    _install(transport)
+
+    resp = web_client.get("/api/assets/asset_MISSING")
+
+    assert resp.status_code == 404
+    assert resp.json()["title"] == "not_found"
+
+
+def test_map_script_enables_ethanol_and_rng_with_fuel_rows_and_unit_grouping() -> None:
+    """No JS harness (see `test_map_js_reads_placement_from_url_and_writes_it_back`): the shipped
+    script lists both fuel types as live, carries the RNG family words, the fuel drawer rows and
+    their detail enrichment, the tooltip family line, and the in-view unit grouping."""
+    from pathlib import Path
+
+    source = (Path(__file__).parent / "static" / "js" / "map.js").read_text()
+    live = source.split("var ASSET_TYPES_LIVE = [")[1].split("]")[0]
+    assert '"ethanol_plant"' in live and '"rng_project"' in live
+    for word in (
+        "Landfill gas to electricity",
+        "Landfill gas direct use",
+        "Renewable natural gas",
+        "Farm digester",
+    ):
+        assert word in source, word
+    for label in (
+        "Nameplate capacity",
+        "Capacity as of",
+        "Project type",
+        "LFG flow to project",
+        "Biogas generation (est.)",
+        "Host landfill",
+        "Digester type",
+        "Start year",
+        "Shutdown year",
+    ):
+        assert '"' + label + '"' in source, label
+    assert "function fuelRows(p)" in source and "fuelRows(p).map" in source
+    assert 'fetch("/api/assets/" + encodeURIComponent(id))' in source
+    assert "function groupProposalFeatures(" in source and '"× " + g.unit_count + " units"' in source
+    assert "rngTechLabel(p.technology)" in source and "esc(family)" in source
+    # Escaping discipline holds for the new rows: every fuel value passes through esc().
+    assert "row(r[0], esc(r[1]), r[2])" in source
+    # `Number(null)` is 0, so an absent value must be caught before it is formatted -- otherwise
+    # the "None" gate leaks a real-looking "0 MMgal/yr" row (found driving the drawer).
+    assert 'if (value == null || value === "") return null;' in source
+    # "In view" counts what came back, not `/v1/assets/geo`'s dataset-wide `totals.records`
+    # (it does not narrow to the bbox); a cluster stands for its own `count`.
+    assert "function assetsInView(features)" in source
+    assert "latestPlantsTotal = assetsInView(features);" in source
+    css = (Path(__file__).parent / "static" / "css" / "styles.css").read_text()
+    assert ".in-view-list__units" in css and ".legend__note" in css

@@ -36,9 +36,9 @@
       Existing assets
     </label>
   </div>
-  {# Existing-asset types (docs/00-PLAN.md 2026-09-19, option (a)): the five live types are
-     checkboxes so pipelines and plants can be drawn together; ethanol and RNG are listed but
-     disabled until their loaders land, never silently absent. map.js reads/writes `asset_type=`
+  {# Existing-asset types (docs/00-PLAN.md 2026-09-19, option (a)): one checkbox per type so
+     pipelines, plants, ethanol and RNG can be drawn together; a type listed without data behind
+     it yet would be disabled "(coming)", never silently absent. map.js reads/writes `asset_type=`
      as a csv and shows this fieldset only while the layer is on. #}
   <fieldset class="filter-field filter-field--asset-types" id="mf-asset-types" hidden>
     <legend>Asset types</legend>
@@ -143,9 +143,11 @@
       </div>
       <div class="legend__group" data-legend-type="ethanol_plant" style="color:var(--asset-ethanol)">
         <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M11.5 6 8.75 10.76 3.25 10.76 0.5 6 3.25 1.24 8.75 1.24Z" fill="currentColor"/></svg> Ethanol plants</span>
+        <span class="legend__note">exact sites only; capacity-table plants at state grade are on the lists</span>
       </div>
       <div class="legend__group" data-legend-type="rng_project" style="color:var(--asset-rng)">
         <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.23 4.3 9.23 10.45 2.77 10.45 0.77 4.3Z" fill="currentColor"/></svg> RNG projects</span>
+        <span class="legend__note">landfill gas (electricity, direct use, RNG); farm digesters at county grade are on the lists</span>
       </div>
     </div>
     <p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <a href="/about#sources">see About &amp; sources</a>. Full credits: <a href="/attribution">Attribution</a>.</p>

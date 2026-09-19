@@ -10,7 +10,10 @@
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
-  {% if record.type %}<span class="reuse-badge">{{ record.type | replace('_', ' ') }}</span>{% endif %}
+  {# `descriptor` (web/app.py::org_descriptor) replaces a meaningless "other" with what the
+     organisation holds -- "Ethanol producer", "Gas pipeline operator and Power plant owner"; the
+     raw type stays in the fields table below. #}
+  {% if descriptor %}<span class="reuse-badge" id="org-descriptor">{{ descriptor }}</span>{% elif record.type %}<span class="reuse-badge">{{ record.type | replace('_', ' ') }}</span>{% endif %}
 </div>
 {# "Operates 3 gas pipelines · Owns 12 power plants": one clause per (role, type) group, from the
    API's `asset_counts` where it sends them, else counted over the rows on this page. #}

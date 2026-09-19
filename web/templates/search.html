@@ -39,6 +39,7 @@
   <li><a href="/assets/{{ r.slug }}">{{ r.name }}</a>
     <span class="meta">
       {%- set parts = [r.type_label] -%}
+      {%- if r.technology_label %}{% set _ = parts.append(r.technology_label) %}{% endif -%}
       {%- if r.operator_name %}{% set _ = parts.append(r.operator_name) %}{% endif -%}
       {%- if r.states %}{% set _ = parts.append(r.states) %}{% elif r.state %}{% set _ = parts.append(r.state) %}{% endif -%}
       {{ parts | join(' · ') }}

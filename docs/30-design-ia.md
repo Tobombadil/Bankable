@@ -150,11 +150,18 @@ pipeline name and its operator both resolve) and `/sitemap.xml`.
   exist only where the source carries the value (the "None" gate: no "None", no "—" rows); for a pipeline —
   operator (linked to the company page through its `operator` edge), class, length, diameter, states crossed,
   status, source and retrieval date; for a plant — technology, capacity, commissioned year, units, county,
-  state. Then **Map** (SVG of the geometry with nearby proposals as dots; MapLibre replaces it when scripts
+  state; for an ethanol plant — nameplate capacity with its unit, feedstock, PADD, capacity as-of year,
+  operator; for an RNG project — project type, technology family (landfill gas to electricity / direct use,
+  renewable natural gas, farm digester), rated MW and/or LFG flow, biogas end use, host landfill or digester
+  type, feedstock, start and shutdown year (second midstream slice, 2026-09-19). Then **Map** (SVG of the geometry with nearby proposals as dots; MapLibre replaces it when scripts
   run), Attributes, Owners and operators, Nearby proposals (nearest first, each with its distance; the
   wording says "route" for a line, "point" for a point), Sources. No map section when the record has no
-  geometry.
-- **Company page** `/organizations/{slug}`: header, a one-line summary "Operates 3 gas pipelines · Owns 12
+  geometry. Nearby rows are one per project, not per EIA-860M generator unit: rows sharing (name, sponsor,
+  county) collapse to one row with "× n units", the summed capacity and the nearest unit's distance
+  (`web/app.py::group_nearby_proposals`; the map's in-view list applies the same key).
+- **Company page** `/organizations/{slug}`: header whose badge, for an organisation typed `other` that holds
+  assets, is a descriptor derived from the holdings ("Ethanol producer", "Gas pipeline operator and Power plant
+  owner"; the raw type stays in the fields table), a one-line summary "Operates 3 gas pipelines · Owns 12
   power plants" (from the API's `asset_counts`, else counted over the page's rows), fields present only where
   set, parent and subsidiaries where the API embeds them, **Assets** (map of everything with geometry, then one
   table per role → type group with the columns that group fills: length and states for pipelines, capacity and
@@ -163,8 +170,9 @@ pipeline name and its operator both resolve) and `/sitemap.xml`.
   the page never shows the "withheld under licence" empty state for that case; with no sources anywhere it shows
   no panel at all.
 - **Map** (`/`): the "Existing assets" toggle now carries an **Asset types** checkbox set (power plants, gas
-  pipelines, gas processing, gas storage, LNG terminals; ethanol and RNG disabled as coming), written to the URL
-  as `asset_type=` csv. The in-view list gains labelled groups for **Regions** (links to the filtered list) and
+  pipelines, gas processing, gas storage, LNG terminals, ethanol plants, RNG projects), written to the URL as
+  `asset_type=` csv. Ethanol capacity-table plants (state grade) and AgSTAR digesters (county grade) are never
+  points and are not returned by `/v1/assets/geo`; the legend says so and the lists carry them. The in-view list gains labelled groups for **Regions** (links to the filtered list) and
   **Existing assets** (points and lines; each row links to the asset page and has a Details button that opens
   the same drawer a map click does), so both are keyboard-reachable (audit finding 2026-09-18).
 
@@ -429,3 +437,5 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 - 2026-09-12 v1 — first draft (product-designer), following `docs/30-design-references.md` v1.
 - 2026-09-19 — §3 page inventory rows for `/assets/{slug}` and the company page updated, §3.1 added
   (frontend-developer, midstream slice).
+- 2026-09-19 — §3.1 updated (frontend-developer, second midstream slice): ethanol and RNG asset rows, the
+  company-page descriptor for `other`-typed holders, grouped nearby rows, ethanol/RNG live on the map.

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
-{% block meta_description %}{{ record.name }}: {{ record.type_label }}{% if record.technology %}, {{ record.technology }}{% endif %}{% if record.capacity_mw %}, {{ '%.1f'|format(record.capacity_mw) }} MW{% endif %}{% if record.length_miles %}, {{ '{:,.0f}'.format(record.length_miles) }} miles{% endif %}{% if record.operator.name %}, operated by {{ record.operator.name }}{% endif %}{% if record.states %}, {{ record.states }}{% elif record.state %}, {{ record.state }}{% endif %}.{% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.type_label }}{% if record.technology_label %}, {{ record.technology_label | lower }}{% elif record.technology and not record.is_fuel %}, {{ record.technology }}{% endif %}{% for f in record.fuel_fields if f.label in ('Nameplate capacity', 'Rated capacity', 'LFG flow to project') %}, {{ f.value }}{% endfor %}{% if record.capacity_mw and not record.is_fuel %}, {{ '%.1f'|format(record.capacity_mw) }} MW{% endif %}{% if record.length_miles %}, {{ '{:,.0f}'.format(record.length_miles) }} miles{% endif %}{% if record.operator.name %}, operated by {{ record.operator.name }}{% endif %}{% if record.states %}, {{ record.states }}{% elif record.state %}, {{ record.state }}{% endif %}.{% endblock %}
 {% block canonical %}<link rel="canonical" href="/assets/{{ record.slug }}">{% endblock %}
 {% block extra_head %}
 {% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
@@ -10,12 +10,14 @@
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
-  <span class="reuse-badge">{{ record.type_label }}{% if record.line_class %} &middot; {{ record.line_class }}{% endif %}{% if record.status %} &middot; {{ record.status | replace('_', ' ') }}{% endif %}</span>
+  <span class="reuse-badge">{{ record.type_label }}{% if record.technology_label %} &middot; {{ record.technology_label }}{% endif %}{% if record.line_class %} &middot; {{ record.line_class }}{% endif %}{% if record.status %} &middot; {{ record.status | replace('_', ' ') }}{% endif %}</span>
 </div>
 
 {# Every row is conditional on its value (blockers-sprint "None" gate): an absent field is not a
    row, never "None" or "—". Pipeline rows (length, diameter, states, interstate/intrastate) and
-   plant rows (technology, capacity, units) share one grid; only the ones with data appear. #}
+   plant rows (technology, capacity, units) share one grid; only the ones with data appear. An
+   ethanol plant or RNG project (`record.is_fuel`) takes its promoted rows (`record.fuel_fields`,
+   web/app.py::_fuel_fields) in place of the plant-shaped technology/capacity/commissioned rows. #}
 <dl class="field-grid">
   <div><dt>Type</dt><dd>{{ record.type_label }}</dd></div>
   {% if record.status %}<div><dt>Status</dt><dd>{{ record.status | replace('_', ' ') }}</dd></div>{% endif %}
@@ -26,6 +28,10 @@
   {% if record.length_miles is not none %}<div><dt>Length (miles)</dt><dd class="tnum">{{ '{:,.0f}'.format(record.length_miles) }}</dd></div>{% endif %}
   {% if record.diameter %}<div><dt>Diameter</dt><dd class="tnum">{{ record.diameter }}</dd></div>{% endif %}
   {% if record.states %}<div><dt>States crossed</dt><dd>{{ record.states }}</dd></div>{% endif %}
+  {% for f in record.fuel_fields %}
+  <div><dt>{{ f.label }}</dt><dd{% if f.tnum %} class="tnum"{% endif %}>{{ f.value }}</dd></div>
+  {% endfor %}
+  {% if not record.is_fuel %}
   {% if record.technology %}
   <div><dt>Technology</dt><dd>{{ record.technology }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="visually-hidden">(source value: {{ record.technology_raw }})</span>{% endif %}</dd></div>
   {% endif %}
@@ -34,6 +40,7 @@
   <div><dt>Capacity ({{ record.capacity_unit or 'native unit' }})</dt><dd class="tnum">{{ '{:,.1f}'.format(record.capacity_value) }}</dd></div>
   {% endif %}
   {% if record.commissioned_year %}<div><dt>Commissioned</dt><dd class="tnum">{{ record.commissioned_year }}</dd></div>{% endif %}
+  {% endif %}
   {% if record.unit_count %}<div><dt>Units</dt><dd class="tnum">{{ record.unit_count }}</dd></div>{% endif %}
   {% if record.county %}<div><dt>County</dt><dd>{{ record.county }}</dd></div>{% endif %}
   {% if record.state and not record.states %}<div><dt>State</dt><dd>{{ record.state }}</dd></div>{% endif %}

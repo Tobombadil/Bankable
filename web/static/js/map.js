@@ -85,9 +85,20 @@
     rng_project: { label: "RNG project", plural: "RNG projects", shape: "asset-pentagon", token: "--asset-rng", line: false }
   };
   var ASSET_TYPE_ORDER = Object.keys(ASSET_TYPES);
-  // The types with data behind them today; the checkbox list in home_map.html disables the rest
+  // The types with data behind them today (ethanol and RNG since the second midstream slice,
+  // 2026-09-19); the checkbox list in home_map.html disables anything listed but not here
   // ("coming"). An unknown `asset_type=` value in the URL is dropped, never sent to the API.
-  var ASSET_TYPES_LIVE = ["power_plant", "gas_pipeline", "gas_processing_plant", "gas_storage", "lng_terminal"];
+  var ASSET_TYPES_LIVE = ["power_plant", "gas_pipeline", "gas_processing_plant", "gas_storage", "lng_terminal", "ethanol_plant", "rng_project"];
+  // RNG technology families (us.epa.lmop: lfg_electricity | rng | lfg_direct_use; us.epa.agstar:
+  // farm_digester) -> the words the tooltip, drawer and in-view row show. Same table as
+  // web/app.py RNG_TECHNOLOGY_LABELS.
+  var RNG_TECH_LABEL = {
+    lfg_electricity: "Landfill gas to electricity", lfg_direct_use: "Landfill gas direct use",
+    rng: "Renewable natural gas", farm_digester: "Farm digester"
+  };
+  var FUEL_ASSET_TYPES = ["ethanol_plant", "rng_project"];
+  var CAPACITY_UNIT_LABEL = { "mmgal/yr": "MMgal/yr", mmscfd: "MMscf/d", "cu-ft/day": "cu ft/day" };
+  var AGSTAR_HERD_KEYS = ["dairy", "swine", "cattle", "poultry"];
   var IN_VIEW_LIMIT = 500;
   var IN_VIEW_ASSET_LIMIT = 200;
   var WORLD_BBOX = [-179, -85, 179, 85];
@@ -189,10 +200,95 @@
     return list.length ? list.join(", ") : null;
   }
 
+  // `null` for an absent value, never "0": `Number(null)` and `Number("")` are both 0, so without
+  // the guard an absent field rendered a real-looking zero (found driving the drawer, 2026-09-19 --
+  // the "None" gate means no row at all, not a zero).
   function fmtNumber(value, digits) {
+    if (value == null || value === "") return null;
     var n = Number(value);
     if (!isFinite(n)) return null;
     return n.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+  }
+  // "55 MMgal/yr", "1.725 MMscf/d": a number with the source's unit word, or null when absent --
+  // the same rule web/app.py::_quantity applies on the asset page.
+  function quantity(value, unit, digits) {
+    var text = fmtNumber(value, digits == null ? 1 : digits);
+    if (text == null) return null;
+    var label = CAPACITY_UNIT_LABEL[String(unit || "").toLowerCase()] || unit;
+    return label ? text + " " + label : text;
+  }
+  function yearOf(value) {
+    var n = Number(value);
+    return isFinite(n) && n > 0 ? String(Math.trunc(n)) : null;
+  }
+  function rngTechLabel(technology) {
+    if (!technology) return null;
+    return RNG_TECH_LABEL[technology] || String(technology).replace(/_/g, " ");
+  }
+  function isFuelType(type) { return FUEL_ASSET_TYPES.indexOf(type) !== -1; }
+  // The promoted rows for an ethanol plant or RNG project, `[label, value, numeric]`, from the
+  // feature's properties merged with the asset's detail row when the drawer has fetched it
+  // (`/api/assets/{public_id}`; geo point features carry no capacity_value/unit or attributes).
+  // Mirrors web/app.py::_fuel_fields so the drawer and the asset page agree row for row.
+  function fuelRows(p) {
+    var type = assetTypeOf(p);
+    var unit = String(p.capacity_unit || "").toLowerCase();
+    var rows = [];
+    function add(label, value, numeric) { if (value) rows.push([label, value, !!numeric]); }
+    if (type === "ethanol_plant") {
+      var nameplate = attrOf(p, ["nameplate_capacity_mmgal_yr"]);
+      if (nameplate == null && unit === "mmgal/yr") nameplate = p.capacity_value;
+      add("Nameplate capacity", quantity(nameplate, "MMgal/yr"), true);
+      add("Feedstock", feedstockOf(p));
+      var padd = attrOf(p, ["padd"]);
+      if (padd != null) add("PADD", /^padd/i.test(String(padd)) ? String(padd) : "PADD " + padd);
+      var asOf = yearOf(attrOf(p, ["as_of_year"])) || attrOf(p, ["data_period"]);
+      add("Capacity as of", asOf ? String(asOf) : null, true);
+      return rows;
+    }
+    if (type === "rng_project") {
+      var digester = p.technology === "farm_digester";
+      var projectType = attrOf(p, ["lfg_energy_project_type", "project_type"]) || (digester ? null : p.technology_raw);
+      add("Project type", projectType ? String(projectType) : null);
+      add("Technology", rngTechLabel(p.technology));
+      add("Rated capacity", quantity(attrOf(p, ["rated_mw", "capacity_mw"]), "MW"), true);
+      var flow = attrOf(p, ["lfg_flow_to_project_mmscfd"]);
+      if (flow == null && unit === "mmscfd") flow = p.capacity_value;
+      add("LFG flow to project", quantity(flow, "MMscf/d", 3), true);
+      var biogas = attrOf(p, ["biogas_generation_estimate_cuft_day"]);
+      if (biogas == null && unit === "cu-ft/day") biogas = p.capacity_value;
+      add("Biogas generation (est.)", quantity(biogas, "cu ft/day", 0), true);
+      var endUse = attrOf(p, ["biogas_end_uses", "lfg_use_details", "project_type_category"]);
+      add("Biogas end use", endUse ? String(endUse) : null);
+      if (digester) {
+        var digesterType = attrOf(p, ["digester_type"]) || p.technology_raw;
+        add("Digester type", digesterType ? String(digesterType) : null);
+      } else {
+        add("Host landfill", hostLandfillOf(p));
+      }
+      add("Feedstock", feedstockOf(p));
+      add("Start year", yearOf(attrOf(p, ["project_start_year", "year_operational", "commissioned_year"])), true);
+      add("Shutdown year", yearOf(attrOf(p, ["year_shutdown"])), true);
+    }
+    return rows;
+  }
+  function feedstockOf(p) {
+    var named = attrOf(p, ["feedstock", "animal_farm_types", "feedstock_raw"]);
+    if (named) return String(named);
+    var herds = [];
+    AGSTAR_HERD_KEYS.forEach(function (key) {
+      var head = Number(attrOf(p, [key]));
+      if (isFinite(head) && head > 0) herds.push(key.charAt(0).toUpperCase() + key.slice(1) + " (" + fmtNumber(head, 0) + " head)");
+    });
+    return herds.length ? herds.join("; ") : null;
+  }
+  // LMOP names are composed "Project #N - <Landfill name>" by the loader (services/ingest,
+  // us.epa.lmop); read the landfill back out when the record carries no landfill column.
+  function hostLandfillOf(p) {
+    var named = attrOf(p, ["landfill_name", "host_landfill"]);
+    if (named) return String(named);
+    var m = /^Project\s+#\d+\s+-\s+(.+)$/.exec(String(p.name || ""));
+    return m ? m[1].trim() : null;
   }
 
   // ---- measurement (task item 5): navigator.sendBeacon when available, fetch(keepalive) else ----
@@ -601,6 +697,18 @@
     }
   }
 
+  // How many existing assets the current response actually puts in the view: a cluster stands for
+  // `count` of them, every drawn point or line for one.
+  function assetsInView(features) {
+    var total = 0;
+    features.forEach(function (f) {
+      var kind = f.properties.feature_kind;
+      if (kind === "asset_cluster" || kind === "plant_cluster") total += Number(f.properties.count) || 0;
+      else total += 1;
+    });
+    return total;
+  }
+
   var assetsFetchSeq = 0;
   function refetchAssets() {
     var seq = ++assetsFetchSeq;
@@ -619,7 +727,13 @@
           if ((fc.totals || {}).clustered) clustered = true;
         });
         latestAssets = { type: "FeatureCollection", features: features, totals: { records: records, clustered: clustered } };
-        latestPlantsTotal = records;
+        // `totals.records` from `/v1/assets/geo` is the dataset-wide total for the type filter --
+        // it does not narrow to the bbox (measured 2026-09-19: 1536 for a viewport holding one
+        // asset), unlike the proposals geo endpoint's. "In view" must mean in view, so the count
+        // beside the list is computed from what actually came back: a cluster contributes its own
+        // `count`, every other feature one. Unplaced rows (state-grade ethanol capacity, county-
+        // grade AgSTAR digesters) are in neither, which is correct -- they are not in the view.
+        latestPlantsTotal = assetsInView(features);
         latestAssetsClustered = clustered;
         if (map.getSource("plants")) map.getSource("plants").setData({ type: "FeatureCollection", features: features });
         render();
@@ -631,6 +745,7 @@
 
   function assetMeta(p) {
     var parts = [];
+    if (p.asset_type === "rng_project" && rngTechLabel(p.technology)) parts.push(rngTechLabel(p.technology));
     if (p.operator_name) parts.push(p.operator_name);
     var states = statesOf(p);
     if (states) parts.push(states);
@@ -641,8 +756,38 @@
       if (p.line_class && p.line_class !== "unknown") parts.push(p.line_class);
     } else if (p.capacity_mw) {
       parts.push(Number(p.capacity_mw).toFixed(1) + " MW");
+    } else if (isFuelType(p.asset_type)) {
+      // Geo point features carry no capacity_value; a nameplate shows here only when the
+      // feature (or a merged detail row) has one -- never a placeholder.
+      var nameplate = attrOf(p, ["nameplate_capacity_mmgal_yr"]);
+      if (nameplate == null && String(p.capacity_unit || "").toLowerCase() === "mmgal/yr") nameplate = p.capacity_value;
+      if (nameplate != null && quantity(nameplate, "MMgal/yr")) parts.push(quantity(nameplate, "MMgal/yr"));
     }
     return parts.join(" · ");
+  }
+
+  // One in-view row per project, not per EIA-860M generator unit: the same (name, sponsor,
+  // county) key as web/app.py::group_nearby_proposals -- geo features carry no sponsor, so that
+  // part of the key is null here and only equal names in one county merge. The group carries
+  // `unit_count`, the summed capacity, and the first (nearest-rendered) unit's link.
+  function groupProposalFeatures(features) {
+    var groups = {};
+    var out = [];
+    features.forEach(function (f) {
+      var p = f.properties;
+      var key = JSON.stringify([p.name || null, p.sponsor || null, p.county_name || null]);
+      var g = groups[key];
+      var mw = Number(p.capacity_mw);
+      if (!g) {
+        g = { properties: p, unit_count: 1, capacity_mw: isFinite(mw) && p.capacity_mw != null ? mw : null };
+        groups[key] = g;
+        out.push(g);
+        return;
+      }
+      g.unit_count += 1;
+      if (isFinite(mw) && p.capacity_mw != null) g.capacity_mw = (g.capacity_mw || 0) + mw;
+    });
+    return out;
   }
 
   function appendGroupName(text) {
@@ -670,15 +815,22 @@
         (totals.records || 0) + " match in clustered form above.";
       listEl.appendChild(li);
     } else {
-      individual.slice(0, IN_VIEW_LIMIT).forEach(function (f) {
-        var p = f.properties;
+      groupProposalFeatures(individual).slice(0, IN_VIEW_LIMIT).forEach(function (g) {
+        var p = g.properties;
         var node = template.content.cloneNode(true);
         node.querySelector(".chip-slot").innerHTML = chipHtml(p.family, p.lifecycle_state);
         var a = node.querySelector(".name-link");
         a.textContent = p.name;
         a.href = p.url || "#";
+        if (g.unit_count > 1) {
+          var units = document.createElement("span");
+          units.className = "in-view-list__units tnum";
+          units.textContent = "× " + g.unit_count + " units";
+          a.parentNode.insertBefore(units, a.nextSibling);
+          a.parentNode.insertBefore(document.createTextNode(" "), units);
+        }
         var meta = (p.technology || "—") + " · " + (p.state_code || p.county_name || "—") +
-          (p.capacity_mw ? " · " + p.capacity_mw.toFixed(1) + " MW" : "");
+          (g.capacity_mw ? " · " + g.capacity_mw.toFixed(1) + " MW" : "");
         node.querySelector(".meta").textContent = meta;
         listEl.appendChild(node);
       });
@@ -1089,10 +1241,13 @@
       )
       .addTo(map);
   }
-  // Hover on any existing asset: name, type and operator (task: "hover shows name and operator").
+  // Hover on any existing asset: name, type (with the RNG technology family) and operator
+  // (task: "hover shows name and operator").
   function showAssetTooltip(e, lngLat) {
     var p = e.features[0].properties;
+    var family = p.asset_type === "rng_project" ? rngTechLabel(p.technology) : null;
     var html = "<strong>" + esc(p.name || "Unnamed asset") + "</strong><br>" + esc(assetTypeLabel(p.asset_type)) +
+      (family ? " &middot; " + esc(family) : "") +
       (p.line_class && p.line_class !== "unknown" ? " &middot; " + esc(p.line_class) : "") +
       (p.operator_name ? "<br>Operator: " + esc(p.operator_name) : "");
     if (tooltip && tooltip.__assetId === (p.public_id || p.name)) { tooltip.setLngLat(lngLat); return; }
@@ -1177,10 +1332,38 @@
     drawer.render(rawProps, provenance[0] || null);
     drawer.open();
   }
+  // Point assets other than power plants render at once from the feature, then again with the
+  // asset's detail row merged in (`/api/assets/{public_id}`, web/app.py): geo point features
+  // carry no capacity_value/unit or attributes, and an ethanol plant's nameplate or a landfill
+  // project's LFG flow lives there. A failed fetch leaves the first render standing.
+  var drawerDetailSeq = 0;
+  var assetDetailCache = {};
   function openAssetDrawer(rawProps) {
     lastFocused = document.activeElement;
     drawer.renderAsset(rawProps);
     drawer.open();
+    var type = assetTypeOf(rawProps);
+    if (type === "power_plant" || rawProps.feature_kind === "asset_line" || !rawProps.public_id) return;
+    var seq = ++drawerDetailSeq;
+    var id = String(rawProps.public_id);
+    function merge(detail) {
+      if (seq !== drawerDetailSeq || !detail) return;
+      var merged = {};
+      Object.keys(rawProps).forEach(function (k) { merged[k] = rawProps[k]; });
+      ["capacity_value", "capacity_unit", "attributes", "commissioned_year", "technology_raw", "county_name", "operator_name"].forEach(function (k) {
+        if (detail[k] != null && detail[k] !== "") merged[k] = detail[k];
+      });
+      drawer.renderAsset(merged);
+    }
+    if (assetDetailCache[id]) { merge(assetDetailCache[id]); return; }
+    fetch("/api/assets/" + encodeURIComponent(id))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (envelope) {
+        var detail = envelope && envelope.data;
+        if (detail) assetDetailCache[id] = detail;
+        merge(detail);
+      })
+      .catch(function () { /* the feature's own rows stay */ });
   }
   function buildDrawer() {
     var el = document.createElement("div");
@@ -1250,23 +1433,30 @@
       var diameter = attrOf(p, ["diameter_in", "diameter_inches", "diameter", "diameter_mix"]);
       var states = statesOf(p);
       var lineClass = isLine ? lineClassOf(p) : null;
+      var fuel = isFuelType(type);
+      var family = type === "rng_project" ? rngTechLabel(p.technology) : null;
       var subtitle = type === "power_plant"
         ? esc(PLANT_FAMILY_NAME[plantFamilyOf(p.technology)] || "Other")
-        : esc(assetTypeLabel(type)) + (lineClass ? " &middot; " + esc(lineClass) : "");
+        : esc(assetTypeLabel(type)) + (family ? " &middot; " + esc(family) : "") + (lineClass ? " &middot; " + esc(lineClass) : "");
       var location = [p.county_name, p.state_code].filter(Boolean).map(esc).join(", ");
       var pageUrl = assetPageUrl(p);
+      // Ethanol and RNG take their promoted rows (fuelRows) in place of the plant-shaped
+      // technology / capacity / first-year rows, as on the asset page.
+      var typeRows = fuel
+        ? fuelRows(p).map(function (r) { return row(r[0], esc(r[1]), r[2]); }).join("")
+        : (type === "power_plant" ? (techRows || row("Technology", p.technology ? esc(p.technology) : null)) : row("Technology", p.technology ? esc(p.technology) : null)) +
+          row("Capacity", p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : null, true) +
+          row("Length", miles != null && fmtNumber(miles, 0) ? fmtNumber(miles, 0) + " miles" : null, true) +
+          row("Diameter", diameter != null ? esc(typeof diameter === "number" ? fmtNumber(diameter, 1) + " in" : String(diameter)) : null, true) +
+          row("States", states ? esc(states) : null);
       body.innerHTML =
         "<h2>" + esc(p.name || "Unnamed asset") + "</h2>" +
         "<p class=\"reuse-badge\">Existing asset &middot; " + subtitle + "</p>" +
         "<dl class=\"drawer-fields\">" +
         row("Operator", p.operator_name ? esc(p.operator_name) : null) +
-        (type === "power_plant" ? (techRows || row("Technology", p.technology ? esc(p.technology) : null)) : row("Technology", p.technology ? esc(p.technology) : null)) +
-        row("Capacity", p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : null, true) +
-        row("Length", miles != null && fmtNumber(miles, 0) ? fmtNumber(miles, 0) + " miles" : null, true) +
-        row("Diameter", diameter != null ? esc(typeof diameter === "number" ? fmtNumber(diameter, 1) + " in" : String(diameter)) : null, true) +
-        row("States", states ? esc(states) : null) +
+        typeRows +
         row("Status", p.status ? esc(String(p.status).replace(/_/g, " ")) : null) +
-        row("First operating year", commissionedYear ? esc(commissionedYear) : null, true) +
+        (fuel ? "" : row("First operating year", commissionedYear ? esc(commissionedYear) : null, true)) +
         row("Location", location || null) +
         "</dl>" +
         sourceHtml(source) +

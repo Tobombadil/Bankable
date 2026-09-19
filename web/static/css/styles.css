@@ -550,6 +550,13 @@ h3 { font-size: var(--text-4); }
 .legend__group { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; }
 .legend__group-name { font-weight: 600; color: var(--text-muted); }
 .legend__sample { flex: none; }
+/* A group's one-line caveat (ethanol: capacity-table plants at state grade are not points; RNG:
+   farm digesters at county grade are not) -- muted text, never a second hue, and it wraps under
+   the sample at phone width like every other legend item. */
+.legend__note { color: var(--text-muted); font-size: var(--text-1); flex-basis: 100%; }
+/* "× n units" beside a nearby/in-view proposal that EIA-860M lists once per generator unit
+   (web/app.py::group_nearby_proposals, map.js groupProposalFeatures). */
+.in-view-list__units { font-size: var(--text-1); color: var(--text-muted); font-weight: 400; white-space: nowrap; }
 
 /* In-view list: proposals first (the accessible path's primary content, D-14), then region
    records and existing assets as their own labelled groups. A row that opens the map drawer does

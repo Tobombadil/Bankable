@@ -111,11 +111,13 @@
 
 {# Nearby proposals for an asset (ADR 0008; midstream slice 2026-09-19: line-aware distances from
    `GET /v1/assets/{id}/nearby-proposals`). Every part of the meta line is conditional -- an
-   absent field renders nothing, never "None" or "—" (blockers-sprint "None" gate). #}
+   absent field renders nothing, never "None" or "—" (blockers-sprint "None" gate). Rows come
+   through web/app.py::group_nearby_proposals: a project EIA-860M lists once per generator unit
+   is one row with "× n units" and the units' summed capacity, at the nearest unit's distance. #}
 {% macro nearby_proposals_list(rows) -%}
 <ul class="in-view-list">
   {% for r in rows %}
-  <li>{{ status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
+  <li>{{ status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>{% if r.unit_count and r.unit_count > 1 %} <span class="in-view-list__units tnum">&times; {{ r.unit_count }} units</span>{% endif %}
     <span class="meta">
       {%- set parts = [] -%}
       {%- if r.distance_km is not none %}{% set _ = parts.append('%.1f km away'|format(r.distance_km)) %}{% endif -%}
