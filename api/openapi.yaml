@@ -8800,6 +8800,12 @@ components:
           properties:
             records:
               type: integer
+              description: >-
+                Points and lines matching the filters, over the whole match and **not** narrowed to
+                `bbox` (the same contract `/v1/proposals/geo` uses: a record the viewport excludes,
+                or one with no geometry at all, stays counted rather than dropping out the moment a
+                caller pans). A client labelling "in view" counts the returned features instead,
+                adding each cluster's `count`.
             clustered:
               type: boolean
               description: '`false` when every point record is an individual feature (≤ 500 visible). Lines never cluster.'

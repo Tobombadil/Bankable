@@ -635,6 +635,12 @@ def build_asset_feature_collection(
     lines = line_features or []
     features.extend(lines)
 
+    # `records_total` is the caller's aggregate over the whole filter match, deliberately not
+    # narrowed to `bbox` -- the same contract `services/api/geo.py` documents for proposals, so a
+    # record the viewport excludes (or one with no geometry at all) stays counted instead of
+    # dropping out the moment a caller pans. A client wanting an "in view" number counts the
+    # features it received, adding each cluster's `count`; reading `totals.records` for that gave
+    # "1,536 existing assets in view" beside eight rows (found on the map 2026-09-19).
     return {
         "type": "FeatureCollection",
         "bbox": list(bbox),
