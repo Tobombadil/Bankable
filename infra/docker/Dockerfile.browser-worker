@@ -28,10 +28,12 @@ COPY pipeline ./pipeline
 COPY services ./services
 COPY data/sources.yaml ./data/sources.yaml
 COPY infra/__init__.py ./infra/__init__.py
+COPY infra/entrypoint.py infra/logging_config.py infra/observability.py ./infra/
 COPY infra/scheduler ./infra/scheduler
 
 RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /opt/pw-browsers
 USER appuser
 
-CMD ["python", "-m", "infra.scheduler.worker", "--queues", "fetch_browser"]
+# Started through infra/entrypoint.py (JSON logging + SENTRY_DSN-gated error tracking), see infra/docker/Dockerfile.
+CMD ["python", "-m", "infra.entrypoint", "worker", "--queues", "fetch_browser"]

@@ -1,0 +1,80 @@
+name: release-images
+
+# Builds and pushes the four service images (docs/04 O-4: "image built once, pushed by digest")
+# so infra/scripts/deploy.sh has something to pull — ci.yml's `images` job only builds and scans,
+# it never pushes (audit 2026-09-18 §3.1: "the deploy script pulls images nobody builds or pushes").
+#
+# Names and tags are the contract infra/compose/docker-compose.yml relies on:
+#   ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}:sha-<7-char sha>   every push to main and every v* tag
+#   ...:latest                                                                       every push to main
+#   ...:<git tag>                                                                    pushes of a v* tag
+# Deploy with the immutable sha-/v* tag (`deploy.sh <env> sha-abc1234`); `latest` exists for
+# rehearsals and for `docker compose up` on a dev box. Pushing uses the workflow's own
+# GITHUB_TOKEN (packages: write) — no long-lived registry credential is stored anywhere.
+# No model identifiers appear anywhere in this file or its output (CLAUDE.md, docs/04 E-15).
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_PREFIX: ghcr.io/tobombadil/bankable
+
+jobs:
+  push-images:
+    name: build and push ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            file: infra/docker/Dockerfile
+            target: api
+          - name: web
+            file: infra/docker/Dockerfile
+            target: web
+          - name: worker
+            file: infra/docker/Dockerfile
+            target: worker
+          - name: browser-worker
+            file: infra/docker/Dockerfile.browser-worker
+            target: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: compute tags (sha-<short sha>; plus latest on main, plus the git tag on v* tags)
+        id: tags
+        run: |
+          short="${GITHUB_SHA::7}"
+          tags="${IMAGE_PREFIX}-${{ matrix.name }}:sha-${short}"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            tags="${tags},${IMAGE_PREFIX}-${{ matrix.name }}:latest"
+          fi
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tags="${tags},${IMAGE_PREFIX}-${{ matrix.name }}:${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "pushing: ${tags}"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target }}
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

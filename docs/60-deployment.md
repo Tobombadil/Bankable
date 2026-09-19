@@ -144,6 +144,23 @@ SOPS + age (ADR 0005). Full mechanics, bootstrapping and the "try it now" exampl
 `infra/sops/README.md`; do not duplicate that content here — the "Rotate a secret" runbook (§10.5) is the
 operational half of the same design.
 
+**How a secret reaches a container (fixed 2026-09-19, audit §3.1).** `deploy.sh` decrypts
+`infra/sops/secrets.<env>.enc.yaml` with `sops -d --output-type dotenv` into `/opt/infraque/secrets/.env`
+(0600) on every VM. That one file is both Compose's interpolation source (`--env-file`) and every
+service's `env_file:` (`infra/compose/docker-compose.yml` `x-env-file`; `compose.prod.yml` `!override`s it
+to the same path with `required: true`, so production refuses to start without it). Before this, only
+`DATABASE_URL` reached a container; everything else in the file was dropped. `API_INTERNAL_TOKEN` is set
+on both `api` and `web` explicitly. `infra/test_compose.py` checks both files statically and, where the
+Compose CLI exists, renders them with `docker compose config` and asserts `SESSION_SECRET` from a fake env
+file lands in all five app services.
+
+**`SESSION_SECRET`.** `services/api/auth.py::session_secret()` returns the committed dev constant only when
+`ENVIRONMENT` is unset or one of `dev`/`development`/`local`/`test`/`ci`. For any other value (the
+`production` compose.prod.yml sets, `staging`, `preview`, a typo) an unset or shorter-than-32-character
+`SESSION_SECRET` raises `RuntimeError` at import, so the api container exits at startup with the reason
+instead of signing cookies with a public string (`tests/test_session_secret.py`). Generate one per
+environment with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+
 ## 6. Scheduling per source cadence
 
 `infra/scheduler/` (Procrastinate, ADR 0004) reads `data/sources.yaml`'s `cadence` field for every source
@@ -200,13 +217,13 @@ python -m services.social.worker
 
 | Signal | Mechanism | Where |
 |---|---|---|
-| Structured logs | JSON to stdout, `docs/04` E-18 keys | every service; Compose `logging.driver: json-file` caps local disk (`infra/compose/compose.prod.yml`); shipped to Grafana Cloud Loki (14-day retention, `docs/20` §10) — **not wired this sprint**, see §11 gaps |
+| Structured logs | JSON to stdout, `docs/04` E-18 keys: `infra/logging_config.py` (stdlib only) emits one object per record with the standard fields **plus every `extra=` field**, which the previous `%(message)s` format dropped. `infra/entrypoint.py` installs it before importing the service, so each service's own `logging.basicConfig` is a no-op (`infra/test_logging_config.py` proves the claim in-process and in a bare interpreter) | every service (all Compose commands and Dockerfile CMDs run `python -m infra.entrypoint api|web|worker|scheduler`); Compose `logging.driver: json-file` caps local disk (`infra/compose/compose.prod.yml`); shipping to Grafana Cloud Loki (14-day retention, `docs/20` §10) — **not wired**, see §11 gaps |
 | Per-source success/latency/row-count | `source_run` rows (`pipeline/connectors`) | Grafana dashboard reading Postgres directly (no separate metrics pipeline needed at this scale, `docs/20` §10) — **dashboard not built this sprint**, see §11 |
 | Cost per model call | `model_call` rows (`docs/20` §4.5) | same Grafana dashboard, once `services/modelgw` exists |
 | Uptime | Caddy healthchecks + an external uptime check (UptimeRobot free tier or Grafana Cloud synthetic monitoring) hitting `/v1/health` and `/health` | alerts to the owner's email + chat channel on 2 consecutive failures |
 | Certificate expiry | Caddy auto-renews; alert if a renewal has not happened in 60 days (Let's Encrypt certs are 90-day) | same channel |
-| Backup age | `infra/scripts/backup.sh`'s last successful run timestamp, checked by a scheduled GitHub Actions job or a Grafana Cloud check | alert if > 26 h (`docs/04` O-7) |
-| Errors | Sentry free tier | every service, DSN from `infra/sops/secrets.<env>.enc.yaml` |
+| Backup age | `/opt/infraque/backups/last-success` (written by `infra/scripts/backup.sh` on success), checked by a scheduled GitHub Actions job or a Grafana Cloud check | alert if > 26 h (`docs/04` O-7) — **check not wired**, see §11 |
+| Errors | Sentry free tier via `infra/observability.py::init_error_tracking(service)`: a no-op unless `SENTRY_DSN` is set (dev, CI, tests); with it set, `sentry-sdk` (pinned in `requirements.txt`) is initialised once per process with `environment=ENVIRONMENT`, `release=SENTRY_RELEASE` (= `IMAGE_TAG`, set by Compose), `send_default_pii=False`, tracing off, and a `service` tag (`infra/test_observability.py`, `infra/test_entrypoint.py` with a fake SDK and a stub DSN) | every service, DSN from `infra/sops/secrets.<env>.enc.yaml`; a Sentry project does not exist yet (§11 item 7) |
 
 Compose healthchecks (`infra/compose/docker-compose.yml`) are the first line of defense regardless of the
 dashboard gap: `api`/`web` fail their healthcheck and get restarted by Docker's `restart: unless-stopped`
@@ -216,27 +233,57 @@ policy before an external monitor would even notice.
 
 - **Primary:** the managed Postgres provider's own daily snapshot + PITR (RPO ≤ 1 h, ADR 0003) — no script,
   it is a property of the managed service.
-- **Secondary (this sprint's deliverable):** `infra/scripts/backup.sh` runs `pg_dump` and uploads to a
-  *different* account (Cloudflare R2) daily via cron on the app VM, so a compromised or suspended Postgres
-  provider account is not also a total-loss event. Retention: `infra/terraform/variables.tf`'s
-  `backup_retention_days` (default 35) locally; R2 objects are kept indefinitely until a lifecycle rule is
-  added (not yet — flagged in §11).
-- **Restore drill:** `infra/scripts/restore_drill.sh`, run monthly (`docs/04` O-7), restores the latest R2
-  dump into a throwaway local Postgres container, runs row-count sanity checks against the four core tables,
-  and prints a ready-to-paste row for the runbook's "Last executed" line (§10.3).
+- **Secondary:** `infra/scripts/backup.sh` runs `pg_dump` and uploads to a *different* account
+  (Cloudflare R2), so a compromised or suspended Postgres provider account is not also a total-loss event.
+  **Scheduled (2026-09-19)** by the systemd units `infra/terraform/cloud-init/app.yaml` writes on the app
+  VM: `infraque-backup.timer` (nightly 03:17 UTC, up to 10 min jitter, `Persistent=true`) runs
+  `infraque-backup.service` (`EnvironmentFile=/opt/infraque/secrets/.env`,
+  `ExecStart=/opt/infraque/scripts/backup.sh`; `deploy.sh` ships the script there on every deploy, and
+  `ConditionPathExists` skips rather than fails until the first deploy). The same cloud-init installs the
+  tools the script needs: `postgresql-client-16` from the PGDG apt repository (the script refuses to run
+  if `pg_dump`'s major is older than the server's) and `awscli` for the S3-compatible upload.
+  **Retention:** local dumps `BACKUP_RETENTION_DAYS` (35, matching `infra/terraform/variables.tf`
+  `backup_retention_days`); on R2 the script keeps every daily dump for 14 days plus each Sunday dump for
+  8 weeks and deletes the rest — this replaces the "indefinite until a lifecycle rule exists" promise the
+  previous version of this section made, because the pinned Cloudflare provider has no R2 lifecycle
+  resource (§11 item 8). `infra/test_scripts.py` runs the script against `pg_dump`/`psql`/`aws` shims and
+  asserts the upload, the two prune classes and the `last-success` stamp.
+- **Restore drill:** `infra/scripts/restore_drill.sh`, run monthly by hand (`docs/04` O-7; not on a timer,
+  because it needs a Docker daemon and an operator to read the counts), downloads the latest R2 dump,
+  restores it into a throwaway local Postgres+PostGIS container, runs row-count sanity checks against
+  `proposal`/`opportunity`/`organization`/`event`, and prints a ready-to-paste row for §10.3's
+  "Last executed" line. Needs the four `R2_*` variables in the shell; `docker rm -f` on exit is trapped.
 
 ## 9. CI/CD
 
-`.github/workflows/ci.yml` implements the `docs/04` O-3 blocking gates; `.github/workflows/
+`.github/workflows/ci.yml` implements the `docs/04` O-3 blocking gates; `.github/workflows/release.yml`
+(added 2026-09-19) builds and pushes the four images on every push to `main` and every `v*` tag to
+`ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}`, tagged `sha-<7-char sha>` always, `latest`
+on `main`, and the tag name on tags, using the workflow's `GITHUB_TOKEN` (`packages: write`); those are
+the exact names `infra/compose/docker-compose.yml` references (`IMAGE_REGISTRY`/`IMAGE_TAG`, default
+`latest`) and `deploy.sh` pulls (`infra/test_compose.py` checks the two agree). `.github/workflows/
 connectors-nightly.yml` runs the fixture-only connector suite daily (`docs/04` O-3's E2E/E-12 intent,
 never against live sources in CI, `docs/20` §3.1). See each file's header comment for the job list; this
 section only records what devops-engineer could and could not validate in the sandbox this sprint —
 `docs/CHANGELOG.md` and the task's final summary have the same list, this is the durable copy.
 
+**Gate status (measured 2026-09-18/19).** The 80 % coverage floor is a real gate (88 % measured over
+`pipeline/*,services/*`). Two gates stay report-only, each printing its measured gap on every run rather
+than an unconditional failure: the visibility predicate at 100 % branches (`services/api/visibility.py`
+measured 96 %, one statement missed, line 164 — the opportunity arm of `event_visibility_filter`) and
+"generated spec == committed spec" (the app implements 120 of the 135 committed path operations; the step
+lists the 15 missing and fails hard on any operation the app serves that the spec lacks — 0 today). There
+is no evaluation-threshold gate to switch on: `ci.yml` never had one, `services/resolve/report.py` is a
+measurement driver without thresholds, and adding one is a `pipeline/`/`services/` change (E-12, DA-9).
+The `preview-deploy` stub is `continue-on-error` and exits 0 when `PREVIEW_DEPLOY_TOKEN` is absent, so it
+cannot redden a PR.
+
 **Validated here:** workflow YAML parses (`actionlint` — see §11); `tofu fmt`/`validate`/`init` succeed
 against the real OpenTofu and provider plugins (both installed from GitHub releases into this sandbox,
-since neither ships by default — see §11); `docker compose config` merges the base + prod override cleanly
-and confirms the `local`-profile Postgres service is correctly excluded from the production plan;
+since neither ships by default — see §11); `docker compose config` (Compose v5.1.1, no daemon) renders the base file alone, the base file with
+`--profile local`, and base + prod override — the base file alone failed before 2026-09-19 with
+`service "api" depends on undefined service "postgres": invalid compose project`, fixed by marking the
+`postgres` dependency `required: false` (Compose ≥ 2.20; `env_file` long syntax needs ≥ 2.24);
 `infra/scheduler`'s pure functions have a full green pytest run; every shell script in `infra/scripts/`
 passes `bash -n` and `shellcheck` with only two informational (not warning-level) notes.
 
@@ -289,18 +336,30 @@ Format per `docs/04` O-9. Kept as sections of this file rather than one file eac
 **Severity:** routine.
 **Preconditions and access:** SSH access to the target VMs (the key in
 `infra/terraform/variables.tf`'s `ssh_public_key`); the environment's `SOPS_AGE_KEY`;
-`APP_HOST`/`WORKER_HOSTS`/`BROWSER_WORKER_HOST` from `tofu output` (`infra/terraform/outputs.tf`); the CI
-job build-and-pushed an image and the digest/tag is known.
+`APP_HOST`/`WORKER_HOSTS`/`BROWSER_WORKER_HOST` from `tofu output` (`infra/terraform/outputs.tf`);
+`release.yml` pushed the image and its `sha-<short sha>` tag is known; while the GHCR packages are private,
+`GHCR_USER`/`GHCR_READ_TOKEN` (a read-only token) so the VMs can pull.
 **Steps:**
 1. `export APP_HOST=... WORKER_HOSTS="..." BROWSER_WORKER_HOST=... SOPS_AGE_KEY="$(cat path/to/key)"`
-2. `infra/scripts/deploy.sh <staging|production> <image-tag>`
-3. The script: stops `worker`/`browser-worker`/`scheduler` on the worker VMs first → runs
-   migrations once (`alembic upgrade head`, expand phase only, `docs/04` E-11) → restarts `caddy`/`api`/`web`
-   on the app VM (public pages keep serving from the Cloudflare edge cache throughout, `docs/20` §12) →
-   restarts the workers → restarts the scheduler last.
-4. It appends a row to `infra/deploy-log.md` (timestamp, environment, tag, deployer, commit).
+2. `infra/scripts/deploy.sh <staging|production> sha-<short sha>` (the tag defaults to `$IMAGE_TAG`, then
+   `latest`; set `DEPLOY_REF=<sha>` to ship that commit's compose files via `git show` instead of the
+   working tree's).
+3. The script (order rewritten 2026-09-19; `infra/test_scripts.py` asserts it against ssh/scp/sops shims):
+   syncs compose files, Caddyfile, `backup.sh` and the decrypted `.env` to **every** host → `docker compose
+   pull` on every host → stops `worker`/`browser-worker` on the worker VMs and `scheduler` on the app VM →
+   runs migrations once in a one-off container of the **same** api image (`run --rm --no-deps api alembic
+   upgrade head`, expand phase, `docs/04` E-11) → `up -d --no-build caddy api web` → waits up to
+   `HEALTH_TIMEOUT_SECONDS` (180) until every api/web replica's Docker healthcheck is `healthy` and
+   `GET http://api:8000/v1/health` answers from inside the network (the API exposes `/v1/health`, the web
+   app `/health`; there is no `/healthz`) → starts the workers → starts the scheduler last → records the
+   tag in `/opt/infraque/current-tag`.
+4. Any failure after the workers are stopped triggers `rollback.sh <env> <previous tag>` automatically
+   (once — the rollback runs with `INFRAQUE_NO_AUTO_ROLLBACK=1`); a failure before that (sync, pull) just
+   exits, nothing has changed.
+5. It appends a row to `infra/deploy-log.md` (timestamp, environment, tag, deployer, commit).
 **Verification:** `curl https://infraque.com/health` and `curl https://infraque.com/v1/health` return 200; the
-E-10 Playwright smoke suite passes against the environment; `infra/deploy-log.md`'s new row looks right.
+E-10 Playwright smoke suite passes against the environment; `infra/deploy-log.md`'s new row looks right;
+`systemctl list-timers infraque-backup.timer` on the app VM shows the next run.
 **Rollback:** see 10.2.
 **Escalation:** if migrations fail, do not proceed to step 3 — fix forward or roll back the migration per
 its own reversibility docstring (E-11); page the owner if a production deploy has been mid-rollout for more
@@ -444,12 +503,17 @@ In the order the owner needs to act, per the task brief:
    that is itself a small design decision (shared host with path-based routing vs. one VM per PR) the owner
    has not made. Recorded here rather than guessed at silently.
 7. **Grafana Cloud/Sentry accounts do not exist**, so §7's dashboards and alert routing are designed, not
-   built. `infra/compose/.env.example`'s `SENTRY_DSN`/`GRAFANA_CLOUD_API_KEY` are the wiring points once
-   they do.
-8. **No R2 lifecycle rule** prunes old backup objects (§8) — `infra/scripts/backup.sh` prunes its local
-   copy but R2 itself grows unbounded until a lifecycle rule is added via `infra/terraform/storage.tf` (R2
-   lifecycle rules are supported by the Cloudflare Terraform provider; not added here because there is no
-   real bucket yet to attach one to without live credentials to verify the resource against).
+   built. The code side is now wired: set `SENTRY_DSN` in the secrets file and every process reports
+   (`infra/observability.py`); `GRAFANA_CLOUD_API_KEY` still has no consumer.
+8. **R2 backup retention is done by the script, not a lifecycle rule** (§8: 14 daily + 8 weekly). A bucket
+   lifecycle rule via `infra/terraform/storage.tf` would be the belt-and-braces once the Cloudflare provider
+   is upgraded; the pinned v4 provider has no such resource.
+9. **Not verified in the 2026-09-19 sandbox** (no Docker daemon, no cloud accounts): an actual image build
+   with the new `infra/entrypoint.py` CMDs; `docker compose up` with `env_file` long syntax against a real
+   engine; the cloud-init run (PGDG key import, `awscli` package name on the marketplace image's Ubuntu
+   release, timer activation); `sops --output-type dotenv` against a real encrypted file; the GHCR push
+   (needs a run of `release.yml` on `main`); `deploy.sh` against real hosts (only its order and rollback
+   path are proven, against shims). Rehearse all of it on `staging` first (`docs/40` §3).
 
 ## 12. Assumptions
 

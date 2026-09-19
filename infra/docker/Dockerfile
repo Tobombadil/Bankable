@@ -47,6 +47,7 @@ COPY services ./services
 COPY data/sources.yaml ./data/sources.yaml
 COPY api/openapi.yaml ./api/openapi.yaml
 COPY infra/__init__.py ./infra/__init__.py
+COPY infra/entrypoint.py infra/logging_config.py infra/observability.py ./infra/
 COPY infra/scheduler ./infra/scheduler
 
 ENV PYTHONUNBUFFERED=1 \
@@ -56,20 +57,25 @@ ENV PYTHONUNBUFFERED=1 \
 RUN useradd --create-home --uid 10001 appuser
 USER appuser
 
+# Every process starts through infra/entrypoint.py, which wires JSON logging
+# (infra/logging_config.py) and env-gated error tracking (infra/observability.py, SENTRY_DSN)
+# before importing the service; uvicorn for api/web is started from there (2 workers for api,
+# 1 for web, override with WEB_CONCURRENCY).
+
 # ---- api -------------------------------------------------------------------
 FROM base AS api
 EXPOSE 8000
-CMD ["uvicorn", "services.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["python", "-m", "infra.entrypoint", "api"]
 
 # ---- web ---------------------------------------------------------------------
 FROM base AS web
 COPY web ./web
 EXPOSE 8001
-CMD ["uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["python", "-m", "infra.entrypoint", "web"]
 
 # ---- worker (scheduler / worker-plain / worker-model / social dry-run) -------
 FROM base AS worker
-# No network-facing port; entrypoint/CMD is set per-service in infra/compose/*.yml
-# (infra.scheduler.app for the scheduler, infra.scheduler.worker for job consumers,
-# services.social for the dry-run publisher CLI).
-CMD ["python", "-m", "infra.scheduler.worker", "--queues", "fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook"]
+# No network-facing port; the command is set per-service in infra/compose/*.yml
+# (`infra.entrypoint scheduler` for the scheduler, `infra.entrypoint worker --queues ...` for
+# job consumers).
+CMD ["python", "-m", "infra.entrypoint", "worker", "--queues", "fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook"]

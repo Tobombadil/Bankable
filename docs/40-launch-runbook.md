@@ -193,14 +193,19 @@ human (`docs/32` §2 preamble). "Done-check" is a concrete, checkable fact, not 
 | Managed Postgres (Neon or Crunchy Bridge, ADR 0003) with `postgis`/`pg_trgm`/`btree_gin`/`pgcrypto` | `DATABASE_URL` | Owner | `alembic -c services/db/migrations/alembic.ini upgrade head` succeeds against it (never run against real Postgres before this — `docs/60` §11 item 2) |
 | Per-environment SOPS age keys | `SOPS_AGE_KEY` (held by deploy operator, not committed) | Owner/devops | `infra/scripts/bootstrap_age_key.sh <env>` run; `.sops.yaml`'s `REPLACE_WITH_*` filled in; `sops -d` decrypts the real `secrets.<env>.enc.yaml` |
 | Object storage (R2) | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Owner | `infra/scripts/restore_drill.sh` downloads a real backup and restores it |
-| Sentry project | `SENTRY_DSN` | Owner | A test exception appears in Sentry |
+| Sentry project | `SENTRY_DSN` | Owner | A test exception appears in Sentry (every process initialises the SDK when the DSN is set, `infra/observability.py`; nothing happens without it) |
+| Session signing secret, one per environment, ≥ 32 chars | `SESSION_SECRET` | Owner/devops (`python -c "import secrets; print(secrets.token_urlsafe(48))"`) | The api container starts with `ENVIRONMENT=production`; it exits with `SESSION_SECRET must be set...` when the value is missing or short (`services/api/auth.py`) |
+| Service identity shared by api and web | `API_INTERNAL_TOKEN` | Owner/devops (random) | The site's own API calls are not rate-limited as one anonymous client (`services/api/app.py`) |
+| Registry read access for the VMs while the GHCR packages are private | `GHCR_USER`, `GHCR_READ_TOKEN` (read-only) | Owner | `docker compose pull` succeeds on a VM; or make the four `ghcr.io/tobombadil/bankable-*` packages public and skip this |
 | Grafana Cloud | `GRAFANA_CLOUD_API_KEY` | Owner | A dashboard shows real metrics |
 | Model gateway provider key | `MODEL_PROVIDER_API_KEY` | Owner | **Blocked**: `services/modelgw` does not exist yet (`docs/60` §11 item 5) — this key has nothing to authenticate to until that component is built; do not treat "key obtained" as "done" here |
 | Free API keys: EIA v2, SAM.gov, NRC, regulations.gov | per-connector, not yet named in an env file | Owner | Each connector's live run returns 200, not 401 |
 
 **Note on where secrets actually live:** `infra/compose/.env.example` (`ENVIRONMENT`, `DOMAIN`, `LOG_LEVEL`,
-`POSTGRES_PASSWORD`, `DATABASE_URL`, `R2_*`, `SENTRY_DSN`, `GRAFANA_CLOUD_API_KEY`, `MODEL_PROVIDER_API_KEY`)
-is the local-Compose template only, explicitly git-ignored when filled in. None of the CRM, billing, email or
+`IMAGE_TAG`, `SESSION_SECRET`, `POSTGRES_PASSWORD`, `DATABASE_URL`, `R2_*`, `SENTRY_DSN`,
+`GRAFANA_CLOUD_API_KEY`, `MODEL_PROVIDER_API_KEY`, `MAP_TILE_URL`, `API_INTERNAL_TOKEN`,
+`BACKUP_RETENTION_DAYS`) is the local-Compose template only, explicitly git-ignored when filled in. Every key
+in the decrypted per-environment file reaches every container (`docs/60` §5, fixed 2026-09-19). None of the CRM, billing, email or
 social secrets above appear in it — they are staging/production values that go into
 `infra/sops/secrets.<env>.enc.yaml` (`docs/60` §10.1 access line: "the environment's `SOPS_AGE_KEY`"), which
 do not exist yet (`docs/60` §11 item 3). Creating that file is itself a first-deploy step (§3 below).
@@ -272,15 +277,21 @@ which only makes sense once 1–6 exist.
 6. **Verify secrets decrypt** before the first deploy: `sops -d infra/sops/secrets.<env>.enc.yaml` with only
    the intended age key present.
 7. **Deploy** (`docs/60` §10.1), secrets and infrastructure before services, workers stopped before
-   migrations, migrations before app restart:
+   migrations, migrations before app restart. First make sure an image exists: merging to `main` runs
+   `.github/workflows/release.yml`, which pushes `ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}`
+   tagged `sha-<7-char sha>` and `latest`; take the `sha-` tag from that run's log.
    ```
    export APP_HOST=... WORKER_HOSTS="..." BROWSER_WORKER_HOST=... SOPS_AGE_KEY="$(cat path/to/key)"
-   infra/scripts/deploy.sh <staging|production> <image-tag>
+   infra/scripts/deploy.sh <staging|production> sha-<short sha>
    ```
-   The script: stops `worker`/`browser-worker`/`scheduler` on the worker VMs → runs migrations once
-   (`alembic upgrade head`, expand phase only) → restarts `caddy`/`api`/`web` on the app VM (public pages
-   keep serving from the Cloudflare edge cache throughout) → restarts the workers → restarts the scheduler
-   last. It appends a row to `infra/deploy-log.md`.
+   The script: syncs compose files, `backup.sh` and the decrypted secrets to every VM → pulls the images →
+   stops `worker`/`browser-worker`/`scheduler` → runs migrations once in a one-off container of the same
+   api image (`alembic upgrade head`, expand phase only) → starts `caddy`/`api`/`web` on the app VM (public
+   pages keep serving from the Cloudflare edge cache throughout) and waits, bounded, for every replica to be
+   healthy and `/v1/health` to answer → starts the workers → starts the scheduler last. A failed health
+   check rolls back to the previously deployed tag automatically. It appends a row to
+   `infra/deploy-log.md`. The nightly backup timer (`docs/60` §8) starts working after this first deploy
+   ships `backup.sh` and the secrets file to the app VM.
    **Verify:** `curl https://infraque.com/health` and `curl https://infraque.com/v1/health` return 200; the E-10
    Playwright smoke suite passes (not yet run against any real environment — flagged in §6 below); the new
    `infra/deploy-log.md` row looks right.
@@ -390,7 +401,8 @@ the deploy time). **Severity:** S2 by default; S1 if gated/restricted data is no
 (the S-9 runbook), before rolling back the deploy itself.
 
 1. `infra/scripts/rollback.sh <staging|production> <previous-image-tag>` — re-runs the deploy script against
-   the older tag (kept ≥ 5 back).
+   the older tag (every `sha-` tag stays in GHCR; the last deployed one is in `/opt/infraque/current-tag` on
+   the app VM). `deploy.sh` already does this on its own when the post-deploy health check fails.
 2. Only pass `--downgrade-migration` if the migration being rolled back from documents itself as reversible
    (E-11); otherwise the old image runs against the new-but-compatible schema (expand/contract).
 3. If entity tables need repair after a bad merge/write during the bad window, run the `docs/21` §6.5 `replay`

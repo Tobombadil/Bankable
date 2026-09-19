@@ -3,19 +3,39 @@
 # Caddy, tighter resource limits, docs/04 O-4).
 #
 # Run from the repo root:
-#   docker compose -f infra/compose/docker-compose.yml --env-file infra/compose/.env up -d
+#   docker compose -f infra/compose/docker-compose.yml --env-file infra/compose/.env --profile local up -d --build
 #
-# All application services build from the same two Dockerfiles (docs/20 §4.1 "one container image
-# with different entrypoints"): infra/docker/Dockerfile (multi-stage, targets api/web/worker) and
+# Images are named for the registry the release workflow pushes to (.github/workflows/release.yml:
+# ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}, tagged `sha-<short sha>` and, on
+# main, `latest`); `IMAGE_TAG` picks the tag (default `latest`). `build:` stays alongside `image:`
+# so a dev checkout can `up --build` the same names locally. All application services build from
+# the same two Dockerfiles (docs/20 §4.1 "one container image with different entrypoints"):
+# infra/docker/Dockerfile (multi-stage, targets api/web/worker) and
 # infra/docker/Dockerfile.browser-worker (adds Playwright's Chromium).
+#
+# Secrets reach every container through ONE env file (`x-env-file`, docs/04 E-19): the same path
+# infra/scripts/deploy.sh decrypts the SOPS file to, and the same file `--env-file` interpolates
+# `${...}` below from, so the two can never disagree. `environment:` carries non-secret defaults
+# and per-service wiring only, and wins over `env_file:` for a key present in both. Needs Compose
+# v2.24+ (`env_file` long syntax) and v2.20+ (`depends_on.required`).
 
 name: infraque
+
+x-env-file: &env-file
+  - path: ${INFRAQUE_ENV_FILE:-.env} # relative to this directory: infra/compose/.env for dev
+    required: false # dev may run on the defaults below; compose.prod.yml makes it required
 
 x-app-env: &app-env
   DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://infraque:infraque@postgres:5432/infraque}
   BANKABLE_DOMAIN: ${DOMAIN:-example-infraque.test}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   ENVIRONMENT: ${ENVIRONMENT:-dev}
+  SENTRY_RELEASE: ${IMAGE_TAG:-latest} # infra/observability.py tags every event with the image tag
+
+x-postgres-dependency: &postgres-dependency
+  postgres:
+    condition: service_healthy
+    required: false # the `local`-profile container; without the profile the dependency is simply absent
 
 services:
   postgres:
@@ -40,16 +60,17 @@ services:
     cpus: "1.0"
 
   api:
+    image: ${IMAGE_REGISTRY:-ghcr.io/tobombadil}/bankable-api:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile
       target: api
     restart: unless-stopped
+    env_file: *env-file
     environment:
       <<: *app-env
-    depends_on:
-      postgres:
-        condition: service_healthy
+      API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:-} # shared with `web`; empty disables the internal bucket (services/api/app.py)
+    depends_on: *postgres-dependency
     ports:
       - "8000:8000"
     healthcheck:
@@ -62,14 +83,17 @@ services:
     cpus: "1.0"
 
   web:
+    image: ${IMAGE_REGISTRY:-ghcr.io/tobombadil}/bankable-web:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile
       target: web
     restart: unless-stopped
+    env_file: *env-file
     environment:
       <<: *app-env
       API_BASE_URL: http://api:8000
+      API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:-} # same value as `api` (web/api_client.py sends it as X-Internal-Token)
       MAP_TILE_URL: ${MAP_TILE_URL:-} # docs/40 §2.7, docs/adr/0007 — unset falls back to dev-only OSM raster in web/
     depends_on:
       - api
@@ -85,23 +109,24 @@ services:
     cpus: "1.0"
 
   scheduler:
+    image: ${IMAGE_REGISTRY:-ghcr.io/tobombadil}/bankable-worker:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile
       target: worker
     restart: unless-stopped
-    command: ["python", "-m", "infra.scheduler.app"]
+    command: ["python", "-m", "infra.entrypoint", "scheduler"]
+    env_file: *env-file
     environment:
       <<: *app-env
       WORKER_ROLE: scheduler
-    depends_on:
-      postgres:
-        condition: service_healthy
+    depends_on: *postgres-dependency
     # Singleton by design (docs/20 §4.2: leader lock in Postgres) — never scale this service.
     mem_limit: 256m
     cpus: "0.5"
 
   worker:
+    image: ${IMAGE_REGISTRY:-ghcr.io/tobombadil}/bankable-worker:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile
@@ -113,31 +138,30 @@ services:
     # the placeholder `social` service (Sprint 2's `while true ... report` loop) is folded in here
     # rather than replaced — see infra.scheduler.app.py's module docstring for why this is safe
     # even before the `alert`/`post_draft` queues had any task deferred onto them.
-    command: ["python", "-m", "infra.scheduler.worker", "--queues", "fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook"]
+    command: ["python", "-m", "infra.entrypoint", "worker", "--queues", "fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook"]
+    env_file: *env-file
     environment:
       <<: *app-env
       WORKER_ROLE: worker-plain
-    depends_on:
-      postgres:
-        condition: service_healthy
+    depends_on: *postgres-dependency
     deploy:
       replicas: 2 # docs/20 §4.1 "worker-plain | 2 replicas"; scale further via `docker compose up --scale worker=N` (docs/20 §13 step 1)
     mem_limit: 512m
     cpus: "1.0"
 
   browser-worker:
+    image: ${IMAGE_REGISTRY:-ghcr.io/tobombadil}/bankable-browser-worker:${IMAGE_TAG:-latest}
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.browser-worker
     restart: unless-stopped
-    command: ["python", "-m", "infra.scheduler.worker", "--queues", "fetch_browser"]
+    command: ["python", "-m", "infra.entrypoint", "worker", "--queues", "fetch_browser"]
+    env_file: *env-file
     environment:
       <<: *app-env
       WORKER_ROLE: worker-browser
       PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
-    depends_on:
-      postgres:
-        condition: service_healthy
+    depends_on: *postgres-dependency
     shm_size: "1gb" # Chromium needs real /dev/shm, not Docker's 64 MB default
     mem_limit: 2g   # docs/20 §4.1: "Playwright Chromium pool, max 3 pages, 2 GB RAM"
     cpus: "1.5"

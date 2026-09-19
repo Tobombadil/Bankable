@@ -1,12 +1,17 @@
-# Production overrides (docs/04 O-1 `production`; ADR 0005). Apply together with the base file:
+# Production overrides (docs/04 O-1 `production`; ADR 0005). Apply together with the base file, as
+# infra/scripts/deploy.sh does on each VM:
 #
-#   docker compose -f infra/compose/docker-compose.yml -f infra/compose/compose.prod.yml \
-#     --env-file /opt/infraque/secrets/.env up -d
+#   cd /opt/infraque/compose && IMAGE_TAG=<tag> INFRAQUE_ENV_FILE=/opt/infraque/secrets/.env \
+#     docker compose -f docker-compose.yml -f compose.prod.yml --env-file /opt/infraque/secrets/.env up -d
 #
 # The `local` profile's postgres service is never activated here — DATABASE_URL points at the
 # managed Postgres provider instead (ADR 0003; docs/20 §4.4). Caddy terminates TLS and is the only
 # service with a published port; every VM firewall (infra/terraform) blocks everything else from
 # the public internet.
+#
+# `!reset` / `!override` appear only in this override file (they are merge directives; the base file
+# must stand on its own — infra/test_compose.py checks both). The env file is `!override`n rather
+# than merged so production has exactly one secrets source and fails to start when it is missing.
 
 services:
   caddy:
@@ -35,6 +40,9 @@ services:
   api:
     ports: !reset [] # no direct publish; only Caddy is public (docs/20 §11)
     depends_on: !override {} # DATABASE_URL points at managed Postgres, not the `local`-profile container
+    env_file: !override
+      - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
+        required: true
     environment:
       ENVIRONMENT: production
     deploy:
@@ -49,6 +57,9 @@ services:
 
   web:
     ports: !reset []
+    env_file: !override
+      - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
+        required: true
     environment:
       ENVIRONMENT: production
     mem_limit: 768m
@@ -62,6 +73,9 @@ services:
 
   scheduler:
     depends_on: !override {}
+    env_file: !override
+      - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
+        required: true
     environment:
       ENVIRONMENT: production
     logging:
@@ -72,6 +86,9 @@ services:
 
   worker:
     depends_on: !override {}
+    env_file: !override
+      - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
+        required: true
     environment:
       ENVIRONMENT: production
     mem_limit: 1g
@@ -84,6 +101,9 @@ services:
 
   browser-worker:
     depends_on: !override {}
+    env_file: !override
+      - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
+        required: true
     environment:
       ENVIRONMENT: production
     logging:

@@ -15,13 +15,15 @@ name: ci
 #     which has a documented pre-existing bug outside this task's write scope — services/README.md
 #     "Loader fixes (2026-09-13)" section names it) and belongs with `test-web` in spirit, not
 #     `test-core`; it is left for whoever owns `web/` to un-skip.
-#   - The OpenAPI "generated == committed, byte-for-byte" check (docs/04 E-8, docs/23 §12) needs a
-#     generator that dumps `services.api.app`'s FastAPI schema — that generator does not exist yet
-#     (api/README.md's own admission), and `services/api` implements only 25 of 118 documented
-#     operations this sprint (services/README.md), so a byte-for-byte diff would fail for a reason
-#     unrelated to spec drift. `openapi-validate` + `check_story_coverage.py` are what actually runs
-#     until that generator exists; the byte-for-byte job is present but marked
-#     `continue-on-error: true` with a comment explaining why, so it is visibly not silently green.
+#   - The OpenAPI "generated == committed, byte-for-byte" check (docs/04 E-8, docs/23 §12): the
+#     hand-written api/openapi.yaml is the contract and `services.api.app` implements a subset of
+#     it (measured 2026-09-18: 120 of its 135 path operations; the 15 missing are listed by the
+#     step itself). A byte-for-byte diff therefore fails for coverage, not drift, until the last
+#     operation lands. The step now measures the real gap on every run (operations the spec has
+#     that the app lacks, and the reverse — the reverse must be empty) and stays
+#     `continue-on-error: true`; flip it off the day its output is "0 missing".
+#   - Images are pushed by .github/workflows/release.yml (push to main and v* tags), not here;
+#     the `images` job below only proves the build and runs the trivy scan on every PR.
 #   - `import-linter`'s config lives at `infra/importlinter.ini`, not a root `.importlinter` file or
 #     a `pyproject.toml` section — this task's write scope does not include either (see that file's
 #     header comment).
@@ -68,7 +70,11 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: mypy
-      - run: mypy --strict infra/
+      - run: mypy --strict --follow-imports=silent infra/
+        # infra/entrypoint.py imports services.api.app and web.app, which the plain `mypy` run above
+        # already checks under pyproject.toml's settings (warn_unused_ignores off); without
+        # --follow-imports=silent the strict flags here would re-check those trees with different
+        # rules and fail on their `# type: ignore` hygiene rather than on infra (2026-09-19).
 
   import-boundaries:
     name: import-linter (docs/04 E-2)
@@ -94,24 +100,28 @@ jobs:
       - run: pip install -r requirements.txt
       - name: pytest with branch coverage, 80% floor (docs/04 E-7)
         run: |
-          coverage run --branch -m pytest tests pipeline services infra/scheduler \
+          coverage run --branch -m pytest tests pipeline services infra \
             --ignore=tests/test_web_default_view.py
           coverage report --include="pipeline/*,services/*" --fail-under=80
-      - name: report (not gate) the visibility/licence-gate modules' coverage
+        # `infra` covers infra/scheduler plus infra/test_compose.py, test_scripts.py,
+        # test_entrypoint.py, test_logging_config.py and test_observability.py (2026-09-18).
+        # Measured on the 2026-09-18 tree: 88% total, so the 80% floor is a real, passing gate.
+      - name: visibility predicate at 100% branch coverage (report-only, see comment)
+        continue-on-error: true
         run: |
-          coverage report --include="services/api/visibility.py,services/ingest/loader.py"
-        # docs/04 E-7 asks for 100% branch coverage specifically on the visibility predicate and
-        # licence-gate *code paths*, not necessarily 100% of every line in the files that happen to
-        # contain them — services/ingest/loader.py also has non-gate field-mapping logic
-        # (services/README.md open decision 11) that is under the general 80% floor above, not this
-        # stricter bar. That distinction is proven today by two dedicated, named tests
+          coverage report --include="services/api/visibility.py" -m --fail-under=100
+          coverage report --include="services/ingest/loader.py" -m
+        # docs/04 E-7 asks for 100% branch coverage on the visibility predicate. Measured on the
+        # 2026-09-18 tree: services/api/visibility.py 96% (27 statements, 1 missed — line 164, the
+        # opportunity arm of `event_visibility_filter`'s correlated EXISTS, which the suite reaches
+        # only through the proposal arm); the file was also being edited by the visibility lane
+        # during that measurement. So this is `--fail-under=100` with `continue-on-error: true`:
+        # it prints the exact missing lines on every run and blocks nothing until a test covers
+        # them, at which point remove `continue-on-error`. services/ingest/loader.py (87%) also
+        # carries non-gate field-mapping logic (services/README.md open decision 11) and stays
+        # under the 80% floor above; the licence-gate paths in it are proven by two named tests
         # (test_gate_refused_for_reuse_value_outside_the_known_vocabulary,
-        # test_gate_refused_when_stored_licence_is_gated_even_if_the_manifest_now_says_open,
-        # services/README.md), not by a coverage percentage on the whole file — a
-        # `--fail-under=100` here would either block merge for an unrelated reason or, if scoped to
-        # pass, give a false sense of precision. This step is diagnostic output for a reviewer, not
-        # a gate; tightening it to something enforceable is a services/ change, out of this task's
-        # write scope.
+        # test_gate_refused_when_stored_licence_is_gated_even_if_the_manifest_now_says_open).
 
   test-web:
     name: pytest (web) — isolated job, see header note
@@ -157,13 +167,29 @@ jobs:
       - run: python -m openapi_spec_validator api/openapi.yaml
       - run: python api/check_story_coverage.py --quiet
       - run: pytest tests/test_api_contract.py -v
-      - name: generated spec == committed spec (byte-for-byte, docs/04 E-8)
-        continue-on-error: true # see header note: no generator exists yet; services/api implements 25/118 ops
+      - name: generated spec == committed spec (docs/04 E-8) — report-only until 0 operations are missing
+        continue-on-error: true # see header note: measured 120/135 operations implemented on 2026-09-18
         run: |
-          echo "No FastAPI-schema-to-openapi.yaml generator exists yet (api/README.md); this job" \
-               "is a placeholder for when one does. Not a silent pass: continue-on-error is set" \
-               "and explained above, not hidden."
-          exit 1
+          python - <<'PY'
+          import sys, yaml
+          from services.api.app import app
+          methods = {"get", "post", "put", "patch", "delete"}
+          def ops(paths):
+              return {(m.upper(), p) for p, item in paths.items() for m in item if m in methods}
+          generated = ops(app.openapi()["paths"])
+          committed = ops(yaml.safe_load(open("api/openapi.yaml"))["paths"])
+          extra = sorted(generated - committed)
+          missing = sorted(committed - generated)
+          print(f"committed operations: {len(committed)}; implemented: {len(generated)}; "
+                f"missing from the app: {len(missing)}; not in the spec: {len(extra)}")
+          for m, p in missing:
+              print(f"  missing  {m} {p}")
+          for m, p in extra:
+              print(f"  UNSPECIFIED  {m} {p}")
+          # Anything the app serves that the contract does not document is drift and must fail
+          # even while the coverage gap is tolerated.
+          sys.exit(1 if (missing or extra) else 0)
+          PY
 
   migrations:
     name: alembic upgrade/downgrade/upgrade (docs/04 E-11)
@@ -361,10 +387,19 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     environment: preview
+    # A stub must never turn a PR red: with no PREVIEW_DEPLOY_TOKEN in the `preview` environment
+    # the step below exits 0 after saying so, and continue-on-error keeps any other failure in
+    # this job (a missing environment, a future provisioning error) out of the merge gate until
+    # the job does real work (docs/60-deployment.md §11 item 6).
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: preview host provisioning — STUBBED
         run: |
+          if [[ -z "${PREVIEW_DEPLOY_TOKEN}" ]]; then
+            echo "PREVIEW_DEPLOY_TOKEN is not set in the 'preview' environment; nothing to deploy to. Skipping."
+            exit 0
+          fi
           echo "Stubbed: no ephemeral-host decision has been made yet"
           echo "(docs/60-deployment.md §11 item 6 — shared host vs one VM per PR)."
           echo "This job exists so the 'preview' GitHub environment and its secret gate are"

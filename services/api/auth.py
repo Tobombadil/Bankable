@@ -127,12 +127,37 @@ _SESSION_COOKIE_NAME = "session"
 _SESSION_IDLE_DAYS = 30  # docs/20 §7: 30-day idle expiry
 
 
+_DEV_SESSION_SECRET = "dev-only-insecure-session-secret-do-not-deploy"  # noqa: S105 -- dev/test only, see below
+_SESSION_SECRET_MIN_LENGTH = 32
+# `ENVIRONMENT` values that may run on the committed dev secret. Compose sets `dev` by default and
+# `production` in compose.prod.yml (infra/compose/*.yml); anything not listed here (production,
+# staging, preview, a typo) must carry a real SESSION_SECRET (docs/04 E-19).
+_DEV_ENVIRONMENTS = frozenset({"", "dev", "development", "local", "test", "ci"})
+
+
+def session_secret() -> str:
+    """The signing secret for sessions and verification tokens (CLAUDE.md: secrets from environment
+    only). Outside the dev environments above a missing or short `SESSION_SECRET` raises at
+    import time, so a misconfigured deploy fails at startup rather than signing every cookie with
+    the constant checked into this file."""
+    secret = os.environ.get("SESSION_SECRET", "")
+    environment = os.environ.get("ENVIRONMENT", "").strip().lower()
+    if environment in _DEV_ENVIRONMENTS:
+        return secret or _DEV_SESSION_SECRET
+    if len(secret) < _SESSION_SECRET_MIN_LENGTH:
+        raise RuntimeError(
+            f"SESSION_SECRET must be set to at least {_SESSION_SECRET_MIN_LENGTH} characters when "
+            f"ENVIRONMENT={environment!r} (it is {'unset' if not secret else f'{len(secret)} chars'}); "
+            "see infra/compose/.env.example and docs/60-deployment.md §5"
+        )
+    return secret
+
+
+session_secret()  # fail fast at startup, not on the first request
+
+
 def _serializer() -> URLSafeTimedSerializer:
-    # CLAUDE.md: secrets from environment only. A hardcoded fallback would sign every session
-    # with a secret checked into the repo; the fallback here is dev-only and every real deploy
-    # sets SESSION_SECRET (docs/04 E-19 requires an owner/environment/rotation date per secret).
-    secret = os.environ.get("SESSION_SECRET", "dev-only-insecure-session-secret-do-not-deploy")
-    return URLSafeTimedSerializer(secret, salt="platform-session-cookie")
+    return URLSafeTimedSerializer(session_secret(), salt="platform-session-cookie")
 
 
 def _hash_token(token: str) -> str:
@@ -491,11 +516,10 @@ _VERIFICATION_MAX_AGE_SECONDS = 24 * 3600  # docs/23 email-verification link lif
 
 
 def _verification_serializer() -> URLSafeTimedSerializer:
-    # Same secret source as `_serializer()` (CLAUDE.md: secrets from environment only), a
-    # different salt so a verification token can never be replayed as a session cookie or
-    # vice versa (itsdangerous salts namespace the signature, not just the payload).
-    secret = os.environ.get("SESSION_SECRET", "dev-only-insecure-session-secret-do-not-deploy")
-    return URLSafeTimedSerializer(secret, salt=_VERIFICATION_SALT)
+    # Same secret source as `_serializer()` (`session_secret()`, CLAUDE.md: secrets from
+    # environment only), a different salt so a verification token can never be replayed as a
+    # session cookie or vice versa (itsdangerous salts namespace the signature, not the payload).
+    return URLSafeTimedSerializer(session_secret(), salt=_VERIFICATION_SALT)
 
 
 def make_verification_token(user: User) -> str:
