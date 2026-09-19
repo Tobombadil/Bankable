@@ -41,7 +41,15 @@ def _launch_kwargs() -> dict[str, Any]:
 
 
 BASE_URL = "http://127.0.0.1:8799"
-SCREENSHOT_DIR = REPO_ROOT / "web" / "screenshots"
+# The committed reference screenshots in web/screenshots/ are refreshed only on request
+# (`E2E_REFRESH_SCREENSHOTS=1`, run against the real normalized data). Every other run,
+# including CI on the eval fixture, writes to the git-ignored web/.data/ tree so a test run
+# never leaves fixture-based images as unstaged changes to the reference set.
+SCREENSHOT_DIR = (
+    REPO_ROOT / "web" / "screenshots"
+    if os.environ.get("E2E_REFRESH_SCREENSHOTS") == "1"
+    else REPO_ROOT / "web" / ".data" / "screenshots"
+)
 DB_PATH = REPO_ROOT / "web" / ".data" / "e2e-test.db"
 DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
 NARROW_VIEWPORT = {"width": 400, "height": 850}
