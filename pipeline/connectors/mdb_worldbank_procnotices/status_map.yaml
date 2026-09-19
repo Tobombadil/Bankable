@@ -1,0 +1,21 @@
+# mdb.worldbank.procnotices: notice_type -> opportunity lifecycle (docs/21 §7.2).
+version: 1
+updated: 2026-09-12
+canonical_states: [unknown, announced, open, frozen, reinstated, closed, cancelled, awarded]
+sources:
+  worldbank:
+    field: Status
+    map:
+      General Procurement Notice: announced
+      Invitation for Bids: open
+      Request for Bids: open
+      Request for Proposals: open
+      Request for Expression of Interest: open
+      Invitation for Prequalification: open
+      Specific Procurement Notice: open
+      Contract Award: awarded
+    refine:
+      - id: worldbank.open_deadline_passed
+        when: {deadline_passed: "yes", is_open_type: "yes"}
+        then: closed
+        note: Notices stay "Published" after their submission deadline; the deadline decides.

@@ -1,0 +1,602 @@
+/* Infraque -- public site prototype
+   Tokens, scales and components from docs/31-design-system.md. Every colour, type, space,
+   radius and motion value below is a custom property (D-19); components reference tokens only.
+   Fonts: Newsreader / IBM Plex Sans / IBM Plex Mono from Google Fonts (docs/31 D-21 calls for
+   self-hosted fonts; this prototype uses the Google Fonts CDN instead, per the Sprint 2 task
+   instruction -- flagged in web/README.md as a departure to fix before production). */
+
+/* ---------- 1. Tokens ---------- */
+:root {
+  /* 1.1 core brand colours (docs/31 §1.1) */
+  --color-ink: #16324f;
+  --color-paper: #f6f4ef;
+  --color-copper: #a8571c;
+  --color-copper-deep: #8a4614;
+  --color-copper-tint: #e0b58a;
+  --color-muted: #5b6b7c;
+
+  /* semantic roles (light) */
+  --bg: var(--color-paper);
+  --surface: #ffffff;
+  --text: var(--color-ink);
+  --text-muted: var(--color-muted);
+  --link: var(--color-copper-deep);
+  --link-visited: #6b3d10;
+  --border: #d8d3c8;
+  --focus-ring: var(--color-ink);
+
+  /* 1.2 status families -- light theme text + chip fill (docs/31 §1.2) */
+  --family-neutral-text: #5b6b7c;
+  --family-neutral-fill: #e4e9ed;
+  --family-progress-text: #2f6480;
+  --family-progress-fill: #d6e6ee;
+  --family-committed-text: #8a4614;
+  --family-committed-fill: #f1ddc9;
+  --family-success-text: #2f6f4f;
+  --family-success-fill: #d7ead9;
+  --family-danger-text: #8c3a2e;
+  --family-danger-fill: #f1dbd6;
+
+  /* map fallback basemap (docs/04 D-13) -- tinted to the paper ground so land/water/borders sit
+     beneath the data instead of competing with it; deliberately not reusing the status-family
+     palette so the backdrop never reads as a status colour (docs/30 §7 "Basemap") */
+  --map-land: #f1eee4;
+  --map-water: #e5edf0;
+  --map-border: #d2d9dc;
+
+  /* existing-plants context layer (docs/00-PLAN.md 2026-09-14/15 owner decision; map task item
+     2) -- desaturated versions of hues a reader already associates with each technology from
+     other built-infrastructure maps (Open Grid Works, Open Infrastructure Map), deliberately
+     dimmer than the status-family palette above so the layer reads as subordinate context, never
+     mistaken for a proposal's lifecycle state. Contrast checked against `--bg` (WCAG relative-
+     luminance formula, docs/31 §1.1's own method) because the legend renders these as text, not
+     only as marker fills: all seven clear 4.5:1 on paper (4.81-6.28:1) -- see web/README.md "Map
+     basemap" for the recorded ratios (D-20). On the map itself these same values are drawn at
+     ~0.6 opacity per docs/00-PLAN.md's "muted... at ~0.6 opacity" instruction, which is a marker
+     fill, not text, so D-20's ratio applies to the legend usage, not the marker. */
+  --plant-solar: #846818;
+  --plant-wind: #3f6a8a;
+  --plant-gas: #5f6469;
+  --plant-nuclear: #6a4f80;
+  --plant-hydro: #2f6f68;
+  --plant-storage: #3f6f4a;
+  --plant-coal: #6a5a48;
+  /* Added 2026-09-15 with the plant-type filter (owner: biomass/waste must be distinct). Same
+     method: oil 6.81:1, biomass 5.11:1, geothermal 6.12:1, other 4.71:1 against --color-paper. */
+  --plant-oil: #6b4f3a;
+  --plant-biomass: #55702a;
+  --plant-geothermal: #8a4a3a;
+  --plant-other: #6d6d6d;
+
+  /* ADR 0008 region features (placement grade "region") -- one hue, not a status-family colour
+     (same reasoning as the plant palette above): a highlighted county/state/country must never
+     read as a lifecycle state. 5.3:1 against --color-paper (WCAG relative-luminance formula,
+     docs/31 §1.1's method), used for the outline/label text only -- the fill itself is drawn at
+     the data-driven 0.15-0.7 opacity computed in map.js, not this ratio (a fill is not text). */
+  --region-fill: #4a6070;
+  --region-line: #4a6070;
+
+  /* 1.3 typography */
+  --font-display: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-body: "IBM Plex Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, Menlo, monospace;
+  --text-1: 0.8rem;    /* 12.8px */
+  --text-2: 1rem;      /* 16px base */
+  --text-3: 1.2rem;    /* 19.2px */
+  --text-4: 1.4375rem; /* 23px */
+  --text-5: 1.725rem;  /* 27.6px */
+  --text-6: 2.075rem;  /* 33.2px */
+  --text-7: 2.4875rem; /* 39.8px */
+
+  /* 1.4 spacing, 4px base */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 2rem;
+  --space-8: 2.5rem;
+  --space-9: 3rem;
+  --space-10: 4rem;
+
+  /* 1.5 radius, shadow, motion */
+  --radius-1: 2px;
+  --radius-2: 4px;
+  --radius-3: 8px;
+  --shadow-1: 0 1px 2px rgba(22, 50, 79, 0.12);
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 300ms;
+  --motion-map: 600ms;
+}
+
+/* Dark theme: inversion of the same roles (docs/31 DS-2). System preference drives it; no
+   manual toggle is built this sprint (noted in web/README.md as a gap against D-23's "manual
+   override"). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1e30;
+    --surface: #16283c;
+    --text: var(--color-paper);
+    --text-muted: #a9b8c4;
+    --link: var(--color-copper-tint);
+    --link-visited: #cfa273;
+    --border: #2a3f54;
+    --focus-ring: var(--color-paper);
+
+    --family-neutral-text: #c9d2da;
+    --family-neutral-fill: #24384a;
+    --family-progress-text: #8fc4dd;
+    --family-progress-fill: #1c3a4c;
+    --family-committed-text: #e0b58a;
+    --family-committed-fill: #3a2a1c;
+    --family-success-text: #8fd6ac;
+    --family-success-fill: #1c3428;
+    --family-danger-text: #e0a08f;
+    --family-danger-fill: #3a241e;
+
+    --map-land: #182c40;
+    --map-water: #0f2032;
+    --map-border: #2a3f54;
+
+    --plant-solar: #c9b877;
+    --plant-wind: #9ab6d1;
+    --plant-gas: #aab0b6;
+    --plant-nuclear: #b49bc7;
+    --plant-hydro: #7cb8b0;
+    --plant-storage: #86b98f;
+    --plant-coal: #ac9c88;
+    --plant-oil: #c9a98a;
+    --plant-biomass: #a9c77a;
+    --plant-geothermal: #d29a86;
+    --plant-other: #b5b5b5;
+
+    --region-fill: #9ab6d1;
+    --region-line: #9ab6d1;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1e30;
+  --surface: #16283c;
+  --text: var(--color-paper);
+  --text-muted: #a9b8c4;
+  --link: var(--color-copper-tint);
+  --link-visited: #cfa273;
+  --border: #2a3f54;
+  --focus-ring: var(--color-paper);
+  --family-neutral-text: #c9d2da;
+  --family-neutral-fill: #24384a;
+  --family-progress-text: #8fc4dd;
+  --family-progress-fill: #1c3a4c;
+  --family-committed-text: #e0b58a;
+  --family-committed-fill: #3a2a1c;
+  --family-success-text: #8fd6ac;
+  --family-success-fill: #1c3428;
+  --family-danger-text: #e0a08f;
+  --family-danger-fill: #3a241e;
+  --map-land: #182c40;
+  --map-water: #0f2032;
+  --map-border: #2a3f54;
+
+  --plant-solar: #c9b877;
+  --plant-wind: #9ab6d1;
+  --plant-gas: #aab0b6;
+  --plant-nuclear: #b49bc7;
+  --plant-hydro: #7cb8b0;
+  --plant-storage: #86b98f;
+  --plant-coal: #ac9c88;
+  --plant-oil: #c9a98a;
+  --plant-biomass: #a9c77a;
+  --plant-geothermal: #d29a86;
+  --plant-other: #b5b5b5;
+
+  --region-fill: #9ab6d1;
+  --region-line: #9ab6d1;
+}
+
+/* ---------- 2. Reset ---------- */
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--text-2);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.tnum { font-variant-numeric: tabular-nums; }
+img { max-width: 100%; }
+a { color: var(--link); }
+a:visited { color: var(--link-visited); }
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-2);
+}
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+/* The `hidden` attribute must win over any class that sets `display` (`.filter-field`,
+   `.legend`, ...): the UA's `[hidden] { display: none }` loses to a single-class rule, so without
+   this the plant-type select and plants legend showed with the layer off (owner, 2026-09-15). */
+[hidden] { display: none !important; }
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 100;
+  background: var(--surface); color: var(--text); padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border); border-radius: var(--radius-2);
+}
+.skip-link:focus { left: var(--space-4); top: var(--space-4); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+/* ---------- 3. Layout ---------- */
+.site-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.masthead {
+  max-width: 1440px; margin: 0 auto; padding: var(--space-2) var(--space-5);
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-muted); border-bottom: 1px solid var(--border);
+}
+.masthead__ref { color: var(--text-muted); }
+.masthead__lag { color: var(--text-muted); }
+.site-header__bar {
+  max-width: 1440px; margin: 0 auto; padding: var(--space-4) var(--space-5);
+  display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap;
+}
+.wordmark {
+  font-family: var(--font-display); font-optical-sizing: auto; font-size: var(--text-5); font-weight: 600;
+  color: var(--text); text-decoration: none; display: flex; align-items: baseline; gap: var(--space-2);
+}
+.primary-nav { display: flex; gap: var(--space-5); flex-wrap: wrap; }
+.primary-nav a { color: var(--text); text-decoration: none; font-size: var(--text-3); padding: var(--space-1) 0; border-bottom: 1px solid transparent; }
+.primary-nav a:hover, .primary-nav a:focus-visible { color: var(--link); border-bottom-color: currentColor; }
+.site-search { margin-inline-start: auto; display: flex; gap: var(--space-2); }
+.site-search input {
+  font: inherit; padding: var(--space-2) var(--space-1); border: none; border-bottom: 1px solid var(--border);
+  border-radius: 0; background: transparent; color: var(--text); min-width: 14rem;
+}
+.site-search input:focus-visible { outline: none; border-bottom-color: var(--focus-ring); }
+.site-search button {
+  font: inherit; font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em;
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-2);
+  border: 1px solid var(--link); background: transparent; color: var(--link); cursor: pointer;
+}
+.site-search button:hover { background: var(--link); color: var(--surface); }
+main { max-width: 1440px; margin: 0 auto; padding: 0 var(--space-5) var(--space-9); }
+.site-footer {
+  border-top: 1px solid var(--border); padding: var(--space-6) var(--space-5);
+  color: var(--text-muted); font-size: var(--text-1);
+}
+
+@media (max-width: 719px) {
+  main { padding: 0 var(--space-4) var(--space-8); }
+  .masthead { padding: var(--space-2) var(--space-4); flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: var(--space-1); }
+  .site-header__bar { padding: var(--space-3) var(--space-4); }
+  .site-search { width: 100%; margin-inline-start: 0; }
+  .site-search input { flex: 1; min-width: 0; }
+}
+
+h1, h2, h3 { font-family: var(--font-display); font-optical-sizing: auto; font-weight: 600; line-height: 1.25; margin: 0 0 var(--space-4); }
+h1 { font-size: var(--text-6); }
+h2 { font-size: var(--text-5); display: flex; align-items: baseline; gap: var(--space-2); }
+h3 { font-size: var(--text-4); }
+.section-num {
+  font-family: var(--font-mono); font-size: var(--text-2); font-weight: 400; color: var(--text-muted);
+}
+.page-header { padding: var(--space-5) 0 var(--space-4); border-bottom: 1px solid var(--border); margin-bottom: var(--space-5); }
+.page-header p { color: var(--text-muted); max-width: 68ch; }
+
+/* ---------- 4. Delayed notice, attribution, provenance (D-3, D-27, D-28) ----------
+   The delayed notice is a quiet document stamp, not an alert banner: no fill colour, a single
+   ink rule on the left, small-caps mono label. The dev-preview notice stays visibly distinct
+   (dashed copper rule, its own label) because it only ever appears in a non-production build. */
+.stamp-label {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text); margin-inline-end: var(--space-2);
+}
+.delayed-notice {
+  background: transparent; color: var(--text-muted);
+  border: none; border-inline-start: 3px solid var(--text);
+  padding: var(--space-2) var(--space-4); margin: var(--space-4) 0;
+  font-size: var(--text-1);
+}
+.delayed-notice a { color: var(--link); font-weight: 600; }
+
+.preview-banner {
+  background: transparent; color: var(--family-committed-text);
+  border: 1px dashed var(--family-committed-text); border-radius: var(--radius-2);
+  padding: var(--space-2) var(--space-4); margin: 0 0 var(--space-4); font-size: var(--text-1);
+}
+.preview-banner .stamp-label { color: var(--family-committed-text); }
+
+.view-notice {
+  font-size: var(--text-1); color: var(--text-muted);
+  padding: var(--space-2) 0 var(--space-4);
+}
+
+.attribution-line { font-size: var(--text-1); color: var(--text-muted); }
+
+/* Provenance bar idiom: hairline rules top and bottom, no card chrome -- a filed citation strip,
+   not a floating panel (D-2, D-27, docs/30 §7/§9). Class name stays "provenance-panel"
+   (web/test_e2e.py selects it); this is the styling that turns it into the bar. */
+.provenance-panel {
+  border-block: 1px solid var(--border); padding: var(--space-4) 0; margin: var(--space-6) 0;
+}
+.provenance-panel h2 { font-size: var(--text-4); margin-bottom: var(--space-3); }
+.provenance-panel__list { list-style: none; margin: 0; padding: 0; }
+.provenance-panel__row {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--space-3);
+  padding: var(--space-2) 0; border-bottom: 1px solid var(--border);
+}
+.provenance-panel__row:last-child { border-bottom: none; }
+.provenance-panel__details { flex: 1 1 auto; min-width: 0; }
+.provenance-panel__details summary {
+  display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: baseline; cursor: pointer;
+  list-style: none;
+}
+.provenance-panel__details summary::-webkit-details-marker { display: none; }
+.provenance-panel__details summary::before { content: "+ "; color: var(--text-muted); font-family: var(--font-mono); }
+.provenance-panel__details[open] summary::before { content: "\2212 "; }
+.provenance-panel__name { font-weight: 600; }
+.provenance-panel__licence { font-size: var(--text-1); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.provenance-panel__date { font-size: var(--text-1); color: var(--text-muted); }
+.provenance-panel__note { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-1) 0 0; }
+.provenance-panel__quote { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-2) 0 0; }
+.provenance-panel__link { flex: none; font-size: var(--text-1); }
+.provenance-panel__empty { font-size: var(--text-1); color: var(--text-muted); }
+
+/* ---------- 5. Status chip (D-25, never colour alone) ---------- */
+.chip {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-1) var(--space-2); border-radius: var(--radius-1);
+  font-size: var(--text-1); font-weight: 600; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.chip__icon { flex: none; }
+.chip--neutral   { background: var(--family-neutral-fill);   color: var(--family-neutral-text); }
+.chip--progress  { background: var(--family-progress-fill);  color: var(--family-progress-text); }
+.chip--committed { background: var(--family-committed-fill); color: var(--family-committed-text); }
+.chip--success   { background: var(--family-success-fill);   color: var(--family-success-text); }
+.chip--danger    { background: var(--family-danger-fill);    color: var(--family-danger-text); }
+
+/* ---------- 6. Filter bar as a control strip, not a form (D-17, API-3) ----------
+   Underline-only inputs, mono small-caps labels, single bottom rule for the whole strip -- read
+   as a toolbar the reader scans left to right, not a bordered form panel. */
+.filter-bar {
+  display: flex; flex-wrap: wrap; gap: var(--space-5); align-items: end;
+  padding: var(--space-3) 0; border-bottom: 1px solid var(--border); margin-bottom: var(--space-4);
+}
+.filter-field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-2); }
+.filter-field label {
+  color: var(--text-muted); font-family: var(--font-mono); font-size: 0.7rem;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.filter-field select, .filter-field input {
+  font: inherit; padding: var(--space-1) 0; border: none; border-bottom: 1px solid var(--border);
+  border-radius: 0; background: transparent; color: var(--text); min-height: 2.25rem;
+}
+.filter-field select:focus-visible, .filter-field input:focus-visible { outline: none; border-bottom-color: var(--focus-ring); }
+.filter-bar__range { display: flex; align-items: center; gap: var(--space-2); }
+.filter-bar__range input { width: 5rem; }
+.filter-field--checkbox { flex-direction: row; align-items: center; }
+.filter-field--checkbox label {
+  display: flex; align-items: center; gap: var(--space-2); color: var(--text);
+  font-family: var(--font-body); font-size: var(--text-2); text-transform: none; letter-spacing: normal;
+}
+.filter-field--checkbox input[type="checkbox"] { width: 1.15rem; height: 1.15rem; min-height: 0; }
+
+/* ADR 0008 placement control: a <fieldset> so its three checkboxes are grouped for assistive
+   tech (docs/31 §7 WCAG 2.2 AA -- a related group of checkboxes needs a group label, which
+   <label> alone does not give); reset to the filter-bar's own look rather than the UA fieldset
+   chrome (border/padding), then laid out the same as the single-checkbox fields beside it. */
+.filter-field--placement {
+  border: none; margin: 0; padding: 0; gap: var(--space-2);
+  flex-direction: row; align-items: center; flex-wrap: wrap;
+}
+.filter-field--placement legend {
+  font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+  padding: 0; margin-inline-end: var(--space-1);
+}
+.filter-field--placement label {
+  display: flex; align-items: center; gap: var(--space-1); color: var(--text);
+  font-family: var(--font-body); font-size: var(--text-2); text-transform: none; letter-spacing: normal;
+}
+.filter-field--placement input[type="checkbox"] { width: 1.15rem; height: 1.15rem; min-height: 0; }
+.filter-bar__submit {
+  font: inherit; font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em;
+  padding: var(--space-2) var(--space-4); border-radius: var(--radius-2);
+  border: 1px solid var(--link); background: transparent; color: var(--link); cursor: pointer;
+  min-height: 2.25rem;
+}
+.filter-bar__submit:hover { background: var(--link); color: var(--surface); }
+.filter-bar__clear { align-self: center; font-size: var(--text-1); }
+.result-count { color: var(--text-muted); font-size: var(--text-1); margin: 0 0 var(--space-3); }
+
+@media (max-width: 719px) {
+  .filter-bar { flex-direction: column; align-items: stretch; }
+  .filter-field select, .filter-field input, .filter-bar__submit { width: 100%; }
+}
+
+/* ---------- 7. Table (D-1, D-24) -- no card grid ---------- */
+.record-table { width: 100%; border-collapse: collapse; font-size: var(--text-2); }
+.record-table th, .record-table td { padding: var(--space-2) var(--space-3); text-align: left; border-bottom: 1px solid var(--border); }
+.record-table th { position: sticky; top: 0; background: var(--bg); color: var(--text-muted); font-weight: 600; font-size: var(--text-1); }
+.record-table td.num, .record-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.record-table .mono { font-family: var(--font-mono); font-size: var(--text-1); }
+.record-table tbody tr:hover { background: var(--surface); }
+.record-table a.row-link { color: var(--text); text-decoration: none; font-weight: 600; }
+.record-table a.row-link:hover { color: var(--link); text-decoration: underline; }
+.table-scroll { overflow-x: auto; }
+
+@media (max-width: 719px) {
+  .record-table thead { display: none; }
+  .record-table, .record-table tbody, .record-table tr, .record-table td { display: block; width: 100%; }
+  .record-table tr { border: 1px solid var(--border); border-radius: var(--radius-2); margin-bottom: var(--space-3); padding: var(--space-2); }
+  .record-table td { border: none; display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) var(--space-2); }
+  .record-table td.num { text-align: right; }
+  .record-table td::before { content: attr(data-label); color: var(--text-muted); font-size: var(--text-1); }
+}
+
+.pager { display: flex; justify-content: space-between; padding: var(--space-4) 0; font-size: var(--text-2); }
+.pager a { text-decoration: none; font-weight: 600; }
+.pager__disabled { color: var(--text-muted); }
+
+.empty-state, .error-state {
+  padding: var(--space-7) var(--space-5); text-align: center; color: var(--text-muted);
+  border: 1px dashed var(--border); border-radius: var(--radius-3);
+}
+.empty-state a { font-weight: 600; }
+
+/* ---------- 8. Map page ---------- */
+.map-layout { display: grid; grid-template-columns: 1fr 22rem; gap: var(--space-4); align-items: start; }
+#map {
+  height: 70vh; min-height: 24rem; border: 1px solid var(--border); border-radius: var(--radius-3);
+  background: var(--surface);
+}
+.map-side {
+  border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--surface);
+  max-height: 70vh; overflow-y: auto; padding: var(--space-4);
+}
+.map-side h2 { font-size: var(--text-4); margin-bottom: var(--space-2); }
+.in-view-list { list-style: none; margin: 0; padding: 0; }
+.in-view-list li { border-bottom: 1px solid var(--border); padding: var(--space-2) 0; }
+.in-view-list a { text-decoration: none; color: var(--text); font-weight: 600; }
+.in-view-list .meta { display: block; font-size: var(--text-1); color: var(--text-muted); }
+.unplaced-group summary { cursor: pointer; font-weight: 600; padding: var(--space-2) 0; }
+.in-view-list__unplaced { font-size: var(--text-1); color: var(--text-muted); padding: var(--space-2) 0; margin: 0; }
+/* Legend: icon + label per family, never colour alone (D-5) -- reuses the chip icon set. */
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-4); padding: var(--space-3) 0; font-size: var(--text-1); border-top: 1px solid var(--border); margin-top: var(--space-2); }
+.legend__item { display: flex; align-items: center; gap: var(--space-1); }
+.legend__icon { flex: none; }
+.map-attribution { font-size: var(--text-1); color: var(--text-muted); padding-top: var(--space-2); }
+.map-live-region { position: absolute; width: 1px; height: 1px; overflow: hidden; }
+.map-controls { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.map-controls button {
+  font: inherit; min-width: 2.25rem; min-height: 2.25rem; border-radius: var(--radius-2);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer;
+}
+/* Regional quick views (task item 3) reuse the zoom controls' button styling; text labels get
+   horizontal padding the single-glyph zoom buttons don't need. */
+.map-controls--regions button { padding: 0 var(--space-3); font-size: var(--text-1); }
+
+@media (max-width: 1079px) {
+  .map-layout { grid-template-columns: 1fr; }
+  .map-side { max-height: none; }
+}
+
+/* ---------- 8.1 Map detail drawer -- document panel, not a modal card (D-12, D-15) ---------- */
+.map-drawer {
+  position: fixed; top: 0; right: 0; height: 100%; width: min(26rem, 90vw);
+  background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow-1);
+  padding: var(--space-6) var(--space-5); overflow-y: auto; transform: translateX(100%);
+  transition: transform var(--motion-fast) ease-out; z-index: 50;
+}
+.map-drawer.is-open { transition-duration: var(--motion-base); transform: translateX(0); }
+.map-drawer__close {
+  font: inherit; font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em;
+  background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0 0 var(--space-4);
+  display: block;
+}
+.map-drawer__close:hover { color: var(--text); }
+.map-drawer h2 { font-size: var(--text-5); margin-bottom: var(--space-2); }
+.drawer-fields { margin: var(--space-4) 0 0; border-top: 1px solid var(--border); }
+.drawer-fields__row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3);
+  padding: var(--space-2) 0; border-bottom: 1px solid var(--border); font-size: var(--text-2);
+}
+.drawer-fields__row dt { color: var(--text-muted); font-size: var(--text-1); margin: 0; }
+.drawer-fields__row dd { margin: 0; text-align: right; }
+.drawer-source {
+  font-size: var(--text-1); color: var(--text-muted); border-top: 1px solid var(--border);
+  padding-top: var(--space-3); margin-top: var(--space-3);
+}
+.drawer-source__label {
+  display: block; font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: var(--space-1);
+}
+.map-drawer .drawer-open-link { display: inline-block; margin-top: var(--space-4); font-weight: 600; }
+
+/* ---------- 9. Detail pages (D-18, D-26) ---------- */
+.breadcrumbs { font-size: var(--text-1); color: var(--text-muted); margin-bottom: var(--space-3); }
+.breadcrumbs a { color: var(--text-muted); }
+.detail-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3); }
+.detail-header h1 { margin: 0; }
+.field-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--space-6);
+  margin: var(--space-5) 0; border-top: 1px solid var(--border);
+}
+.field-grid > div { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.field-grid dt { color: var(--text-muted); font-size: var(--text-1); margin: 0; }
+.field-grid dd { margin: 0; text-align: right; }
+.field-grid .mono { font-family: var(--font-mono); }
+@media (max-width: 719px) { .field-grid { grid-template-columns: 1fr; } }
+
+/* Lifecycle timeline as a ruled ledger: date column in Plex Mono, event column, hairline rules
+   between rows -- a register entry, not a rounded-dot activity feed (docs/30 §1, D-26). */
+.timeline { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.timeline li {
+  display: flex; gap: var(--space-5); padding: var(--space-3) 0; border-bottom: 1px solid var(--border);
+  align-items: baseline;
+}
+.timeline time {
+  flex: none; width: 7.5rem; font-family: var(--font-mono); font-size: var(--text-1); color: var(--text-muted);
+}
+.timeline li .timeline__event { flex: 1; }
+@media (max-width: 719px) {
+  .timeline li { flex-direction: column; gap: var(--space-1); }
+  .timeline time { width: auto; }
+}
+.raw-fields { font-family: var(--font-mono); font-size: var(--text-1); white-space: pre-wrap; word-break: break-word; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2); padding: var(--space-4); max-height: 20rem; overflow: auto; }
+.raw-fields-details summary { cursor: pointer; font-weight: 600; }
+
+/* ---------- 10. About page ---------- */
+.source-table td, .source-table th { vertical-align: top; }
+.reuse-badge { font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+
+/* ---------- 11. Auth forms (Sprint 3 "login and registration surface") ----------
+   Bordered inputs and a filled primary button, unlike the filter bar's underline-only strip
+   (§6) -- a credential form reads as a form, not a toolbar. Tokens only, no new colours. */
+.auth-form {
+  display: flex; flex-direction: column; gap: var(--space-5);
+  max-width: 26rem; margin: var(--space-6) 0;
+}
+.field { display: flex; flex-direction: column; gap: var(--space-1); }
+.field label {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.field input {
+  font: inherit; font-size: var(--text-2); padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface);
+  color: var(--text); min-height: 2.5rem;
+}
+.field input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.field-hint { font-size: var(--text-1); color: var(--text-muted); margin: 0; }
+/* SC 3.3.1: the error is carried by this text node, not by the input's border colour alone. */
+.field__error { font-size: var(--text-1); color: var(--text); font-weight: 600; margin: 0; }
+.form-actions { display: flex; gap: var(--space-3); }
+.form-actions button {
+  font: inherit; font-size: var(--text-2); padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-2); border: 1px solid var(--link); background: var(--link);
+  color: var(--surface); cursor: pointer; min-height: 2.5rem;
+}
+.form-actions button:hover { background: var(--link-visited); border-color: var(--link-visited); }
+.notice {
+  border: 1px solid var(--border); border-radius: var(--radius-2); padding: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0; font-size: var(--text-2);
+}
+/* Still identified by the text itself (role="alert"/"status" plus the message), not colour alone
+   -- the border tint is a reinforcing cue for sighted users only (SC 3.3.1, SC 1.4.1). */
+.notice--error { border-color: var(--family-danger-text); }
+@media (max-width: 719px) {
+  .auth-form { max-width: 100%; }
+}

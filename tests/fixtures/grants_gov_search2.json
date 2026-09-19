@@ -1,0 +1,203 @@
+{
+ "request": {
+  "keyword": "energy",
+  "oppStatuses": "forecasted|posted"
+ },
+ "pages": [
+  {
+   "errorcode": 0,
+   "msg": "Webservice Succeeds",
+   "data": {
+    "searchParams": {
+     "resultType": "json",
+     "searchOnly": false,
+     "oppNum": "",
+     "cfda": "",
+     "sortBy": "",
+     "oppStatuses": "forecasted|posted",
+     "startRecordNum": 0,
+     "eligibilities": "",
+     "fundingInstruments": "",
+     "fundingCategories": "",
+     "agencies": "",
+     "rows": 100,
+     "keyword": "energy",
+     "keywordEncoded": true
+    },
+    "hitCount": 12,
+    "startRecord": 0,
+    "oppHits": [
+     {
+      "id": "356623",
+      "number": "DE-FOA-0003467",
+      "title": "SEEDING CRITICAL ADVANCES FOR LEADING ENERGY TECHNOLOGIES WITH UNTAPPED POTENTIAL (SCALEUP) READY",
+      "agencyCode": "DOE-ARPAE",
+      "agency": "Advanced Research Projects Agency Energy ",
+      "openDate": "10/02/2024",
+      "closeDate": "09/29/2029",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "81.135"
+      ]
+     },
+     {
+      "id": "329436",
+      "number": "DE-FOA-0002265",
+      "title": "University Nuclear Leadership Program&ndash; Scholarship and Fellowship Support",
+      "agencyCode": "DOE-ID",
+      "agency": "Idaho Field Office",
+      "openDate": "10/15/2020",
+      "closeDate": "10/14/2030",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "81.121"
+      ]
+     },
+     {
+      "id": "348258",
+      "number": "PD-18-7607",
+      "title": "Energy, Power, Control, and Networks",
+      "agencyCode": "NSF",
+      "agency": "U.S. National Science Foundation",
+      "openDate": "05/19/2023",
+      "closeDate": "",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "47.041"
+      ]
+     },
+     {
+      "id": "363616",
+      "number": "26-518",
+      "title": "Engineering (ENG): Chemical, Bioengineering, Energy, and Transport Systems (CBET)",
+      "agencyCode": "NSF",
+      "agency": "U.S. National Science Foundation",
+      "openDate": "08/17/2026",
+      "closeDate": "08/19/2076",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "47.041"
+      ]
+     },
+     {
+      "id": "360678",
+      "number": "DE-FOA-0003600",
+      "title": "FY 2026 Continuation of Solicitation for the Office of Science Financial Assistance Program",
+      "agencyCode": "PAMS-SC",
+      "agency": "Office of Science",
+      "openDate": "09/30/2025",
+      "closeDate": "09/30/2026",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "81.049"
+      ]
+     },
+     {
+      "id": "363396",
+      "number": "RUS-PART-2026",
+      "title": "Powering Affordable Reliable Technology (PART) Energy Program",
+      "agencyCode": "USDA-RUS",
+      "agency": "Rural Utilities Service",
+      "openDate": "09/08/2026",
+      "closeDate": "10/09/2026",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "10.757"
+      ]
+     },
+     {
+      "id": "361526",
+      "number": "DE-FOA-0003612",
+      "title": "The Genesis Mission:  Transforming Science and Energy with AI",
+      "agencyCode": "PAMS-SC",
+      "agency": "Office of Science",
+      "openDate": "03/17/2026",
+      "closeDate": "12/17/2026",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "81.049"
+      ]
+     },
+     {
+      "id": "279638",
+      "number": "RDBCP-REAP-RES-EEI-2016",
+      "title": "Renewable Energy Systems and Energy Efficiency Improvements Program",
+      "agencyCode": "USDA-RBCS",
+      "agency": "Rural Business-Cooperative Service ",
+      "openDate": "10/13/2015",
+      "closeDate": "",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "10.868"
+      ]
+     },
+     {
+      "id": "310029",
+      "number": "RDBCP-REAP-RES-EEI-2019",
+      "title": "Renewable Energy Systems and Energy Efficiency Improvements Program",
+      "agencyCode": "USDA-RBCS",
+      "agency": "Rural Business-Cooperative Service ",
+      "openDate": "10/30/2018",
+      "closeDate": "",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "10.868"
+      ]
+     },
+     {
+      "id": "363545",
+      "number": "G26AS00159",
+      "title": "Cooperative Agreement for Affiliated Partner with the Californian Cooperative Ecosystem Studies Unit (CESU)",
+      "agencyCode": "DOI-USGS1",
+      "agency": "Geological Survey",
+      "openDate": "08/12/2026",
+      "closeDate": "09/12/2026",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "15.808"
+      ]
+     },
+     {
+      "id": "363797",
+      "number": "DE-FOA-0003671",
+      "title": "Request for Information - Gauging Investor Interest in the Development and Commercialization of Subsurface Energy Technologies",
+      "agencyCode": "DOE-NETL",
+      "agency": "National Energy Technology Laboratory",
+      "openDate": "09/03/2026",
+      "closeDate": "10/05/2026",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "81.089"
+      ]
+     },
+     {
+      "id": "363757",
+      "number": "DE-FOA-0003617",
+      "title": "Staff Support for Regional Engagement with the U.S. Department of Energy, Office of Nuclear Energy, Office of Storage &amp; Transportation on Radioactive Materials Transportation Planning",
+      "agencyCode": "DOE-ID",
+      "agency": "Idaho Field Office",
+      "openDate": "09/01/2026",
+      "closeDate": "09/30/2026",
+      "oppStatus": "posted",
+      "docType": "synopsis",
+      "cfdaList": [
+       "81.121"
+      ]
+     }
+    ],
+    "errorMsgs": []
+   }
+  }
+ ]
+}

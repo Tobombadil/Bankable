@@ -1,0 +1,89 @@
+{% extends "admin/base.html" %}
+{% block title %}Source health -- Infraque admin{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Source health</h1>
+  <a class="admin-button admin-button--primary" href="/admin/sources/new">+ Add issuer</a>
+</div>
+{% include "admin/_notice.html" %}
+<form class="admin-toolbar" method="get" action="/admin/sources">
+  <div class="field">
+    <label for="f-health">Health</label>
+    <select id="f-health" name="health">
+      <option value="">All</option>
+      {% for v in ["ok", "degraded", "failing", "blocked", "paused"] %}
+      <option value="{{ v }}"{% if filters.health == v %} selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-publish">Publish state</label>
+    <select id="f-publish" name="publish_state">
+      <option value="">All</option>
+      {% for v in ["ingest_only", "api_only", "public"] %}
+      <option value="{{ v }}"{% if filters.publish_state == v %} selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-impl">Implemented</label>
+    <select id="f-impl" name="implemented">
+      <option value="">All</option>
+      <option value="true"{% if filters.implemented == "true" %} selected{% endif %}>Implemented</option>
+      <option value="false"{% if filters.implemented == "false" %} selected{% endif %}>Not implemented</option>
+    </select>
+  </div>
+  <button class="admin-button" type="submit">Apply</button>
+  {% if filters.health or filters.publish_state or filters.implemented %}
+  <a class="admin-button" href="/admin/sources">Clear all</a>
+  {% endif %}
+</form>
+{% if sources %}
+<div class="admin-table-wrap">
+<table class="admin-table">
+  <thead>
+    <tr>
+      <th scope="col">St</th>
+      <th scope="col">Source</th>
+      <th scope="col">Last run</th>
+      <th scope="col" class="num">Rows &Delta;</th>
+      <th scope="col" class="num">Events</th>
+      <th scope="col" class="num">$/rec</th>
+      <th scope="col">Publish</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for source in sources %}
+    {% set icon, chip_class = source_health_chip(source.health) %}
+    <tr>
+      <td><span class="chip {{ chip_class }}">{{ icon }} {{ source.health }}</span>{% if source.paused %} <span class="chip chip--neutral">paused</span>{% endif %}</td>
+      <td><a href="/admin/sources/{{ source.source_id }}">{{ source.name }}</a><br><span class="admin-muted mono">{{ source.source_id }}</span></td>
+      <td>{% if source.last_run %}{{ source.last_run.started_at }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">{% if source.last_run %}+{{ source.last_run.rows_new }} / {{ source.last_run.rows_changed }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">{% if source.last_run %}{{ source.last_run.events_emitted }}{% else %}&mdash;{% endif %}</td>
+      <td class="num">{% if source.cost_per_changed_record_30d is not none %}${{ "%.4f"|format(source.cost_per_changed_record_30d) }}{% if source.cost_flagged %} &#9888;{% endif %}{% else %}&mdash;{% endif %}</td>
+      <td>{% if source_is_gated(source) %}<span class="chip chip--gated">GATED</span>{% else %}<span class="chip chip--neutral">{{ source.publish_state }}</span>{% endif %}{% if not source.implemented %} <span class="chip chip--neutral">unimplemented</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if next_cursor %}
+<div class="admin-pager">
+  <a class="admin-button" href="/admin/sources?{% if filters.health %}health={{ filters.health }}&{% endif %}{% if filters.publish_state %}publish_state={{ filters.publish_state }}&{% endif %}{% if filters.implemented %}implemented={{ filters.implemented }}&{% endif %}cursor={{ next_cursor }}">Next page</a>
+</div>
+{% endif %}
+{% else %}
+<p class="admin-empty">
+  {% if filters.health or filters.publish_state or filters.implemented %}
+  No sources match
+  {% if filters.health %} health={{ filters.health }}{% endif %}
+  {% if filters.publish_state %} publish_state={{ filters.publish_state }}{% endif %}
+  {% if filters.implemented %} implemented={{ filters.implemented }}{% endif %}.
+  <a href="/admin/sources">Clear all</a>.
+  {% else %}
+  No sources are registered.
+  {% endif %}
+</p>
+{% endif %}
+{% endblock %}

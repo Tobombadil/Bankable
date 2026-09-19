@@ -1,0 +1,154 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ source.name if source else "Source" }} -- Infraque admin{% endblock %}
+{% block content %}
+{% if source is none %}
+<div class="page-header"><h1>Source</h1></div>
+{% include "admin/_notice.html" %}
+<p><a href="/admin/sources">Back to source health</a></p>
+{% else %}
+{% set icon, chip_class = source_health_chip(source.health) %}
+<div class="page-header">
+  <h1>{{ source.name }} <span class="admin-muted mono">{{ source.source_id }}</span></h1>
+  <span class="chip {{ chip_class }}">{{ icon }} {{ source.health }}</span>
+  {% if source.paused %}<span class="chip chip--neutral">paused</span>{% endif %}
+  {% if source_is_gated(source) %}<span class="chip chip--gated">GATED</span>{% else %}<span class="chip chip--neutral">{{ source.publish_state }}</span>{% endif %}
+</div>
+{% include "admin/_notice.html" %}
+<div class="admin-cols">
+  <section>
+    <h2>Registry fields</h2>
+    <table class="admin-table">
+      <tbody>
+        <tr><th scope="row">Category</th><td>{{ source.category }}</td></tr>
+        <tr><th scope="row">Jurisdiction</th><td>{{ source.jurisdiction or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Operator</th><td>{{ source.operator or "&mdash;" }}</td></tr>
+        <tr><th scope="row">URL</th><td class="mono"><a href="{{ source.url }}">{{ source.url }}</a></td></tr>
+        <tr><th scope="row">Access</th><td>{{ source.access }}</td></tr>
+        <tr><th scope="row">Cadence</th><td>{{ source.cadence }}</td></tr>
+        <tr><th scope="row">Tier</th><td>{{ source.tier }}</td></tr>
+        <tr><th scope="row">Host</th><td class="mono">{{ source.host or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Connector</th><td class="mono">{{ source.connector or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Implemented</th><td>{{ "yes" if source.implemented else "no" }}</td></tr>
+        <tr><th scope="row">Egress class</th><td>{{ source.egress }}</td></tr>
+        <tr><th scope="row">Schedule cron</th><td class="mono">{{ source.schedule_cron or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Next run at</th><td>{{ source.next_run_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Lag days</th><td>{{ source.lag_days if source.lag_days is not none else "default" }}</td></tr>
+        <tr><th scope="row">Consecutive failures</th><td>{{ source.consecutive_failures }}</td></tr>
+        <tr><th scope="row">Last error</th><td>{{ source.last_error or "&mdash;" }}{% if source.last_error_at %} ({{ source.last_error_at }}){% endif %}</td></tr>
+        <tr><th scope="row">Max rps / concurrency</th><td>{{ source.max_rps }} / {{ source.max_concurrency }}</td></tr>
+        <tr><th scope="row">Enrichment enabled</th><td>{{ "yes" if source.enrichment_enabled else "no" }}</td></tr>
+        <tr><th scope="row">Model budget (USD/day)</th><td>{{ source.model_budget_usd_daily if source.model_budget_usd_daily is not none else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Cost per changed record (30d)</th><td>{% if source.cost_per_changed_record_30d is not none %}${{ "%.4f"|format(source.cost_per_changed_record_30d) }}{% if source.cost_flagged %} &#9888; flagged{% endif %}{% else %}&mdash;{% endif %}</td></tr>
+        <tr><th scope="row">Attribution text</th><td>{{ source.attribution_text or "&mdash;" }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+  <section>
+    <h2>Licence</h2>
+    <table class="admin-table">
+      <tbody>
+        <tr><th scope="row">Licence id</th><td class="mono">{{ source.licence.licence_id }}</td></tr>
+        <tr><th scope="row">Name</th><td>{{ source.licence.name }}</td></tr>
+        <tr><th scope="row">Reuse class</th><td>{{ source.licence.reuse_class }}</td></tr>
+        <tr><th scope="row">Gate flag</th><td>{{ "open (gated)" if source.licence.gate_flag else "clear" }}{% if source.licence.gate_name %} ({{ source.licence.gate_name }}){% endif %}</td></tr>
+        <tr><th scope="row">Evidence URL</th><td>{% if source.legal_evidence_url %}<a href="{{ source.legal_evidence_url }}">{{ source.legal_evidence_url }}</a>{% else %}&mdash;{% endif %}</td></tr>
+        <tr><th scope="row">Evidence retrieved at</th><td>{{ source.licence_detail.evidence_retrieved_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Classified by</th><td>{{ source.licence_detail.classified_by or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Contract ref</th><td>{{ source.licence_detail.contract_ref or "&mdash;" }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<h2>Last runs</h2>
+{% if runs %}
+<div class="admin-table-wrap">
+<table class="admin-table">
+  <thead><tr><th scope="col">Started</th><th scope="col">Trigger</th><th scope="col">Status</th><th scope="col" class="num">Rows Δ</th><th scope="col">DQ</th></tr></thead>
+  <tbody>
+    {% for run in runs %}
+    <tr>
+      <td><a href="/admin/source-runs/{{ run.run_id }}">{{ run.started_at }}</a></td>
+      <td>{{ run.trigger }}</td>
+      <td>{{ run.status }}</td>
+      <td class="num">+{{ run.rows_new }} / {{ run.rows_changed }}</td>
+      <td>{{ run.dq_status }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="admin-empty">No runs recorded for this source yet.</p>
+{% endif %}
+
+<h2>Actions</h2>
+<div class="admin-cols">
+  <form class="admin-form" method="post" action="/admin/sources/{{ source.source_id }}/run">
+    <h3>Run now</h3>
+    <div class="field"><label for="run-reason">Reason</label><input id="run-reason" name="reason" required></div>
+    <button class="admin-button admin-button--primary" type="submit"{% if source.paused or not source.implemented %} disabled{% endif %}>Run now</button>
+    {% if source.paused %}<p class="admin-muted">Paused sources cannot be run.</p>{% endif %}
+    {% if not source.implemented %}<p class="admin-muted">No connector is implemented for this source.</p>{% endif %}
+  </form>
+
+  {% if source.paused %}
+  <form class="admin-form" method="post" action="/admin/sources/{{ source.source_id }}/resume">
+    <h3>Resume</h3>
+    <div class="field"><label for="resume-reason">Reason</label><input id="resume-reason" name="reason" required></div>
+    <button class="admin-button" type="submit">Resume</button>
+  </form>
+  {% else %}
+  <form class="admin-form" method="post" action="/admin/sources/{{ source.source_id }}/pause">
+    <h3>Pause</h3>
+    <div class="field"><label for="pause-reason">Reason</label><input id="pause-reason" name="reason" required></div>
+    <button class="admin-button" type="submit">Pause</button>
+  </form>
+  {% endif %}
+
+  <form class="admin-form" method="post" action="/admin/sources/{{ source.source_id }}/edit">
+    <h3>Edit cadence / lag</h3>
+    <div class="field"><label for="schedule_cron">Schedule cron</label><input id="schedule_cron" name="schedule_cron" value="{{ source.schedule_cron or '' }}"></div>
+    <div class="field"><label for="lag_days">Lag days (0-30)</label><input id="lag_days" name="lag_days" type="number" min="0" max="30" value="{{ source.lag_days if source.lag_days is not none else '' }}"></div>
+    <div class="field"><label for="edit-reason">Reason</label><input id="edit-reason" name="reason" required></div>
+    <button class="admin-button" type="submit">Save</button>
+  </form>
+
+  <form class="admin-form" method="post" action="/admin/sources/{{ source.source_id }}/publish-state">
+    <h3>Publish state</h3>
+    <div class="field">
+      <label for="publish_state">State</label>
+      <select id="publish_state" name="publish_state">
+        {% for v in publish_state_values %}
+        <option value="{{ v }}"{% if source.publish_state == v %} selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field"><label for="ps-reason">Reason</label><input id="ps-reason" name="reason" required></div>
+    <button class="admin-button" type="submit">Set publish state</button>
+    {% if notice and notice.status == 422 %}<p class="admin-muted">{{ notice.detail }}</p>{% endif %}
+  </form>
+
+  <form class="admin-form" method="post" action="/admin/sources/{{ source.source_id }}/gate">
+    <h3>Licence gate clearance</h3>
+    <input type="hidden" name="licence_id" value="{{ source.licence.licence_id }}">
+    {% if not can_clear_gate %}
+    <p class="admin-muted">Only the legal role can clear or set a licence gate. Current evidence is shown above.</p>
+    {% endif %}
+    <div class="field">
+      <label for="gate_flag">Gate</label>
+      <select id="gate_flag" name="gate_flag"{% if not can_clear_gate %} disabled{% endif %}>
+        <option value="false">Clear gate (evidence recorded)</option>
+        <option value="true" selected>Keep gated</option>
+      </select>
+    </div>
+    <div class="field"><label for="evidence_url">Evidence URL</label><input id="evidence_url" name="evidence_url" type="url"{% if not can_clear_gate %} disabled{% endif %}></div>
+    <div class="field"><label for="evidence_retrieved_at">Evidence retrieved at</label><input id="evidence_retrieved_at" name="evidence_retrieved_at" type="date"{% if not can_clear_gate %} disabled{% endif %}></div>
+    <div class="field"><label for="classified_by">Classified by</label><input id="classified_by" name="classified_by"{% if not can_clear_gate %} disabled{% endif %}></div>
+    <div class="field"><label for="contract_ref">Contract ref</label><input id="contract_ref" name="contract_ref"{% if not can_clear_gate %} disabled{% endif %}></div>
+    <div class="field"><label for="gate-reason">Reason</label><input id="gate-reason" name="reason"{% if not can_clear_gate %} disabled{% else %} required{% endif %}></div>
+    <button class="admin-button" type="submit"{% if not can_clear_gate %} disabled{% endif %}>Update gate</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "admin/base.html" %}
+{% block title %}Key issued -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-ops.css">{% endblock %}
+{% block content %}
+<h1>Key issued</h1>
+<div class="notice" role="alert">
+  <strong>Copy this secret now.</strong> It will not be shown again. If it is lost, revoke this key
+  and issue a new one.
+</div>
+<p class="admin-form">
+  <label for="secret">Secret</label><br>
+  <input id="secret" type="text" class="mono key-secret-field" readonly value="{{ key.secret }}">
+</p>
+<dl class="admin-cols">
+  <div>
+    <dt>Name</dt><dd>{{ key.name }}</dd>
+    <dt>Prefix</dt><dd class="mono">{{ key.prefix }}&hellip;{{ key.last4 }}</dd>
+    <dt>Account</dt><dd><a href="/admin/customers/{{ key.account_id }}">{{ key.account_id }}</a></dd>
+  </div>
+  <div>
+    <dt>Scopes</dt><dd>{{ key.scopes|join(", ") }}</dd>
+    <dt>Tier</dt><dd>{{ key.tier }}</dd>
+    <dt>Rate limit / hour</dt><dd>{{ key.rate_limit_per_hour }}</dd>
+    <dt>Daily quota</dt><dd>{{ key.daily_quota or "none" }}</dd>
+  </div>
+</dl>
+<p><a class="admin-button admin-button--primary" href="/admin/keys">Back to keys</a></p>
+{% endblock %}

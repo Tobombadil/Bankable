@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ record.name }} -- Infraque{% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.asset_type or 'asset' }}{% if record.technology %}, {{ record.technology }}{% endif %}{% if record.capacity_mw %}, {{ '%.1f'|format(record.capacity_mw) }} MW{% endif %}{% if record.county %}, {{ record.county }}{% endif %}{% if record.state %}, {{ record.state }}{% endif %}.{% endblock %}
+{% block canonical %}<link rel="canonical" href="/assets/{{ record.slug }}">{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
+<div class="detail-header">
+  <h1>{{ record.name }}</h1>
+  <span class="reuse-badge">{{ (record.asset_type or 'asset') | replace('_', ' ') }} &middot; {{ (record.status or 'unknown') | replace('_', ' ') }}</span>
+</div>
+
+<dl class="field-grid">
+  <div><dt>Type</dt><dd>{{ (record.asset_type or '—') | replace('_', ' ') }}</dd></div>
+  <div><dt>Status</dt><dd>{{ (record.status or '—') | replace('_', ' ') }}</dd></div>
+  <div><dt>Operator</dt><dd>{{ record.operator_name or '—' }}</dd></div>
+  <div><dt>Technology</dt><dd>{{ record.technology or '—' }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="visually-hidden">(source value: {{ record.technology_raw }})</span>{% endif %}</dd></div>
+  <div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}</dd></div>
+  {% if record.capacity_value is not none %}
+  <div><dt>Capacity ({{ record.capacity_unit or 'native unit' }})</dt><dd class="tnum">{{ '{:,.1f}'.format(record.capacity_value) }}</dd></div>
+  {% endif %}
+  <div><dt>Commissioned</dt><dd class="tnum">{{ record.commissioned_year or '—' }}</dd></div>
+  <div><dt>Units</dt><dd class="tnum">{{ record.unit_count or '—' }}</dd></div>
+  <div><dt>County</dt><dd>{{ record.county or '—' }}</dd></div>
+  <div><dt>State</dt><dd>{{ record.state or '—' }}</dd></div>
+</dl>
+
+<section aria-label="Attributes">
+  {{ m.section_heading("1.", "Attributes") }}
+  {{ m.attributes_table(record.attributes) }}
+</section>
+
+<section aria-label="Owners">
+  {{ m.section_heading("2.", "Owners") }}
+  {% if record.owners %}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">Organisations with an ownership or operating interest in this asset.</caption>
+    <thead>
+      <tr><th scope="col">Organisation</th><th scope="col">Role</th><th scope="col" class="num">Share</th><th scope="col">As of</th></tr>
+    </thead>
+    <tbody>
+      {% for o in record.owners %}
+      <tr>
+        <td data-label="Organisation">{% if o.public_id %}<a class="row-link" href="/organizations/{{ o.public_id }}">{{ o.name or o.public_id }}</a>{% else %}{{ o.name or '—' }}{% endif %}</td>
+        <td data-label="Role">{{ o.role or '—' }}</td>
+        <td data-label="Share" class="num tnum">{{ '%.1f%%'|format(o.share_pct) if o.share_pct is not none else '—' }}</td>
+        <td data-label="As of" class="tnum">{{ o.as_of or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="provenance-panel__empty">No ownership records for this asset.</p>
+  {% endif %}
+</section>
+
+<section aria-label="Nearby proposals">
+  {{ m.section_heading("3.", "Nearby proposals") }}
+  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of this asset's point (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
+  {% if nearby_proposals %}
+  <ul class="in-view-list">
+    {% for r in nearby_proposals %}
+    <li>{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
+      <span class="meta">{{ r.technology or '—' }} &middot; {{ r.state or r.jurisdiction or '—' }}{% if r.capacity_mw %} &middot; {{ '%.1f'|format(r.capacity_mw) }} MW{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No exact-grade proposals nearby.</p>
+  {% endif %}
+</section>
+
+{{ m.provenance_panel(provenance_rows, number="4.") }}
+
+{{ m.attribution_line(record) }}
+{% endblock %}

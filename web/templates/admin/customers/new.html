@@ -1,0 +1,47 @@
+{% extends "admin/base.html" %}
+{% block title %}New customer -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-people.css">{% endblock %}
+{% block content %}
+<p><a href="/admin/customers">&larr; Customers</a></p>
+{% include "admin/_notice.html" %}
+<h1>New customer</h1>
+<form class="admin-form" method="post" action="/admin/customers/new">
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" type="text" name="name" required value="{{ values.name or '' }}">
+    {% if notice and notice.errors.name %}<p class="admin-muted">{{ notice.errors.name }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="kind">Kind</label>
+    <select id="kind" name="kind" required>
+      {% for k in kinds %}
+      <option value="{{ k }}"{% if values.kind == k %} selected{% endif %}>{{ k }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="organization_id">Organization id (optional)</label>
+    <input id="organization_id" type="text" name="organization_id" placeholder="org_..." value="{{ values.organization_id or '' }}">
+  </div>
+  <div class="field">
+    <label for="primary_contact_email">Primary contact email (optional)</label>
+    <input id="primary_contact_email" type="email" name="primary_contact_email" value="{{ values.primary_contact_email or '' }}">
+    <p class="admin-muted">Creates the account's first user (role member, no password yet) and is
+      forwarded to the CRM through the adapter.</p>
+    {% if notice and notice.errors.primary_contact_email %}<p class="admin-muted">{{ notice.errors.primary_contact_email }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="entitlement_source">Entitlement source</label>
+    <select id="entitlement_source" name="entitlement_source">
+      {% for s in entitlement_sources %}
+      <option value="{{ s }}"{% if (values.entitlement_source or 'sor') == s %} selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="reason">Reason</label>
+    <textarea id="reason" name="reason" required>{{ values.reason or '' }}</textarea>
+  </div>
+  <button class="admin-button admin-button--primary" type="submit">Create customer</button>
+</form>
+{% endblock %}

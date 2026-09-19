@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Search -- Infraque{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Search</h1></div>
+{% if not q %}
+<p>Search by project name, sponsor, queue ID, county, issuer or title using the box above.</p>
+{% else %}
+<p class="result-count">Results for &ldquo;{{ q }}&rdquo;: {{ proposals | length }} proposal{{ 's' if proposals|length != 1 }}, {{ opportunities | length }} opportunit{{ 'y' if opportunities|length == 1 else 'ies' }}, {{ organizations | length }} organisation{{ 's' if organizations|length != 1 }}.</p>
+
+<h2>Proposals</h2>
+{% if proposals %}
+<ul class="in-view-list">
+  {% for r in proposals %}
+  <li>{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
+    <span class="meta">{{ r.technology or '—' }} &middot; {{ r.state or r.jurisdiction or '—' }}{% if r.capacity_mw %} &middot; {{ '%.1f'|format(r.capacity_mw) }} MW{% endif %}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<p>No matching proposals.</p>{% endif %}
+
+<h2>Opportunities</h2>
+{% if opportunities %}
+<ul class="in-view-list">
+  {% for r in opportunities %}
+  <li>{{ m.status_chip(r.status, r.lifecycle_family) }} <a href="/opportunities/{{ r.slug }}">{{ r.title }}</a>
+    <span class="meta">{{ r.issuer or '—' }}{% if r.due_at %} &middot; due {{ r.due_at[:10] }}{% endif %}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<p>No matching opportunities.</p>{% endif %}
+
+<h2>Organisations</h2>
+{% if organizations %}
+<ul class="in-view-list">
+  {% for r in organizations %}
+  <li><a href="/organizations/{{ r.slug or r.public_id }}">{{ r.name }}</a>
+    <span class="meta">{{ (r.type or '—') | replace('_', ' ') }}{% if r.jurisdiction %} &middot; {{ r.jurisdiction }}{% endif %}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<p>No matching organisations.</p>{% endif %}
+{% endif %}
+{% endblock %}

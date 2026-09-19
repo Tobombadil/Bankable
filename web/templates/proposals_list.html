@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Proposals -- Infraque{% endblock %}
+{% block meta_description %}Interconnection queue and generator proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO, filterable by technology, lifecycle state, jurisdiction and capacity.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Proposals</h1>
+  <p>Supply-side records: interconnection queue positions and planned generation/storage units, one row per source observation.</p>
+</div>
+{{ m.delayed_banner(delayed) }}
+{% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
+
+<form id="filters" class="filter-bar" method="get" action="/proposals" hx-get="/proposals" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
+  <div class="filter-field">
+    <label for="f-technology">Technology</label>
+    <select id="f-technology" name="technology">
+      <option value="">All</option>
+      {% for t in technologies %}<option value="{{ t }}" {% if filters.get('technology') == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-kind">Kind</label>
+    <select id="f-kind" name="kind">
+      <option value="">All</option>
+      {% for k in kinds %}<option value="{{ k }}" {% if filters.get('kind') == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-jurisdiction">Jurisdiction</label>
+    <input id="f-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX" value="{{ filters.get('jurisdiction', '') }}">
+  </div>
+  <div class="filter-field">
+    <span id="f-capacity-label">Capacity (MW)</span>
+    <div class="filter-bar__range" role="group" aria-labelledby="f-capacity-label">
+      <label class="visually-hidden" for="f-capacity-min">Minimum capacity, megawatts</label>
+      <input id="f-capacity-min" type="number" min="0" step="1" name="capacity_mw[gte]" placeholder="Min" value="{{ filters.get('capacity_mw[gte]', '') }}">
+      <span aria-hidden="true">&ndash;</span>
+      <label class="visually-hidden" for="f-capacity-max">Maximum capacity, megawatts</label>
+      <input id="f-capacity-max" type="number" min="0" step="1" name="capacity_mw[lte]" placeholder="Max" value="{{ filters.get('capacity_mw[lte]', '') }}">
+    </div>
+  </div>
+  <div class="filter-field filter-field--checkbox">
+    <label for="f-include-withdrawn">
+      <input id="f-include-withdrawn" type="checkbox" name="include_withdrawn" value="1" {% if include_withdrawn %}checked{% endif %}>
+      Include withdrawn &amp; cancelled
+    </label>
+  </div>
+  <button class="filter-bar__submit" type="submit">Apply filters</button>
+  {% if filters.get('technology') or filters.get('kind') or filters.get('jurisdiction') or filters.get('capacity_mw[gte]') or filters.get('capacity_mw[lte]') or include_withdrawn %}
+  <a class="filter-bar__clear" href="/proposals">Clear all</a>
+  {% endif %}
+</form>
+
+<div id="result-rows">
+  {% include "partials/_proposal_rows.html" %}
+</div>
+{% endblock %}

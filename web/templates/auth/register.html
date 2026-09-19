@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Create an account -- Infraque{% endblock %}
+{% block meta_description %}Create an Infraque account.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Create an account</h1>
+</div>
+{% if error_title %}
+<p class="notice notice--error" role="alert">{{ error_title }}{% if error_detail %}: {{ error_detail }}{% endif %}</p>
+{% endif %}
+<form class="auth-form" method="post" action="/register" novalidate>
+  <input type="hidden" name="next" value="{{ next }}">
+  <div class="field">
+    <label for="register-name">Name (optional)</label>
+    <input id="register-name" name="name" type="text" autocomplete="name" value="{{ name or '' }}">
+  </div>
+  <div class="field">
+    <label for="register-email">Email</label>
+    <input id="register-email" name="email" type="email" autocomplete="email" required value="{{ email or '' }}">
+    {% if field_errors and field_errors.email %}<p class="field__error">{{ field_errors.email }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="register-password">Password</label>
+    <input id="register-password" name="password" type="password" autocomplete="new-password" required minlength="12">
+    <p class="field-hint">At least 12 characters.</p>
+    {% if field_errors and field_errors.password %}<p class="field__error">{{ field_errors.password }}</p>{% endif %}
+  </div>
+  <div class="form-actions">
+    <button type="submit">Create account</button>
+  </div>
+</form>
+<p><a href="/login{% if next and next != '/account' %}?next={{ next }}{% endif %}">Already have an account? Sign in</a></p>
+{% endblock %}

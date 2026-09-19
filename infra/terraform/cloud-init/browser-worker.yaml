@@ -1,0 +1,10 @@
+#cloud-config
+# Bootstraps the browser-worker VM (Playwright/Chromium only). Isolated on its own VM so a
+# Chromium OOM cannot take the API down with it (docs/adr/0005 "Consequences"). See app.yaml for
+# the rationale shared by all three cloud-init files.
+
+package_update: true
+
+runcmd:
+  - mkdir -p /opt/infraque/compose /opt/infraque/secrets /opt/infraque/backups
+  - timedatectl set-timezone UTC

@@ -1,0 +1,65 @@
+#cloud-config
+# Bootstraps the api+web VM. The `docker-ce` Hetzner App Marketplace image already ships Docker
+# Engine, the Compose plugin and root SSH access via the key attached in `hcloud_server.app`
+# (docs/20 §11: "VMs accept SSH from the owner's key only"). This creates the directories the
+# deploy script (infra/scripts/deploy.sh) expects, installs the backup tools and schedules the
+# nightly backup (docs/60 §8). No secret material is written here (docs/04 E-19) —
+# infra/sops/*.enc.yaml is decrypted on the VM by the deploy script itself, using an age key
+# provisioned out of band (docs/60-deployment.md, "Rotate a secret" runbook).
+
+package_update: true
+
+# infra/scripts/backup.sh needs a pg_dump at least as new as the managed server (Postgres 16,
+# ADR 0003) and the AWS CLI for the S3-compatible R2 upload. Ubuntu's own postgresql-client may
+# lag the server major, so the client comes from the PGDG repository (cloud-init substitutes
+# $RELEASE with the distro codename).
+apt:
+  sources:
+    pgdg:
+      source: "deb https://apt.postgresql.org/pub/repos/apt $RELEASE-pgdg main"
+      keyid: B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+      keyserver: keyserver.ubuntu.com
+packages:
+  - postgresql-client-16
+  - awscli
+
+write_files:
+  - path: /etc/systemd/system/infraque-backup.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Infraque nightly pg_dump to R2 (infra/scripts/backup.sh, docs/60 §8)
+      # Both files arrive with the first deploy (infra/scripts/deploy.sh); until then the timer
+      # fires and the unit is skipped, not failed.
+      ConditionPathExists=/opt/infraque/scripts/backup.sh
+      ConditionPathExists=/opt/infraque/secrets/.env
+      After=network-online.target docker.service
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      EnvironmentFile=/opt/infraque/secrets/.env
+      Environment=BACKUP_DIR=/opt/infraque/backups
+      ExecStart=/opt/infraque/scripts/backup.sh
+      Nice=10
+      IOSchedulingClass=idle
+
+  - path: /etc/systemd/system/infraque-backup.timer
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Run infraque-backup nightly (docs/04 O-7: alert if the last success is older than 26 h)
+
+      [Timer]
+      OnCalendar=*-*-* 03:17:00 UTC
+      RandomizedDelaySec=10min
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  - mkdir -p /opt/infraque/compose /opt/infraque/secrets /opt/infraque/scripts /opt/infraque/backups
+  - timedatectl set-timezone UTC
+  - systemctl daemon-reload
+  - systemctl enable --now infraque-backup.timer

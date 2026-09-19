@@ -1,0 +1,180 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ proposal.name_canonical if proposal else "Proposal" }} -- Infraque admin{% endblock %}
+{% block content %}
+{% if proposal is none %}
+<div class="page-header"><h1>Proposal</h1></div>
+{% include "admin/_notice.html" %}
+<p><a href="/admin/records">Back to record lookup</a></p>
+{% else %}
+<div class="page-header">
+  <h1>{{ proposal.name_canonical }} <span class="admin-muted mono">{{ proposal.public_id }}</span></h1>
+  <span class="chip chip--neutral">{{ proposal.publish_state }}</span>
+  <span class="chip chip--neutral">{{ proposal.min_reuse_class }}</span>
+</div>
+{% include "admin/_notice.html" %}
+
+<div class="admin-cols">
+  <section>
+    <h2>Canonical fields</h2>
+    <table class="admin-table">
+      <tbody>
+        <tr><th scope="row">Kind</th><td>{{ proposal.kind }}</td></tr>
+        <tr><th scope="row">Sponsor</th><td>{{ proposal.sponsor.name_canonical if proposal.sponsor else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Technology</th><td>{{ proposal.technology or "&mdash;" }}{% if proposal.technology_raw %} (raw: {{ proposal.technology_raw }}){% endif %}</td></tr>
+        <tr><th scope="row">Capacity MW</th><td>{{ proposal.capacity_mw if proposal.capacity_mw is not none else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Storage MWh</th><td>{{ proposal.storage_mwh if proposal.storage_mwh is not none else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Jurisdiction</th><td>{{ proposal.jurisdiction }}</td></tr>
+        <tr><th scope="row">ISO</th><td>{{ proposal.iso or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Lifecycle state</th><td>{{ proposal.lifecycle_state }}</td></tr>
+        <tr><th scope="row">Status raw</th><td>{{ proposal.status_raw or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Proposed online date</th><td>{{ proposal.proposed_online_date or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Location</th><td>{% if proposal.location %}{{ proposal.location.county_name or proposal.location.state_code or proposal.location.country }} ({{ proposal.location.precision }}){% else %}unplaced{% endif %}</td></tr>
+        <tr><th scope="row">Identifiers</th><td class="mono">{{ proposal.identifiers }}</td></tr>
+        <tr><th scope="row">First seen</th><td>{{ proposal.first_seen }}</td></tr>
+        <tr><th scope="row">Last changed</th><td>{{ proposal.last_changed }}</td></tr>
+        <tr><th scope="row">Published at</th><td>{{ proposal.published_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Public at</th><td>{{ proposal.public_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Source count</th><td>{{ proposal.source_count }}</td></tr>
+        <tr><th scope="row">Created by</th><td>{{ proposal.created_by }}</td></tr>
+        <tr><th scope="row">Resolution confidence</th><td>{{ proposal.resolution_confidence if proposal.resolution_confidence is not none else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Merged into</th><td>{% if proposal.merged_into %}<a href="/admin/records/proposals/{{ proposal.merged_into }}">{{ proposal.merged_into }}</a>{% else %}&mdash;{% endif %}</td></tr>
+        <tr><th scope="row">Overrides</th><td class="mono">{{ proposal.overrides.keys()|join(", ") if proposal.overrides else "none" }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Edit canonical fields</h2>
+    <form class="admin-form" method="post" action="/admin/records/proposals/{{ proposal.public_id }}/edit">
+      <div class="field"><label for="name_canonical">Name</label><input id="name_canonical" name="name_canonical" value="{{ proposal.name_canonical }}"></div>
+      <div class="field">
+        <label for="kind">Kind</label>
+        <select id="kind" name="kind">
+          {% for v in proposal_kinds %}<option value="{{ v }}"{% if proposal.kind == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label for="technology">Technology</label><input id="technology" name="technology" value="{{ proposal.technology or '' }}"></div>
+      <div class="field"><label for="capacity_mw">Capacity MW</label><input id="capacity_mw" name="capacity_mw" type="number" step="0.001" value="{{ proposal.capacity_mw if proposal.capacity_mw is not none else '' }}"></div>
+      <div class="field"><label for="storage_mwh">Storage MWh</label><input id="storage_mwh" name="storage_mwh" type="number" step="0.001" value="{{ proposal.storage_mwh if proposal.storage_mwh is not none else '' }}"></div>
+      <div class="field"><label for="jurisdiction">Jurisdiction</label><input id="jurisdiction" name="jurisdiction" value="{{ proposal.jurisdiction }}"></div>
+      <div class="field"><label for="iso">ISO</label><input id="iso" name="iso" value="{{ proposal.iso or '' }}"></div>
+      <div class="field">
+        <label for="lifecycle_state">Lifecycle state</label>
+        <select id="lifecycle_state" name="lifecycle_state">
+          {% for v in lifecycle_states %}<option value="{{ v }}"{% if proposal.lifecycle_state == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label for="proposed_online_date">Proposed online date</label><input id="proposed_online_date" name="proposed_online_date" type="date" value="{{ proposal.proposed_online_date or '' }}"></div>
+      <div class="field"><label for="edit-reason">Reason</label><input id="edit-reason" name="reason" required></div>
+      <button class="admin-button admin-button--primary" type="submit">Save</button>
+    </form>
+  </section>
+</div>
+
+<h2>Sources</h2>
+{% if proposal.sources %}
+<div class="admin-table-wrap">
+<table class="admin-table">
+  <thead><tr><th scope="col">Source</th><th scope="col">Licence class</th><th scope="col">Retrieved at</th><th scope="col">Active</th><th scope="col">Link</th></tr></thead>
+  <tbody>
+    {% for row in proposal.sources %}
+    <tr>
+      <td class="mono"><a href="/admin/sources/{{ row.source_id }}">{{ row.source_id }}</a></td>
+      <td>{{ row.reuse_class }}</td>
+      <td>{{ row.retrieved_at }}</td>
+      <td>{{ "yes" if row.active else "no" }}</td>
+      <td><a href="{{ row.source_url }}">view at source</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="admin-empty">No sources are linked to this proposal.</p>
+{% endif %}
+
+<h2>Event history</h2>
+{% if proposal.events %}
+<div class="admin-table-wrap">
+<table class="admin-table">
+  <thead><tr><th scope="col">Event</th><th scope="col">Observed at</th><th scope="col">Actor</th><th scope="col">Reason</th><th scope="col">Changed keys</th></tr></thead>
+  <tbody>
+    {% for event in proposal.events %}
+    <tr>
+      <td class="mono">{{ event.id }}<br>{{ event.event_type }}</td>
+      <td>{{ event.observed_at }}</td>
+      <td>{{ event.actor_type }}{% if event.actor_user_id %} ({{ event.actor_user_id }}){% endif %}</td>
+      <td>{{ event.reason or "&mdash;" }}</td>
+      <td>{{ event.changed_keys|join(", ") if event.changed_keys else "&mdash;" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="admin-empty">No events recorded for this proposal.</p>
+{% endif %}
+
+<h2>Publish state</h2>
+<form class="admin-form" method="post" action="/admin/records/proposals/{{ proposal.public_id }}/publish-state">
+  <div class="field">
+    <label for="publish_state">State</label>
+    <select id="publish_state" name="publish_state">
+      {% for v in publish_state_values %}<option value="{{ v }}"{% if proposal.publish_state == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label><input type="checkbox" name="takedown"> This is a takedown request, not an editorial unpublish</label>
+  </div>
+  <div class="field"><label for="ps-reason">Reason</label><input id="ps-reason" name="reason" required></div>
+  <button class="admin-button" type="submit">Set publish state</button>
+  {% if notice and notice.status == 422 %}<p class="admin-muted">{{ notice.detail }}</p>{% endif %}
+</form>
+
+<h2>Merge</h2>
+{% if merge_preview %}
+<div class="admin-form">
+  <h3>Preview: absorbing {{ merge_preview.absorb_public_id }}</h3>
+  {% if merge_preview.conflicts %}
+  <p>Fields where the two records disagree:</p>
+  <form method="post" action="/admin/records/proposals/{{ proposal.public_id }}/merge">
+    <input type="hidden" name="step" value="apply">
+    <input type="hidden" name="absorb_public_id" value="{{ merge_preview.absorb_public_id }}">
+    <input type="hidden" name="preview_token" value="{{ merge_preview.preview_token }}">
+    {% for conflict in merge_preview.conflicts %}
+    <fieldset class="field">
+      <legend>{{ conflict.field }}</legend>
+      <label><input type="radio" name="field_choice__{{ conflict.field }}" value="surviving" checked> surviving: {{ conflict.surviving_value }}</label>
+      <label><input type="radio" name="field_choice__{{ conflict.field }}" value="absorbed"> absorbed: {{ conflict.absorbed_value }}</label>
+    </fieldset>
+    {% endfor %}
+    <div class="field"><label for="merge-reason">Reason</label><input id="merge-reason" name="reason" required></div>
+    <button class="admin-button admin-button--primary" type="submit">Apply merge</button>
+  </form>
+  {% else %}
+  <p>No conflicting fields.</p>
+  <form method="post" action="/admin/records/proposals/{{ proposal.public_id }}/merge">
+    <input type="hidden" name="step" value="apply">
+    <input type="hidden" name="absorb_public_id" value="{{ merge_preview.absorb_public_id }}">
+    <input type="hidden" name="preview_token" value="{{ merge_preview.preview_token }}">
+    <div class="field"><label for="merge-reason2">Reason</label><input id="merge-reason2" name="reason" required></div>
+    <button class="admin-button admin-button--primary" type="submit">Apply merge</button>
+  </form>
+  {% endif %}
+</div>
+{% else %}
+<form class="admin-form" method="post" action="/admin/records/proposals/{{ proposal.public_id }}/merge">
+  <input type="hidden" name="step" value="preview">
+  <div class="field"><label for="absorb_public_id">Absorb proposal id</label><input id="absorb_public_id" name="absorb_public_id" required placeholder="prop_..."></div>
+  <button class="admin-button" type="submit">Preview merge</button>
+</form>
+{% endif %}
+
+<h2>Unmerge</h2>
+<form class="admin-form" method="post" action="/admin/records/proposals/{{ proposal.public_id }}/unmerge">
+  <div class="field"><label for="merge_event_id">Merge event id</label><input id="merge_event_id" name="merge_event_id" required placeholder="evt_..."></div>
+  <div class="field"><label for="unmerge-reason">Reason</label><input id="unmerge-reason" name="reason" required></div>
+  <button class="admin-button" type="submit">Reverse merge</button>
+</form>
+{% endif %}
+{% endblock %}

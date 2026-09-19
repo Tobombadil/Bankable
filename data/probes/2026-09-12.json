@@ -1,0 +1,410 @@
+{
+ "date": "2026-09-12",
+ "registry_version": "2026-09-12",
+ "http": [
+  {
+   "id": "us.iso.caiso.gen_queue",
+   "url": "https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx",
+   "method": "GET",
+   "status": 200,
+   "bytes": 384823,
+   "secs": 1.21,
+   "result": "ok"
+  },
+  {
+   "id": "us.iso.ercot.gen_queue",
+   "url": "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933",
+   "method": "GET",
+   "status": 200,
+   "bytes": 80098,
+   "secs": 0.64,
+   "result": "ok"
+  },
+  {
+   "id": "us.iso.ercot.large_load_queue",
+   "url": "https://www.ercot.com/mp/data-products/data-product-details?id=NP3-990-CD",
+   "method": "GET",
+   "status": 200,
+   "bytes": 52648,
+   "secs": 0.53,
+   "result": "ok"
+  },
+  {
+   "id": "us.iso.spp.gen_queue",
+   "url": "https://opsportal.spp.org/Studies/GenerateSummaryCSV",
+   "method": "GET",
+   "status": 200,
+   "bytes": 664307,
+   "secs": 1.01,
+   "result": "ok"
+  },
+  {
+   "id": "us.iso.nyiso.gen_queue",
+   "url": "https://www.nyiso.com/documents/20142/1407078/NYISO-Interconnection-Queue.xlsx",
+   "method": "GET",
+   "status": 200,
+   "bytes": 475716,
+   "secs": 1.45,
+   "result": "ok"
+  },
+  {
+   "id": "us.iso.isone.gen_queue",
+   "url": "https://irtt.iso-ne.com/reports/external",
+   "method": "GET",
+   "status": 200,
+   "bytes": 3670557,
+   "secs": 1.63,
+   "result": "ok"
+  },
+  {
+   "id": "us.iso.pjm.gen_queue",
+   "url": "https://api.pjm.com/api/v1/",
+   "method": "GET",
+   "status": 401,
+   "bytes": 0,
+   "secs": 1.53,
+   "result": "needs_key"
+  },
+  {
+   "id": "us.iso.miso.gen_queue",
+   "url": "https://www.misoenergy.org/api/giqueue/getprojects",
+   "method": "GET",
+   "status": 403,
+   "bytes": 5819,
+   "secs": 0.37,
+   "result": "blocked_403"
+  },
+  {
+   "id": "us.lbnl.queued_up",
+   "url": "https://emp.lbl.gov/queues",
+   "method": "GET",
+   "status": 403,
+   "bytes": 5485,
+   "secs": 0.44,
+   "result": "blocked_403"
+  },
+  {
+   "id": "us.gridtracker.interconnection_fyi",
+   "url": "https://www.interconnection.fyi/",
+   "method": "GET",
+   "status": 200,
+   "bytes": 201306,
+   "secs": 0.64,
+   "result": "ok"
+  },
+  {
+   "id": "us.eia.860m",
+   "url": "https://www.eia.gov/electricity/data/eia860m/",
+   "method": "GET",
+   "status": 200,
+   "bytes": 93430,
+   "secs": 0.66,
+   "result": "ok"
+  },
+  {
+   "id": "us.eia.api",
+   "url": "https://api.eia.gov/v2/",
+   "method": "GET",
+   "status": 403,
+   "bytes": 163,
+   "secs": 0.79,
+   "result": "blocked_403"
+  },
+  {
+   "id": "us.ferc.elibrary",
+   "url": "https://elibrary.ferc.gov/eLibrarywebapi/api/Search/AdvancedSearch",
+   "method": "POST",
+   "status": 200,
+   "bytes": 4098,
+   "secs": 1.46,
+   "result": "ok"
+  },
+  {
+   "id": "us.ferc.pipelines_pending",
+   "url": "https://www.ferc.gov/industries-data/natural-gas/major-pipeline-projects-pending",
+   "method": "GET",
+   "status": 403,
+   "bytes": 5985,
+   "secs": 0.46,
+   "result": "blocked_403"
+  },
+  {
+   "id": "us.epa.eis_database",
+   "url": "https://cdxapps.epa.gov/cdx-enepa-II/public/action/eis/search",
+   "method": "GET",
+   "status": 200,
+   "bytes": 31476,
+   "secs": 0.59,
+   "result": "ok"
+  },
+  {
+   "id": "us.permits_dashboard",
+   "url": "https://data.permits.performance.gov/api/views/q7va-8c67/rows.csv?accessType=DOWNLOAD",
+   "method": "GET",
+   "status": 200,
+   "bytes": 24008,
+   "secs": 1.52,
+   "result": "ok"
+  },
+  {
+   "id": "us.blm.eplanning",
+   "url": "https://eplanning.blm.gov/eplanning-ui/home",
+   "method": "GET",
+   "status": 404,
+   "bytes": 118861,
+   "secs": 0.9,
+   "result": "not_found"
+  },
+  {
+   "id": "us.usace.orm_public",
+   "url": "https://permits.ops.usace.army.mil/orm-public",
+   "method": "GET",
+   "status": 200,
+   "bytes": 2519,
+   "secs": 2.25,
+   "result": "ok"
+  },
+  {
+   "id": "us.epa.class_vi",
+   "url": "https://www.epa.gov/uic/current-class-vi-projects-under-review-epa",
+   "method": "GET",
+   "status": 200,
+   "bytes": 57652,
+   "secs": 0.47,
+   "result": "ok"
+  },
+  {
+   "id": "us.regulations_gov",
+   "url": "https://api.regulations.gov/v4/documents?api_key=DEMO_KEY&filter%5BsearchTerm%5D=solar",
+   "method": "GET",
+   "status": 200,
+   "bytes": 50416,
+   "secs": 1.41,
+   "result": "ok"
+  },
+  {
+   "id": "us.grants_gov.search2",
+   "url": "https://api.grants.gov/v1/api/search2",
+   "method": "POST",
+   "status": 200,
+   "bytes": 11417,
+   "secs": 0.64,
+   "result": "ok"
+  },
+  {
+   "id": "us.sam_gov.opportunities",
+   "url": "https://api.sam.gov/opportunities/v2/search?limit=1&postedFrom=09/01/2026&postedTo=09/12/2026",
+   "method": "GET",
+   "status": 404,
+   "bytes": 0,
+   "secs": 0.5,
+   "result": "not_found"
+  },
+  {
+   "id": "us.doe.exchange_portals",
+   "url": "https://infrastructure-exchange.energy.gov/",
+   "method": "GET",
+   "status": 200,
+   "bytes": 735074,
+   "secs": 1.07,
+   "result": "ok"
+  },
+  {
+   "id": "us.usaspending",
+   "url": "https://api.usaspending.gov/api/v2/search/spending_by_award/",
+   "method": "POST",
+   "status": 200,
+   "bytes": 1334,
+   "secs": 0.76,
+   "result": "ok"
+  },
+  {
+   "id": "gb.neso.tec_register",
+   "url": "https://api.neso.energy/api/3/action/package_show?id=transmission-entry-capacity-tec-register",
+   "method": "GET",
+   "status": 200,
+   "bytes": 6079,
+   "secs": 0.76,
+   "result": "ok"
+  },
+  {
+   "id": "gb.pins.nsip",
+   "url": "https://national-infrastructure-consenting.planninginspectorate.gov.uk/project-search",
+   "method": "GET",
+   "status": 200,
+   "bytes": 156144,
+   "secs": 1.62,
+   "result": "ok"
+  },
+  {
+   "id": "gb.find_a_tender",
+   "url": "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?updatedFrom=2026-09-10T00:00:00",
+   "method": "GET",
+   "status": 200,
+   "bytes": 1351305,
+   "secs": 1.39,
+   "result": "ok"
+  },
+  {
+   "id": "eu.ted.api",
+   "url": "https://api.ted.europa.eu/v3/notices/search",
+   "method": "POST",
+   "status": 200,
+   "bytes": 22190,
+   "secs": 0.82,
+   "result": "ok"
+  },
+  {
+   "id": "ca.ieso.connection_status",
+   "url": "https://www.ieso.ca/en/Sector-Participants/Connection-Process/Application-Status",
+   "method": "GET",
+   "status": 200,
+   "bytes": 49343,
+   "secs": 0.78,
+   "result": "ok"
+  },
+  {
+   "id": "ca.iaac.registry",
+   "url": "https://maps-cartes.services.geo.ca/server_serveur/rest/services/IAAC_AEIC/Canadian_Impact_Assessment_Registry_Assessment_Inventory_EN/MapServer/0/query?where=1%3D1&returnCountOnly=true&f=json",
+   "method": "GET",
+   "status": 200,
+   "bytes": 146,
+   "secs": 0.61,
+   "result": "ok"
+  },
+  {
+   "id": "au.aemo.connections_scorecard",
+   "url": "https://www.aemo.com.au/energy-systems/electricity/national-electricity-market-nem/participate-in-the-market/network-connections/connections-scorecard",
+   "method": "GET",
+   "status": 403,
+   "bytes": 6253,
+   "secs": 0.8,
+   "result": "blocked_403"
+  },
+  {
+   "id": "au.dcceew.epbc_referrals",
+   "url": "https://fed.dcceew.gov.au/datasets/epbc-referrals-public-dataset",
+   "method": "GET",
+   "status": 200,
+   "bytes": 49598,
+   "secs": 1.19,
+   "result": "ok"
+  },
+  {
+   "id": "mdb.worldbank.procnotices",
+   "url": "https://search.worldbank.org/api/v2/procnotices?format=json&rows=2",
+   "method": "GET",
+   "status": 200,
+   "bytes": 21142,
+   "secs": 0.55,
+   "result": "ok"
+  },
+  {
+   "id": "global.gem.trackers",
+   "url": "https://globalenergymonitor.org/projects/global-integrated-power-tracker/",
+   "method": "GET",
+   "status": 200,
+   "bytes": 96921,
+   "secs": 1.36,
+   "result": "ok"
+  },
+  {
+   "id": "news.gdelt.doc",
+   "url": "https://api.gdeltproject.org/api/v2/doc/doc?query=%22battery%20storage%22%20%22interconnection%22&mode=artlist&maxrecords=3&format=json&timespan=3d",
+   "method": "GET",
+   "status": 429,
+   "bytes": 444,
+   "secs": 10.76,
+   "result": "http_429"
+  },
+  {
+   "id": "news.google_rss",
+   "url": "https://news.google.com/rss/search?q=%22solar+project%22+proposed&hl=en-US&gl=US&ceid=US:en",
+   "method": "GET",
+   "status": 200,
+   "bytes": 147564,
+   "secs": 0.82,
+   "result": "ok"
+  },
+  {
+   "id": "news.wires",
+   "url": "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeEFpRVQ==",
+   "method": "GET",
+   "status": 200,
+   "bytes": 23472,
+   "secs": 0.77,
+   "result": "ok"
+  },
+  {
+   "id": "social.bluesky",
+   "url": "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=bsky.app",
+   "method": "GET",
+   "status": 200,
+   "bytes": 1054,
+   "secs": 0.4,
+   "result": "ok"
+  }
+ ],
+ "gridstatus": {
+  "CAISO": {
+   "ok": true,
+   "rows": 2278,
+   "secs": 8.1,
+   "status_counts": {
+    "WITHDRAWN": 1762,
+    "ACTIVE": 265,
+    "COMPLETED": 251
+   }
+  },
+  "PJM": {
+   "ok": false,
+   "err": "ValueError('api_key must be provided or set in PJM_API_KEY env var')",
+   "secs": 0.0
+  },
+  "MISO": {
+   "ok": false,
+   "err": "RuntimeError('GET https://www.misoenergy.org/api/giqueue/getprojects failed: <Response [403]>')",
+   "secs": 0.5
+  },
+  "Ercot": {
+   "ok": true,
+   "rows": 1778,
+   "secs": 2.4,
+   "status_counts": {
+    "Active": 1198,
+    "Completed": 580
+   }
+  },
+  "SPP": {
+   "ok": true,
+   "rows": 3074,
+   "secs": 1.2,
+   "status_counts": {
+    "Withdrawn": 1998,
+    "Completed": 660,
+    "nan": 216,
+    "Active": 200
+   }
+  },
+  "NYISO": {
+   "ok": true,
+   "rows": 3164,
+   "secs": 1.3,
+   "status_counts": {
+    "Withdrawn": 2803,
+    "Active": 210,
+    "Completed": 151
+   }
+  },
+  "ISONE": {
+   "ok": true,
+   "rows": 1751,
+   "secs": 6.9,
+   "status_counts": {
+    "Withdrawn": 1326,
+    "Completed": 362,
+    "Active": 63
+   }
+  }
+ }
+}

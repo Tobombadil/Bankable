@@ -1,0 +1,143 @@
+{% extends "admin/base.html" %}
+{% block title %}Task -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-tasks.css">{% endblock %}
+{% block content %}
+<p><a href="/admin/tasks">&larr; Back to tasks</a></p>
+{% include "admin/_notice.html" %}
+
+{% if record_id %}
+<div class="notice" role="status">
+  Record {{ record_action }}:
+  {% if record_url %}<a href="{{ record_url }}">{{ record_id }}</a>{% else %}{{ record_id }}{% endif %}
+</div>
+{% endif %}
+
+{% if not task %}
+<p>This task could not be loaded.</p>
+{% else %}
+<h1>{{ task.type | replace('_', ' ') | capitalize }}
+  <span class="chip chip--{{ status_family.get(task.status, 'neutral') }}">{{ task.status | replace('_', ' ') }}</span>
+</h1>
+<dl class="admin-dl">
+  <dt>Task id</dt><dd class="mono">{{ task.task_id }}</dd>
+  <dt>Subject</dt><dd>{% if task.subject_id %}<a href="/admin/records/{{ task.subject_id }}">{{ task.subject_id }}</a> ({{ task.subject_type }}){% else %}&mdash;{% endif %}</dd>
+  <dt>Assignee</dt><dd>{{ task.assignee_user_id or '—' }}</dd>
+  <dt>Created</dt><dd class="mono">{{ task.created_at or '' }}</dd>
+  <dt>Updated</dt><dd class="mono">{{ task.updated_at or '' }}</dd>
+  <dt>Due</dt><dd class="mono">{{ task.due_at or '—' }}</dd>
+  <dt>Completed</dt><dd class="mono">{{ task.completed_at or '—' }}</dd>
+  {% if task.issue_type %}<dt>Issue type</dt><dd>{{ task.issue_type }}</dd>{% endif %}
+  {% if task.description %}<dt>Description</dt><dd>{{ task.description }}</dd>{% endif %}
+  <dt>Notes</dt><dd>{{ task.notes or '—' }}</dd>
+  <dt>Audit events</dt>
+  <dd>
+    {% if task.audit_event_ids %}
+    {% for eid in task.audit_event_ids %}<span class="mono">{{ eid }}</span>{{ ', ' if not loop.last }}{% endfor %}
+    {% else %}&mdash;{% endif %}
+  </dd>
+</dl>
+
+{% if task.contact %}
+<h2>Contact (personal data)</h2>
+<dl class="admin-dl">
+  {% for k, v in task.contact.items() %}
+  <dt>{{ k }}</dt><dd>{{ v }}</dd>
+  {% endfor %}
+</dl>
+{% endif %}
+
+{% if task.pending_record %}
+<h2>Pending record</h2>
+<dl class="admin-dl">
+  {% for k, v in task.pending_record.items() %}
+  <dt>{{ k }}</dt>
+  <dd>
+    {% if v is mapping or v is sequence and v is not string %}
+    <pre class="admin-pre">{{ v | tojson(indent=2) }}</pre>
+    {% else %}
+    {{ v }}
+    {% endif %}
+  </dd>
+  {% endfor %}
+</dl>
+{% endif %}
+
+<h2>Update task</h2>
+<form class="admin-form" method="post" action="/admin/tasks/{{ task.task_id }}/update">
+  <div class="field">
+    <label for="upd-status">Status</label>
+    <select id="upd-status" name="status">
+      {% for s in task_statuses %}
+      <option value="{{ s }}"{% if s == form_values.status %} selected{% endif %}>{{ s | replace('_', ' ') }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% if task.type == 'deletion_request' and task.status != 'done' %}
+  <p class="task-warning" role="note">
+    Marking this task <strong>done</strong> redacts the user's personal data (name, email, password) and
+    revokes their sessions and API keys. This asks the CRM first -- if the CRM cannot be reached, the task
+    stays open and the request is refused (503 below).
+  </p>
+  {% endif %}
+  <div class="field">
+    <label for="upd-assignee">Assignee (user id)</label>
+    <input id="upd-assignee" name="assignee_user_id" value="{{ form_values.assignee_user_id }}" placeholder="usr_...">
+  </div>
+  <div class="field">
+    <label><input type="checkbox" name="clear_assignee" value="1"> Unassign</label>
+  </div>
+  <div class="field">
+    <label for="upd-notes">Notes</label>
+    <textarea id="upd-notes" name="notes" rows="3">{{ form_values.notes }}</textarea>
+  </div>
+  <div class="field">
+    <label for="upd-reason">Reason (required)</label>
+    <textarea id="upd-reason" name="reason" rows="2" required></textarea>
+  </div>
+  <div class="admin-actions">
+    <button class="admin-button admin-button--primary" type="submit">Save</button>
+  </div>
+</form>
+
+{% if task.type in ('intake_proposal', 'intake_opportunity') and task.status in ('open', 'in_progress') %}
+<h2>Review intake submission</h2>
+<form class="admin-form" method="post" action="/admin/tasks/{{ task.task_id }}/approve-intake">
+  <div class="field">
+    <label for="intake-decision">Decision</label>
+    <select id="intake-decision" name="decision">
+      {% for d in ('approve', 'link', 'reject') %}
+      <option value="{{ d }}"{% if d == intake_form_values.decision %} selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="intake-link-to">Link to existing record (public id, required for "link")</label>
+    <input id="intake-link-to" name="link_to_public_id" value="{{ intake_form_values.link_to_public_id or '' }}" placeholder="prop_... or opp_...">
+  </div>
+  <div class="field">
+    <label for="intake-publish-state">Publish state (on approve)</label>
+    <select id="intake-publish-state" name="publish_state">
+      <option value="">(default: pending_review)</option>
+      {% for p in publish_states %}
+      <option value="{{ p }}"{% if p == intake_form_values.publish_state %} selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+    {% if not task.public_opt_in %}<p class="admin-muted">The submitter did not opt into public; "public" will be refused.</p>{% endif %}
+  </div>
+  <div class="field">
+    <label><input type="checkbox" name="create_lead" value="1"{% if intake_form_values.create_lead %} checked{% endif %}> Create CRM lead (approve only)</label>
+  </div>
+  <div class="field">
+    <label><input type="checkbox" name="add_curated_issuer" value="1"{% if intake_form_values.add_curated_issuer %} checked{% endif %}> Add as curated issuer (opportunity only)</label>
+  </div>
+  <div class="field">
+    <label for="intake-reason">Reason (required)</label>
+    <textarea id="intake-reason" name="reason" rows="2" required>{{ intake_form_values.reason or '' }}</textarea>
+  </div>
+  <div class="admin-actions">
+    <button class="admin-button admin-button--primary" type="submit">Apply decision</button>
+  </div>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

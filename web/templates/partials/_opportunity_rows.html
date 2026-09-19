@@ -1,0 +1,37 @@
+{% import "_macros.html" as m %}
+<p class="result-count" aria-live="polite">{{ total }} opportunit{{ 'y' if total == 1 else 'ies' }} match{{ 'es' if total == 1 }} these filters.</p>
+{% if records %}
+<div class="table-scroll">
+<table class="record-table">
+  <caption class="visually-hidden">Opportunities matching the current filters, sorted by due date ascending by default.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Status</th>
+      <th scope="col">Title</th>
+      <th scope="col">Issuer</th>
+      <th scope="col">Technologies</th>
+      <th scope="col">Due</th>
+      <th scope="col">Source</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td data-label="Status">{{ m.status_chip(r.status, r.lifecycle_family, r.status_raw) }}</td>
+      <td data-label="Title"><a class="row-link" href="/opportunities/{{ r.slug }}">{{ r.title }}</a></td>
+      <td data-label="Issuer">{{ r.issuer or '—' }}</td>
+      <td data-label="Technologies">{{ r.technologies | join(', ') if r.technologies else 'all-source' }}</td>
+      <td data-label="Due">{{ r.due_at[:10] if r.due_at else '—' }}</td>
+      <td data-label="Source" class="mono"><a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_id }}</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{{ m.pager(prev_cursor, next_cursor, querystring, "/opportunities") }}
+{% else %}
+<div class="empty-state">
+  <p>No open opportunities match these filters.</p>
+  <p><a href="/opportunities">Clear all filters</a></p>
+</div>
+{% endif %}

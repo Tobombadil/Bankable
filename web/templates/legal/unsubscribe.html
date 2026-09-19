@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Unsubscribe -- Infraque{% endblock %}
+{% block meta_description %}Stop email alerts for a saved search.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Unsubscribe</h1>
+</div>
+{% if not resolved %}
+<p>Follow the unsubscribe link from an alert email, or enter its token below.</p>
+<form class="auth-form" method="post" action="/unsubscribe" novalidate>
+  <div class="field">
+    <label for="unsubscribe-token">Unsubscribe token</label>
+    <input id="unsubscribe-token" name="token" type="text" required value="{{ token or '' }}">
+  </div>
+  <div class="form-actions">
+    <button type="submit">Unsubscribe</button>
+  </div>
+</form>
+{% elif ok %}
+<p class="notice" role="status">You will no longer receive email alerts for &ldquo;{{ body.saved_search_name }}&rdquo;. Any other delivery channel on that saved search is unaffected.</p>
+{% else %}
+<p class="notice notice--error" role="alert">{{ body.title if body else 'This unsubscribe link is invalid.' }}{% if body and body.detail %}: {{ body.detail }}{% endif %}</p>
+<form class="auth-form" method="post" action="/unsubscribe" novalidate>
+  <div class="field">
+    <label for="unsubscribe-token-retry">Unsubscribe token</label>
+    <input id="unsubscribe-token-retry" name="token" type="text" required>
+  </div>
+  <div class="form-actions">
+    <button type="submit">Try again</button>
+  </div>
+</form>
+{% endif %}
+<p><a href="/privacy">Privacy notice</a></p>
+{% endblock %}

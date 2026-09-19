@@ -1,0 +1,136 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ opportunity.title if opportunity else "Opportunity" }} -- Infraque admin{% endblock %}
+{% block content %}
+{% if opportunity is none %}
+<div class="page-header"><h1>Opportunity</h1></div>
+{% include "admin/_notice.html" %}
+<p><a href="/admin/records">Back to record lookup</a></p>
+{% else %}
+<div class="page-header">
+  <h1>{{ opportunity.title }} <span class="admin-muted mono">{{ opportunity.public_id }}</span></h1>
+  <span class="chip chip--neutral">{{ opportunity.publish_state }}</span>
+  <span class="chip chip--neutral">{{ opportunity.min_reuse_class }}</span>
+</div>
+{% include "admin/_notice.html" %}
+
+<div class="admin-cols">
+  <section>
+    <h2>Canonical fields</h2>
+    <table class="admin-table">
+      <tbody>
+        <tr><th scope="row">Kind</th><td>{{ opportunity.kind }}</td></tr>
+        <tr><th scope="row">Issuer</th><td>{{ opportunity.issuer.name_canonical if opportunity.issuer else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Summary</th><td>{{ opportunity.summary or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Jurisdiction</th><td>{{ opportunity.jurisdiction }}</td></tr>
+        <tr><th scope="row">Technologies</th><td>{{ opportunity.technologies|join(", ") if opportunity.technologies else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Capacity sought MW</th><td>{{ opportunity.capacity_sought_mw if opportunity.capacity_sought_mw is not none else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Budget</th><td>{% if opportunity.budget_amount is not none %}{{ opportunity.budget_amount }} {{ opportunity.budget_currency }}{% else %}&mdash;{% endif %}</td></tr>
+        <tr><th scope="row">Open at</th><td>{{ opportunity.open_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Due at</th><td>{{ opportunity.due_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Status</th><td>{{ opportunity.status }}</td></tr>
+        <tr><th scope="row">Status raw</th><td>{{ opportunity.status_raw or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Location</th><td>{% if opportunity.location %}{{ opportunity.location.county_name or opportunity.location.state_code or opportunity.location.country }} ({{ opportunity.location.precision }}){% else %}unplaced{% endif %}</td></tr>
+        <tr><th scope="row">Identifiers</th><td class="mono">{{ opportunity.identifiers }}</td></tr>
+        <tr><th scope="row">First seen</th><td>{{ opportunity.first_seen }}</td></tr>
+        <tr><th scope="row">Last changed</th><td>{{ opportunity.last_changed }}</td></tr>
+        <tr><th scope="row">Published at</th><td>{{ opportunity.published_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Public at</th><td>{{ opportunity.public_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Source count</th><td>{{ opportunity.source_count }}</td></tr>
+        <tr><th scope="row">Created by</th><td>{{ opportunity.created_by }}</td></tr>
+        <tr><th scope="row">Merged into</th><td>{% if opportunity.merged_into %}<a href="/admin/records/opportunities/{{ opportunity.merged_into }}">{{ opportunity.merged_into }}</a>{% else %}&mdash;{% endif %}</td></tr>
+        <tr><th scope="row">Overrides</th><td class="mono">{{ opportunity.overrides.keys()|join(", ") if opportunity.overrides else "none" }}</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Edit canonical fields</h2>
+    <form class="admin-form" method="post" action="/admin/records/opportunities/{{ opportunity.public_id }}/edit">
+      <div class="field"><label for="title">Title</label><input id="title" name="title" value="{{ opportunity.title }}"></div>
+      <div class="field">
+        <label for="kind">Kind</label>
+        <select id="kind" name="kind">
+          {% for v in opportunity_kinds %}<option value="{{ v }}"{% if opportunity.kind == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label for="summary">Summary</label><textarea id="summary" name="summary" rows="3">{{ opportunity.summary or '' }}</textarea></div>
+      <div class="field"><label for="jurisdiction">Jurisdiction</label><input id="jurisdiction" name="jurisdiction" value="{{ opportunity.jurisdiction }}"></div>
+      <div class="field"><label for="technologies">Technologies (comma-separated)</label><input id="technologies" name="technologies" value="{{ opportunity.technologies|join(', ') if opportunity.technologies else '' }}"></div>
+      <div class="field"><label for="capacity_sought_mw">Capacity sought MW</label><input id="capacity_sought_mw" name="capacity_sought_mw" type="number" step="0.001" value="{{ opportunity.capacity_sought_mw if opportunity.capacity_sought_mw is not none else '' }}"></div>
+      <div class="field"><label for="budget_amount">Budget amount</label><input id="budget_amount" name="budget_amount" type="number" step="0.01" value="{{ opportunity.budget_amount if opportunity.budget_amount is not none else '' }}"></div>
+      <div class="field"><label for="budget_currency">Budget currency</label><input id="budget_currency" name="budget_currency" value="{{ opportunity.budget_currency or '' }}" maxlength="3"></div>
+      <div class="field"><label for="open_at">Open at</label><input id="open_at" name="open_at" type="date" value="{{ opportunity.open_at or '' }}"></div>
+      <div class="field"><label for="due_at">Due at</label><input id="due_at" name="due_at" type="date" value="{{ (opportunity.due_at or '')[:10] }}"></div>
+      <div class="field">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          {% for v in opportunity_statuses %}<option value="{{ v }}"{% if opportunity.status == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field"><label for="edit-reason">Reason</label><input id="edit-reason" name="reason" required></div>
+      <button class="admin-button admin-button--primary" type="submit">Save</button>
+    </form>
+  </section>
+</div>
+
+<h2>Sources</h2>
+{% if opportunity.sources %}
+<div class="admin-table-wrap">
+<table class="admin-table">
+  <thead><tr><th scope="col">Source</th><th scope="col">Licence class</th><th scope="col">Retrieved at</th><th scope="col">Active</th><th scope="col">Link</th></tr></thead>
+  <tbody>
+    {% for row in opportunity.sources %}
+    <tr>
+      <td class="mono"><a href="/admin/sources/{{ row.source_id }}">{{ row.source_id }}</a></td>
+      <td>{{ row.reuse_class }}</td>
+      <td>{{ row.retrieved_at }}</td>
+      <td>{{ "yes" if row.active else "no" }}</td>
+      <td><a href="{{ row.source_url }}">view at source</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="admin-empty">No sources are linked to this opportunity.</p>
+{% endif %}
+
+<h2>Event history</h2>
+{% if opportunity.events %}
+<div class="admin-table-wrap">
+<table class="admin-table">
+  <thead><tr><th scope="col">Event</th><th scope="col">Observed at</th><th scope="col">Actor</th><th scope="col">Reason</th><th scope="col">Changed keys</th></tr></thead>
+  <tbody>
+    {% for event in opportunity.events %}
+    <tr>
+      <td class="mono">{{ event.id }}<br>{{ event.event_type }}</td>
+      <td>{{ event.observed_at }}</td>
+      <td>{{ event.actor_type }}{% if event.actor_user_id %} ({{ event.actor_user_id }}){% endif %}</td>
+      <td>{{ event.reason or "&mdash;" }}</td>
+      <td>{{ event.changed_keys|join(", ") if event.changed_keys else "&mdash;" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="admin-empty">No events recorded for this opportunity.</p>
+{% endif %}
+
+<h2>Publish state</h2>
+<form class="admin-form" method="post" action="/admin/records/opportunities/{{ opportunity.public_id }}/publish-state">
+  <div class="field">
+    <label for="publish_state">State</label>
+    <select id="publish_state" name="publish_state">
+      {% for v in publish_state_values %}<option value="{{ v }}"{% if opportunity.publish_state == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label><input type="checkbox" name="takedown"> This is a takedown request, not an editorial unpublish</label>
+  </div>
+  <div class="field"><label for="ps-reason">Reason</label><input id="ps-reason" name="reason" required></div>
+  <button class="admin-button" type="submit">Set publish state</button>
+  {% if notice and notice.status == 422 %}<p class="admin-muted">{{ notice.detail }}</p>{% endif %}
+</form>
+{% endif %}
+{% endblock %}

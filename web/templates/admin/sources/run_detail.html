@@ -1,0 +1,42 @@
+{% extends "admin/base.html" %}
+{% block title %}Source run -- Infraque admin{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Source run</h1></div>
+{% include "admin/_notice.html" %}
+{% if run %}
+<table class="admin-table">
+  <tbody>
+    <tr><th scope="row">Run id</th><td class="mono">{{ run.run_id }}</td></tr>
+    <tr><th scope="row">Source</th><td class="mono"><a href="/admin/sources/{{ run.source_id }}">{{ run.source_id }}</a></td></tr>
+    <tr><th scope="row">Trigger</th><td>{{ run.trigger }}</td></tr>
+    <tr><th scope="row">Status</th><td>{{ run.status }}</td></tr>
+    <tr><th scope="row">Started at</th><td>{{ run.started_at }}</td></tr>
+    <tr><th scope="row">Finished at</th><td>{{ run.finished_at or "&mdash;" }}</td></tr>
+    <tr><th scope="row">Egress class</th><td>{{ run.egress_class }}</td></tr>
+    <tr><th scope="row">HTTP status</th><td>{{ run.http_status if run.http_status is not none else "&mdash;" }}</td></tr>
+    <tr><th scope="row">Bytes</th><td>{{ run.bytes if run.bytes is not none else "&mdash;" }}</td></tr>
+    <tr><th scope="row">Rows seen / new / changed / gone</th><td>{{ run.rows_seen }} / {{ run.rows_new }} / {{ run.rows_changed }} / {{ run.rows_gone }}</td></tr>
+    <tr><th scope="row">Events emitted</th><td>{{ run.events_emitted }}</td></tr>
+    <tr><th scope="row">Model calls</th><td>{{ run.model_calls }}</td></tr>
+    <tr><th scope="row">Cost (USD)</th><td>${{ "%.4f"|format(run.cost_usd) }}</td></tr>
+    <tr><th scope="row">Worker seconds</th><td>{{ run.worker_seconds }}</td></tr>
+    <tr><th scope="row">Attempt</th><td>{{ run.attempt }}{% if run.dead_lettered %} (dead-lettered){% endif %}</td></tr>
+    <tr><th scope="row">Error</th><td>{{ run.error or "&mdash;" }}{% if run.error_class %} ({{ run.error_class }}){% endif %}</td></tr>
+    <tr>
+      <th scope="row">Snapshot</th>
+      <td>{% if run.snapshot_id %}<a href="/admin/snapshots/{{ run.snapshot_id }}">{{ run.snapshot_id }}</a>{% else %}&mdash;{% endif %}</td>
+    </tr>
+  </tbody>
+</table>
+<h2>Data-quality report</h2>
+{% if run.dq %}
+<dl class="admin-table">
+  {% for key, value in run.dq.items() %}
+  <div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>
+  {% endfor %}
+</dl>
+{% else %}
+<p class="admin-empty">No data-quality report on this run (status: {{ run.dq_status }}).</p>
+{% endif %}
+{% endif %}
+{% endblock %}

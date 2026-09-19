@@ -1,0 +1,88 @@
+{% extends "admin/base.html" %}
+{% block title %}Tasks -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-tasks.css">{% endblock %}
+{% block content %}
+<h1>Tasks</h1>
+<p class="admin-muted">Reports, intake review and deletion requests (docs/30-design-ia.md §1.3).</p>
+{% include "admin/_notice.html" %}
+
+<form class="admin-toolbar" method="get" action="/admin/tasks">
+  <div class="field">
+    <label for="f-type">Type</label>
+    <select id="f-type" name="type">
+      <option value="">All types</option>
+      {% for t in task_types %}
+      <option value="{{ t }}"{% if filters.type == t %} selected{% endif %}>{{ t | replace('_', ' ') }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-status">Status</label>
+    <select id="f-status" name="status">
+      <option value="">All statuses</option>
+      {% for s in task_statuses %}
+      <option value="{{ s }}"{% if filters.status == s %} selected{% endif %}>{{ s | replace('_', ' ') }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-assignee">Assignee (user id)</label>
+    <input id="f-assignee" name="assignee_user_id" value="{{ filters.assignee_user_id or '' }}" placeholder="usr_...">
+  </div>
+  <div class="admin-actions">
+    <button class="admin-button admin-button--primary" type="submit">Apply</button>
+    {% if filters %}<a class="admin-button" href="/admin/tasks">Clear all</a>{% endif %}
+  </div>
+</form>
+
+{% if tasks %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Subject</th>
+        <th>Assignee</th>
+        <th>Created</th>
+        <th>Due</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for task in tasks %}
+      <tr>
+        <td>{{ task.type | replace('_', ' ') }}</td>
+        <td><span class="chip chip--{{ status_family.get(task.status, 'neutral') }}">{{ task.status | replace('_', ' ') }}</span></td>
+        <td>
+          {% if task.subject_id %}
+          <a href="/admin/records/{{ task.subject_id }}" class="mono">{{ task.subject_id }}</a>
+          {% else %}
+          <span class="admin-muted">&mdash;</span>
+          {% endif %}
+        </td>
+        <td>{{ task.assignee_user_id or '' }}</td>
+        <td class="mono">{{ task.created_at[:10] if task.created_at else '' }}</td>
+        <td class="mono">{{ task.due_at[:10] if task.due_at else '' }}</td>
+        <td><a href="/admin/tasks/{{ task.task_id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<nav class="admin-pager" aria-label="Task pages">
+  {% if page.has_more and page.next_cursor %}
+  <a href="/admin/tasks?{{ filters_qs }}cursor={{ page.next_cursor }}">Next &rarr;</a>
+  {% endif %}
+</nav>
+{% else %}
+<div class="admin-empty">
+  {% if filters %}
+  <p>No tasks match
+    {%- for k, v in filters.items() %} {{ k }}={{ v }}{{ ',' if not loop.last }}{% endfor %}.</p>
+  <p><a href="/admin/tasks">Clear all filters</a></p>
+  {% else %}
+  <p>No tasks in the queue.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

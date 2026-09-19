@@ -1,0 +1,703 @@
+{
+ "request": {
+  "format": "json",
+  "rows": 100,
+  "os": 0,
+  "sector.sector_code": "LU^LH^LW^LB^LI^LN^LT^LZ^LP^LE",
+  "srt": "noticedate",
+  "order": "desc",
+  "fl": "id,notice_type,noticedate,notice_status,submission_deadline_date,submission_deadline_time,project_ctry_code,project_ctry_name,project_id,project_name,regionname,sector,agency_name,bid_reference_no,bid_currency_code,bid_estimate_amount,bid_description,procurement_group,procurement_group_desc,procurement_method_code,procurement_method_name,unspsc_classification,submission_date,noticetitle,api_modified_date,market_approach_name,notice_lang_code,notice_version_no,contact_organization"
+ },
+ "pages": [
+  {
+   "rows": 9,
+   "os": "0",
+   "page": "1",
+   "total": "33950",
+   "procnotices": [
+    {
+     "id": "OP00468319",
+     "notice_type": "Contract Award",
+     "noticedate": "11-Sep-2026",
+     "notice_version_no": "1",
+     "notice_lang_code": "EN",
+     "notice_status": "Published",
+     "project_ctry_code": "MK",
+     "project_ctry_name": "North Macedonia",
+     "project_id": "P149990",
+     "project_name": "North Macedonia Public Sector Energy Efficiency Project",
+     "regionname": "Europe And Central Asia",
+     "sector": [
+      {
+       "sector_code": "LP",
+       "sector_description": "Public Administration - Energy and Extractives"
+      },
+      {
+       "sector_code": "LZ",
+       "sector_description": "Other Energy and Extractives"
+      },
+      {
+       "sector_code": "LU",
+       "sector_description": "Renewable Energy Solar"
+      },
+      {
+       "sector_code": "LB",
+       "sector_description": "Renewable Energy Biomass"
+      },
+      {
+       "sector_code": "LI",
+       "sector_description": "Renewable Energy Geothermal"
+      }
+     ],
+     "agency_name": "Ministry of Finance",
+     "bid_reference_no": "MK-MOF-004-2025-CS-CQS",
+     "bid_currency_code": "USD",
+     "bid_estimate_amount": "26000",
+     "bid_description": "Supervision, Commissioning and Management Supervision during DLP Period, for reconstructions of municipal buildings with implementation of EE measures in Municipality of Mogila",
+     "procurement_group": "CS",
+     "procurement_group_desc": "Consultant Services",
+     "procurement_method_code": "CQS",
+     "procurement_method_name": "Consultant Qualification  Selection",
+     "unspsc_classification": [
+      {
+       "proc_voc_id": "81101500",
+       "proc_voc_title": "Civil engineering",
+       "seg_id": "81000000",
+       "seg_title": "Engineering and Research and Technology Based Services",
+       "family_id": "81100000",
+       "family_title": "Professional engineering services",
+       "class_id": "81101500",
+       "class_title": "Civil engineering"
+      }
+     ],
+     "submission_date": "2026-09-11T00:00:00Z",
+     "noticetitle": "Supervision, Commissioning and Management Supervision during DLP Period, for reconstructions of municipal buildings with implementation of EE measures in Municipality of Mogila",
+     "api_modified_date": "2026-09-12T16:29:13Z",
+     "market_approach_name": "Open"
+    },
+    {
+     "id": "OP00468071",
+     "notice_type": "Contract Award",
+     "noticedate": "10-Sep-2026",
+     "notice_version_no": "1",
+     "notice_lang_code": "EN",
+     "notice_status": "Published",
+     "project_ctry_code": "MK",
+     "project_ctry_name": "North Macedonia",
+     "project_id": "P149990",
+     "project_name": "North Macedonia Public Sector Energy Efficiency Project",
+     "regionname": "Europe And Central Asia",
+     "sector": [
+      {
+       "sector_code": "LP",
+       "sector_description": "Public Administration - Energy and Extractives"
+      },
+      {
+       "sector_code": "LZ",
+       "sector_description": "Other Energy and Extractives"
+      },
+      {
+       "sector_code": "LU",
+       "sector_description": "Renewable Energy Solar"
+      },
+      {
+       "sector_code": "LB",
+       "sector_description": "Renewable Energy Biomass"
+      },
+      {
+       "sector_code": "LI",
+       "sector_description": "Renewable Energy Geothermal"
+      }
+     ],
+     "agency_name": "Ministry of Finance",
+     "bid_reference_no": "MK-MOF-CW-NCB-006-25",
+     "bid_currency_code": "USD",
+     "bid_estimate_amount": "2000000",
+     "bid_description": "Reconstruction with implementing Energy Efficiency Measures of PHI University Clinic for Physical Medicine and Rehabilitation – Skopje",
+     "procurement_group": "CW",
+     "procurement_group_desc": "Works",
+     "procurement_method_code": "RFB",
+     "procurement_method_name": "Request for Bids",
+     "unspsc_classification": [
+      {
+       "proc_voc_id": "72111100",
+       "proc_voc_title": "Multiple unit dwelling construction services",
+       "seg_id": "72000000",
+       "seg_title": "Building and Facility Construction and Maintenance Services",
+       "family_id": "72110000",
+       "family_title": "Residential building construction services",
+       "class_id": "72111100",
+       "class_title": "Multiple unit dwelling construction services"
+      },
+      {
+       "proc_voc_id": "72121400",
+       "proc_voc_title": "Specialized public building construction services",
+       "seg_id": "72000000",
+       "seg_title": "Building and Facility Construction and Maintenance Services",
+       "family_id": "72120000",
+       "family_title": "Nonresidential building construction services",
+       "class_id": "72121400",
+       "class_title": "Specialized public building construction services"
+      },
+      {
+       "proc_voc_id": "72121403",
+       "proc_voc_title": "Hospital construction service",
+       "seg_id": "72000000",
+       "seg_title": "Building and Facility Construction and Maintenance Services",
+       "family_id": "72120000",
+       "family_title": "Nonresidential building construction services",
+       "class_id": "72121400",
+       "class_title": "Specialized public building construction services",
+       "cmdty_id": "72121403",
+       "cmdty_title": "Hospital construction service"
+      }
+     ],
+     "submission_date": "2026-09-10T00:00:00Z",
+     "noticetitle": "Reconstruction of University Clinic for Physical Medicine and Rehabilitation Skopje with implementation of EE measures\nLot 1: Phase Architecture for Block B and Block C",
+     "api_modified_date": "2026-09-12T16:23:48Z",
+     "market_approach_name": "Open"
+    },
+    {
+     "id": "OP00468112",
+     "notice_type": "Contract Award",
+     "noticedate": "10-Sep-2026",
+     "notice_version_no": "1",
+     "notice_lang_code": "EN",
+     "notice_status": "Published",
+     "project_ctry_code": "TZ",
+     "project_ctry_name": "Tanzania",
+     "project_id": "P163752",
+     "project_name": "Tanzania-Zambia Transmission Interconnector",
+     "regionname": "Eastern And Southern Africa",
+     "sector": [
+      {
+       "sector_code": "LT",
+       "sector_description": "Energy Transmission and Distribution"
+      },
+      {
+       "sector_code": "LP",
+       "sector_description": "Public Administration - Energy and Extractives"
+      },
+      {
+       "sector_code": "LZ",
+       "sector_description": "Other Energy and Extractives"
+      }
+     ],
+     "agency_name": "Tanzania Electric Supply Company Ltd.",
+     "bid_reference_no": "TZ-TANESCO-498576-GO-DIR",
+     "bid_currency_code": "USD",
+     "bid_estimate_amount": "350000",
+     "bid_description": "Supply and Installation of PSSE Software (2 Licenses), a Power System Modelling and Simulation for Static and Dynamic conditions, Version 35 Multi-User Licenses and Capacity Building of TANESCO’s Relevant Staff to support TANESCO's Readiness for Regional.",
+     "procurement_group": "GO",
+     "procurement_group_desc": "Goods",
+     "procurement_method_code": "DIR",
+     "procurement_method_name": "Direct Selection",
+     "unspsc_classification": [
+      {
+       "proc_voc_id": "43233602",
+       "proc_voc_title": "Power Monitor Software",
+       "seg_id": "43000000",
+       "seg_title": "Information Technology Broadcasting and Telecommunications",
+       "family_id": "43230000",
+       "family_title": "Software",
+       "class_id": "43233600",
+       "class_title": "Electrical Equipment software",
+       "cmdty_id": "43233602",
+       "cmdty_title": "Power Monitor Software"
+      }
+     ],
+     "submission_date": "2026-09-10T00:00:00Z",
+     "noticetitle": "Supply and Installation of PSSE Software Power System Modeling and Simulation for Static and\nDynamic Conditions",
+     "api_modified_date": "2026-09-12T16:25:19Z",
+     "market_approach_name": "Direct"
+    },
+    {
+     "id": "OP00468190",
+     "notice_type": "Request for Expression of Interest",
+     "noticedate": "10-Sep-2026",
+     "notice_version_no": "1",
+     "notice_lang_code": "EN",
+     "notice_status": "Published",
+     "submission_deadline_date": "2026-09-24T00:00:00Z",
+     "submission_deadline_time": "16:00",
+     "project_ctry_code": "KG",
+     "project_ctry_name": "Kyrgyz Republic",
+     "project_id": "P181086",
+     "project_name": "Technical Assistance for Kambarata 1 Hydropower Plant Project",
+     "regionname": "Europe And Central Asia",
+     "sector": [
+      {
+       "sector_code": "LH",
+       "sector_description": "Renewable Energy Hydro"
+      },
+      {
+       "sector_code": "LP",
+       "sector_description": "Public Administration - Energy and Extractives"
+      }
+     ],
+     "agency_name": "Ministry of Energy KR",
+     "bid_reference_no": "KG/KA1/CS/2026/QCBS-04",
+     "bid_currency_code": "USD",
+     "bid_estimate_amount": "1070000",
+     "bid_description": "Integrated Aquatic and Terrestrial Biodiversity Study at Naryn River (Kambarata-1 HPP)",
+     "procurement_group": "CS",
+     "procurement_group_desc": "Consultant Services",
+     "procurement_method_code": "QCBS",
+     "procurement_method_name": "Quality And Cost-Based Selection",
+     "contact_organization": "Project Management Office - Ministry of Energy of the Kyrgyz Republic",
+     "unspsc_classification": [
+      {
+       "proc_voc_id": "81171601",
+       "proc_voc_title": "Aquatic ecology service",
+       "seg_id": "81000000",
+       "seg_title": "Engineering and Research and Technology Based Services",
+       "family_id": "81170000",
+       "family_title": "Biological science services",
+       "class_id": "81171600",
+       "class_title": "Ecological science services",
+       "cmdty_id": "81171601",
+       "cmdty_title": "Aquatic ecology service"
+      },
+      {
+       "proc_voc_id": "81151604",
+       "proc_voc_title": "Land surveying",
+       "seg_id": "81000000",
+       "seg_title": "Engineering and Research and Technology Based Services",
+       "family_id": "81150000",
+       "family_title": "Earth science services",
+       "class_id": "81151600",
+       "class_title": "Cartography",
+       "cmdty_id": "81151604",
+       "cmdty_title": "Land surveying"
+      },
+      {
+       "proc_voc_id": "81151804",
+       "proc_voc_title": "Hydrological surveys",
+       "seg_id": "81000000",
+       "seg_title": "Engineering and Research and Technology Based Services",
+       "family_id": "81150000",
+       "family_title": "Earth science services",
+       "class_id": "81151800",
+       "class_title": "Oceanography and hydrology",
+       "cmdty_id": "81151804",
+       "cmdty_title": "Hydrological surveys"
+      },
+      {
+       "proc_voc_id": "70161703",
+       "proc_voc_title": "Terrestrial ecosystem management services",
+       "seg_id": "70000000",
+       "seg_title": "Farming and Fishing and Forestry and Wildlife Contracting Services",
+       "family_id": "70160000",
+       "family_title": "Wildlife and flora",
+       "class_id": "70161700",
+       "class_title": "Ecosystems",
+       "cmdty_id": "70161703",
+       "cmdty_title": "Terrestrial ecosystem management services"
+      }
+     ],
+     "submission_date": "2026-09-10T00:00:00Z",
+     "noticetitle": "Integrated Aquatic and Terrestrial Biodiversity Study at Naryn River (Kambarata-1 HPP)",
+     "api_modified_date": "2026-09-12T16:27:00Z",
+     "market_approach_name": "Open"
+    },
+    {
+     "id": "OP00467875",
+     "notice_type": "Request for Expression of Interest",
+     "noticedate": "10-Sep-2026",
+     "notice_version_no": "1",
+     "notice_lang_code": "EN",
+     "notice_status": "Published",
+     "submission_deadline_date": "2026-09-30T00:00:00Z",
+     "submission_deadline_time": "15:00",
+     "project_ctry_code": "TJ",
+     "project_ctry_name": "Tajikistan",
+     "project_id": "P181029",
+     "project_name": "Sustainable Financing for Rogun Hydropower Project",
+     "regionname": "Europe And Central Asia",
+     "sector": [
+      {
+       "sector_code": "LH",
+       "sector_description": "Renewable Energy Hydro"
+      }
+     ],
+     "agency_name": "Project Management Group for Energy Facilities Construction under the President of the RT",
+     "bid_reference_no": "TJ-PMG-CS-QCBS-03",
+     "bid_currency_code": "USD",
+     "bid_estimate_amount": "15000000",
+     "bid_description": "Lenders Technical Advisor of the ROGUN HPP (LTA)",
+     "procurement_group": "CS",
+     "procurement_group_desc": "Consultant Services",
+     "procurement_method_code": "QCBS",
+     "procurement_method_name": "Quality And Cost-Based Selection",
+     "contact_organization": "Project Management Group for Energy Facilities Construction under the President of the RT",
+     "unspsc_classification": [
+      {
+       "proc_voc_id": "81121500",
+       "proc_voc_title": "Economic analysis",
+       "seg_id": "81000000",
+       "seg_title": "Engineering and Research and Technology Based Services",
+       "family_id": "81120000",
+       "family_title": "Economics",
+       "class_id": "81121500",
+       "class_title": "Economic analysis"
+      },
+      {
+       "proc_voc_id": "81101516",
+       "proc_voc_title": "Energy or utility consulting service",
+       "seg_id": "81000000",
+       "seg_title": "Engineering and Research and Technology Based Services",
+       "family_id": "81100000",
+       "family_title": "Professional engineering services",
+       "class_id": "81101500",
+       "class_title": "Civil engineering",
+       "cmdty_id": "81101516",
+       "cmdty_title": "Energy or utility consulting service"
+      },
+      {
+       "proc_voc_id": "80171906",
+       "proc_voc_title": "Government relations consultation and engagement",
+       "seg_id": "80000000",
+       "seg_title": "Management and Business Professionals and Administrative Services",
+       "family_id": "80170000",
+       "family_title": "Public relations and professional communications services",
+       "class_id": "80171900",
+       "class_title": "Stakeholder management and relations services",
+       "cmdty_id": "80171906",
+       "cmdty_title": "Government relations consultation and engagement"
+      },
+      {
+       "proc_voc_id": "80101510",
+       "proc_voc_title": "Risk management consultation service",
+       "seg_id": "80000000",
+       "seg_title": "Management and Business Professionals and Administrative Services",
+       "family_id": "80100000",
+       "family_title": "Management advisory services",
+       "class_id": "80101500",
+       "class_title": "Business and corporate management consultation services",
+       "cmdty_id": "80101510",
+       "cmdty_title": "Risk management consultation service"
+      },
+      {
+       "proc_voc_id": "80101600",
+       "proc_voc_title": "Project management",
+       "seg_id": "80000000",
+       "seg_title": "Management and Business Professionals and Administrative Services",
+       "family_id": "80100000",
+       "family_title": "Management advisory services",
+       "class_id": "80101600",
+       "class_title": "Project management"
+      },
+      {
+       "proc_voc_id": "80101606",
+       "proc_voc_title": "Project monitoring and evaluation",
+       "seg_id": "80000000",
+       "seg_title": "Management and Business Professionals and Administrative Services",
+       "family_id": "80100000",
+       "family_title": "Management advisory services",
+       "class_id": "80101600",
+       "class_title": "Project management",
+       "cmdty_id": "80101606",
+       "cmdty_title": "Project monitoring and evaluation"
+      }
+     ],
+     "submission_date": "2026-09-10T00:00:00Z",
+     "noticetitle": "Lenders Technical Advisor of the ROGUN HPP (LTA)",
+     "api_modified_date": "2026-09-12T16:19:09Z",
+     "market_approach_name": "Open"
+    },
+    {
+     "id": "OP00468022",
+     "notice_type": "Request for Expression of Interest",
+     "noticedate": "10-Sep-2026",
+     "notice_version_no": "1",
+     "notice_lang_code": "FR",
+     "notice_status": "Published",
+     "submission_deadline_date": "2026-09-23T00:00:00Z",
+     "submission_deadline_time": "15:30",
+     "project_ctry_code": "TD",
+     "project_ctry_name": "Chad",
+     "project_id": "P174495",
+     "project_name": "Chad Energy Access Scale Up Project",
+     "regionname": "Western And Central Africa",
+     "sector": [
+      {
+       "sector_code": "LU",
+       "sector_description": "Renewable Energy Solar"
+      },
+      {
+       "sector_code": "LB",
+       "sector_description": "Renewable Energy Biomass"
+      },
+      {
+       "sector_code": "LP",
+       "sector_description": "Public Administration - Energy and Extractives"
+      },
+      {
+       "sector_code": "AT",
+       "sector_description": "Forestry"
+      }
+     ],
+     "agency_name": "Chad Energy Access Scale Up Project -",
+     "bid_reference_no": "TD-CEAS--553440-CS-INDV",
+     "bid_currency_code": "USD",
+     "bid_estimate_amount": "290000",
+     "bid_description": "Recrutement d’un consultant individuel chargé de l’étude d’intégration des énergies renouvelables variables et de l’analyse de la stabilité du réseau électrique.",
+     "procurement_group": "CS",
+     "procurement_group_desc": "Consultant Services",
+     "procurement_method_code": "INDV",
+     "procurement_method_name": "Individual Consultant Selection",
+     "contact_organization": "Chad Energy Access Scale Up Project -",
+     "unspsc_classification": [
+      {
+       "proc_voc_id": "80111703",
+       "proc_voc_title": "Resume or curriculum vitae screening services",
+       "seg_id": "80000000",
+       "seg_title": "Management and Business Professionals and Administrative Services",
+       "family_id": "80110000",
+       "family_title": "Human resources services",
+       "class_id": "80111700",
+       "class_title": "Personnel recruitment",
+       "cmdty_id": "80111703",
+       "cmdty_title": "Resume or curriculum vitae screening services"
+      }
+     ],
+     "submission_date": "2026-09-10T00:00:00Z",
+     "noticetitle": "Recrutement d’un consultant individuel chargé de l’étude d’intégration des énergies renouvelables variables et de l’analyse de la stabilité du réseau électrique.",
+     "api_modified_date": "2026-09-12T16:22:31Z",
+     "market_approach_name": "Open"
+    },
+    {
+     "id": "OP00468043",
+     "notice_type": "Invitation for Bids",
+     "noticedate": "10-Sep-2026",
+     "notice_version_no": "1",
+     "notice_lang_code": "FR",
+     "notice_status": "Published",
+     "submission_deadline_date": "2026-10-28T00:00:00Z",
+     "submission_deadline_time": "10:00",
+     "project_ctry_code": "TG",
+     "project_ctry_name": "Togo",
+     "project_id": "P176769",
+     "project_name": "Inclusive Development through Electricity Access",
+     "regionname": "Western And Central Africa",
+     "sector": [
+      {
+       "sector_code": "CI",
+       "sector_description": "ICT Infrastructure"
+      },
+      {
+       "sector_code": "LP",
+       "sector_description": "Public Administration - Energy and Extractives"
+      },
+      {
+       "sector_code": "LT",
+       "sector_description": "Energy Transmission and Distribution"
+      },
+      {
+       "sector_code": "LU",
+       "sector_description": "Renewable Energy Solar"
+      }
+     ],
+     "agency_name": "Electric Power Company of Togo",
+     "bid_reference_no": "F-08",
+     "bid_currency_code": "USD",
+     "bid_estimate_amount": "5500000",
+     "bid_description": "Fourniture et Mise en Exploitation des équipements dans le cadre de la poursuite du Programme de Protection des Revenus",
+     "procurement_group": "GO",
+     "procurement_group_desc": "Goods",
+     "procurement_method_code": "RFB",
+     "procurement_method_name": "Request for Bids",
+     "contact_organization": "Electric Power Company of Togo",
+     "unspsc_classification": [
+      {
+       "proc_voc_id": "83101806",
+       "proc_voc_title": "Rural electrical power distribution",
+       "seg_id": "83000000",
+       "seg_title": "Public Utilities and Public Sector Related Services",
+       "family_id": "83100000",
+       "family_title": "Utilities",
+       "class_id": "83101800",
+       "class_title": "Electric utilities",
+       "cmdty_id": "83101806",
+       "cmdty_title": "Rural electrical power distribution"
+      },
+      {
+       "proc_voc_id": "83101807",
+       "proc_voc_title": "Municipal electric power distribution",
+       "seg_id": "83000000",
+       "seg_title": "Public Utilities and Public Sector Related Services",
+       "family_id": "83100000",
+       "family_title": "Utilities",
+       "class_id": "83101800",
+       "class_title": "Electric utilities",
+       "cmdty_id": "83101807",
+       "cmdty_title": "Municipal electric power distribution"
+      },
+      {
+       "proc_voc_id": "39121440",
+       "proc_voc_title": "Electrical extension cable",
+       "seg_id": "39000000",
+       "seg_title": "Electrical Systems and Lighting and Components and Accessories and Supplies",
+       "family_id": "39120000",
+       "family_title": "Electrical equipment and components and supplies",
+       "class_id": "39121400",
+       "class_title": "Electrical lugs plugs and connectors",
+       "cmdty_id": "39121440",
+       "cmdty_title": "Electrical extension cable"
+      },
+      {
+       "proc_voc_id": "41113615",
+       "proc_voc_title": "Electrometers",
+       "seg_id": "41000000",
+       "seg_title": "Laboratory and Measuring and Observing and Testing Equipment",
+       "family_id": "41110000",
+       "family_title": "Measuring and observing and testing instruments",
+       "class_id": "41113600",
+       "class_title": "Electrical measuring and testing equipment and accessories",
+       "cmdty_id": "41113615",
+       "cmdty_title": "Electrometers"
+      }
+     ],
+     "submission_date": "2026-09-10T00:00:00Z",
+     "noticetitle": "Fourniture et Mise en Exploitation des équipements dans le cadre de la poursuite du Programme de Protection des Revenus",
+     "api_modified_date": "2026-09-12T16:22:58Z",
+     "market_approach_name": "Open"
+    },
+    {
+     "id": "OP00468087",
+     "notice_type": "Invitation for Bids",
+     "noticedate": "10-Sep-2026",
+     "notice_version_no": "1",
+     "notice_lang_code": "EN",
+     "notice_status": "Published",
+     "submission_deadline_date": "2026-09-10T00:00:00Z",
+     "submission_deadline_time": "09:00",
+     "project_ctry_code": "UA",
+     "project_ctry_name": "Ukraine",
+     "project_id": "P180332",
+     "project_name": "Restoration Project of Winterization and Energy Resources",
+     "regionname": "Europe And Central Asia",
+     "sector": [
+      {
+       "sector_code": "LT",
+       "sector_description": "Energy Transmission and Distribution"
+      },
+      {
+       "sector_code": "LP",
+       "sector_description": "Public Administration - Energy and Extractives"
+      }
+     ],
+     "agency_name": "Ministry for Communities, Territories and Infrastructure Development",
+     "bid_reference_no": "UA-MCTID-568111-GO-RFQ",
+     "bid_currency_code": "USD",
+     "bid_estimate_amount": "16661000",
+     "bid_description": "Gas cogeneration units and gas generators",
+     "procurement_group": "GO",
+     "procurement_group_desc": "Goods",
+     "procurement_method_code": "RFQ",
+     "procurement_method_name": "Request for Quotations",
+     "contact_organization": "UNOPS",
+     "unspsc_classification": [
+      {
+       "proc_voc_id": "26111604",
+       "proc_voc_title": "Gas generators",
+       "seg_id": "26000000",
+       "seg_title": "Power Generation and Distribution Machinery and Accessories",
+       "family_id": "26110000",
+       "family_title": "Batteries and generators and kinetic power transmission",
+       "class_id": "26111600",
+       "class_title": "Power generators",
+       "cmdty_id": "26111604",
+       "cmdty_title": "Gas generators"
+      }
+     ],
+     "submission_date": "2026-09-10T00:00:00Z",
+     "noticetitle": "Gas cogeneration units and gas generators",
+     "api_modified_date": "2026-09-12T16:24:40Z",
+     "market_approach_name": "Open"
+    },
+    {
+     "id": "OP00467233",
+     "notice_type": "Invitation for Bids",
+     "noticedate": "09-Sep-2026",
+     "notice_version_no": "1",
+     "notice_lang_code": "EN",
+     "notice_status": "Published",
+     "submission_deadline_date": "2026-10-08T00:00:00Z",
+     "submission_deadline_time": "14:00",
+     "project_ctry_code": "KG",
+     "project_ctry_name": "Kyrgyz Republic",
+     "project_id": "P178286",
+     "project_name": "Kyrgyz Renewable Energy Development Project",
+     "regionname": "Europe And Central Asia",
+     "sector": [
+      {
+       "sector_code": "LH",
+       "sector_description": "Renewable Energy Hydro"
+      },
+      {
+       "sector_code": "LP",
+       "sector_description": "Public Administration - Energy and Extractives"
+      },
+      {
+       "sector_code": "LU",
+       "sector_description": "Renewable Energy Solar"
+      }
+     ],
+     "agency_name": "Ministry of Energy KR",
+     "bid_reference_no": "KG/KRED/W/2023/RFB-01",
+     "bid_currency_code": "USD",
+     "bid_estimate_amount": "3000000",
+     "bid_description": "Design, Supply and Installation of Bystrovka Small Hydropower Plant",
+     "procurement_group": "CW",
+     "procurement_group_desc": "Works",
+     "procurement_method_code": "RFB",
+     "procurement_method_name": "Request for Bids",
+     "contact_organization": "Ministry of Energy KR",
+     "unspsc_classification": [
+      {
+       "proc_voc_id": "26131503",
+       "proc_voc_title": "Hydro power plants",
+       "seg_id": "26000000",
+       "seg_title": "Power Generation and Distribution Machinery and Accessories",
+       "family_id": "26130000",
+       "family_title": "Power generation",
+       "class_id": "26131500",
+       "class_title": "Power plants",
+       "cmdty_id": "26131503",
+       "cmdty_title": "Hydro power plants"
+      },
+      {
+       "proc_voc_id": "72141203",
+       "proc_voc_title": "Dam construction service",
+       "seg_id": "72000000",
+       "seg_title": "Building and Facility Construction and Maintenance Services",
+       "family_id": "72140000",
+       "family_title": "Heavy construction services",
+       "class_id": "72141200",
+       "class_title": "Marine construction services",
+       "cmdty_id": "72141203",
+       "cmdty_title": "Dam construction service"
+      },
+      {
+       "proc_voc_id": "72121506",
+       "proc_voc_title": "Power plant construction service",
+       "seg_id": "72000000",
+       "seg_title": "Building and Facility Construction and Maintenance Services",
+       "family_id": "72120000",
+       "family_title": "Nonresidential building construction services",
+       "class_id": "72121500",
+       "class_title": "Industrial plant construction services",
+       "cmdty_id": "72121506",
+       "cmdty_title": "Power plant construction service"
+      }
+     ],
+     "submission_date": "2026-09-09T00:00:00Z",
+     "noticetitle": "Design, Supply and Installation of Bystrovka Small Hydropower Plant",
+     "api_modified_date": "2026-09-12T16:04:07Z",
+     "market_approach_name": "Open"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,11 @@
+# us.iso.ercot.large_load_queue: EMIL product status -> lifecycle. This connector currently emits
+# catalogue records (see connector docstring), so the only status is the product's own.
+version: 1
+updated: 2026-09-12
+canonical_states: [announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled, unknown]
+sources:
+  ercot_large_load:
+    field: Status
+    map:
+      Active: announced
+      Inactive: cancelled

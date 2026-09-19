@@ -1,0 +1,26 @@
+# gitleaks config for CI (.github/workflows/ci.yml `secret-scan` job). Extends gitleaks' own
+# default ruleset (docs/04 E-19 "gitleaks blocks commit and CI") and allowlists the paths already
+# known, checked and intended to contain secret-shaped strings that are not secrets:
+#
+#   - infra/sops/keys/example-age-key.txt: a real age keypair generated only to prove the SOPS/age
+#     round trip works (infra/sops/README.md), protecting nothing.
+#   - api/openapi.yaml: the API spec's documented example API-key format (`bk_live_...`) and a
+#     synthetic JWT-shaped example — both illustrative strings in a public contract document, not
+#     credentials (api/README.md).
+#   - data/snapshots/**: immutable raw fetch evidence (docs/20 §3.2). Any token-shaped string in
+#     there came from a public source response, not from this repo's own credentials, and the
+#     whole tree is git-ignored in normal operation (services/README.md) — allowlisted here only
+#     so a contributor who has it checked out locally does not get a false alarm.
+#
+# A real secret accidentally committed anywhere else still blocks CI — this file narrows nothing
+# else.
+
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''infra/sops/keys/example-age-key\.txt''',
+  '''api/openapi\.yaml''',
+  '''data/snapshots/.*''',
+]

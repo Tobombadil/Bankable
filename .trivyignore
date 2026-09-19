@@ -1,0 +1,20 @@
+# Findings the CI image scan (trivy, ci.yml "build images") ignores, each with the reason and the
+# condition for removing it. Unfixable Debian findings are already excluded by `ignore-unfixed`.
+#
+# cryptography 46.0.7 -> fixed in 50.0.0. Blocked: gridstatus 0.36.0 (the ISO queue parsers) pins
+# cryptography<47, so the patched release does not resolve. Same exception as pip-audit's
+# PYSEC-2026-3552/3553/3554 in ci.yml; tracked in docs/00-PLAN.md (2026-09-15, "First CI runs").
+# Remove the day gridstatus relaxes the pin.
+CVE-2026-69247
+# cryptography 46.0.7: the same gridstatus pin blocks 49.0.0 and 48.0.1 (second scan, 2026-09-15).
+CVE-2026-69249
+GHSA-537c-gmf6-5ccf
+# lxml 5.4.0: gridstatus 0.36.0 pins lxml~=5.3, so the 6.x fix does not resolve. lxml parses source
+# HTML the connectors fetch, so this is the exception that matters most; see docs/00-PLAN.md
+# follow-up (vendor the two gridstatus parsers if the pin is not relaxed within a month).
+CVE-2026-41066
+# wheel 0.45.1 and jaraco.context 5.3.0 are the copies vendored inside setuptools 78.1.1
+# (setuptools/_vendor); setuptools<79 is pinned by gridstatus 0.36.0. Build-time tooling, never
+# imported by the application at runtime. Same removal condition as the setuptools pip-audit ignore.
+CVE-2026-24049
+CVE-2026-23949

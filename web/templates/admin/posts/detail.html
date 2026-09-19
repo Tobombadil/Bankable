@@ -1,0 +1,105 @@
+{% extends "admin/base.html" %}
+{% block title %}Post -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-posts.css">{% endblock %}
+{% block content %}
+<p><a href="/admin/posts">&larr; Back to the queue</a></p>
+{% include "admin/_notice.html" %}
+
+{% if not post %}
+<p>This post could not be loaded.</p>
+{% else %}
+<h1>{{ post.channel }}
+  <span class="chip chip--{{ state_family.get(post.state, 'neutral') }}">{{ post.state }}</span>
+</h1>
+<dl class="admin-dl">
+  <dt>Post id</dt><dd class="mono">{{ post.post_id }}</dd>
+  <dt>Subject</dt><dd>{% if post.subject %}<a href="{{ post.subject.url }}">{{ post.subject.name }}</a> ({{ post.subject_type }}){% endif %}</dd>
+  <dt>Event</dt><dd>{% if post.event %}<span class="mono">{{ post.event_id }}</span> &mdash; {{ post.event.headline }}{% else %}&mdash;{% endif %}</dd>
+  <dt>Credit line</dt><dd>{{ post.credit_line }}</dd>
+  <dt>Disclosure label</dt><dd>{{ post.disclosure_label or '—' }}</dd>
+  <dt>Gate checked at</dt><dd class="mono">{{ post.gate_checked_at }}</dd>
+  <dt>Approved by</dt><dd>{{ post.approved_by_user_id or '—' }}</dd>
+  <dt>Scheduled for</dt><dd class="mono">{{ post.scheduled_for or '—' }}</dd>
+  <dt>Published at</dt><dd class="mono">{{ post.published_at or '—' }}</dd>
+  {% if post.reject_reason %}<dt>Reject reason</dt><dd>{{ post.reject_reason }}</dd>{% endif %}
+</dl>
+
+<h2>Body</h2>
+<p class="admin-muted">
+  {{ body_length }} / {{ channel_limit if channel_limit is not none else '?' }} characters
+  {%- if channel_limit is not none and body_length > channel_limit %} -- over the {{ post.channel }} limit{% endif %}.
+</p>
+<pre class="admin-pre post-body">{{ post.body }}</pre>
+
+{% if post.metrics and (post.metrics.impressions is not none or post.metrics.clicks is not none) %}
+<h2>Metrics</h2>
+<dl class="admin-dl">
+  <dt>Impressions</dt><dd>{{ post.metrics.impressions if post.metrics.impressions is not none else '—' }}</dd>
+  <dt>Clicks</dt><dd>{{ post.metrics.clicks if post.metrics.clicks is not none else '—' }}</dd>
+  <dt>Likes</dt><dd>{{ post.metrics.likes if post.metrics.likes is not none else '—' }}</dd>
+  <dt>Reposts</dt><dd>{{ post.metrics.reposts if post.metrics.reposts is not none else '—' }}</dd>
+</dl>
+{% endif %}
+
+{% if post.state in ('draft', 'approved') %}
+<h2>Edit</h2>
+<form class="admin-form" method="post" action="/admin/posts/{{ post.post_id }}/edit">
+  <div class="field">
+    <label for="edit-body">Body</label>
+    <textarea id="edit-body" name="body" rows="5">{{ form_values.body }}</textarea>
+  </div>
+  <div class="field">
+    <label for="edit-reason">Reason (required)</label>
+    <textarea id="edit-reason" name="reason" rows="2" required></textarea>
+  </div>
+  <div class="admin-actions">
+    <button class="admin-button admin-button--primary" type="submit">Save edit</button>
+  </div>
+</form>
+{% endif %}
+
+{% if post.state == 'draft' %}
+<h2>Approve</h2>
+<form class="admin-form" method="post" action="/admin/posts/{{ post.post_id }}/approve">
+  <p class="admin-muted">No reason field -- approval is a fixed, audited action (docs/32 §4.4).</p>
+  <div class="admin-actions">
+    <button class="admin-button admin-button--primary" type="submit">Approve</button>
+  </div>
+</form>
+{% endif %}
+
+{% if post.state == 'approved' %}
+<h2>Schedule</h2>
+<form class="admin-form" method="post" action="/admin/posts/{{ post.post_id }}/schedule">
+  <div class="field">
+    <label for="sched-when">Scheduled for (your local time, stored as UTC)</label>
+    <input id="sched-when" name="scheduled_for" type="datetime-local" value="{{ schedule_value or '' }}" required>
+  </div>
+  <div class="field">
+    <label for="sched-reason">Reason (required)</label>
+    <textarea id="sched-reason" name="reason" rows="2" required></textarea>
+  </div>
+  <div class="admin-actions">
+    <button class="admin-button admin-button--primary" type="submit">Schedule</button>
+  </div>
+</form>
+{% endif %}
+
+{% if post.state in ('draft', 'approved', 'scheduled') %}
+<h2>Reject</h2>
+<form class="admin-form" method="post" action="/admin/posts/{{ post.post_id }}/reject">
+  <div class="field">
+    <label for="reject-reason">Reason code (required)</label>
+    <select id="reject-reason" name="reason">
+      {% for r in reject_reasons %}
+      <option value="{{ r }}"{% if r == reject_reason_value %} selected{% endif %}>{{ r | replace('_', ' ') }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="admin-actions">
+    <button class="admin-button" type="submit">Reject</button>
+  </div>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

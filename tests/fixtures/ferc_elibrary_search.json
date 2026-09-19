@@ -1,0 +1,1912 @@
+{
+  "pages": [
+    {
+      "request": {
+        "searchText": "ER26",
+        "searchDescription": false,
+        "searchFullText": false,
+        "searchDocketNumber": true,
+        "resultsPerPage": 25,
+        "curPage": 1,
+        "sortBy": "",
+        "groupBy": "DOCKET",
+        "filterDate": {
+          "dateType": "filed_date",
+          "startDate": "08/13/2026",
+          "endDate": "09/12/2026"
+        },
+        "docketNumbers": [],
+        "documentClasses": [],
+        "documentTypes": [],
+        "availability": "P",
+        "categories": [],
+        "idList": [],
+        "accessionNumber": "",
+        "libraryTypes": [],
+        "filedBy": "",
+        "affiliations": ""
+      },
+      "response": {
+        "searchHits": [
+          {
+            "reference": "{2C71233E-CA4B-C307-84D8-A091A9900000}-{98C2B2B0-7991-C40E-9B5D-A091A9A00000}",
+            "documentId": "2C71233E-CA4B-C307-84D8-A091A9900000",
+            "description": "Puget Sound Energy, Inc. submits tariff filing per 35.13(a)(2)(iii: Refiling agreements into Miscellaneous Tariffs and Service Agreements to be effective 1/1/2027 under ER26-3760 Filing Type : 10",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260911-5219",
+            "issuedDate": "09/11/2026",
+            "filedDate": "09/11/2026",
+            "postedDate": "09/11/2026",
+            "classTypes": [
+              {
+                "documentClass": "Application/Petition/Request",
+                "documentType": "Tariff Filing"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 82.4,
+            "docketNumbers": [
+              "ER26-3760-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "98C2B2B0-7991-C40E-9B5D-A091A9A00000",
+                "fileType": "DOCX",
+                "fileFormat": "Standard",
+                "fileName": "Transmittal Letter for eTariff Clean-Up Boeing.docx",
+                "fileDesc": "Transmittal Letter",
+                "fileSize": 38098,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "23B55925-08C5-CC8F-A054-A091A9A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "SA-5016-1 Boeing NITSA.pdf",
+                "fileDesc": "SA-5016-1 Boeing NITSA",
+                "fileSize": 409804,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "0905EAC3-C22B-CAFB-AABA-A091A9A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "SA-5017-1 Boeing NOA.pdf",
+                "fileDesc": "SA-5017-1 Boeing NOA",
+                "fileSize": 360427,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "05796B87-A684-CC71-B3D2-A091A9A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "FERC GENERATED TARIFF FILING.PDF",
+                "fileDesc": "FERC GENERATED TARIFF FILING",
+                "fileSize": 643739,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Puget Sound Energy, Inc.",
+                "lastName": "Mersing",
+                "firstInitial": "J",
+                "middleInitial": "L"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "Puget Sound Energy",
+                "lastName": "Mersing",
+                "firstInitial": "J",
+                "middleInitial": "L"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{F65284B9-889A-CC7A-860C-A08710900000}-{9E8402BC-66B7-C0D0-9E79-A08710900000}",
+            "documentId": "F65284B9-889A-CC7A-860C-A08710900000",
+            "description": "Southwest Power Pool, Inc. submits tariff filing per 35.13(a)(2)(iii: Revisions to Modify and Clarify CPP Governing Language to be effective 11/9/2026 under ER26-3740 Filing Type : 10",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260909-5090",
+            "issuedDate": "09/09/2026",
+            "filedDate": "09/09/2026",
+            "postedDate": "09/09/2026",
+            "classTypes": [
+              {
+                "documentClass": "Application/Petition/Request",
+                "documentType": "Tariff Filing"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 82.4,
+            "docketNumbers": [
+              "ER26-3740-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "9E8402BC-66B7-C0D0-9E79-A08710900000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "RR 786 Transmittal Letter_CPP Clarifications.pdf",
+                "fileDesc": "Transmittal Letter",
+                "fileSize": 947950,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "1C8DB14A-232E-C4F8-A552-A08710900000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Marked7348-7414e87d-e5ac-4dd7-9d88-dacc1deb354c.pdf",
+                "fileDesc": "Marked Tariff",
+                "fileSize": 485515,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "A145ED68-63B7-CFF4-AD8B-A08710900000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Clean7348-cf599668-f866-4e2f-a4de-b9fcca7e2b72.pdf",
+                "fileDesc": "Clean Tariff",
+                "fileSize": 472858,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "94FE24DA-180D-C173-8755-A08710A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Exhibit No. SPP-0001 - Testimony of Don Frerking.pdf",
+                "fileDesc": "Exhibit No. SPP- 0001 - Frerking Testimony",
+                "fileSize": 885972,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "279B4F15-D24B-C18C-8E99-A08710A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Exhibit No. SPP-0002- Testimony of Sunny Raheem.pdf",
+                "fileDesc": "Exhibit No. SPP- 002 - Raheem Testimony",
+                "fileSize": 897073,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "076DFFDB-3B4D-C4A3-940E-A08710A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "FERC GENERATED TARIFF FILING.PDF",
+                "fileDesc": "FERC GENERATED TARIFF FILING",
+                "fileSize": 1934341,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Southwest Power Pool, Inc.",
+                "lastName": "Hinton",
+                "firstInitial": "J",
+                "middleInitial": "A"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "No Organization Found",
+                "lastName": "Hinton",
+                "firstInitial": "J",
+                "middleInitial": "A"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{401BF527-4A69-CBBB-8405-A082B8100000}-{62F6A1C7-1517-C53A-9D8B-A082B8100000}",
+            "documentId": "401BF527-4A69-CBBB-8405-A082B8100000",
+            "description": "Protest of Microsoft Corporation re American Transmission Company LLC's 08/17/2026 tariff filing under ER26-3531.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260908-5320",
+            "issuedDate": "09/08/2026",
+            "filedDate": "09/08/2026",
+            "postedDate": "09/08/2026",
+            "classTypes": [
+              {
+                "documentClass": "Comments/Protest",
+                "documentType": "Comment on Filing"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 82.4,
+            "docketNumbers": [
+              "ER26-3531-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "62F6A1C7-1517-C53A-9D8B-A082B8100000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Protest of Microsoft Corporation (ER26-3531).pdf",
+                "fileDesc": "No description given",
+                "fileSize": 224022,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Microsoft Corporation",
+                "lastName": "Frank",
+                "firstInitial": "K",
+                "middleInitial": "B"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "K&L Gates LLP",
+                "lastName": "Frank",
+                "firstInitial": "K",
+                "middleInitial": "B"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{6468E89C-D332-C387-85B4-A08294800000}-{6F9CE74A-77D2-CE0F-9F0C-A08294800000}",
+            "documentId": "6468E89C-D332-C387-85B4-A08294800000",
+            "description": "Motion for Leave to Answer and Answer of American Transmission Company LLC to the Comments and Protests filed by Microsoft Corporation et al. under ER26-3265.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260908-5290",
+            "issuedDate": "09/08/2026",
+            "filedDate": "09/08/2026",
+            "postedDate": "09/08/2026",
+            "classTypes": [
+              {
+                "documentClass": "Pleading/Motion",
+                "documentType": "Answer/Response to a Pleading/Motion"
+              },
+              {
+                "documentClass": "Pleading/Motion",
+                "documentType": "Procedural Motion"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 82.4,
+            "docketNumbers": [
+              "ER26-3265-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "6F9CE74A-77D2-CE0F-9F0C-A08294800000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "ATC Answer to Protests and Comments - ER26-3265 - 9.8.26.pdf",
+                "fileDesc": "ATC Answer to Protests and Comments in ER26-3265",
+                "fileSize": 271401,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "American Transmission Company LLC",
+                "lastName": "Walsh",
+                "firstInitial": "L",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "Husch Blackwell LLP",
+                "lastName": "Walsh",
+                "firstInitial": "L",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{9B22816F-020F-CA9D-861B-A08277800000}-{E279DA41-4769-C50A-9DB7-A08277800000}",
+            "documentId": "9B22816F-020F-CA9D-861B-A08277800000",
+            "description": "Southwest Power Pool, Inc. submits Request for Clarification, or in the Alternative, Request for Rehearing of the 08/06/2026 Order under ER26-2764.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260908-5275",
+            "issuedDate": "09/08/2026",
+            "filedDate": "09/08/2026",
+            "postedDate": "09/08/2026",
+            "classTypes": [
+              {
+                "documentClass": "Pleading/Motion",
+                "documentType": "Request for Rehearing or Appeal"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 82.4,
+            "docketNumbers": [
+              "ER26-2764-001"
+            ],
+            "transmittals": [
+              {
+                "fileId": "E279DA41-4769-C50A-9DB7-A08277800000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Request for Clarification and Rehearing in Docket No. ER26-2764.pdf",
+                "fileDesc": "Request for clarification, or in the alternative, request for rehearing",
+                "fileSize": 92123,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Southwest Power Pool, Inc.",
+                "lastName": "Powell",
+                "firstInitial": "M",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{1FF806D0-6131-C5EC-8559-A08264800000}-{99F1F7B0-D321-C2FD-9E1E-A08264800000}",
+            "documentId": "1FF806D0-6131-C5EC-8559-A08264800000",
+            "description": "Motion for Leave to Answer and Answer of Constellation Energy Generation, LLC to certain comments and protests re the PJM Reliability Backstop Procurement Proposal et al. under ER26-3380.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260908-5260",
+            "issuedDate": "09/08/2026",
+            "filedDate": "09/08/2026",
+            "postedDate": "09/08/2026",
+            "classTypes": [
+              {
+                "documentClass": "Pleading/Motion",
+                "documentType": "Answer/Response to a Pleading/Motion"
+              },
+              {
+                "documentClass": "Pleading/Motion",
+                "documentType": "Procedural Motion"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 82.4,
+            "docketNumbers": [
+              "ER26-3380-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "99F1F7B0-D321-C2FD-9E1E-A08264800000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "ER26-3380 Constellation Answer (9.8.2026).pdf",
+                "fileDesc": "Motion for Leave to File Answer, and Answer, of Constellation Energy Generation, LLC under ER26-3380",
+                "fileSize": 230047,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Constellation Energy Generation, LLC",
+                "lastName": "Irvin",
+                "firstInitial": "K",
+                "middleInitial": "W"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "Sidley Austin LLP",
+                "lastName": "Irvin",
+                "firstInitial": "K",
+                "middleInitial": "W"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{B774DFC4-FF10-CA0B-841B-A0826D000000}-{5ACCD23E-478D-C091-8A46-A0826D100000}",
+            "documentId": "B774DFC4-FF10-CA0B-841B-A0826D000000",
+            "description": "Cross-Sound Cable Company, LLC submits tariff filing per 35.13(a)(2)(iii: 2026 IROL-CIP Schedule 17 Cost Recovery to be effective 11/9/2026 under ER26-3737 Filing Type : 30",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260908-5264",
+            "issuedDate": "09/08/2026",
+            "filedDate": "09/08/2026",
+            "postedDate": "09/08/2026",
+            "classTypes": [
+              {
+                "documentClass": "Application/Petition/Request",
+                "documentType": "Tariff Filing"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "Parent",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 82.4,
+            "docketNumbers": [
+              "ER26-3737-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "706568A4-CE64-C7F8-9FFF-A0826D000000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "2026-09-08 CSC Schedule 17 Filing Letter.PDF",
+                "fileDesc": "Transmittal Letter",
+                "fileSize": 463669,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "AEAB0747-B111-CE35-A439-A0826D000000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Att A Schedule 17 COST RECOVERY Rate Clean.PDF",
+                "fileDesc": "Clean Tariff",
+                "fileSize": 160084,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "CDC6F3CB-3876-CFE5-AC64-A0826D000000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Att B 2026 Cross-Sound Cable Protective Agree.PDF",
+                "fileDesc": "Other",
+                "fileSize": 225438,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "327806FD-D618-C689-B72E-A0826D000000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Attt C Service List.PDF",
+                "fileDesc": "Other",
+                "fileSize": 243969,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "5ACCD23E-478D-C091-8A46-A0826D100000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Exhibit No.CSC-001 Testimony of Mr.Brian.PDF",
+                "fileDesc": "Other",
+                "fileSize": 304574,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "ED87A815-AA24-CF17-9239-A0826D100000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Exhibit No.CSC-002 Testimony of Dr.Paul A.PDF",
+                "fileDesc": "Other",
+                "fileSize": 383414,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "EE90EA28-AA60-C3F9-98DD-A0826D100000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Exhibit No.CSC-003 Resume of Dr.Paul A.Dumais.PDF",
+                "fileDesc": "Other",
+                "fileSize": 299001,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "C3E72922-068B-C00F-A36E-A0826D100000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Exhibit No. CSC-004 Revenue Requirement PUB.PDF",
+                "fileDesc": "Other",
+                "fileSize": 81996,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "B2934851-B8CF-C45C-ABF4-A0826D100000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "FERC GENERATED TARIFF FILING.PDF",
+                "fileDesc": "FERC GENERATED TARIFF FILING",
+                "fileSize": 197568,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Cross-Sound Cable Company, LLC",
+                "lastName": "Hunter",
+                "firstInitial": "L",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "Milbank LLP",
+                "lastName": "Hunter",
+                "firstInitial": "L",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{8042DC9C-B639-CF32-8544-A08236000000}-{EC4CE61F-7C04-C13A-9244-A08236100000}",
+            "documentId": "8042DC9C-B639-CF32-8544-A08236000000",
+            "description": "Motion for Leave to Answer and Answer of Wisconsin Electric Power Company to the protests and comments filed by Microsoft Corporation, et al. under ER26-3265.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260908-5211",
+            "issuedDate": "09/08/2026",
+            "filedDate": "09/08/2026",
+            "postedDate": "09/08/2026",
+            "classTypes": [
+              {
+                "documentClass": "Pleading/Motion",
+                "documentType": "Answer/Response to a Pleading/Motion"
+              },
+              {
+                "documentClass": "Pleading/Motion",
+                "documentType": "Procedural Motion"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 82.4,
+            "docketNumbers": [
+              "ER26-3265-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "EC4CE61F-7C04-C13A-9244-A08236100000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Final WEPCO Answer; Docket No. ER26-3265-000.pdf",
+                "fileDesc": "Motion for Leave to Answer and Answer of Wisconsin Electric Power Company",
+                "fileSize": 268452,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Wisconsin Electric Power Company",
+                "lastName": "Kooistra",
+                "firstInitial": "R",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "Troutman Pepper Locke LLP",
+                "lastName": "Kooistra",
+                "firstInitial": "R",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{33439620-4098-C65D-84D7-A06E37A00000}-{77E990B4-E637-C1F1-AC86-A06E37A00000}",
+            "documentId": "33439620-4098-C65D-84D7-A06E37A00000",
+            "description": "Motion of Equinix Inc. for Leave to Protest, Seek Clarification on and Comment Out-of-Time on the Proposal of PJM Interconnection, L.L.C. to Establish Interim Resource Adequacy, et al. under ER26-3515.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260904-5197",
+            "issuedDate": "09/04/2026",
+            "filedDate": "09/04/2026",
+            "postedDate": "09/04/2026",
+            "classTypes": [
+              {
+                "documentClass": "Pleading/Motion",
+                "documentType": "Procedural Motion"
+              },
+              {
+                "documentClass": "Comments/Protest",
+                "documentType": "Comment on Filing"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 82.4,
+            "docketNumbers": [
+              "ER26-3515-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "FEB5DFE5-ADDA-C98C-9E34-A06E37A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "2026-09-04 Motion OOT EQIX IRAS Comments.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 140802,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "4779B4F5-D124-C2C9-A4F2-A06E37A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "2026-09-04 FERC Acceptance for Filing in ER26-3515-000.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 56674,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "77E990B4-E637-C1F1-AC86-A06E37A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "2026-09-03 Letter re Inadvertent Incorrect File Upload.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 300981,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "DEAE3D0A-E7DB-C5C4-88CB-A06E37B00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "2026-09-03 Final EQIX IRAS Comments.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 305667,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              },
+              {
+                "afType": "AUTHOR",
+                "affiliation": "EQUINIX INC.",
+                "lastName": "Haubenstock",
+                "firstInitial": "A",
+                "middleInitial": "L"
+              }
+            ]
+          }
+        ],
+        "totalHits": 13887,
+        "numHits": 9,
+        "success": true,
+        "errorMessage": null,
+        "searchResultId": null
+      }
+    },
+    {
+      "request": {
+        "searchText": "CP26",
+        "searchDescription": false,
+        "searchFullText": false,
+        "searchDocketNumber": true,
+        "resultsPerPage": 25,
+        "curPage": 1,
+        "sortBy": "",
+        "groupBy": "DOCKET",
+        "filterDate": {
+          "dateType": "filed_date",
+          "startDate": "08/13/2026",
+          "endDate": "09/12/2026"
+        },
+        "docketNumbers": [],
+        "documentClasses": [],
+        "documentTypes": [],
+        "availability": "P",
+        "categories": [],
+        "idList": [],
+        "accessionNumber": "",
+        "libraryTypes": [],
+        "filedBy": "",
+        "affiliations": ""
+      },
+      "response": {
+        "searchHits": [
+          {
+            "reference": "{2510C59E-A0D7-C340-8414-A0912E000000}-{178A0529-2AB7-C221-A595-A0912E000000}",
+            "documentId": "2510C59E-A0D7-C340-8414-A0912E000000",
+            "description": "Dauphin Island Gathering Partners submits updated mailing lists re the Dauphin Island Gathering Partners Abandonment Project under CP26-560.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260911-5151",
+            "issuedDate": "09/11/2026",
+            "filedDate": "09/11/2026",
+            "postedDate": "09/11/2026",
+            "classTypes": [
+              {
+                "documentClass": "Applicant Correspondence",
+                "documentType": "Supplemental/Additional Information"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "Parent",
+            "libraries": [
+              "Gas"
+            ],
+            "score": 82.38,
+            "docketNumbers": [
+              "CP26-560-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "DC894A39-135C-CD54-9D79-A0912E000000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_DIGP_Abandonment_Ltr_Updated_Mailing_Lists.pdf",
+                "fileDesc": "DIGP - Abandonment - Supplemental Information",
+                "fileSize": 108574,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "178A0529-2AB7-C221-A595-A0912E000000",
+                "fileType": "XLSX",
+                "fileFormat": "Standard",
+                "fileName": "PUB_DIGP_Updated_Stakeholder List-2026_0911.xlsx",
+                "fileDesc": "DIGP - Abandonment - Supplemental Information",
+                "fileSize": 27343,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Dauphin Island Gathering Partners",
+                "lastName": "Beach",
+                "firstInitial": "T",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "The Williams Companies, Inc.",
+                "lastName": "Beach",
+                "firstInitial": "T",
+                "middleInitial": "x"
+              }
+            ]
+          },
+          {
+            "reference": "{F8275F24-FA82-CB90-87E1-A08BCCE00000}-{137A005B-39B4-CB0C-9482-A08BCCE00000}",
+            "documentId": "F8275F24-FA82-CB90-87E1-A08BCCE00000",
+            "description": "Order Issuing Certificates re UGI Auburn, LLC et al. under CP26-9. ",
+            "summary": null,
+            "category": "Issuance",
+            "acesssionNumber": "20260910-3037",
+            "issuedDate": "09/10/2026",
+            "filedDate": "09/10/2026",
+            "postedDate": "09/10/2026",
+            "classTypes": [
+              {
+                "documentClass": "Order/Opinion",
+                "documentType": "Commission Order/Opinion"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Gas"
+            ],
+            "score": 82.38,
+            "docketNumbers": [
+              "CP26-9-000",
+              "CP26-9-001"
+            ],
+            "transmittals": [
+              {
+                "fileId": "137A005B-39B4-CB0C-9482-A08BCCE00000",
+                "fileType": "DOCX",
+                "fileFormat": "Standard",
+                "fileName": "CP26-9-000.docx",
+                "fileDesc": "Consent",
+                "fileSize": 85719,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "SECRETARY OF THE COMMISSION, FERC",
+                "lastName": "CLAY",
+                "firstInitial": "C",
+                "middleInitial": "D"
+              },
+              {
+                "afType": "AUTHOR",
+                "affiliation": "COMMISSIONERS AND IMMEDIATE STAFF (THE COMMISSION)",
+                "lastName": "*",
+                "firstInitial": "*",
+                "middleInitial": ""
+              },
+              {
+                "afType": "AUTHOR",
+                "affiliation": "SECRETARY OF THE COMMISSION, FERC",
+                "lastName": "Bose",
+                "firstInitial": "K",
+                "middleInitial": "D"
+              }
+            ]
+          },
+          {
+            "reference": "{CD8755EB-D020-CA4F-8741-A08720700000}-{B5D520F6-6862-C3B2-90DF-A08720800000}",
+            "documentId": "CD8755EB-D020-CA4F-8741-A08720700000",
+            "description": "Northern Natural Gas Company submits response to FERC's 09/02/2026 Environmental Information Request No. 4 re the application for the Abandonment and Capacity Replacement Project under CP26-130.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260909-5095",
+            "issuedDate": "09/09/2026",
+            "filedDate": "09/09/2026",
+            "postedDate": "09/09/2026",
+            "classTypes": [
+              {
+                "documentClass": "Applicant Correspondence",
+                "documentType": "Supplemental/Additional Information"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "Parent",
+            "libraries": [
+              "Gas"
+            ],
+            "score": 82.38,
+            "docketNumbers": [
+              "CP26-130-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "B5D520F6-6862-C3B2-90DF-A08720800000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "2026_09_09_resp_Sep2_envir_DR1_Public_1of2.pdf",
+                "fileDesc": "Data Response Transmittal Letter and DR1",
+                "fileSize": 210381990,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "3AF06DF1-0B12-C87B-8BE1-A08720A00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "2026_09_09_resp_Sep2_envir_DR2_6_Public_2of2.pdf",
+                "fileDesc": "Data Response DR2-DR6",
+                "fileSize": 1015113,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Northern Natural Gas Company",
+                "lastName": "Mabbitt",
+                "firstInitial": "E",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "Northern Natural Gas Company",
+                "lastName": "Mabbitt",
+                "firstInitial": "E",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{821938D1-E951-C4A6-8440-A082A2900000}-{3F78F85E-00A3-C6D8-9FE3-A082A2900000}",
+            "documentId": "821938D1-E951-C4A6-8440-A082A2900000",
+            "description": "Tennessee Gas Pipeline Company, L.L.C. submits response to FERC\u2019s 08/25/2026 environmental information request re the application for the South Texas Enhancement Project under CP26-540.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260908-5303",
+            "issuedDate": "09/08/2026",
+            "filedDate": "09/08/2026",
+            "postedDate": "09/08/2026",
+            "classTypes": [
+              {
+                "documentClass": "Applicant Correspondence",
+                "documentType": "Supplemental/Additional Information"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "Parent",
+            "libraries": [
+              "Gas"
+            ],
+            "score": 82.38,
+            "docketNumbers": [
+              "CP26-540-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "3F78F85E-00A3-C6D8-9FE3-A082A2900000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "STEP 8.25.26 EIR Response.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 3014627,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AGENT",
+                "affiliation": "Kinder Morgan, Inc.",
+                "lastName": "Hardy",
+                "firstInitial": "T",
+                "middleInitial": "S"
+              },
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Tennessee Gas Pipeline Company, L.L.C.",
+                "lastName": "Hardy",
+                "firstInitial": "T",
+                "middleInitial": "S"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{06919B15-479B-C4E9-86B1-A08138300000}-{B450F4AB-682D-C744-A772-A08138300000}",
+            "documentId": "06919B15-479B-C4E9-86B1-A08138300000",
+            "description": "Transcontinental Gas Pipe Line Company, LLC submits Abbreviated Application for a Certificate of Public Convenience and Necessity to construct, etc. new pipeline located in Pennsylvania, etc. for the Leidy Access Expansion Project under CP26-576.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260904-5213",
+            "issuedDate": "09/04/2026",
+            "filedDate": "09/04/2026",
+            "postedDate": "09/08/2026",
+            "classTypes": [
+              {
+                "documentClass": "Application/Petition/Request",
+                "documentType": "Certificate of Public Convenience and Necessity"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "Parent",
+            "libraries": [
+              "Gas"
+            ],
+            "score": 82.38,
+            "docketNumbers": [
+              "CP26-576-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "48FF61ED-7535-C96F-9DE4-A08138300000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_001_Vol1_Transco_LAEP_Transmittal_Letter_2026-09-04.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 145993,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "B450F4AB-682D-C744-A772-A08138300000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_002_Vol1_Transco_LAEP_Application_2026-09-04.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 3045761,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "4B919C4A-3466-C802-ADAF-A08138300000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_003_Vol1_Transco_LAEP_Table_of_Contents.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 131905,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "D1A1EF17-6221-CE2F-8858-A08138400000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_004_Vol1_Transco_LAEP_RR01_Main_1A_part1.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 4836729,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "5D15688A-021F-CE28-90E8-A08138400000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_005_Vol1_Transco_LAEP_RR01_1B-1C_part2_reduce.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 19906373,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "E6D63D28-49E7-C35E-9AA7-A08138400000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_006_Vol1_Transco_LAEP_RR01_1D-IJ_part3.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 52147174,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "042CCA5C-2FB7-CE42-88EC-A08138500000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_007_Vol1_Transco_LAEP_RR02.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 581328,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "5FE293D7-FC91-C40F-9108-A08138500000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_008_Vol1_Transco_LAEP_RR03.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 19940648,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "990B1A87-EF4F-CD93-99D9-A08138500000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_009_Vol1_Transco_LAEP_RR04.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 7367645,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "2890290A-1790-CA6B-A341-A08138500000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_010_Vol1_Transco_LAEP_RR05.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 207670,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "BE05A224-6C8A-C642-8675-A08138600000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_011_Vol1_Transco_LAEP_RR06.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 1228167,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "C915B88A-B158-CAB6-8F07-A08138600000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_012_Vol1_Transco_LAEP_RR07.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 604220,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "E3A34417-1A29-CAE3-9707-A08138600000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_013_Vol1_Transco_LAEP_RR08.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 8321709,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "218F2437-DC05-CDCA-9C29-A08138600000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_014_Vol1_Transco_LAEP_RR09.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 1267411,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "4C598833-1BE3-C566-A6CD-A08138600000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_015_Vol1_Transco_LAEP_RR10.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 1126444,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "809A1621-1A31-CB11-AD7F-A08138600000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_016_Vol1_Transco_LAEP_RR11.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 306969,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "16F711C8-E96B-CD04-B584-A08138600000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "PUB_017_Vol1_Transco_LAEP_RR12.pdf",
+                "fileDesc": "No description given",
+                "fileSize": 203415,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Transcontinental Gas Pipe Line Company, LLC",
+                "lastName": "Pereira",
+                "firstInitial": "A",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "The Williams Companies, Inc.",
+                "lastName": "Pereira",
+                "firstInitial": "A",
+                "middleInitial": "x"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{1A341913-77A1-C34B-8485-A067F3500000}-{69B0B279-618C-CAA5-9C82-A067F3500000}",
+            "documentId": "1A341913-77A1-C34B-8485-A067F3500000",
+            "description": "High Island Offshore System, L.L.C. submits abbreviated Application for Abandonment of non-jurisdictional gathering facilities located in the Outer Continental Shelf, High Island Area Lease Block 264, offshore Texas and Louisiana under CP26-574.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260903-5090",
+            "issuedDate": "09/03/2026",
+            "filedDate": "09/03/2026",
+            "postedDate": "09/03/2026",
+            "classTypes": [
+              {
+                "documentClass": "Application/Petition/Request",
+                "documentType": "Abandonment of Service or Facility"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "Parent",
+            "libraries": [
+              "Gas"
+            ],
+            "score": 82.38,
+            "docketNumbers": [
+              "CP26-574-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "69B0B279-618C-CAA5-9C82-A067F3500000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Volume I (PUB).pdf",
+                "fileDesc": "Volume I (PUB)",
+                "fileSize": 7565326,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "High Island Offshore System, L.L.C.",
+                "lastName": "Nevins",
+                "firstInitial": "P",
+                "middleInitial": "J"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "Latham & Watkins LLP",
+                "lastName": "Nevins",
+                "firstInitial": "P",
+                "middleInitial": "J"
+              }
+            ]
+          },
+          {
+            "reference": "{27E12213-84E8-C26E-86BE-A05943F00000}-{59109636-B50E-CB52-9EE0-A05943F00000}",
+            "documentId": "27E12213-84E8-C26E-86BE-A05943F00000",
+            "description": "Comments of Joseph and Tracy M. Butts on the final Environmental Assessment re the NKY Gate Enhancement Project under CP26-19.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260831-5218",
+            "issuedDate": "08/31/2026",
+            "filedDate": "08/31/2026",
+            "postedDate": "08/31/2026",
+            "classTypes": [
+              {
+                "documentClass": "Comments/Protest",
+                "documentType": "Comment on Filing"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Gas"
+            ],
+            "score": 82.38,
+            "docketNumbers": [
+              "CP26-19-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "59109636-B50E-CB52-9EE0-A05943F00000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Butts_FERC_Personal_Comments_FILING_READY_NO_INDENTS_2026-08-31.pdf",
+                "fileDesc": "Butts Comments to 7/31/2026 Environmental Assessment.  ",
+                "fileSize": 172307,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Individual No Affiliation",
+                "lastName": "Butts",
+                "firstInitial": "J",
+                "middleInitial": "E"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              }
+            ]
+          },
+          {
+            "reference": "{4D6E10D7-EBF2-CDEC-8500-A05946100000}-{8ABB0212-A7FB-C1D9-8B4C-A05946200000}",
+            "documentId": "4D6E10D7-EBF2-CDEC-8500-A05946100000",
+            "description": "Comments, Protest, and Motion for Waiver of Bradley S. Roether on the final Environmental Assessment re the NKY Gate Enhancement Project under CP26-19.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20260831-5221",
+            "issuedDate": "08/31/2026",
+            "filedDate": "08/31/2026",
+            "postedDate": "08/31/2026",
+            "classTypes": [
+              {
+                "documentClass": "Comments/Protest",
+                "documentType": "Comment on Filing"
+              },
+              {
+                "documentClass": "Pleading/Motion",
+                "documentType": "Procedural Motion"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Gas"
+            ],
+            "score": 82.38,
+            "docketNumbers": [
+              "CP26-19-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "8ABB0212-A7FB-C1D9-8B4C-A05946200000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "Roether_Comments_Protest_Motion_CP26-19-000.pdf",
+                "fileDesc": "Comments, Protest, and Motion for Waiver of Bradley Roether, Intervenor, on the Environmental Assessment",
+                "fileSize": 858424,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              },
+              {
+                "afType": "AUTHOR",
+                "affiliation": "Individual No Affiliation",
+                "lastName": "Roether",
+                "firstInitial": "B",
+                "middleInitial": "S"
+              }
+            ]
+          }
+        ],
+        "totalHits": 4884,
+        "numHits": 8,
+        "success": true,
+        "errorMessage": null,
+        "searchResultId": null
+      }
+    },
+    {
+      "request": {
+        "searchText": "interconnection agreement",
+        "searchDescription": true,
+        "searchFullText": false,
+        "searchDocketNumber": false,
+        "resultsPerPage": 15,
+        "curPage": 1,
+        "sortBy": "",
+        "groupBy": "DOCKET",
+        "filterDate": {
+          "dateType": "filed_date",
+          "startDate": "08/13/2026",
+          "endDate": "09/12/2026"
+        },
+        "docketNumbers": [],
+        "documentClasses": [],
+        "documentTypes": [],
+        "availability": "P",
+        "categories": [],
+        "idList": [],
+        "accessionNumber": "",
+        "libraryTypes": [],
+        "filedBy": "",
+        "affiliations": ""
+      },
+      "response": {
+        "searchHits": [
+          {
+            "reference": "{D397C004-2767-C86E-A539-6C3296600003}-{002882BF-66E2-5005-8110-C31FAFC91712}",
+            "documentId": "D397C004-2767-C86E-A539-6C3296600003",
+            "description": "Order conditionally accepting Interconnection Service Agreement & Interconnection & Operating Agreement & rejecting amendment to Interconnection Agreement re PJM Interconnection, LLC et al under ER03-194.",
+            "summary": null,
+            "category": "Issuance",
+            "acesssionNumber": "20030207-3057",
+            "issuedDate": "02/07/2003",
+            "filedDate": "02/07/2003",
+            "postedDate": "02/07/2003",
+            "classTypes": [
+              {
+                "documentClass": "Order/Opinion",
+                "documentType": "Commission Order/Opinion"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "none",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 81.85,
+            "docketNumbers": [
+              "ER03-194-000",
+              "ER03-194-001",
+              "ER03-309-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "00286C09-66E2-5005-8110-C31FAFC91712",
+                "fileType": "WPD",
+                "fileFormat": "WordPerfect",
+                "fileName": "9031526.WPD",
+                "fileDesc": "",
+                "fileSize": 32125,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "002882BF-66E2-5005-8110-C31FAFC91712",
+                "fileType": "TXT",
+                "fileFormat": "Text",
+                "fileName": "2649097.txt",
+                "fileDesc": "",
+                "fileSize": 17554,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "COMMISSIONERS & IMMEDIATE STAFF (THE COMMISSION)",
+                "lastName": "",
+                "firstInitial": "",
+                "middleInitial": ""
+              },
+              {
+                "afType": "AUTHOR",
+                "affiliation": "SECRETARY OF THE COMMISSION & STAFF",
+                "lastName": "",
+                "firstInitial": "",
+                "middleInitial": ""
+              },
+              {
+                "afType": "AUTHOR",
+                "affiliation": "FERC",
+                "lastName": "SALAS",
+                "firstInitial": "M",
+                "middleInitial": "R"
+              }
+            ]
+          },
+          {
+            "reference": "{A7BF2452-D6FD-CEA0-842B-6C44C8E00000}-{003C5311-66E2-5005-8110-C31FAFC91712}",
+            "documentId": "A7BF2452-D6FD-CEA0-842B-6C44C8E00000",
+            "description": "Letter order accepting PJM Interconnection, LLC's filing of an Interconnection Agreement 935, Interim Interconnection Agreement 934, and Notice of Cancellation for Interim Interconnection Agreements 898/934 under ER03-1153.",
+            "summary": null,
+            "category": "Issuance",
+            "acesssionNumber": "20030916-3041",
+            "issuedDate": "09/16/2003",
+            "filedDate": "09/16/2003",
+            "postedDate": "09/17/2003",
+            "classTypes": [
+              {
+                "documentClass": "Order/Opinion",
+                "documentType": "Delegated Order"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "none",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 81.85,
+            "docketNumbers": [
+              "ER03-1153-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "01CD4BB7-66E2-5005-8110-C31FAFC91712",
+                "fileType": "DOC",
+                "fileFormat": "Word",
+                "fileName": "10381262.DOC",
+                "fileDesc": "",
+                "fileSize": 25600,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "003C5311-66E2-5005-8110-C31FAFC91712",
+                "fileType": "TXT",
+                "fileFormat": "Text",
+                "fileName": "3953363.TXT",
+                "fileDesc": "",
+                "fileSize": 2962,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "MARKETS, TARIFFS AND RATES, OFFICE OF",
+                "lastName": "FERNANDEZ",
+                "firstInitial": "A",
+                "middleInitial": ""
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "PJM INTERCONNECTION, LLC",
+                "lastName": "BRENTANI",
+                "firstInitial": "D",
+                "middleInitial": "C"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "WRIGHT & TALISMAN, PC",
+                "lastName": "BRENTANI",
+                "firstInitial": "D",
+                "middleInitial": "C"
+              }
+            ]
+          },
+          {
+            "reference": "{8963F946-97B3-CB0B-8624-6C4710600003}-{0060674B-66E2-5005-8110-C31FAFC91712}",
+            "documentId": "8963F946-97B3-CB0B-8624-6C4710600003",
+            "description": "First Revised Service Agreement 24 under FERC Electric Tariff 5R6 of Pacific Gas & Electric Co under ER04-377: Interconnection Agreements (Generator Special Facilities Agreement & Generator Interconnection Agreement).  ",
+            "summary": null,
+            "category": "Issuance",
+            "acesssionNumber": "20040825-0129",
+            "issuedDate": "01/07/2004",
+            "filedDate": "01/07/2004",
+            "postedDate": "08/25/2004",
+            "classTypes": [
+              {
+                "documentClass": "Approved Designation",
+                "documentType": "Approved Designation"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "none",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 81.75,
+            "docketNumbers": [
+              "ER04-377-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "0060674B-66E2-5005-8110-C31FAFC91712",
+                "fileType": "TIF",
+                "fileFormat": "Image",
+                "fileName": "10229411.TIF",
+                "fileDesc": "",
+                "fileSize": 1821968,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "PACIFIC GAS & ELECTRIC COMPANY",
+                "lastName": "",
+                "firstInitial": "",
+                "middleInitial": ""
+              }
+            ]
+          }
+        ],
+        "totalHits": 33511,
+        "numHits": 3,
+        "success": true,
+        "errorMessage": null,
+        "searchResultId": null
+      }
+    },
+    {
+      "request": {
+        "searchText": "large generator",
+        "searchDescription": true,
+        "searchFullText": false,
+        "searchDocketNumber": false,
+        "resultsPerPage": 10,
+        "curPage": 1,
+        "sortBy": "",
+        "groupBy": "DOCKET",
+        "filterDate": {
+          "dateType": "filed_date",
+          "startDate": "08/13/2026",
+          "endDate": "09/12/2026"
+        },
+        "docketNumbers": [],
+        "documentClasses": [],
+        "documentTypes": [],
+        "availability": "P",
+        "categories": [],
+        "idList": [],
+        "accessionNumber": "",
+        "libraryTypes": [],
+        "filedBy": "",
+        "affiliations": ""
+      },
+      "response": {
+        "searchHits": [
+          {
+            "reference": "{A3E54C61-69CC-C716-8CCD-736585C00000}-{01F94799-66E2-5005-8110-C31FAFC91712}",
+            "documentId": "A3E54C61-69CC-C716-8CCD-736585C00000",
+            "description": "Letter order accepting Alcoa Power Generating Inc.'s 5/15/18 filing of the revisions to the Large Generator Interconnection Procedures, Large Generator Interconnection Agreement etc., under ER18-1613. ",
+            "summary": null,
+            "category": "Issuance",
+            "acesssionNumber": "20180912-3049",
+            "issuedDate": "09/12/2018",
+            "filedDate": "09/12/2018",
+            "postedDate": "09/12/2018",
+            "classTypes": [
+              {
+                "documentClass": "Order/Opinion",
+                "documentType": "Delegated Order"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "none",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 81.72,
+            "docketNumbers": [
+              "ER18-1613-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "01F94799-66E2-5005-8110-C31FAFC91712",
+                "fileType": "DOCX",
+                "fileFormat": "Word",
+                "fileName": "ER18-1613-000 delegated letter.DOCX",
+                "fileDesc": "",
+                "fileSize": 79370,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "OFFICE OF ENERGY MARKET REGULATION",
+                "lastName": "LONGO ",
+                "firstInitial": "K",
+                "middleInitial": "M"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "ALCOA POWER GENERATING INC",
+                "lastName": "LUCIA",
+                "firstInitial": "S",
+                "middleInitial": "T"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "BRACEWELL LLP",
+                "lastName": "LUCIA ",
+                "firstInitial": "S",
+                "middleInitial": "T"
+              }
+            ]
+          },
+          {
+            "reference": "{1B813BF0-DA7E-CC1D-AE0F-6B6D18A00001}-{01CF414F-66E2-5005-8110-C31FAFC91712}",
+            "documentId": "1B813BF0-DA7E-CC1D-AE0F-6B6D18A00001",
+            "description": "Letter order accepting MATL LLP's 5/29/12 filing of revisions to its standard Large Generation Interconnection Procedures, Large Generator Interconnection Agreement, and Small Generator Interconnection Agreement, etc under ER12-761. ",
+            "summary": null,
+            "category": "Issuance",
+            "acesssionNumber": "20120725-3011",
+            "issuedDate": "07/25/2012",
+            "filedDate": "07/25/2012",
+            "postedDate": "07/25/2012",
+            "classTypes": [
+              {
+                "documentClass": "Order/Opinion",
+                "documentType": "Delegated Order"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "none",
+            "libraries": [
+              "Electric"
+            ],
+            "score": 81.72,
+            "docketNumbers": [
+              "ER12-761-003"
+            ],
+            "transmittals": [
+              {
+                "fileId": "01CF414F-66E2-5005-8110-C31FAFC91712",
+                "fileType": "DOC",
+                "fileFormat": "Word",
+                "fileName": "ER12-761-003.DOC",
+                "fileDesc": "",
+                "fileSize": 30720,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "OFFICE OF ENERGY MARKET REGULATION",
+                "lastName": "RODGERS",
+                "firstInitial": "S",
+                "middleInitial": "P"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "MONTANA ALBERTA TIE LTD",
+                "lastName": "LEVY",
+                "firstInitial": "N",
+                "middleInitial": "L"
+              }
+            ]
+          }
+        ],
+        "totalHits": 4309,
+        "numHits": 2,
+        "success": true,
+        "errorMessage": null,
+        "searchResultId": null
+      }
+    },
+    {
+      "request": {
+        "searchText": "certificate",
+        "searchDescription": true,
+        "searchFullText": false,
+        "searchDocketNumber": false,
+        "resultsPerPage": 10,
+        "curPage": 1,
+        "sortBy": "",
+        "groupBy": "DOCKET",
+        "filterDate": {
+          "dateType": "filed_date",
+          "startDate": "08/13/2026",
+          "endDate": "09/12/2026"
+        },
+        "docketNumbers": [],
+        "documentClasses": [],
+        "documentTypes": [],
+        "availability": "P",
+        "categories": [],
+        "idList": [],
+        "accessionNumber": "",
+        "libraryTypes": [],
+        "filedBy": "",
+        "affiliations": ""
+      },
+      "response": {
+        "searchHits": [
+          {
+            "reference": "{38B2B168-03CD-CA15-8580-99ED88000000}-{F62FB178-871D-CC5D-A25E-99ED88100000}",
+            "documentId": "38B2B168-03CD-CA15-8580-99ED88000000",
+            "description": "UGI Auburn, LLC and UGI Auburn Gathering, LLC submit supplemental information to Joint Abbreviated Application for Certificate of Public Convenience and Necessity, Blanket Certificates, Limited Jurisdiction Certificate, Request for Waivers under CP26-9.",
+            "summary": null,
+            "category": "Submittal",
+            "acesssionNumber": "20251016-5055",
+            "issuedDate": "10/16/2025",
+            "filedDate": "10/16/2025",
+            "postedDate": "10/16/2025",
+            "classTypes": [
+              {
+                "documentClass": "Application/Petition/Request",
+                "documentType": "Certificate of Public Convenience and Necessity"
+              }
+            ],
+            "availCode": "P",
+            "familyValue": "None",
+            "libraries": [
+              "Gas"
+            ],
+            "score": 80.59,
+            "docketNumbers": [
+              "CP26-9-000"
+            ],
+            "transmittals": [
+              {
+                "fileId": "EED4D9C6-F31E-C751-981D-99ED88100000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "2025-10-16 UGI AUBURN ERRATA LETTER CP26-9(18589866.pdf",
+                "fileDesc": "COVER LETTER SUBMITTING REVISED EXHIBIT I TO CERTIFICATE APPLICATION",
+                "fileSize": 157043,
+                "transmittalFk": null
+              },
+              {
+                "fileId": "F62FB178-871D-CC5D-A25E-99ED88100000",
+                "fileType": "PDF",
+                "fileFormat": "Standard",
+                "fileName": "2025-10-10 CAPACITY LEASE(18548546.8).docx.pdf",
+                "fileDesc": "REVISED EXHIBIT I - CAPACITY LEASE",
+                "fileSize": 378690,
+                "transmittalFk": null
+              }
+            ],
+            "affiliations": [
+              {
+                "afType": "AUTHOR",
+                "affiliation": "UGI Auburn, LLC",
+                "lastName": "Rich",
+                "firstInitial": "R",
+                "middleInitial": "S"
+              },
+              {
+                "afType": "AUTHOR",
+                "affiliation": "UGI Auburn Gathering, LLC",
+                "lastName": "Rich",
+                "firstInitial": "R",
+                "middleInitial": "S"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "Pierce Atwood LLP",
+                "lastName": "Rich",
+                "firstInitial": "R",
+                "middleInitial": "S"
+              },
+              {
+                "afType": "RECIPIENT",
+                "affiliation": "Office of the Secretary, FERC",
+                "lastName": "Reese",
+                "firstInitial": "D",
+                "middleInitial": "A"
+              },
+              {
+                "afType": "AGENT",
+                "affiliation": "Pierce Atwood LLP",
+                "lastName": "Rich",
+                "firstInitial": "R",
+                "middleInitial": "S"
+              }
+            ]
+          }
+        ],
+        "totalHits": 88518,
+        "numHits": 1,
+        "success": true,
+        "errorMessage": null,
+        "searchResultId": null
+      }
+    }
+  ]
+}

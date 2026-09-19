@@ -1,0 +1,98 @@
+{% macro status_chip(state, family, raw=None) -%}
+<span class="chip chip--{{ family }}">
+  <svg class="chip__icon" aria-hidden="true" width="12" height="12"><use href="#icon-{{ family }}"></use></svg>
+  <span class="chip__label">{{ state | replace('_', ' ') }}</span>
+  {%- if raw and raw != state %}<span class="visually-hidden"> (source status: {{ raw }})</span>{% endif -%}
+</span>
+{%- endmacro %}
+
+{% macro delayed_banner(delayed) -%}
+<p class="delayed-notice" role="status">
+  <span class="stamp-label">Delayed</span> Public data is <span class="tnum">{{ delayed.lag_days }}</span> days delayed (as of <span class="tnum">{{ delayed.data_as_of }}</span>). <a href="/about#tiers">Live in Pro &rarr;</a>
+</p>
+{%- if delayed.preview_active %}
+<p class="preview-banner" role="status"><span class="stamp-label">Dev preview</span> The publish delay is bypassed for this data so today&rsquo;s rows are visible now. The notice above still states the real configured lag.</p>
+{%- endif %}
+{%- endmacro %}
+
+{% macro attribution_line(record) -%}
+<p class="attribution-line">Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text or record.source_name }}</a>{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved <span class="tnum">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown' }}</span>.</p>
+{%- endmacro %}
+
+{% macro section_heading(number, text, id=None) -%}
+<h2{% if id %} id="{{ id }}"{% endif %}><span class="section-num">{{ number }}</span> {{ text }}</h2>
+{%- endmacro %}
+
+{% macro active_states_notice(breakdown, include_withdrawn) -%}
+<p class="view-notice" role="status">
+  {%- if include_withdrawn -%}
+  Showing every lifecycle state: {{ breakdown.total }} proposals, including {{ breakdown.withdrawn }} withdrawn or cancelled.
+  {%- else -%}
+  Showing {{ breakdown.active }} active proposals (announced through under construction).
+  {{ breakdown.withdrawn }} withdrawn/cancelled {{ 'is' if breakdown.withdrawn == 1 else 'are' }} hidden by default so the map isn&rsquo;t dominated by dead projects
+  {%- if breakdown.other %} ({{ breakdown.other }} built or unknown-state proposals are also outside this default view){% endif -%}.
+  {%- endif %}
+</p>
+{%- endmacro %}
+
+{# Class stays "provenance-panel" (web/test_e2e.py selects it); the provenance-bar idiom described
+   in docs/30 §7/§9 is the styling underneath that class in styles.css, not a renamed component. #}
+{% macro provenance_panel(rows, number=None) -%}
+<section class="provenance-panel" aria-label="Sources">
+  {% if number %}{{ section_heading(number, "Sources") }}{% else %}<h2>Sources</h2>{% endif %}
+  {% if rows %}
+  <ul class="provenance-panel__list">
+    {% for row in rows %}
+    <li class="provenance-panel__row">
+      <details class="provenance-panel__details">
+        <summary>
+          <span class="provenance-panel__name">{{ row.source_name }}</span>
+          <span class="provenance-panel__licence reuse-badge">{{ row.reuse_class }}</span>
+          <span class="provenance-panel__date tnum">retrieved {{ row.retrieved_at[:10] if row.retrieved_at else 'unknown' }}</span>
+        </summary>
+        <p class="provenance-panel__quote">{{ row.licence_quote }}</p>
+        {% if not row.allows_raw -%}
+        <p class="provenance-panel__note">Derived fields only; the raw source row is withheld under licence.</p>
+        {%- endif %}
+      </details>
+      <a class="provenance-panel__link" href="{{ row.source_url }}" rel="noopener nofollow">View at source &rarr;</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="provenance-panel__empty">Sources withheld under licence.</p>
+  {% endif %}
+</section>
+{%- endmacro %}
+
+{# ADR 0008 asset page: attributes is `asset.attributes` -- objective features only (heat rate,
+   capacity factor, mileage, ...), an arbitrary label/value bag, so it renders generically rather
+   than field by named field the way field-grid does for the fixed proposal/opportunity shape. #}
+{% macro attributes_table(attributes) -%}
+{% if attributes %}
+<div class="table-scroll">
+<table class="record-table">
+  <caption class="visually-hidden">Attributes</caption>
+  <thead><tr><th scope="col">Attribute</th><th scope="col" class="num">Value</th></tr></thead>
+  <tbody>
+  {% for key, value in attributes.items() %}
+  <tr><td data-label="Attribute">{{ key | replace('_', ' ') }}</td><td data-label="Value" class="num tnum">{{ value }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="provenance-panel__empty">No attributes recorded for this asset.</p>
+{% endif %}
+{%- endmacro %}
+
+{% macro pager(prev_cursor, next_cursor, querystring, base_path) -%}
+<nav class="pager" aria-label="Pagination">
+  {% if prev_cursor is not none -%}
+  <a href="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ prev_cursor }}" hx-get="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ prev_cursor }}" hx-target="#result-rows" hx-push-url="true">&larr; Previous</a>
+  {%- else -%}<span class="pager__disabled">&larr; Previous</span>{%- endif %}
+  {% if next_cursor is not none -%}
+  <a href="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ next_cursor }}" hx-get="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ next_cursor }}" hx-target="#result-rows" hx-push-url="true">Next &rarr;</a>
+  {%- else -%}<span class="pager__disabled">Next &rarr;</span>{%- endif %}
+</nav>
+{%- endmacro %}

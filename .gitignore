@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.pyc
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Per-run connector outputs: regenerable, churn on every run, would bloat history.
+# Evaluation sets (data/eval) and probe evidence (data/probes) stay versioned.
+data/snapshots/
+data/normalized/
+data/runs/
+data/held/
+data/events/
+data/quarantine/
+
+# Local dev store built by web/dev_up.py
+web/.data/
+
+# Private keys never enter the repository; generate with infra/scripts/bootstrap_age_key.sh
+infra/sops/keys/*.txt
+.coverage
+
+# Harness-managed isolated worktrees for review agents (never repository content)
+.claude/worktrees/
