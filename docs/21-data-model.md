@@ -728,13 +728,28 @@ status is planned or under construction is a proposal, not an asset.
 | `commissioned_year` | integer | Yes | First operating year (was `earliest_operating_year`) | `2007` |
 | `unit_count` | integer | Yes | Generators, trains, tanks (was `generator_count`) | `627` |
 | `geom` | geography(Point,4326) | Yes | Representative point; source-supplied for public-domain registries | — |
-| `geom_line` | geography(LineString,4326) on Postgres; text (WKT) on SQLite | Yes | Line geometry for pipelines and transmission; used for pages and joins, not for drawing (lines are tiles) | — |
+| `geom_line` | geography(MultiLineString,4326) on Postgres (migration 0013, 2026-09-19; was LineString in 0009); text (WKT) on SQLite | Yes | Line geometry for pipelines and transmission; used for pages and joins, not for drawing (lines are tiles). Multi-part because a pipeline row is the dissolve of its segments (EIA Atlas: one row per operator and pipeline type, 259 rows from 32,961 segments). Read and written as a `MULTILINESTRING(...)` WKT string on both dialects (`services/db/types.py::GeographyLine`) | `MULTILINESTRING((-104.28 40.99, …), (…))` |
 | `attributes` | jsonb | No | The type's **objective feature set** only (ADR 0008 §4): e.g. `{"heat_rate_btu_kwh": 7150, "capacity_factor_2025": 0.41}` for plants; `{"diameter_in_mix": {...}, "miles": 412, "incidents_5y": 2}` for pipelines; `{"rin_pathway": "D3", "feedstock": "landfill_gas"}` for RNG. No valuation, tariff or contract fields | `{}` |
 | `state_code`, `county_name`, `county_fips`, `country` | text, text, char(5), char(2) | Yes/Yes/Yes/No | As §3.7 | `US-TX` |
 | `source_id`, `source_url`, `retrieved_at`, `licence_id` | — | No | Provenance quartet | — |
 | `first_seen`, `last_changed` | timestamptz | No | Load bookkeeping | — |
 
 Unique: (`source_id`, `source_asset_id`). Index: `asset_type`, `state_code`, `geom` (GiST on Postgres).
+
+Sources loaded at 2026-09-19 (`services/ingest/assets.py::ASSET_TYPE_SOURCE_IDS`): `power_plant` from
+EIA-860M; `gas_pipeline`, `gas_processing_plant`, `gas_storage`, `lng_terminal` from the EIA Atlas natural gas
+layers via `pipeline/context/eia_atlas.py` (the Atlas feature services answered `Token Required` that day, so
+the bytes come from EIA's own shapefile zips on `eia.gov/maps/map_data/`; vintages 202001 / 2017 / 202012 /
+202004, kept per row as `attributes.source_vintage`). The Atlas pipeline layer carries no name, diameter or
+capacity, so a `gas_pipeline` row's `name` is the operator string, `technology` is `interstate | intrastate |
+gathering`, `unit_count` is the segment count, `geom` is a vertex on the longest part, and `attributes` is
+`{pipeline_type, segment_count, part_count, miles (geodesic, from the geometry), states_crossed, status_raw,
+source_vintage}` — nothing the registry does not state or the geometry does not yield (ADR 0008 §4).
+`gas_storage.capacity_value` is EIA-191 working gas in Mcf; `gas_processing_plant.capacity_value` is EIA-757
+plant capacity in MMcf/d; `lng_terminal.capacity_value` is liquefaction Bcf/d for an export terminal, else
+regasification Bcf/d. `source_asset_id` is the registry key where one exists (storage `ID`), the
+`(operator, type)` slug for pipelines, and a content hash of name + state + county + coordinates for
+processing plants and LNG terminals, whose registries have no key (and repeat names: two `Wheeler / TX`).
 
 ### 3.23 `asset_owner` — ownership and operation edges (ADR 0008, 2026-09-18)
 
@@ -754,6 +769,15 @@ shares), EIA-860M and EIA Atlas operator fields (`operator`), EPA LMOP/AgSTAR ow
 owner fields (CC BY, TZ-ID rows dropped). `organization.parent_org_id` (added in the same migration, nullable FK
 to `organization`, with `parent_source_id`) records the GLEIF Level 2 direct accounting parent where an LEI
 matches; the LEI itself goes in `organization.ids.lei`.
+
+Loaded at 2026-09-19 (`services/ingest/midstream.py`, docs/22 §15): the EIA Atlas `Operator`/`Company` strings
+become `operator` edges and the Atlas `Owner` strings (processing plants, LNG) become `owner` edges with a NULL
+share, each edge carrying the layer's own provenance quartet; measured on the four layers, 1,126 operator and
+457 owner edges over 1,157 assets, 628 organisations after `norm_org` dedupe. Until GLEIF Level 2 lands,
+`parent_org_id` is also set from the curated file `data/vendored/organizations/parents.yaml`
+(`parent_source_id = curated.organization_parents`, registered in `data/sources.yaml` §K; every row cites the
+company statement it came from). The two sources are told apart by `parent_source_id`, so the GLEIF loader can
+overwrite curated rows where an LEI matches and leave the rest.
 
 ### 3.21 `ui_event` — identifier-free interaction counters (added 2026-09-14)
 

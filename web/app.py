@@ -13,8 +13,11 @@ file (or the default in-memory database, empty until something loads it).
 from __future__ import annotations
 
 import datetime as dt
+import json
+import math
 import os
 import time
+from collections.abc import Iterable, Mapping
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -92,6 +95,545 @@ def _basemap_attribution(tile_mode: TileMode, tile_url: str | None) -> str:
 
 def _region_context(region: Region) -> dict[str, Any]:
     return {"code": region.code, "label": region.label, "bbox": ",".join(str(v) for v in region.bbox)}
+
+
+# ------------------------------------------------------------------ existing assets (ADR 0008;
+# midstream slice, docs/00-PLAN.md 2026-09-19 option (a)). Labels for every `asset.asset_type`
+# in services/db/models.py ASSET_TYPES: (singular, plural), lower-case; `_type_label` capitalises
+# the first letter only, so "LNG terminal" keeps its acronym.
+ASSET_TYPE_LABELS: dict[str, tuple[str, str]] = {
+    "power_plant": ("power plant", "power plants"),
+    "gas_pipeline": ("gas pipeline", "gas pipelines"),
+    "gas_processing_plant": ("gas processing plant", "gas processing plants"),
+    "gas_storage": ("gas storage site", "gas storage sites"),
+    "lng_terminal": ("LNG terminal", "LNG terminals"),
+    "compressor_station": ("compressor station", "compressor stations"),
+    "ethanol_plant": ("ethanol plant", "ethanol plants"),
+    "biodiesel_plant": ("biodiesel plant", "biodiesel plants"),
+    "rng_project": ("RNG project", "RNG projects"),
+    "transmission_line": ("transmission line", "transmission lines"),
+    "substation": ("substation", "substations"),
+    "refinery": ("refinery", "refineries"),
+}
+#: The "Existing assets" control on the map (home_map.html): `(value, label, live)` -- the five
+#: types with data behind them are enabled; ethanol and RNG are listed as coming (owner,
+#: 2026-09-19: "ethanol and RNG points riding along" once their loaders land).
+HOME_MAP_ASSET_TYPES: list[tuple[str, str, bool]] = [
+    ("power_plant", "Power plants", True),
+    ("gas_pipeline", "Gas pipelines", True),
+    ("gas_processing_plant", "Gas processing", True),
+    ("gas_storage", "Gas storage", True),
+    ("lng_terminal", "LNG terminals", True),
+    ("ethanol_plant", "Ethanol", False),
+    ("rng_project", "RNG", False),
+]
+LINE_ASSET_TYPES = {"gas_pipeline", "transmission_line"}
+#: `attributes` keys the asset page promotes to a named field (operator, class, diameter, states,
+#: length); the generic Attributes table omits them so a value is never shown twice.
+PROMOTED_ATTRIBUTE_KEYS = (
+    "operator",
+    "line_class",
+    "interstate",
+    "pipeline_type",
+    "type_of_pipeline",
+    "system_type",
+    "diameter_in",
+    "diameter_inches",
+    "diameter",
+    "diameter_mix",
+    "states",
+    "states_crossed",
+    "state_codes",
+    "length_miles",
+    "miles",
+)
+#: Company-page map: neither `/v1/organizations/{id}/assets` nor `/v1/assets` embeds geometry
+#: (`include_geometry=False`, API lane 2026-09-19), so the page reads it from each asset's own
+#: detail response, capped -- the map shows the first N assets, the caption says how many.
+ORG_MAP_DETAIL_CAP = 40
+ORG_NEARBY_LIMIT = 50
+ORG_ROLE_LABELS = {"operator": "Operates", "owner": "Owns"}
+ORG_ROLE_ORDER = ("operator", "owner", "other")
+
+
+def _type_label(asset_type: str | None, *, plural: bool = False) -> str:
+    key = asset_type or "power_plant"
+    pair = ASSET_TYPE_LABELS.get(key)
+    label = (pair[1] if plural else pair[0]) if pair else key.replace("_", " ")
+    return label[:1].upper() + label[1:]
+
+
+def _sentence_label(asset_type: str | None, *, plural: bool) -> str:
+    """Mid-sentence form ("Operates 3 gas pipelines"): lower-case unless the label starts with
+    an acronym (LNG, RNG)."""
+    label = _type_label(asset_type, plural=plural)
+    return label if label[:3].isupper() else label.lower()
+
+
+def _attr(entity: Mapping[str, Any], *keys: str) -> Any:
+    """A midstream field may sit at the top level of the record or inside its `attributes` bag
+    (data lane, 2026-09-19); the first present value wins, absent is `None` and renders nothing."""
+    attributes = entity.get("attributes")
+    bag: Mapping[str, Any] = attributes if isinstance(attributes, Mapping) else {}
+    for key in keys:
+        for source in (entity, bag):
+            value = source.get(key)
+            if value is not None and value != "":
+                return value
+    return None
+
+
+def _line_class(entity: Mapping[str, Any]) -> str | None:
+    raw = _attr(entity, "line_class", "interstate", "pipeline_type", "type_of_pipeline", "system_type")
+    if raw is True:
+        return "interstate"
+    if raw is False:
+        return "intrastate"
+    if raw is None:
+        return None
+    text = str(raw).lower()
+    if "intra" in text:
+        return "intrastate"
+    if "inter" in text:
+        return "interstate"
+    if "gather" in text:
+        return "gathering"
+    return None
+
+
+def _states_crossed(entity: Mapping[str, Any]) -> str | None:
+    raw = _attr(entity, "states", "states_crossed", "state_codes")
+    if raw is None:
+        return None
+    items = raw if isinstance(raw, list | tuple) else str(raw).replace(";", ",").split(",")
+    cleaned = [str(s).strip() for s in items if str(s).strip()]
+    return ", ".join(cleaned) if cleaned else None
+
+
+def _number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _diameter_text(entity: Mapping[str, Any]) -> str | None:
+    raw = _attr(entity, "diameter_in", "diameter_inches", "diameter", "diameter_mix")
+    if raw is None:
+        return None
+    number = _number(raw)
+    if number is not None:
+        return f"{number:,.1f} in".replace(".0 in", " in")
+    return str(raw)
+
+
+def _geometry_of(obj: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """GeoJSON geometry from whichever key the API puts it under (`geometry` on asset detail per
+    the API lane's contract; `geom` and `location.geom` are the older proposal spellings)."""
+    if not obj:
+        return None
+    for key in ("geometry", "geom"):
+        value = obj.get(key)
+        if isinstance(value, Mapping) and value.get("type") and value.get("coordinates") is not None:
+            return dict(value)
+    location = obj.get("location")
+    if isinstance(location, Mapping):
+        return _geometry_of(location)
+    return None
+
+
+def _normalise_owners(entity: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """`owners[]` as `serialize_asset_owner` actually emits it embeds the organisation under
+    `organization` (public_id, slug, name_canonical); `flatten_asset` reads the flat spelling
+    docs/23's table row describes. Accept both, so the owners table and the operator link never
+    render a blank organisation for a real row."""
+    out: list[dict[str, Any]] = []
+    for raw in entity.get("owners") or []:
+        org_raw = raw.get("organization")
+        org: Mapping[str, Any] = org_raw if isinstance(org_raw, Mapping) else {}
+        source_raw = raw.get("provenance")
+        source: Mapping[str, Any] = source_raw if isinstance(source_raw, Mapping) else {}
+        out.append(
+            {
+                "public_id": (
+                    org.get("public_id") or raw.get("public_id") or raw.get("organization_public_id")
+                ),
+                "slug": org.get("slug") or raw.get("slug"),
+                "name": (
+                    org.get("name_canonical")
+                    or org.get("name")
+                    or raw.get("name")
+                    or raw.get("name_canonical")
+                ),
+                "role": raw.get("role"),
+                "share_pct": raw.get("share_pct"),
+                "as_of": raw.get("as_of"),
+                "source_name": source.get("source_name") or raw.get("source_name") or raw.get("source"),
+            }
+        )
+    return out
+
+
+def _asset_extras(entity: Mapping[str, Any]) -> dict[str, Any]:
+    """The midstream fields `asset_detail.html` renders beyond `flatten_asset`'s plant shape.
+    Every value may be absent; the template drops the row rather than printing "None"."""
+    owners = _normalise_owners(entity)
+    operator_edge = next((o for o in owners if o.get("role") == "operator" and o.get("name")), None)
+    operator_name = entity.get("operator_name") or _attr(entity, "operator")
+    if operator_edge is None and operator_name:
+        wanted = str(operator_name).strip().lower()
+        operator_edge = next((o for o in owners if (o.get("name") or "").strip().lower() == wanted), None)
+    operator = {
+        "name": (operator_edge or {}).get("name") or operator_name,
+        "public_id": (operator_edge or {}).get("public_id"),
+        "slug": (operator_edge or {}).get("slug"),
+    }
+    asset_type = entity.get("asset_type")
+    geometry = _geometry_of(entity)
+    line_geometry = bool(geometry and str(geometry.get("type", "")).endswith("LineString"))
+    is_line = asset_type in LINE_ASSET_TYPES or line_geometry
+    attributes = entity.get("attributes")
+    bag: Mapping[str, Any] = attributes if isinstance(attributes, Mapping) else {}
+    promoted = [
+        k for k in PROMOTED_ATTRIBUTE_KEYS if k in bag and (is_line or k in ("length_miles", "operator"))
+    ]
+    return {
+        "promoted_attributes": promoted,
+        "type_label": _type_label(asset_type),
+        "is_line": is_line,
+        "line_class": _line_class(entity) if is_line else None,
+        "length_miles": _number(_attr(entity, "length_miles", "miles")),
+        "diameter": _diameter_text(entity) if is_line else None,
+        "states": _states_crossed(entity),
+        "operator": operator,
+        "owners": owners,
+        "geometry": geometry,
+    }
+
+
+# ---- static mini-map (asset and company pages) -------------------------------------------------
+MINI_MAP_W = 640
+MINI_MAP_H = 320
+MINI_MAP_PAD = 18
+MINI_MAP_MAX_VERTICES = 400
+
+
+def _walk_coords(coords: Any) -> Iterable[tuple[float, float]]:
+    if isinstance(coords, list | tuple) and coords and isinstance(coords[0], int | float):
+        yield float(coords[0]), float(coords[1])
+        return
+    if isinstance(coords, list | tuple):
+        for part in coords:
+            yield from _walk_coords(part)
+
+
+def _line_parts(geometry: Mapping[str, Any]) -> list[list[tuple[float, float]]]:
+    coords = geometry.get("coordinates") or []
+    if geometry.get("type") == "LineString":
+        return [list(_walk_coords(coords))]
+    if geometry.get("type") == "MultiLineString":
+        return [list(_walk_coords(part)) for part in coords]
+    return []
+
+
+def _thin(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    if len(points) <= MINI_MAP_MAX_VERTICES:
+        return points
+    step = math.ceil(len(points) / MINI_MAP_MAX_VERTICES)
+    kept = points[::step]
+    if kept[-1] != points[-1]:
+        kept.append(points[-1])
+    return kept
+
+
+def _svg_xy(point: tuple[float, float]) -> str:
+    return f"{point[0]:.1f} {point[1]:.1f}"
+
+
+def _geometry_svg(features: list[dict[str, Any]], label: str) -> str:
+    """An inline SVG of the features' geometry (equirectangular, aspect-corrected at the mid
+    latitude), the no-JS rendering of the map on asset and company pages. Lines are pipelines
+    (dashed when intrastate), circles are point assets, small circles nearby proposals; every
+    shape carries a `<title>` so the figure is readable by assistive technology too."""
+    points = [pt for f in features for pt in _walk_coords((f.get("geometry") or {}).get("coordinates"))]
+    min_lon, max_lon = min(p[0] for p in points), max(p[0] for p in points)
+    min_lat, max_lat = min(p[1] for p in points), max(p[1] for p in points)
+    if max_lon - min_lon < 0.3:
+        min_lon, max_lon = min_lon - 0.15, max_lon + 0.15
+    if max_lat - min_lat < 0.3:
+        min_lat, max_lat = min_lat - 0.15, max_lat + 0.15
+    kx = math.cos(math.radians((min_lat + max_lat) / 2)) or 1.0
+    world_w = (max_lon - min_lon) * kx
+    world_h = max_lat - min_lat
+    scale = min((MINI_MAP_W - 2 * MINI_MAP_PAD) / world_w, (MINI_MAP_H - 2 * MINI_MAP_PAD) / world_h)
+    off_x = (MINI_MAP_W - world_w * scale) / 2
+    off_y = (MINI_MAP_H - world_h * scale) / 2
+
+    def project(lon: float, lat: float) -> tuple[float, float]:
+        return off_x + (lon - min_lon) * kx * scale, off_y + (max_lat - lat) * scale
+
+    parts: list[str] = []
+    for f in features:
+        props = f.get("properties") or {}
+        geometry = f.get("geometry") or {}
+        title = escape(str(props.get("name") or ""))
+        if props.get("subtitle"):
+            title += " — " + escape(str(props["subtitle"]))
+        line_parts = _line_parts(geometry)
+        if line_parts:
+            cls = "mini-map__line"
+            if props.get("line_class") == "intrastate":
+                cls += " mini-map__line--intrastate"
+            d = " ".join(
+                "M" + " L".join(_svg_xy(project(lon, lat)) for lon, lat in _thin(part))
+                for part in line_parts
+                if part
+            )
+            parts.append(f'<path class="{cls}" d="{d}"><title>{title}</title></path>')
+        elif geometry.get("type") == "Point":
+            lon, lat = next(iter(_walk_coords(geometry.get("coordinates"))))
+            x, y = project(lon, lat)
+            cls, r = (
+                ("mini-map__proposal", 3.5) if props.get("kind") == "proposal" else ("mini-map__point", 5)
+            )
+            parts.append(
+                f'<circle class="{cls}" cx="{x:.1f}" cy="{y:.1f}" r="{r}"><title>{title}</title></circle>'
+            )
+    return (
+        f'<svg viewBox="0 0 {MINI_MAP_W} {MINI_MAP_H}" preserveAspectRatio="xMidYMid meet" role="img" '
+        f'aria-label="{escape(label)}">' + "".join(parts) + "</svg>"
+    )
+
+
+def _mini_map(features: list[dict[str, Any]], *, label: str, caption: str) -> dict[str, Any] | None:
+    """`None` when nothing has geometry (the templates then render no map at all)."""
+    drawable = [f for f in features if _geometry_of(f) is not None]
+    if not drawable:
+        return None
+    collection = {"type": "FeatureCollection", "features": drawable}
+    # Inside a `<script type="application/json">`, `</` is the only sequence that can end the
+    # element early; JSON never needs it unescaped.
+    geojson = json.dumps(collection, separators=(",", ":")).replace("</", "<\\/")
+    return {"svg": _geometry_svg(drawable, label), "geojson": geojson, "caption": caption}
+
+
+def _asset_feature(record: Mapping[str, Any], geometry: Mapping[str, Any]) -> dict[str, Any]:
+    subtitle_bits = [record.get("type_label") or _type_label(record.get("asset_type"))]
+    operator = record.get("operator") or {}
+    if isinstance(operator, Mapping) and operator.get("name"):
+        subtitle_bits.append(str(operator["name"]))
+    elif record.get("operator_name"):
+        subtitle_bits.append(str(record["operator_name"]))
+    return {
+        "type": "Feature",
+        "geometry": dict(geometry),
+        "properties": {
+            "kind": "asset",
+            "name": record.get("name") or "",
+            "subtitle": " · ".join(subtitle_bits),
+            "asset_type": record.get("asset_type") or "power_plant",
+            "line_class": record.get("line_class") or None,
+            "plant_family": _plant_family(record.get("technology")),
+            "url": f"/assets/{record['slug']}" if record.get("slug") else None,
+        },
+    }
+
+
+def _proposal_feature(record: Mapping[str, Any], geometry: Mapping[str, Any]) -> dict[str, Any]:
+    bits = [b for b in (record.get("technology"), record.get("state") or record.get("jurisdiction")) if b]
+    if record.get("capacity_mw"):
+        bits.append(f"{float(record['capacity_mw']):.1f} MW")
+    if record.get("distance_km") is not None:
+        bits.append(f"{float(record['distance_km']):.1f} km away")
+    return {
+        "type": "Feature",
+        "geometry": dict(geometry),
+        "properties": {
+            "kind": "proposal",
+            "name": record.get("name") or "",
+            "subtitle": " · ".join(str(b) for b in bits),
+            "family": record.get("lifecycle_family") or "neutral",
+            "url": f"/proposals/{record['slug']}" if record.get("slug") else None,
+        },
+    }
+
+
+_PLANT_FAMILY_PREFIXES = (
+    ("solar", "solar"),
+    ("wind", "wind"),
+    ("gas", "gas"),
+    ("fuel_cell", "gas"),
+    ("hydrogen", "gas"),
+    ("oil", "oil"),
+    ("coal", "coal"),
+    ("nuclear", "nuclear"),
+    ("pumped", "storage"),
+    ("hydro", "hydro"),
+    ("storage", "storage"),
+    ("battery", "storage"),
+    ("biomass", "biomass"),
+    ("waste", "biomass"),
+    ("geothermal", "geothermal"),
+)
+
+
+def _plant_family(technology: str | None) -> str:
+    """The legend family a plant technology class lands in -- the same grouping map.js's
+    `PLANT_FAMILY_CLASSES` draws, reduced to a prefix match so the mini-map needs no second copy
+    of that table."""
+    tech = (technology or "").lower()
+    for prefix, family in _PLANT_FAMILY_PREFIXES:
+        if tech.startswith(prefix):
+            return family
+    return "other"
+
+
+# ---- company page: assets by role and type ------------------------------------------------------
+def _org_asset_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    asset_raw = row.get("asset")
+    asset: Mapping[str, Any] = asset_raw if isinstance(asset_raw, Mapping) else row
+    out = flatten_org_asset_row(row)
+    out.update(
+        {
+            "operator_name": asset.get("operator_name"),
+            "technology": asset.get("technology"),
+            "length_miles": _number(_attr(asset, "length_miles", "miles")),
+            "states": _states_crossed(asset),
+            "state": asset.get("state_code"),
+            "line_class": _line_class(asset) if asset.get("asset_type") in LINE_ASSET_TYPES else None,
+            "geometry": _geometry_of(asset),
+            "provenance": list(asset.get("provenance") or row.get("provenance") or []),
+            "held_by": _held_by(row),
+        }
+    )
+    return out
+
+
+def _held_by(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The subsidiary that actually holds the edge when the page shows a parent's group
+    (`held_by` on `/v1/organizations/{id}/assets?include_subsidiaries=true`)."""
+    raw = row.get("held_by")
+    if not isinstance(raw, Mapping) or not raw.get("public_id"):
+        return None
+    return {
+        "public_id": raw.get("public_id"),
+        "slug": raw.get("slug"),
+        "name": raw.get("name_canonical") or raw.get("name"),
+    }
+
+
+def _role_key(role: Any) -> str:
+    return role if role in ORG_ROLE_LABELS else "other"
+
+
+def _role_label(role_key: str) -> str:
+    return ORG_ROLE_LABELS.get(role_key, "Owns or operates")
+
+
+def _org_asset_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rows grouped by (role, asset type): operator groups first (the discovery asset for a
+    pipeline company is "the pipelines they operate"), then owner, then unstated; types in the
+    `ASSET_TYPE_LABELS` order. Column flags say which of the optional columns any row fills, so
+    a pipeline group shows length and states, a plant group capacity and share."""
+    buckets: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        key = (_role_key(row.get("role")), row.get("asset_type") or "power_plant")
+        buckets.setdefault(key, []).append(row)
+    type_order = list(ASSET_TYPE_LABELS)
+
+    def sort_key(item: tuple[str, str]) -> tuple[int, int]:
+        role, asset_type = item
+        type_index = type_order.index(asset_type) if asset_type in type_order else len(type_order)
+        return ORG_ROLE_ORDER.index(role), type_index
+
+    groups: list[dict[str, Any]] = []
+    for role, asset_type in sorted(buckets, key=sort_key):
+        members = buckets[(role, asset_type)]
+        groups.append(
+            {
+                "role": role,
+                "role_label": _role_label(role),
+                "asset_type": asset_type,
+                "type_label": _sentence_label(asset_type, plural=True),
+                "type_label_singular": _sentence_label(asset_type, plural=False),
+                "count": len(members),
+                "rows": members,
+                "show_capacity": any(m.get("capacity_mw") is not None for m in members),
+                "show_length": any(m.get("length_miles") is not None for m in members),
+                "show_states": any(m.get("states") or m.get("state") for m in members),
+                "show_share": any(m.get("share_pct") is not None for m in members),
+                "show_held_by": any(m.get("held_by") for m in members),
+            }
+        )
+    return groups
+
+
+def _org_summary_parts(asset_counts: Any, groups: list[dict[str, Any]]) -> list[str]:
+    """ "Operates 3 gas pipelines · Owns 12 power plants". From the API's `asset_counts` when it
+    carries one -- either `{role: {asset_type: n}}` or a flat `{asset_type: n}` -- since the
+    page's rows are capped at 100; else counted over the groups on the page."""
+    parts: list[tuple[int, int, str]] = []
+    type_order = list(ASSET_TYPE_LABELS)
+    if isinstance(asset_counts, Mapping):
+        # `organization_asset_totals` (services/api/assets.py): `{assets, by_role, by_type,
+        # by_role_and_type}` -- the role x type table is what the sentence needs; a flat
+        # `by_type` (or a bare `{asset_type: n}`) gives the role-less form.
+        if isinstance(asset_counts.get("by_role_and_type"), Mapping):
+            asset_counts = asset_counts["by_role_and_type"]
+        elif isinstance(asset_counts.get("by_type"), Mapping):
+            asset_counts = asset_counts["by_type"]
+
+    def part(role_key: str, asset_type: str, count: int) -> tuple[int, int, str]:
+        count = int(count)
+        label = _sentence_label(asset_type, plural=count != 1)
+        type_index = type_order.index(asset_type) if asset_type in type_order else len(type_order)
+        return ORG_ROLE_ORDER.index(role_key), type_index, f"{_role_label(role_key)} {count} {label}"
+
+    if isinstance(asset_counts, Mapping) and asset_counts:
+        for key, value in asset_counts.items():
+            if isinstance(value, Mapping):
+                for asset_type, count in value.items():
+                    if isinstance(count, int | float) and count > 0:
+                        parts.append(part(_role_key(key), str(asset_type), int(count)))
+            elif isinstance(value, int | float) and value > 0:
+                parts.append(part("other", str(key), int(value)))
+    if not parts:
+        parts = [part(g["role"], g["asset_type"], g["count"]) for g in groups]
+    return [text for _, _, text in sorted(parts)]
+
+
+def _org_subsidiaries(entity: Mapping[str, Any]) -> list[dict[str, Any]]:
+    raw = entity.get("subsidiaries") or entity.get("children") or []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        name = item.get("name_canonical") or item.get("name")
+        public_id = item.get("public_id")
+        if not (name or public_id):
+            continue
+        out.append({"public_id": public_id, "slug": item.get("slug"), "name": name, "type": item.get("type")})
+    return out
+
+
+def _derived_org_provenance(
+    assets: list[dict[str, Any]], proposals: list[dict[str, Any]], opportunities: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The distinct source rows behind an organisation's assets, proposals and opportunities --
+    what the company page's Sources panel shows, since an organisation row has none of its own."""
+    seen: set[tuple[str | None, str | None]] = set()
+    out: list[dict[str, Any]] = []
+    for record in [*assets, *proposals, *opportunities]:
+        for row in record.get("provenance") or []:
+            if not isinstance(row, Mapping):
+                continue
+            key = (row.get("source_id"), row.get("source_url"))
+            if key in seen or not (row.get("source_id") or row.get("source_name")):
+                continue
+            seen.add(key)
+            out.append(dict(row))
+    return out
 
 
 WEB_ROOT = Path(__file__).resolve().parent
@@ -252,6 +794,7 @@ def home_map(request: Request) -> HTMLResponse:
             "tile_mode": tile_mode,
             "basemap_attribution": _basemap_attribution(tile_mode, tile_url),
             "regions": regions,
+            "asset_types": HOME_MAP_ASSET_TYPES,
         },
     )
 
@@ -529,12 +1072,43 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
     entity = _resolve_asset_by_slug(api, slug)
     if entity is None:
         return not_found_response(request, "asset")
+    # The list row resolves the slug but omits `owners` and `geometry` (API lane 2026-09-19: list
+    # rows never embed geometry); the detail envelope carries both, so the page reads it and
+    # falls back to the list row only when the detail call fails (found on the first Tallgrass
+    # screenshots: "No ownership records" beside 1,126 operator edges).
+    try:
+        entity = api.get(f"/v1/assets/{entity['public_id']}")["data"]
+    except ApiError:
+        pass
     record = flatten_asset(entity)
+    record.update(_asset_extras(entity))
+    nearby: list[dict[str, Any]] = []
+    features: list[dict[str, Any]] = []
+    if record["geometry"] is not None:
+        features.append(_asset_feature(record, record["geometry"]))
     try:
         nearby_env = api.get(f"/v1/assets/{record['public_id']}/nearby-proposals")
-        nearby = [flatten_proposal(e) for e in nearby_env["data"]]
+        for e in nearby_env["data"]:
+            flat = flatten_proposal(e)
+            # `distance_km` (line-aware for pipelines, API lane 2026-09-19) rides on the row.
+            flat["distance_km"] = _number(e.get("distance_km"))
+            nearby.append(flat)
+            geometry = _geometry_of(e)
+            if geometry is not None:
+                features.append(_proposal_feature(flat, geometry))
     except ApiError:
         nearby = []
+    tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
+    tile_mode = _tile_mode(tile_url)
+    placed = sum(1 for f in features if f["properties"]["kind"] == "proposal")
+    where = "route" if record["is_line"] else "location"
+    caption = (
+        f"{record['name']}: {where}"
+        + (f" and {placed} exact-grade proposal{'s' if placed != 1 else ''} within 25 km" if placed else "")
+        + ". "
+        + _basemap_attribution(tile_mode, tile_url)
+    )
+    mini_map = _mini_map(features, label=f"Map of {record['name']}", caption=caption)
     return templates.TemplateResponse(
         request,
         "asset_detail.html",
@@ -542,8 +1116,26 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
             "record": record,
             "nearby_proposals": nearby,
             "provenance_rows": provenance_panel_rows(api, record["provenance"]),
+            "mini_map": mini_map,
+            "tile_url": tile_url,
+            "tile_mode": tile_mode,
         },
     )
+
+
+@app.get("/assets/by-id/{public_id}")
+def asset_by_public_id(request: Request, public_id: str) -> Response:
+    """Map features (`/v1/assets/geo`) carry an asset's `public_id` but not its slug; the drawer's
+    "Open asset page" link comes here and is redirected to the canonical slug URL."""
+    api = get_api(request)
+    try:
+        entity = api.get(f"/v1/assets/{public_id}")["data"]
+    except ApiNotFound:
+        return not_found_response(request, "asset")
+    slug = entity.get("slug")
+    if not slug:
+        return not_found_response(request, "asset")
+    return RedirectResponse(url=f"/assets/{slug}", status_code=302)
 
 
 @app.get("/organizations/{ident}", response_class=HTMLResponse)
@@ -555,10 +1147,22 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
     if entity is None:
         return not_found_response(request, "organisation")
     record = flatten_organization(entity)
+    parent_raw = entity.get("parent")
+    record["parent_slug"] = parent_raw.get("slug") if isinstance(parent_raw, Mapping) else None
+    record["subsidiary_count"] = entity.get("subsidiary_count")
     public_id = record["public_id"]
+    asset_counts = entity.get("asset_counts")
     try:
-        assets_env = api.get(f"/v1/organizations/{public_id}/assets", params={"limit": 100})
-        assets = [flatten_org_asset_row(r) for r in assets_env["data"]]
+        # A parent such as Tallgrass Energy holds no edge itself; the subsidiaries do (curated
+        # parents, services/ingest/midstream.py), so the page always asks for the group.
+        assets_env = api.get(
+            f"/v1/organizations/{public_id}/assets",
+            params={"limit": 100, "include_subsidiaries": "true"},
+        )
+        assets = [_org_asset_row(r) for r in assets_env["data"]]
+        meta = assets_env.get("meta")
+        if asset_counts is None and isinstance(meta, Mapping):
+            asset_counts = meta.get("asset_counts")
     except ApiError:
         assets = []
     try:
@@ -574,15 +1178,78 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
         opportunities = [flatten_opportunity(e) for e in opportunities_env["data"]]
     except ApiError:
         opportunities = []
+    groups = _org_asset_groups(assets)
+    # The map of everything the organisation owns or operates: geometry from the asset rows when
+    # the API embeds it, else each asset's own detail response (capped, see ORG_MAP_DETAIL_CAP).
+    for a in [a for a in assets if not a.get("geometry") and a.get("public_id")][:ORG_MAP_DETAIL_CAP]:
+        try:
+            a["geometry"] = _geometry_of(api.get(f"/v1/assets/{a['public_id']}")["data"])
+        except ApiError:
+            continue
+    features = [_asset_feature(a, a["geometry"]) for a in assets if a.get("geometry")]
+    # "Proposals near those pipelines" (owner, 2026-09-19): exact-grade proposals within 25 km of
+    # any of the organisation's assets, each at its distance to the nearest one, which is named.
+    nearby: list[dict[str, Any]] = []
+    try:
+        nearby_env = api.get(
+            f"/v1/organizations/{public_id}/nearby-proposals",
+            params={"limit": ORG_NEARBY_LIMIT, "include_subsidiaries": "true"},
+        )
+        for e in nearby_env["data"]:
+            flat = flatten_proposal(e)
+            flat["distance_km"] = _number(e.get("distance_km"))
+            nearest_raw = e.get("nearest_asset")
+            nearest: Mapping[str, Any] = nearest_raw if isinstance(nearest_raw, Mapping) else {}
+            flat["nearest_asset_name"] = nearest.get("name")
+            flat["nearest_asset_slug"] = nearest.get("slug")
+            nearby.append(flat)
+            geometry = _geometry_of(e)
+            if geometry is not None:
+                features.append(_proposal_feature(flat, geometry))
+    except ApiError:
+        nearby = []
+    tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
+    tile_mode = _tile_mode(tile_url)
+    mapped = sum(1 for f in features if f["properties"]["kind"] == "asset")
+    unmapped = len(assets) - mapped
+    plural = "s" if len(nearby) != 1 else ""
+    caption = (
+        f"{mapped} of {len(assets)} asset{'s' if len(assets) != 1 else ''} with a mapped location"
+        + (f"; {unmapped} without one {'is' if unmapped == 1 else 'are'} listed below" if unmapped else "")
+        + (f", and {len(nearby)} exact-grade proposal{plural} within 25 km" if nearby else "")
+        + ". "
+        + _basemap_attribution(tile_mode, tile_url)
+    )
+    mini_map = _mini_map(features, label=f"Map of assets of {record['name']}", caption=caption)
+    # An organisation row carries no provenance of its own (`serialize_organization` emits []);
+    # the panel shows the sources of its assets and proposals, or nothing -- never the "withheld
+    # under licence" empty state, which would be a false licence claim (owner brief, 2026-09-19).
+    provenance = record["provenance"] or _derived_org_provenance(assets, proposals, opportunities)
+    provenance_note = (
+        None
+        if record["provenance"]
+        else (
+            "The registers behind this organisation's assets, proposals and opportunities; "
+            "the organisation record itself is derived from them."
+        )
+    )
     return templates.TemplateResponse(
         request,
         "organization_detail.html",
         {
             "record": record,
             "assets": assets,
+            "asset_groups": groups,
+            "summary_parts": _org_summary_parts(asset_counts, groups),
+            "subsidiaries": _org_subsidiaries(entity),
+            "nearby_proposals": nearby,
             "proposals": proposals,
             "opportunities": opportunities,
-            "provenance_rows": provenance_panel_rows(api, record["provenance"]),
+            "provenance_rows": provenance_panel_rows(api, provenance) if provenance else [],
+            "provenance_note": provenance_note,
+            "mini_map": mini_map,
+            "tile_url": tile_url,
+            "tile_mode": tile_mode,
         },
     )
 
@@ -594,6 +1261,7 @@ def search(request: Request) -> HTMLResponse:
     proposals: list[dict[str, Any]] = []
     opportunities: list[dict[str, Any]] = []
     organizations: list[dict[str, Any]] = []
+    assets: list[dict[str, Any]] = []
     if q:
         proposals_env = api.get("/v1/proposals", params={"q": q, "limit": 50})
         proposals = [flatten_proposal(e) for e in proposals_env["data"]]
@@ -604,10 +1272,27 @@ def search(request: Request) -> HTMLResponse:
         # ADR 0008 task item 3: an "Organisations" section on /search.
         organizations_env = api.get("/v1/organizations", params={"q": q, "limit": 50})
         organizations = [flatten_organization(e) for e in organizations_env["data"]]
+        # Midstream slice: assets by name, operator or owner (`/v1/assets?q=`), so "Rockies
+        # Express" (a pipeline) and "Tallgrass" (its operator) both resolve from the search box.
+        try:
+            assets_env = api.get("/v1/assets", params={"q": q, "limit": 50})
+            for e in assets_env["data"]:
+                flat = flatten_asset(e)
+                flat.update(_asset_extras(e))
+                flat["operator_name"] = flat["operator"].get("name")
+                assets.append(flat)
+        except ApiError:
+            assets = []
     return templates.TemplateResponse(
         request,
         "search.html",
-        {"q": q, "proposals": proposals, "opportunities": opportunities, "organizations": organizations},
+        {
+            "q": q,
+            "proposals": proposals,
+            "opportunities": opportunities,
+            "organizations": organizations,
+            "assets": assets,
+        },
     )
 
 

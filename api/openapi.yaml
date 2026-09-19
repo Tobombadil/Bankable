@@ -978,6 +978,12 @@ paths:
         Get-by-id for webhook consumers that dedupe on `data.event.id` (docs/23 §9.1) and for `alert.event_seqs`
         joins. Same visibility predicate as `GET /v1/events`, subject visibility included: `404` for an event
         whose subject the caller's tier may not see.
+        Carries `asset_counts` (the organisation's visible assets through `asset_owner`: distinct total, by role, by
+        type and by role-and-type -- the company page's "operates 3 pipelines, owns 2 plants"), `group_asset_counts`
+        (the same over the organisation plus its direct subsidiaries, for a holding company), `parent` (the GLEIF
+        Level 2 direct parent as an organisation summary, or null) and `subsidiaries` (organisations whose parent
+        is this one, at most 50, with `subsidiary_count` the full number), where the ownership data lane has set
+        `parent_org_id` (ADR 0008 §2).
       x-tier: public
       x-status: planned
       x-sprint: 2
@@ -1340,15 +1346,54 @@ paths:
         Same envelope and clustering contract as `GET /v1/proposals/geo` (docs/04 D-10), over `asset` instead of
         `proposal`: below the split threshold (≤ 500 visible) individual `asset` features are returned, each
         carrying `dominant_asset_type` on clusters above it. No lag, no tier gating; the licence gate applies as on
-        `GET /v1/assets` (gated assets are absent from features, totals and `licence_summary`).
+        `GET /v1/assets` (gated assets are absent from features, totals and `licence_summary`), and an asset whose
+        licence forbids raw publication is off the map entirely (its list row and page stay).
+
+        **Line assets** (2026-09-19, owner option (a): pipelines as a GeoJSON line layer first, vector tiles
+        later). Every visible asset with a `geom_line` -- `gas_pipeline` and `transmission_line` rows -- is
+        returned as a `feature_kind: asset_line` feature with a `LineString` or `MultiLineString` geometry,
+        alongside the point/cluster features, whenever `asset_type` is unspecified or names its type. Viewport
+        membership for a line is intersection (a vertex inside the bbox or a segment crossing it), never centroid
+        containment. Lines are never clustered and never counted toward the 500-marker split. Geometry is
+        Douglas-Peucker simplified at `zoom` to about half a pixel (`totals.line_tolerance_deg`; none at zoom ≥ 14),
+        so a national view (zoom 4) of ~3,000 pipelines is a few hundred KB. At most 1,500 lines are returned per
+        response, longest first; `totals.line_count` is the number in view before that cap and `totals.lines_shown`
+        after it. A `technology` filter matches no line (lines carry no technology). A line asset loaded with only
+        a representative point is drawn as a point, never as a fabricated line.
+
+        **Company page map.** `organization=<public id>` (comma-separated for OR) restricts the response to the
+        assets that organisation owns or operates (`asset_owner`, either role), points and lines alike; with it
+        set, `bbox` and `zoom` are optional and default to the whole world at zoom 5, so the page draws everything
+        the organisation has in one request. Every feature carries `slug` and `url` for a direct link to the asset
+        page. An unknown organisation matches nothing (an empty collection, not an error), as on `GET /v1/assets`.
       x-tier: public
       x-status: live
       x-sprint: 4
-      x-prd-stories: [US-104]
+      x-prd-stories: [US-104, US-203]
       security: *sec_public
       parameters:
-        - $ref: '#/components/parameters/Bbox'
-        - $ref: '#/components/parameters/Zoom'
+        - name: bbox
+          in: query
+          required: false
+          description: >-
+            `min_lon,min_lat,max_lon,max_lat` in WGS 84. Required unless `organization` is set (then defaults to
+            the whole world). Antimeridian-crossing boxes are two requests.
+          schema:
+            type: string
+            pattern: '^-?[0-9]{1,3}(\.[0-9]+)?,-?[0-9]{1,2}(\.[0-9]+)?,-?[0-9]{1,3}(\.[0-9]+)?,-?[0-9]{1,2}(\.[0-9]+)?$'
+            examples: ['-106.6,25.8,-93.5,36.5']
+        - name: zoom
+          in: query
+          required: false
+          description: >-
+            Web-Mercator zoom level driving the cluster radius and the line simplification tolerance. Required
+            unless `organization` is set (then defaults to 5).
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 22
+        - $ref: '#/components/parameters/AssetOrganizationFilter'
+        - $ref: '#/components/parameters/IncludeSubsidiaries'
         - $ref: '#/components/parameters/AssetType'
         - $ref: '#/components/parameters/Technology'
         - name: country
@@ -1363,12 +1408,128 @@ paths:
               pattern: '^[A-Z]{2}$'
       responses:
         '200':
-          description: Clustered asset features for the viewport inside the attribution envelope.
+          description: Clustered asset features and line features for the viewport inside the attribution envelope.
           headers: *std_headers
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AssetGeoResponse'
+              examples:
+                lines:
+                  summary: One pipeline line feature and one plant marker at zoom 5
+                  value:
+                    data:
+                      type: FeatureCollection
+                      bbox: [-109.1, 36.9, -102.0, 41.1]
+                      features:
+                        - type: Feature
+                          id: asset_01J9PXPE0001
+                          geometry:
+                            type: LineString
+                            coordinates: [[-108.7, 40.4], [-106.9, 40.1], [-104.8, 40.6], [-102.3, 40.9]]
+                          properties:
+                            feature_kind: asset_line
+                            public_id: asset_01J9PXPE0001
+                            slug: rockies-express-pipeline-llc-interstate
+                            url: https://infraque.com/assets/rockies-express-pipeline-llc-interstate
+                            name: Rockies Express Pipeline (Zone 2)
+                            operator_name: Rockies Express Pipeline LLC
+                            asset_type: gas_pipeline
+                            status: operating
+                            state_code: US-CO
+                            capacity_value: 1800
+                            capacity_unit: MMcf/d
+                            length_miles: 638.2
+                            attributes:
+                              pipeline_type: interstate
+                              miles: 638.2
+                              states_crossed: [US-CO, US-WY, US-NE, US-KS, US-MO, US-IL]
+                              segment_count: 14
+                              part_count: 14
+                            source:
+                              source_id: us.eia.atlas.pipelines
+                              source_name: EIA Energy Atlas — Natural Gas Pipelines
+                              source_url: https://atlas.eia.gov/datasets/natural-gas-interstate-and-intrastate-pipelines
+                              retrieved_at: '2026-09-19T05:00:00Z'
+                              licence_id: us-gov-public-domain
+                              reuse_class: open
+                              attribution_text: 'Source: U.S. Energy Information Administration (public domain)'
+                        - type: Feature
+                          id: asset_01J3Z8C4X1
+                          geometry:
+                            type: Point
+                            coordinates: [-104.7, 40.2]
+                          properties:
+                            feature_kind: asset
+                            public_id: asset_01J3Z8C4X1
+                            slug: fort-st-vrain-us-co-470
+                            url: https://infraque.com/assets/fort-st-vrain-us-co-470
+                            name: Fort St. Vrain
+                            operator_name: Public Service Co of Colorado
+                            asset_type: power_plant
+                            status: operating
+                            technology: gas_cc
+                            technology_raw: Natural Gas Fired Combined Cycle
+                            technologies:
+                              gas_cc: 969
+                            capacity_mw: 969
+                            unit_count: 4
+                            commissioned_year: 1996
+                            state_code: US-CO
+                            county_name: Weld
+                            source:
+                              source_id: us.eia.860m
+                              source_name: EIA-860M Monthly Generator Inventory
+                              source_url: https://www.eia.gov/electricity/data/eia860m/
+                              retrieved_at: '2026-09-01T05:00:00Z'
+                              licence_id: us-gov-public-domain
+                              reuse_class: open
+                              attribution_text: 'Source: U.S. Energy Information Administration (public domain)'
+                      totals:
+                        records: 2
+                        clustered: false
+                        asset_type_counts:
+                          gas_pipeline: 1
+                          power_plant: 1
+                        technology_counts:
+                          gas_cc: 1
+                        line_count: 1
+                        lines_shown: 1
+                        line_tolerance_deg: 0.02197265625
+                    meta:
+                      tier: public
+                      lag_days: 0
+                      data_as_of: '2026-09-19T12:00:00Z'
+                      generated_at: '2026-09-19T12:00:00Z'
+                      request_id: req_9f2c1a
+                      terms_url: https://infraque.com/terms
+                    licence_summary:
+                      sources:
+                        - source_id: us.eia.atlas.pipelines
+                          name: EIA Energy Atlas — Natural Gas Pipelines
+                          operator: U.S. Energy Information Administration
+                          licence_id: us-gov-public-domain
+                          licence_name: U.S. Government work (public domain)
+                          licence_url: https://www.usa.gov/government-copyright
+                          reuse_class: open
+                          attribution_text: 'Source: U.S. Energy Information Administration (public domain)'
+                          requires_link_back: false
+                          record_count: 1
+                          retrieved_at_max: '2026-09-19T05:00:00Z'
+                        - source_id: us.eia.860m
+                          name: EIA-860M Monthly Generator Inventory
+                          operator: U.S. Energy Information Administration
+                          licence_id: us-gov-public-domain
+                          licence_name: U.S. Government work (public domain)
+                          licence_url: https://www.usa.gov/government-copyright
+                          reuse_class: open
+                          attribution_text: 'Source: U.S. Energy Information Administration (public domain)'
+                          requires_link_back: false
+                          record_count: 1
+                          retrieved_at_max: '2026-09-01T05:00:00Z'
+                      attribution_line: 'Sources: U.S. Energy Information Administration (public domain).'
+                      redistribution: 'Every source in this payload is public domain; all rows may be redistributed with attribution.'
+                    redactions: []
             application/geo+json:
               schema:
                 $ref: '#/components/schemas/AssetGeoResponse'
@@ -1384,7 +1545,11 @@ paths:
       tags: [Assets]
       summary: Asset detail
       description: >-
-        Canonical fields, `attributes` (the type's objective feature set only), and `owners[]` (docs/21 §3.23).
+        Canonical fields, `attributes` (the type's objective feature set only), `owners[]` with role and share
+        (docs/21 §3.23), `geometry` (the line, simplified to ~75 m, for a line asset; the representative point
+        otherwise) and `length_miles` (the registry's stated value, else the geodesic length of the stored line,
+        null for a point asset). `geometry` is `null` with a `redactions[]` row (`field: geometry`, reason
+        `licence`) when the asset's licence forbids raw publication -- no source in scope today does.
         `404` when the asset's licence is `restricted`/`unknown` or its source is not on the public surface.
       x-tier: public
       x-status: live
@@ -1412,7 +1577,10 @@ paths:
       summary: Exact-grade proposals near this asset
       description: >
         Proposals whose `location.precision = exact` (ADR 0008: region-grade and none-grade proposals are never
-        returned here) within `radius_km` of the asset's point, public-tier visibility rules applied, nearest first.
+        returned here) within `radius_km` of the asset's geometry, public-tier visibility rules applied, nearest
+        first. For a line asset `distance_km` is measured to the nearest point of the line itself, never to its
+        representative point (2026-09-19); for a point asset it is the great-circle distance to the point. Empty,
+        with a `redactions[]` row, when the asset's geometry is withheld under its licence.
         "Exact" is judged as served: a proposal stored `exact` under a licence with `allows_raw_publication = false`
         is region grade on every non-admin surface and is excluded, since a distance to it would disclose the
         withheld point. `404` when the asset itself is licence-gated.
@@ -1446,8 +1614,13 @@ paths:
       tags: [Organizations, Assets]
       summary: The organisation's assets
       description: >-
-        Assets this organisation owns or operates, through `asset_owner`, with `role` and `share_pct` (docs/21
-        §3.23). Licence-gated assets are omitted, as on `GET /v1/assets`.
+        Assets this organisation owns or operates, through `asset_owner`: one row per edge, each an `Asset`
+        (with `asset_type`, `attributes`, `length_miles`) annotated with `role`, `share_pct` and `as_of` (docs/21
+        §3.23); an asset the organisation both owns and operates appears once per role. `role` and `asset_type`
+        filter the page; `totals` counts the whole set regardless of filters or paging, so the company page can
+        say "operates 3 pipelines, owns 2 plants" from one call. Licence-gated assets are omitted, as on
+        `GET /v1/assets`. Each row's `held_by` names the organisation that holds the edge, which differs from the
+        path organisation only with `include_subsidiaries=true`.
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -1456,14 +1629,59 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/AssetOwnerRoleFilter'
+        - $ref: '#/components/parameters/AssetType'
+        - $ref: '#/components/parameters/IncludeSubsidiaries'
       responses:
         '200':
-          description: A page of the organisation's assets inside the attribution envelope.
+          description: A page of the organisation's assets, with role annotations and totals, inside the attribution envelope.
           headers: *std_headers
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AssetListResponse'
+                $ref: '#/components/schemas/OrganizationAssetsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/organizations/{public_id}/nearby-proposals:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationPublicId'
+    get:
+      operationId: listOrganizationNearbyProposals
+      tags: [Organizations, Assets, Proposals, Map]
+      summary: Exact-grade proposals near any of the organisation's assets
+      description: >
+        The union of `GET /v1/assets/{public_id}/nearby-proposals` over the organisation's visible assets (owned
+        or operated, optionally narrowed by `role` and `asset_type`), deduplicated: each proposal appears once, at
+        its distance to the nearest of those assets, which `nearest_asset` names. Distance is to the geometry --
+        the pipe for a line asset, the point for a plant. At most 200 assets are measured from (`asset_owner`
+        order; `totals.assets_considered` says how many were); results are nearest first and capped by `limit`,
+        with `page.has_more` when more lie within the radius. Same exact-grade and licence rules as the per-asset
+        endpoint.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-203]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/RadiusKm'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/AssetOwnerRoleFilter'
+        - $ref: '#/components/parameters/AssetType'
+        - $ref: '#/components/parameters/IncludeSubsidiaries'
+      responses:
+        '200':
+          description: Nearby proposals, each with the nearest asset, inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationNearbyProposalsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
@@ -5541,6 +5759,26 @@ components:
         type: array
         items:
           $ref: '#/components/schemas/AssetType'
+    IncludeSubsidiaries:
+      name: include_subsidiaries
+      in: query
+      description: >-
+        `true` also spans the organisation's direct subsidiaries (`parent_org_id` links, one level): the group
+        parent the ownership lane links (e.g. a holding company over nine operating pipeline companies) holds no
+        `asset_owner` edge of its own. Default `false`.
+      schema:
+        type: boolean
+        default: false
+    AssetOwnerRoleFilter:
+      name: role
+      in: query
+      description: '`asset_owner.role` (docs/21 §3.23); comma-separated for OR. Unknown values are rejected.'
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/AssetOwnerRole'
     AssetOrganizationFilter:
       name: organization
       in: query
@@ -6733,10 +6971,10 @@ components:
     AnyPublicIdValue:
       type: string
       description: |
-        Any graph public id (`prop_`, `opp_`, `org_`, `mat_`, `evt_`, `doc_`), an operational one (`usr_`, `acc_`,
+        Any graph public id (`prop_`, `opp_`, `org_`, `mat_`, `evt_`, `doc_`, `asset_`), an operational one (`usr_`, `acc_`,
         `key_`, `post_`, `task_`, `run_`, `snap_`, `ext_`), or — for admin audit events on the source and licence
         registers (`GET /admin/v1/audit`) — the register's own text id (`us.iso.ercot.gen_queue`, `us-ercot-open`).
-      pattern: '^((prop|opp|org|mat|evt|doc|usr|acc|key|post|task|run|snap|ext)_[0-9A-HJKMNP-TV-Z]{10,26}|[a-z][a-z0-9_.-]{1,120})$'
+      pattern: '^((prop|opp|org|mat|evt|doc|asset|usr|acc|key|post|task|run|snap|ext)_[0-9A-HJKMNP-TV-Z]{10,26}|[a-z][a-z0-9_.-]{1,120})$'
     SourceIdValue:
       type: string
       description: The `data/sources.yaml` id — dotted, lower-case.
@@ -7291,6 +7529,43 @@ components:
           maxItems: 2
           items:
             type: number
+    GeoJsonLineString:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          type: string
+          const: LineString
+        coordinates:
+          type: array
+          description: '`[lon, lat]` vertices, WGS 84, at least two.'
+          minItems: 2
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: number
+    GeoJsonMultiLineString:
+      type: object
+      required: [type, coordinates]
+      properties:
+        type:
+          type: string
+          const: MultiLineString
+        coordinates:
+          type: array
+          description: One `LineString` coordinate array per part, at least one.
+          minItems: 1
+          items:
+            type: array
+            minItems: 2
+            items:
+              type: array
+              minItems: 2
+              maxItems: 2
+              items:
+                type: number
     GeoJsonPolygon:
       type: object
       required: [type, coordinates]
@@ -7706,6 +7981,25 @@ components:
           minimum: 0
           description: Visible proposals sponsored.
         opportunity_count:
+          type: integer
+          minimum: 0
+        asset_counts:
+          $ref: '#/components/schemas/OrganizationAssetTotals'
+        group_asset_counts:
+          description: '`asset_counts` over the organisation and its direct subsidiaries together; equals `asset_counts` when it has none. Detail responses only.'
+          $ref: '#/components/schemas/OrganizationAssetTotals'
+        parent:
+          description: GLEIF Level 2 direct parent (`parent_org_id`), or null. Detail responses only.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationSummary'
+            - type: 'null'
+        subsidiaries:
+          type: array
+          description: Organisations whose `parent_org_id` is this one, name order, at most 50. Detail responses only.
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/OrganizationSummary'
+        subsidiary_count:
           type: integer
           minimum: 0
         provenance:
@@ -8329,13 +8623,19 @@ components:
     AssetGeoProperties:
       type: object
       description: An individual asset marker (`GET /v1/assets/geo`, and `GET /v1/context/plants/geo` forcing `asset_type=power_plant`).
-      required: [feature_kind, public_id, name, asset_type, status, technologies, source]
+      required: [feature_kind, public_id, slug, url, name, asset_type, status, technologies, source]
       properties:
         feature_kind:
           type: string
           const: asset
         public_id:
           $ref: '#/components/schemas/AssetPublicId'
+        slug:
+          type: string
+        url:
+          type: string
+          format: uri
+          description: The asset page.
         name:
           type: string
         operator_name:
@@ -8363,6 +8663,52 @@ components:
           type: [string, 'null']
         county_name:
           type: [string, 'null']
+        source:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    AssetLineProperties:
+      type: object
+      description: >-
+        One line asset (`gas_pipeline`, `transmission_line`) drawn from its `geom_line`, simplified at the request's
+        zoom. Never clustered. `attributes` is the subset of the asset's objective attributes useful on a map:
+        for an EIA Atlas pipeline row (one per operator × pipeline type) `pipeline_type`, `miles`,
+        `states_crossed`, `segment_count`, `part_count`; other sources may add `operator`, `interstate`,
+        `intrastate`, `diameter`, `diameter_in`, `diameter_mix`, `length_miles`, `states`, `voltage_kv` --
+        whichever the registry recorded. The detail response carries the whole set.
+      required: [feature_kind, public_id, slug, url, name, asset_type, status, length_miles, attributes, source]
+      properties:
+        feature_kind:
+          type: string
+          const: asset_line
+        public_id:
+          $ref: '#/components/schemas/AssetPublicId'
+        slug:
+          type: string
+        url:
+          type: string
+          format: uri
+          description: The asset page.
+        name:
+          type: string
+        operator_name:
+          type: [string, 'null']
+        asset_type:
+          $ref: '#/components/schemas/AssetType'
+        status:
+          $ref: '#/components/schemas/AssetStatus'
+        state_code:
+          type: [string, 'null']
+        capacity_value:
+          type: [number, 'null']
+          description: The registry's native capacity figure (e.g. MMcf/d for a pipeline), unit in `capacity_unit`.
+        capacity_unit:
+          type: [string, 'null']
+        length_miles:
+          type: number
+          minimum: 0
+          description: The registry's stated length (`attributes.miles` or `attributes.length_miles`), else the geodesic length of the stored (unsimplified) line.
+        attributes:
+          type: object
+          additionalProperties: true
         source:
           $ref: '#/components/schemas/ProvenanceQuartet'
     AssetClusterProperties:
@@ -8409,21 +8755,29 @@ components:
           const: Feature
         id:
           type: string
-          description: Individual `asset` features only — the asset's public id.
+          description: Individual `asset` and `asset_line` features only — the asset's public id.
         geometry:
-          $ref: '#/components/schemas/GeoJsonPoint'
+          description: '`Point` for `asset` and `asset_cluster`; `LineString` or `MultiLineString` for `asset_line`.'
+          oneOf:
+            - $ref: '#/components/schemas/GeoJsonPoint'
+            - $ref: '#/components/schemas/GeoJsonLineString'
+            - $ref: '#/components/schemas/GeoJsonMultiLineString'
         properties:
           oneOf:
             - $ref: '#/components/schemas/AssetGeoProperties'
             - $ref: '#/components/schemas/AssetClusterProperties'
+            - $ref: '#/components/schemas/AssetLineProperties'
           discriminator:
             propertyName: feature_kind
             mapping:
               asset: '#/components/schemas/AssetGeoProperties'
               asset_cluster: '#/components/schemas/AssetClusterProperties'
+              asset_line: '#/components/schemas/AssetLineProperties'
     AssetGeoFeatureCollection:
       type: object
-      description: RFC 7946 FeatureCollection of assets. Up to 2,000 features (docs/04 D-13).
+      description: >-
+        RFC 7946 FeatureCollection of assets: point markers or clusters (≤ 500 markers before clustering) plus up to
+        1,500 line features. Up to 2,000 features in total (docs/04 D-13).
       required: [type, features, totals]
       properties:
         type:
@@ -8448,15 +8802,28 @@ components:
               type: integer
             clustered:
               type: boolean
-              description: '`false` when every record is an individual feature (≤ 500 visible).'
+              description: '`false` when every point record is an individual feature (≤ 500 visible). Lines never cluster.'
             asset_type_counts:
               type: object
+              description: Over the whole filter match, points and lines alike.
               additionalProperties:
                 type: integer
             technology_counts:
               type: object
               additionalProperties:
                 type: integer
+            line_count:
+              type: integer
+              minimum: 0
+              description: Line assets intersecting the viewport, before the 1,500-feature cap.
+            lines_shown:
+              type: integer
+              minimum: 0
+              description: '`asset_line` features actually returned (longest first when capped).'
+            line_tolerance_deg:
+              type: number
+              minimum: 0
+              description: Douglas-Peucker tolerance in degrees applied to every line at this zoom; `0` at zoom ≥ 14.
     AssetGeoResponse:
       allOf:
         - $ref: '#/components/schemas/Envelope'
@@ -8560,6 +8927,20 @@ components:
         last_changed:
           type: string
           format: date-time
+        length_miles:
+          type: [number, 'null']
+          minimum: 0
+          description: The registry's stated length, else the geodesic length of the stored line; null for a point asset.
+        geometry:
+          description: >-
+            Detail responses only (absent on list rows). The line, simplified to ~75 m, for a line asset; the
+            representative point otherwise; null when the asset has no geometry or its licence forbids raw
+            publication (then a `redactions[]` row names `geometry`).
+          oneOf:
+            - $ref: '#/components/schemas/GeoJsonPoint'
+            - $ref: '#/components/schemas/GeoJsonLineString'
+            - $ref: '#/components/schemas/GeoJsonMultiLineString'
+            - type: 'null'
         provenance:
           type: array
           items:
@@ -8568,6 +8949,59 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AssetOwnerRow'
+    OrganizationAssetRow:
+      allOf:
+        - $ref: '#/components/schemas/Asset'
+        - type: object
+          required: [role, held_by]
+          properties:
+            role:
+              $ref: '#/components/schemas/AssetOwnerRole'
+            share_pct:
+              type: [number, 'null']
+            as_of:
+              type: [string, 'null']
+              format: date
+            held_by:
+              $ref: '#/components/schemas/OrganizationSummary'
+    OrganizationAssetTotals:
+      type: object
+      description: The organisation's visible assets through `asset_owner`, counted over the whole set (not the page).
+      required: [assets, by_role, by_type, by_role_and_type]
+      properties:
+        assets:
+          type: integer
+          minimum: 0
+          description: Distinct assets, whatever the role(s).
+        by_role:
+          type: object
+          description: Distinct assets per role.
+          additionalProperties:
+            type: integer
+        by_type:
+          type: object
+          description: Distinct assets per `asset_type`.
+          additionalProperties:
+            type: integer
+        by_role_and_type:
+          type: object
+          description: '`{role: {asset_type: count}}` — "operates 3 pipelines, owns 2 plants".'
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: integer
+    OrganizationAssetsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          required: [totals]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrganizationAssetRow'
+            totals:
+              $ref: '#/components/schemas/OrganizationAssetTotals'
     AssetListResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'
@@ -8602,6 +9036,36 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/NearbyProposalSummary'
+    OrganizationNearbyProposalSummary:
+      allOf:
+        - $ref: '#/components/schemas/NearbyProposalSummary'
+        - type: object
+          required: [nearest_asset]
+          properties:
+            nearest_asset:
+              $ref: '#/components/schemas/AssetSummary'
+    OrganizationNearbyProposalsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          required: [totals]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrganizationNearbyProposalSummary'
+            totals:
+              type: object
+              required: [assets_considered, proposals_within_radius]
+              properties:
+                assets_considered:
+                  type: integer
+                  minimum: 0
+                  description: Assets with servable geometry that distances were measured from (≤ 200).
+                proposals_within_radius:
+                  type: integer
+                  minimum: 0
+                  description: Distinct proposals within `radius_km` of any considered asset, before `limit`.
 
     # ---------- Region polygons (docs/23 §3.1, ADR 0008) ----------
     RegionFeature:

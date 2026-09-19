@@ -1,0 +1,63 @@
+# Curated organisation parent links (docs/22 §15; source id `curated.organization_parents` in
+# data/sources.yaml section K). Loaded by `python -m services.ingest.midstream parents`.
+#
+# Schema, one row per rule:
+#   child_pattern : regular expression, case-insensitive, matched against organization.name_canonical
+#                   and every organization_alias.alias (anchor it; `^tallgrass` also matches the parent,
+#                   which the loader skips, but keep patterns as narrow as the source statement allows)
+#   parent        : canonical name of the parent organisation (created if absent)
+#   source_url    : the company's own published statement the link is read from
+#   retrieved_at  : when that page was read (ISO 8601, UTC)
+#   note          : what the page says, quoted or closely paraphrased, and how the operator strings in the
+#                   registry data were matched
+#
+# Interim source: GLEIF Level 2 ("who owns whom", CC0) replaces these rows for every organisation with an
+# LEI once that loader exists; rows here stay for organisations GLEIF does not cover. Each row cites its
+# URL so a reader can check the claim; nothing here is inferred from a name alone.
+
+parents:
+  - child_pattern: '^rockies express'
+    parent: Tallgrass Energy
+    source_url: https://www.tallgrass.com/energy-solutions/natural-gas
+    retrieved_at: '2026-09-19T15:25:00Z'
+    note: >-
+      Tallgrass, "Natural Gas": "We operate more than 7,000 miles of FERC-regulated transportation and
+      storage systems - Rockies Express Pipeline (REX), Ruby, Tallgrass Interstate Gas Transmission,
+      Trailblazer, Cheyenne Connector, and East Cheyenne Gas Storage". EIA Atlas pipeline operator strings
+      matched (2026-09-19, 202001 vintage): "Rockies Express Pipeline" (49 segments), "Rockies Express
+      (Entrega)" (16), "Rockies Express (Echo Springs Lateral)" (1).
+  - child_pattern: '^tallgrass interstate gas transmissio'
+    parent: Tallgrass Energy
+    source_url: https://www.tallgrass.com/energy-solutions/natural-gas
+    retrieved_at: '2026-09-19T15:25:00Z'
+    note: >-
+      Same statement. Atlas pipeline operator string "Tallgrass Interstate Gas Transmission" (1 feature,
+      3,761.8 geodesic miles); Atlas storage company string "TALLGRASS INTERSTATE GAS TRANSMISSIO"
+      (Huntsman field, NE) -- truncated in the source, hence the pattern ends at "transmissio".
+  - child_pattern: '^trailblazer pipeline'
+    parent: Tallgrass Energy
+    source_url: https://www.tallgrass.com/energy-solutions/natural-gas
+    retrieved_at: '2026-09-19T15:25:00Z'
+    note: Same statement. Atlas pipeline operator string "Trailblazer Pipeline Co" (39 segments).
+  - child_pattern: '^ruby pipeline'
+    parent: Tallgrass Energy
+    source_url: https://www.tallgrass.com/energy-solutions/natural-gas
+    retrieved_at: '2026-09-19T15:25:00Z'
+    note: >-
+      Same statement lists Ruby among Tallgrass's systems (Ruby was acquired after the Atlas layer's 202001
+      vintage, so the operator string "Ruby Pipeline LLC" predates that ownership; the current parent is
+      what the page states today).
+  - child_pattern: '^east cheyenne gas storage'
+    parent: Tallgrass Energy
+    source_url: https://www.tallgrass.com/energy-solutions/natural-gas
+    retrieved_at: '2026-09-19T15:25:00Z'
+    note: Same statement. Atlas storage company string "EAST CHEYENNE GAS STORAGE LLC" (West Peetz/Lewis Creek, CO).
+  - child_pattern: '^tallgrass energy midstream'
+    parent: Tallgrass Energy
+    source_url: https://www.tallgrass.com/energy-solutions/natural-gas
+    retrieved_at: '2026-09-19T15:25:00Z'
+    note: >-
+      Same page: "Tallgrass owns and operates more than 1,500 miles of natural gas gathering pipeline and
+      processing facilities with a combined capacity of approximately 190 mmcf/day". Atlas processing plant
+      owner/operator string "Tallgrass Energy Midstream LLC" (Casper Plant 65 MMcf/d, Douglas Plant 130
+      MMcf/d, both WY, 2017 vintage).

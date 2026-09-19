@@ -356,7 +356,7 @@ sources:
   tier: 2
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-09-15, result: not_probed, note: 'about page answers 200 (JS app, no static licence text); catalogue API returned no row for the slug'}
+  verified: {date: 2026-09-19, result: ok_fallback, note: 'anonymous GET on the Atlas feature-service query URL answered HTTP 200 with the ArcGIS error body {code: 499, message: Token Required} (services7.arcgis.com/FGr1D95XCGALKXqM, the EIA org; its 79 public feature services carry no gas layer and the Hub lists this dataset as an Image item), so the connector fell back to the shapefile zip EIA publishes on www.eia.gov/maps/map_data/ (allowed by eia.gov robots.txt; /maps/ is not under a Disallow). Query URL tried: https://services7.arcgis.com/FGr1D95XCGALKXqM/arcgis/rest/services/NaturalGas_InterIntrastate_Pipelines_US_EIA/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=geojson&resultOffset=0&resultRecordCount=2000. Fetched https://www.eia.gov/maps/map_data/NaturalGas_InterIntrastate_Pipelines_US_EIA.zip at 2026-09-19T15:34:29Z: 2,954,667 bytes, sha256 bfd9757e…ac56, Last-Modified 2020-04-27, member NaturalGas_Pipelines_US_202001 (vintage 202001, metadata pubdate 2020-04-28): 32,961 PolyLine features, fields TYPEPIPE (Interstate 17,996 / Intrastate 14,896 / Gathering 69), Operator (253 distinct), Status (all Operating), Shape_Leng (degrees). No pipeline name, diameter or capacity field exists. pipeline/context/eia_atlas.py dissolves by (Operator, TYPEPIPE) -> 259 rows, 40 degenerate single-vertex segments dropped, 230,252 geodesic miles, parquet 2,306,020 bytes unsimplified (no simplification needed under the 40 MB budget), 7.27 s incl. fetch. Tallgrass operator strings present: Rockies Express Pipeline (49 segments), Rockies Express (Entrega) (16), Rockies Express (Echo Springs Lateral) (1), Tallgrass Interstate Gas Transmission (1), Trailblazer Pipeline Co (39), Ruby Pipeline LLC (4).'}
   notes: >-
     Candidate for the second built-infrastructure context layer (existing pipelines; docs/00-PLAN.md decision
     2026-09-15 "Pipelines join the plan"). Line geometries, so the layer is pre-built vector tiles on the tiles
@@ -1344,7 +1344,7 @@ sources:
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'about page 200 (JS app, no static licence text)'}
+  verified: {date: 2026-09-19, result: ok_fallback, note: 'anonymous GET on the Atlas feature-service query URL answered HTTP 200 with the ArcGIS error body {code: 499, message: Token Required} (services7.arcgis.com/FGr1D95XCGALKXqM, the EIA org; its 79 public feature services carry no gas layer and the Hub lists this dataset as an Image item), so the connector fell back to the shapefile zip EIA publishes on www.eia.gov/maps/map_data/ (allowed by eia.gov robots.txt; /maps/ is not under a Disallow). Fetched https://www.eia.gov/maps/map_data/NaturalGas_ProcessingPlants_US_EIA.zip at 2026-09-19T15:34:36Z: 78,776 bytes, member NaturalGas_ProcessingPlants_US_2017_v2 (vintage 2017, EIA-757 Schedule A; metadata pubdate 2020-01-13): 478 Point features, fields Plant_Name, Owner (29 blank), Operator (31 blank), City, State, County, ZipCode, Period (2017), Cap_MMcfd, Plant_Flow, BTU_Conten, Dry_Stor, NGL_Stor, Longitude, Latitude. (Plant_Name, State, County) is not unique (Wheeler/TX/Wheeler twice), so source_asset_id is a content hash of name+state+county+lon+lat. Tallgrass rows: Casper Plant (owner Tallgrass Energy Midstream LLC, operator blank, 65 MMcf/d) and Douglas Plant (owner and operator Tallgrass Energy Midstream LLC, 130 MMcf/d), both WY.'}
   notes: >-
     Point layer, so it rides the plants lane unchanged (parse, geocode from the layer's own coordinates,
     load, cluster). Objective features: plant capacity (MMcf/d), operator, county, status. Source of the
@@ -1366,7 +1366,7 @@ sources:
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'about page 200 (JS app)'}
+  verified: {date: 2026-09-19, result: ok_fallback, note: 'anonymous GET on the Atlas feature-service query URL answered HTTP 200 with the ArcGIS error body {code: 499, message: Token Required} (services7.arcgis.com/FGr1D95XCGALKXqM, the EIA org; its 79 public feature services carry no gas layer and the Hub lists this dataset as an Image item), so the connector fell back to the shapefile zip EIA publishes on www.eia.gov/maps/map_data/ (allowed by eia.gov robots.txt; /maps/ is not under a Disallow). The zip name differs from the other three: https://www.eia.gov/maps/map_data/NaturalGas_UndergroundStorage_US_EIA.zip (Natural_Gas_Underground_Storage.zip answers 404). Fetched at 2026-09-19T15:34:38Z: 73,511 bytes, member NaturalGas_UndergroundStorage_US_202012 (vintage 202012, EIA-191): 412 Point features, fields State, ID (fld_code_res_code, unique), Field, Reservoir, Field_Type (Depleted Field 328 / Aquifer 47 / Salt Dome 37), Company (133 distinct), County, Region, Status (Active 387 / Inactive 25), base_gas, work_cap, fld_cap, maxdeliv (Mcf, Mcf/d), Period. Tallgrass rows: Huntsman field NE, company string TALLGRASS INTERSTATE GAS TRANSMISSIO (truncated in the source), working gas 12,653,122 Mcf; plus EAST CHEYENNE GAS STORAGE LLC (West Peetz/Lewis Creek, CO).'}
   notes: >-
     Point layer. Objective features: field type (depleted field, aquifer, salt cavern), total and working gas
     capacity, maximum deliverability, operator. Underlying attributes come from EIA-191.
@@ -1387,12 +1387,35 @@ sources:
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'about page 200 (JS app)'}
+  verified: {date: 2026-09-19, result: ok_fallback, note: 'anonymous GET on the Atlas feature-service query URL answered HTTP 200 with the ArcGIS error body {code: 499, message: Token Required} (services7.arcgis.com/FGr1D95XCGALKXqM, the EIA org; its 79 public feature services carry no gas layer and the Hub lists this dataset as an Image item), so the connector fell back to the shapefile zip EIA publishes on www.eia.gov/maps/map_data/ (allowed by eia.gov robots.txt; /maps/ is not under a Disallow). Fetched https://www.eia.gov/maps/map_data/Lng_ImportExportTerminals_US_EIA.zip at 2026-09-19T15:34:40Z: 29,168 bytes, member LNG_ImpExp_Terminals_US_202004 (vintage As of Apr 2020): 8 Point features (Elba Island, Cameron LNG, Sabine Pass, Everett, Northeast Gateway, Cove Point LNG, Freeport, Corpus Christi), fields Facility, Owner, Operator, City, County, State (full name; blank for the offshore Northeast Gateway), Functions (Import/Export/Import-Export), Regas_Bcfd, Stora_Bcf, Liq_Bcfd ("-" = none), Period, Source. Only 8 rows: this vintage predates the 2020-2025 export build-out; proposed/under-construction terminals are proposals (us.ferc.pipelines_pending, us.doe.lng_exports), not this layer. No Tallgrass row.'}
   notes: >-
     Point layer for existing terminals. Proposed and under-construction terminals are proposals, covered by
     us.ferc.pipelines_pending and us.doe.lng_exports, not by this context layer. FERC's own LNG page
     (https://www.ferc.gov/industries-data/natural-gas/overview/lng) answered a Cloudflare challenge (403)
     to the probe on 2026-09-18; the Atlas layer carries the same terminals with coordinates.
+
+- id: curated.organization_parents
+  name: Curated organisation parent links (interim for GLEIF Level 2) — data/vendored/organizations/parents.yaml
+  jurisdiction: US
+  category: registry
+  operator: Infraque (curated from the companies' own published statements)
+  url: file:///data/vendored/organizations/parents.yaml
+  access: bulk_file
+  auth: none
+  format: yaml (child_pattern, parent, source_url, retrieved_at, note)
+  cadence: continuous
+  license: 'curated by Infraque from the companies'' own published statements; each row cites its URL'
+  reuse: open
+  publication: raw_ok
+  tier: 2
+  effort: S
+  verified: {date: 2026-09-19, result: ok, note: 'Seeded 2026-09-19 with Tallgrass Energy (six rules) from https://www.tallgrass.com/energy-solutions/natural-gas, read live the same day: "Rockies Express Pipeline (REX), Ruby, Tallgrass Interstate Gas Transmission, Trailblazer, Cheyenne Connector, and East Cheyenne Gas Storage" plus its gathering/processing statement. Loaded by services/ingest/midstream.py::load_parents, which sets organization.parent_org_id and parent_source_id = this id. Not a fetched source: the file is in the repo, the URL above is where it lives.'}
+  notes: >-
+    Provenance holder for organisation parent edges that come from a human-read company statement rather
+    than a registry (docs/22 §15). Interim: GLEIF Level 2 "who owns whom" (CC0, docs/13 §2.14) replaces
+    these rows for every organisation with an LEI once that loader exists; rows stay only where GLEIF has no
+    record. Cheyenne Connector appears in Tallgrass's statement but not in the 202001 Atlas layer, so it has
+    no rule yet (a rule with nothing to match would be noise).
 
 - id: us.eia.atlas.ethanol_plants
   name: EIA US Energy Atlas — Ethanol Plants (point geometries, owner, nameplate capacity)
@@ -1410,7 +1433,7 @@ sources:
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'about page 200 (JS app); the biodiesel-plants sibling layer also answers 200 and can ride the same connector'}
+  verified: {date: 2026-09-19, result: ok_fallback, note: 'Fuels lane, measured: the Atlas ArcGIS feature service answered HTTP 200 with the ArcGIS error body {code: 499, message: Token Required} (same as the four gas layers, see us.eia.atlas.gas_pipelines), so the path is the shapefile zip EIA publishes at https://www.eia.gov/maps/map_data/Ethanol_Plants_US_EIA.zip, fetched 2026-09-19T15:49:24Z, 37,644 bytes, 197 plants -> data/normalized/context/us.eia.atlas.ethanol_plants.parquet. Loads as asset_type ethanol_plant alongside us.eia.ethanol_capacity. Earlier probe 2026-09-18: about page 200 (JS app); the biodiesel-plants sibling layer also answers 200 and can ride the same connector.'}
   notes: >-
     Coordinates for the ethanol fleet; capacity and owner cross-checked against us.eia.ethanol_capacity,
     which is the tabular primary. Ethanol operators are a candidate buyer segment (owner, 2026-09-18;
@@ -1432,7 +1455,7 @@ sources:
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'report page 200, title "U.S. Fuel Ethanol Plant Production Capacity", links ethanolcapacity.xlsx'}
+  verified: {date: 2026-09-19, result: ok, note: 'Fuels lane, measured: ethanolcapacity.xlsx fetched 2026-09-19T15:49:01Z, 23,446 bytes, 191 plants -> data/normalized/context/us.eia.ethanol_capacity.parquet (191 rows). Loads as asset_type ethanol_plant alongside us.eia.atlas.ethanol_plants (services/ingest/assets.py::ASSET_TYPE_SOURCE_IDS allows both; rows kept apart by (source_id, source_asset_id)). Earlier probe 2026-09-18: report page 200, title "U.S. Fuel Ethanol Plant Production Capacity".'}
   notes: >-
     Tabular primary for the ethanol fleet: nameplate capacity per plant is the objective feature; owner is the
     ownership-graph edge. Monthly production and stocks by PADD come from EIA-819 through us.eia.api if a
@@ -1454,7 +1477,7 @@ sources:
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'old URL /lmop/lmop-landfill-and-landfill-gas-energy-database 404; current page 200 with lmopcompositedata.xlsx (2024-09) and national_lmopdata_files_2001-2023.zip'}
+  verified: {date: 2026-09-19, result: ok, note: 'Fuels lane, measured: lmopcompositedata.xlsx (2024-09 edition) fetched 2026-09-19T15:49:08Z, 1,465,367 bytes, 3,399 rows -> 1,353 rng_project assets (data/normalized/context/us.epa.lmop.parquet) + 129 proposals (us.epa.lmop.proposals.parquet). Loads as asset_type rng_project alongside us.epa.agstar (both wired in services/ingest/assets.py::ASSET_TYPE_SOURCE_IDS). Earlier probe 2026-09-18: old URL /lmop/lmop-landfill-and-landfill-gas-energy-database 404; current page 200 with lmopcompositedata.xlsx and the national_lmopdata files.'}
   notes: >-
     The RNG fleet's largest public registry: landfill gas projects with project type (electricity, RNG to
     pipeline, direct use), owner/developer, MW or mmscfd, status (operational, construction, planned, shut
@@ -1477,7 +1500,7 @@ sources:
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'page 200, links agstar-livestock-ad-database.xlsx'}
+  verified: {date: 2026-09-19, result: ok, note: 'Fuels lane, measured: agstar-livestock-ad-database.xlsx fetched 2026-09-19T15:49:18Z, 98,977 bytes, 571 rows -> 498 rng_project assets (data/normalized/context/us.epa.agstar.parquet) + 73 proposals (us.epa.agstar.proposals.parquet). Loads as asset_type rng_project alongside us.epa.lmop. Earlier probe 2026-09-18: page 200, links the workbook.'}
   notes: >-
     Second RNG registry (dairy and swine digesters), most of the pipeline-injection RNG growth since 2020.
     Locations are county/city level, not coordinates; geocode through the Census gazetteer like proposals.

@@ -37,9 +37,16 @@
 
 {# Class stays "provenance-panel" (web/test_e2e.py selects it); the provenance-bar idiom described
    in docs/30 §7/§9 is the styling underneath that class in styles.css, not a renamed component. #}
-{% macro provenance_panel(rows, number=None) -%}
+{#- `note`: an optional sentence under the heading (the company page uses it to say the rows are
+   the sources of the organisation's assets and proposals, since an organisation row of its own
+   carries none). The "withheld under licence" empty state is only true for a mixed-provenance
+   record whose visible evidence was gated (docs/31 §5.2) -- a caller whose record simply has no
+   source rows must not call this macro with an empty list; organization_detail.html skips the
+   section instead. -#}
+{% macro provenance_panel(rows, number=None, note=None) -%}
 <section class="provenance-panel" aria-label="Sources">
   {% if number %}{{ section_heading(number, "Sources") }}{% else %}<h2>Sources</h2>{% endif %}
+  {% if note %}<p class="attribution-line">{{ note }}</p>{% endif %}
   {% if rows %}
   <ul class="provenance-panel__list">
     {% for row in rows %}
@@ -68,15 +75,20 @@
 {# ADR 0008 asset page: attributes is `asset.attributes` -- objective features only (heat rate,
    capacity factor, mileage, ...), an arbitrary label/value bag, so it renders generically rather
    than field by named field the way field-grid does for the fixed proposal/opportunity shape. #}
-{% macro attributes_table(attributes) -%}
-{% if attributes %}
+{#- `omit`: attribute keys already promoted to a named field on the page (a pipeline's length,
+   diameter, class, states), so the bag does not repeat them. A list value renders joined, a
+   None value is skipped -- never a Python repr, never "None". -#}
+{% macro attributes_table(attributes, omit=[]) -%}
+{% set shown = [] %}
+{% for key, value in (attributes or {}).items() if key not in omit and value is not none %}{% set _ = shown.append((key, value)) %}{% endfor %}
+{% if shown %}
 <div class="table-scroll">
 <table class="record-table">
   <caption class="visually-hidden">Attributes</caption>
   <thead><tr><th scope="col">Attribute</th><th scope="col" class="num">Value</th></tr></thead>
   <tbody>
-  {% for key, value in attributes.items() %}
-  <tr><td data-label="Attribute">{{ key | replace('_', ' ') }}</td><td data-label="Value" class="num tnum">{{ value }}</td></tr>
+  {% for key, value in shown %}
+  <tr><td data-label="Attribute">{{ key | replace('_', ' ') }}</td><td data-label="Value" class="num tnum">{% if value is iterable and value is not string and value is not mapping %}{{ value | join(', ') }}{% else %}{{ value }}{% endif %}</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -95,4 +107,37 @@
   <a href="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ next_cursor }}" hx-get="{{ base_path }}?{{ querystring }}{% if querystring %}&{% endif %}cursor={{ next_cursor }}" hx-target="#result-rows" hx-push-url="true">Next &rarr;</a>
   {%- else -%}<span class="pager__disabled">Next &rarr;</span>{%- endif %}
 </nav>
+{%- endmacro %}
+
+{# Nearby proposals for an asset (ADR 0008; midstream slice 2026-09-19: line-aware distances from
+   `GET /v1/assets/{id}/nearby-proposals`). Every part of the meta line is conditional -- an
+   absent field renders nothing, never "None" or "—" (blockers-sprint "None" gate). #}
+{% macro nearby_proposals_list(rows) -%}
+<ul class="in-view-list">
+  {% for r in rows %}
+  <li>{{ status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
+    <span class="meta">
+      {%- set parts = [] -%}
+      {%- if r.distance_km is not none %}{% set _ = parts.append('%.1f km away'|format(r.distance_km)) %}{% endif -%}
+      {%- if r.technology %}{% set _ = parts.append(r.technology) %}{% endif -%}
+      {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
+      {%- if r.capacity_mw %}{% set _ = parts.append('%.1f MW'|format(r.capacity_mw)) %}{% endif -%}
+      {{ parts | join(' · ') }}
+      {%- if r.nearest_asset_name %} &middot; nearest: {% if r.nearest_asset_slug %}<a href="/assets/{{ r.nearest_asset_slug }}">{{ r.nearest_asset_name }}</a>{% else %}{{ r.nearest_asset_name }}{% endif %}{% endif %}
+    </span>
+  </li>
+  {% endfor %}
+</ul>
+{%- endmacro %}
+
+{# Static map of a record's geometry: the server-rendered SVG (`mini_map.svg`, built in
+   web/app.py::_mini_map) is the no-JS rendering; web/static/js/asset_map.js replaces it with a
+   MapLibre map of the same GeoJSON (`mini_map.geojson`, embedded as JSON with `</` escaped) at a
+   fixed fit when it runs. Renders nothing at all when the record has no geometry. #}
+{% macro mini_map(mini_map, tile_url, tile_mode) -%}
+{% if mini_map %}
+<div class="mini-map" id="asset-map" data-tile-url="{{ tile_url or '' }}" data-tile-mode="{{ tile_mode }}">{{ mini_map.svg | safe }}</div>
+<p class="mini-map__caption">{{ mini_map.caption }}</p>
+<script type="application/json" id="asset-map-data">{{ mini_map.geojson | safe }}</script>
+{% endif %}
 {%- endmacro %}

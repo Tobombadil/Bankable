@@ -244,3 +244,21 @@ def location_exact_permitted() -> ColumnElement[bool]:
     `services/api/geo.py::effective_placement`."""
     lic = aliased(Licence)
     return exists(select(lic.id).where(lic.id == Location.licence_id, lic.allows_raw_publication.is_(True)))
+
+
+def asset_geometry_permitted() -> ColumnElement[bool]:
+    """The asset twin of `location_exact_permitted` (2026-09-19 line layer): an asset's stored
+    coordinates -- its representative point *and* its line geometry -- are served only when the
+    asset's own licence has `allows_raw_publication = true`. Every source in scope today is public
+    domain (EIA), so nothing is withheld yet; the clause exists so a registry whose terms allow
+    derived data but not raw coordinates (the docs/21 §8 `precise_geo` field class) is gated by
+    the same rule proposals already obey, without a per-type decision. Used by the geo indexes
+    and both nearby-proposals endpoints in `services/api/assets.py`; the Python twin for an
+    already-loaded row is `asset_geometry_visible`."""
+    lic = aliased(Licence)
+    return exists(select(lic.id).where(lic.id == Asset.licence_id, lic.allows_raw_publication.is_(True)))
+
+
+def asset_geometry_visible(asset: Asset) -> bool:
+    """Python twin of `asset_geometry_permitted` for a loaded `Asset` (detail responses)."""
+    return bool(asset.licence.allows_raw_publication)

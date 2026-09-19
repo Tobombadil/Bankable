@@ -89,6 +89,38 @@ code comment naming the exception.
 No card-grid radius token exists for tabular data — D-1/D-7 ban card grids for lists at any breakpoint; radius
 tokens above 8px are not defined, which is deliberate (no pill buttons, no rounded hero tiles).
 
+### 1.6 Colour and icons — existing-asset layers (added 2026-09-19, midstream slice)
+
+The map's "Existing assets" control draws power plants (per-technology palette, `--plant-*`, unchanged) and,
+per the owner's 2026-09-19 option (a), gas pipelines as a **line layer** and gas processing plants, gas storage
+and LNG terminals as **point layers**; ethanol and RNG are listed as coming. One hue per type, dimmer than the
+status families (§1.2) so an existing asset never reads as a proposal state; the type is always carried by
+**shape + label**, never hue alone (D-5). Contrast by the §1.1 method (relative luminance against the exact hex).
+
+| Type | Token | Light | On paper | Dark | On dark bg | Icon (SDF, `map.js`) |
+|---|---|---|---|---|---|---|
+| Gas pipeline | `--asset-gas-pipeline` | `#6e4b7a` | 6.48:1 | `#c9a6d6` | 7.95:1 | line — solid = interstate or unclassified, dashed `[3,2]` = intrastate |
+| Gas processing plant | `--asset-gas-processing` | `#8a4a5a` | 5.96:1 | `#d9a3b0` | 7.87:1 | diamond |
+| Gas storage | `--asset-gas-storage` | `#4f5a8a` | 6.04:1 | `#a9b3dc` | 8.15:1 | ring |
+| LNG terminal | `--asset-lng-terminal` | `#2f6a7a` | 5.52:1 | `#8ec6d3` | 8.96:1 | triangle |
+| Ethanol plant (coming) | `--asset-ethanol` | `#7a6a2a` | 4.87:1 | `#cfc07a` | 9.20:1 | hexagon |
+| RNG project (coming) | `--asset-rng` | `#2f7a5a` | 4.71:1 | `#8fd0b0` | 9.48:1 | pentagon |
+| Power plant | `--plant-*` (§ above) | — | — | — | — | square, family hue |
+
+**Pipeline line rule.** Width by zoom, linear: z3 0.8px, z6 1.4px, z9 2.4px, z12 4px; a casing in `--map-land`
+2–3px wider beneath it keeps the line legible over region fills and basemap roads; a 16px invisible hit layer
+gives a hairline the ≥24px pointer target SC 2.5.8 asks for. Interstate vs intrastate differ by dash and by the
+word in the tooltip, drawer and legend — same hue. Names label along the line from z7. Hover shows name, type,
+class and operator; click opens the §5.8 drawer with the asset's fields (rows present only where the source
+carries the value). Point types share the plant square's opacity (0.7) and label rule (z9+).
+
+**Legend.** One group per type, shown only while its checkbox is on (`data-legend-type`), so the legend names
+exactly what is drawn. The pipeline group carries the two line samples (solid, dashed) with their words.
+
+**Mini-map (asset and company pages).** Server-rendered SVG of the record's geometry (`.mini-map__line`,
+`--intrastate` dashed, `.mini-map__point`, `.mini-map__proposal` in the Progress family hue) as the no-JS
+rendering; `asset_map.js` replaces it with a MapLibre map at a fixed fit on the shared basemap when it runs.
+
 ## 2. Typography scale rationale (carried forward, not restated)
 
 Steps and ratio are `docs/30` §5's derivation of D-22; any future change to D-22's numbers updates that section
@@ -367,3 +399,5 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
 
 - 2026-09-12 v1 — first draft (product-designer), following `docs/30-design-references.md` v1 and
   `docs/30-design-ia.md` v1.
+- 2026-09-19 — §1.6 added (frontend-developer, midstream slice): existing-asset type palette and icons,
+  pipeline line rule, per-type legend groups, mini-map classes.

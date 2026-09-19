@@ -2,9 +2,13 @@
  * Clustering is computed server-side by `GET /v1/proposals/geo` (docs/23 §3.1), proxied through
  * this app's own `/api/proposals/geo` so the browser never needs to know the API's host. This
  * script renders exactly what comes back on every pan/zoom/filter change; it does not cluster.
+ * The basemap (three MAP_TILE_URL modes + the same-origin fallback outline) lives in basemap.js,
+ * shared with the asset/company page mini-maps (asset_map.js).
  */
 (function () {
   "use strict";
+
+  var Basemap = window.InfraqueBasemap;
 
   var LIFECYCLE_FAMILY = {
     announced: "neutral", unknown: "neutral", closed: "neutral",
@@ -64,14 +68,33 @@
     solar: "Solar", wind: "Wind", gas: "Gas", oil: "Oil", coal: "Coal", nuclear: "Nuclear",
     hydro: "Hydro", storage: "Storage", biomass: "Biomass / waste", geothermal: "Geothermal", other: "Other"
   };
+
+  // ---- existing-asset types (docs/00-PLAN.md 2026-09-19 owner decision, option (a)) ----
+  // One row per `asset.asset_type` the map can draw (services/db/models.py ASSET_TYPES names).
+  // `shape` is the SDF icon registered in `addPlantsLayers` -- the type is carried by shape +
+  // label, never by hue alone (D-5). `token` is the CSS custom property for the hue (docs/31
+  // §1.6); power plants keep their per-technology family palette. `line: true` types arrive as
+  // `feature_kind: "asset_line"` LineString/MultiLineString features from `/v1/assets/geo`.
+  var ASSET_TYPES = {
+    power_plant: { label: "Power plant", plural: "power plants", shape: "asset-square", token: null, line: false },
+    gas_pipeline: { label: "Gas pipeline", plural: "gas pipelines", shape: null, token: "--asset-gas-pipeline", line: true },
+    gas_processing_plant: { label: "Gas processing plant", plural: "gas processing plants", shape: "asset-diamond", token: "--asset-gas-processing", line: false },
+    gas_storage: { label: "Gas storage", plural: "gas storage sites", shape: "asset-ring", token: "--asset-gas-storage", line: false },
+    lng_terminal: { label: "LNG terminal", plural: "LNG terminals", shape: "asset-triangle", token: "--asset-lng-terminal", line: false },
+    ethanol_plant: { label: "Ethanol plant", plural: "ethanol plants", shape: "asset-hexagon", token: "--asset-ethanol", line: false },
+    rng_project: { label: "RNG project", plural: "RNG projects", shape: "asset-pentagon", token: "--asset-rng", line: false }
+  };
+  var ASSET_TYPE_ORDER = Object.keys(ASSET_TYPES);
+  // The types with data behind them today; the checkbox list in home_map.html disables the rest
+  // ("coming"). An unknown `asset_type=` value in the URL is dropped, never sent to the API.
+  var ASSET_TYPES_LIVE = ["power_plant", "gas_pipeline", "gas_processing_plant", "gas_storage", "lng_terminal"];
   var IN_VIEW_LIMIT = 500;
+  var IN_VIEW_ASSET_LIMIT = 200;
   var WORLD_BBOX = [-179, -85, 179, 85];
   var WORLD_CENTER = [-98.5, 39.8];
   var WORLD_ZOOM = 3.2;
 
-  function cssVar(name) {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  }
+  var cssVar = Basemap.cssVar;
 
   // docs/31 §8: every map animation is instant under prefers-reduced-motion -- MapLibre does not
   // do this on its own, so every flyTo/easeTo/zoomIn/zoomOut call below is given a duration through
@@ -93,6 +116,15 @@
     return out;
   }
 
+  function assetTypeColors() {
+    var out = {};
+    ASSET_TYPE_ORDER.forEach(function (type) {
+      var token = ASSET_TYPES[type].token;
+      if (token) out[type] = cssVar(token) || "#6d6d6d";
+    });
+    return out;
+  }
+
   function familyOf(state) { return LIFECYCLE_FAMILY[state] || "neutral"; }
 
   function plantFamilyOf(tech) {
@@ -105,6 +137,13 @@
     return TECH_LABEL[tech] || tech.slice(0, 3).toUpperCase();
   }
 
+  function assetTypeOf(p) {
+    return ASSET_TYPES[p.asset_type] ? p.asset_type : "power_plant";
+  }
+  function assetTypeLabel(type) {
+    return ASSET_TYPES[type] ? ASSET_TYPES[type].label : String(type || "asset").replace(/_/g, " ");
+  }
+
   // MapLibre stringifies nested object/array GeoJSON properties when they come back through
   // queryRenderedFeatures; parse defensively so this works whether or not that happened.
   function propObj(value) {
@@ -113,6 +152,47 @@
       try { return JSON.parse(value); } catch (e) { return null; }
     }
     return value;
+  }
+
+  // A midstream field may sit at the top level of the feature's properties or inside its
+  // `attributes` bag (data lane, 2026-09-19: "attributes such as operator, interstate/intrastate,
+  // diameter, length_miles, states") -- read whichever is present, first match wins; absent means
+  // the row is not rendered at all (the "None" gate rule, blockers sprint).
+  function attrOf(p, keys) {
+    var attributes = propObj(p.attributes) || {};
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (p[k] != null && p[k] !== "") return p[k];
+      if (attributes[k] != null && attributes[k] !== "") return attributes[k];
+    }
+    return null;
+  }
+
+  // "interstate" | "intrastate" | null from whichever spelling the source carries.
+  function lineClassOf(p) {
+    var raw = attrOf(p, ["line_class", "interstate", "pipeline_type", "type_of_pipeline", "system_type", "class"]);
+    if (raw === true) return "interstate";
+    if (raw === false) return "intrastate";
+    if (raw == null) return null;
+    var s = String(raw).toLowerCase();
+    if (s.indexOf("intra") !== -1) return "intrastate";
+    if (s.indexOf("inter") !== -1) return "interstate";
+    if (s.indexOf("gather") !== -1) return "gathering";
+    return null;
+  }
+
+  function statesOf(p) {
+    var raw = attrOf(p, ["states", "states_crossed", "state_codes"]);
+    if (raw == null) return null;
+    var list = Array.isArray(raw) ? raw : String(raw).split(/[,;]\s*/);
+    list = list.map(function (s) { return String(s).trim(); }).filter(Boolean);
+    return list.length ? list.join(", ") : null;
+  }
+
+  function fmtNumber(value, digits) {
+    var n = Number(value);
+    if (!isFinite(n)) return null;
+    return n.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
   }
 
   // ---- measurement (task item 5): navigator.sendBeacon when available, fetch(keepalive) else ----
@@ -150,6 +230,15 @@
     return PLACEMENT_GRADES.filter(function (g) { return raw.indexOf(g) !== -1; });
   }
 
+  // `asset_type=` csv (docs/23 §3.1: the API's own csv filter). Absent -> every live type, so a
+  // first "Existing assets" toggle shows pipelines beside plants; unknown names are dropped.
+  function readAssetTypes(params) {
+    if (!params.has("asset_type")) return ASSET_TYPES_LIVE.slice();
+    var raw = (params.get("asset_type") || "").split(",").map(function (s) { return s.trim(); });
+    var kept = ASSET_TYPES_LIVE.filter(function (t) { return raw.indexOf(t) !== -1; });
+    return kept.length ? kept : ASSET_TYPES_LIVE.slice();
+  }
+
   function readFilters() {
     var params = new URLSearchParams(window.location.search);
     var layersParam = params.get("layers") || "";
@@ -160,9 +249,7 @@
       layers: layersParam ? layersParam.split(",").filter(Boolean) : [],
       region: params.get("region") || "",
       plant_technology: PLANT_FAMILY_CLASSES[params.get("plant_technology") || ""] ? params.get("plant_technology") : "",
-      // Only `power_plant` has data behind it today (task item 2: the other eleven asset types
-      // are listed but disabled) -- an unrecognised or missing value always falls back to it.
-      asset_type: params.get("asset_type") === "power_plant" ? "power_plant" : "power_plant",
+      asset_types: readAssetTypes(params),
       placement: readPlacement(params)
     };
   }
@@ -175,6 +262,10 @@
     if (filters.layers && filters.layers.length) params.set("layers", filters.layers.join(","));
     if (filters.region) params.set("region", filters.region);
     if (filters.plant_technology) params.set("plant_technology", filters.plant_technology);
+    // Written whenever the assets layer is on (same round-trip reasoning as `placement` below).
+    if (filters.layers && filters.layers.indexOf("plants") !== -1) {
+      params.set("asset_type", (filters.asset_types && filters.asset_types.length ? filters.asset_types : ASSET_TYPES_LIVE).join(","));
+    }
     // Always written (task item 1: "written to the URL as placement=exact,region") -- unlike the
     // other filters above, omitting it would leave the default state ambiguous with "not yet
     // loaded", and the URL-reflects-view rule wants every load of this page to round-trip.
@@ -209,20 +300,27 @@
     return "/api/proposals/geo?" + params.toString();
   }
 
-  // ADR 0008 task item 2: the existing-plants fetch now points at `/v1/assets/geo` (asset_type
-  // defaults to power_plant, the only type with data behind it today); the `technology` filter
-  // still applies within that type via the plant-type family control.
-  function assetsGeoUrl(filters, bbox, zoom) {
-    var params = new URLSearchParams();
-    params.set("bbox", bbox.join(","));
-    params.set("zoom", String(zoom));
-    params.set("asset_type", filters.asset_type || "power_plant");
-    // The plant-type filter is its own control (`plant_technology`, a family), sent to the API as
-    // that family's classify_tech classes; the proposals technology filter does not apply here.
-    if (filters.plant_technology && PLANT_FAMILY_CLASSES[filters.plant_technology]) {
-      params.set("technology", PLANT_FAMILY_CLASSES[filters.plant_technology].join(","));
+  // ADR 0008 task item 2 + midstream slice: the existing-assets fetch points at `/v1/assets/geo`
+  // with the picked types as an `asset_type` csv. The API applies `technology` across every type
+  // it returns, so a plant-type family (which only power plants carry) is sent on a separate
+  // power-plant-only request and the other types are fetched without it -- `assetsGeoUrls`
+  // returns one or two URLs, merged by `refetchAssets`.
+  function assetsGeoUrls(filters, bbox, zoom) {
+    var types = filters.asset_types && filters.asset_types.length ? filters.asset_types : ASSET_TYPES_LIVE;
+    var family = filters.plant_technology && PLANT_FAMILY_CLASSES[filters.plant_technology] ? filters.plant_technology : "";
+    function url(typeList, technologyCsv) {
+      var params = new URLSearchParams();
+      params.set("bbox", bbox.join(","));
+      params.set("zoom", String(zoom));
+      params.set("asset_type", typeList.join(","));
+      if (technologyCsv) params.set("technology", technologyCsv);
+      return "/api/assets/geo?" + params.toString();
     }
-    return "/api/assets/geo?" + params.toString();
+    if (!family || types.indexOf("power_plant") === -1) return [url(types, "")];
+    var others = types.filter(function (t) { return t !== "power_plant"; });
+    var urls = [url(["power_plant"], PLANT_FAMILY_CLASSES[family].join(","))];
+    if (others.length) urls.push(url(others, ""));
+    return urls;
   }
 
   // `/api/geo/regions` (ADR 0008): batched per level, cached for the page's session -- a region
@@ -279,6 +377,15 @@
       '<span class="chip__label">' + esc((label || "unknown").replace(/_/g, " ")) + "</span></span>"
     );
   }
+  // The asset's own page: a `slug` when the feature carries one, else the API's `url` (already
+  // relativised by the proxy where it is the placeholder host), else the site's by-id redirect
+  // (`/assets/by-id/{public_id}`, web/app.py) -- geo features carry only the public id.
+  function assetPageUrl(p) {
+    if (p.slug) return "/assets/" + encodeURIComponent(String(p.slug));
+    if (p.url && /\/assets\//.test(String(p.url))) return safeUrl(p.url);
+    if (p.public_id) return "/assets/by-id/" + encodeURIComponent(String(p.public_id));
+    return null;
+  }
 
   var mapEl = document.getElementById("map");
   var TILE_URL = mapEl.getAttribute("data-tile-url") || "";
@@ -292,10 +399,22 @@
   plantsToggle.checked = filters.layers.indexOf("plants") !== -1;
   var plantTypeSelect = document.getElementById("mf-plant-technology");
   var plantTypeField = document.getElementById("mf-plant-technology-field");
-  var assetTypeSelect = document.getElementById("mf-asset-type");
+  var assetTypesField = document.getElementById("mf-asset-types");
+  var assetTypeBoxes = Array.prototype.slice.call(document.querySelectorAll('#mf-asset-types input[name="asset_type"]'));
   plantTypeSelect.value = filters.plant_technology;
-  assetTypeSelect.value = filters.asset_type;
-  plantTypeField.hidden = !plantsToggle.checked;
+  assetTypeBoxes.forEach(function (box) {
+    box.checked = !box.disabled && filters.asset_types.indexOf(box.value) !== -1;
+  });
+  function currentAssetTypes() {
+    var picked = assetTypeBoxes.filter(function (box) { return box.checked && !box.disabled; }).map(function (box) { return box.value; });
+    return picked.filter(function (t) { return ASSET_TYPES_LIVE.indexOf(t) !== -1; });
+  }
+  function syncAssetControls() {
+    var on = plantsToggle.checked;
+    assetTypesField.hidden = !on;
+    plantTypeField.hidden = !on || filters.asset_types.indexOf("power_plant") === -1;
+  }
+  syncAssetControls();
   var placementCheckboxes = {
     exact: document.getElementById("mf-placement-exact"),
     region: document.getElementById("mf-placement-region"),
@@ -308,11 +427,8 @@
 
   var colors = familyColors();
   var plantColors = plantFamilyColors();
-  var mapColors = {
-    land: cssVar("--map-land") || "#eae6da",
-    water: cssVar("--map-water") || "#cfe0e8",
-    border: cssVar("--map-border") || "#b9c4c9"
-  };
+  var assetColors = assetTypeColors();
+  var mapColors = Basemap.mapColors();
   // ADR 0008 region features: a single hue (not a status-family colour, same reasoning as the
   // plant palette) so a highlighted region never reads as a lifecycle state.
   var regionColors = {
@@ -320,37 +436,20 @@
     line: cssVar("--region-line") || "#5b6b7c"
   };
 
-  // Same-origin fallback basemap (docs/04 D-13, web/README.md "Map basemap"): the tile/pmtiles
-  // source is added only after `load` fires (below) so a blocked/slow/failed basemap source can
-  // never keep the whole style from ever loading -- this fallback is always in the initial style
-  // and is what the user sees whenever the real basemap fails, whichever of the three modes below
-  // is configured.
+  function assetColor(p) {
+    var type = assetTypeOf(p);
+    if (type === "power_plant") return plantColors[plantFamilyOf(p.technology)] || plantColors.other;
+    return assetColors[type] || plantColors.other;
+  }
+  function clusterColor(p) {
+    var type = ASSET_TYPES[p.dominant_asset_type] ? p.dominant_asset_type : "power_plant";
+    if (type === "power_plant") return plantColors[plantFamilyOf(p.dominant_technology)] || plantColors.other;
+    return assetColors[type] || plantColors.other;
+  }
+
   var map = new maplibregl.Map({
     container: "map",
-    style: {
-      version: 8,
-      sources: {
-        "basemap-fallback": { type: "geojson", data: "/static/data/basemap_fallback.geojson" }
-      },
-      layers: [
-        { id: "fallback-water", type: "background", paint: { "background-color": mapColors.water } },
-        {
-          id: "fallback-land", type: "fill", source: "basemap-fallback",
-          filter: ["==", ["get", "level"], "country"],
-          paint: { "fill-color": mapColors.land }
-        },
-        {
-          id: "fallback-country-lines", type: "line", source: "basemap-fallback",
-          filter: ["==", ["get", "level"], "country"],
-          paint: { "line-color": mapColors.border, "line-width": 0.6 }
-        },
-        {
-          id: "fallback-state-lines", type: "line", source: "basemap-fallback",
-          filter: ["==", ["get", "level"], "us_state"],
-          paint: { "line-color": mapColors.border, "line-width": 0.5 }
-        }
-      ]
-    },
+    style: Basemap.fallbackStyle(mapColors),
     center: WORLD_CENTER,
     zoom: WORLD_ZOOM,
     attributionControl: false
@@ -391,7 +490,10 @@
 
   var latestCollection = { type: "FeatureCollection", features: [], totals: {} };
   var latestMeta = {};  // the envelope's `meta` (unplaced_count lives there, not in totals)
+  var latestRegionFeatures = [];
+  var latestAssets = { type: "FeatureCollection", features: [], totals: {} };
   var latestPlantsTotal = 0;
+  var latestAssetsClustered = false;
 
   function currentBbox() {
     var b = map.getBounds();
@@ -459,6 +561,7 @@
         });
         latestCollection = fc;
         latestMeta = envelope.meta || {};
+        latestRegionFeatures = regionFeatures;
         if (map.getSource("proposals")) {
           map.getSource("proposals").setData({ type: "FeatureCollection", features: pointFeatures });
         }
@@ -471,26 +574,83 @@
     if (plantsToggle.checked) refetchAssets();
   }
 
+  // Annotates one asset feature in place with what the layers and the in-view list read:
+  // `color` (hue by type / plant family), `icon` (SDF shape name), `plant_label`, `line_class`.
+  function decorateAssetFeature(f) {
+    var p = f.properties;
+    var kind = p.feature_kind;
+    if (kind === "asset_cluster" || kind === "plant_cluster") {
+      p.color = clusterColor(p);
+      return;
+    }
+    var type = assetTypeOf(p);
+    p.asset_type = type;
+    p.color = assetColor(p);
+    if (kind === "asset_line" || (f.geometry && /LineString$/.test(f.geometry.type))) {
+      p.feature_kind = "asset_line";
+      p.line_class = lineClassOf(p) || "unknown";
+      return;
+    }
+    if (kind === "plant") p.feature_kind = "asset";
+    p.icon = ASSET_TYPES[type].shape || "asset-square";
+    if (type === "power_plant") {
+      p.plant_family = plantFamilyOf(p.technology);
+      p.plant_label = PLANT_FAMILY_LABEL[p.plant_family];
+    } else {
+      p.plant_label = "";
+    }
+  }
+
+  var assetsFetchSeq = 0;
   function refetchAssets() {
-    fetch(assetsGeoUrl(filters, currentBbox(), currentZoom()))
-      .then(function (r) { return r.json(); })
-      .then(function (envelope) {
-        var fc = envelope.data;
-        fc.features.forEach(function (f) {
-          if (f.properties.feature_kind === "asset_cluster") {
-            f.properties.plant_family = plantFamilyOf(f.properties.dominant_technology);
-          } else {
-            f.properties.plant_family = plantFamilyOf(f.properties.technology);
-            f.properties.plant_label = PLANT_FAMILY_LABEL[f.properties.plant_family];
-          }
+    var seq = ++assetsFetchSeq;
+    var urls = assetsGeoUrls(filters, currentBbox(), currentZoom());
+    Promise.all(urls.map(function (u) {
+      return fetch(u).then(function (r) { return r.json(); }).then(function (envelope) { return envelope.data || {}; });
+    }))
+      .then(function (collections) {
+        if (seq !== assetsFetchSeq) return; // a newer viewport's answer already landed
+        var features = [];
+        var records = 0;
+        var clustered = false;
+        collections.forEach(function (fc) {
+          (fc.features || []).forEach(function (f) { decorateAssetFeature(f); features.push(f); });
+          records += (fc.totals || {}).records || 0;
+          if ((fc.totals || {}).clustered) clustered = true;
         });
-        latestPlantsTotal = (fc.totals || {}).records || 0;
-        if (map.getSource("plants")) map.getSource("plants").setData(fc);
+        latestAssets = { type: "FeatureCollection", features: features, totals: { records: records, clustered: clustered } };
+        latestPlantsTotal = records;
+        latestAssetsClustered = clustered;
+        if (map.getSource("plants")) map.getSource("plants").setData({ type: "FeatureCollection", features: features });
         render();
       })
       .catch(function () {
         // Same error-state rule as the proposals fetch: keep whatever was last drawn.
       });
+  }
+
+  function assetMeta(p) {
+    var parts = [];
+    if (p.operator_name) parts.push(p.operator_name);
+    var states = statesOf(p);
+    if (states) parts.push(states);
+    else if (p.state_code) parts.push(p.state_code);
+    if (p.feature_kind === "asset_line") {
+      var miles = attrOf(p, ["length_miles", "miles"]);
+      if (miles != null && fmtNumber(miles, 0)) parts.push(fmtNumber(miles, 0) + " mi");
+      if (p.line_class && p.line_class !== "unknown") parts.push(p.line_class);
+    } else if (p.capacity_mw) {
+      parts.push(Number(p.capacity_mw).toFixed(1) + " MW");
+    }
+    return parts.join(" · ");
+  }
+
+  function appendGroupName(text) {
+    var li = document.createElement("li");
+    li.className = "in-view-list__group-name";
+    li.setAttribute("role", "presentation");
+    li.textContent = text;
+    listEl.appendChild(li);
   }
 
   function render() {
@@ -523,12 +683,82 @@
         listEl.appendChild(node);
       });
     }
+
+    // Region records (ADR 0008 placement grade "region") in the list as well as on the map, so a
+    // keyboard or screen-reader user reaches them without a pointer (web audit 2026-09-18).
+    if (latestRegionFeatures.length) {
+      appendGroupName("Regions (" + latestRegionFeatures.length + ")");
+      latestRegionFeatures.slice(0, IN_VIEW_LIMIT).forEach(function (f) {
+        var p = f.properties;
+        var item = document.createElement("li");
+        var a = document.createElement("a");
+        a.href = regionListUrl(p);
+        a.textContent = (p.name || p.region_id) + " (" + String(p.region_level || "region") + ")";
+        item.appendChild(a);
+        var meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = Number(p.count || 0) + " proposal" + (Number(p.count) === 1 ? "" : "s") + " placed at this region";
+        item.appendChild(meta);
+        listEl.appendChild(item);
+      });
+    }
+
+    // Existing assets in view (points and lines alike): name linked to the asset page where the
+    // feature carries one, a Details button that opens the same drawer a map click does.
+    var assetsIndividual = [];
+    if (plantsToggle.checked) {
+      assetsIndividual = latestAssets.features.filter(function (f) {
+        return f.properties.feature_kind === "asset" || f.properties.feature_kind === "asset_line";
+      });
+      if (latestAssetsClustered || assetsIndividual.length) {
+        appendGroupName("Existing assets (" + latestPlantsTotal + ")");
+      }
+      if (latestAssetsClustered) {
+        var cl = document.createElement("li");
+        cl.textContent = "Zoom in to list existing assets individually; " + latestPlantsTotal + " are grouped in clusters above.";
+        listEl.appendChild(cl);
+      }
+      assetsIndividual.slice(0, IN_VIEW_ASSET_LIMIT).forEach(function (f) {
+        var p = f.properties;
+        var item = document.createElement("li");
+        var kind = document.createElement("span");
+        kind.className = "in-view-list__kind";
+        kind.textContent = assetTypeLabel(p.asset_type);
+        item.appendChild(kind);
+        var pageUrl = assetPageUrl(p);
+        if (pageUrl) {
+          var a = document.createElement("a");
+          a.className = "name-link";
+          a.href = pageUrl;
+          a.textContent = p.name || p.public_id || "Unnamed asset";
+          item.appendChild(a);
+        } else {
+          var strong = document.createElement("strong");
+          strong.textContent = p.name || p.public_id || "Unnamed asset";
+          item.appendChild(strong);
+        }
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "details-btn";
+        btn.textContent = "Details";
+        btn.setAttribute("aria-label", "Details for " + (p.name || "this asset"));
+        btn.addEventListener("click", function () { openAssetDrawer(p); });
+        item.appendChild(btn);
+        var meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = assetMeta(p);
+        item.appendChild(meta);
+        listEl.appendChild(item);
+      });
+    }
+
     // Task item 2: "Live region adds 'N existing plants in view'" -- appended as a second
     // sentence so the proposals count (the accessible path's primary content) is never dropped
-    // when the plants layer is on.
+    // when the assets layer is on.
     var liveText = (totals.records || 0) + " proposals in view.";
     if (plantsToggle.checked) {
-      liveText += " " + latestPlantsTotal + " existing plants in view.";
+      var lines = latestAssets.features.filter(function (f) { return f.properties.feature_kind === "asset_line"; }).length;
+      liveText += " " + latestPlantsTotal + " existing assets in view" + (lines ? " (" + lines + " pipeline" + (lines === 1 ? "" : "s") + ")" : "") + ".";
     }
     liveRegion.textContent = liveText;
 
@@ -543,93 +773,6 @@
       unplacedNote.textContent = "Unplaced (" + unplacedCount + "): no usable county or state on these sources' records; view them in the list instead of on the map.";
     } else {
       unplacedNote.hidden = true;
-    }
-  }
-
-  // ---- basemap (task item 1: three MAP_TILE_URL modes) ----
-  function addRasterBasemap(template_) {
-    map.addSource("osm", {
-      type: "raster",
-      tiles: [template_],
-      tileSize: 256,
-      attribution: "&copy; OpenStreetMap contributors"
-    });
-    // Tinted toward the paper ground and desaturated so tile land/water/borders read as a quiet
-    // backdrop the data sits on top of, not a competing full-colour basemap (docs/30 §7 "Basemap").
-    map.addLayer({
-      id: "osm", type: "raster", source: "osm",
-      paint: { "raster-saturation": -0.75, "raster-brightness-min": 0.35, "raster-brightness-max": 1, "raster-contrast": -0.1 }
-    });
-    map.on("error", function (e) {
-      if (e && e.sourceId === "osm") reportBasemapFailedOnce();
-    });
-  }
-
-  // Protomaps' own hosted fonts/sprites (coordinator follow-up, 2026-09-15: "close the glyphs
-  // gap"), pmtiles mode only -- the dev raster mode and the outline fallback never touch these
-  // and gain no new network dependency. Quoted verbatim from
-  // https://protomaps.github.io/basemaps-assets/ ("Linking to Assets in Styles"):
-  // `glyphs:'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf'`. The
-  // sprite path (`sprites/v4/<flavor>`, no extension -- MapLibre appends `.json`/`.png`/`@2x`
-  // itself) is versioned separately from the npm package (the assets repo's own "for each major
-  // version" convention): `v4` is the set that actually contains the icon names
-  // `@protomaps/basemaps@5.7.2`'s generated layers reference (e.g. "arrow" for one-way-road
-  // markers) -- confirmed by fetching both `sprites/v3/light.json` and `sprites/v4/light.json`
-  // and checking which one has the icon names this bundle's own compiled layers use; `v3`'s
-  // sheet is a different, older icon set. Kept as one flavor's worth (`light`, matching
-  // `namedFlavor("light")` below) rather than every flavor, since this style only ever uses one.
-  var PROTOMAPS_GLYPHS_URL = "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf";
-  var PROTOMAPS_SPRITE_URL = "https://protomaps.github.io/basemaps-assets/sprites/v4/light";
-
-  function addPmtilesBasemap() {
-    if (typeof pmtiles === "undefined" || typeof basemaps === "undefined") {
-      // One or both CDN scripts failed to load (home_map.html only includes them in pmtiles
-      // mode) -- the fallback outline layer already in the initial style is what the user sees.
-      reportBasemapFailedOnce();
-      return;
-    }
-    try {
-      var protocol = new pmtiles.Protocol();
-      maplibregl.addProtocol("pmtiles", protocol.tile);
-      map.addSource("protomaps", {
-        type: "vector",
-        url: "pmtiles://" + TILE_URL,
-        attribution: "&copy; OpenStreetMap contributors"
-      });
-      // Style-wide (not per-source/per-layer): `setGlyphs`/`setSprite` mutate the current style
-      // in place, matching the incremental addLayer approach here rather than a full setStyle
-      // that would also replace the fallback and proposals layers.
-      map.setGlyphs(PROTOMAPS_GLYPHS_URL);
-      map.setSprite(PROTOMAPS_SPRITE_URL);
-      var flavor = basemaps.namedFlavor("light");
-      // Mute land/water/roads to the paper ground the same way the raster layer is tinted above,
-      // via token-derived colours rather than the flavor's own defaults (task item 1).
-      flavor.background = mapColors.land;
-      flavor.earth = mapColors.land;
-      flavor.water = mapColors.water;
-      flavor.major = mapColors.border;
-      flavor.minor_a = mapColors.border;
-      flavor.minor_b = mapColors.border;
-      flavor.highway = mapColors.border;
-      flavor.link = mapColors.border;
-      flavor.boundaries = mapColors.border;
-      var styleLayers = basemaps.layers("protomaps", flavor, { lang: "en" });
-      styleLayers.forEach(function (layer) { map.addLayer(layer); });
-      map.on("error", function (e) {
-        if (e && e.sourceId === "protomaps") reportBasemapFailedOnce();
-      });
-    } catch (e) {
-      reportBasemapFailedOnce();
-    }
-  }
-
-  function addBasemap() {
-    if (TILE_MODE === "pmtiles") {
-      addPmtilesBasemap();
-    } else if (TILE_MODE === "raster") {
-      addRasterBasemap(TILE_URL);
-    } else {
-      addRasterBasemap("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
     }
   }
 
@@ -670,14 +813,16 @@
   // Task item 1's click rule: county -> the filtered list; state -> the filtered list; country ->
   // pan the map via the matching quick-view region button when this deploy has one for it (so a
   // country click stays on the map, matching that button's own behaviour), else the filtered list.
+  function regionListUrl(p) {
+    if (p.region_level === "county") return "/proposals?county_fips=" + encodeURIComponent(p.region_id);
+    return "/proposals?jurisdiction=" + encodeURIComponent(p.region_id);
+  }
   function onRegionClick(p) {
-    if (p.region_level === "county") {
-      window.location.href = "/proposals?county_fips=" + encodeURIComponent(p.region_id);
-    } else if (p.region_level === "state") {
-      window.location.href = "/proposals?jurisdiction=" + encodeURIComponent(p.region_id);
+    if (p.region_level === "county" || p.region_level === "state") {
+      window.location.href = regionListUrl(p);
     } else {
       var btn = document.querySelector('.region-btn[data-region="' + String(p.region_id).toLowerCase() + '"]');
-      if (btn) { btn.click(); } else { window.location.href = "/proposals?jurisdiction=" + encodeURIComponent(p.region_id); }
+      if (btn) { btn.click(); } else { window.location.href = regionListUrl(p); }
     }
   }
 
@@ -690,84 +835,177 @@
       .addTo(map);
   }
 
-  // ---- plants context layer (task item 2) ----
-  function buildSquareIcon(size) {
+  // ---- existing assets layer (task item 2; midstream slice 2026-09-19) ----
+  // Every icon is an SDF image drawn on a canvas so `icon-color` can carry the per-feature hue:
+  // square (power plant, unchanged), diamond (gas processing), ring (gas storage), triangle (LNG
+  // terminal), hexagon (ethanol), pentagon (RNG) -- docs/31 §1.6.
+  function buildShapeIcon(shape, size) {
     var canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     var ctx = canvas.getContext("2d");
     ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = "#000000";
+    var c = size / 2;
+    var r = size / 2 - 1;
+    function polygon(sides, rotation) {
+      ctx.beginPath();
+      for (var i = 0; i < sides; i++) {
+        var angle = rotation + (Math.PI * 2 * i) / sides;
+        var x = c + r * Math.cos(angle), y = c + r * Math.sin(angle);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+    if (shape === "asset-diamond") polygon(4, 0);
+    else if (shape === "asset-triangle") polygon(3, -Math.PI / 2);
+    else if (shape === "asset-hexagon") polygon(6, 0);
+    else if (shape === "asset-pentagon") polygon(5, -Math.PI / 2);
+    else if (shape === "asset-ring") {
+      ctx.lineWidth = Math.max(2, size / 5);
+      ctx.beginPath();
+      ctx.arc(c, c, r - ctx.lineWidth / 2, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      ctx.fillRect(0, 0, size, size);
+    }
     return ctx.getImageData(0, 0, size, size);
   }
 
+  var ASSET_LAYER_IDS = [
+    "plant-clusters", "plant-cluster-count", "asset-lines-casing", "asset-lines", "asset-lines-intrastate",
+    "asset-lines-hit", "asset-line-labels", "plant-points", "plant-labels"
+  ];
+
   function addPlantsLayers() {
-    map.addImage("plant-square", buildSquareIcon(8), { sdf: true });
+    // "plant-square" is the pre-2026-09-19 image name, kept as an alias of the square so nothing
+    // that references it breaks; every feature now names its icon in `properties.icon`.
+    map.addImage("plant-square", buildShapeIcon("asset-square", 8), { sdf: true });
+    ["asset-square", "asset-diamond", "asset-ring", "asset-triangle", "asset-hexagon", "asset-pentagon"].forEach(function (shape) {
+      map.addImage(shape, buildShapeIcon(shape, 16), { sdf: true });
+    });
     map.addSource("plants", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
 
-    var plantColorExpr = ["match", ["get", "plant_family"]];
-    PLANT_FAMILY_ORDER.forEach(function (family) { plantColorExpr.push(family, plantColors[family]); });
-    plantColorExpr.push(plantColors.other);
+    var isCluster = ["any", ["==", ["get", "feature_kind"], "asset_cluster"], ["==", ["get", "feature_kind"], "plant_cluster"]];
+    var isPoint = ["all", ["==", ["geometry-type"], "Point"], ["!", isCluster]];
+    var isLine = ["==", ["geometry-type"], "LineString"];
+    // Line width by zoom (docs/31 §1.6): hairline at the country view, a readable stroke once
+    // counties resolve; the casing beneath is the land colour so a pipeline stays legible over
+    // region fills and basemap roads.
+    var lineWidth = ["interpolate", ["linear"], ["zoom"], 3, 0.8, 6, 1.4, 9, 2.4, 12, 4];
+    var casingWidth = ["interpolate", ["linear"], ["zoom"], 3, 2.2, 6, 3.2, 9, 4.8, 12, 7];
 
     // Beneath the proposals layers (`addLayer(..., "clusters")`, task item 2): inserted right
     // above the basemap and below every proposals layer added further down.
     map.addLayer({
       id: "plant-clusters", type: "circle", source: "plants",
-      filter: ["==", ["get", "feature_kind"], "plant_cluster"],
+      filter: isCluster,
       paint: {
         "circle-radius": ["step", ["get", "count"], 10, 10, 14, 50, 18],
         "circle-color": "rgba(0,0,0,0)",
         "circle-stroke-width": 1,
-        "circle-stroke-color": plantColorExpr,
+        "circle-stroke-color": ["get", "color"],
         "circle-stroke-opacity": 0.6
       }
     }, "clusters");
-    // "Noto Sans Medium", not "Bold": once `addPmtilesBasemap()` points `glyphs` at the real
-    // Protomaps assets host (pmtiles mode), a font name that host doesn't carry 404s and the
-    // label silently never renders -- confirmed against the real host, which hosts only Regular/
-    // Medium/Italic (`@protomaps/basemaps` itself falls back to "Noto Sans Medium" for its own
-    // bold text, `basemaps.layers()`'s compiled default). Every "Bold" text-font in this file was
-    // changed to "Medium" for that reason, all three below and the proposals ones further down.
+    // "Noto Sans Medium", not "Bold": once the pmtiles basemap points `glyphs` at the real
+    // Protomaps assets host, a font name that host doesn't carry 404s and the label silently
+    // never renders -- confirmed against the real host, which hosts only Regular/Medium/Italic.
     map.addLayer({
       id: "plant-cluster-count", type: "symbol", source: "plants",
-      filter: ["==", ["get", "feature_kind"], "plant_cluster"],
+      filter: isCluster,
       layout: { "text-field": ["get", "count"], "text-size": 10, "text-font": ["Noto Sans Medium"] },
-      paint: { "text-color": plantColorExpr, "text-opacity": 0.7 }
+      paint: { "text-color": ["get", "color"], "text-opacity": 0.7 }
+    }, "clusters");
+    map.addLayer({
+      id: "asset-lines-casing", type: "line", source: "plants",
+      filter: isLine,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": mapColors.land, "line-width": casingWidth, "line-opacity": 0.9 }
+    }, "clusters");
+    // Interstate (and unclassified) pipelines solid, intrastate dashed: `line-dasharray` is not
+    // data-driven in this MapLibre, hence two layers over the same source rather than one.
+    map.addLayer({
+      id: "asset-lines", type: "line", source: "plants",
+      filter: ["all", isLine, ["!=", ["get", "line_class"], "intrastate"]],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": 0.85 }
+    }, "clusters");
+    map.addLayer({
+      id: "asset-lines-intrastate", type: "line", source: "plants",
+      filter: ["all", isLine, ["==", ["get", "line_class"], "intrastate"]],
+      layout: { "line-cap": "butt", "line-join": "round" },
+      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": 0.85, "line-dasharray": [3, 2] }
+    }, "clusters");
+    // Invisible, wide hit target so a hairline pipeline is still a >=24px pointer target
+    // (SC 2.5.8); hover and click handlers bind to this layer, not the drawn ones.
+    map.addLayer({
+      id: "asset-lines-hit", type: "line", source: "plants",
+      filter: isLine,
+      paint: { "line-color": "rgba(0,0,0,0)", "line-width": 16, "line-opacity": 0 }
+    }, "clusters");
+    map.addLayer({
+      id: "asset-line-labels", type: "symbol", source: "plants", minzoom: 7,
+      filter: isLine,
+      layout: {
+        "symbol-placement": "line", "text-field": ["get", "name"], "text-size": 10,
+        "text-font": ["Noto Sans Medium"], "text-max-angle": 30, "text-padding": 12
+      },
+      paint: { "text-color": ["get", "color"], "text-halo-color": mapColors.land, "text-halo-width": 1.2 }
     }, "clusters");
     map.addLayer({
       id: "plant-points", type: "symbol", source: "plants",
-      filter: ["==", ["get", "feature_kind"], "plant"],
-      layout: { "icon-image": "plant-square", "icon-size": 0.55, "icon-allow-overlap": true },
-      paint: { "icon-color": plantColorExpr, "icon-opacity": 0.6 }
+      filter: isPoint,
+      layout: {
+        "icon-image": ["coalesce", ["get", "icon"], "asset-square"],
+        "icon-size": ["case", ["==", ["get", "asset_type"], "power_plant"], 0.3, 0.55],
+        "icon-allow-overlap": true
+      },
+      paint: { "icon-color": ["get", "color"], "icon-opacity": 0.7 }
     }, "clusters");
 
-    // Labels appear once the squares are far enough apart to read (zoom 9+): the family code
-    // beneath the square, same three-letter convention as the proposal markers' tech codes.
+    // Labels appear once the icons are far enough apart to read (zoom 9+): the family code
+    // beneath a plant, the name beneath a midstream point.
     map.addLayer({
       id: "plant-labels", type: "symbol", source: "plants", minzoom: 9,
-      filter: ["==", ["get", "feature_kind"], "plant"],
+      filter: isPoint,
       layout: {
-        "text-field": ["get", "plant_label"], "text-size": 8, "text-font": ["Noto Sans Medium"],
+        "text-field": ["case", ["==", ["get", "asset_type"], "power_plant"], ["coalesce", ["get", "plant_label"], ""], ["coalesce", ["get", "name"], ""]],
+        "text-size": 8, "text-font": ["Noto Sans Medium"],
         "text-anchor": "top", "text-offset": [0, 0.6], "text-allow-overlap": false
       },
-      paint: { "text-color": plantColorExpr, "text-opacity": 0.85 }
+      paint: { "text-color": ["get", "color"], "text-opacity": 0.85, "text-halo-color": mapColors.land, "text-halo-width": 1 }
     }, "clusters");
 
-    map.on("click", "plant-points", function (e) { openPlantDrawer(e.features[0].properties); });
-    map.on("mouseenter", "plant-points", function () { map.getCanvas().style.cursor = "pointer"; });
-    map.on("mouseleave", "plant-points", function () { map.getCanvas().style.cursor = ""; });
+    map.on("click", "plant-points", function (e) { openAssetDrawer(e.features[0].properties); });
+    map.on("mouseenter", "plant-points", function (e) { map.getCanvas().style.cursor = "pointer"; showAssetTooltip(e, e.features[0].geometry.coordinates); });
+    map.on("mouseleave", "plant-points", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
+    map.on("click", "asset-lines-hit", function (e) { openAssetDrawer(e.features[0].properties); });
+    map.on("mouseenter", "asset-lines-hit", function () { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mousemove", "asset-lines-hit", function (e) { showAssetTooltip(e, e.lngLat); });
+    map.on("mouseleave", "asset-lines-hit", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
+    map.on("click", "plant-clusters", function (e) {
+      var f = e.features[0];
+      map.easeTo({ center: f.geometry.coordinates, zoom: f.properties.expands_to_zoom || (map.getZoom() + 2), duration: motionMs(600) });
+    });
   }
 
   function setPlantsLayerVisible(on) {
-    ["plant-clusters", "plant-cluster-count", "plant-points", "plant-labels"].forEach(function (id) {
+    var picked = on ? filters.asset_types : [];
+    ASSET_LAYER_IDS.forEach(function (id) {
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     });
     plantsLegend.hidden = !on;
     plantsLegend.setAttribute("aria-hidden", on ? "false" : "true");
+    // The legend names only the types drawn: one group per checked type.
+    Array.prototype.forEach.call(plantsLegend.querySelectorAll("[data-legend-type]"), function (group) {
+      group.hidden = picked.indexOf(group.getAttribute("data-legend-type")) === -1;
+    });
   }
 
   map.on("load", function () {
-    addBasemap();
+    Basemap.addBasemap(map, { tileMode: TILE_MODE, tileUrl: TILE_URL, colors: mapColors, onFail: reportBasemapFailedOnce });
 
     map.addSource("proposals", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
 
@@ -789,7 +1027,7 @@
         "circle-stroke-width": 2, "circle-stroke-color": colorExpr
       }
     });
-    // Region and plants layers are added here -- after "clusters" exists (`addLayer(...,
+    // Region and assets layers are added here -- after "clusters" exists (`addLayer(...,
     // "clusters")` requires the reference layer to already be in the style) but before the
     // remaining proposals layers, so both render beneath every proposals layer, clusters
     // included; region layers are added first so they end up beneath the assets layer too (see
@@ -851,6 +1089,20 @@
       )
       .addTo(map);
   }
+  // Hover on any existing asset: name, type and operator (task: "hover shows name and operator").
+  function showAssetTooltip(e, lngLat) {
+    var p = e.features[0].properties;
+    var html = "<strong>" + esc(p.name || "Unnamed asset") + "</strong><br>" + esc(assetTypeLabel(p.asset_type)) +
+      (p.line_class && p.line_class !== "unknown" ? " &middot; " + esc(p.line_class) : "") +
+      (p.operator_name ? "<br>Operator: " + esc(p.operator_name) : "");
+    if (tooltip && tooltip.__assetId === (p.public_id || p.name)) { tooltip.setLngLat(lngLat); return; }
+    hideTooltip();
+    tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 })
+      .setLngLat(lngLat)
+      .setHTML(html)
+      .addTo(map);
+    tooltip.__assetId = p.public_id || p.name;
+  }
   function hideTooltip() { if (tooltip) { tooltip.remove(); tooltip = null; } }
 
   // ---- filters ----
@@ -859,6 +1111,7 @@
   }
 
   function applyFilters() {
+    var picked = currentAssetTypes();
     filters = {
       technology: document.getElementById("mf-technology").value,
       jurisdiction: document.getElementById("mf-jurisdiction").value,
@@ -866,23 +1119,31 @@
       layers: filters.layers,
       region: filters.region,
       plant_technology: plantTypeSelect.value,
-      asset_type: assetTypeSelect.value || "power_plant",
+      asset_types: picked.length ? picked : ASSET_TYPES_LIVE.slice(),
       placement: currentPlacement()
     };
     writeFilters(filters);
+    syncAssetControls();
+    if (map.getLayer("plant-points")) setPlantsLayerVisible(plantsToggle.checked);
     refetch();
   }
   plantTypeSelect.addEventListener("change", applyFilters);
-  assetTypeSelect.addEventListener("change", applyFilters);
+  assetTypeBoxes.forEach(function (box) {
+    box.addEventListener("change", function () {
+      applyFilters();
+      sendUiEvent("map.layer_toggled", { layer: "assets", on: box.checked, asset_type: box.value });
+    });
+  });
   document.getElementById("mf-technology").addEventListener("change", applyFilters);
   document.getElementById("mf-jurisdiction").addEventListener("change", applyFilters);
   document.getElementById("mf-include-withdrawn").addEventListener("change", applyFilters);
   plantsToggle.addEventListener("change", function () {
     var on = plantsToggle.checked;
     filters.layers = on ? ["plants"] : [];
-    plantTypeField.hidden = !on;
     writeFilters(filters);
-    setPlantsLayerVisible(on);
+    syncAssetControls();
+    if (map.getLayer("plant-points")) setPlantsLayerVisible(on);
+    else { plantsLegend.hidden = !on; }
     sendUiEvent("map.layer_toggled", { layer: "plants", on: on });
     if (on) refetchAssets();
     render();
@@ -900,7 +1161,7 @@
     document.getElementById("mf-jurisdiction").value = "";
     document.getElementById("mf-include-withdrawn").checked = false;
     plantTypeSelect.value = "";
-    assetTypeSelect.value = "power_plant";
+    assetTypeBoxes.forEach(function (box) { box.checked = !box.disabled && ASSET_TYPES_LIVE.indexOf(box.value) !== -1; });
     placementCheckboxes.exact.checked = true;
     placementCheckboxes.region.checked = true;
     placementCheckboxes.none.checked = false;
@@ -916,9 +1177,9 @@
     drawer.render(rawProps, provenance[0] || null);
     drawer.open();
   }
-  function openPlantDrawer(rawProps) {
+  function openAssetDrawer(rawProps) {
     lastFocused = document.activeElement;
-    drawer.renderPlant(rawProps);
+    drawer.renderAsset(rawProps);
     drawer.open();
   }
   function buildDrawer() {
@@ -950,6 +1211,17 @@
       el.classList.remove("is-open");
       if (lastFocused) lastFocused.focus();
     }
+    function row(label, valueHtml, numeric) {
+      if (valueHtml == null || valueHtml === "") return "";
+      return "<div class=\"drawer-fields__row\"><dt>" + esc(label) + "</dt><dd" + (numeric ? " class=\"tnum\"" : "") + ">" + valueHtml + "</dd></div>";
+    }
+    function sourceHtml(source) {
+      if (!source) return "";
+      return "<p class=\"drawer-source\"><span class=\"drawer-source__label\">Source</span>" +
+        "<a href=\"" + safeUrl(source.source_url) + "\" rel=\"noopener nofollow\">" + esc(source.source_name) + "</a>, retrieved " +
+        "<span class=\"tnum\">" + esc(source.retrieved_at ? String(source.retrieved_at).slice(0, 10) : "unknown") + "</span>" +
+        (source.licence_name ? " &middot; " + esc(source.licence_name) : "") + "</p>";
+    }
     function render(p, source) {
       body.innerHTML =
         "<h2>" + esc(p.name) + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
@@ -959,45 +1231,47 @@
         "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + esc(p.county_name || "—") + ", " + esc(p.state_code || "—") +
         (p.precision_note ? " (" + esc(p.precision_note) + ")" : "") + "</dd></div>" +
         "</dl>" +
-        (source
-          ? "<p class=\"drawer-source\"><span class=\"drawer-source__label\">Source</span>" +
-            "<a href=\"" + safeUrl(source.source_url) + "\" rel=\"noopener nofollow\">" + esc(source.source_name) + "</a>, retrieved " +
-            "<span class=\"tnum\">" + esc(source.retrieved_at ? String(source.retrieved_at).slice(0, 10) : "unknown") + "</span></p>"
-          : "") +
+        sourceHtml(source) +
         "<a class=\"drawer-open-link\" href=\"" + safeUrl(p.url || "#") + "\">Open full record &rarr;</a>";
     }
-    // Task item 2's drawer content for a plant: name, operator, technology split table, capacity,
-    // first operating year, source line (name, retrieved date, licence) -- no "Open full record"
-    // link, since a context-layer plant has no record page on this site.
-    // ADR 0008 task item 2: name, operator, technology, capacity, plus a link to the asset's own
-    // page when the feature carries a `slug` (an asset backed by a real `asset` row does; a
-    // context-layer feature that predates ADR 0008 may not).
-    function renderPlant(p) {
+    // One drawer for every existing-asset type (task: a pipeline click "opens the same drawer as
+    // points with the asset's fields"): the rows present depend on the type and on which fields
+    // the feature actually carries -- an absent value drops its row rather than printing "—".
+    function renderAsset(p) {
+      var type = assetTypeOf(p);
+      var isLine = p.feature_kind === "asset_line";
       var techs = propObj(p.technologies) || {};
       var techRows = Object.keys(techs).sort().map(function (k) {
-        return "<div class=\"drawer-fields__row\"><dt>" + esc(k.replace(/_/g, " ")) + "</dt><dd class=\"tnum\">" +
-          Number(techs[k]).toFixed(1) + " MW</dd></div>";
+        return row(k.replace(/_/g, " "), Number(techs[k]).toFixed(1) + " MW", true);
       }).join("");
       var source = propObj(p.source);
       var commissionedYear = p.commissioned_year || p.earliest_operating_year;
+      var miles = attrOf(p, ["length_miles", "miles"]);
+      var diameter = attrOf(p, ["diameter_in", "diameter_inches", "diameter", "diameter_mix"]);
+      var states = statesOf(p);
+      var lineClass = isLine ? lineClassOf(p) : null;
+      var subtitle = type === "power_plant"
+        ? esc(PLANT_FAMILY_NAME[plantFamilyOf(p.technology)] || "Other")
+        : esc(assetTypeLabel(type)) + (lineClass ? " &middot; " + esc(lineClass) : "");
+      var location = [p.county_name, p.state_code].filter(Boolean).map(esc).join(", ");
+      var pageUrl = assetPageUrl(p);
       body.innerHTML =
-        "<h2>" + esc(p.name) + "</h2>" +
-        "<p class=\"reuse-badge\">Existing asset &middot; " + esc(PLANT_FAMILY_NAME[plantFamilyOf(p.technology)] || "Other") + "</p>" +
+        "<h2>" + esc(p.name || "Unnamed asset") + "</h2>" +
+        "<p class=\"reuse-badge\">Existing asset &middot; " + subtitle + "</p>" +
         "<dl class=\"drawer-fields\">" +
-        "<div class=\"drawer-fields__row\"><dt>Operator</dt><dd>" + esc(p.operator_name || "—") + "</dd></div>" +
-        (techRows || "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + esc(p.technology || "—") + "</dd></div>") +
-        "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : "—") + "</dd></div>" +
-        "<div class=\"drawer-fields__row\"><dt>First operating year</dt><dd class=\"tnum\">" + esc(commissionedYear || "—") + "</dd></div>" +
-        "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + esc(p.county_name || "—") + ", " + esc(p.state_code || "—") + "</dd></div>" +
+        row("Operator", p.operator_name ? esc(p.operator_name) : null) +
+        (type === "power_plant" ? (techRows || row("Technology", p.technology ? esc(p.technology) : null)) : row("Technology", p.technology ? esc(p.technology) : null)) +
+        row("Capacity", p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : null, true) +
+        row("Length", miles != null && fmtNumber(miles, 0) ? fmtNumber(miles, 0) + " miles" : null, true) +
+        row("Diameter", diameter != null ? esc(typeof diameter === "number" ? fmtNumber(diameter, 1) + " in" : String(diameter)) : null, true) +
+        row("States", states ? esc(states) : null) +
+        row("Status", p.status ? esc(String(p.status).replace(/_/g, " ")) : null) +
+        row("First operating year", commissionedYear ? esc(commissionedYear) : null, true) +
+        row("Location", location || null) +
         "</dl>" +
-        (source
-          ? "<p class=\"drawer-source\"><span class=\"drawer-source__label\">Source</span>" +
-            "<a href=\"" + safeUrl(source.source_url) + "\" rel=\"noopener nofollow\">" + esc(source.source_name) + "</a>, retrieved " +
-            "<span class=\"tnum\">" + esc(source.retrieved_at ? String(source.retrieved_at).slice(0, 10) : "unknown") + "</span>" +
-            (source.licence_name ? " &middot; " + esc(source.licence_name) : "") + "</p>"
-          : "") +
-        (p.slug ? "<a class=\"drawer-open-link\" href=\"/assets/" + encodeURIComponent(String(p.slug)) + "\">Open asset page &rarr;</a>" : "");
+        sourceHtml(source) +
+        (pageUrl ? "<a class=\"drawer-open-link\" href=\"" + pageUrl + "\">Open asset page &rarr;</a>" : "");
     }
-    return { open: open, close: close, render: render, renderPlant: renderPlant };
+    return { open: open, close: close, render: render, renderAsset: renderAsset, renderPlant: renderAsset };
   }
 })();
