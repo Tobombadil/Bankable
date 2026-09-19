@@ -14,7 +14,7 @@ PIP ?= .venv/bin/pip
 .PHONY: help venv dev test test-core test-web lint typecheck build deploy-stub backup restore-drill clean
 
 help:
-	@echo "Targets: venv dev test test-core test-web lint typecheck build deploy-stub backup restore-drill clean"
+	@echo "Targets: venv dev hooks test test-core test-web lint typecheck build deploy-stub backup restore-drill clean"
 
 ## One-time local setup (docs/00-PLAN.md install command). Re-runs only when requirements.txt
 ## changes (the stamp file), not on every target invocation.
@@ -34,6 +34,11 @@ venv: .venv/.stamp
 ## document's dev-loader would otherwise have reimplemented, and already starts api+web as the
 ## two real subprocesses a production deploy uses. `--preview` bypasses the publish delay so
 ## today's rows are visible immediately, matching the interactive point of `make dev`.
+## Install the commit-msg guard (CLAUDE.md: no model identifiers in commits; owner decision 2026-09-18).
+hooks:
+	git config core.hooksPath .githooks
+	@echo "commit-msg hook installed (.githooks/commit-msg)"
+
 dev: venv
 	$(PYTHON) -m web.dev_up --preview
 
