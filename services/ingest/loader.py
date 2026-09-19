@@ -104,7 +104,12 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pipeline.connectors.dedupe import CONTENT_SUFFIX_RE, content_disambiguator, split_key
+from pipeline.connectors.dedupe import (
+    CONTENT_SUFFIX_RE,
+    content_disambiguator,
+    raw_disambiguator,
+    split_key,
+)
 from pipeline.connectors.registry import GATED_REUSE, Registry, SourceEntry
 from services.db.models import (
     Event,
@@ -871,6 +876,25 @@ def _wanted_key(
     return raw_source_record_id
 
 
+def _unclaimed_key(wanted: str, base: str, raw: str, claimed: Mapping[str, str]) -> str:
+    """`wanted` unless another `record_id` in this frame already holds it, in which case the same
+    fallback chain `pipeline.connectors.dedupe.suffix_duplicates` uses: a hash of the raw row,
+    then an order suffix (`~2`, `~3`, ...) among byte-identical rows. Two rows whose stable
+    fields *and* raw payload are identical are interchangeable by definition, so the order is
+    harmless; what matters is that both load instead of the second violating the unique key
+    (`proposal_source.source_id, source_record_id`), which is what the 2026-09-12 eval fixture's
+    repeated "Untitled" NYISO rows did on CI on 2026-09-19."""
+    if wanted not in claimed:
+        return wanted
+    candidate = f"{base}#{raw_disambiguator(raw)}" if raw else wanted
+    if candidate not in claimed:
+        return candidate
+    n = 2
+    while f"{candidate}~{n}" in claimed:
+        n += 1
+    return f"{candidate}~{n}"
+
+
 def _match_link(
     cache: _LoadCache,
     wanted: str,
@@ -995,6 +1019,9 @@ def load_dataframe(
             else:
                 in_dup_group = raw_source_record_id in dup_naturals
                 wanted = _wanted_key(source, raw_source_record_id, record_id, row, in_dup_group=in_dup_group)
+                wanted = _unclaimed_key(
+                    wanted, raw_source_record_id, str(_row_get(row, "raw") or ""), claimed
+                )
                 existing_link = _match_link(cache, wanted, raw_source_record_id, fields, kind, claimed)
                 source_record_id = (
                     str(existing_link.source_record_id) if existing_link is not None else wanted

@@ -244,3 +244,33 @@ def test_field_provenance_follows_the_run_that_last_changed_each_field(session: 
     )
     assert t1.replace("Z", "+00:00") == prov["lifecycle_state"]["retrieved_at"]
     assert all(entry["licence_id"] == src.licence_id for entry in prov.values())
+
+
+# ------------------------------------------------ item 1 follow-up: byte-identical duplicates
+def test_byte_identical_rows_sharing_a_natural_key_both_load_and_reload_idempotently(
+    session: Session,
+) -> None:
+    """CI 2026-09-19: the 2026-09-12 eval parquet carries several NYISO rows that are identical
+    in every stable field ("Untitled", unknown technology, no capacity) under one natural key
+    with legacy positional suffixes. The content key is the same for all of them, so the second
+    row violated `proposal_source`'s unique key. The loader now falls back the way
+    `suffix_duplicates` does (raw-row hash, then an order suffix), so every row loads, and a
+    second load of the same frame matches the same stored rows and adds nothing."""
+    src = upsert_licence_and_source(session, open_source_entry(), "v")
+    base = row("0099", "Untitled", 0.0, "Unknown", technology="unknown")
+    twins = [
+        {**base, "record_id": f"{SRC}:0099#2"},
+        {**base, "record_id": f"{SRC}:0099#3"},
+        {**base, "record_id": f"{SRC}:0099#4"},
+    ]
+    first = load_dataframe(session, src, "proposal", pd.DataFrame(twins), None)
+    assert first.proposals_created == 3
+    keys = sorted(session.scalars(select(ProposalSource.source_record_id)).all())
+    assert len(keys) == 3 and len(set(keys)) == 3
+    assert all(k.startswith("0099#h") for k in keys), keys
+    assert not any(k.endswith(("#2", "#3", "#4")) for k in keys), "positional suffixes are never trusted"
+
+    again = load_dataframe(session, src, "proposal", pd.DataFrame(twins), None)
+    assert again.proposals_created == 0 and again.proposals_updated == 3
+    assert sorted(session.scalars(select(ProposalSource.source_record_id)).all()) == keys
+    assert session.scalars(select(Event)).all() == []
