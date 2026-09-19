@@ -11,7 +11,7 @@ shares -- and `owner_name_raw` keeps the source spelling. The edge's provenance 
 layer's own source (the frame's `source_id`, validated by
 `services.ingest.assets.resolve_source_id`), the same `source`/`licence` rows the asset carries.
 Organisations resolve through `services/ingest/ownership.py::_resolve_organization` --
-`pipeline.normalize.norm_org`, the corp-suffix-and-punctuation-stripping key, over every
+`pipeline.normalize.org_key`, the legal-form-and-punctuation-stripping key, over every
 `organization.name_canonical` and `organization_alias.alias`, so "Tallgrass Energy Midstream LLC"
 and "TALLGRASS ENERGY MIDSTREAM, L.L.C." are one row, and a string that matches an organisation the
 proposal loader already created (a sponsor, a filer) reuses it rather than duplicating it. A raw
@@ -22,7 +22,7 @@ module documents. An asset the frame names but the table lacks (not loaded yet) 
 **`load_parents(session, path)`** applies `data/vendored/organizations/parents.yaml`: for each
 row, every organisation whose canonical name or alias matches `child_pattern` (a regular
 expression, case-insensitive, anchored by the author) gets `parent_org_id` = the organisation
-named `parent` (created if absent, resolved by the same `norm_org` key) and `parent_source_id` =
+named `parent` (created if absent, resolved by the same `org_key`) and `parent_source_id` =
 `curated.organization_parents` (registered in `data/sources.yaml` section K: reuse `open`,
 publication `raw_ok`; each YAML row cites the company statement it came from with its
 `source_url` and `retrieved_at`). A child that is itself the parent is skipped, so a pattern like
@@ -54,7 +54,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeline.connectors.registry import Registry
-from pipeline.normalize import norm_org
+from pipeline.normalize import org_key
 from services.db.models import Asset, AssetOwner, Organization, OrganizationAlias, Source, new_uuid
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id as make_public_id
@@ -282,7 +282,7 @@ def _parents_source(session: Session, manifest_version: str) -> Source:
 def _get_or_create_parent(
     session: Session, norm_index: dict[str, Organization], name: str, *, source: Source, now: dt.datetime
 ) -> tuple[Organization, bool]:
-    key = norm_org(name) or name.strip().upper()
+    key = org_key(name)  # one function, docs/22 §16 (was an inlined, divergent fallback)
     org = norm_index.get(key)
     if org is not None:
         return org, False

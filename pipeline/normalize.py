@@ -164,11 +164,122 @@ TECH_RULES: list[tuple[str, str, str]] = [
     (r"load|data\s*cent", "load", "load"),
 ]
 
-CORP_SUFFIXES = re.compile(
-    r"\b(llc|l\.l\.c|inc|incorporated|corp|corporation|co|company|lp|l\.p|llp|ltd|limited|"
-    r"holdings?|energy|energies|power|renewables?|solar|wind|storage|development|developments?|"
-    r"partners?|group|usa|us|america|american|north|project|projects)\b"
+# ---------------------------------------------------------------- organisation key
+# `norm_org` is the deterministic organisation key for the whole platform: the resolver
+# (`services/resolve/merge.py::resolve_organizations`), the ownership loader
+# (`services/ingest/ownership.py`), the midstream operator/parent edges and the proposal loader
+# all group organisations by it. It strips **legal forms only**.
+#
+# Until 2026-09-19 it also stripped industry and geography words (energy, power, solar, wind,
+# storage, renewables, development, partners, group, holdings, project, usa, us, america, north).
+# That is measured to be wrong: over the 7,642 distinct organisation strings in the dev store plus
+# the EIA-860 Schedule 4 owners it merged 557 name pairs, of which only 299 are one legal entity
+# -- 121 pairs are unrelated companies sharing a first word and 137 are a parent and its named
+# affiliate (`MidAmerican Energy Co`/`MidAmerican Solar LLC`, `Shell Renewables`/`Shell Wind
+# Energy Inc.`, `Atlantic Power Corporation`/`Atlantic Wind, LLC`). The cost lands on a company
+# page: another company's assets and `asset_owner` edges under the wrong organisation.
+# docs/22 §16 carries the full census, the labelled set is `data/eval/organization_pairs.csv`.
+#: Legal-form tokens, and nothing else. **Never add an industry or geography word here** -- see
+#: `RESERVED_CONTENT_WORDS` and the guard test in `tests/test_org_key.py`.
+LEGAL_FORM_TOKENS: tuple[str, ...] = (
+    "llc",
+    "l l c",
+    "inc",
+    "incorporated",
+    "corp",
+    "corporation",
+    "co",
+    "company",
+    "companies",
+    "lp",
+    "l p",
+    "llp",
+    "lllp",
+    "ltd",
+    "limited",
+    "plc",
+    "pllc",
 )
+
+#: Words a legal-form list must never claim. Each one distinguishes real, separate legal entities
+#: in the measured corpus; stripping any of them re-creates the 2026-09-19 over-merge.
+RESERVED_CONTENT_WORDS = frozenset(
+    {
+        "america",
+        "american",
+        "development",
+        "developments",
+        "energies",
+        "energy",
+        "generation",
+        "global",
+        "group",
+        "holding",
+        "holdings",
+        "midstream",
+        "national",
+        "north",
+        "northern",
+        "partner",
+        "partners",
+        "pipeline",
+        "power",
+        "project",
+        "projects",
+        "renewable",
+        "renewables",
+        "resource",
+        "resources",
+        "solar",
+        "south",
+        "southern",
+        "storage",
+        "systems",
+        "transmission",
+        "us",
+        "usa",
+        "ventures",
+        "wind",
+    }
+)
+
+CORP_SUFFIXES = re.compile(r"\b(" + "|".join(LEGAL_FORM_TOKENS) + r")\b")
+
+#: Closed list of business-vocabulary plurals folded to the singular, so one registrant spelled
+#: two ways is one key (`EDF Renewable Development Inc.` / `EDF Renewables Development`;
+#: `NextEra ... Interconnection Holding, LLC` / `... Holdings, LLC`; `Valero Renewable Fuels` /
+#: `Valero Renewables Fuels LLC`). A general "strip a trailing s" rule is NOT usable: it destroys
+#: Texas, Kansas, Illinois, Dallas, Hess and every other name that ends in one.
+ORG_PLURALS = {
+    "associates": "associate",
+    "developments": "development",
+    "energies": "energy",
+    "enterprises": "enterprise",
+    "farms": "farm",
+    "fuels": "fuel",
+    "generators": "generator",
+    "holdings": "holding",
+    "industries": "industry",
+    "investments": "investment",
+    "operations": "operation",
+    "partners": "partner",
+    "pipelines": "pipeline",
+    "projects": "project",
+    "properties": "property",
+    "renewables": "renewable",
+    "resources": "resource",
+    "services": "service",
+    "solutions": "solution",
+    "systems": "system",
+    "technologies": "technology",
+    "turbines": "turbine",
+    "utilities": "utility",
+    "ventures": "venture",
+}
+
+#: "Co-op" would otherwise lose its "co" to the legal-form pass ("Siouxland Energy & Livestock
+#: Co-Op" -> "SIOUXLAND ... LIVESTOCK OP"). Folded to one spelling before that pass.
+COOPERATIVE = re.compile(r"\bco[\s-]?operatives?\b|\bco[\s-]?ops?\b")
 
 NAME_NOISE = re.compile(
     r"\b(project|solar|wind|energy|center|centre|storage|bess|battery|farm|park|facility|"
@@ -216,13 +327,33 @@ def norm_name(v) -> str | None:
 
 
 def norm_org(v) -> str | None:
+    """The one organisation key. Legal forms and punctuation are removed; every industry and
+    geography word is kept, because it is what distinguishes `MidAmerican Energy Co` from
+    `MidAmerican Solar LLC`. Returns None only for a string that is nothing but legal forms and
+    punctuation ("LLC", "Inc."); use `org_key` when a caller needs a total function."""
     if v is None or pd.isna(v):
         return None
     s = str(v).lower().strip()
+    s = s.replace("&", " and ")  # "Wisconsin Power & Light" == "Wisconsin Power and Light"
     s = re.sub(r"[^a-z0-9 ]", " ", s)
-    s = CORP_SUFFIXES.sub(" ", s)
-    s = re.sub(r"\s+", " ", s).strip()
+    s = COOPERATIVE.sub(" cooperative ", s)
+    # Iterate: "Astoria Generating Company LP" sheds two legal forms, "... Co., L.P." three.
+    previous = ""
+    while previous != s:
+        previous = s
+        s = CORP_SUFFIXES.sub(" ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+    s = " ".join(ORG_PLURALS.get(token, token) for token in s.split())
     return s.upper() or None
+
+
+def org_key(v) -> str:
+    """`norm_org`, total: the bare upper-cased string when `norm_org` strips everything. One
+    function for the index, the lookup and the group key of every consumer -- an index keyed on
+    `norm_org` alone with a lookup falling back to the raw upper-case re-created one organisation
+    and 20 edges on every re-run (measured 2026-09-19, docs/22 §15.4)."""
+    text = "" if v is None else str(v).strip()
+    return norm_org(text) or text.upper()
 
 
 def classify_tech(raw) -> tuple[str, str]:

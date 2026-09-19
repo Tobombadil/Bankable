@@ -317,9 +317,12 @@ def test_placeholder_owner_other_is_not_attributed(session):
 
 
 def test_rerun_is_idempotent_for_a_name_norm_org_strips_entirely(session):
-    """`norm_org("US Solar")` is None (both tokens are corporate/sector suffixes). The index, the
-    lookup and the group key must all fall back to the same key, or every re-run re-creates the
-    organisation and its edges (measured 2026-09-19 on the real file: 1 organisation, 20 edges)."""
+    """The index, the lookup and the group key must be one function, or every re-run re-creates
+    the organisation and its edges (measured 2026-09-19 on the real file: 1 organisation, 20
+    edges, for "US Solar" -- `norm_org` then stripped both tokens as sector suffixes and returned
+    None, so the row was indexed under a key nothing looked up). Since the key strips legal forms
+    only, `norm_org("US Solar")` is "US SOLAR" and only a string that is *nothing but* legal forms
+    still needs `org_key`'s fallback; both spellings are exercised here."""
     _seed_plant(session, "1000")
     _seed_plant(session, "2000")
     df = pd.DataFrame(
@@ -335,6 +338,19 @@ def test_rerun_is_idempotent_for_a_name_norm_org_strips_entirely(session):
     assert second.organizations_matched == 1
     assert len(session.scalars(select(Organization)).all()) == 1
     assert len(session.scalars(select(AssetOwner)).all()) == 2
+
+
+def test_rerun_is_idempotent_for_a_name_that_is_only_a_legal_form(session):
+    """The `org_key` fallback itself: `norm_org("L.L.C.")` is None, so index, lookup and group
+    key all have to agree on the bare upper-cased string."""
+    _seed_plant(session, "1000")
+    df = pd.DataFrame([_row("1000", "GEN1", "L.L.C.", 100.0, None, None)])
+    first = load_owner_shares(session, df)
+    second = load_owner_shares(session, df)
+    assert first.organizations_created == 1
+    assert second.organizations_created == 0
+    assert second.organizations_matched == 1
+    assert len(session.scalars(select(Organization)).all()) == 1
 
 
 def test_organizations_matched_counts_distinct_pre_existing_organizations(session):

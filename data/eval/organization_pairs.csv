@@ -1,0 +1,758 @@
+left_name,right_name,label,bucket,old_key_left,old_key_right,new_key_left,new_key_right
+174 Power Global Properties,"174 Power Global Properties, LLC",same,merged_by_old_key,174 GLOBAL PROPERTIES,174 GLOBAL PROPERTIES,174 POWER GLOBAL PROPERTY,174 POWER GLOBAL PROPERTY
+SOLAR 2 LIMITED,WIND 2 LIMITED,different,merged_by_old_key,2,2,SOLAR 2,WIND 2
+"Ables Springs Solar, LLC","Ables Springs Storage, LLC",different,merged_by_old_key,ABLES SPRINGS,ABLES SPRINGS,ABLES SPRINGS SOLAR,ABLES SPRINGS STORAGE
+Absolute Energy,Absolute Energy LLC,same,merged_by_old_key,ABSOLUTE,ABSOLUTE,ABSOLUTE ENERGY,ABSOLUTE ENERGY
+Abundant Solar Power,Abundant Solar Power INC.,same,merged_by_old_key,ABUNDANT,ABUNDANT,ABUNDANT SOLAR POWER,ABUNDANT SOLAR POWER
+Accalia Point Solar LLC,"Accalia Point Solar, LLC",same,merged_by_old_key,ACCALIA POINT,ACCALIA POINT,ACCALIA POINT SOLAR,ACCALIA POINT SOLAR
+ACE DevCo NC,ACE DevCo NC LLC,same,merged_by_old_key,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC
+ACE DevCo NC,"ACE DevCo NC, LLC",same,merged_by_old_key,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC
+ACE DevCo NC,"ACE DevCo NC,LLC",same,merged_by_old_key,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC
+ACE DevCo NC LLC,"ACE DevCo NC, LLC",same,merged_by_old_key,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC
+ACE DevCo NC LLC,"ACE DevCo NC,LLC",same,merged_by_old_key,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC
+"ACE DevCo NC, LLC","ACE DevCo NC,LLC",same,merged_by_old_key,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC,ACE DEVCO NC
+AERA Energy LLC,Aera Energy LLC,same,merged_by_old_key,AERA,AERA,AERA ENERGY,AERA ENERGY
+AES,"AES Energy Storage, LLC",family,merged_by_old_key,AES,AES,AES,AES ENERGY STORAGE
+AES Distributed Energy,"AES Distributed Energy, Inc",same,merged_by_old_key,AES DISTRIBUTED,AES DISTRIBUTED,AES DISTRIBUTED ENERGY,AES DISTRIBUTED ENERGY
+AG Energy Inc,AG Energy LP,family,merged_by_old_key,AG,AG,AG ENERGY,AG ENERGY
+AG Energy Inc,"AG Energy, LP",family,merged_by_old_key,AG,AG,AG ENERGY,AG ENERGY
+AG Energy LP,"AG Energy, LP",family,merged_by_old_key,AG,AG,AG ENERGY,AG ENERGY
+"Agilitas Energy, Inc.","Agilitas Energy, LLC",family,merged_by_old_key,AGILITAS,AGILITAS,AGILITAS ENERGY,AGILITAS ENERGY
+Alabama Ledge Wind Farm LLC,"Alabama Ledge Wind Farm, LLC",same,merged_by_old_key,ALABAMA LEDGE FARM,ALABAMA LEDGE FARM,ALABAMA LEDGE WIND FARM,ALABAMA LEDGE WIND FARM
+"Albany Energy, LLC","Albany Solar, LLC",different,merged_by_old_key,ALBANY,ALBANY,ALBANY ENERGY,ALBANY SOLAR
+Algonquin Power Fund (America) Inc.,"Algonquin Power Fund (America), Inc.",same,merged_by_old_key,ALGONQUIN FUND,ALGONQUIN FUND,ALGONQUIN POWER FUND AMERICA,ALGONQUIN POWER FUND AMERICA
+Alliance Energy Group LLC,"Alliance Energy Storage, LLC",different,merged_by_old_key,ALLIANCE,ALLIANCE,ALLIANCE ENERGY GROUP,ALLIANCE ENERGY STORAGE
+Ameresco,"Ameresco, Inc.",same,merged_by_old_key,AMERESCO,AMERESCO,AMERESCO,AMERESCO
+Anadarko Petroleum,Anadarko Petroleum Company,same,merged_by_old_key,ANADARKO PETROLEUM,ANADARKO PETROLEUM,ANADARKO PETROLEUM,ANADARKO PETROLEUM
+Anbaric Development Partners,"Anbaric Development Partners, LLC",same,merged_by_old_key,ANBARIC,ANBARIC,ANBARIC DEVELOPMENT PARTNER,ANBARIC DEVELOPMENT PARTNER
+Anbaric Development Partners,"Anbaric Development Partners,LLC",same,merged_by_old_key,ANBARIC,ANBARIC,ANBARIC DEVELOPMENT PARTNER,ANBARIC DEVELOPMENT PARTNER
+"Anbaric Development Partners, LLC","Anbaric Development Partners,LLC",same,merged_by_old_key,ANBARIC,ANBARIC,ANBARIC DEVELOPMENT PARTNER,ANBARIC DEVELOPMENT PARTNER
+"Anderson North Solar Project, LLC","Anderson Wind Project, LLC",different,merged_by_old_key,ANDERSON,ANDERSON,ANDERSON NORTH SOLAR PROJECT,ANDERSON WIND PROJECT
+ANR STORAGE COMPANY,ANR Storage Co,same,merged_by_old_key,ANR,ANR,ANR STORAGE,ANR STORAGE
+ANR PIPELINE COMPANY,ANR Pipeline Co,same,merged_by_old_key,ANR PIPELINE,ANR PIPELINE,ANR PIPELINE,ANR PIPELINE
+AP Solar 4 LLC,"AP Solar 4, LLC",same,merged_by_old_key,AP 4,AP 4,AP SOLAR 4,AP SOLAR 4
+Apex Clean Energy,Apex Clean Energy LLC,same,merged_by_old_key,APEX CLEAN,APEX CLEAN,APEX CLEAN ENERGY,APEX CLEAN ENERGY
+Apex Energy Solutions LLC,"Apex Energy Solutions, LLC",same,merged_by_old_key,APEX SOLUTIONS,APEX SOLUTIONS,APEX ENERGY SOLUTION,APEX ENERGY SOLUTION
+Arkwright Summit Wind Farm LLC,"Arkwright Summit Wind Farm, LLC",same,merged_by_old_key,ARKWRIGHT SUMMIT FARM,ARKWRIGHT SUMMIT FARM,ARKWRIGHT SUMMIT WIND FARM,ARKWRIGHT SUMMIT WIND FARM
+"Astoria Energy, LLC",Astoria Renewables LLC,different,merged_by_old_key,ASTORIA,ASTORIA,ASTORIA ENERGY,ASTORIA RENEWABLE
+Astoria Generating Co.,Astoria Generating Company,same,merged_by_old_key,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING
+Astoria Generating Co.,Astoria Generating Company LP,same,merged_by_old_key,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING
+Astoria Generating Co.,"Astoria Generating Company, LP",same,merged_by_old_key,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING
+Astoria Generating Company,Astoria Generating Company LP,same,merged_by_old_key,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING
+Astoria Generating Company,"Astoria Generating Company, LP",same,merged_by_old_key,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING
+Astoria Generating Company LP,"Astoria Generating Company, LP",same,merged_by_old_key,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING,ASTORIA GENERATING
+"Atlantic Development, LLC","Atlantic Energy, LLC",different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC DEVELOPMENT,ATLANTIC ENERGY
+"Atlantic Development, LLC",Atlantic Power Corporation,different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC DEVELOPMENT,ATLANTIC POWER
+"Atlantic Development, LLC",Atlantic Renewable Energy Corp.,different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC DEVELOPMENT,ATLANTIC RENEWABLE ENERGY
+"Atlantic Development, LLC","Atlantic Wind, LLC",different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC DEVELOPMENT,ATLANTIC WIND
+"Atlantic Energy, LLC",Atlantic Power Corporation,different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC ENERGY,ATLANTIC POWER
+"Atlantic Energy, LLC",Atlantic Renewable Energy Corp.,different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC ENERGY,ATLANTIC RENEWABLE ENERGY
+"Atlantic Energy, LLC","Atlantic Wind, LLC",different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC ENERGY,ATLANTIC WIND
+Atlantic Power Corporation,Atlantic Renewable Energy Corp.,different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC POWER,ATLANTIC RENEWABLE ENERGY
+Atlantic Power Corporation,"Atlantic Wind, LLC",different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC POWER,ATLANTIC WIND
+Atlantic Renewable Energy Corp.,"Atlantic Wind, LLC",different,merged_by_old_key,ATLANTIC,ATLANTIC,ATLANTIC RENEWABLE ENERGY,ATLANTIC WIND
+Attentive Energy,Attentive Energy LLC,same,merged_by_old_key,ATTENTIVE,ATTENTIVE,ATTENTIVE ENERGY,ATTENTIVE ENERGY
+"Aurora Energy Storage, LLC",Aurora Solar LLC,different,merged_by_old_key,AURORA,AURORA,AURORA ENERGY STORAGE,AURORA SOLAR
+AVANGRID,Avangrid Power LLC,family,merged_by_old_key,AVANGRID,AVANGRID,AVANGRID,AVANGRID POWER
+AVANGRID,Avangrid Renewables,family,merged_by_old_key,AVANGRID,AVANGRID,AVANGRID,AVANGRID RENEWABLE
+Avangrid Power LLC,Avangrid Renewables,family,merged_by_old_key,AVANGRID,AVANGRID,AVANGRID POWER,AVANGRID RENEWABLE
+Bar Candela Solar Project LLC,Bar Candela Storage Project LLC,different,merged_by_old_key,BAR CANDELA,BAR CANDELA,BAR CANDELA SOLAR PROJECT,BAR CANDELA STORAGE PROJECT
+Bay State Wind,Bay State Wind LLC,same,merged_by_old_key,BAY STATE,BAY STATE,BAY STATE WIND,BAY STATE WIND
+Bayonne Energy Center,"Bayonne Energy Center, LLC",same,merged_by_old_key,BAYONNE CENTER,BAYONNE CENTER,BAYONNE ENERGY CENTER,BAYONNE ENERGY CENTER
+BAYWA R.E. SOLAR PROJECTS,BayWa r.e. Development LLC,family,merged_by_old_key,BAYWA R E,BAYWA R E,BAYWA R E SOLAR PROJECT,BAYWA R E DEVELOPMENT
+BAYWA R.E. SOLAR PROJECTS,"BayWa r.e. USA, LLC",family,merged_by_old_key,BAYWA R E,BAYWA R E,BAYWA R E SOLAR PROJECT,BAYWA R E USA
+BayWa r.e. Development LLC,"BayWa r.e. USA, LLC",family,merged_by_old_key,BAYWA R E,BAYWA R E,BAYWA R E DEVELOPMENT,BAYWA R E USA
+Beacon Power,Beacon Solar Limited,different,merged_by_old_key,BEACON,BEACON,BEACON POWER,BEACON SOLAR
+Beacon Power,Beacon Wind LLC,different,merged_by_old_key,BEACON,BEACON,BEACON POWER,BEACON WIND
+Beacon Solar Limited,Beacon Wind LLC,different,merged_by_old_key,BEACON,BEACON,BEACON SOLAR,BEACON WIND
+Bear Peak Power,Bear Peak Power LLC,same,merged_by_old_key,BEAR PEAK,BEAR PEAK,BEAR PEAK POWER,BEAR PEAK POWER
+"Bell 1 Solar, LLC",Bell 1 Storage LLC,different,merged_by_old_key,BELL 1,BELL 1,BELL 1 SOLAR,BELL 1 STORAGE
+"Bell 1 Solar, LLC","Bell 1 Storage, LLC",different,merged_by_old_key,BELL 1,BELL 1,BELL 1 SOLAR,BELL 1 STORAGE
+Bell 1 Storage LLC,"Bell 1 Storage, LLC",same,merged_by_old_key,BELL 1,BELL 1,BELL 1 STORAGE,BELL 1 STORAGE
+North Bergen Liberty Generating,"North Bergen Liberty Generating, LLC",same,merged_by_old_key,BERGEN LIBERTY GENERATING,BERGEN LIBERTY GENERATING,NORTH BERGEN LIBERTY GENERATING,NORTH BERGEN LIBERTY GENERATING
+Bio Energy Partners,Bio-Energy Partners,same,merged_by_old_key,BIO,BIO,BIO ENERGY PARTNER,BIO ENERGY PARTNER
+BLACK HILLS ENERGY CORP,Black Hills Corporation,family,merged_by_old_key,BLACK HILLS,BLACK HILLS,BLACK HILLS ENERGY,BLACK HILLS
+BLACK HILLS ENERGY CORP,"Black Hills Power, Inc.",family,merged_by_old_key,BLACK HILLS,BLACK HILLS,BLACK HILLS ENERGY,BLACK HILLS POWER
+Black Hills Corporation,"Black Hills Power, Inc.",family,merged_by_old_key,BLACK HILLS,BLACK HILLS,BLACK HILLS,BLACK HILLS POWER
+Black Mountain Energy Storage II,Black Mountain Energy Storage II LLC,same,merged_by_old_key,BLACK MOUNTAIN II,BLACK MOUNTAIN II,BLACK MOUNTAIN ENERGY STORAGE II,BLACK MOUNTAIN ENERGY STORAGE II
+"Blue Sky Interconnect, LLC","Blue Sky Interconnect, LLC.",same,merged_by_old_key,BLUE SKY INTERCONNECT,BLUE SKY INTERCONNECT,BLUE SKY INTERCONNECT,BLUE SKY INTERCONNECT
+Bluepoint Wind LLC,"Bluepoint Wind, LLC.",same,merged_by_old_key,BLUEPOINT,BLUEPOINT,BLUEPOINT WIND,BLUEPOINT WIND
+Bluestone Energy Ltd,"Bluestone Wind, LLC",different,merged_by_old_key,BLUESTONE,BLUESTONE,BLUESTONE ENERGY,BLUESTONE WIND
+Bluewave Origination LLC,Bluewave Storage Origination LLC,family,merged_by_old_key,BLUEWAVE ORIGINATION,BLUEWAVE ORIGINATION,BLUEWAVE ORIGINATION,BLUEWAVE STORAGE ORIGINATION
+BORALEX LIMITED,Boralex US Development,family,merged_by_old_key,BORALEX,BORALEX,BORALEX,BORALEX US DEVELOPMENT
+BORALEX LIMITED,"Boralex US Development, LLC",family,merged_by_old_key,BORALEX,BORALEX,BORALEX,BORALEX US DEVELOPMENT
+Boralex US Development,"Boralex US Development, LLC",same,merged_by_old_key,BORALEX,BORALEX,BORALEX US DEVELOPMENT,BORALEX US DEVELOPMENT
+Borrego Solar Systems Inc,"Borrego Solar Systems, inc.",same,merged_by_old_key,BORREGO SYSTEMS,BORREGO SYSTEMS,BORREGO SOLAR SYSTEM,BORREGO SOLAR SYSTEM
+BP America Inc,BP Wind Energy North America Inc,family,merged_by_old_key,BP,BP,BP AMERICA,BP WIND ENERGY NORTH AMERICA
+BQ Energy Development,BQ Energy LLC,family,merged_by_old_key,BQ,BQ,BQ ENERGY DEVELOPMENT,BQ ENERGY
+Bridgewater Power Co LP,"Bridgewater Solar, LLC",different,merged_by_old_key,BRIDGEWATER,BRIDGEWATER,BRIDGEWATER POWER,BRIDGEWATER SOLAR
+BROCKWELL ENERGY LIMITED,BROCKWELL STORAGE & SOLAR LIMITED,family,merged_by_old_key,BROCKWELL,BROCKWELL,BROCKWELL ENERGY,BROCKWELL STORAGE AND SOLAR
+Brookfield Power,Brookfield Power US,family,merged_by_old_key,BROOKFIELD,BROOKFIELD,BROOKFIELD POWER,BROOKFIELD POWER US
+Brookfield Power,Brookfield Renewable Energy Group,family,merged_by_old_key,BROOKFIELD,BROOKFIELD,BROOKFIELD POWER,BROOKFIELD RENEWABLE ENERGY GROUP
+Brookfield Power,Brookfield Renewable Power,family,merged_by_old_key,BROOKFIELD,BROOKFIELD,BROOKFIELD POWER,BROOKFIELD RENEWABLE POWER
+Brookfield Power US,Brookfield Renewable Energy Group,family,merged_by_old_key,BROOKFIELD,BROOKFIELD,BROOKFIELD POWER US,BROOKFIELD RENEWABLE ENERGY GROUP
+Brookfield Power US,Brookfield Renewable Power,family,merged_by_old_key,BROOKFIELD,BROOKFIELD,BROOKFIELD POWER US,BROOKFIELD RENEWABLE POWER
+Brookfield Renewable Energy Group,Brookfield Renewable Power,family,merged_by_old_key,BROOKFIELD,BROOKFIELD,BROOKFIELD RENEWABLE ENERGY GROUP,BROOKFIELD RENEWABLE POWER
+Brush Solar LLC,"Brush Solar, LLC",same,merged_by_old_key,BRUSH,BRUSH,BRUSH SOLAR,BRUSH SOLAR
+Brush Solar LLC,"Brush Storage, LLC",different,merged_by_old_key,BRUSH,BRUSH,BRUSH SOLAR,BRUSH STORAGE
+"Brush Solar, LLC","Brush Storage, LLC",different,merged_by_old_key,BRUSH,BRUSH,BRUSH SOLAR,BRUSH STORAGE
+BT Amador Storage LLC,"BT Amador Storage, LLC",same,merged_by_old_key,BT AMADOR,BT AMADOR,BT AMADOR STORAGE,BT AMADOR STORAGE
+"Budbreak Solar, LLC","Budbreak Storage, LLC",different,merged_by_old_key,BUDBREAK,BUDBREAK,BUDBREAK SOLAR,BUDBREAK STORAGE
+Bulldog Power,Bulldog Power LLC,same,merged_by_old_key,BULLDOG,BULLDOG,BULLDOG POWER,BULLDOG POWER
+Bushmills Ethanol Inc,Bushmills Ethanol Inc.,same,merged_by_old_key,BUSHMILLS ETHANOL,BUSHMILLS ETHANOL,BUSHMILLS ETHANOL,BUSHMILLS ETHANOL
+CALEDONIA ENERGY PARTNERS LLC,Caledonia Solar LLC,different,merged_by_old_key,CALEDONIA,CALEDONIA,CALEDONIA ENERGY PARTNER,CALEDONIA SOLAR
+"Calpine Mid Atlantic Development, LLC","Calpine Mid-Atlantic Development, LLC",same,merged_by_old_key,CALPINE MID ATLANTIC,CALPINE MID ATLANTIC,CALPINE MID ATLANTIC DEVELOPMENT,CALPINE MID ATLANTIC DEVELOPMENT
+Camino Ranch Solar LLC,Camino Ranch Solar Project LLC,family,merged_by_old_key,CAMINO RANCH,CAMINO RANCH,CAMINO RANCH SOLAR,CAMINO RANCH SOLAR PROJECT
+Camino Ranch Solar LLC,"Camino Solar Ranch, LLC",family,merged_by_old_key,CAMINO RANCH,CAMINO RANCH,CAMINO RANCH SOLAR,CAMINO SOLAR RANCH
+Camino Ranch Solar Project LLC,"Camino Solar Ranch, LLC",family,merged_by_old_key,CAMINO RANCH,CAMINO RANCH,CAMINO RANCH SOLAR PROJECT,CAMINO SOLAR RANCH
+Capital Power Corporation,Capital Power Solar Holdings LLC,family,merged_by_old_key,CAPITAL,CAPITAL,CAPITAL POWER,CAPITAL POWER SOLAR HOLDING
+Capital Power Corporation,"Capital Wind, LLC",different,merged_by_old_key,CAPITAL,CAPITAL,CAPITAL POWER,CAPITAL WIND
+Capital Power Solar Holdings LLC,"Capital Wind, LLC",different,merged_by_old_key,CAPITAL,CAPITAL,CAPITAL POWER SOLAR HOLDING,CAPITAL WIND
+Cargill Inc,Cargill Inc.,same,merged_by_old_key,CARGILL,CARGILL,CARGILL,CARGILL
+CARRINGTON POWER LIMITED,CARRINGTON STORAGE LIMITED,different,merged_by_old_key,CARRINGTON,CARRINGTON,CARRINGTON POWER,CARRINGTON STORAGE
+Cartwright Solar II Holdings LLC,Cartwright Solar II LLC,family,merged_by_old_key,CARTWRIGHT II,CARTWRIGHT II,CARTWRIGHT SOLAR II HOLDING,CARTWRIGHT SOLAR II
+Casella Waste Systems,"Casella Waste Systems, Inc.",same,merged_by_old_key,CASELLA WASTE SYSTEMS,CASELLA WASTE SYSTEMS,CASELLA WASTE SYSTEM,CASELLA WASTE SYSTEM
+CED Development Inc,CED Development Inc.,same,merged_by_old_key,CED,CED,CED DEVELOPMENT,CED DEVELOPMENT
+Cedar Range LLC,"Cedar Range, LLC",same,merged_by_old_key,CEDAR RANGE,CEDAR RANGE,CEDAR RANGE,CEDAR RANGE
+Central Indiana Ethanol,Central Indiana Ethanol LLC,same,merged_by_old_key,CENTRAL INDIANA ETHANOL,CENTRAL INDIANA ETHANOL,CENTRAL INDIANA ETHANOL,CENTRAL INDIANA ETHANOL
+"Charter Oak Solar, LLC","Charter Oak Storage, LLC",different,merged_by_old_key,CHARTER OAK,CHARTER OAK,CHARTER OAK SOLAR,CHARTER OAK STORAGE
+Cheniere Energy,Cheniere Energy Inc,same,merged_by_old_key,CHENIERE,CHENIERE,CHENIERE ENERGY,CHENIERE ENERGY
+Chevron,Chevron USA Inc,family,merged_by_old_key,CHEVRON,CHEVRON,CHEVRON,CHEVRON USA
+Chevron,"Chevron USA, Inc.",family,merged_by_old_key,CHEVRON,CHEVRON,CHEVRON,CHEVRON USA
+Chevron USA Inc,"Chevron USA, Inc.",same,merged_by_old_key,CHEVRON,CHEVRON,CHEVRON USA,CHEVRON USA
+Chief Ethanol Fuels Inc,Chief Ethanol Fuels Inc.,same,merged_by_old_key,CHIEF ETHANOL FUELS,CHIEF ETHANOL FUELS,CHIEF ETHANOL FUEL,CHIEF ETHANOL FUEL
+"Cielo Vista Power, LLC","Cielo Vista Solar, LLC",different,merged_by_old_key,CIELO VISTA,CIELO VISTA,CIELO VISTA POWER,CIELO VISTA SOLAR
+"Cielo Vista Power, LLC","Cielo Vista Storage, LLC",different,merged_by_old_key,CIELO VISTA,CIELO VISTA,CIELO VISTA POWER,CIELO VISTA STORAGE
+"Cielo Vista Solar, LLC","Cielo Vista Storage, LLC",different,merged_by_old_key,CIELO VISTA,CIELO VISTA,CIELO VISTA SOLAR,CIELO VISTA STORAGE
+CITIZENS ENERGY GROUP,Citizens Solar Holdings LLC,different,merged_by_old_key,CITIZENS,CITIZENS,CITIZENS ENERGY GROUP,CITIZENS SOLAR HOLDING
+City of Glendale - (CA),"City of Glendale, CA",same,merged_by_old_key,CITY OF GLENDALE CA,CITY OF GLENDALE CA,CITY OF GLENDALE CA,CITY OF GLENDALE CA
+CityGreen Transmission,CityGreen Transmission Inc.,same,merged_by_old_key,CITYGREEN TRANSMISSION,CITYGREEN TRANSMISSION,CITYGREEN TRANSMISSION,CITYGREEN TRANSMISSION
+Clearway Energy Group,Clearway Energy Group LLC,same,merged_by_old_key,CLEARWAY,CLEARWAY,CLEARWAY ENERGY GROUP,CLEARWAY ENERGY GROUP
+Clearway Energy Group,"Clearway Energy, Inc",family,merged_by_old_key,CLEARWAY,CLEARWAY,CLEARWAY ENERGY GROUP,CLEARWAY ENERGY
+Clearway Energy Group LLC,"Clearway Energy, Inc",family,merged_by_old_key,CLEARWAY,CLEARWAY,CLEARWAY ENERGY GROUP,CLEARWAY ENERGY
+Clenera,Clenera LLC,same,merged_by_old_key,CLENERA,CLENERA,CLENERA,CLENERA
+COLORADO INTERSTATE GAS COMPANY,Colorado Interstate Gas Co,same,merged_by_old_key,COLORADO INTERSTATE GAS,COLORADO INTERSTATE GAS,COLORADO INTERSTATE GAS,COLORADO INTERSTATE GAS
+Commonwealth Agri-Energy,Commonwealth Agri-Energy LLC,same,merged_by_old_key,COMMONWEALTH AGRI,COMMONWEALTH AGRI,COMMONWEALTH AGRI ENERGY,COMMONWEALTH AGRI ENERGY
+Consolidated Edison Co. of NY,"Consolidated Edison Co. of NY, Inc.",same,merged_by_old_key,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY
+Consolidated Edison Co. of NY,"Consolidated Edison Company of NY, Inc.",same,merged_by_old_key,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY
+Consolidated Edison Co. of NY,Consolidated Edison of NY,same,merged_by_old_key,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY
+"Consolidated Edison Co. of NY, Inc.","Consolidated Edison Company of NY, Inc.",same,merged_by_old_key,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY
+"Consolidated Edison Co. of NY, Inc.",Consolidated Edison of NY,same,merged_by_old_key,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY
+"Consolidated Edison Company of NY, Inc.",Consolidated Edison of NY,same,merged_by_old_key,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY,CONSOLIDATED EDISON OF NY
+Covanta Energy,Covanta Energy Inc,same,merged_by_old_key,COVANTA,COVANTA,COVANTA ENERGY,COVANTA ENERGY
+CPV Basin Ranch,"CPV Basin Ranch, LLC",same,merged_by_old_key,CPV BASIN RANCH,CPV BASIN RANCH,CPV BASIN RANCH,CPV BASIN RANCH
+"CRC Development, LLC","CRC Renewables, LLC",family,merged_by_old_key,CRC,CRC,CRC DEVELOPMENT,CRC RENEWABLE
+"CTPB1, LLC","CTPB1,LLC",same,merged_by_old_key,CTPB1,CTPB1,CTPB1,CTPB1
+Cypress Creek Renewables,"Cypress Creek Renewables, LLC",same,merged_by_old_key,CYPRESS CREEK,CYPRESS CREEK,CYPRESS CREEK RENEWABLE,CYPRESS CREEK RENEWABLE
+Dart Oil & Gas Corp,Dart Oil & Gas Corporation,same,merged_by_old_key,DART OIL GAS,DART OIL GAS,DART OIL AND GAS,DART OIL AND GAS
+Dempsey Solar LLC,Dempsey Storage LLC,different,merged_by_old_key,DEMPSEY,DEMPSEY,DEMPSEY SOLAR,DEMPSEY STORAGE
+Dominion Energy,Dominion Energy Inc.,same,merged_by_old_key,DOMINION,DOMINION,DOMINION ENERGY,DOMINION ENERGY
+Dominion Energy,"Dominion Energy, Inc.",same,merged_by_old_key,DOMINION,DOMINION,DOMINION ENERGY,DOMINION ENERGY
+Dominion Energy,Dominion Renewable Energy,family,merged_by_old_key,DOMINION,DOMINION,DOMINION ENERGY,DOMINION RENEWABLE ENERGY
+Dominion Energy Inc.,"Dominion Energy, Inc.",same,merged_by_old_key,DOMINION,DOMINION,DOMINION ENERGY,DOMINION ENERGY
+Dominion Energy Inc.,Dominion Renewable Energy,family,merged_by_old_key,DOMINION,DOMINION,DOMINION ENERGY,DOMINION RENEWABLE ENERGY
+"Dominion Energy, Inc.",Dominion Renewable Energy,family,merged_by_old_key,DOMINION,DOMINION,DOMINION ENERGY,DOMINION RENEWABLE ENERGY
+DOMINION ENERGY TRANSMISSION INC,"Dominion Energy Transmission, Inc.",same,merged_by_old_key,DOMINION TRANSMISSION,DOMINION TRANSMISSION,DOMINION ENERGY TRANSMISSION,DOMINION ENERGY TRANSMISSION
+DOMINION ENERGY TRANSMISSION INC,Dominion Transmission Co,same,merged_by_old_key,DOMINION TRANSMISSION,DOMINION TRANSMISSION,DOMINION ENERGY TRANSMISSION,DOMINION TRANSMISSION
+"Dominion Energy Transmission, Inc.",Dominion Transmission Co,same,merged_by_old_key,DOMINION TRANSMISSION,DOMINION TRANSMISSION,DOMINION ENERGY TRANSMISSION,DOMINION TRANSMISSION
+Donelson Solar,Donelson Storage,different,merged_by_old_key,DONELSON,DONELSON,DONELSON SOLAR,DONELSON STORAGE
+"Double A Solar, LLC","Double A Storage, LLC",different,merged_by_old_key,DOUBLE A,DOUBLE A,DOUBLE A SOLAR,DOUBLE A STORAGE
+DTE Vantage,DTE Vantage; Energy Power Partners,family,merged_by_old_key,DTE VANTAGE,DTE VANTAGE,DTE VANTAGE,DTE VANTAGE ENERGY POWER PARTNER
+"Duck Creek Solar, LLC","Duck Creek Storage, LLC",different,merged_by_old_key,DUCK CREEK,DUCK CREEK,DUCK CREEK SOLAR,DUCK CREEK STORAGE
+Duffy Energy Storage LLC,Duffy Project Co LLC,different,merged_by_old_key,DUFFY,DUFFY,DUFFY ENERGY STORAGE,DUFFY PROJECT
+"Eagle Creek Hydro Power, LLC","Eagle Creek Hydro, LLC",family,merged_by_old_key,EAGLE CREEK HYDRO,EAGLE CREEK HYDRO,EAGLE CREEK HYDRO POWER,EAGLE CREEK HYDRO
+EAST ANGLIA ONE LIMITED,EAST ANGLIA ONE NORTH LIMITED,different,merged_by_old_key,EAST ANGLIA ONE,EAST ANGLIA ONE,EAST ANGLIA ONE,EAST ANGLIA ONE NORTH
+EAST CLAYDON STORAGE LIMITED,East Claydon Energy Limited,different,merged_by_old_key,EAST CLAYDON,EAST CLAYDON,EAST CLAYDON STORAGE,EAST CLAYDON ENERGY
+East Coast Power LLC,"East Coast Power, LLC",same,merged_by_old_key,EAST COAST,EAST COAST,EAST COAST POWER,EAST COAST POWER
+Echols Grove LLC,"Echols Grove, LLC",same,merged_by_old_key,ECHOLS GROVE,ECHOLS GROVE,ECHOLS GROVE,ECHOLS GROVE
+"ECOGEN, LLC",Ecogen Wind LLC,family,merged_by_old_key,ECOGEN,ECOGEN,ECOGEN,ECOGEN WIND
+Eden DevCo,Eden Devco LP,same,merged_by_old_key,EDEN DEVCO,EDEN DEVCO,EDEN DEVCO,EDEN DEVCO
+EDF ENERGY RENEWABLES LIMITED,EDF Renewable Development Inc.,different,merged_by_old_key,EDF,EDF,EDF ENERGY RENEWABLE,EDF RENEWABLE DEVELOPMENT
+EDF ENERGY RENEWABLES LIMITED,"EDF Renewable Development, Inc",different,merged_by_old_key,EDF,EDF,EDF ENERGY RENEWABLE,EDF RENEWABLE DEVELOPMENT
+EDF ENERGY RENEWABLES LIMITED,EDF Renewables Development,different,merged_by_old_key,EDF,EDF,EDF ENERGY RENEWABLE,EDF RENEWABLE DEVELOPMENT
+EDF ENERGY RENEWABLES LIMITED,"EDF Renewables Development, Inc.",different,merged_by_old_key,EDF,EDF,EDF ENERGY RENEWABLE,EDF RENEWABLE DEVELOPMENT
+EDF ENERGY RENEWABLES LIMITED,EDF Renewables inc.,different,merged_by_old_key,EDF,EDF,EDF ENERGY RENEWABLE,EDF RENEWABLE
+EDF ENERGY RENEWABLES LIMITED,EDF renewables development inc.,different,merged_by_old_key,EDF,EDF,EDF ENERGY RENEWABLE,EDF RENEWABLE DEVELOPMENT
+EDF Renewable Development Inc.,"EDF Renewable Development, Inc",same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+EDF Renewable Development Inc.,EDF Renewables Development,same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+EDF Renewable Development Inc.,"EDF Renewables Development, Inc.",same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+EDF Renewable Development Inc.,EDF Renewables inc.,family,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE
+EDF Renewable Development Inc.,EDF renewables development inc.,same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+"EDF Renewable Development, Inc",EDF Renewables Development,same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+"EDF Renewable Development, Inc","EDF Renewables Development, Inc.",same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+"EDF Renewable Development, Inc",EDF Renewables inc.,family,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE
+"EDF Renewable Development, Inc",EDF renewables development inc.,same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+EDF Renewables Development,"EDF Renewables Development, Inc.",same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+EDF Renewables Development,EDF Renewables inc.,family,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE
+EDF Renewables Development,EDF renewables development inc.,same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+"EDF Renewables Development, Inc.",EDF Renewables inc.,family,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE
+"EDF Renewables Development, Inc.",EDF renewables development inc.,same,merged_by_old_key,EDF,EDF,EDF RENEWABLE DEVELOPMENT,EDF RENEWABLE DEVELOPMENT
+EDF Renewables inc.,EDF renewables development inc.,family,merged_by_old_key,EDF,EDF,EDF RENEWABLE,EDF RENEWABLE DEVELOPMENT
+EDP RENEWABLES NORTH AMERICA LLC,EDP Renewables North America,same,merged_by_old_key,EDP,EDP,EDP RENEWABLE NORTH AMERICA,EDP RENEWABLE NORTH AMERICA
+EDP RENEWABLES NORTH AMERICA LLC,EDP Renewables North America LLC,same,merged_by_old_key,EDP,EDP,EDP RENEWABLE NORTH AMERICA,EDP RENEWABLE NORTH AMERICA
+EDP Renewables North America,EDP Renewables North America LLC,same,merged_by_old_key,EDP,EDP,EDP RENEWABLE NORTH AMERICA,EDP RENEWABLE NORTH AMERICA
+EL PASO NATURAL GAS COMPANY,El Paso Natural Gas Co,same,merged_by_old_key,EL PASO NATURAL GAS,EL PASO NATURAL GAS,EL PASO NATURAL GAS,EL PASO NATURAL GAS
+ELEMENTS GREEN DEVELOPMENT LTD,ELEMENTS GREEN LIMITED,family,merged_by_old_key,ELEMENTS GREEN,ELEMENTS GREEN,ELEMENTS GREEN DEVELOPMENT,ELEMENTS GREEN
+Elkhorn Holdings,Elkhorn Holdings LLC,same,merged_by_old_key,ELKHORN,ELKHORN,ELKHORN HOLDING,ELKHORN HOLDING
+Elkhorn Investments LLC,"Elkhorn Investments, LLC",same,merged_by_old_key,ELKHORN INVESTMENTS,ELKHORN INVESTMENTS,ELKHORN INVESTMENT,ELKHORN INVESTMENT
+Empire State Connector Corp.,Empire State Connector Corporation,same,merged_by_old_key,EMPIRE STATE CONNECTOR,EMPIRE STATE CONNECTOR,EMPIRE STATE CONNECTOR,EMPIRE STATE CONNECTOR
+Empire State Connector Corp.,Empire State Connector LLC,family,merged_by_old_key,EMPIRE STATE CONNECTOR,EMPIRE STATE CONNECTOR,EMPIRE STATE CONNECTOR,EMPIRE STATE CONNECTOR
+Empire State Connector Corporation,Empire State Connector LLC,family,merged_by_old_key,EMPIRE STATE CONNECTOR,EMPIRE STATE CONNECTOR,EMPIRE STATE CONNECTOR,EMPIRE STATE CONNECTOR
+ENABLE GAS TRANSMISSION LLC,Enable Gas Transmission,same,merged_by_old_key,ENABLE GAS TRANSMISSION,ENABLE GAS TRANSMISSION,ENABLE GAS TRANSMISSION,ENABLE GAS TRANSMISSION
+Enable Midstream,Enable Midstream Partners,same,merged_by_old_key,ENABLE MIDSTREAM,ENABLE MIDSTREAM,ENABLE MIDSTREAM,ENABLE MIDSTREAM PARTNER
+Enable Midstream,"Enable Midstream Partners, LP",same,merged_by_old_key,ENABLE MIDSTREAM,ENABLE MIDSTREAM,ENABLE MIDSTREAM,ENABLE MIDSTREAM PARTNER
+Enable Midstream Partners,"Enable Midstream Partners, LP",same,merged_by_old_key,ENABLE MIDSTREAM,ENABLE MIDSTREAM,ENABLE MIDSTREAM PARTNER,ENABLE MIDSTREAM PARTNER
+"Enbridge G & P (Oklahoma), L.P.","Enbridge G&P (Oklahoma), L.P.",same,merged_by_old_key,ENBRIDGE G P OKLAHOMA L P,ENBRIDGE G P OKLAHOMA L P,ENBRIDGE G AND P OKLAHOMA,ENBRIDGE G AND P OKLAHOMA
+"Enbridge G & P (North Texas), L.P.",Enbridge G&P North Texas L.P,same,merged_by_old_key,ENBRIDGE G P TEXAS L P,ENBRIDGE G P TEXAS L P,ENBRIDGE G AND P NORTH TEXAS,ENBRIDGE G AND P NORTH TEXAS
+Enbridge Pipelines (Texas Gathering) L.P.,"Enbridge Pipelines (Texas Gathering), L.P.",same,merged_by_old_key,ENBRIDGE PIPELINES TEXAS GATHERING L P,ENBRIDGE PIPELINES TEXAS GATHERING L P,ENBRIDGE PIPELINE TEXAS GATHERING,ENBRIDGE PIPELINE TEXAS GATHERING
+ENBRIDGE SOLAR SEQUOIA II LLC,"Enbridge Solar (Sequoia II), LLC",same,merged_by_old_key,ENBRIDGE SEQUOIA II,ENBRIDGE SEQUOIA II,ENBRIDGE SOLAR SEQUOIA II,ENBRIDGE SOLAR SEQUOIA II
+"Enel Energy Storage Holdings, LLC","Enel North America, Inc.",family,merged_by_old_key,ENEL,ENEL,ENEL ENERGY STORAGE HOLDING,ENEL NORTH AMERICA
+ENI New Energy US Inc,"ENI New Energy US, Inc",same,merged_by_old_key,ENI NEW,ENI NEW,ENI NEW ENERGY US,ENI NEW ENERGY US
+Entergy Corp,"Entergy Power, LLC",family,merged_by_old_key,ENTERGY,ENTERGY,ENTERGY,ENTERGY POWER
+Enterprise Field Services,Enterprise Field Services LLC,same,merged_by_old_key,ENTERPRISE FIELD SERVICES,ENTERPRISE FIELD SERVICES,ENTERPRISE FIELD SERVICE,ENTERPRISE FIELD SERVICE
+Enterprise Field Services,"Enterprise Field Services, LLC",same,merged_by_old_key,ENTERPRISE FIELD SERVICES,ENTERPRISE FIELD SERVICES,ENTERPRISE FIELD SERVICE,ENTERPRISE FIELD SERVICE
+Enterprise Field Services LLC,"Enterprise Field Services, LLC",same,merged_by_old_key,ENTERPRISE FIELD SERVICES,ENTERPRISE FIELD SERVICES,ENTERPRISE FIELD SERVICE,ENTERPRISE FIELD SERVICE
+Enterprise Gas Processing LLC,"Enterprise Gas Processing, LLC",same,merged_by_old_key,ENTERPRISE GAS PROCESSING,ENTERPRISE GAS PROCESSING,ENTERPRISE GAS PROCESSING,ENTERPRISE GAS PROCESSING
+Enterprise Gas Processing LLC,"Enterprise Gas Processing,LLC",same,merged_by_old_key,ENTERPRISE GAS PROCESSING,ENTERPRISE GAS PROCESSING,ENTERPRISE GAS PROCESSING,ENTERPRISE GAS PROCESSING
+"Enterprise Gas Processing, LLC","Enterprise Gas Processing,LLC",same,merged_by_old_key,ENTERPRISE GAS PROCESSING,ENTERPRISE GAS PROCESSING,ENTERPRISE GAS PROCESSING,ENTERPRISE GAS PROCESSING
+Erath County Solar LLC,"Erath County Solar, LLC",same,merged_by_old_key,ERATH COUNTY,ERATH COUNTY,ERATH COUNTY SOLAR,ERATH COUNTY SOLAR
+Erie Boulevard Hydropower,"Erie Boulevard Hydropower, LP",same,merged_by_old_key,ERIE BOULEVARD HYDROPOWER,ERIE BOULEVARD HYDROPOWER,ERIE BOULEVARD HYDROPOWER,ERIE BOULEVARD HYDROPOWER
+ETC Texas Pipeline Ltd,ETC Texas Pipeline Ltd.,same,merged_by_old_key,ETC TEXAS PIPELINE,ETC TEXAS PIPELINE,ETC TEXAS PIPELINE,ETC TEXAS PIPELINE
+ETC Texas Pipeline Ltd,"ETC Texas Pipeline, Ltd.",same,merged_by_old_key,ETC TEXAS PIPELINE,ETC TEXAS PIPELINE,ETC TEXAS PIPELINE,ETC TEXAS PIPELINE
+ETC Texas Pipeline Ltd.,"ETC Texas Pipeline, Ltd.",same,merged_by_old_key,ETC TEXAS PIPELINE,ETC TEXAS PIPELINE,ETC TEXAS PIPELINE,ETC TEXAS PIPELINE
+EXAGEN GROUP LIMITED,Exagen Development Limited,family,merged_by_old_key,EXAGEN,EXAGEN,EXAGEN GROUP,EXAGEN DEVELOPMENT
+Exelon,Exelon Corp.,same,merged_by_old_key,EXELON,EXELON,EXELON,EXELON
+Exelon,Exelon Corporation,same,merged_by_old_key,EXELON,EXELON,EXELON,EXELON
+Exelon Corp.,Exelon Corporation,same,merged_by_old_key,EXELON,EXELON,EXELON,EXELON
+Falcon Energy Project,"Falcon Energy Project, LLC",same,merged_by_old_key,FALCON,FALCON,FALCON ENERGY PROJECT,FALCON ENERGY PROJECT
+Foothills Solar,Foothills Solar LLC,same,merged_by_old_key,FOOTHILLS,FOOTHILLS,FOOTHILLS SOLAR,FOOTHILLS SOLAR
+Fort Edward Solar,Fort Edward Solar LLC,same,merged_by_old_key,FORT EDWARD,FORT EDWARD,FORT EDWARD SOLAR,FORT EDWARD SOLAR
+FPL Energy,"FPL Energy, LLC",same,merged_by_old_key,FPL,FPL,FPL ENERGY,FPL ENERGY
+"Franklin Power, LLC","Franklin Solar, LLC",different,merged_by_old_key,FRANKLIN,FRANKLIN,FRANKLIN POWER,FRANKLIN SOLAR
+FREEPORT LNG DEVELOPMENT LP,Freeport LNG,family,merged_by_old_key,FREEPORT LNG,FREEPORT LNG,FREEPORT LNG DEVELOPMENT,FREEPORT LNG
+Freestone Solar LLC,"Freestone Solar, LLC",same,merged_by_old_key,FREESTONE,FREESTONE,FREESTONE SOLAR,FREESTONE SOLAR
+Freestone Power Generation LLC,"Freestone Power Generation, LLC",same,merged_by_old_key,FREESTONE GENERATION,FREESTONE GENERATION,FREESTONE POWER GENERATION,FREESTONE POWER GENERATION
+"FRESH AIR ENERGY II, LLC",Fresh Air Energy II,same,merged_by_old_key,FRESH AIR II,FRESH AIR II,FRESH AIR ENERGY II,FRESH AIR ENERGY II
+"FRESH AIR ENERGY II, LLC","Fresh Air Energy II, LLC",same,merged_by_old_key,FRESH AIR II,FRESH AIR II,FRESH AIR ENERGY II,FRESH AIR ENERGY II
+Fresh Air Energy II,"Fresh Air Energy II, LLC",same,merged_by_old_key,FRESH AIR II,FRESH AIR II,FRESH AIR ENERGY II,FRESH AIR ENERGY II
+Funston Solar LLC,"Funston Solar, LLC",same,merged_by_old_key,FUNSTON,FUNSTON,FUNSTON SOLAR,FUNSTON SOLAR
+Gamesa Energy USA,"Gamesa Energy USA, LLC",same,merged_by_old_key,GAMESA,GAMESA,GAMESA ENERGY USA,GAMESA ENERGY USA
+Geronimo Power,"Geronimo Solar Energy, LLC",family,merged_by_old_key,GERONIMO,GERONIMO,GERONIMO POWER,GERONIMO SOLAR ENERGY
+GIGA TEXAS ENERGY LLC,"Giga Texas Energy, LLC",same,merged_by_old_key,GIGA TEXAS,GIGA TEXAS,GIGA TEXAS ENERGY,GIGA TEXAS ENERGY
+Glacial Lakes Energy,Glacial Lakes Energy LLC,same,merged_by_old_key,GLACIAL LAKES,GLACIAL LAKES,GLACIAL LAKES ENERGY,GLACIAL LAKES ENERGY
+"Glass Mountain Solar, LLC","Glass Mountain Wind, LLC",different,merged_by_old_key,GLASS MOUNTAIN,GLASS MOUNTAIN,GLASS MOUNTAIN SOLAR,GLASS MOUNTAIN WIND
+"Golden Spread Electric Cooperative, Inc","Golden Spread Electric Cooperative, Inc.",same,merged_by_old_key,GOLDEN SPREAD ELECTRIC COOPERATIVE,GOLDEN SPREAD ELECTRIC COOPERATIVE,GOLDEN SPREAD ELECTRIC COOPERATIVE,GOLDEN SPREAD ELECTRIC COOPERATIVE
+GOLDEN TRIANGLE STORAGE INC,Golden Triangle Energy LLC,different,merged_by_old_key,GOLDEN TRIANGLE,GOLDEN TRIANGLE,GOLDEN TRIANGLE STORAGE,GOLDEN TRIANGLE ENERGY
+Gransolar Texas Nine LLC,"Gransolar Texas Nine, LLC",same,merged_by_old_key,GRANSOLAR TEXAS NINE,GRANSOLAR TEXAS NINE,GRANSOLAR TEXAS NINE,GRANSOLAR TEXAS NINE
+Gransolar Texas Nineteen LLC,"Gransolar Texas Nineteen, LLC",same,merged_by_old_key,GRANSOLAR TEXAS NINETEEN,GRANSOLAR TEXAS NINETEEN,GRANSOLAR TEXAS NINETEEN,GRANSOLAR TEXAS NINETEEN
+Gransolar Texas Ten LLC,"Gransolar Texas Ten, LLC",same,merged_by_old_key,GRANSOLAR TEXAS TEN,GRANSOLAR TEXAS TEN,GRANSOLAR TEXAS TEN,GRANSOLAR TEXAS TEN
+Gransolar Texas Three LLC,"Gransolar Texas Three, LLC",same,merged_by_old_key,GRANSOLAR TEXAS THREE,GRANSOLAR TEXAS THREE,GRANSOLAR TEXAS THREE,GRANSOLAR TEXAS THREE
+Gransolar Texas Two,Gransolar Texas Two LLC,same,merged_by_old_key,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWO
+Gransolar Texas Two,"Gransolar Texas Two, LLC",same,merged_by_old_key,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWO
+Gransolar Texas Two LLC,"Gransolar Texas Two, LLC",same,merged_by_old_key,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWO
+Green Power,Green Power Energy LLC,family,merged_by_old_key,GREEN,GREEN,GREEN POWER,GREEN POWER ENERGY
+Green Power,"Green Power Energy, LLC",family,merged_by_old_key,GREEN,GREEN,GREEN POWER,GREEN POWER ENERGY
+Green Power Energy LLC,"Green Power Energy, LLC",same,merged_by_old_key,GREEN,GREEN,GREEN POWER ENERGY,GREEN POWER ENERGY
+Green Plains Superior,Green Plains Superior LLC,same,merged_by_old_key,GREEN PLAINS SUPERIOR,GREEN PLAINS SUPERIOR,GREEN PLAINS SUPERIOR,GREEN PLAINS SUPERIOR
+Green River Processing,"Green River Processing, LLC",same,merged_by_old_key,GREEN RIVER PROCESSING,GREEN RIVER PROCESSING,GREEN RIVER PROCESSING,GREEN RIVER PROCESSING
+"Greenalia Solar Power Blackwelder Ranch, LLC","Greenalia Wind Power Blackwelder Ranch, LLC",different,merged_by_old_key,GREENALIA BLACKWELDER RANCH,GREENALIA BLACKWELDER RANCH,GREENALIA SOLAR POWER BLACKWELDER RANCH,GREENALIA WIND POWER BLACKWELDER RANCH
+Greenalia Solar Power Ratcliff,"Greenalia Solar Power Ratcliff, LLC",same,merged_by_old_key,GREENALIA RATCLIFF,GREENALIA RATCLIFF,GREENALIA SOLAR POWER RATCLIFF,GREENALIA SOLAR POWER RATCLIFF
+Greenalia Solar Power Reis LLC,"Greenalia Solar Power Reis, LLC",same,merged_by_old_key,GREENALIA REIS,GREENALIA REIS,GREENALIA SOLAR POWER REIS,GREENALIA SOLAR POWER REIS
+Greenalia Solar Power Wensowitch LLC,"Greenalia Solar Power Wensowitch, LLC",same,merged_by_old_key,GREENALIA WENSOWITCH,GREENALIA WENSOWITCH,GREENALIA SOLAR POWER WENSOWITCH,GREENALIA SOLAR POWER WENSOWITCH
+Greenalia Solar Power Wittig LLC,"Greenalia Solar Power Wittig, LLC",same,merged_by_old_key,GREENALIA WITTIG,GREENALIA WITTIG,GREENALIA SOLAR POWER WITTIG,GREENALIA SOLAR POWER WITTIG
+"Gregory Power Holdings, LLC",Gregory Power Partners LLC,family,merged_by_old_key,GREGORY,GREGORY,GREGORY POWER HOLDING,GREGORY POWER PARTNER
+GRS BESS Texas Eight,GRS BESS Texas Eight LLC,same,merged_by_old_key,GRS BESS TEXAS EIGHT,GRS BESS TEXAS EIGHT,GRS BESS TEXAS EIGHT,GRS BESS TEXAS EIGHT
+Gulf Power Co,Gulf Power Company,same,merged_by_old_key,GULF,GULF,GULF POWER,GULF POWER
+"Gulf Gateway Solar, LLC","Gulf Gateway Storage, LLC",different,merged_by_old_key,GULF GATEWAY,GULF GATEWAY,GULF GATEWAY SOLAR,GULF GATEWAY STORAGE
+GULF SOUTH PIPELINE,Gulf South Pipeline Co,same,merged_by_old_key,GULF SOUTH PIPELINE,GULF SOUTH PIPELINE,GULF SOUTH PIPELINE,GULF SOUTH PIPELINE
+Hackberry Creek Solar LLC,"Hackberry Creek Solar, LLC",same,merged_by_old_key,HACKBERRY CREEK,HACKBERRY CREEK,HACKBERRY CREEK SOLAR,HACKBERRY CREEK SOLAR
+Hanwha Q CELLS USA,Hanwha Q CELLS USA Corp.,same,merged_by_old_key,HANWHA Q CELLS,HANWHA Q CELLS,HANWHA Q CELLS USA,HANWHA Q CELLS USA
+HE-Cottonwood Solar LLC,"HE-Cottonwood Solar, LLC",same,merged_by_old_key,HE COTTONWOOD,HE COTTONWOOD,HE COTTONWOOD SOLAR,HE COTTONWOOD SOLAR
+Hecate Energy LLC,"Hecate Energy, LLC",same,merged_by_old_key,HECATE,HECATE,HECATE ENERGY,HECATE ENERGY
+Hecate Energy Dovetail Solar Holdings LLC,Hecate Energy Dovetail Storage LLC,different,merged_by_old_key,HECATE DOVETAIL,HECATE DOVETAIL,HECATE ENERGY DOVETAIL SOLAR HOLDING,HECATE ENERGY DOVETAIL STORAGE
+Hecate Grid East Valley Storage LLC,"Hecate Grid East Valley Storage, LLC",same,merged_by_old_key,HECATE GRID EAST VALLEY,HECATE GRID EAST VALLEY,HECATE GRID EAST VALLEY STORAGE,HECATE GRID EAST VALLEY STORAGE
+Hecate Energy Harley Hand Solar LLC,Hecate Energy Harley Hand Storage LLC,different,merged_by_old_key,HECATE HARLEY HAND,HECATE HARLEY HAND,HECATE ENERGY HARLEY HAND SOLAR,HECATE ENERGY HARLEY HAND STORAGE
+Hecate Energy Ramsey Storage LLC,"Hecate Energy Ramsey Storage, LLC",same,merged_by_old_key,HECATE RAMSEY,HECATE RAMSEY,HECATE ENERGY RAMSEY STORAGE,HECATE ENERGY RAMSEY STORAGE
+"Helion Energy, Inc.",Helion Solar LLC,different,merged_by_old_key,HELION,HELION,HELION ENERGY,HELION SOLAR
+Heritage Solar LLC,"Heritage Solar, LLC",same,merged_by_old_key,HERITAGE,HERITAGE,HERITAGE SOLAR,HERITAGE SOLAR
+Heritage Solar LLC,"Heritage Wind, LLC",different,merged_by_old_key,HERITAGE,HERITAGE,HERITAGE SOLAR,HERITAGE WIND
+"Heritage Solar, LLC","Heritage Wind, LLC",different,merged_by_old_key,HERITAGE,HERITAGE,HERITAGE SOLAR,HERITAGE WIND
+HIGHLAND WIND LIMITED,Highland Power Co.,different,merged_by_old_key,HIGHLAND,HIGHLAND,HIGHLAND WIND,HIGHLAND POWER
+Hiland Partners Holdings  LLC,Hiland Partners Holdings LLC,same,merged_by_old_key,HILAND,HILAND,HILAND PARTNER HOLDING,HILAND PARTNER HOLDING
+Hilcorp Energy Co.,Hilcorp Energy Development LP,family,merged_by_old_key,HILCORP,HILCORP,HILCORP ENERGY,HILCORP ENERGY DEVELOPMENT
+Holbrook Energy Storage,"Holbrook Energy Storage, LLC",same,merged_by_old_key,HOLBROOK,HOLBROOK,HOLBROOK ENERGY STORAGE,HOLBROOK ENERGY STORAGE
+Honey Ridge Solar 1,"Honey Ridge Solar 1, LLC",same,merged_by_old_key,HONEY RIDGE 1,HONEY RIDGE 1,HONEY RIDGE SOLAR 1,HONEY RIDGE SOLAR 1
+Hornet Energy Storage LLC,Hornet Solar LLC,different,merged_by_old_key,HORNET,HORNET,HORNET ENERGY STORAGE,HORNET SOLAR
+Hornet Solar II LLC,Hornet Storage II LLC,different,merged_by_old_key,HORNET II,HORNET II,HORNET SOLAR II,HORNET STORAGE II
+Houston Pipeline Co,Houston Pipeline Co.,same,merged_by_old_key,HOUSTON PIPELINE,HOUSTON PIPELINE,HOUSTON PIPELINE,HOUSTON PIPELINE
+HyFuels Big Spring LLC,HyFuels Big Spring Solar LLC,different,merged_by_old_key,HYFUELS BIG SPRING,HYFUELS BIG SPRING,HYFUELS BIG SPRING,HYFUELS BIG SPRING SOLAR
+HyFuels Green Lake Solar LLC,HyFuels Green Lake Wind LLC,different,merged_by_old_key,HYFUELS GREEN LAKE,HYFUELS GREEN LAKE,HYFUELS GREEN LAKE SOLAR,HYFUELS GREEN LAKE WIND
+"In City I, LLC","In-City I, LLC",same,merged_by_old_key,IN CITY I,IN CITY I,IN CITY I,IN CITY I
+Industrial Bravo Project LLC,"Industrial Bravo Project, LLC",same,merged_by_old_key,INDUSTRIAL BRAVO,INDUSTRIAL BRAVO,INDUSTRIAL BRAVO PROJECT,INDUSTRIAL BRAVO PROJECT
+Innovative Solar 245 LLC,"Innovative Solar 245, LLC",same,merged_by_old_key,INNOVATIVE 245,INNOVATIVE 245,INNOVATIVE SOLAR 245,INNOVATIVE SOLAR 245
+Innovative Energy Systems,Innovative Energy Systems Inc.,same,merged_by_old_key,INNOVATIVE SYSTEMS,INNOVATIVE SYSTEMS,INNOVATIVE ENERGY SYSTEM,INNOVATIVE ENERGY SYSTEM
+Innovative Energy Systems,"Innovative Energy Systems, LLC",family,merged_by_old_key,INNOVATIVE SYSTEMS,INNOVATIVE SYSTEMS,INNOVATIVE ENERGY SYSTEM,INNOVATIVE ENERGY SYSTEM
+Innovative Energy Systems Inc.,"Innovative Energy Systems, LLC",family,merged_by_old_key,INNOVATIVE SYSTEMS,INNOVATIVE SYSTEMS,INNOVATIVE ENERGY SYSTEM,INNOVATIVE ENERGY SYSTEM
+Invenergy Solar Development LLC,Invenergy Solar Development North America LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT,INVENERGY SOLAR DEVELOPMENT NORTH AMERICA
+Invenergy Solar Development LLC,Invenergy Solar Project Development LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT,INVENERGY SOLAR PROJECT DEVELOPMENT
+Invenergy Solar Development LLC,Invenergy Storage Development LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT,INVENERGY STORAGE DEVELOPMENT
+Invenergy Solar Development LLC,Invenergy Wind Development LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT,INVENERGY WIND DEVELOPMENT
+Invenergy Solar Development LLC,Invenergy Wind Development North America LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT,INVENERGY WIND DEVELOPMENT NORTH AMERICA
+Invenergy Solar Development LLC,"Invenergy Wind, LLC",family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT,INVENERGY WIND
+Invenergy Solar Development North America LLC,Invenergy Solar Project Development LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT NORTH AMERICA,INVENERGY SOLAR PROJECT DEVELOPMENT
+Invenergy Solar Development North America LLC,Invenergy Storage Development LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT NORTH AMERICA,INVENERGY STORAGE DEVELOPMENT
+Invenergy Solar Development North America LLC,Invenergy Wind Development LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT NORTH AMERICA,INVENERGY WIND DEVELOPMENT
+Invenergy Solar Development North America LLC,Invenergy Wind Development North America LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT NORTH AMERICA,INVENERGY WIND DEVELOPMENT NORTH AMERICA
+Invenergy Solar Development North America LLC,"Invenergy Wind, LLC",family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR DEVELOPMENT NORTH AMERICA,INVENERGY WIND
+Invenergy Solar Project Development LLC,Invenergy Storage Development LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR PROJECT DEVELOPMENT,INVENERGY STORAGE DEVELOPMENT
+Invenergy Solar Project Development LLC,Invenergy Wind Development LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR PROJECT DEVELOPMENT,INVENERGY WIND DEVELOPMENT
+Invenergy Solar Project Development LLC,Invenergy Wind Development North America LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR PROJECT DEVELOPMENT,INVENERGY WIND DEVELOPMENT NORTH AMERICA
+Invenergy Solar Project Development LLC,"Invenergy Wind, LLC",family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY SOLAR PROJECT DEVELOPMENT,INVENERGY WIND
+Invenergy Storage Development LLC,Invenergy Wind Development LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY STORAGE DEVELOPMENT,INVENERGY WIND DEVELOPMENT
+Invenergy Storage Development LLC,Invenergy Wind Development North America LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY STORAGE DEVELOPMENT,INVENERGY WIND DEVELOPMENT NORTH AMERICA
+Invenergy Storage Development LLC,"Invenergy Wind, LLC",family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY STORAGE DEVELOPMENT,INVENERGY WIND
+Invenergy Wind Development LLC,Invenergy Wind Development North America LLC,family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY WIND DEVELOPMENT,INVENERGY WIND DEVELOPMENT NORTH AMERICA
+Invenergy Wind Development LLC,"Invenergy Wind, LLC",family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY WIND DEVELOPMENT,INVENERGY WIND
+Invenergy Wind Development North America LLC,"Invenergy Wind, LLC",family,merged_by_old_key,INVENERGY,INVENERGY,INVENERGY WIND DEVELOPMENT NORTH AMERICA,INVENERGY WIND
+Invenergy NY LLC,"Invenergy NY, LLC",same,merged_by_old_key,INVENERGY NY,INVENERGY NY,INVENERGY NY,INVENERGY NY
+"IP Roman Wind, LLC","IP Roman, LLC",family,merged_by_old_key,IP ROMAN,IP ROMAN,IP ROMAN WIND,IP ROMAN
+Juniper Energy Limited,Juniper Solar,different,merged_by_old_key,JUNIPER,JUNIPER,JUNIPER ENERGY,JUNIPER SOLAR
+Juno Power Management,Juno Power Management LLC,same,merged_by_old_key,JUNO MANAGEMENT,JUNO MANAGEMENT,JUNO POWER MANAGEMENT,JUNO POWER MANAGEMENT
+"KCS Energy, Inc","KCS Energy, Inc.",same,merged_by_old_key,KCS,KCS,KCS ENERGY,KCS ENERGY
+Kentucky Municipal Energy Agency,Kentucky Municipal Power Agency,different,merged_by_old_key,KENTUCKY MUNICIPAL AGENCY,KENTUCKY MUNICIPAL AGENCY,KENTUCKY MUNICIPAL ENERGY AGENCY,KENTUCKY MUNICIPAL POWER AGENCY
+Kerrville Public Utility Board Public Facility Corp,Kerrville Public Utility Board Public Facility Corporation,same,merged_by_old_key,KERRVILLE PUBLIC UTILITY BOARD PUBLIC FACILITY,KERRVILLE PUBLIC UTILITY BOARD PUBLIC FACILITY,KERRVILLE PUBLIC UTILITY BOARD PUBLIC FACILITY,KERRVILLE PUBLIC UTILITY BOARD PUBLIC FACILITY
+KeySpan Energy Development Corp.,"KeySpan Energy, Inc.",family,merged_by_old_key,KEYSPAN,KEYSPAN,KEYSPAN ENERGY DEVELOPMENT,KEYSPAN ENERGY
+KINDER MORGAN TEXAS PIPELINE LLC,Kinder Morgan Texas Pipeline Co,same,merged_by_old_key,KINDER MORGAN TEXAS PIPELINE,KINDER MORGAN TEXAS PIPELINE,KINDER MORGAN TEXAS PIPELINE,KINDER MORGAN TEXAS PIPELINE
+"King Mountain Solar, LLC",King Mountain Storage LLC,different,merged_by_old_key,KING MOUNTAIN,KING MOUNTAIN,KING MOUNTAIN SOLAR,KING MOUNTAIN STORAGE
+"Kurtz Solar, LLC","Kurtz Storage, LLC",different,merged_by_old_key,KURTZ,KURTZ,KURTZ SOLAR,KURTZ STORAGE
+Kuy Creek Solar 1 LLC,Kuy Creek Storage 1 LLC,different,merged_by_old_key,KUY CREEK 1,KUY CREEK 1,KUY CREEK SOLAR 1,KUY CREEK STORAGE 1
+"La Mancha Solar, LLC","La Mancha Storage, LLC",different,merged_by_old_key,LA MANCHA,LA MANCHA,LA MANCHA SOLAR,LA MANCHA STORAGE
+Lavender Solar LLC,Lavender Storage Project LLC,different,merged_by_old_key,LAVENDER,LAVENDER,LAVENDER SOLAR,LAVENDER STORAGE PROJECT
+Lazy U Solar 1,Lazy U Solar 1 LLC,same,merged_by_old_key,LAZY U 1,LAZY U 1,LAZY U SOLAR 1,LAZY U SOLAR 1
+Lazy U Solar 2,Lazy U Solar 2 LLC,same,merged_by_old_key,LAZY U 2,LAZY U 2,LAZY U SOLAR 2,LAZY U SOLAR 2
+Lazy U ESS 1,Lazy U ESS 1 LLC,same,merged_by_old_key,LAZY U ESS 1,LAZY U ESS 1,LAZY U ESS 1,LAZY U ESS 1
+Lazy U ESS 2,Lazy U ESS 2 LLC,same,merged_by_old_key,LAZY U ESS 2,LAZY U ESS 2,LAZY U ESS 2,LAZY U ESS 2
+LI Energy Storage System,"LI Energy Storage System, LLC",same,merged_by_old_key,LI SYSTEM,LI SYSTEM,LI ENERGY STORAGE SYSTEM,LI ENERGY STORAGE SYSTEM
+Liberty Renewables,Liberty Renewables Inc.,same,merged_by_old_key,LIBERTY,LIBERTY,LIBERTY RENEWABLE,LIBERTY RENEWABLE
+Liberty Renewables,Liberty Renewables Incorporated,same,merged_by_old_key,LIBERTY,LIBERTY,LIBERTY RENEWABLE,LIBERTY RENEWABLE
+Liberty Renewables Inc.,Liberty Renewables Incorporated,same,merged_by_old_key,LIBERTY,LIBERTY,LIBERTY RENEWABLE,LIBERTY RENEWABLE
+Light & Power Development,"Light & Power Development, LLC",same,merged_by_old_key,LIGHT,LIGHT,LIGHT AND POWER DEVELOPMENT,LIGHT AND POWER DEVELOPMENT
+Limewood Bell Renewables LLC,"Limewood Bell Renewables, LLC",same,merged_by_old_key,LIMEWOOD BELL,LIMEWOOD BELL,LIMEWOOD BELL RENEWABLE,LIMEWOOD BELL RENEWABLE
+Linn Energy,Linn Energy LLC,same,merged_by_old_key,LINN,LINN,LINN ENERGY,LINN ENERGY
+"Live Oak Energy Storage, LLC","Live Oak Wind Project, LLC",different,merged_by_old_key,LIVE OAK,LIVE OAK,LIVE OAK ENERGY STORAGE,LIVE OAK WIND PROJECT
+"Long Point Solar, LLC","Long Point Storage, LLC",different,merged_by_old_key,LONG POINT,LONG POINT,LONG POINT SOLAR,LONG POINT STORAGE
+Longfellow Power LLC,"Longfellow Wind, LLC",family,merged_by_old_key,LONGFELLOW,LONGFELLOW,LONGFELLOW POWER,LONGFELLOW WIND
+Louis Dreyfus Co,Louis Dreyfus Co.,same,merged_by_old_key,LOUIS DREYFUS,LOUIS DREYFUS,LOUIS DREYFUS,LOUIS DREYFUS
+LOWER COLORADO RIVER AUTHORITY,Lower Colorado River Authority,same,merged_by_old_key,LOWER COLORADO RIVER AUTHORITY,LOWER COLORADO RIVER AUTHORITY,LOWER COLORADO RIVER AUTHORITY,LOWER COLORADO RIVER AUTHORITY
+LS Power,LS Power Development LLC,family,merged_by_old_key,LS,LS,LS POWER,LS POWER DEVELOPMENT
+LS Power,"LS Power Development, LLC",family,merged_by_old_key,LS,LS,LS POWER,LS POWER DEVELOPMENT
+LS Power Development LLC,"LS Power Development, LLC",same,merged_by_old_key,LS,LS,LS POWER DEVELOPMENT,LS POWER DEVELOPMENT
+LUMINOUS ENERGY GROUP LIMITED,Luminous Energy Renewables LLC,family,merged_by_old_key,LUMINOUS,LUMINOUS,LUMINOUS ENERGY GROUP,LUMINOUS ENERGY RENEWABLE
+Madison Gas & Electric Co,Madison Gas & Electric Company,same,merged_by_old_key,MADISON GAS ELECTRIC,MADISON GAS ELECTRIC,MADISON GAS AND ELECTRIC,MADISON GAS AND ELECTRIC
+Malachite Solar LLC,Malachite Storage LLC,different,merged_by_old_key,MALACHITE,MALACHITE,MALACHITE SOLAR,MALACHITE STORAGE
+Mallard Energy Storage LLC,"Mallard Energy Storage, LLC",same,merged_by_old_key,MALLARD,MALLARD,MALLARD ENERGY STORAGE,MALLARD ENERGY STORAGE
+"Marshall Springs Solar, LLC","Marshall Springs Storage, LLC",different,merged_by_old_key,MARSHALL SPRINGS,MARSHALL SPRINGS,MARSHALL SPRINGS SOLAR,MARSHALL SPRINGS STORAGE
+MC Project Company LLC,"MC Solar, LLC",different,merged_by_old_key,MC,MC,MC PROJECT,MC SOLAR
+Mercury Solar,"Mercury Storage, LLC",different,merged_by_old_key,MERCURY,MERCURY,MERCURY SOLAR,MERCURY STORAGE
+Mesquite Creek LLC,Mesquite Creek Wind LLC,family,merged_by_old_key,MESQUITE CREEK,MESQUITE CREEK,MESQUITE CREEK,MESQUITE CREEK WIND
+Mesquite Creek LLC,"Mesquite Creek Wind, LLC",family,merged_by_old_key,MESQUITE CREEK,MESQUITE CREEK,MESQUITE CREEK,MESQUITE CREEK WIND
+Mesquite Creek Wind LLC,"Mesquite Creek Wind, LLC",same,merged_by_old_key,MESQUITE CREEK,MESQUITE CREEK,MESQUITE CREEK WIND,MESQUITE CREEK WIND
+MidAmerican Energy Co,MidAmerican Solar LLC,family,merged_by_old_key,MIDAMERICAN,MIDAMERICAN,MIDAMERICAN ENERGY,MIDAMERICAN SOLAR
+Middletown Energy Storage LLC,"Middletown Energy Storage, LLC",same,merged_by_old_key,MIDDLETOWN,MIDDLETOWN,MIDDLETOWN ENERGY STORAGE,MIDDLETOWN ENERGY STORAGE
+"Midstream Energy  Services, LLC","Midstream Energy Services, LLC",same,merged_by_old_key,MIDSTREAM SERVICES,MIDSTREAM SERVICES,MIDSTREAM ENERGY SERVICE,MIDSTREAM ENERGY SERVICE
+"Miller Bend Energy , LLC","Miller Bend Energy, LLC",same,merged_by_old_key,MILLER BEND,MILLER BEND,MILLER BEND ENERGY,MILLER BEND ENERGY
+Minnesota Methane LLC,"Minnesota Methane, LLC",same,merged_by_old_key,MINNESOTA METHANE,MINNESOTA METHANE,MINNESOTA METHANE,MINNESOTA METHANE
+"Mockingbird Solar Center, LLC","Mockingbird Storage Center, LLC",different,merged_by_old_key,MOCKINGBIRD CENTER,MOCKINGBIRD CENTER,MOCKINGBIRD SOLAR CENTER,MOCKINGBIRD STORAGE CENTER
+Momentum Energy Storage Partners,"Momentum Energy Storage Partners,LLC",same,merged_by_old_key,MOMENTUM,MOMENTUM,MOMENTUM ENERGY STORAGE PARTNER,MOMENTUM ENERGY STORAGE PARTNER
+Morrow Energy,"Morrow Renewables, LLC",family,merged_by_old_key,MORROW,MORROW,MORROW ENERGY,MORROW RENEWABLE
+Moss Ridge Solar 1,"Moss Ridge Solar 1, LLC",same,merged_by_old_key,MOSS RIDGE 1,MOSS RIDGE 1,MOSS RIDGE SOLAR 1,MOSS RIDGE SOLAR 1
+"MRG GOODY SOLAR PROJECT, LLC",MRG Goody Solar Project LLC,same,merged_by_old_key,MRG GOODY,MRG GOODY,MRG GOODY SOLAR PROJECT,MRG GOODY SOLAR PROJECT
+Mustang Renewable Power Ventures,Mustang Ventures Company,different,merged_by_old_key,MUSTANG VENTURES,MUSTANG VENTURES,MUSTANG RENEWABLE POWER VENTURE,MUSTANG VENTURE
+NATIONAL FUEL GAS SUPPLY CORPORATION,National Fuel Gas Supply Co,same,merged_by_old_key,NATIONAL FUEL GAS SUPPLY,NATIONAL FUEL GAS SUPPLY,NATIONAL FUEL GAS SUPPLY,NATIONAL FUEL GAS SUPPLY
+New Bremen Solar,"New Bremen Solar, LLC",same,merged_by_old_key,NEW BREMEN,NEW BREMEN,NEW BREMEN SOLAR,NEW BREMEN SOLAR
+Newport Deerfield Solar,Newport Deerfield Solar LLC,same,merged_by_old_key,NEWPORT DEERFIELD,NEWPORT DEERFIELD,NEWPORT DEERFIELD SOLAR,NEWPORT DEERFIELD SOLAR
+Nexamp,Nexamp Solar,family,merged_by_old_key,NEXAMP,NEXAMP,NEXAMP,NEXAMP SOLAR
+Nexamp,Nexamp Solar LLC,family,merged_by_old_key,NEXAMP,NEXAMP,NEXAMP,NEXAMP SOLAR
+Nexamp Solar,Nexamp Solar LLC,same,merged_by_old_key,NEXAMP,NEXAMP,NEXAMP SOLAR,NEXAMP SOLAR
+NextEra Energy Partners LP,Nextera,family,merged_by_old_key,NEXTERA,NEXTERA,NEXTERA ENERGY PARTNER,NEXTERA
+NextEra Energy Interconnection Holdings,NextEra Energy Interconnection Holdings LLC,same,merged_by_old_key,NEXTERA INTERCONNECTION,NEXTERA INTERCONNECTION,NEXTERA ENERGY INTERCONNECTION HOLDING,NEXTERA ENERGY INTERCONNECTION HOLDING
+NextEra Energy Interconnection Holdings,"NextEra Energy Interconnection Holdings, LLC",same,merged_by_old_key,NEXTERA INTERCONNECTION,NEXTERA INTERCONNECTION,NEXTERA ENERGY INTERCONNECTION HOLDING,NEXTERA ENERGY INTERCONNECTION HOLDING
+NextEra Energy Interconnection Holdings LLC,"NextEra Energy Interconnection Holdings, LLC",same,merged_by_old_key,NEXTERA INTERCONNECTION,NEXTERA INTERCONNECTION,NEXTERA ENERGY INTERCONNECTION HOLDING,NEXTERA ENERGY INTERCONNECTION HOLDING
+"NextEra Energy Resources, LLC",Nextera Energy Resources,same,merged_by_old_key,NEXTERA RESOURCES,NEXTERA RESOURCES,NEXTERA ENERGY RESOURCE,NEXTERA ENERGY RESOURCE
+"NextEra Energy Resources Interconnection Holding, LLC",NextEra Energy Resources Interconnection Holdings LLC,same,merged_by_old_key,NEXTERA RESOURCES INTERCONNECTION,NEXTERA RESOURCES INTERCONNECTION,NEXTERA ENERGY RESOURCE INTERCONNECTION HOLDING,NEXTERA ENERGY RESOURCE INTERCONNECTION HOLDING
+"NextEra Energy Resources Interconnection Holding, LLC","NextEra Energy Resources Interconnection Holdings, LLC",same,merged_by_old_key,NEXTERA RESOURCES INTERCONNECTION,NEXTERA RESOURCES INTERCONNECTION,NEXTERA ENERGY RESOURCE INTERCONNECTION HOLDING,NEXTERA ENERGY RESOURCE INTERCONNECTION HOLDING
+NextEra Energy Resources Interconnection Holdings LLC,"NextEra Energy Resources Interconnection Holdings, LLC",same,merged_by_old_key,NEXTERA RESOURCES INTERCONNECTION,NEXTERA RESOURCES INTERCONNECTION,NEXTERA ENERGY RESOURCE INTERCONNECTION HOLDING,NEXTERA ENERGY RESOURCE INTERCONNECTION HOLDING
+"NextEra Energy Transmission NY, Inc","NextEra Energy Transmission NY, Inc.",same,merged_by_old_key,NEXTERA TRANSMISSION NY,NEXTERA TRANSMISSION NY,NEXTERA ENERGY TRANSMISSION NY,NEXTERA ENERGY TRANSMISSION NY
+Noble Energy,Noble Solar LLC,different,merged_by_old_key,NOBLE,NOBLE,NOBLE ENERGY,NOBLE SOLAR
+Noble Environmental,"Noble Environmental Power, LLC",same,merged_by_old_key,NOBLE ENVIRONMENTAL,NOBLE ENVIRONMENTAL,NOBLE ENVIRONMENTAL,NOBLE ENVIRONMENTAL POWER
+Northbrook Lyons Falls,Northbrook Lyons Falls LLC,same,merged_by_old_key,NORTHBROOK LYONS FALLS,NORTHBROOK LYONS FALLS,NORTHBROOK LYONS FALLS,NORTHBROOK LYONS FALLS
+NORTHERN NATURAL GAS COMPANY,Northern Natural Gas Co,same,merged_by_old_key,NORTHERN NATURAL GAS,NORTHERN NATURAL GAS,NORTHERN NATURAL GAS,NORTHERN NATURAL GAS
+Northwestern Energy,Northwestern Energy Co,same,merged_by_old_key,NORTHWESTERN,NORTHWESTERN,NORTHWESTERN ENERGY,NORTHWESTERN ENERGY
+Nova Clean Energy LLC,"Nova Clean Energy, LLC",same,merged_by_old_key,NOVA CLEAN,NOVA CLEAN,NOVA CLEAN ENERGY,NOVA CLEAN ENERGY
+NRG Energy,"NRG Energy, Inc",same,merged_by_old_key,NRG,NRG,NRG ENERGY,NRG ENERGY
+NRG Energy,"NRG Energy, Inc.",same,merged_by_old_key,NRG,NRG,NRG ENERGY,NRG ENERGY
+"NRG Energy, Inc","NRG Energy, Inc.",same,merged_by_old_key,NRG,NRG,NRG ENERGY,NRG ENERGY
+NY Power Authority & LS Power Grid NY Corporation II,NY Power Authority Development & LS Power Grid NY Corporation II,same,merged_by_old_key,NY AUTHORITY LS GRID NY II,NY AUTHORITY LS GRID NY II,NY POWER AUTHORITY AND LS POWER GRID NY II,NY POWER AUTHORITY DEVELOPMENT AND LS POWER GRID NY II
+NYC Energy,NYC Energy LLC,same,merged_by_old_key,NYC,NYC,NYC ENERGY,NYC ENERGY
+"Oak Belt Solar, LLC","Oak Belt Storage, LLC",different,merged_by_old_key,OAK BELT,OAK BELT,OAK BELT SOLAR,OAK BELT STORAGE
+OCI Energy LLC,OCI Solar Power LLC,family,merged_by_old_key,OCI,OCI,OCI ENERGY,OCI SOLAR POWER
+OFFSHORE WIND LIMITED,OFFSHORE WIND POWER LIMITED,different,merged_by_old_key,OFFSHORE,OFFSHORE,OFFSHORE WIND,OFFSHORE WIND POWER
+Old Aqueduct LLC,Old Aqueduct Solar,family,merged_by_old_key,OLD AQUEDUCT,OLD AQUEDUCT,OLD AQUEDUCT,OLD AQUEDUCT SOLAR
+One Energy Capital Corporation LLC,One Energy Capital LLC,family,merged_by_old_key,ONE CAPITAL,ONE CAPITAL,ONE ENERGY CAPITAL,ONE ENERGY CAPITAL
+"OneEnergy Development, LLC","OneEnergy, Inc.",family,merged_by_old_key,ONEENERGY,ONEENERGY,ONEENERGY DEVELOPMENT,ONEENERGY
+Origis Development,"Origis Energy USA, Inc",family,merged_by_old_key,ORIGIS,ORIGIS,ORIGIS DEVELOPMENT,ORIGIS ENERGY USA
+Orsted North America Inc.,Orsted Wind Power North America LLC,family,merged_by_old_key,ORSTED,ORSTED,ORSTED NORTH AMERICA,ORSTED WIND POWER NORTH AMERICA
+OW Ocean Winds East,"OW Ocean Winds East, LLC",same,merged_by_old_key,OW OCEAN WINDS EAST,OW OCEAN WINDS EAST,OW OCEAN WINDS EAST,OW OCEAN WINDS EAST
+Oxy,Oxy Renewable Energy LLC,family,merged_by_old_key,OXY,OXY,OXY,OXY RENEWABLE ENERGY
+Oxy,Oxy USA INC,family,merged_by_old_key,OXY,OXY,OXY,OXY USA
+Oxy Renewable Energy LLC,Oxy USA INC,family,merged_by_old_key,OXY,OXY,OXY RENEWABLE ENERGY,OXY USA
+Oya Solar NY LP,"Oya Solar NY, LP",same,merged_by_old_key,OYA NY,OYA NY,OYA SOLAR NY,OYA SOLAR NY
+Palladium Energy Storage LLC,Palladium Storage LLC,different,merged_by_old_key,PALLADIUM,PALLADIUM,PALLADIUM ENERGY STORAGE,PALLADIUM STORAGE
+Palomino Renewables,"Palomino Solar, LLC",different,merged_by_old_key,PALOMINO,PALOMINO,PALOMINO RENEWABLE,PALOMINO SOLAR
+Parallel Products,Parallel Products Inc,same,merged_by_old_key,PARALLEL PRODUCTS,PARALLEL PRODUCTS,PARALLEL PRODUCTS,PARALLEL PRODUCTS
+Parallel Products,Parallel Products Inc.,same,merged_by_old_key,PARALLEL PRODUCTS,PARALLEL PRODUCTS,PARALLEL PRODUCTS,PARALLEL PRODUCTS
+Parallel Products Inc,Parallel Products Inc.,same,merged_by_old_key,PARALLEL PRODUCTS,PARALLEL PRODUCTS,PARALLEL PRODUCTS,PARALLEL PRODUCTS
+Pattersonville Solar Facility LLC,"Pattersonville Solar Facility, LLC",same,merged_by_old_key,PATTERSONVILLE FACILITY,PATTERSONVILLE FACILITY,PATTERSONVILLE SOLAR FACILITY,PATTERSONVILLE SOLAR FACILITY
+Pepper Solar Farm LLC,"Pepper Solar Farm, LLC",same,merged_by_old_key,PEPPER FARM,PEPPER FARM,PEPPER SOLAR FARM,PEPPER SOLAR FARM
+Pivot Energy,Pivot Energy Development LLC,family,merged_by_old_key,PIVOT,PIVOT,PIVOT ENERGY,PIVOT ENERGY DEVELOPMENT
+Poet Biorefining - Alexandria LLC,Poet Biorefining-Alexandria LLC,same,merged_by_old_key,POET BIOREFINING ALEXANDRIA,POET BIOREFINING ALEXANDRIA,POET BIOREFINING ALEXANDRIA,POET BIOREFINING ALEXANDRIA
+Poet Biorefining - Bingham Lake LLC,Poet Biorefining-Bingham Lake LLC,same,merged_by_old_key,POET BIOREFINING BINGHAM LAKE,POET BIOREFINING BINGHAM LAKE,POET BIOREFINING BINGHAM LAKE,POET BIOREFINING BINGHAM LAKE
+Poet Biorefining Caro LLC,Poet Biorefining-Caro,same,merged_by_old_key,POET BIOREFINING CARO,POET BIOREFINING CARO,POET BIOREFINING CARO,POET BIOREFINING CARO
+Poet Biorefining Corning LLC,Poet Biorefining-Corning LLC,same,merged_by_old_key,POET BIOREFINING CORNING,POET BIOREFINING CORNING,POET BIOREFINING CORNING,POET BIOREFINING CORNING
+Poet Biorefining Gowrie LLC,Poet Biorefining-Gowrie LLC,same,merged_by_old_key,POET BIOREFINING GOWRIE,POET BIOREFINING GOWRIE,POET BIOREFINING GOWRIE,POET BIOREFINING GOWRIE
+Poet Biorefining Hanlontown LLC,Poet Biorefining-Hanlontown LLC,same,merged_by_old_key,POET BIOREFINING HANLONTOWN,POET BIOREFINING HANLONTOWN,POET BIOREFINING HANLONTOWN,POET BIOREFINING HANLONTOWN
+Poet Biorefining Jewell LLC,Poet Biorefining-Jewell LLC,same,merged_by_old_key,POET BIOREFINING JEWELL,POET BIOREFINING JEWELL,POET BIOREFINING JEWELL,POET BIOREFINING JEWELL
+Poet Biorefining Laddonia LLC,Poet Biorefining-Laddonia LLC,same,merged_by_old_key,POET BIOREFINING LADDONIA,POET BIOREFINING LADDONIA,POET BIOREFINING LADDONIA,POET BIOREFINING LADDONIA
+Poet Biorefining Lake Crystal LLC,Poet Biorefining--Lake Crystal LLC,same,merged_by_old_key,POET BIOREFINING LAKE CRYSTAL,POET BIOREFINING LAKE CRYSTAL,POET BIOREFINING LAKE CRYSTAL,POET BIOREFINING LAKE CRYSTAL
+Poet Biorefining - Leipsic LLC,Poet Biorefining-Leipsic LLC,same,merged_by_old_key,POET BIOREFINING LEIPSIC,POET BIOREFINING LEIPSIC,POET BIOREFINING LEIPSIC,POET BIOREFINING LEIPSIC
+Poet Biorefining-Marion,Poet Biorefining-Marion LLC,same,merged_by_old_key,POET BIOREFINING MARION,POET BIOREFINING MARION,POET BIOREFINING MARION,POET BIOREFINING MARION
+Poet Biorefining - Mitchell LLC,Poet Biorefining- Mitchell LLC,same,merged_by_old_key,POET BIOREFINING MITCHELL,POET BIOREFINING MITCHELL,POET BIOREFINING MITCHELL,POET BIOREFINING MITCHELL
+Poet Biorefining - Portland LLC,Poet Biorefining-Portland LLC,same,merged_by_old_key,POET BIOREFINING PORTLAND,POET BIOREFINING PORTLAND,POET BIOREFINING PORTLAND,POET BIOREFINING PORTLAND
+Poet Biorefining - Shelbyville,Poet Biorefining-Shelbyville,same,merged_by_old_key,POET BIOREFINING SHELBYVILLE,POET BIOREFINING SHELBYVILLE,POET BIOREFINING SHELBYVILLE,POET BIOREFINING SHELBYVILLE
+"PPM Energy, Inc","PPM Energy, Inc.",same,merged_by_old_key,PPM,PPM,PPM ENERGY,PPM ENERGY
+Prairie Power Inc,"Prairie Power Wind, LLC",different,merged_by_old_key,PRAIRIE,PRAIRIE,PRAIRIE POWER,PRAIRIE POWER WIND
+Prairie Power Inc,Prairie Solar LLC,different,merged_by_old_key,PRAIRIE,PRAIRIE,PRAIRIE POWER,PRAIRIE SOLAR
+"Prairie Power Wind, LLC",Prairie Solar LLC,different,merged_by_old_key,PRAIRIE,PRAIRIE,PRAIRIE POWER WIND,PRAIRIE SOLAR
+Prairie Hill LLC,Prairie Hill Wind Project LLC,family,merged_by_old_key,PRAIRIE HILL,PRAIRIE HILL,PRAIRIE HILL,PRAIRIE HILL WIND PROJECT
+Prairie Hill LLC,"Prairie Hill Wind Project, LLC",family,merged_by_old_key,PRAIRIE HILL,PRAIRIE HILL,PRAIRIE HILL,PRAIRIE HILL WIND PROJECT
+Prairie Hill Wind Project LLC,"Prairie Hill Wind Project, LLC",same,merged_by_old_key,PRAIRIE HILL,PRAIRIE HILL,PRAIRIE HILL WIND PROJECT,PRAIRIE HILL WIND PROJECT
+PSEG Power NY,PSEG Power NY LLC,same,merged_by_old_key,PSEG NY,PSEG NY,PSEG POWER NY,PSEG POWER NY
+PUBLIC SERVICE COMPANY OF COLORADO,Public Service Co of Colorado,same,merged_by_old_key,PUBLIC SERVICE OF COLORADO,PUBLIC SERVICE OF COLORADO,PUBLIC SERVICE OF COLORADO,PUBLIC SERVICE OF COLORADO
+PUGET SOUND ENERGY,Puget Sound Energy Inc,same,merged_by_old_key,PUGET SOUND,PUGET SOUND,PUGET SOUND ENERGY,PUGET SOUND ENERGY
+PureSky Development Inc,PureSky Development Inc.,same,merged_by_old_key,PURESKY,PURESKY,PURESKY DEVELOPMENT,PURESKY DEVELOPMENT
+Puuloa Energy LLC,Puuloa Solar LLC,family,merged_by_old_key,PUULOA,PUULOA,PUULOA ENERGY,PUULOA SOLAR
+QUESTAR PIPELINE COMPANY,Questar Pipeline Co,same,merged_by_old_key,QUESTAR PIPELINE,QUESTAR PIPELINE,QUESTAR PIPELINE,QUESTAR PIPELINE
+Raghorn Solar LLC,Raghorn Storage LLC,different,merged_by_old_key,RAGHORN,RAGHORN,RAGHORN SOLAR,RAGHORN STORAGE
+Red Egret LLC,"Red Egret, LLC",same,merged_by_old_key,RED EGRET,RED EGRET,RED EGRET,RED EGRET
+"Red Rock Gathering Company, LLC","Red Rock Gathering Company, LLC.",same,merged_by_old_key,RED ROCK GATHERING,RED ROCK GATHERING,RED ROCK GATHERING,RED ROCK GATHERING
+Renegade Renewable LLC,"Renegade Renewables, LLC",same,merged_by_old_key,RENEGADE,RENEGADE,RENEGADE RENEWABLE,RENEGADE RENEWABLE
+Renovo Energy Center LLC,"Renovo Energy Center, LLC",same,merged_by_old_key,RENOVO CENTER,RENOVO CENTER,RENOVO ENERGY CENTER,RENOVO ENERGY CENTER
+ENERGY POWER RESOURCES LIMITED,"Energy Storage Resources, LLC",different,merged_by_old_key,RESOURCES,RESOURCES,ENERGY POWER RESOURCE,ENERGY STORAGE RESOURCE
+"Reunion Power, LLC","Reunion Solar, LLC",different,merged_by_old_key,REUNION,REUNION,REUNION POWER,REUNION SOLAR
+"Rio Vista Solar, LLC","Rio Vista Storage, LLC",different,merged_by_old_key,RIO VISTA,RIO VISTA,RIO VISTA SOLAR,RIO VISTA STORAGE
+Ripley Westfield Wind LLC,Ripley-Westfield Wind LLC,same,merged_by_old_key,RIPLEY WESTFIELD,RIPLEY WESTFIELD,RIPLEY WESTFIELD WIND,RIPLEY WESTFIELD WIND
+Riverhead Solar Farm LLC,"Riverhead Solar Farm, LLC",same,merged_by_old_key,RIVERHEAD FARM,RIVERHEAD FARM,RIVERHEAD SOLAR FARM,RIVERHEAD SOLAR FARM
+Roadrunner,"Roadrunner Wind, LLC",family,merged_by_old_key,ROADRUNNER,ROADRUNNER,ROADRUNNER,ROADRUNNER WIND
+Rock Creek Solar LLC,"Rock Creek Wind, LLC",different,merged_by_old_key,ROCK CREEK,ROCK CREEK,ROCK CREEK SOLAR,ROCK CREEK WIND
+"Rocky Mountain Energy Development, LLC","Rocky Mountain Energy Holdings, LLC",different,merged_by_old_key,ROCKY MOUNTAIN,ROCKY MOUNTAIN,ROCKY MOUNTAIN ENERGY DEVELOPMENT,ROCKY MOUNTAIN ENERGY HOLDING
+Rolling Upland Wind Farm LLC,"Rolling Upland Wind Farm, LLC",same,merged_by_old_key,ROLLING UPLAND FARM,ROLLING UPLAND FARM,ROLLING UPLAND WIND FARM,ROLLING UPLAND WIND FARM
+"Rosebud Solar, LLC","Rosebud Storage, LLC",different,merged_by_old_key,ROSEBUD,ROSEBUD,ROSEBUD SOLAR,ROSEBUD STORAGE
+Rosula Solar LLC,Rosula Storage LLC,different,merged_by_old_key,ROSULA,ROSULA,ROSULA SOLAR,ROSULA STORAGE
+RWE,RWE Renewables,family,merged_by_old_key,RWE,RWE,RWE,RWE RENEWABLE
+RWE,"RWE Renewables Development, LLC",family,merged_by_old_key,RWE,RWE,RWE,RWE RENEWABLE DEVELOPMENT
+RWE,RWE Solar Development,family,merged_by_old_key,RWE,RWE,RWE,RWE SOLAR DEVELOPMENT
+RWE,"RWE Solar Development, LLC",family,merged_by_old_key,RWE,RWE,RWE,RWE SOLAR DEVELOPMENT
+RWE Renewables,"RWE Renewables Development, LLC",family,merged_by_old_key,RWE,RWE,RWE RENEWABLE,RWE RENEWABLE DEVELOPMENT
+RWE Renewables,RWE Solar Development,family,merged_by_old_key,RWE,RWE,RWE RENEWABLE,RWE SOLAR DEVELOPMENT
+RWE Renewables,"RWE Solar Development, LLC",family,merged_by_old_key,RWE,RWE,RWE RENEWABLE,RWE SOLAR DEVELOPMENT
+"RWE Renewables Development, LLC",RWE Solar Development,family,merged_by_old_key,RWE,RWE,RWE RENEWABLE DEVELOPMENT,RWE SOLAR DEVELOPMENT
+"RWE Renewables Development, LLC","RWE Solar Development, LLC",family,merged_by_old_key,RWE,RWE,RWE RENEWABLE DEVELOPMENT,RWE SOLAR DEVELOPMENT
+RWE Solar Development,"RWE Solar Development, LLC",same,merged_by_old_key,RWE,RWE,RWE SOLAR DEVELOPMENT,RWE SOLAR DEVELOPMENT
+RWE Clean Energy,"RWE Clean Energy Development, LLC",family,merged_by_old_key,RWE CLEAN,RWE CLEAN,RWE CLEAN ENERGY,RWE CLEAN ENERGY DEVELOPMENT
+RWE Clean Energy,"RWE Clean Energy, LLC",same,merged_by_old_key,RWE CLEAN,RWE CLEAN,RWE CLEAN ENERGY,RWE CLEAN ENERGY
+"RWE Clean Energy Development, LLC","RWE Clean Energy, LLC",family,merged_by_old_key,RWE CLEAN,RWE CLEAN,RWE CLEAN ENERGY DEVELOPMENT,RWE CLEAN ENERGY
+San Gabriel Project LLC,San Gabriel Solar LLC,different,merged_by_old_key,SAN GABRIEL,SAN GABRIEL,SAN GABRIEL PROJECT,SAN GABRIEL SOLAR
+SATURN ENERGY STORAGE,Saturn Energy Storage LLC,same,merged_by_old_key,SATURN,SATURN,SATURN ENERGY STORAGE,SATURN ENERGY STORAGE
+Savannah Oaks Solar Project LLC,"Savannah Oaks Solar Project, LLC",same,merged_by_old_key,SAVANNAH OAKS,SAVANNAH OAKS,SAVANNAH OAKS SOLAR PROJECT,SAVANNAH OAKS SOLAR PROJECT
+Sayle Solar LLC,Sayle Storage LLC,different,merged_by_old_key,SAYLE,SAYLE,SAYLE SOLAR,SAYLE STORAGE
+SED NY Holding LLC,SED NY Holdings LLC,same,merged_by_old_key,SED NY,SED NY,SED NY HOLDING,SED NY HOLDING
+Senator Aggreko Solar LLC,Senator Aggreko Storage LLC,different,merged_by_old_key,SENATOR AGGREKO,SENATOR AGGREKO,SENATOR AGGREKO SOLAR,SENATOR AGGREKO STORAGE
+Shaula Energy Project LLC,"Shaula Energy Project, LLC",same,merged_by_old_key,SHAULA,SHAULA,SHAULA ENERGY PROJECT,SHAULA ENERGY PROJECT
+Shell Renewables,Shell Wind Energy Inc.,family,merged_by_old_key,SHELL,SHELL,SHELL RENEWABLE,SHELL WIND ENERGY
+Shoreham Solar Commons LLC,"Shoreham Solar Commons, LLC",same,merged_by_old_key,SHOREHAM COMMONS,SHOREHAM COMMONS,SHOREHAM SOLAR COMMONS,SHOREHAM SOLAR COMMONS
+Siouxland Ethanol  LLC,Siouxland Ethanol LLC,same,merged_by_old_key,SIOUXLAND ETHANOL,SIOUXLAND ETHANOL,SIOUXLAND ETHANOL,SIOUXLAND ETHANOL
+Sky Renewable Energy,Sky Solar Inc.,different,merged_by_old_key,SKY,SKY,SKY RENEWABLE ENERGY,SKY SOLAR
+"Somerset Energy Storage, LLC",Somerset Solar Development LLC,different,merged_by_old_key,SOMERSET,SOMERSET,SOMERSET ENERGY STORAGE,SOMERSET SOLAR DEVELOPMENT
+South Glens Falls LP,"South Glens Falls, LLC",family,merged_by_old_key,SOUTH GLENS FALLS,SOUTH GLENS FALLS,SOUTH GLENS FALLS,SOUTH GLENS FALLS
+South Platte Solar,"South Platte Storage, LLC",different,merged_by_old_key,SOUTH PLATTE,SOUTH PLATTE,SOUTH PLATTE SOLAR,SOUTH PLATTE STORAGE
+SOUTHERN CALIFORNIA GAS COMPANY,Southern California Gas Co,same,merged_by_old_key,SOUTHERN CALIFORNIA GAS,SOUTHERN CALIFORNIA GAS,SOUTHERN CALIFORNIA GAS,SOUTHERN CALIFORNIA GAS
+SOUTHERN NATURAL GAS COMPANY,Southern Natural Gas Co,same,merged_by_old_key,SOUTHERN NATURAL GAS,SOUTHERN NATURAL GAS,SOUTHERN NATURAL GAS,SOUTHERN NATURAL GAS
+SOUTHWEST GAS STORAGE COMPANY,Southwest Gas Corp,different,merged_by_old_key,SOUTHWEST GAS,SOUTHWEST GAS,SOUTHWEST GAS STORAGE,SOUTHWEST GAS
+"North Star Energy Storage, LLC","North Star Solar, LLC",different,merged_by_old_key,STAR,STAR,NORTH STAR ENERGY STORAGE,NORTH STAR SOLAR
+Star Dairy Solar LLC,Star Dairy Storage,different,merged_by_old_key,STAR DAIRY,STAR DAIRY,STAR DAIRY SOLAR,STAR DAIRY STORAGE
+"Starling Solar, LLC","Starling Storage, LLC",different,merged_by_old_key,STARLING,STARLING,STARLING SOLAR,STARLING STORAGE
+State Line Wind Power LLC,"State Line Wind Power, LLC",same,merged_by_old_key,STATE LINE,STATE LINE,STATE LINE WIND POWER,STATE LINE WIND POWER
+Power Strategies,Renewable Strategies LLC,different,merged_by_old_key,STRATEGIES,STRATEGIES,POWER STRATEGIES,RENEWABLE STRATEGIES
+Sunnyside Energy LLC,"Sunnyside Energy, LLC",same,merged_by_old_key,SUNNYSIDE,SUNNYSIDE,SUNNYSIDE ENERGY,SUNNYSIDE ENERGY
+SunRay Power LLC,Sunray Energy Inc,different,merged_by_old_key,SUNRAY,SUNRAY,SUNRAY POWER,SUNRAY ENERGY
+Superior Pipeline Company LLC,Superior Pipeline Corporation,family,merged_by_old_key,SUPERIOR PIPELINE,SUPERIOR PIPELINE,SUPERIOR PIPELINE,SUPERIOR PIPELINE
+SWEB Development USA,SWEB Development USA LLC,same,merged_by_old_key,SWEB,SWEB,SWEB DEVELOPMENT USA,SWEB DEVELOPMENT USA
+SWEB Development USA,"SWEB Development USA, LLC",same,merged_by_old_key,SWEB,SWEB,SWEB DEVELOPMENT USA,SWEB DEVELOPMENT USA
+SWEB Development USA LLC,"SWEB Development USA, LLC",same,merged_by_old_key,SWEB,SWEB,SWEB DEVELOPMENT USA,SWEB DEVELOPMENT USA
+"Energy Systems Group, LLC",North American Power Systems,different,merged_by_old_key,SYSTEMS,SYSTEMS,ENERGY SYSTEM GROUP,NORTH AMERICAN POWER SYSTEM
+"Energy Systems Group, LLC",Renewable Energy Systems Limited,different,merged_by_old_key,SYSTEMS,SYSTEMS,ENERGY SYSTEM GROUP,RENEWABLE ENERGY SYSTEM
+North American Power Systems,Renewable Energy Systems Limited,different,merged_by_old_key,SYSTEMS,SYSTEMS,NORTH AMERICAN POWER SYSTEM,RENEWABLE ENERGY SYSTEM
+T & M Limited Partnership,T&M Limited Partnership,same,merged_by_old_key,T M PARTNERSHIP,T M PARTNERSHIP,T AND M PARTNERSHIP,T AND M PARTNERSHIP
+"Tall Saddle Solar, LLC","Tall Saddle Wind, LLC",different,merged_by_old_key,TALL SADDLE,TALL SADDLE,TALL SADDLE SOLAR,TALL SADDLE WIND
+Targa Midstream Services LLC,"Targa Midstream Services, LLC",same,merged_by_old_key,TARGA MIDSTREAM SERVICES,TARGA MIDSTREAM SERVICES,TARGA MIDSTREAM SERVICE,TARGA MIDSTREAM SERVICE
+Targa Resources,"Targa Resources, LLC",same,merged_by_old_key,TARGA RESOURCES,TARGA RESOURCES,TARGA RESOURCE,TARGA RESOURCE
+TDI-USA Holdings Corporation,"TDI-USA Holdings, Inc.",family,merged_by_old_key,TDI,TDI,TDI USA HOLDING,TDI USA HOLDING
+"Tenaska CSOLAR South Holdings, LLC","Tenaska CSOLAR South, LLC",family,merged_by_old_key,TENASKA CSOLAR SOUTH,TENASKA CSOLAR SOUTH,TENASKA CSOLAR SOUTH HOLDING,TENASKA CSOLAR SOUTH
+"Tenaska CSOLAR West Holdings, LLC","Tenaska CSOLAR West, LLC",family,merged_by_old_key,TENASKA CSOLAR WEST,TENASKA CSOLAR WEST,TENASKA CSOLAR WEST HOLDING,TENASKA CSOLAR WEST
+TENNESSEE GAS PIPELINE COMPANY,Tennessee Gas Pipeline,same,merged_by_old_key,TENNESSEE GAS PIPELINE,TENNESSEE GAS PIPELINE,TENNESSEE GAS PIPELINE,TENNESSEE GAS PIPELINE
+Terra-Gen Development Company,"Terra-Gen Development Company, LLC",same,merged_by_old_key,TERRA GEN,TERRA GEN,TERRA GEN DEVELOPMENT,TERRA GEN DEVELOPMENT
+TEXAS GAS TRANSMISSION CORPORATION,Texas Gas Transmission Co,same,merged_by_old_key,TEXAS GAS TRANSMISSION,TEXAS GAS TRANSMISSION,TEXAS GAS TRANSMISSION,TEXAS GAS TRANSMISSION
+"Thunder Creek Gas Services, L.L.C.","Thunder Creek Gas Services,L.L.C.",same,merged_by_old_key,THUNDER CREEK GAS SERVICES L L C,THUNDER CREEK GAS SERVICES L L C,THUNDER CREEK GAS SERVICE,THUNDER CREEK GAS SERVICE
+TIPPSOL LLC,Tippsol,same,merged_by_old_key,TIPPSOL,TIPPSOL,TIPPSOL,TIPPSOL
+"Energy Power Partners; Toro Energy, Inc.","Toro Energy, Inc.",family,merged_by_old_key,TORO,TORO,ENERGY POWER PARTNER TORO ENERGY,TORO ENERGY
+TransEnergie US Ltd.,"TransEnergie US, Ltd",same,merged_by_old_key,TRANSENERGIE,TRANSENERGIE,TRANSENERGIE US,TRANSENERGIE US
+Energy Transfer,Energy Transfer Company,family,merged_by_old_key,TRANSFER,TRANSFER,ENERGY TRANSFER,ENERGY TRANSFER
+Energy Transfer,Energy transfer partners,family,merged_by_old_key,TRANSFER,TRANSFER,ENERGY TRANSFER,ENERGY TRANSFER PARTNER
+Energy Transfer Company,Energy transfer partners,family,merged_by_old_key,TRANSFER,TRANSFER,ENERGY TRANSFER,ENERGY TRANSFER PARTNER
+TRUNKLINE GAS COMPANY,Trunkline Gas Co,same,merged_by_old_key,TRUNKLINE GAS,TRUNKLINE GAS,TRUNKLINE GAS,TRUNKLINE GAS
+"Two Rivers Solar, LLC",Two Rivers Wind LLC,different,merged_by_old_key,TWO RIVERS,TWO RIVERS,TWO RIVERS SOLAR,TWO RIVERS WIND
+UGI Development Company,UGI STORAGE COMPANY,family,merged_by_old_key,UGI,UGI,UGI DEVELOPMENT,UGI STORAGE
+Valero Renewable Fuels,Valero Renewable Fuels LLC,same,merged_by_old_key,VALERO FUELS,VALERO FUELS,VALERO RENEWABLE FUEL,VALERO RENEWABLE FUEL
+Valero Renewable Fuels,Valero Renewables Fuels LLC,same,merged_by_old_key,VALERO FUELS,VALERO FUELS,VALERO RENEWABLE FUEL,VALERO RENEWABLE FUEL
+Valero Renewable Fuels LLC,Valero Renewables Fuels LLC,same,merged_by_old_key,VALERO FUELS,VALERO FUELS,VALERO RENEWABLE FUEL,VALERO RENEWABLE FUEL
+"Vaquero Solar, LLC","Vaquero Wind Energy, LLC",different,merged_by_old_key,VAQUERO,VAQUERO,VAQUERO SOLAR,VAQUERO WIND ENERGY
+Vaquero II Solar LLC,Vaquero II Storage LLC,different,merged_by_old_key,VAQUERO II,VAQUERO II,VAQUERO II SOLAR,VAQUERO II STORAGE
+VERTUS ENERGY STORAGE LLC,"Vertus Energy Storage, LLC",same,merged_by_old_key,VERTUS,VERTUS,VERTUS ENERGY STORAGE,VERTUS ENERGY STORAGE
+Vineyard Mid-Atlantic,Vineyard Mid-Atlantic LLC,same,merged_by_old_key,VINEYARD MID ATLANTIC,VINEYARD MID ATLANTIC,VINEYARD MID ATLANTIC,VINEYARD MID ATLANTIC
+Vineyard Northeast,Vineyard Northeast LLC,same,merged_by_old_key,VINEYARD NORTHEAST,VINEYARD NORTHEAST,VINEYARD NORTHEAST,VINEYARD NORTHEAST
+Viridis,Viridis Solar,family,merged_by_old_key,VIRIDIS,VIRIDIS,VIRIDIS,VIRIDIS SOLAR
+Vistra Corp,Vistra Energy,same,merged_by_old_key,VISTRA,VISTRA,VISTRA,VISTRA ENERGY
+"Wagon Timber Solar, LLC","Wagon Timber Storage, LLC",different,merged_by_old_key,WAGON TIMBER,WAGON TIMBER,WAGON TIMBER SOLAR,WAGON TIMBER STORAGE
+WAKE WIND ENERGY,Wake Wind Energy LLC,same,merged_by_old_key,WAKE,WAKE,WAKE WIND ENERGY,WAKE WIND ENERGY
+Wallflower Energy Storage,"Wallflower Solar, LLC",different,merged_by_old_key,WALLFLOWER,WALLFLOWER,WALLFLOWER ENERGY STORAGE,WALLFLOWER SOLAR
+WBI ENERGY TRANSMISSION INC,WBI Energy Transmission,same,merged_by_old_key,WBI TRANSMISSION,WBI TRANSMISSION,WBI ENERGY TRANSMISSION,WBI ENERGY TRANSMISSION
+"Wellhead Services, Inc","Wellhead Services, Inc.",same,merged_by_old_key,WELLHEAD SERVICES,WELLHEAD SERVICES,WELLHEAD SERVICE,WELLHEAD SERVICE
+West River Solar,"West River Solar, LLC",same,merged_by_old_key,WEST RIVER,WEST RIVER,WEST RIVER SOLAR,WEST RIVER SOLAR
+Western Gas Partners,Western Gas Partners LLC,same,merged_by_old_key,WESTERN GAS,WESTERN GAS,WESTERN GAS PARTNER,WESTERN GAS PARTNER
+Western Gas Partners,"Western Gas Partners, LP",same,merged_by_old_key,WESTERN GAS,WESTERN GAS,WESTERN GAS PARTNER,WESTERN GAS PARTNER
+Western Gas Partners LLC,"Western Gas Partners, LP",same,merged_by_old_key,WESTERN GAS,WESTERN GAS,WESTERN GAS PARTNER,WESTERN GAS PARTNER
+"Wichita Creek Solar, LLC","Wichita Creek Storage, LLC",different,merged_by_old_key,WICHITA CREEK,WICHITA CREEK,WICHITA CREEK SOLAR,WICHITA CREEK STORAGE
+"Wildflower Solar, LLC",Wildflower Storage LLC,different,merged_by_old_key,WILDFLOWER,WILDFLOWER,WILDFLOWER SOLAR,WILDFLOWER STORAGE
+Williams,Williams Energy LLC,family,merged_by_old_key,WILLIAMS,WILLIAMS,WILLIAMS,WILLIAMS ENERGY
+Williams,Williams Partners LP,family,merged_by_old_key,WILLIAMS,WILLIAMS,WILLIAMS,WILLIAMS PARTNER
+Williams Energy LLC,Williams Partners LP,family,merged_by_old_key,WILLIAMS,WILLIAMS,WILLIAMS ENERGY,WILLIAMS PARTNER
+"Winters Glow Solar, LLC","Winters Glow Storage, LLC",different,merged_by_old_key,WINTERS GLOW,WINTERS GLOW,WINTERS GLOW SOLAR,WINTERS GLOW STORAGE
+WM,WM Renewable Energy,family,merged_by_old_key,WM,WM,WM,WM RENEWABLE ENERGY
+WM,"WM Renewable Energy, LLC",family,merged_by_old_key,WM,WM,WM,WM RENEWABLE ENERGY
+WM Renewable Energy,"WM Renewable Energy, LLC",same,merged_by_old_key,WM,WM,WM RENEWABLE ENERGY,WM RENEWABLE ENERGY
+WM Nevada Renewable Energy,WM Nevada Renewable Energy LLC,same,merged_by_old_key,WM NEVADA,WM NEVADA,WM NEVADA RENEWABLE ENERGY,WM NEVADA RENEWABLE ENERGY
+"Woodland Energy Storage, LLC","Woodland Solar, LLC",different,merged_by_old_key,WOODLAND,WOODLAND,WOODLAND ENERGY STORAGE,WOODLAND SOLAR
+WORSHAM STEED GAS STORAGE LLC,"Worsham-Steed Gas Storage, LLC",same,merged_by_old_key,WORSHAM STEED GAS,WORSHAM STEED GAS,WORSHAM STEED GAS STORAGE,WORSHAM STEED GAS STORAGE
+XTO Energy,"XTO Energy, INC",same,merged_by_old_key,XTO,XTO,XTO ENERGY,XTO ENERGY
+XTO Energy,"XTO Energy, Inc.",same,merged_by_old_key,XTO,XTO,XTO ENERGY,XTO ENERGY
+"XTO Energy, INC","XTO Energy, Inc.",same,merged_by_old_key,XTO,XTO,XTO ENERGY,XTO ENERGY
+C & S ENERGY LIMITED,S & C ENERGY LIMITED,different,split_by_old_key_similarity_sample,C S,S C,C AND S ENERGY,S AND C ENERGY
+NOVENTUM POWER SOLAR 1 LIMITED,NOVENTUM POWER SOLAR 14 LIMITED,different,split_by_old_key_similarity_sample,NOVENTUM 1,NOVENTUM 14,NOVENTUM POWER SOLAR 1,NOVENTUM POWER SOLAR 14
+Generate NY Community Solar V,Generate NY Community Solar VI,different,split_by_old_key_similarity_sample,GENERATE NY COMMUNITY V,GENERATE NY COMMUNITY VI,GENERATE NY COMMUNITY SOLAR V,GENERATE NY COMMUNITY SOLAR VI
+"Mandolin Energy Center I, LLC","Mandolin Energy Center II, LLC",different,split_by_old_key_similarity_sample,MANDOLIN CENTER I,MANDOLIN CENTER II,MANDOLIN ENERGY CENTER I,MANDOLIN ENERGY CENTER II
+"RWE Solar Developement, LLC","RWE Solar Development, LLC",same,split_by_old_key_similarity_sample,RWE DEVELOPEMENT,RWE,RWE SOLAR DEVELOPEMENT,RWE SOLAR DEVELOPMENT
+MORAY OFFSHORE WINDFARM (EAST) LIMITED,MORAY OFFSHORE WINDFARM (WEST) LIMITED,different,split_by_old_key_similarity_sample,MORAY OFFSHORE WINDFARM EAST,MORAY OFFSHORE WINDFARM WEST,MORAY OFFSHORE WINDFARM EAST,MORAY OFFSHORE WINDFARM WEST
+ALCEMI STORAGE DEVELOPMENTS 5 LIMITED,ALCEMI STORAGE DEVELOPMENTS 6 LIMITED,different,split_by_old_key_similarity_sample,ALCEMI 5,ALCEMI 6,ALCEMI STORAGE DEVELOPMENT 5,ALCEMI STORAGE DEVELOPMENT 6
+ALCEMI STORAGE DEVELOPMENTS 2 LIMITED,ALCEMI STORAGE DEVELOPMENTS 4 LIMITED,different,split_by_old_key_similarity_sample,ALCEMI 2,ALCEMI 4,ALCEMI STORAGE DEVELOPMENT 2,ALCEMI STORAGE DEVELOPMENT 4
+"Crawfordsville 2 Solar Array, LLC","Crawfordsville 5 Solar Array, LLC",different,split_by_old_key_similarity_sample,CRAWFORDSVILLE 2 ARRAY,CRAWFORDSVILLE 5 ARRAY,CRAWFORDSVILLE 2 SOLAR ARRAY,CRAWFORDSVILLE 5 SOLAR ARRAY
+"Crawfordsville 3 Solar Array, LLC","Crawfordsville 5 Solar Array, LLC",different,split_by_old_key_similarity_sample,CRAWFORDSVILLE 3 ARRAY,CRAWFORDSVILLE 5 ARRAY,CRAWFORDSVILLE 3 SOLAR ARRAY,CRAWFORDSVILLE 5 SOLAR ARRAY
+HALDANE ENERGY PROJECT 2 LIMITED,HALDANE ENERGY PROJECT 4 LIMITED,different,split_by_old_key_similarity_sample,HALDANE 2,HALDANE 4,HALDANE ENERGY PROJECT 2,HALDANE ENERGY PROJECT 4
+HALDANE ENERGY PROJECT 4 LIMITED,HALDANE ENERGY PROJECT 5 LIMITED,different,split_by_old_key_similarity_sample,HALDANE 4,HALDANE 5,HALDANE ENERGY PROJECT 4,HALDANE ENERGY PROJECT 5
+Energiekontor US Texas SP 15 LLC,Energiekontor US Texas SP 16 LLC,different,split_by_old_key_similarity_sample,ENERGIEKONTOR TEXAS SP 15,ENERGIEKONTOR TEXAS SP 16,ENERGIEKONTOR US TEXAS SP 15,ENERGIEKONTOR US TEXAS SP 16
+NOVENTUM POWER SOLAR 12 LIMITED,NOVENTUM POWER SOLAR 14 LIMITED,different,split_by_old_key_similarity_sample,NOVENTUM 12,NOVENTUM 14,NOVENTUM POWER SOLAR 12,NOVENTUM POWER SOLAR 14
+NOVENTUM POWER SOLAR 2 LIMITED,NOVENTUM POWER SOLAR 7 LIMITED,different,split_by_old_key_similarity_sample,NOVENTUM 2,NOVENTUM 7,NOVENTUM POWER SOLAR 2,NOVENTUM POWER SOLAR 7
+NOVENTUM POWER SOLAR 4 LIMITED,NOVENTUM POWER SOLAR 7 LIMITED,different,split_by_old_key_similarity_sample,NOVENTUM 4,NOVENTUM 7,NOVENTUM POWER SOLAR 4,NOVENTUM POWER SOLAR 7
+NOVENTUM POWER SOLAR 2 LIMITED,NOVENTUM POWER SOLAR 6 LIMITED,different,split_by_old_key_similarity_sample,NOVENTUM 2,NOVENTUM 6,NOVENTUM POWER SOLAR 2,NOVENTUM POWER SOLAR 6
+ENSO GREEN HOLDINGS J LIMITED,ENSO GREEN HOLDINGS L LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN J,ENSO GREEN L,ENSO GREEN HOLDING J,ENSO GREEN HOLDING L
+Cape Generating Station 3 LLC,Cape Generating Station 5 LLC,different,split_by_old_key_similarity_sample,CAPE GENERATING STATION 3,CAPE GENERATING STATION 5,CAPE GENERATING STATION 3,CAPE GENERATING STATION 5
+ENSO GREEN HOLDINGS K LIMITED,ENSO GREEN HOLDINGS L LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN K,ENSO GREEN L,ENSO GREEN HOLDING K,ENSO GREEN HOLDING L
+ENSO GREEN HOLDINGS A LIMITED,ENSO GREEN HOLDINGS B LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN A,ENSO GREEN B,ENSO GREEN HOLDING A,ENSO GREEN HOLDING B
+ENSO GREEN HOLDINGS R LIMITED,ENSO GREEN HOLDINGS V LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN R,ENSO GREEN V,ENSO GREEN HOLDING R,ENSO GREEN HOLDING V
+ENSO GREEN HOLDINGS B LIMITED,ENSO GREEN HOLDINGS D LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN B,ENSO GREEN D,ENSO GREEN HOLDING B,ENSO GREEN HOLDING D
+ENSO GREEN HOLDINGS B LIMITED,ENSO GREEN HOLDINGS LIMITED,family,split_by_old_key_similarity_sample,ENSO GREEN B,ENSO GREEN,ENSO GREEN HOLDING B,ENSO GREEN HOLDING
+IGP ENERGY STORAGE 2 LIMITED,IGP ENERGY STORAGE 4 LIMITED,different,split_by_old_key_similarity_sample,IGP 2,IGP 4,IGP ENERGY STORAGE 2,IGP ENERGY STORAGE 4
+SoCore 2016 ProjectCo-W2 LLC,SoCore 2016 ProjectCo-W4 LLC,different,split_by_old_key_similarity_sample,SOCORE 2016 PROJECTCO W2,SOCORE 2016 PROJECTCO W4,SOCORE 2016 PROJECTCO W2,SOCORE 2016 PROJECTCO W4
+IGP ENERGY STORAGE 2 LIMITED,IGP ENERGY STORAGE 6 LIMITED,different,split_by_old_key_similarity_sample,IGP 2,IGP 6,IGP ENERGY STORAGE 2,IGP ENERGY STORAGE 6
+"Fresh Air Energy XXII, LLC","Fresh Air Energy XXXIII, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XXII,FRESH AIR XXXIII,FRESH AIR ENERGY XXII,FRESH AIR ENERGY XXXIII
+"Richmond 2 Solar Array, LLC","Richmond 4 Solar Array, LLC",different,split_by_old_key_similarity_sample,RICHMOND 2 ARRAY,RICHMOND 4 ARRAY,RICHMOND 2 SOLAR ARRAY,RICHMOND 4 SOLAR ARRAY
+Ouroboros Grid BESS Unit 2,Ouroboros Grid BESS Unit 6,different,split_by_old_key_similarity_sample,OUROBOROS GRID BESS UNIT 2,OUROBOROS GRID BESS UNIT 6,OUROBOROS GRID BESS UNIT 2,OUROBOROS GRID BESS UNIT 6
+O&G Solar (SPV 36) Limited,O&G Solar (SPV 38) Limited,different,split_by_old_key_similarity_sample,O G SPV 36,O G SPV 38,O AND G SOLAR SPV 36,O AND G SOLAR SPV 38
+O&G Solar (SPV 30) Limited,O&G Solar (SPV 38) Limited,different,split_by_old_key_similarity_sample,O G SPV 30,O G SPV 38,O AND G SOLAR SPV 30,O AND G SOLAR SPV 38
+AW1 ENERGY STORAGE LIMITED,AW2 ENERGY STORAGE LIMITED,different,split_by_old_key_similarity_sample,AW1,AW2,AW1 ENERGY STORAGE,AW2 ENERGY STORAGE
+Ouroboros Grid BESS Unit 2,Ouroboros Grid BESS Unit 4,different,split_by_old_key_similarity_sample,OUROBOROS GRID BESS UNIT 2,OUROBOROS GRID BESS UNIT 4,OUROBOROS GRID BESS UNIT 2,OUROBOROS GRID BESS UNIT 4
+O&G Solar (SPV 44) Limited,O&G Solar (SPV 47) Limited,different,split_by_old_key_similarity_sample,O G SPV 44,O G SPV 47,O AND G SOLAR SPV 44,O AND G SOLAR SPV 47
+O&G Solar (SPV 31) Limited,O&G Solar (SPV 38) Limited,different,split_by_old_key_similarity_sample,O G SPV 31,O G SPV 38,O AND G SOLAR SPV 31,O AND G SOLAR SPV 38
+PEAK GEN POWER 13 LIMITED,PEAK GEN POWER 14 LIMITED,different,split_by_old_key_similarity_sample,PEAK GEN 13,PEAK GEN 14,PEAK GEN POWER 13,PEAK GEN POWER 14
+"Fresh Air Energy XX, LLC","Fresh Air Energy XXXI, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XX,FRESH AIR XXXI,FRESH AIR ENERGY XX,FRESH AIR ENERGY XXXI
+PEAK GEN POWER 11 LIMITED,PEAK GEN POWER 14 LIMITED,different,split_by_old_key_similarity_sample,PEAK GEN 11,PEAK GEN 14,PEAK GEN POWER 11,PEAK GEN POWER 14
+"Fresh Air Energy XX, LLC","Fresh Air Energy XXIX, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XX,FRESH AIR XXIX,FRESH AIR ENERGY XX,FRESH AIR ENERGY XXIX
+"Dudley River 2 Solar, LLC","Dudley River Solar, LLC",different,split_by_old_key_similarity_sample,DUDLEY RIVER 2,DUDLEY RIVER,DUDLEY RIVER 2 SOLAR,DUDLEY RIVER SOLAR
+CVE US PA Bigler 436 LLC,CVE US PA Bigler 437 LLC,different,split_by_old_key_similarity_sample,CVE PA BIGLER 436,CVE PA BIGLER 437,CVE US PA BIGLER 436,CVE US PA BIGLER 437
+"Boundless Energy NE, LLC","Boundless Energy NY, LLC",different,split_by_old_key_similarity_sample,BOUNDLESS NE,BOUNDLESS NY,BOUNDLESS ENERGY NE,BOUNDLESS ENERGY NY
+Fresh Air Energy XII LLC,Fresh Air Energy XVI LLC,different,split_by_old_key_similarity_sample,FRESH AIR XII,FRESH AIR XVI,FRESH AIR ENERGY XII,FRESH AIR ENERGY XVI
+PEAK GEN POWER 5 LIMITED,PEAK GEN POWER 6 LIMITED,different,split_by_old_key_similarity_sample,PEAK GEN 5,PEAK GEN 6,PEAK GEN POWER 5,PEAK GEN POWER 6
+"Cottontail Solar 1, LLC","Cottontail Solar 8, LLC",different,split_by_old_key_similarity_sample,COTTONTAIL 1,COTTONTAIL 8,COTTONTAIL SOLAR 1,COTTONTAIL SOLAR 8
+"Cottontail Solar 7, LLC","Cottontail Solar 8, LLC",different,split_by_old_key_similarity_sample,COTTONTAIL 7,COTTONTAIL 8,COTTONTAIL SOLAR 7,COTTONTAIL SOLAR 8
+"Cottontail Solar 1, LLC","Cottontail Solar 5, LLC",different,split_by_old_key_similarity_sample,COTTONTAIL 1,COTTONTAIL 5,COTTONTAIL SOLAR 1,COTTONTAIL SOLAR 5
+"Cottontail Solar 4, LLC","Cottontail Solar 9, LLC",different,split_by_old_key_similarity_sample,COTTONTAIL 4,COTTONTAIL 9,COTTONTAIL SOLAR 4,COTTONTAIL SOLAR 9
+Fresh Air Energy X LLC,Fresh Air Energy XVI LLC,different,split_by_old_key_similarity_sample,FRESH AIR X,FRESH AIR XVI,FRESH AIR ENERGY X,FRESH AIR ENERGY XVI
+"Whitetail Solar 1, LLC","Whitetail Solar 2, LLC",different,split_by_old_key_similarity_sample,WHITETAIL 1,WHITETAIL 2,WHITETAIL SOLAR 1,WHITETAIL SOLAR 2
+Junction Hilltop 1 LLC,Junction Hilltop 3 LLC,different,split_by_old_key_similarity_sample,JUNCTION HILLTOP 1,JUNCTION HILLTOP 3,JUNCTION HILLTOP 1,JUNCTION HILLTOP 3
+Apatura Project 21 Ltd,Apatura Project 29 Ltd,different,split_by_old_key_similarity_sample,APATURA 21,APATURA 29,APATURA PROJECT 21,APATURA PROJECT 29
+"Ware County GA S1, LLC","Ware County GA S2, LLC",different,split_by_old_key_similarity_sample,WARE COUNTY GA S1,WARE COUNTY GA S2,WARE COUNTY GA S1,WARE COUNTY GA S2
+Junction Hilltop 1 LLC,Junction Hilltop 5 LLC,different,split_by_old_key_similarity_sample,JUNCTION HILLTOP 1,JUNCTION HILLTOP 5,JUNCTION HILLTOP 1,JUNCTION HILLTOP 5
+"BRP Blue Topaz 3, LLC","BRP Blue Topaz 5, LLC",different,split_by_old_key_similarity_sample,BRP BLUE TOPAZ 3,BRP BLUE TOPAZ 5,BRP BLUE TOPAZ 3,BRP BLUE TOPAZ 5
+"Citizens Solar Holdings III, LLC","Citizens Solar Holdings IX, LLC",different,split_by_old_key_similarity_sample,CITIZENS III,CITIZENS IX,CITIZENS SOLAR HOLDING III,CITIZENS SOLAR HOLDING IX
+Canal 3 Generating LLC,Canal Generating LLC,family,split_by_old_key_similarity_sample,CANAL 3 GENERATING,CANAL GENERATING,CANAL 3 GENERATING,CANAL GENERATING
+Astoria Generating Company LP,"Astoria Generating Company, L.P.",same,split_by_old_key_similarity_sample,ASTORIA GENERATING,ASTORIA GENERATING L P,ASTORIA GENERATING,ASTORIA GENERATING
+NOVENTUM POWER SOLAR 14 LIMITED,NOVENTUM POWER SOLAR 7 LIMITED,different,split_by_old_key_similarity_sample,NOVENTUM 14,NOVENTUM 7,NOVENTUM POWER SOLAR 14,NOVENTUM POWER SOLAR 7
+NOVENTUM POWER SOLAR 15 LIMITED,NOVENTUM POWER SOLAR 6 LIMITED,different,split_by_old_key_similarity_sample,NOVENTUM 15,NOVENTUM 6,NOVENTUM POWER SOLAR 15,NOVENTUM POWER SOLAR 6
+MGTC Pipeline System,MIGC Pipeline System,different,split_by_old_key_similarity_sample,MGTC PIPELINE SYSTEM,MIGC PIPELINE SYSTEM,MGTC PIPELINE SYSTEM,MIGC PIPELINE SYSTEM
+KONA ASSET 3 LIMITED,KONA ASSET 4 LIMITED,different,split_by_old_key_similarity_sample,KONA ASSET 3,KONA ASSET 4,KONA ASSET 3,KONA ASSET 4
+ENSO GREEN HOLDINGS SS LIMITED,ENSO GREEN HOLDINGS U LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN SS,ENSO GREEN U,ENSO GREEN HOLDING SS,ENSO GREEN HOLDING U
+ENSO GREEN HOLDINGS SS LIMITED,ENSO GREEN HOLDINGS X LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN SS,ENSO GREEN X,ENSO GREEN HOLDING SS,ENSO GREEN HOLDING X
+Pescara 1 Solar LLC,Pescara 2 Solar LLC,different,split_by_old_key_similarity_sample,PESCARA 1,PESCARA 2,PESCARA 1 SOLAR,PESCARA 2 SOLAR
+AGR SOLAR 3 LIMITED,AGR SOLAR 4 LIMITED,different,split_by_old_key_similarity_sample,AGR 3,AGR 4,AGR SOLAR 3,AGR SOLAR 4
+Geer Rd Solar 2 LLC,Geer Rd Solar 3 LLC,different,split_by_old_key_similarity_sample,GEER RD 2,GEER RD 3,GEER RD SOLAR 2,GEER RD SOLAR 3
+"Solar Carver 1, LLC","Solar Carver 3, LLC",different,split_by_old_key_similarity_sample,CARVER 1,CARVER 3,SOLAR CARVER 1,SOLAR CARVER 3
+"Fresh Air Energy XXXI, LLC","Fresh Air Energy XXXVIII, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XXXI,FRESH AIR XXXVIII,FRESH AIR ENERGY XXXI,FRESH AIR ENERGY XXXVIII
+GALILEO 01 LIMITED,GALILEO 19 LIMITED,different,split_by_old_key_similarity_sample,GALILEO 01,GALILEO 19,GALILEO 01,GALILEO 19
+Lazy U Solar 1 LLC,Lazy U Solar 2 LLC,different,split_by_old_key_similarity_sample,LAZY U 1,LAZY U 2,LAZY U SOLAR 1,LAZY U SOLAR 2
+USS Gold Solar LLC,USS Good Solar LLC,different,split_by_old_key_similarity_sample,USS GOLD,USS GOOD,USS GOLD SOLAR,USS GOOD SOLAR
+EPL NEWCO1 LIMITED,EPL NEWCO7 LIMITED,different,split_by_old_key_similarity_sample,EPL NEWCO1,EPL NEWCO7,EPL NEWCO1,EPL NEWCO7
+GALILEO 04 LIMITED,GALILEO 08 LIMITED,different,split_by_old_key_similarity_sample,GALILEO 04,GALILEO 08,GALILEO 04,GALILEO 08
+EPL NEWCO1 LIMITED,EPL NEWCO5 LIMITED,different,split_by_old_key_similarity_sample,EPL NEWCO1,EPL NEWCO5,EPL NEWCO1,EPL NEWCO5
+EPL NEWCO1 LIMITED,EPL NEWCO6 LIMITED,different,split_by_old_key_similarity_sample,EPL NEWCO1,EPL NEWCO6,EPL NEWCO1,EPL NEWCO6
+GALILEO 02 LIMITED,GALILEO 10 LIMITED,different,split_by_old_key_similarity_sample,GALILEO 02,GALILEO 10,GALILEO 02,GALILEO 10
+Poet Biorefining-Macon LLC,Poet Biorefining-Marion LLC,different,split_by_old_key_similarity_sample,POET BIOREFINING MACON,POET BIOREFINING MARION,POET BIOREFINING MACON,POET BIOREFINING MARION
+"Fresh Air Energy XXII, LLC","Fresh Air Energy XXXIV, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XXII,FRESH AIR XXXIV,FRESH AIR ENERGY XXII,FRESH AIR ENERGY XXXIV
+Vertus Energy Storage 2 LLC,"Vertus Energy Storage, LLC",different,split_by_old_key_similarity_sample,VERTUS 2,VERTUS,VERTUS ENERGY STORAGE 2,VERTUS ENERGY STORAGE
+RE McKenzie 2 LLC,RE McKenzie 4 LLC,different,split_by_old_key_similarity_sample,RE MCKENZIE 2,RE MCKENZIE 4,RE MCKENZIE 2,RE MCKENZIE 4
+RE McKenzie 2 LLC,RE McKenzie 6 LLC,different,split_by_old_key_similarity_sample,RE MCKENZIE 2,RE MCKENZIE 6,RE MCKENZIE 2,RE MCKENZIE 6
+"Fresh Air Energy XVII, LLC","Fresh Air Energy XXV, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XVII,FRESH AIR XXV,FRESH AIR ENERGY XVII,FRESH AIR ENERGY XXV
+"Fresh Air Energy XIX, LLC","Fresh Air Energy XXII, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XIX,FRESH AIR XXII,FRESH AIR ENERGY XIX,FRESH AIR ENERGY XXII
+"Fresh Air Energy XXV, LLC","Fresh Air Energy XXXI, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XXV,FRESH AIR XXXI,FRESH AIR ENERGY XXV,FRESH AIR ENERGY XXXI
+PEAK GEN POWER 18 LIMITED,PEAK GEN POWER 5 LIMITED,different,split_by_old_key_similarity_sample,PEAK GEN 18,PEAK GEN 5,PEAK GEN POWER 18,PEAK GEN POWER 5
+Fresh Air Energy XIII LLC,Fresh Air Energy XVI LLC,different,split_by_old_key_similarity_sample,FRESH AIR XIII,FRESH AIR XVI,FRESH AIR ENERGY XIII,FRESH AIR ENERGY XVI
+PEAK GEN POWER 11 LIMITED,PEAK GEN POWER 6 LIMITED,different,split_by_old_key_similarity_sample,PEAK GEN 11,PEAK GEN 6,PEAK GEN POWER 11,PEAK GEN POWER 6
+RE Dillard 3 LLC,RE Dillard 4 LLC,different,split_by_old_key_similarity_sample,RE DILLARD 3,RE DILLARD 4,RE DILLARD 3,RE DILLARD 4
+IBV WILLINGTON ENERGY PARK LIMITED,WILLINGTON ENERGY PARK LIMITED,family,split_by_old_key_similarity_sample,IBV WILLINGTON PARK,WILLINGTON PARK,IBV WILLINGTON ENERGY PARK,WILLINGTON ENERGY PARK
+"SolNCPower5, LLC","SolNCPower6, LLC",different,split_by_old_key_similarity_sample,SOLNCPOWER5,SOLNCPOWER6,SOLNCPOWER5,SOLNCPOWER6
+Fresh Air Energy X LLC,"Fresh Air Energy XXV, LLC",different,split_by_old_key_similarity_sample,FRESH AIR X,FRESH AIR XXV,FRESH AIR ENERGY X,FRESH AIR ENERGY XXV
+ENSO GREEN HOLDINGS J LIMITED,ENSO GREEN HOLDINGS V LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN J,ENSO GREEN V,ENSO GREEN HOLDING J,ENSO GREEN HOLDING V
+ENSO GREEN HOLDINGS I LIMITED,ENSO GREEN HOLDINGS V LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN I,ENSO GREEN V,ENSO GREEN HOLDING I,ENSO GREEN HOLDING V
+ENSO GREEN HOLDINGS J LIMITED,ENSO GREEN HOLDINGS X LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN J,ENSO GREEN X,ENSO GREEN HOLDING J,ENSO GREEN HOLDING X
+ENSO GREEN HOLDINGS L LIMITED,ENSO GREEN HOLDINGS P  LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN L,ENSO GREEN P,ENSO GREEN HOLDING L,ENSO GREEN HOLDING P
+ENSO GREEN HOLDINGS L LIMITED,ENSO GREEN HOLDINGS X LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN L,ENSO GREEN X,ENSO GREEN HOLDING L,ENSO GREEN HOLDING X
+ENSO GREEN HOLDINGS H LIMITED,ENSO GREEN HOLDINGS Q LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN H,ENSO GREEN Q,ENSO GREEN HOLDING H,ENSO GREEN HOLDING Q
+ENSO GREEN HOLDINGS J LIMITED,ENSO GREEN HOLDINGS R LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN J,ENSO GREEN R,ENSO GREEN HOLDING J,ENSO GREEN HOLDING R
+ENSO GREEN HOLDINGS J LIMITED,ENSO GREEN HOLDINGS P  LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN J,ENSO GREEN P,ENSO GREEN HOLDING J,ENSO GREEN HOLDING P
+ENSO GREEN HOLDINGS I LIMITED,ENSO GREEN HOLDINGS Q LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN I,ENSO GREEN Q,ENSO GREEN HOLDING I,ENSO GREEN HOLDING Q
+ENSO GREEN HOLDINGS B LIMITED,ENSO GREEN HOLDINGS Q LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN B,ENSO GREEN Q,ENSO GREEN HOLDING B,ENSO GREEN HOLDING Q
+ENSO GREEN HOLDINGS L LIMITED,ENSO GREEN HOLDINGS R LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN L,ENSO GREEN R,ENSO GREEN HOLDING L,ENSO GREEN HOLDING R
+"Citizens Solar Holdings IX, LLC",Citizens Solar Holdings LLC,family,split_by_old_key_similarity_sample,CITIZENS IX,CITIZENS,CITIZENS SOLAR HOLDING IX,CITIZENS SOLAR HOLDING
+ENSO GREEN HOLDINGS H LIMITED,ENSO GREEN HOLDINGS K LIMITED,different,split_by_old_key_similarity_sample,ENSO GREEN H,ENSO GREEN K,ENSO GREEN HOLDING H,ENSO GREEN HOLDING K
+"KCE NY 22, LLC","KCE NY 28, LLC",different,split_by_old_key_similarity_sample,KCE NY 22,KCE NY 28,KCE NY 22,KCE NY 28
+"KCE NY 22, LLC","KCE NY 25, LLC",different,split_by_old_key_similarity_sample,KCE NY 22,KCE NY 25,KCE NY 22,KCE NY 25
+REWE 1 LIMITED,REWE 4 LIMITED,different,split_by_old_key_similarity_sample,REWE 1,REWE 4,REWE 1,REWE 4
+"KCE NY 12, LLC","KCE NY 26, LLC",different,split_by_old_key_similarity_sample,KCE NY 12,KCE NY 26,KCE NY 12,KCE NY 26
+"TX BESS 5, LLC","TX BESS 6, LLC",different,split_by_old_key_similarity_sample,TX BESS 5,TX BESS 6,TX BESS 5,TX BESS 6
+"KCE NY 26, LLC","KCE NY 36, LLC",different,split_by_old_key_similarity_sample,KCE NY 26,KCE NY 36,KCE NY 26,KCE NY 36
+REWE 5 LIMITED,REWE 7 LIMITED,different,split_by_old_key_similarity_sample,REWE 5,REWE 7,REWE 5,REWE 7
+"KCE NY 22, LLC","KCE NY 27, LLC",different,split_by_old_key_similarity_sample,KCE NY 22,KCE NY 27,KCE NY 22,KCE NY 27
+"KCE TX 24, LLC","KCE TX 26, LLC",different,split_by_old_key_similarity_sample,KCE TX 24,KCE TX 26,KCE TX 24,KCE TX 26
+"KCE NY 35, LLC","KCE NY 36, LLC",different,split_by_old_key_similarity_sample,KCE NY 35,KCE NY 36,KCE NY 35,KCE NY 36
+Mammoth Central II LLC,Mammoth Central LLC,different,split_by_old_key_similarity_sample,MAMMOTH CENTRAL II,MAMMOTH CENTRAL,MAMMOTH CENTRAL II,MAMMOTH CENTRAL
+"Gransolar Texas Thirteen, LLC",Gransolar Texas Three LLC,different,split_by_old_key_similarity_sample,GRANSOLAR TEXAS THIRTEEN,GRANSOLAR TEXAS THREE,GRANSOLAR TEXAS THIRTEEN,GRANSOLAR TEXAS THREE
+"Shaula Energy Project II, LLC",Shaula Energy Project LLC,different,split_by_old_key_similarity_sample,SHAULA II,SHAULA,SHAULA ENERGY PROJECT II,SHAULA ENERGY PROJECT
+Mona Offshore Wind Limited,Morgan Offshore Wind Limited,different,split_by_old_key_similarity_sample,MONA OFFSHORE,MORGAN OFFSHORE,MONA OFFSHORE WIND,MORGAN OFFSHORE WIND
+ABERDEEN OFFSHORE WIND FARM LIMITED,ARVEN OFFSHORE WIND FARM LIMITED,different,split_by_old_key_similarity_sample,ABERDEEN OFFSHORE FARM,ARVEN OFFSHORE FARM,ABERDEEN OFFSHORE WIND FARM,ARVEN OFFSHORE WIND FARM
+O&G Solar (SPV 20) Limited,O&G Solar (SPV 31) Limited,different,split_by_old_key_similarity_sample,O G SPV 20,O G SPV 31,O AND G SOLAR SPV 20,O AND G SOLAR SPV 31
+"KCE NY 1, LLC",KCE NY 19 LLC,different,split_by_old_key_similarity_sample,KCE NY 1,KCE NY 19,KCE NY 1,KCE NY 19
+O&G Solar (SPV 30) Limited,O&G Solar (SPV 57) Limited,different,split_by_old_key_similarity_sample,O G SPV 30,O G SPV 57,O AND G SOLAR SPV 30,O AND G SOLAR SPV 57
+"KCE NY 1, LLC","KCE NY 6, LLC",different,split_by_old_key_similarity_sample,KCE NY 1,KCE NY 6,KCE NY 1,KCE NY 6
+O&G Solar (SPV 20) Limited,O&G Solar (SPV 57) Limited,different,split_by_old_key_similarity_sample,O G SPV 20,O G SPV 57,O AND G SOLAR SPV 20,O AND G SOLAR SPV 57
+CSE39 LIMITED,CSE43 LIMITED,different,split_by_old_key_similarity_sample,CSE39,CSE43,CSE39,CSE43
+CSE34 LIMITED,CSE43 LIMITED,different,split_by_old_key_similarity_sample,CSE34,CSE43,CSE34,CSE43
+CSE23 LIMITED,CSE33 LIMITED,different,split_by_old_key_similarity_sample,CSE23,CSE33,CSE23,CSE33
+CSE22 LIMITED,CSE28 LIMITED,different,split_by_old_key_similarity_sample,CSE22,CSE28,CSE22,CSE28
+"AR Solar, LLC","BR Solar, LLC",different,split_by_old_key_similarity_sample,AR,BR,AR SOLAR,BR SOLAR
+CSE25 LIMITED,CSE27 LIMITED,different,split_by_old_key_similarity_sample,CSE25,CSE27,CSE25,CSE27
+CSE42 LIMITED,CSE43 LIMITED,different,split_by_old_key_similarity_sample,CSE42,CSE43,CSE42,CSE43
+O&G Solar (SPV 36) Limited,O&G Solar (SPV 47) Limited,different,split_by_old_key_similarity_sample,O G SPV 36,O G SPV 47,O AND G SOLAR SPV 36,O AND G SOLAR SPV 47
+O&G Solar (SPV 40) Limited,O&G Solar (SPV 57) Limited,different,split_by_old_key_similarity_sample,O G SPV 40,O G SPV 57,O AND G SOLAR SPV 40,O AND G SOLAR SPV 57
+CSE25 LIMITED,CSE28 LIMITED,different,split_by_old_key_similarity_sample,CSE25,CSE28,CSE25,CSE28
+CSE25 LIMITED,CSE42 LIMITED,different,split_by_old_key_similarity_sample,CSE25,CSE42,CSE25,CSE42
+O&G Solar (SPV 19) Limited,O&G Solar (SPV 36) Limited,different,split_by_old_key_similarity_sample,O G SPV 19,O G SPV 36,O AND G SOLAR SPV 19,O AND G SOLAR SPV 36
+O&G Solar (SPV 36) Limited,O&G Solar (SPV 44) Limited,different,split_by_old_key_similarity_sample,O G SPV 36,O G SPV 44,O AND G SOLAR SPV 36,O AND G SOLAR SPV 44
+O&G Solar (SPV 38) Limited,O&G Solar (SPV 40) Limited,different,split_by_old_key_similarity_sample,O G SPV 38,O G SPV 40,O AND G SOLAR SPV 38,O AND G SOLAR SPV 40
+CSE29 LIMITED,CSE39 LIMITED,different,split_by_old_key_similarity_sample,CSE29,CSE39,CSE29,CSE39
+CVE US PA Latrobe 385 LLC,CVE US PA Latrobe 408 LLC,different,split_by_old_key_similarity_sample,CVE PA LATROBE 385,CVE PA LATROBE 408,CVE US PA LATROBE 385,CVE US PA LATROBE 408
+"Fresh Air Energy XV, LLC","Fresh Air Energy XXXI, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XV,FRESH AIR XXXI,FRESH AIR ENERGY XV,FRESH AIR ENERGY XXXI
+Fresh Air Energy XII LLC,"Fresh Air Energy XXIX, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XII,FRESH AIR XXIX,FRESH AIR ENERGY XII,FRESH AIR ENERGY XXIX
+"OIC Structured Equity Fund I AUS, L.P.","OIC Structured Equity Fund I, L.P.",family,split_by_old_key_similarity_sample,OIC STRUCTURED EQUITY FUND I AUS L P,OIC STRUCTURED EQUITY FUND I L P,OIC STRUCTURED EQUITY FUND I AUS,OIC STRUCTURED EQUITY FUND I
+Gransolar Texas Seven LLC,Gransolar Texas Ten LLC,different,split_by_old_key_similarity_sample,GRANSOLAR TEXAS SEVEN,GRANSOLAR TEXAS TEN,GRANSOLAR TEXAS SEVEN,GRANSOLAR TEXAS TEN
+"Pisgah Ridge Solar 2, LLC","Pisgah Ridge Solar, LLC",different,split_by_old_key_similarity_sample,PISGAH RIDGE 2,PISGAH RIDGE,PISGAH RIDGE SOLAR 2,PISGAH RIDGE SOLAR
+CVE US PA Bigler 409 LLC,CVE US PA Bigler 438 LLC,different,split_by_old_key_similarity_sample,CVE PA BIGLER 409,CVE PA BIGLER 438,CVE US PA BIGLER 409,CVE US PA BIGLER 438
+Centana Pipeline Co (LA),Centana Pipeline Co (TX),family,split_by_old_key_similarity_sample,CENTANA PIPELINE LA,CENTANA PIPELINE TX,CENTANA PIPELINE LA,CENTANA PIPELINE TX
+ALCEMI STORAGE DEVELOPMENTS 5 LIMITED,ALCEMI STORAGE DEVELOPMENTS 8 LTD,different,split_by_old_key_similarity_sample,ALCEMI 5,ALCEMI 8,ALCEMI STORAGE DEVELOPMENT 5,ALCEMI STORAGE DEVELOPMENT 8
+ALCEMI STORAGE DEVELOPMENTS 2 LIMITED,ALCEMI STORAGE DEVELOPMENTS 8 LTD,different,split_by_old_key_similarity_sample,ALCEMI 2,ALCEMI 8,ALCEMI STORAGE DEVELOPMENT 2,ALCEMI STORAGE DEVELOPMENT 8
+Hornet Solar II LLC,Hornet Solar LLC,different,split_by_old_key_similarity_sample,HORNET II,HORNET,HORNET SOLAR II,HORNET SOLAR
+SoCore 2016 ProjectCo-W4 LLC,SoCore 2018 ProjectCo-W26 LLC,different,split_by_old_key_similarity_sample,SOCORE 2016 PROJECTCO W4,SOCORE 2018 PROJECTCO W26,SOCORE 2016 PROJECTCO W4,SOCORE 2018 PROJECTCO W26
+"SolNCPower10, LLC","SolNCPower6, LLC",different,split_by_old_key_similarity_sample,SOLNCPOWER10,SOLNCPOWER6,SOLNCPOWER10,SOLNCPOWER6
+Apatura Project 21 Ltd,Apatura Project 35 Ltd,different,split_by_old_key_similarity_sample,APATURA 21,APATURA 35,APATURA PROJECT 21,APATURA PROJECT 35
+ABERDEEN OFFSHORE WIND FARM LIMITED,AYRE OFFSHORE WIND FARM LIMITED,different,split_by_old_key_similarity_sample,ABERDEEN OFFSHORE FARM,AYRE OFFSHORE FARM,ABERDEEN OFFSHORE WIND FARM,AYRE OFFSHORE WIND FARM
+SoCore 2016 ProjectCo 2 LLC,SoCore 2016 ProjectCo-W1 LLC,different,split_by_old_key_similarity_sample,SOCORE 2016 PROJECTCO 2,SOCORE 2016 PROJECTCO W1,SOCORE 2016 PROJECTCO 2,SOCORE 2016 PROJECTCO W1
+VESI 31 LLC,VESI 37 LLC,different,split_by_old_key_similarity_sample,VESI 31,VESI 37,VESI 31,VESI 37
+"Fresh Air Energy XXIX, LLC","Fresh Air Energy XXXVIII, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XXIX,FRESH AIR XXXVIII,FRESH AIR ENERGY XXIX,FRESH AIR ENERGY XXXVIII
+"Fresh Air Energy XVII, LLC","Fresh Air Energy XXXIV, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XVII,FRESH AIR XXXIV,FRESH AIR ENERGY XVII,FRESH AIR ENERGY XXXIV
+"Glass Mountain Solar IV, LLC","Glass Mountain Solar, LLC",different,split_by_old_key_similarity_sample,GLASS MOUNTAIN IV,GLASS MOUNTAIN,GLASS MOUNTAIN SOLAR IV,GLASS MOUNTAIN SOLAR
+Gransolar Texas Seven LLC,"Gransolar Texas Sixteen, LLC",different,split_by_old_key_similarity_sample,GRANSOLAR TEXAS SEVEN,GRANSOLAR TEXAS SIXTEEN,GRANSOLAR TEXAS SEVEN,GRANSOLAR TEXAS SIXTEEN
+"Fresh Air Energy XX, LLC","Fresh Air Energy XXXVIII, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XX,FRESH AIR XXXVIII,FRESH AIR ENERGY XX,FRESH AIR ENERGY XXXVIII
+"Gransolar Texas Nine, LLC",Gransolar Texas Nineteen LLC,different,split_by_old_key_similarity_sample,GRANSOLAR TEXAS NINE,GRANSOLAR TEXAS NINETEEN,GRANSOLAR TEXAS NINE,GRANSOLAR TEXAS NINETEEN
+"Regan Solar, LLC","Roan Solar, LLC",different,split_by_old_key_similarity_sample,REGAN,ROAN,REGAN SOLAR,ROAN SOLAR
+"Marcus Energy Storage, LLC","Paris Energy Storage, LLC",different,split_by_old_key_similarity_sample,MARCUS,PARIS,MARCUS ENERGY STORAGE,PARIS ENERGY STORAGE
+Gransolar Texas Three LLC,Gransolar Texas Twelve LLC,different,split_by_old_key_similarity_sample,GRANSOLAR TEXAS THREE,GRANSOLAR TEXAS TWELVE,GRANSOLAR TEXAS THREE,GRANSOLAR TEXAS TWELVE
+Fresh Air Energy XIII LLC,"Fresh Air Energy XXXI, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XIII,FRESH AIR XXXI,FRESH AIR ENERGY XIII,FRESH AIR ENERGY XXXI
+Fresh Air Energy XIII LLC,"Fresh Air Energy XXIX, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XIII,FRESH AIR XXIX,FRESH AIR ENERGY XIII,FRESH AIR ENERGY XXIX
+Mississippi Canyon Gathering (Shell),Mississippi Canyon Gathering (URSA),different,split_by_old_key_similarity_sample,MISSISSIPPI CANYON GATHERING SHELL,MISSISSIPPI CANYON GATHERING URSA,MISSISSIPPI CANYON GATHERING SHELL,MISSISSIPPI CANYON GATHERING URSA
+"Franklin Solar 2, LLC","Franklin Solar, LLC",different,split_by_old_key_similarity_sample,FRANKLIN 2,FRANKLIN,FRANKLIN SOLAR 2,FRANKLIN SOLAR
+Bayshore Solar B LLC,Bayshore Solar C LLC,different,split_by_old_key_similarity_sample,BAYSHORE B,BAYSHORE C,BAYSHORE SOLAR B,BAYSHORE SOLAR C
+Gransolar Texas Twenty LLC,Gransolar Texas Two LLC,different,split_by_old_key_similarity_sample,GRANSOLAR TEXAS TWENTY,GRANSOLAR TEXAS TWO,GRANSOLAR TEXAS TWENTY,GRANSOLAR TEXAS TWO
+Fresh Air Energy X LLC,"Fresh Air Energy XXXII, LLC",different,split_by_old_key_similarity_sample,FRESH AIR X,FRESH AIR XXXII,FRESH AIR ENERGY X,FRESH AIR ENERGY XXXII
+Fresh Air Energy XIII LLC,"Fresh Air Energy XX, LLC",different,split_by_old_key_similarity_sample,FRESH AIR XIII,FRESH AIR XX,FRESH AIR ENERGY XIII,FRESH AIR ENERGY XX
+"Silverbell Energy Center, LLC","Silverline Energy Center, LLC",different,split_by_old_key_similarity_sample,SILVERBELL CENTER,SILVERLINE CENTER,SILVERBELL ENERGY CENTER,SILVERLINE ENERGY CENTER
+"Generate Community Solar MM X, LLC","Generate Community Solar VII, LLC",different,split_by_old_key_similarity_sample,GENERATE COMMUNITY MM X,GENERATE COMMUNITY VII,GENERATE COMMUNITY SOLAR MM X,GENERATE COMMUNITY SOLAR VII
+"KCE NY 1, LLC","KCE NY 36, LLC",different,split_by_old_key_similarity_sample,KCE NY 1,KCE NY 36,KCE NY 1,KCE NY 36
+"KCE NY 1, LLC","KCE NY 35, LLC",different,split_by_old_key_similarity_sample,KCE NY 1,KCE NY 35,KCE NY 1,KCE NY 35
+"KCE NY 30, LLC","KCE NY 6, LLC",different,split_by_old_key_similarity_sample,KCE NY 30,KCE NY 6,KCE NY 30,KCE NY 6
+"Oberon Solar IV, LLC",Oberon Solar LLC,different,split_by_old_key_similarity_sample,OBERON IV,OBERON,OBERON SOLAR IV,OBERON SOLAR
+Farm Credit Leasing Service Corp,Farm Credit Leasing Services Corporation,same,split_by_old_key_similarity_sample,FARM CREDIT LEASING SERVICE,FARM CREDIT LEASING SERVICES,FARM CREDIT LEASING SERVICE,FARM CREDIT LEASING SERVICE
+GALILEO 04 LIMITED,GALILEO 19 LIMITED,different,split_by_old_key_similarity_sample,GALILEO 04,GALILEO 19,GALILEO 04,GALILEO 19
+CARLTON POWER LIMITED,CARRINGTON POWER LIMITED,different,split_by_old_key_similarity_sample,CARLTON,CARRINGTON,CARLTON POWER,CARRINGTON POWER
+"KCE NY 1, LLC","KCE NY 22, LLC",different,split_by_old_key_similarity_sample,KCE NY 1,KCE NY 22,KCE NY 1,KCE NY 22
+BRP Brizo BESS LLC,BRP Crios BESS LLC,different,split_by_old_key_similarity_sample,BRP BRIZO BESS,BRP CRIOS BESS,BRP BRIZO BESS,BRP CRIOS BESS
+"Glass Mountain Solar III, LLC","Glass Mountain Solar, LLC",different,split_by_old_key_similarity_sample,GLASS MOUNTAIN III,GLASS MOUNTAIN,GLASS MOUNTAIN SOLAR III,GLASS MOUNTAIN SOLAR
+"Galaxy Solar 2, LLC","Galaxy Solar, LLC",different,split_by_old_key_similarity_sample,GALAXY 2,GALAXY,GALAXY SOLAR 2,GALAXY SOLAR
+KCE NY 11 LLC,"KCE NY 12, LLC",different,split_by_old_key_similarity_sample,KCE NY 11,KCE NY 12,KCE NY 11,KCE NY 12
+"KCE NY 34, LLC",KCE NY 38 LLC,different,split_by_old_key_similarity_sample,KCE NY 34,KCE NY 38,KCE NY 34,KCE NY 38
+"NextEra Energy Interconnection Holdings, LLC","NextEra Energy Resources Interconnection Holding, LLC",different,split_by_old_key_similarity_sample,NEXTERA INTERCONNECTION,NEXTERA RESOURCES INTERCONNECTION,NEXTERA ENERGY INTERCONNECTION HOLDING,NEXTERA ENERGY RESOURCE INTERCONNECTION HOLDING
+"Citizens Solar Holdings II MA, LLC",Citizens Solar Holdings LLC,family,split_by_old_key_similarity_sample,CITIZENS II MA,CITIZENS,CITIZENS SOLAR HOLDING II MA,CITIZENS SOLAR HOLDING
+BEXLEY GREEN ENERGY CENTRE LTD,BURWELL GREEN ENERGY CENTRE LTD,different,split_by_old_key_similarity_sample,BEXLEY GREEN CENTRE,BURWELL GREEN CENTRE,BEXLEY GREEN ENERGY CENTRE,BURWELL GREEN ENERGY CENTRE
+"Ward Solar Holdings, LLC","Washburn Solar Holdings, LLC",different,split_by_old_key_similarity_sample,WARD,WASHBURN,WARD SOLAR HOLDING,WASHBURN SOLAR HOLDING
+Skipper Energy Storage LLC,Stinger Energy Storage LLC,different,split_by_old_key_similarity_sample,SKIPPER,STINGER,SKIPPER ENERGY STORAGE,STINGER ENERGY STORAGE
+CRE-Sunray California LLC Delaware,CRE-Sunray Energy 3 California LLC Delaware,different,split_by_old_key_similarity_sample,CRE SUNRAY CALIFORNIA DELAWARE,CRE SUNRAY 3 CALIFORNIA DELAWARE,CRE SUNRAY CALIFORNIA DELAWARE,CRE SUNRAY ENERGY 3 CALIFORNIA DELAWARE
+"SL Ashville 2, LLC","SL Ashville, LLC",different,split_by_old_key_similarity_sample,SL ASHVILLE 2,SL ASHVILLE,SL ASHVILLE 2,SL ASHVILLE
+NP SPV 29 LIMITED,NP SPV 41 LIMITED,different,split_by_old_key_similarity_sample,NP SPV 29,NP SPV 41,NP SPV 29,NP SPV 41
+"Nash 58 Farm, LLC","Nash 64 Farm, LLC",different,split_by_old_key_similarity_sample,NASH 58 FARM,NASH 64 FARM,NASH 58 FARM,NASH 64 FARM
+Gransolar Texas Eleven LLC,Gransolar Texas Five LLC,different,split_by_old_key_similarity_sample,GRANSOLAR TEXAS ELEVEN,GRANSOLAR TEXAS FIVE,GRANSOLAR TEXAS ELEVEN,GRANSOLAR TEXAS FIVE

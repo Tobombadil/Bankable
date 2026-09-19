@@ -10,7 +10,7 @@ registry this loader reads), upserted the same way `services/ingest/loader.py`'s
 `upsert_licence_and_source` does for every other connector.
 
 **Aggregation rule (generator-level shares -> one plant-level share per owner).** Schedule 4 gives
-one row per `(plant, generator, owner)`; this loader groups by `(source_plant_id, norm_org(owner_name))`
+one row per `(plant, generator, owner)`; this loader groups by `(source_plant_id, org_key(owner_name))`
 and reduces the group to a single `share_pct`, in this order:
 
 - **Share of plant nameplate** when the parquet carries `generator_capacity_mw` and
@@ -38,18 +38,22 @@ company page. The 2025 release has two such generators (plant 341 CT5 at 150 %, 
 at 100.09 %).
 
 `owner_name` resolves to an `organization` through the existing alias table
-(`organization_alias`), matched on `pipeline.normalize.norm_org` -- the deterministic,
-corp-suffix-and-punctuation-stripping key `services/resolve/merge.py` already uses to decide two
+(`organization_alias`), matched on `pipeline.normalize.org_key` -- the deterministic,
+legal-form-and-punctuation-stripping key `services/resolve/merge.py` already uses to decide two
 filings name the same organisation, not a raw case-fold (coordinator correction, 2026-09-18: a
-case-fold-only key was measured to over-split organisations 8.2% versus `norm_org` on the eval
-corpus). No match creates a new organisation plus a `filing_spelling` alias row
+case-fold-only key was measured to over-split organisations 8.2% versus that key on the eval
+corpus). Since 2026-09-19 the key strips legal forms *only*: it used to strip industry and
+geography words too, which merged 258 pairs of distinct legal entities across this file's owner
+strings and the dev store -- `MidAmerican Energy Co` with `MidAmerican Solar LLC`, `Shell
+Renewables` with `Shell Wind Energy Inc.` -- and put one company's plants on another's page
+(the measured census is docs/22 §16). No match creates a new organisation plus a `filing_spelling` alias row
 (`created_by="pipeline"`, `confidence=0.9` -- see `_resolve_organization` for why this is lower
 than `services/ingest/loader.py`'s exact/punctuation-match `1.0`). `_build_norm_org_index` builds
 the whole lookup once per call rather than a per-row query, since this loader's input (one
 ownership run a year) does not need `services/ingest/loader.py::_get_or_create_organization`'s
 heavier proposal-loader bulk cache.
 
-The group key is `norm_org(owner_name)`, the same key the resolver uses, so two spellings of one
+The group key is `org_key(owner_name)`, the same key the resolver uses, so two spellings of one
 owner at the same plant ("NextEra Energy Resources, LLC" and "NEXTERA ENERGY RESOURCES LLC")
 aggregate into one edge rather than the second overwriting the first (fixed 2026-09-19; the
 2026-09-18 version keyed on the raw casefold and recorded this as a known limitation).
@@ -72,7 +76,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeline.connectors.registry import Registry
-from pipeline.normalize import norm_org
+from pipeline.normalize import org_key as _org_key
 from services.db.models import Asset, AssetOwner, Organization, OrganizationAlias, Source, new_uuid
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id as make_public_id
@@ -229,22 +233,19 @@ def find_over_allocated_generators(
     return {f"{plant}/{gen}": round(float(v), 3) for (plant, gen), v in over.items()}
 
 
-def org_key(name: object) -> str:
-    """The resolver key for an organisation string: `pipeline.normalize.norm_org`, or the bare
-    upper-cased string when `norm_org` strips everything (a name made only of corporate suffixes or
-    punctuation). One function so the index, the lookup and the aggregation group key agree --
-    measured 2026-09-19: an index keyed on `norm_org` alone but a lookup falling back to the upper-
-    cased string re-created one organisation and 20 edges on every re-run."""
-    text = str(name or "").strip()
-    return norm_org(text) or text.upper()
+#: The resolver key for an organisation string. Since 2026-09-19 this lane's helper *is*
+#: `pipeline.normalize.org_key` -- one function for the index, the lookup, the aggregation group
+#: key and every other consumer (docs/22 §16). Re-exported under the old name so this module's
+#: callers and tests keep working.
+org_key = _org_key
 
 
 def _build_norm_org_index(session: Session) -> dict[str, Organization]:
-    """`pipeline.normalize.norm_org(name)` -> the first `Organization` seen with that key, scanned
+    """`pipeline.normalize.org_key(name)` -> the first `Organization` seen with that key, scanned
     once per `load_owner_shares` call (coordinator correction, 2026-09-18): a casefold-only key
     over-splits organisations whose spellings differ by corporate suffix or punctuation alone
-    (measured 8.2% over-split on the eval corpus vs. `norm_org`) -- the same deterministic,
-    corp-suffix-stripping key `services/resolve/merge.py` already uses to decide two filings name
+    (measured 8.2% over-split on the eval corpus vs. that key) -- the same deterministic,
+    legal-form-stripping key `services/resolve/merge.py` already uses to decide two filings name
     the same organisation. Built from both `organization.name_canonical` and every
     `organization_alias.alias` so a raw spelling seen only as an alias still resolves."""
     index: dict[str, Organization] = {}
@@ -272,11 +273,11 @@ def _resolve_organization(
     now: dt.datetime,
     created_counter: list[int],
 ) -> Organization:
-    """Resolves `raw_name` to an organisation via `norm_index` (module docstring: `norm_org`, not
+    """Resolves `raw_name` to an organisation via `norm_index` (module docstring: `org_key`, not
     a raw casefold), creating a new organisation plus a `filing_spelling` alias only when no
     existing organisation or alias normalises to the same key. `norm_index` is both the lookup and
     the write-through cache for this call: a newly created organisation is added to it immediately,
-    so two owner names in the same run that share a `norm_org` key (e.g. "NextEra Energy
+    so two owner names in the same run that share an `org_key` (e.g. "NextEra Energy
     Resources, LLC" and "NEXTERA ENERGY RESOURCES LLC") resolve to the same row rather than
     creating it twice.
     """
@@ -322,7 +323,7 @@ def _resolve_organization(
                 licence_id=source.licence_id,
                 # 0.9, not the loader's exact/punctuation-match 1.0
                 # (`services/ingest/loader.py::_add_organization_alias_if_new`): this match is
-                # made on the looser `norm_org` corp-suffix-stripped key, not an exact or
+                # made on the looser `org_key` legal-form-stripped key, not an exact or
                 # punctuation-only spelling match, so it is recorded as slightly less certain
                 # (coordinator correction, 2026-09-18).
                 confidence=0.9,

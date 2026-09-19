@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 
 from pipeline import resolve as resolve_module
 from pipeline.connectors.registry import Registry
-from pipeline.normalize import norm_org
+from pipeline.normalize import org_key
 from services.db.models import Organization, Proposal, ProposalSource
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id, slugify
@@ -355,7 +355,7 @@ def main() -> int:
         _report(f"proposals absorbed (merged_into_id set): {proposals_before - proposals_after:,}")
 
         _report("\n4. Organization resolution ...")
-        org_report = merge_mod.resolve_organizations(session, norm_org)
+        org_report = merge_mod.resolve_organizations(session, org_key)
         session.commit()
         orgs_after = session.scalar(
             select(func.count()).select_from(Organization).where(Organization.merged_into_id.is_(None))
