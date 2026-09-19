@@ -210,3 +210,160 @@ def test_load_owner_shares_parquet_reads_a_file(session, tmp_path):
     owner_frame().to_parquet(path, index=False)
     result = load_owner_shares_parquet(session, path)
     assert result.edges_written == 2
+
+
+# ------------------------------------------------------ plant-level share arithmetic (2026-09-19)
+def _row(plant: str, gen: str, owner: str, pct: float | None, gen_mw: float | None, plant_mw: float | None):
+    return {
+        "source_plant_id": plant,
+        "generator_id": gen,
+        "owner_name": owner,
+        "ownership_pct": pct,
+        "generator_status": "OP" if gen_mw is not None else "RE",
+        "generator_capacity_mw": gen_mw,
+        "plant_capacity_mw": plant_mw,
+        "as_of": "2025-12-31",
+        "source_url": "https://www.eia.gov/electricity/data/eia860/xls/eia8602025.zip",
+        "retrieved_at": "2026-09-19T20:48:22Z",
+        "licence": "public-domain",
+    }
+
+
+def test_share_is_owned_nameplate_over_plant_nameplate_including_unlisted_units(session):
+    """Plant 1000: GEN1 100 MW (A 60 %, B 40 %), GEN2 300 MW (A 100 %), plus 100 MW of generators
+    Schedule 4 does not list (wholly operator-owned) -> plant total 500 MW.
+    A = (60*100 + 100*300) / 500 = 72 %; B = 40*100 / 500 = 8 %. Owner C only appears on a retired
+    generator with no operable nameplate: the edge exists, its share is NULL, nothing is invented."""
+    _seed_plant(session)
+    df = pd.DataFrame(
+        [
+            _row("1000", "GEN1", "Owner A LLC", 60.0, 100.0, 500.0),
+            _row("1000", "GEN1", "Owner B LLC", 40.0, 100.0, 500.0),
+            _row("1000", "GEN2", "Owner A LLC", 100.0, 300.0, 500.0),
+            _row("1000", "GEN9", "Owner C LLC", 100.0, None, 500.0),
+        ]
+    )
+    result = load_owner_shares(session, df)
+
+    assert result.edges_written == 3
+    assert result.edges_nameplate_weighted == 2
+    assert result.edges_without_share == 1
+    assert result.edges_unweighted_mean == 0
+    assert result.generators_over_100 == {}
+    by_owner = {e.owner_name_raw: e for e in session.scalars(select(AssetOwner)).all()}
+    assert float(by_owner["Owner A LLC"].share_pct) == pytest.approx(72.0)
+    assert float(by_owner["Owner B LLC"].share_pct) == pytest.approx(8.0)
+    assert by_owner["Owner C LLC"].share_pct is None
+    assert str(by_owner["Owner A LLC"].as_of) == "2025-12-31"
+
+
+def test_unweighted_mean_when_the_parquet_has_no_capacity_columns(session):
+    _seed_plant(session)
+    result = load_owner_shares(session, owner_frame())
+    assert result.edges_unweighted_mean == 1  # NextEra: mean of 60 and 40
+    assert result.edges_without_share == 1  # Minority Partner Co: only a null pct row
+    assert result.edges_nameplate_weighted == 0
+
+
+def test_generator_shares_over_100_are_flagged_and_left_as_stated(session):
+    _seed_plant(session)
+    df = pd.DataFrame(
+        [
+            _row("1000", "GEN1", "Owner A LLC", 60.0, 100.0, 100.0),
+            _row("1000", "GEN1", "Owner B LLC", 60.0, 100.0, 100.0),
+            _row("1000", "GEN2", "Owner A LLC", 99.99, 100.0, 100.0),  # under 100: not flagged
+        ]
+    )
+    result = load_owner_shares(session, df)
+
+    assert result.generators_over_100 == {"1000/GEN1": 120.0}
+    by_owner = {e.owner_name_raw: float(e.share_pct) for e in session.scalars(select(AssetOwner)).all()}
+    # Nothing is rescaled: A = (60*100 + 99.99*100) / 100 = 159.99 as the registry states it.
+    assert by_owner["Owner A LLC"] == pytest.approx(159.99)
+    assert by_owner["Owner B LLC"] == pytest.approx(60.0)
+
+
+def test_two_spellings_of_one_owner_at_one_plant_aggregate_into_one_edge(session):
+    """The group key is `norm_org`, so the corp-suffix/punctuation variants of one owner at the
+    same plant are one group (one edge, mean over both generators), not two groups where the
+    second overwrote the first (the 2026-09-18 known limitation)."""
+    _seed_plant(session)
+    df = pd.DataFrame(
+        [
+            _row("1000", "GEN1", "NextEra Energy Resources, LLC", 60.0, None, None),
+            _row("1000", "GEN2", "NEXTERA ENERGY RESOURCES LLC", 40.0, None, None),
+        ]
+    )
+    result = load_owner_shares(session, df)
+    assert result.edges_written == 1
+    edges = session.scalars(select(AssetOwner)).all()
+    assert len(edges) == 1
+    assert float(edges[0].share_pct) == pytest.approx(50.0)
+    assert edges[0].owner_name_raw == "NEXTERA ENERGY RESOURCES LLC"  # alphabetically first, for audit
+
+
+def test_placeholder_owner_other_is_not_attributed(session):
+    _seed_plant(session)
+    df = pd.DataFrame(
+        [
+            _row("1000", "GEN1", "Other", 25.96, 100.0, 100.0),
+            _row("1000", "GEN1", "Real Owner LLC", 74.04, 100.0, 100.0),
+        ]
+    )
+    result = load_owner_shares(session, df)
+    assert result.rows_skipped_placeholder_owner == 1
+    assert result.edges_written == 1
+    assert session.scalar(select(Organization).where(Organization.name_canonical == "Other")) is None
+
+
+def test_rerun_is_idempotent_for_a_name_norm_org_strips_entirely(session):
+    """`norm_org("US Solar")` is None (both tokens are corporate/sector suffixes). The index, the
+    lookup and the group key must all fall back to the same key, or every re-run re-creates the
+    organisation and its edges (measured 2026-09-19 on the real file: 1 organisation, 20 edges)."""
+    _seed_plant(session, "1000")
+    _seed_plant(session, "2000")
+    df = pd.DataFrame(
+        [
+            _row("1000", "GEN1", "US Solar", 100.0, None, None),
+            _row("2000", "GEN1", "US Solar", 100.0, None, None),
+        ]
+    )
+    first = load_owner_shares(session, df)
+    second = load_owner_shares(session, df)
+    assert first.organizations_created == 1
+    assert second.organizations_created == 0
+    assert second.organizations_matched == 1
+    assert len(session.scalars(select(Organization)).all()) == 1
+    assert len(session.scalars(select(AssetOwner)).all()) == 2
+
+
+def test_organizations_matched_counts_distinct_pre_existing_organizations(session):
+    _seed_plant(session)
+    session.add(
+        Organization(
+            public_id="org_existing2",
+            slug="nextera-existing-2",
+            name_canonical="NextEra Energy Resources LLC",
+            name_normalised="nextera energy resources llc",
+            type="developer",
+            country="US",
+        )
+    )
+    session.commit()
+    result = load_owner_shares(session, owner_frame())
+    assert result.organizations_matched == 1  # NextEra, once, although it owns two generators
+    assert result.organizations_created == 1  # Minority Partner Co
+
+
+def test_report_samples_the_unmatched_plant_ids_and_counts_them_all(session):
+    """`web/dev_up.py` logs this report as one line, so the id list in it is capped; the full list
+    stays on the dataclass."""
+    _seed_plant(session)
+    df = pd.concat(
+        [owner_frame()] + [owner_frame().assign(source_plant_id=str(90000 + i)) for i in range(12)]
+    )
+    result = load_owner_shares(session, df)
+    report = result.as_report()
+    assert report["unmatched_plant_count"] == 13  # "9999" plus the twelve synthetic plants
+    assert len(report["unmatched_plant_ids_sample"]) == 10
+    assert len(set(result.unmatched_plant_ids)) == 13

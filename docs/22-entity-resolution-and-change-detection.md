@@ -694,3 +694,104 @@ operating subsidiaries without an LEI of their own, and the strings are not lega
 stays. Nothing in the curated file asserts a share, a legal form or an ownership chain beyond one parent
 hop, and none of it is inferred from a name alone — each row is a statement the company itself published.
 
+
+### 15.3 EIA-860 Schedule 4 owner shares (2026-09-19)
+
+The Schedule 4 connector now fetches its own archive. EIA publishes the current final release at
+`xls/eia860<year>.zip`, which robots.txt allows; only past years move to the disallowed `archive/xls/`
+path. `python -m pipeline.connectors run us.eia.860` took the 2025 final release
+(<https://www.eia.gov/electricity/data/eia860/xls/eia8602025.zip>, 23,622,347 bytes, server date 2026-09-10,
+retrieved 2026-09-19T20:48:22Z, sha256 `2b27929d…`), 5,680 Ownership rows, DQ pass.
+`pipeline/context/eia_owners.py --latest-snapshot` wrote 5,680 owner rows over 2,534 plants, 4,018
+generators and 2,038 distinct owner strings. Two columns are new: `generator_status` (the sheet's own
+status code) and the generator/plant nameplate joined from the same zip's `3_1_Generator_Y2025.xlsx`
+"Operable" sheet (4,983 of 5,680 rows carry a generator nameplate; the rest are retired, cancelled or
+proposed units).
+
+**The share a company owns of a plant.** Schedule 4 reports a percentage per *generator*, and its title
+row says it lists "Jointly or Third-Party Owned" generators only. So a plant-level share is neither the
+mean of the generator percentages nor a number that sums to 100 across the listed owners. The loader
+computes `share_pct = Σ(pct_g × nameplate_g) / plant_nameplate`, where the denominator is the nameplate of
+**every** operable generator at the plant, listed on Schedule 4 or not. A plant whose other units are
+wholly owned by its operator therefore shows its joint owners at their true share of the site, and the
+unlisted remainder stays implicit — no edge is invented for an owner the registry does not name. Where the
+parquet carries no nameplate (a fixture, or an owner whose rows are all retired units) the loader falls back
+to the unweighted mean, or writes a NULL share; `OwnershipLoadResult` counts which path each edge took
+(3,024 nameplate-weighted, 27 unweighted mean, 67 without a share, on the run below).
+
+Over-allocated generators are **flagged, never normalised**: the 2025 release has two whose listed shares
+sum above 100 (plant 341 generator CT5 at 150.0, plant 70387 BESS1 at 100.09). They are reported in the load
+result and logged, and their rows are used exactly as stated. Rescaling would hide a registry error behind a
+plausible number on a company page. Rows whose owner is the placeholder `Other` (35 rows on 11 plants,
+Ownership ID 99999, no address — EIA's filing for an unnamed minority owner) are counted and skipped rather
+than resolved into an organisation called "Other".
+
+Measured, loading `data/normalized/context/us.eia.860.owners.parquet` into a copy of the dev store
+(`web/.data/dev-shots2.db`, which already held 14,659 `power_plant` assets and 5,513 organisations):
+5,680 rows seen, 35 placeholder rows skipped, **2,315 of 2,534 plants matched** an EIA-860M asset by plant
+id (91.4 %), **3,118 owner edges** written over 1,867 organisations, of which **1,735 were created and 132
+matched organisations the proposal and midstream lanes had already made**. The 219 unmatched plants are
+plants EIA-860M does not carry as operating: 200 have only retired or cancelled generators on Schedule 4,
+17 only proposed ones, 2 are mixed; none has an operable nameplate. A second run wrote 0 new organisations
+and 0 duplicate edges (33.6 s then 3.4 s). Top ten owners by owned MW (share × the asset's EIA-860M
+nameplate): Constellation Nuclear 6,228 MW; Georgia Power Co 4,678; Oglethorpe Power Corporation 4,082;
+Virginia Electric & Power Co 3,873; ArcLight Capital Partners LLC 3,596; MidAmerican Energy Co 3,424;
+PacifiCorp 3,321; Evergy Metro 3,093; Cornerstone Generation 2,718; Comanche Peak Power Co, LLC 2,430 —
+the nuclear and large-coal joint ventures, which is what a jointly-owned-generators register should surface.
+
+### 15.4 What the ownership load taught us about the organisation key
+
+**The key must be one function.** The index was built on `norm_org` alone while the lookup fell back to the
+upper-cased raw string when `norm_org` returned nothing. `norm_org("US Solar")` is `None` — both tokens are
+on the suffix list — so that owner was created, indexed under a key nothing would look up, and re-created on
+every run: 1 organisation and 20 edges churned per load. `services/ingest/ownership.py::org_key` is now the
+single function the index, the lookup and the aggregation group key all use, and a regression test covers
+exactly this name. The same bug shape exists in `services/ingest/midstream.py::_get_or_create_parent`
+(line 285), which still inlines the fallback; it is that lane's file, recorded here rather than edited.
+
+**The group key was too narrow.** Aggregation grouped on the raw case-folded owner string, so two spellings
+of one owner at one plant were two groups and the second edge write overwrote the first. It now groups on
+`org_key`, the same key resolution uses.
+
+**How much collapses, and how much should not.** 2,038 distinct owner strings resolve to 2,020 keys — 18
+keys carry more than one spelling. Some are exactly what the key is for (`Wellhead Services, Inc.` /
+`Wellhead Services, Inc`; `Vistra Corp` / `Vistra Energy`; `Nextera Energy Resources` / `NextEra Energy
+Resources, LLC`; `Clearway Energy, Inc` / `Clearway Energy Group`). Others are **over-merges**: `norm_org`
+strips `energy`, `power`, `solar`, `wind`, `renewables`, `storage`, `holdings`, `partners` and `project`
+along with the corporate suffixes, so `MidAmerican Energy Co` and `MidAmerican Solar LLC` both reduce to
+MIDAMERICAN, as do `Entergy Corp` / `Entergy Power, LLC`, `Prairie Power Inc` / `Prairie Solar LLC`,
+`Shell Renewables` / `Shell Wind Energy Inc.`, `BP America Inc` / `BP Wind Energy North America Inc`,
+`SunRay Power LLC` / `Sunray Energy Inc` and `Anderson Wind Project, LLC` / `Anderson North Solar Project,
+LLC`. These are separate legal entities inside one family, or two unrelated projects sharing a first word —
+a parent link or nothing, not an identity. Seven of the eighteen multi-spelling keys are of this kind, and
+each costs a company page precision (one "MidAmerican" row instead of a utility and its solar affiliate). Narrowing the suffix list is a §13 resolver decision
+with consequences for every source, so it is recorded here as a measured cost, not changed by this lane.
+
+**What the key cannot reach** goes in `data/vendored/organizations/aliases.yaml` (new, same contract as
+`parents.yaml`: one entity per row, a cited document per row, nothing inferred from a name). Four rules,
+all read from SEC EDGAR submissions metadata on 2026-09-19: `Wisconsin Power and Light Co` →
+`Wisconsin Power & Light Co` (one registrant, CIK 0000107832; "and" survives `norm_org` where "&" becomes a
+space, so the two spellings split); `Kansas City Power & Light Co` → `Evergy Metro` and `Westar Energy Inc`
+/ `Western Resources Inc` → `Evergy Kansas Central, Inc` (EDGAR `formerNames`, renamed 2019 — no string
+similarity to reach across, and older registry vintages still carry the former names). No loader reads the
+file yet. Two candidates were left out for want of a source: `Farm Credit Leasing Service Corp` /
+`Farm Credit Leasing Services Corporation` (farmcreditleasing.com serves an expired certificate; the FCA
+institution directory does not name it in fetchable text) and `John Hancock` / `John Hancock Funding
+Company` / `Manulife Infrastructure II Holdings A, L.P.` (manulife.com and johnhancock.com answer 403 to a
+scripted request) — the last of which is the 31-plant and 30-plant pair in the top twenty, so it is worth a
+human minute in a browser.
+
+The twenty most frequent owner strings are dominated by financing and municipal-aggregation entities, not
+utilities: `GSRP Project Holdings I LLC` (49 rows, 37 plants), `Nordic Solar, LLC` (40 rows, 9 plants),
+`John Hancock Funding Company` (31 plants), `Manulife Infrastructure II Holdings A, L.P.` (30),
+`Generate C&I Warehouse, LLC` (28), `Hunt Energy Network, LLC` (27), `NJR Clean Energy Ventures III
+Corporation` (23), `Generate NY Community Solar Lessor III` (20), eight Ohio municipalities
+(`City of Hamilton - (OH)` and siblings, 8–11 plants each), `Public Service Co of NM` (14),
+`Wisconsin Public Service Corp` (13), `FirstLight Hydro Generating Company` (8) and
+`Florida Municipal Power Agency (FL)` (7).
+Three of the twenty matched an organisation another lane had already created — `Hunt Energy Network, LLC`
+(ERCOT queue sponsor), `Public Service Co of NM` (EIA Atlas pipeline operator) and
+`NJR Clean Energy Ventures III Corporation` (NYISO queue sponsor) — which is the join the ownership graph
+exists for: a tax-equity or IPP name on an operating plant is the same row as the sponsor on a queued one.
+The other seventeen were new, as expected for financing vehicles and municipalities that never file a queue
+request.

@@ -1317,16 +1317,18 @@ sources:
   tier: 2
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'index 200; archive/xls/eia8602024.zip 200, 22,100,342 bytes, application/x-zip-compressed, contains 4___Owner_Y2024.xlsx (495,686 bytes); xls/eia8602025ER.zip answers 200 with a 55 KB HTML placeholder, same pattern as EIA-860M future months — check the zip magic before parsing. Connector built (pipeline/connectors/us_eia_860/): Ownership sheet header is on the second row (row index 1, one row earlier than the Planned/Operating sheets); parsed 0.76s for the real 5,496-row sheet (openpyxl, zip already on disk). Row filter measured against the real 2024 sheet: 1 row has no Generator ID (dropped, plant 62844) and 2 rows have a blank Percent Owned (kept, ownership_pct null) -> 5,495 owner rows via pipeline/context/eia_owners.py --archive. Percent Owned is a 0-1 fraction in the source, multiplied by 100 for the documented 0-100 range. 60-row test fixture (tests/fixtures/eia860_owner_2024_sample.zip, 9,630 bytes) built from this same download, including the three messy rows above.'}
+  verified: {date: 2026-09-19, result: ok, note: 'First real connector run 2026-09-19T20:48:22Z (python -m pipeline.connectors run us.eia.860): index 200; xls/eia8602025.zip (the 2025 final release, dated 2026-09-10 on the server, robots-allowed, no longer an archive/ path) 200, 23,622,347 bytes, application/x-zip-compressed, sha256 2b27929d...; 5,680 Ownership rows, DQ pass, run record data/runs/us.eia.860/20260919T204822Z.json. pipeline/context/eia_owners.py --latest-snapshot: 5,680 owner rows (0 without Generator ID this year, 1 blank Percent Owned kept null), 2,534 plants, 4,018 generators, 2,038 owner strings; generator nameplate joined from the same zip 3_1_Generator_Y2025.xlsx Operable sheet (4,983 rows with MW; Schedule 4 lists jointly/third-party owned generators only, per its title row); 2 generators whose shares sum over 100 (341/CT5 150, 70387/BESS1 100.09) flagged, not normalised; 35 rows with owner "Other" (Ownership ID 99999) skipped by the loader. Loaded on a copy of web/.data/dev-shots2.db: 2,315 of 2,534 plants matched EIA-860M power_plant assets (219 unmatched: 200 all-retired/cancelled, 17 all-proposed, 2 mixed), 3,118 owner edges, 1,735 organisations created + 132 matched existing, re-run 0 new organisations and 0 duplicate edges (33.6 s / 3.4 s). Older years remain under archive/xls/ (robots-disallowed; --archive PATH for a browser download). 60-row test fixture tests/fixtures/eia860_owner_2024_sample.zip unchanged.'}
   notes: >-
     The ownership graph's spine for generation: Schedule 4 lists each owner and its percentage share per
     generator, keyed by Plant ID + Generator ID, the same identity EIA-860M uses, so it joins straight onto
     built_plant and onto EIA-860M proposals. Owner names are free text; resolve to organization via the
     existing resolver, then to a parent via GLEIF where an LEI exists. Annual, so it lags 860M by up to a year.
-    2026-09-18 (ADR 0008): the annual archive lives at `archive/xls/eia860<year>.zip`, a path eia.gov's
-    robots.txt disallows (`/*archive/`); the connector crawls only `xls/` and records a human-downloaded
-    archive's row counts here (see `verified.note`) rather than fetching it itself. See the docstring of
-    `pipeline/connectors/us_eia_860/connector.py` and `pipeline/context/eia_owners.py`.
+    2026-09-18 (ADR 0008): past years live at `archive/xls/eia860<year>.zip`, a path eia.gov's robots.txt
+    disallows (`/*archive/`); the connector crawls only `xls/`. 2026-09-19: the current final release is
+    published at `xls/eia860<year>.zip` (2025 final appeared there 2026-09-10), so the connector fetches it
+    itself; a year that has moved to the archive is a browser download handed to `eia_owners.py --archive`.
+    See the docstrings of `pipeline/connectors/us_eia_860/connector.py`, `pipeline/context/eia_owners.py`
+    and `services/ingest/ownership.py` (plant-level share = owned nameplate / plant nameplate).
 
 - id: us.eia.atlas.gas_processing_plants
   name: EIA US Energy Atlas — Natural Gas Processing Plants (point geometries, operator, capacity)
