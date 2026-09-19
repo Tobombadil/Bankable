@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Any
 
 from services.db.models import Location, Proposal
+from services.ingest.geocode import geocode
 
 SPLIT_THRESHOLD = 500  # docs/04 D-10: clusters split into markers at <=500 visible records
 
@@ -35,17 +37,49 @@ def placement_grade(precision: str) -> str:
     return "none"
 
 
-def _region_key(loc: Location) -> tuple[str, str] | None:
+@dataclass(frozen=True, slots=True)
+class Placement:
+    """What a `location` row may be served as on a non-admin surface: its stored `geom`/
+    `precision` verbatim, or -- when `downgraded` -- the region grade the restricted-precision
+    rule replaces an exact point with (`effective_placement`)."""
+
+    geom: tuple[float, float] | None
+    precision: str
+    downgraded: bool
+
+
+def effective_placement(loc: Location) -> Placement:
+    """The restricted-precision rule at the API boundary (docs/04 D-9; docs/21 §8's `precise_geo`
+    field class; 2026-09-18 audit, docs/50 §3.1 "exact coordinates publish under licences that
+    forbid raw"). An `exact` location whose licence has `allows_raw_publication = false` is served
+    as the region grade the loader would have produced for a derived-only source: its county
+    centroid, else its state centroid (the same vendored gazetteer `services/ingest/geocode.py`
+    uses at load time), else unplaced -- and the stored coordinate is never read by any caller of
+    this function. `precision_reason` for a downgraded row is always `licence`. Every other row
+    is returned as stored. This is the single Python twin of
+    `services/api/visibility.py::location_exact_permitted` (the SQL clause); `serialize_location`,
+    the proposals map, `nearby-proposals` and the placement filter all go through one or both."""
+    if loc.precision == "exact" and not loc.licence.allows_raw_publication:
+        state = loc.state_code
+        if state and "-" in state:
+            state = state.split("-", 1)[1]
+        point, precision = geocode(state, loc.county_name, country=loc.country)
+        return Placement(geom=point, precision=precision, downgraded=True)
+    return Placement(geom=loc.geom, precision=loc.precision, downgraded=False)
+
+
+def _region_key(loc: Location, precision: str) -> tuple[str, str] | None:
     """`(region_level, region_id)` for a region-grade location. A county-precision location with
     no `county_fips` (a fixture or source row the gazetteer could not key, e.g. the 2026-09-12
     eval parquet CI's browser test loads) falls back to its state, then its country, rather than
     vanishing from the map: region grade means "somewhere in this area", and the larger area is
-    still true. `None` only when the location carries no usable region at all."""
-    if loc.precision == "county_centroid" and loc.county_fips:
+    still true. `None` only when the location carries no usable region at all. `precision` is the
+    *effective* one (`effective_placement`), not necessarily `loc.precision`."""
+    if precision == "county_centroid" and loc.county_fips:
         return ("county", loc.county_fips)
-    if loc.precision in ("county_centroid", "state_centroid") and loc.state_code:
+    if precision in ("county_centroid", "state_centroid") and loc.state_code:
         return ("state", loc.state_code)
-    if loc.precision in REGION_PRECISIONS and loc.country:
+    if precision in REGION_PRECISIONS and loc.country:
         return ("country", loc.country)
     return None
 
@@ -68,7 +102,9 @@ def _grid_cell(lon: float, lat: float, zoom: int) -> tuple[int, int]:
     return (math.floor(lon / cell_deg), math.floor(lat / cell_deg))
 
 
-def _precision_reason(loc: Location) -> str | None:
+def _precision_reason(loc: Location, placement: Placement) -> str | None:
+    if placement.downgraded:
+        return "licence"
     if loc.precision == "county_centroid" and not loc.licence.allows_raw_publication:
         return "licence"
     return None
@@ -120,13 +156,18 @@ def build_geo_feature_collection(
     (a mixed-precision viewport is normal); `SPLIT_THRESHOLD` clustering applies only to the
     `exact` grade, per docs/23 §3.1's "keep proposal and cluster features for exact precision only".
     """
-    exact: list[tuple[Proposal, Location, tuple[float, float]]] = []
-    region: list[tuple[Proposal, Location, tuple[float, float]]] = []
+    exact: list[_Member] = []
+    region: list[_Member] = []
     for p in plottable_proposals:
         if p.location is None or p.location.geom is None:
             continue
-        member = (p, p.location, p.location.geom)
-        grade = placement_grade(p.location.precision)
+        placement = effective_placement(p.location)
+        if placement.geom is None:
+            # An exact row downgraded by its licence whose county/state resolves to nothing:
+            # unplaced on this surface (never the stored coordinate), counted, not drawn.
+            continue
+        member = (p, p.location, placement.geom, placement)
+        grade = placement_grade(placement.precision)
         if grade == "exact":
             exact.append(member)
         elif grade == "region":
@@ -137,25 +178,21 @@ def build_geo_feature_collection(
 
     features: list[dict[str, Any]] = []
     if len(in_view) <= SPLIT_THRESHOLD:
-        for p, loc, (lon, lat) in in_view:
-            features.append(_record_feature(p, loc, lon, lat))
+        for p, loc, (lon, lat), placement in in_view:
+            features.append(_record_feature(p, loc, lon, lat, placement))
     else:
-        groups: dict[tuple[int, int], list[tuple[Proposal, Location, tuple[float, float]]]] = defaultdict(
-            list
-        )
+        groups: dict[tuple[int, int], list[_Member]] = defaultdict(list)
         for member in in_view:
-            _, _, (lon, lat) = member
+            _, _, (lon, lat), _ = member
             groups[_grid_cell(lon, lat, zoom)].append(member)
         for members in groups.values():
             features.append(_cluster_feature(members))
 
     region_in_view = [m for m in region if _in_bbox(m[2][0], m[2][1], bbox)]
-    region_groups: dict[tuple[str, str], list[tuple[Proposal, Location, tuple[float, float]]]] = defaultdict(
-        list
-    )
+    region_groups: dict[tuple[str, str], list[_Member]] = defaultdict(list)
     for member in region_in_view:
-        _, loc, _ = member
-        key = _region_key(loc)
+        _, loc, _, placement = member
+        key = _region_key(loc, placement.precision)
         if key is None:
             continue
         region_groups[key].append(member)
@@ -175,11 +212,18 @@ def build_geo_feature_collection(
     }
 
 
-def _record_feature(p: Proposal, loc: Location, lon: float, lat: float) -> dict[str, Any]:
+#: `(proposal, location, point to draw, effective placement)` -- the point is `placement.geom`,
+#: never `location.geom` directly (`effective_placement`).
+_Member = tuple[Proposal, Location, tuple[float, float], Placement]
+
+
+def _record_feature(
+    p: Proposal, loc: Location, lon: float, lat: float, placement: Placement
+) -> dict[str, Any]:
     from services.api.common import WEB_HOST
     from services.api.serialize import provenance_row
 
-    reason = _precision_reason(loc)
+    reason = _precision_reason(loc, placement)
     return {
         "type": "Feature",
         "id": p.public_id,
@@ -195,25 +239,31 @@ def _record_feature(p: Proposal, loc: Location, lon: float, lat: float) -> dict[
             "capacity_mw": float(p.capacity_mw) if p.capacity_mw is not None else None,
             "county_name": loc.county_name,
             "state_code": loc.state_code,
-            "precision": loc.precision,
+            "precision": placement.precision,
             "precision_reason": reason,
-            "precision_note": (
-                "location shown at county level (source licence)" if reason == "licence" else None
-            ),
+            "precision_note": precision_note(placement.precision, reason),
             "last_changed": p.last_changed.isoformat(),
             "provenance": [provenance_row(s, s.source) for s in p.sources if s.active],
         },
     }
 
 
-def _cluster_feature(members: list[tuple[Proposal, Location, tuple[float, float]]]) -> dict[str, Any]:
+def precision_note(precision: str, reason: str | None) -> str | None:
+    """The human line the map and the record page render under a licence-downgraded point."""
+    if reason != "licence":
+        return None
+    level = "state" if precision == "state_centroid" else "county"
+    return f"location shown at {level} level (source licence)"
+
+
+def _cluster_feature(members: list[_Member]) -> dict[str, Any]:
     lons: list[float] = []
     lats: list[float] = []
     lifecycle_counts: dict[str, int] = defaultdict(int)
     technology_counts: dict[str, int] = defaultdict(int)
     capacity_sum = 0.0
     precisions: set[str] = set()
-    for p, loc, (lon, lat) in members:
+    for p, _loc, (lon, lat), placement in members:
         lons.append(lon)
         lats.append(lat)
         lifecycle_counts[p.lifecycle_state] += 1
@@ -221,7 +271,7 @@ def _cluster_feature(members: list[tuple[Proposal, Location, tuple[float, float]
             technology_counts[p.technology] += 1
         if p.capacity_mw:
             capacity_sum += float(p.capacity_mw)
-        precisions.add(loc.precision)
+        precisions.add(placement.precision)
 
     centroid_lon = sum(lons) / len(lons)
     centroid_lat = sum(lats) / len(lats)
@@ -249,9 +299,7 @@ def _cluster_feature(members: list[tuple[Proposal, Location, tuple[float, float]
     }
 
 
-def _region_feature(
-    level: str, region_id: str, members: list[tuple[Proposal, Location, tuple[float, float]]]
-) -> dict[str, Any]:
+def _region_feature(level: str, region_id: str, members: list[_Member]) -> dict[str, Any]:
     """One `feature_kind: region` feature per `(region_level, region_id)` group (ADR 0008, docs/23
     §3.1): geometry is the group's representative point (every member shares the same vendored
     centroid for that region, so the first member's point is exact, not an approximation)."""
@@ -259,7 +307,7 @@ def _region_feature(
     technology_counts: dict[str, int] = defaultdict(int)
     capacity_sum = 0.0
     name: str | None = None
-    for p, loc, _ in members:
+    for p, loc, _, _ in members:
         lifecycle_counts[p.lifecycle_state] += 1
         if p.technology:
             technology_counts[p.technology] += 1
@@ -273,7 +321,7 @@ def _region_feature(
             else:
                 name = loc.country
 
-    _, _, (lon, lat) = members[0]
+    _, _, (lon, lat), _ = members[0]
     return {
         "type": "Feature",
         "geometry": {"type": "Point", "coordinates": [lon, lat]},

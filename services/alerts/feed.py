@@ -23,9 +23,9 @@ from typing import Any
 from sqlalchemy import ColumnElement, select
 from sqlalchemy.orm import Session
 
+from services.alerts.visibility import event_with_visible_subject_filter
 from services.api.common import WEB_HOST
 from services.api.serialize import build_licence_summary, licence_summary_row
-from services.api.visibility import event_visibility_filter
 from services.db.models import Account, Event, Opportunity, Proposal, SavedSearch
 
 from .matching import event_matches_query, matches_query
@@ -63,7 +63,9 @@ def matching_items_for_feed(
         opportunities.sort(key=lambda o: o.last_changed, reverse=True)
         return [_opportunity_feed_item(o) for o in opportunities[:limit]]
     if search.entity == "event":
-        event_stmt = select(Event).where(*event_visibility_filter(account.entitlement))
+        # The event's own predicate *and* its subject record's (docs/50 §3.1; the same composed
+        # filter the digest uses), so an event on a hidden or restricted record never feeds out.
+        event_stmt = select(Event).where(*event_with_visible_subject_filter(account.entitlement))
         events = [e for e in db.scalars(event_stmt).all() if event_matches_query(e, search.query)]
         events.sort(key=lambda e: e.seq, reverse=True)
         return [_event_feed_item(e) for e in events[:limit]]

@@ -249,8 +249,9 @@ def make_source_run(session: Session, source: Source) -> SourceRun:
 def test_intra_run_id_reuse_keeps_both_records_and_warns(session: Session) -> None:
     """Two distinct source records sharing one `source_record_id` inside the *same* run/dataframe
     (the measured ISO-NE/NYISO signature, docs/22 §5/§7.1) must never collapse into one proposal:
-    both are kept, the second's `source_record_id` is suffixed deterministically, and a
-    data-quality warning is recorded on both `LoadResult.warnings` and `source_run.dq`."""
+    both are kept, each stored under a content-derived key (never a positional `#2`, audit
+    2026-09-18 item 1), and a data-quality warning is recorded on both `LoadResult.warnings` and
+    `source_run.dq`."""
     entry = open_source_entry("us.test.isone_like_queue")
     src = upsert_licence_and_source(session, entry, "2026-09-12")
     run = make_source_run(session, src)
@@ -273,10 +274,13 @@ def test_intra_run_id_reuse_keeps_both_records_and_warns(session: Session) -> No
     proposals = {p.name_canonical: p for p in session.scalars(select(Proposal)).all()}
     assert set(proposals) == {"First Distinct Project", "Second Distinct Project"}
 
+    from pipeline.connectors.dedupe import content_disambiguator
+
+    key_a, key_b = (f"0031#{content_disambiguator(r)}" for r in (row_a, row_b))
     links = {link.source_record_id: link for link in session.scalars(select(ProposalSource)).all()}
-    assert set(links) == {"0031", "0031#2"}
-    assert links["0031"].proposal_id == proposals["First Distinct Project"].id
-    assert links["0031#2"].proposal_id == proposals["Second Distinct Project"].id
+    assert set(links) == {key_a, key_b}
+    assert links[key_a].proposal_id == proposals["First Distinct Project"].id
+    assert links[key_b].proposal_id == proposals["Second Distinct Project"].id
 
     assert run.dq_status == "warn"
     assert run.dq is not None
@@ -1154,3 +1158,32 @@ def test_backfill_county_fips_fills_resolvable_rows_and_is_idempotent(session: S
     assert result2["rows_seen"] == 1  # only the still-unresolved row remains NULL
     assert result2["filled"] == 0
     assert result2["unresolved"] == 1
+
+
+def test_publication_field_is_explicit_and_none_is_refused(session: Session) -> None:
+    """Blockers sprint 2026-09-19: the derived-only rule is the manifest's explicit `publication`
+    field, not a regex over notes. `derived_only` withholds raw regardless of notes text; `raw_ok`
+    allows raw even when the notes mention the phrase; `none` refuses the load outright; an
+    unknown value refuses; an entry without the field falls back to the regex with a warning."""
+    import dataclasses
+
+    import pytest
+
+    from services.ingest.loader import GateRefused, _is_derived_only_override
+
+    registry = Registry()
+    neso = registry.get("gb.neso.tec_register")
+
+    assert _is_derived_only_override(dataclasses.replace(neso, publication="derived_only")) is True
+    assert (
+        _is_derived_only_override(
+            dataclasses.replace(neso, publication="raw_ok", notes="terms say derived-only but the field wins")
+        )
+        is False
+    )
+    with pytest.raises(GateRefused):
+        _is_derived_only_override(dataclasses.replace(neso, publication="sometimes"))
+    with pytest.raises(GateRefused):
+        upsert_licence_and_source(session, dataclasses.replace(neso, publication="none"), registry.version)
+    legacy = dataclasses.replace(neso, publication=None, notes="Publish derived-only until counsel resolves")
+    assert _is_derived_only_override(legacy) is True

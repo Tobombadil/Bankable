@@ -26,6 +26,7 @@ import pandas as pd
 
 from pipeline.connectors.canonical import CANONICAL_COLUMNS as _PROPOSAL_BASE
 from pipeline.connectors.canonical import load_status_map
+from pipeline.connectors.dedupe import suffix_duplicates
 from pipeline.connectors.http import PoliteSession
 from pipeline.connectors.registry import SourceEntry
 
@@ -221,8 +222,9 @@ class Connector:
     #: per-connector status map (docs/04 DA-5); None = pipeline/status_map.yaml
     status_map_path: ClassVar[pathlib.Path | None] = None
     #: "hold": duplicate source_record_id holds the run (docs/04 DA-6);
-    #: "suffix": the parser has no stable composite key, duplicates are suffixed #2, #3 in file
-    #: order (deterministic) and reported as a DQ warning — must be justified in the docstring.
+    #: "suffix": the parser has no stable composite key; every member of a duplicated id gets a
+    #: content-derived `#h…` suffix (`pipeline/connectors/dedupe.py`, order-independent) and the
+    #: run records a DQ warning — must be justified in the docstring.
     dedupe_strategy: ClassVar[Literal["hold", "suffix"]] = "hold"
     #: canonical fields whose null rate is watched (docs/04 DA-6 "null spike")
     dq_required_fields: ClassVar[tuple[str, ...]] = ()
@@ -289,11 +291,15 @@ class Connector:
         if bool(missing_id.any()):
             raise ParseError(f"{int(missing_id.sum())} rows without source_record_id")
         out["record_id"] = self.source_id + ":" + out["source_record_id"]
-        dup_n = out.groupby("record_id").cumcount()
+        raw_payloads = [raw_json(r) for r in rows]
         if self.dedupe_strategy == "suffix":
-            out.loc[dup_n > 0, "record_id"] = out["record_id"] + "#" + (dup_n + 1).astype(str)
-        out.attrs["duplicates_resolved"] = int((dup_n > 0).sum()) if self.dedupe_strategy == "suffix" else 0
-        out["raw"] = [raw_json(r) for r in rows]
+            # Content-derived, order-independent suffix on every member of a duplicated group
+            # (pipeline/connectors/dedupe.py; audit 2026-09-18 item 1). Never positional.
+            out["record_id"], resolved = suffix_duplicates(out, raw_payloads)
+            out.attrs["duplicates_resolved"] = resolved
+        else:
+            out.attrs["duplicates_resolved"] = 0
+        out["raw"] = raw_payloads
         for c in self.columns:
             if c not in out.columns:
                 out[c] = None

@@ -6,16 +6,22 @@
 - Retry with exponential backoff and jitter on 5xx, 429 and connection errors (max 4 attempts);
   `Retry-After` is honoured.
 - robots.txt is honoured for every GET a connector marks as robots-relevant (HTML pages and files
-  served from a site; API endpoints declare `honour_robots = False`). A disallowed URL raises
-  `BlockedError`; a robots.txt that cannot be fetched (403/404/timeout) is treated as permissive,
-  which is the standard interpretation.
-- No CAPTCHA solving, no challenge bypass: a Cloudflare interstitial is reported as blocked.
+  served from a site; API endpoints declare `honour_robots = False`). Rules are evaluated for our
+  own product token first (`robots_token(...)`, read from the session's User-Agent: `Bankable`),
+  with the `*` group as the fallback — the standard robots.txt precedence, which the stdlib
+  parser only applies when it is handed the token rather than the full browser-like UA string
+  (audit 2026-09-18 item 4). A disallowed URL raises `HttpBlocked`; a robots.txt that cannot be
+  fetched (403/404/timeout) is treated as permissive, which is the standard interpretation.
+- No CAPTCHA solving, no challenge bypass: a Cloudflare interstitial is reported as blocked
+  (`HttpBlocked`) whatever status it arrives with — 200, 403 (`cf-mitigated: challenge`) or 503 —
+  and is never retried.
 """
 
 from __future__ import annotations
 
 import os
 import random
+import re
 import time
 import urllib.robotparser
 from typing import Any
@@ -45,7 +51,41 @@ def user_agent(domain: str | None = None) -> str:
 USER_AGENT = user_agent()
 DEFAULT_RPS = 1.0
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
-CHALLENGE_MARKERS = (b"Just a moment", b"cf-chl-", b"__cf_chl", b"Attention Required! | Cloudflare")
+CHALLENGE_MARKERS = (
+    b"Just a moment",
+    b"cf-chl-",
+    b"__cf_chl",
+    b"/cdn-cgi/challenge-platform/",
+    b"Attention Required! | Cloudflare",
+)
+#: Statuses a challenge interstitial is known to ship with. Anything else with a marker in the
+#: body is still a challenge; the status set only bounds how much of the body is scanned.
+CHALLENGE_STATUSES = frozenset({200, 403, 429, 503})
+_TOKEN_RE = re.compile(r"([A-Za-z][A-Za-z0-9_-]*)/[0-9][0-9.]*\s*(?:\(\+|;\s*\+)https?://")
+
+
+def robots_token(ua: str) -> str:
+    """The product token robots.txt groups name us by: the `Name/version` immediately before the
+    `+https://...` contact URL (`Bankable` in the UA above). Falls back to the first token."""
+    m = _TOKEN_RE.search(ua)
+    if m:
+        return m.group(1)
+    return ua.split("/", 1)[0].split()[0] if ua.strip() else "*"
+
+
+def is_challenge(status_code: int, headers: Any, content: bytes) -> bool:
+    """Cloudflare-style managed challenge: `cf-mitigated: challenge` (any status), or one of the
+    interstitial markers in the first 4 kB of the body on a status a challenge is served with."""
+    try:
+        mitigated = str(headers.get("cf-mitigated", "")).lower()
+    except AttributeError:
+        mitigated = ""
+    if mitigated == "challenge":
+        return True
+    if status_code not in CHALLENGE_STATUSES:
+        return False
+    head = content[:4000]
+    return any(m in head for m in CHALLENGE_MARKERS)
 
 
 class HttpBlocked(Exception):
@@ -106,9 +146,18 @@ class PoliteSession:
         self._robots[key] = rp
         return rp
 
+    @property
+    def robots_agent(self) -> str:
+        """Our product token, from whatever User-Agent this session actually sends."""
+        return robots_token(str(self.session.headers.get("User-Agent", USER_AGENT)))
+
     def allowed_by_robots(self, url: str) -> bool:
         rp = self._robots_for(url)
-        return True if rp is None else rp.can_fetch(USER_AGENT, url)
+        # `RobotFileParser.can_fetch` looks for a group naming this token (substring match,
+        # case-insensitive) and only then falls back to the `*` group — passing the full
+        # browser-like UA string defeated that lookup, because the parser keys on the text
+        # before the first `/`, i.e. `Mozilla`.
+        return True if rp is None else rp.can_fetch(self.robots_agent, url)
 
     # ------------------------------------------------------------------ requests
     def request(
@@ -128,9 +177,10 @@ class PoliteSession:
                 last_error = repr(e)[:300]
                 resp = None
             if resp is not None:
+                if is_challenge(resp.status_code, resp.headers, resp.content):
+                    # A challenge is a block signal, not a transient error: no retry, no bypass.
+                    raise HttpBlocked(f"challenge page from {host} (HTTP {resp.status_code})")
                 if resp.status_code < 400 or resp.status_code not in RETRY_STATUSES:
-                    if resp.status_code == 200 and any(m in resp.content[:4000] for m in CHALLENGE_MARKERS):
-                        raise HttpBlocked(f"challenge page from {host}")
                     return resp
                 last_error = f"HTTP {resp.status_code}"
                 retry_after = resp.headers.get("Retry-After")

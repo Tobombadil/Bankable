@@ -112,6 +112,16 @@ The always-on loop in `docs/03` §3 maps one-to-one onto these stages. Each stag
 persisted inputs and writes its output before the next stage is enqueued; a stage can be re-run from its inputs
 without side effects on earlier stages. Stages talk only through the database and object storage, never in-memory.
 
+As scheduled (`infra/scheduler/app.py`, closed 2026-09-18 after the audit found the loop ended at fetch): a bucket
+tick defers `run_connector(source_id)`, which runs the CLI (fetch → snapshot → parse → normalise → DQ → diff → files),
+writes the `source_run` row and `source.health`, and — only when the run wrote a new normalised snapshot
+(`status = ok`) — defers `load_source(source_id, ts)` under the same per-source lock. `load_source` calls
+`services.ingest.loader.load_from_files` (§3.4–§3.7 in one transaction) and defers `resolve_tick` (organisations
+and proposal clusters store-wide, §3.5), which defers `enrich_tick` (§3.6, the geocode backfill today). A daily
+`tick_resolve` is the safety net for rows loaded outside the chain. Fetch retries only transient failures
+(network, 5xx, crash, timeout) with exponential backoff — 25 s, 125 s, 625 s, 3,125 s, then dead-letter — and
+records a block, a corrupt payload or a gate refusal once, for the next tick.
+
 ```mermaid
 flowchart LR
   C[Connector] -->|SourceRecord[] + raw bytes| S[Snapshot store]
@@ -156,7 +166,10 @@ later stage reproducible and is the evidence base for licence disputes.
 Input: two snapshots' parsed `SourceRecord[]`, keyed by `source_record_id`. Output: `RawChange[]` with kinds
 `added | changed | removed`, each carrying the before/after payload and the list of changed keys. Removal from a
 register is a signal in its own right (a queue withdrawal often shows up first as a missing row); it produces a
-`removed` change, never a hard delete downstream. Diff is deterministic and needs no model call.
+`removed` change, never a hard delete downstream. Diff is deterministic and needs no model call. A source id
+that occurs more than once in one snapshot is keyed by content, not position (`pipeline/connectors/dedupe.py`,
+`docs/22` §2): a row reorder produces no events, and a previous snapshot keyed the older positional way is
+re-keyed by the same content hash before the comparison.
 
 ### 3.4 Normalise
 

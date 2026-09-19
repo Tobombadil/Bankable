@@ -55,11 +55,29 @@ functions below):
     dataframe that repeats the *same* connector `record_id` for that key more than once in this
     call (e.g. several historical snapshots of one record bundled into one call) is likewise an
     ordinary sequential update, not reuse. Only a *different* `record_id` sharing that natural key
-    inside the *same* call is true reuse, and those are never merged: the second (and any later)
-    such occurrence has its `source_record_id` suffixed deterministically (`#2`, `#3`, ... — the
-    same convention `pipeline.connectors.base.Connector.finalize` already applies to its own
-    `record_id` for `dedupe_strategy = "suffix"` sources), keeping both rows, and a data-quality
-    warning is recorded on `source_run.dq` and `LoadResult.warnings`.
+    inside the *same* call is true reuse, and those are never merged: every member of such a
+    group is stored under `<source_record_id>#<content disambiguator>`
+    (`pipeline.connectors.dedupe.content_disambiguator`, a hash of the row's stable fields —
+    name, capacity, county/state, technology — the same key `Connector.finalize` puts on the
+    `record_id`), a data-quality warning is recorded on `source_run.dq` and `LoadResult.warnings`.
+    Until 2026-09-18 the suffix was positional (`#2`, `#3` in frame order), so a row reorder in
+    the source swapped the two identities and fabricated a withdrawal (audit §3.1, live on
+    NYISO). **Legacy keys on read**: rows already stored as `X` / `X#2` are *not* migrated; when
+    an incoming row's natural key has more than one stored sibling (any of `X`, `X#<n>`,
+    `X#h…`), `_match_link` picks the sibling whose stored stable fields (`_stable_signature`
+    over `normalised`) equal the row's, falling back to the exact key. So the first load after
+    the change updates the existing rows in place under their old keys and creates nothing.
+  - **Change-event identity** (audit §3.1 item 2). `event.idempotency_key` is
+    `source:record_id:event_type:field:before_hash:after_hash:observed_at`. Re-loading the same
+    snapshot is a no-op (same observation time, same before/after); a status that returns to an
+    earlier value, or a record removed a second time after being re-sighted, is a new event
+    because the before-state and/or the observation time differ. `removed` events name a record
+    that is no longer in the frame, so their subject is resolved through the stored link for the
+    event's `record_id` (previously they were skipped as "unknown record_id" and never written);
+    a record seen again clears its link's `gone_at`.
+  - **Field provenance** (audit §3.1 item 4): `field_provenance[field]` is re-stamped with the
+    run's `retrieved_at`/`source_id`/`licence_id` whenever that field's value changes, and kept
+    when it does not (previously written once at creation and never touched again).
   - **Organisation slug/punctuation collisions.** Two raw sponsor spellings that normalise to the
     same organisation once case, whitespace and punctuation are stripped (e.g. "CED Development,
     Inc." vs "Ced Development Inc") resolve to one `organization` row; every distinct raw spelling
@@ -74,6 +92,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 import pathlib
 import re
 import uuid as _uuid
@@ -85,6 +104,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pipeline.connectors.dedupe import CONTENT_SUFFIX_RE, content_disambiguator, split_key
 from pipeline.connectors.registry import GATED_REUSE, Registry, SourceEntry
 from services.db.models import (
     Event,
@@ -128,11 +148,29 @@ DEFAULT_BATCH_SIZE = 500
 #: whose terms don't say "derived-only" (e.g. GB NESO, credited but raw-ok) is unaffected.
 _DERIVED_ONLY_RE = re.compile(r"derived[\s-]only", re.I)
 
+log = logging.getLogger(__name__)
+
+#: data/sources.yaml `publication` values (docs/21 §8; scripts/check_manifest_licences.py rejects
+#: any other value and any value more permissive than the legal register allows).
+PUBLICATION_VALUES = ("raw_ok", "derived_only", "none")
+
 
 def _is_derived_only_override(entry: SourceEntry) -> bool:
+    """Explicit `publication: derived_only` wins (blockers sprint, 2026-09-19); the notes/licence
+    regex above survives only as a warned fallback for an entry that predates the field."""
+    if entry.publication is not None:
+        if entry.publication not in PUBLICATION_VALUES:
+            raise GateRefused(f"{entry.id}: publication={entry.publication!r} not in {PUBLICATION_VALUES}")
+        return entry.publication == "derived_only"
     if entry.reuse != "attribution":
         return False
-    return bool(_DERIVED_ONLY_RE.search(entry.notes or "") or _DERIVED_ONLY_RE.search(entry.license or ""))
+    matched = bool(_DERIVED_ONLY_RE.search(entry.notes or "") or _DERIVED_ONLY_RE.search(entry.license or ""))
+    log.warning(
+        "%s: no `publication` field in data/sources.yaml; regex fallback (%s)",
+        entry.id,
+        "matched" if matched else "no match",
+    )
+    return matched
 
 
 Kind = Literal["proposal", "opportunity"]
@@ -212,6 +250,8 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
     to write, so a bug in the caller cannot silently widen the gate.
     """
     _assert_not_gated(entry)
+    if entry.publication == "none":
+        raise GateRefused(f"{entry.id}: publication=none publishes nothing (docs/21 §8)")
     licence_id = entry.licence_id
     is_open_or_attribution = entry.reuse in ("open", "attribution")
     if not is_open_or_attribution:
@@ -366,6 +406,9 @@ class _LoadCache:
     #: `source_record_id -> ProposalSource | OpportunitySource`, restricted to this `source` and
     #: `active`, i.e. the same set the old code re-selected on every row.
     links: dict[str, Any]
+    #: natural key (the stored key with any `#…` suffix stripped) -> every active link sharing
+    #: it, for the legacy/content match in `_match_link` (module docstring, "Legacy keys on read").
+    siblings: dict[str, list[Any]]
     #: entity primary key -> `Proposal | Opportunity`, for every entity the links above point at,
     #: plus every entity this call creates.
     entities: dict[_uuid.UUID, Any]
@@ -398,6 +441,9 @@ def _build_load_cache(
         )
     }
     links_by_entity: dict[_uuid.UUID, Any] = {getattr(link, fk_name): link for link in links.values()}
+    siblings: dict[str, list[Any]] = {}
+    for key, link in links.items():
+        siblings.setdefault(split_key(key)[0], []).append(link)
     entities: dict[_uuid.UUID, Any] = {}
     if links_by_entity:
         entities = {
@@ -423,6 +469,7 @@ def _build_load_cache(
 
     return _LoadCache(
         links=links,
+        siblings=siblings,
         entities=entities,
         links_by_entity=links_by_entity,
         org_by_exact=org_by_exact,
@@ -782,6 +829,92 @@ def _parse_raw(raw_value: Any) -> dict[str, Any]:
     return {}
 
 
+_STABLE_SIGNATURE_FIELDS: dict[str, tuple[str, ...]] = {
+    "proposal": ("name_canonical", "capacity_mw", "technology", "jurisdiction"),
+    "opportunity": ("title", "capacity_sought_mw", "jurisdiction", "kind"),
+}
+
+
+def _sig_norm(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{float(value):.6g}"
+    text = str(value).strip().lower()
+    try:
+        return f"{float(text):.6g}"
+    except ValueError:
+        return text
+
+
+def _stable_signature(fields: Mapping[str, Any], kind: Kind) -> tuple[str, ...]:
+    """The stable fields a row and a stored link are compared on when one natural key has
+    several stored siblings (module docstring, "Legacy keys on read"). Status and dates are
+    excluded on purpose: they change over a record's life without changing its identity."""
+    return tuple(_sig_norm(fields.get(name)) for name in _STABLE_SIGNATURE_FIELDS[kind])
+
+
+def _wanted_key(
+    source: Source, raw_source_record_id: str, record_id: str, row: Mapping[str, Any], *, in_dup_group: bool
+) -> str:
+    """The stored `source_record_id` this row asks for: the connector's own content suffix when
+    its `record_id` carries one, else a freshly computed one when the natural key is shared by
+    several distinct `record_id`s in this call, else the bare natural key. A positional `#<n>`
+    on an incoming `record_id` (an old parquet re-loaded) is never trusted."""
+    prefix = f"{source.id}:"
+    if record_id.startswith(prefix):
+        m = CONTENT_SUFFIX_RE.match(record_id[len(prefix) :])
+        if m is not None and m.group("base") == raw_source_record_id:
+            return f"{raw_source_record_id}#{m.group('suffix')}"
+    if in_dup_group:
+        return f"{raw_source_record_id}#{content_disambiguator(row)}"
+    return raw_source_record_id
+
+
+def _match_link(
+    cache: _LoadCache,
+    wanted: str,
+    base: str,
+    fields: Mapping[str, Any],
+    kind: Kind,
+    claimed: Mapping[str, str],
+) -> Any | None:
+    """The stored link for `wanted`, accepting legacy spellings: an exact hit wins when the
+    natural key has no other stored sibling; otherwise the unclaimed sibling whose stable fields
+    equal the row's wins (so `X`/`X#2` rows written by the positional scheme, and `X` rows that
+    later became `X#h…` or vice versa, keep their identity), with the exact hit as fallback."""
+    exact = cache.links.get(wanted)
+    if exact is not None and exact.source_record_id in claimed:
+        exact = None
+    group = [link for link in cache.siblings.get(base, []) if link.source_record_id not in claimed]
+    if exact is not None and len(group) <= 1:
+        return exact
+    if not group:
+        return exact
+    signature = _stable_signature(fields, kind)
+    matches = sorted(
+        (link for link in group if _stable_signature(link.normalised or {}, kind) == signature),
+        key=lambda link: str(link.source_record_id),
+    )
+    if matches:
+        return matches[0]
+    return exact
+
+
+def _link_for_event_record_id(cache: _LoadCache, source: Source, record_id: str) -> Any | None:
+    """A stored link for an event's `record_id` when the record is not in this frame (a
+    `removed` event): the connector key with the source prefix stripped is the stored key."""
+    prefix = f"{source.id}:"
+    tail = record_id[len(prefix) :] if record_id.startswith(prefix) else record_id
+    return cache.links.get(tail)
+
+
+def _short_hash(value: Any) -> str:
+    return hashlib.sha1(  # noqa: S324 — identity key, not security
+        json.dumps(value, default=str, sort_keys=True).encode()
+    ).hexdigest()[:12]
+
+
 def load_dataframe(
     session: Session,
     source: Source,
@@ -814,16 +947,17 @@ def load_dataframe(
     now = utcnow()
     result = LoadResult(source_run_id=run.id if run else _uuid.UUID(int=0))
     record_id_to_internal: dict[str, _uuid.UUID] = {}
-    #: raw source_record_id -> {connector record_id -> the (possibly suffixed) key stored for it}.
-    #: A dataframe covering more than one historical pull for the same source (as
-    #: `services/resolve/report.py`'s evaluation snapshot does) legitimately repeats the *same*
-    #: `record_id` many times for one natural key -- each repeat is an ordinary sequential update
-    #: and must keep using the same stored key. Only a *different* `record_id` sharing that same
-    #: natural key is true intra-run id reuse (docs/22 §5/§7.1): the connector's own
-    #: `dedupe_strategy = "suffix"` already gives such rows distinct `record_id`s (e.g.
-    #: `nyiso:0031` vs `nyiso:0031#2`) precisely because they were simultaneous, distinct records
-    #: at parse time, which is the signal this loader keys off rather than raw repetition count.
-    variant_keys: dict[str, dict[str, str]] = {}
+    #: connector `record_id` -> the stored key resolved for it in this call. A dataframe covering
+    #: more than one historical pull for the same source (as `services/resolve/report.py`'s
+    #: evaluation snapshot does) legitimately repeats the *same* `record_id` many times for one
+    #: natural key -- each repeat is an ordinary sequential update and must keep using the same
+    #: stored key. Only a *different* `record_id` sharing that natural key is true intra-run id
+    #: reuse (docs/22 §5/§7.1), and every member of such a group is keyed by content (module
+    #: docstring) — never by its position in the frame.
+    key_by_record_id: dict[str, str] = {}
+    #: stored key -> the `record_id` that claimed it in this call: a second, different
+    #: `record_id` can never be merged into the same link.
+    claimed: dict[str, str] = {}
 
     entity_cls: type[Any] = Proposal if kind == "proposal" else Opportunity
     link_cls: type[Any] = ProposalSource if kind == "proposal" else OpportunitySource
@@ -831,6 +965,13 @@ def load_dataframe(
 
     cache = _build_load_cache(session, source, entity_cls, link_cls, fk_name)
     records = records_df.to_dict("records") if len(records_df) else []
+    distinct_record_ids: dict[str, set[str]] = {}
+    for row in records:
+        distinct_record_ids.setdefault(str(_row_get(row, "source_record_id")), set()).add(
+            str(_row_get(row, "record_id"))
+        )
+    dup_naturals = {key for key, ids in distinct_record_ids.items() if len(ids) > 1}
+    warned_reuse: set[str] = set()
     #: New `ProposalSource`/`OpportunitySource` rows, held back from `session.add` until the next
     #: `_flush_pending` call so their entity is guaranteed already flushed first (see that
     #: function's docstring for why order matters here).
@@ -840,26 +981,34 @@ def load_dataframe(
         for i, row in enumerate(records):
             raw_source_record_id = str(_row_get(row, "source_record_id"))
             record_id = str(_row_get(row, "record_id"))
-            variants = variant_keys.setdefault(raw_source_record_id, {})
-            if record_id in variants:
-                source_record_id = variants[record_id]
+            retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or now
+            raw_payload = _parse_raw(_row_get(row, "raw"))
+
+            if kind == "proposal":
+                fields = _proposal_fields_from_row(row, source)
             else:
-                occurrence = len(variants) + 1
-                if occurrence == 1:
-                    source_record_id = raw_source_record_id
-                else:
-                    # A different connector `record_id` reusing this natural key inside the same
-                    # run/dataframe -- never merge it with the earlier variant(s). Suffix the
-                    # *stored* key deterministically, the same convention
-                    # `pipeline.connectors.base.Connector.finalize` already applies to its own
-                    # `record_id` for `dedupe_strategy = "suffix"` sources, so the loader is
-                    # consistent with the connector layer rather than depending on it having done
-                    # so.
-                    source_record_id = f"{raw_source_record_id}#{occurrence}"
+                fields = _opportunity_fields_from_row(row)
+
+            if record_id in key_by_record_id:
+                source_record_id = key_by_record_id[record_id]
+                existing_link = cache.links.get(source_record_id)
+            else:
+                in_dup_group = raw_source_record_id in dup_naturals
+                wanted = _wanted_key(source, raw_source_record_id, record_id, row, in_dup_group=in_dup_group)
+                existing_link = _match_link(cache, wanted, raw_source_record_id, fields, kind, claimed)
+                source_record_id = (
+                    str(existing_link.source_record_id) if existing_link is not None else wanted
+                )
+                key_by_record_id[record_id] = source_record_id
+                claimed[source_record_id] = record_id
+                if in_dup_group and raw_source_record_id in warned_reuse:
+                    # A different connector `record_id` sharing this natural key inside the same
+                    # run/dataframe -- never merged with its sibling(s); every member is stored
+                    # under its content key (module docstring, docs/22 §5/§7.1).
                     warning = (
                         f"{source.id}: source_record_id {raw_source_record_id!r} reused by a "
                         f"distinct record ({record_id!r}) within this run; stored as "
-                        f"{source_record_id!r} rather than merged into the earlier occurrence "
+                        f"{source_record_id!r} rather than merged into its sibling "
                         "(docs/22 §5, §7.1)"
                     )
                     result.warnings.append(warning)
@@ -870,20 +1019,10 @@ def load_dataframe(
                         data={
                             "source_record_id": raw_source_record_id,
                             "record_id": record_id,
-                            "occurrence": occurrence,
                             "stored_as": source_record_id,
                         },
                     )
-                variants[record_id] = source_record_id
-            retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or now
-
-            existing_link = cache.links.get(source_record_id)
-            raw_payload = _parse_raw(_row_get(row, "raw"))
-
-            if kind == "proposal":
-                fields = _proposal_fields_from_row(row, source)
-            else:
-                fields = _opportunity_fields_from_row(row)
+                warned_reuse.add(raw_source_record_id)
 
             if existing_link is not None:
                 entity = cache.entities.get(getattr(existing_link, fk_name))
@@ -892,8 +1031,16 @@ def load_dataframe(
                         f"proposal_source/opportunity_source row {existing_link.id} points at a "
                         "missing entity — this is a store consistency bug, not a data error"
                     )
+                provenance = dict(entity.field_provenance or {})
                 for k, v in fields.items():
+                    if v is not None and (k not in provenance or getattr(entity, k, None) != v):
+                        provenance[k] = {
+                            "source_id": source.id,
+                            "licence_id": source.licence_id,
+                            "retrieved_at": retrieved_at.isoformat(),
+                        }
                     setattr(entity, k, v)
+                entity.field_provenance = provenance  # reassigned so the JSON column is marked dirty
                 entity.last_changed = now
                 existing_link.raw = raw_payload
                 existing_link.normalised = _jsonable(
@@ -902,6 +1049,7 @@ def load_dataframe(
                 existing_link.status_raw = fields.get("status_raw")
                 existing_link.last_seen = retrieved_at
                 existing_link.retrieved_at = retrieved_at
+                existing_link.gone_at = None  # seen again: no longer gone from the register
                 if kind == "proposal":
                     result.proposals_updated += 1
                 else:
@@ -981,6 +1129,7 @@ def load_dataframe(
                 )
                 pending_links.append(existing_link)
                 cache.links[source_record_id] = existing_link
+                cache.siblings.setdefault(split_key(source_record_id)[0], []).append(existing_link)
                 cache.links_by_entity[entity.id] = existing_link
                 if kind == "proposal":
                     result.proposals_created += 1
@@ -1008,6 +1157,10 @@ def load_dataframe(
             record_id = str(ev["record_id"])
             subject_id = record_id_to_internal.get(record_id)
             if subject_id is None:
+                # A `removed` record is, by definition, not in this frame: find it by its link.
+                link = _link_for_event_record_id(cache, source, record_id)
+                subject_id = getattr(link, fk_name) if link is not None else None
+            if subject_id is None:
                 result.warnings.append(f"event for unknown record_id {record_id!r} skipped")
                 continue
             event_type = DIFF_EVENT_TYPE_MAP.get(diff_type, "field_changed")
@@ -1015,10 +1168,18 @@ def load_dataframe(
             field_name = ev.get("field") or "lifecycle_state"
             before_val = ev.get("before")
             after_val = ev.get("after")
-            after_hash = hashlib.sha1(  # noqa: S324 — identity key, not security
-                json.dumps(after_val, default=str, sort_keys=True).encode()
-            ).hexdigest()[:12]
-            idempotency_key = f"{source.id}:{record_id}:{event_type}:{after_hash}"
+            if isinstance(before_val, float) and pd.isna(before_val):
+                before_val = None
+            if isinstance(after_val, float) and pd.isna(after_val):
+                after_val = None
+            observed_token = observed_at.astimezone(dt.UTC).isoformat(timespec="seconds")
+            # Before-state and observation time are part of the identity (module docstring):
+            # A->B->A is two events, a second removal after a re-sighting is a second event, and
+            # re-loading one snapshot (same observation time) stays a no-op.
+            idempotency_key = (
+                f"{source.id}:{record_id}:{event_type}:{field_name}:"
+                f"{_short_hash(before_val)}:{_short_hash(after_val)}:{observed_token}"
+            )
 
             if idempotency_key in existing_event_keys:
                 result.events_skipped_idempotent += 1

@@ -221,3 +221,23 @@ TOTAL                         124      1    99%
 
 (Line 302 is `worker.py`'s own `if __name__ == "__main__":` guard — not exercised by importing the
 module in tests, same as any script's guard line.)
+
+## Privacy and publishing fixes (2026-09-19; docs/50-audit-2026-09-18.md §3.1, §3.2)
+
+- **Visibility** — `services/alerts/visibility.py` composes `services/api/visibility.py`'s event
+  predicate with the record-level predicate on the event's subject. `evaluate._new_events_for_search`,
+  `feed.matching_items_for_feed` (event entity), `webhooks._event_matches_endpoint`,
+  `webhooks.replay_from_seq` and `webhooks.attempt_delivery` all use it; a record hidden after
+  enqueue ends the delivery as `failed` / `SubjectNotVisible` without a post and without counting
+  against the endpoint. `infra/importlinter.ini` has no contract against `services.alerts` →
+  `services.api`, so the predicate module is imported, not copied.
+- **Mail** — `services/alerts/mail.py`: `List-Unsubscribe` (mailto + https to the API's
+  `/v1/alerts/unsubscribe`) and `List-Unsubscribe-Post: List-Unsubscribe=One-Click` on every digest;
+  footer with the legal sender line from `SENDER_LEGAL_NAME` / `SENDER_POSTAL_ADDRESS` and the
+  delayed-data notice for the account's tier. Missing identity: placeholders in development,
+  `SenderIdentityMissing` (logged, counted in `AlertTickReport.emails_refused`) when `ENVIRONMENT=production` (alias `APP_ENV`)
+  or the port is not a dry run. The default port is now `ResendAlertMailer` (headers, reply-to);
+  `services.api.auth.ResendEmailAdapter` still works through `deliver` while it is a dry run only.
+- **Suppression** — `services/alerts/suppression.py`; checked before every email digest, written on
+  erasure and unsubscribe. A suppressed digest is an `Alert` with `status = suppressed`.
+- **"None" gate** — the digest body goes through `services/social/textgate.reject_bare_none`.

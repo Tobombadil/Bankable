@@ -39,7 +39,8 @@
 <section id="retention-and-deletion">
   {{ m.section_heading("3.", "Retention and deletion") }}
   <p>We keep account and alert data for as long as your account is active. A deletion request -- from you, or from someone named in a filing we index -- is handled as a deletion task: it removes or redacts the personal-data fields above from every surface and export, and the action itself is recorded (US-910). Sessions and API keys are revoked and alerts are suppressed as part of the same task.</p>
-  <p>To request deletion or ask a question about your data, email <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>. To stop email alerts for a specific saved search without deleting your account, use the unsubscribe link in that alert's email, or the <a href="/unsubscribe">unsubscribe page</a>.</p>
+  <p>If you are named in a record we index (a filing, a docket, a procurement notice) and want that record corrected or your details removed from it, use the <a href="/privacy/request">privacy request form</a>: it records the request against the record's id and an operator handles it as a deletion task; nothing is sent automatically. Once a request is closed, the contact address you gave is deleted from it. The same form is available to software as <code>POST /v1/privacy/requests</code>.</p>
+  <p>To request deletion of your own account, or ask a question about your data, email <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>. An unsubscribed or erased address goes on a suppression list and is never written to again, even if another saved search still names it. To stop email alerts for a specific saved search without deleting your account, use the unsubscribe link in that alert's email, or the <a href="/unsubscribe">unsubscribe page</a>.</p>
 </section>
 
 <section id="contact">

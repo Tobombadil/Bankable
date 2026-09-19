@@ -37,6 +37,16 @@ principle, applied here to *tokens* rather than public ids).
    `subject_type in {proposal, opportunity}`, `services/alerts/evaluate.py`'s own
    `_new_events_for_search`) — the honest timestamp costs nothing and matches the existing
    admin-edit/entitlement-change precedent rather than inventing a third convention.
+5. **Suppression** (docs/50-audit-2026-09-18.md §3.1): every successful unsubscribe also writes
+   the recipient's hashed address to the `suppression` table (`services/alerts/suppression.py`,
+   reason `unsubscribe`), so the address is refused by the sender even if another saved search
+   on the same user still lists `email` — the CAN-SPAM/CASL reading of "unsubscribe" is the
+   address, not one list.
+6. **RFC 8058 one-click** (`List-Unsubscribe-Post: List-Unsubscribe=One-Click`, set by
+   `services/alerts/mail.py`): a mail provider `POST`s the `https:` target from `List-Unsubscribe`
+   with a form-encoded body `List-Unsubscribe=One-Click` and no JSON. The `POST` route therefore
+   reads the token from the query string first and only then from a JSON body, and never
+   requires either content type.
 """
 
 from __future__ import annotations
@@ -48,6 +58,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from services.alerts.suppression import suppress
 from services.api.auth import iter_client_ip_prefix
 from services.api.common import utcnow
 from services.api.deps import get_db
@@ -99,6 +110,10 @@ def _unsubscribe(db: Session, request: Request, token: str) -> dict[str, Any]:
     if search is None:  # pragma: no cover - every alert is written with a real saved_search_id
         raise _invalid_token(request)
 
+    # Decision 5: the address itself is suppressed (hash only), idempotently, before the
+    # channel edit — so even a repeat call on an already-edited search leaves the store correct.
+    suppress(db, alert.recipient, "unsubscribe")
+
     before_channels = list(search.channels)
     if "email" in before_channels:
         before_status = search.status
@@ -131,12 +146,20 @@ def _unsubscribe(db: Session, request: Request, token: str) -> dict[str, Any]:
 
 
 @router.post("/v1/alerts/unsubscribe")
-def unsubscribe_alert(
-    body: dict[str, Any],
+async def unsubscribe_alert(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    token: Annotated[str, Query()] = "",
 ) -> dict[str, Any]:
-    token = str(body.get("token") or "")
+    """Decision 6: `?token=` (the RFC 8058 one-click `POST`, form-encoded body ignored) or a JSON
+    body `{"token": ...}` (the web confirmation page, `web/legal.py`)."""
+    if not token:
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            token = str(body.get("token") or "")
     return _unsubscribe(db, request, token)
 
 

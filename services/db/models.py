@@ -1426,3 +1426,63 @@ class UiEvent(Base):
         sa.CheckConstraint(f"name IN {UI_EVENT_NAMES!r}", name="name_vocab"),
         sa.Index("ix_ui_event_name_occurred_at", "name", "occurred_at"),
     )
+
+
+# ============================================ suppression and privacy requests (audit 2026-09-18 §3.1)
+#: Why an address must never be written to again. `erasure` and `unsubscribe` are written by the
+#: platform itself (`services/api/admin_people.py`, `services/api/unsubscribe_routes.py`);
+#: `bounce`/`complaint` are reserved for the mail provider's feedback loop, which has no writer yet.
+SUPPRESSION_REASONS = ("erasure", "unsubscribe", "bounce", "complaint")
+PRIVACY_REQUEST_KINDS = ("erasure", "correction")
+PRIVACY_REQUEST_STATUSES = ("open", "in_progress", "done", "rejected")
+
+
+class Suppression(Base):
+    """The suppression store (docs/50-audit-2026-09-18.md §3.1 "no suppression store"). Holds a
+    salted hash of the address, never the address: `services.api.audit.hash_identifier` (SHA-256
+    over a server-side pepper), so the table is a membership test, not a mailing list. Checked
+    by `services/alerts/suppression.py` before any digest is sent and consulted by anything that
+    would draft to an address. Rows are never deleted by application code."""
+
+    __tablename__ = "suppression"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    email_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    reason: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    __table_args__ = (
+        sa.CheckConstraint(f"reason IN {SUPPRESSION_REASONS!r}", name="reason_vocab"),
+        sa.UniqueConstraint("email_hash", "reason", name="uq_suppression_email_hash_reason"),
+        sa.Index("ix_suppression_email_hash", "email_hash"),
+    )
+
+
+class PrivacyRequest(Base, TimestampMixin):
+    """A data subject's erasure or correction request about a *record* (someone named in a filing
+    the platform indexes), the route the privacy notice promises (`web/templates/legal/
+    privacy.html` §3; US-910). Written by the public, unauthenticated
+    `POST /v1/privacy/requests` (`services/api/privacy_routes.py`) and read by operators under
+    `/admin/v1/privacy-requests`. Nothing is emailed automatically. `contact_email` is the one
+    piece of personal data the flow needs (to answer the person) and is cleared when the request
+    is closed by an operator."""
+
+    __tablename__ = "privacy_request"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    record_public_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    contact_email: Mapped[str | None] = mapped_column(sa.Text)
+    message: Mapped[str | None] = mapped_column(sa.Text)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="open")
+    completed_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+
+    __table_args__ = (
+        sa.CheckConstraint(f"kind IN {PRIVACY_REQUEST_KINDS!r}", name="kind_vocab"),
+        sa.CheckConstraint(f"status IN {PRIVACY_REQUEST_STATUSES!r}", name="status_vocab"),
+        sa.Index("ix_privacy_request_status_created", "status", "created_at"),
+        sa.Index("ix_privacy_request_record", "record_public_id"),
+    )

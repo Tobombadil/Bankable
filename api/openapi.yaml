@@ -352,9 +352,12 @@ paths:
 
         **Restricted-precision rule (docs/04 D-9, US-104 AC3).** A record whose geometry provenance is a source with
         `allows_raw_publication = false` or `reuse_class ∈ {restricted, unknown}` never renders an exact point on a
-        non-admin surface: the county centroid is returned with `precision = county_centroid` and
-        `precision_reason = licence`, and the envelope lists a `redactions[]` entry with reason `licence_precision`.
-        Records whose only evidence is restricted are absent from every count.
+        non-admin surface: the county centroid (else the state centroid) is returned with `precision =
+        county_centroid` (else `state_centroid`) and `precision_reason = licence`, the record is grouped into the
+        matching `region` feature rather than drawn as a `proposal` feature, `placement=exact` does not select it
+        and `placement=region` does (the grade is judged as served, not as stored), and the detail envelope lists a
+        `redactions[]` entry with reason `licence_precision`. Records whose only evidence is restricted are absent
+        from every count.
 
         Budget: ≤ 2,000 features, ≤ 300 KB gzipped, p95 ≤ 400 ms (docs/04 D-13, E-16).
       x-tier: public
@@ -920,6 +923,12 @@ paths:
         RFC 3339 timestamp and pairs with `cursor` for exactly-once consumption (US-703 AC1). Filter by
         `subject_type`, `subject_id`, `event_type`, `source_id`, `changed_key`. Public tier: `public_at <= now()`;
         no event whose `licence_id` resolves to a restricted or unknown licence, at any tier (docs/21 §8 item 2).
+        An event is visible only when its subject is: the subject proposal or opportunity must itself pass the
+        record-level visibility predicate for the caller's tier (`publish_state = public`, publishable
+        `min_reuse_class`, a permitted source, and `public_at` — `published_at` on Pro/API — in the past), so an
+        event on a hidden, restricted-licence or not-yet-public record is absent here, on `GET /v1/events/{id}`
+        and on `/feeds/events.*`, never rendered with a placeholder subject. Events whose subject is not a
+        proposal or opportunity (operator audit events) are never served on a non-admin surface.
         `before`/`after` are keyed by canonical field name and gated at field class; withheld keys appear in
         `redactions[]`.
       x-tier: public
@@ -965,7 +974,10 @@ paths:
       operationId: getEvent
       tags: [Events]
       summary: Event by id
-      description: Get-by-id for webhook consumers that dedupe on `data.event.id` (docs/23 §9.1) and for `alert.event_seqs` joins.
+      description: >-
+        Get-by-id for webhook consumers that dedupe on `data.event.id` (docs/23 §9.1) and for `alert.event_seqs`
+        joins. Same visibility predicate as `GET /v1/events`, subject visibility included: `404` for an event
+        whose subject the caller's tier may not see.
       x-tier: public
       x-status: planned
       x-sprint: 2
@@ -1289,7 +1301,10 @@ paths:
       description: >
         Registry-sourced infrastructure with identity (ADR 0008): power plants, pipelines, storage and the other
         eleven asset types (docs/21 §3.22). No lag, no tier gating — every source in scope this sprint is public
-        domain or CC BY. `q` matches name, operator name, or an owning/operating organisation's name.
+        domain or CC BY — but the licence gate applies: an asset whose licence is `restricted`/`unknown` or whose
+        source is not on the public surface is absent here and `404` on detail (docs/21 §8 items 1 and 4), and an
+        `owners[]` edge recorded under such a licence is omitted from a visible asset. `q` matches name, operator
+        name, or an owning/operating organisation's name.
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -1324,7 +1339,8 @@ paths:
       description: >
         Same envelope and clustering contract as `GET /v1/proposals/geo` (docs/04 D-10), over `asset` instead of
         `proposal`: below the split threshold (≤ 500 visible) individual `asset` features are returned, each
-        carrying `dominant_asset_type` on clusters above it. No lag, no tier gating.
+        carrying `dominant_asset_type` on clusters above it. No lag, no tier gating; the licence gate applies as on
+        `GET /v1/assets` (gated assets are absent from features, totals and `licence_summary`).
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -1367,7 +1383,9 @@ paths:
       operationId: getAsset
       tags: [Assets]
       summary: Asset detail
-      description: Canonical fields, `attributes` (the type's objective feature set only), and `owners[]` (docs/21 §3.23).
+      description: >-
+        Canonical fields, `attributes` (the type's objective feature set only), and `owners[]` (docs/21 §3.23).
+        `404` when the asset's licence is `restricted`/`unknown` or its source is not on the public surface.
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -1395,6 +1413,9 @@ paths:
       description: >
         Proposals whose `location.precision = exact` (ADR 0008: region-grade and none-grade proposals are never
         returned here) within `radius_km` of the asset's point, public-tier visibility rules applied, nearest first.
+        "Exact" is judged as served: a proposal stored `exact` under a licence with `allows_raw_publication = false`
+        is region grade on every non-admin surface and is excluded, since a distance to it would disclose the
+        withheld point. `404` when the asset itself is licence-gated.
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -1424,7 +1445,9 @@ paths:
       operationId: listOrganizationAssets
       tags: [Organizations, Assets]
       summary: The organisation's assets
-      description: Assets this organisation owns or operates, through `asset_owner`, with `role` and `share_pct` (docs/21 §3.23).
+      description: >-
+        Assets this organisation owns or operates, through `asset_owner`, with `role` and `share_pct` (docs/21
+        §3.23). Licence-gated assets are omitted, as on `GET /v1/assets`.
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -1487,7 +1510,8 @@ paths:
         to `power_plant` — same response shape (`feature_kind: asset` / `asset_cluster`), same clustering contract
         (docs/04 D-10). `asset_type` itself is not an accepted parameter here; it is what this path means, not a
         choice. Every source in scope this sprint (EIA-860M) is public domain, so this is public on every tier with
-        no publish delay and no restricted-precision rule.
+        no publish delay and no restricted-precision rule; the asset licence gate still applies (a `power_plant`
+        under a `restricted`/`unknown` licence is absent).
 
         Budget: ≤ 2,000 features (docs/04 D-13).
       x-tier: public
@@ -4778,7 +4802,9 @@ paths:
       operationId: feedEvents
       tags: [Feeds, Events]
       summary: Global change feed as RSS or JSON Feed
-      description: Feed twin of `GET /v1/events`; same rules as the proposal feed.
+      description: >-
+        Feed twin of `GET /v1/events`; same rules as the proposal feed, and the same subject-visibility predicate
+        as the list — an event on a hidden, restricted-licence or not-yet-public record has no item.
       x-tier: public
       x-status: planned
       x-sprint: 2
@@ -5097,6 +5123,120 @@ webhooks:
       responses:
         '2XX':
           description: Acknowledged.
+  /v1/privacy/requests:
+    post:
+      operationId: createPrivacyRequest
+      tags: [Account]
+      summary: Ask for a record that names you to be corrected or erased
+      description: >-
+        Public, rate-limited, no account needed (US-910; privacy notice §3). The request is stored
+        for an operator; nothing is emailed automatically and the response never reveals whether
+        the named record exists.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-910]
+      security:
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrivacyRequestCreate'
+      responses:
+        '202':
+          description: Recorded; an operator handles it by hand. Nothing is emailed automatically.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivacyRequestResponse'
+        <<: *common_errors
+  /admin/v1/privacy-requests:
+    servers: *admin_servers
+    get:
+      operationId: adminListPrivacyRequests
+      tags: [Admin — tasks]
+      summary: Privacy requests from data subjects named in records
+      x-tier: admin
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-910]
+      security: *sec_admin
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema: {type: string, enum: [open, in_progress, done, rejected]}
+        - name: kind
+          in: query
+          schema: {type: string, enum: [erasure, correction]}
+      responses:
+        '200':
+          description: Oldest first.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivacyRequestListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        <<: *common_errors
+  /admin/v1/privacy-requests/{request_id}:
+    servers: *admin_servers
+    parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema: {type: string, pattern: '^prq_[0-9A-HJKMNP-TV-Z]+$'}
+    get:
+      operationId: adminGetPrivacyRequest
+      tags: [Admin — tasks]
+      summary: One privacy request with its contact while it is open
+      x-tier: admin
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-910]
+      security: *sec_admin
+      responses:
+        '200':
+          description: The request.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivacyRequestAdminResponse'
+        <<: *common_errors
+    patch:
+      operationId: adminUpdatePrivacyRequest
+      tags: [Admin — tasks]
+      summary: Set status; closing (done or rejected) clears contact_email
+      x-tier: admin
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-910]
+      security: *sec_admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, reason]
+              properties:
+                status: {type: string, enum: [open, in_progress, done, rejected]}
+                reason: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: The updated request.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivacyRequestAdminResponse'
+        <<: *common_errors
 
 components:
   # ───────────────────────────── §5 Authentication and key scopes ─────────────────────────────
@@ -6466,6 +6606,55 @@ components:
 
   # ───────────────────────────── Schemas ─────────────────────────────
   schemas:
+    PrivacyRequestCreate:
+      type: object
+      required: [kind, record_public_id, contact_email]
+      properties:
+        kind: {type: string, enum: [erasure, correction]}
+        record_public_id: {type: string, pattern: '^[a-z]{2,8}_[0-9A-HJKMNP-TV-Z]{10,32}$'}
+        contact_email: {type: string, format: email}
+        message: {type: string, maxLength: 4000, nullable: true}
+    PrivacyRequest:
+      type: object
+      required: [public_id, kind, record_public_id, status, created_at]
+      properties:
+        public_id: {type: string}
+        kind: {type: string, enum: [erasure, correction]}
+        record_public_id: {type: string}
+        status: {type: string, enum: [open, in_progress, done, rejected]}
+        created_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time, nullable: true}
+    PrivacyRequestAdmin:
+      allOf:
+        - $ref: '#/components/schemas/PrivacyRequest'
+        - type: object
+          properties:
+            contact_email: {type: string, nullable: true}
+            message: {type: string, nullable: true}
+    PrivacyRequestResponse:
+      type: object
+      required: [data, meta, licence_summary]
+      properties:
+        data: {$ref: '#/components/schemas/PrivacyRequest'}
+        meta: {$ref: '#/components/schemas/Meta'}
+        licence_summary: {$ref: '#/components/schemas/LicenceSummary'}
+    PrivacyRequestAdminResponse:
+      type: object
+      required: [data, meta, licence_summary]
+      properties:
+        data: {$ref: '#/components/schemas/PrivacyRequestAdmin'}
+        meta: {$ref: '#/components/schemas/Meta'}
+        licence_summary: {$ref: '#/components/schemas/LicenceSummary'}
+    PrivacyRequestListResponse:
+      type: object
+      required: [data, meta, licence_summary, page]
+      properties:
+        data:
+          type: array
+          items: {$ref: '#/components/schemas/PrivacyRequestAdmin'}
+        meta: {$ref: '#/components/schemas/Meta'}
+        licence_summary: {$ref: '#/components/schemas/LicenceSummary'}
+        page: {$ref: '#/components/schemas/Page'}
     # ---------- Public identifiers (docs/21 §1; internal UUIDs never appear) ----------
     ProposalPublicId:
       type: string
@@ -7129,7 +7318,13 @@ components:
         precision_reason:
           type: [string, 'null']
           enum: [licence, source, geocoder, null]
-          description: '`licence` when an exact coordinate was replaced by the county centroid under the restricted-precision rule.'
+          description: >-
+            `licence` when an exact coordinate was replaced by its region grade under the restricted-precision rule
+            (docs/04 D-9): the county centroid (`precision = county_centroid`), else the state centroid
+            (`state_centroid`), else `unknown` with `geom = null`. Applied where the row is served, so it holds for
+            a location stored `exact` under a licence with `allows_raw_publication = false` too; the stored
+            coordinate is never returned on a non-admin surface, and the envelope lists `location.geom` in
+            `redactions[]` with reason `licence_precision`.
         county_fips:
           type: [string, 'null']
           pattern: '^[0-9]{5}$'
@@ -7979,9 +8174,14 @@ components:
         precision_reason:
           type: [string, 'null']
           enum: [licence, source, geocoder, null]
+          description: >-
+            `licence` when the feature's point is a region centroid standing in for a withheld exact coordinate
+            (restricted-precision rule, docs/04 D-9). A location stored `exact` under a licence with
+            `allows_raw_publication = false` is never drawn as a `proposal` feature at all — it joins the `region`
+            feature for its county (else state) — so `licence` appears here only on `county_centroid` rows.
         precision_note:
           type: [string, 'null']
-          examples: ['location shown at county level (source licence)']
+          examples: ['location shown at county level (source licence)', 'location shown at state level (source licence)']
         centroid:
           oneOf:
             - $ref: '#/components/schemas/GeoJsonPoint'

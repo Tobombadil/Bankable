@@ -14,6 +14,24 @@ Deliberately thin (docs/adr/0004 "a thin runner is fine"): this module never imp
 and a change to the connector framework's Python API cannot silently desync from what the
 scheduler runs.
 
+The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is not a loop"):
+
+    tick_<bucket>  ->  run_connector(source_id)      fetch/snapshot/diff via the CLI; writes the
+                                                     `source_run` row and `source.health`
+                       -> load_source(source_id, ts)  only after a run that produced a new
+                                                     normalised snapshot (`status == "ok"`)
+                          -> resolve_tick             organisations + proposal clusters, store-wide
+                             -> enrich_tick           geocode backfill and later enrichment stages
+    tick_resolve (daily)  ->  resolve_tick            safety net for rows loaded outside the chain
+
+Overlap guards: `run_connector` and `load_source` share the per-source Procrastinate `lock`
+(`cadence.execution_lock_for`), so one source is never fetched and loaded at the same moment;
+`resolve_tick`/`enrich_tick` carry a `queueing_lock` (one queued at a time) and a shared `lock`
+(never two store-wide passes at once). Failures: `run_connector` retries only
+`TransientConnectorFailure` (network, 5xx, crash, timeout) with exponential backoff and
+dead-letters on the fifth attempt; a block, a corrupt payload or a gate refusal is recorded once
+and left for the next tick (`FETCH_RETRY` below; `infra/scheduler/jobs.py`).
+
 On the "singleton" requirement: Procrastinate's periodic deferrer dedupes at the database level —
 "the database will keep us from deferring the same task for the same scheduled time multiple
 times" (procrastinate.periodic.PeriodicDeferrer.defer_jobs) — so running the tick task in more
@@ -38,8 +56,21 @@ from typing import Any
 import procrastinate
 import yaml
 
-from infra.scheduler.cadence import CRON_BY_BUCKET, bucket_for_cadence, queue_for_source, queueing_lock_for
-from infra.scheduler.jobs import alert_tick_job, post_draft_tick_job
+from infra.scheduler import jobs
+from infra.scheduler.cadence import (
+    CRON_BY_BUCKET,
+    bucket_for_cadence,
+    execution_lock_for,
+    queue_for_source,
+    queueing_lock_for,
+    safe_id,
+)
+from infra.scheduler.jobs import (
+    ConnectorRunFailed,
+    TransientConnectorFailure,
+    alert_tick_job,
+    post_draft_tick_job,
+)
 
 logger = logging.getLogger("infra.scheduler")
 
@@ -80,11 +111,28 @@ def _load_sources() -> list[dict[str, Any]]:
     return [s for s in sources if "cadence" in s]
 
 
-@app.task(
-    queue="fetch", retry=5, pass_context=True
-)  # docs/20 §4.2 "retries with exponential backoff... five failures -> dead-letter"
+#: docs/20 §4.2 "retries with exponential backoff; five failures -> dead-letter". Before
+#: 2026-09-18 this was `retry=5`, which Procrastinate reads as `RetryStrategy(max_attempts=5)`
+#: with `wait=0`: five attempts back to back, no backoff (audit §3.1). Procrastinate's formula is
+#: `wait = exponential_wait ** (attempts + 1)`, so with base 5 the waits after failures 1..4 are
+#: 25 s, 125 s, 625 s and 3,125 s (65 min in total before the fifth attempt dead-letters), all
+#: inside a daily cadence. Procrastinate has no jitter parameter; the per-host token bucket in
+#: `pipeline/connectors/http.py` already spreads the requests themselves. Only
+#: `TransientConnectorFailure` is retried: a block, a corrupt payload or a gate refusal is
+#: recorded once (`source_run` + `source.health`) and left for the next tick.
+FETCH_RETRY = procrastinate.RetryStrategy(
+    max_attempts=5, exponential_wait=5, retry_exceptions=[TransientConnectorFailure]
+)
+LOAD_TIMEOUT_S = 1800  # a full NYISO/EIA frame loads in well under this on the reference laptop
+RESOLVE_TIMEOUT_S = 3600
+ENRICH_TIMEOUT_S = 1800
+
+
+@app.task(queue="fetch", retry=FETCH_RETRY, pass_context=True)
 def run_connector(context: procrastinate.JobContext, source_id: str) -> None:
-    """Run one connector via the same CLI a human uses (`pipeline/README.md`).
+    """Run one connector via the same CLI a human uses (`pipeline/README.md`), record the run
+    (`source_run` row, `source.health`) and, when it produced a new normalised snapshot, enqueue
+    `load_source` for it under the same per-source lock.
 
     A single `fetch` job may not run more than 10 minutes for a plain source, 5 for a browser one
     (docs/20 §4.2); the timeout is enforced here rather than trusted to the connector itself, so a
@@ -95,16 +143,59 @@ def run_connector(context: procrastinate.JobContext, source_id: str) -> None:
     timeout = 300 if context.job.queue == "fetch_browser" else 600
     cmd = [sys.executable, "-m", "pipeline.connectors", "run", source_id]
     logger.info("fetch job starting", extra={"source_id": source_id, "cmd": cmd, "timeout_s": timeout})
-    result = subprocess.run(  # noqa: S603 -- fixed argv built from a trusted registry id, no shell
-        cmd, cwd=ROOT, timeout=timeout, capture_output=True, text=True, check=False
-    )
-    if result.returncode != 0:
-        logger.error(
-            "fetch job failed",
-            extra={"source_id": source_id, "returncode": result.returncode, "stderr": result.stderr[-4000:]},
+    started_at = jobs._utcnow()
+    try:
+        result = subprocess.run(  # noqa: S603 -- fixed argv built from a trusted registry id, no shell
+            cmd, cwd=ROOT, timeout=timeout, capture_output=True, text=True, check=False
         )
-        raise RuntimeError(f"connector run failed for {source_id} (exit {result.returncode})")
-    logger.info("fetch job finished", extra={"source_id": source_id})
+    except subprocess.TimeoutExpired as exc:
+        outcome = jobs.fetch_outcome(
+            source_id,
+            returncode=None,
+            stdout=_text(exc.stdout),
+            stderr=_text(exc.stderr),
+            started_at=started_at,
+            timeout_s=timeout,
+        )
+        raise TransientConnectorFailure(f"connector run for {source_id} timed out after {timeout}s") from exc
+    outcome = jobs.fetch_outcome(
+        source_id,
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        started_at=started_at,
+    )
+    status = outcome["status"]
+    if status == "ok" and outcome["ts"]:
+        try:
+            load_source.configure(
+                lock=execution_lock_for(source_id), queueing_lock=f"load:{safe_id(source_id)}"
+            ).defer(source_id=source_id, ts=outcome["ts"])
+        except procrastinate.exceptions.AlreadyEnqueued:
+            logger.info("skipped: previous load still queued or running", extra={"source_id": source_id})
+    if status in ("ok", "unchanged", "partial", "refused"):
+        logger.info("fetch job finished", extra={"source_id": source_id, "status": status})
+        return
+    logger.error(
+        "fetch job failed",
+        extra={
+            "source_id": source_id,
+            "status": status,
+            "returncode": result.returncode,
+            "stderr": result.stderr[-4000:],
+        },
+    )
+    if outcome["transient"]:
+        raise TransientConnectorFailure(
+            f"connector run failed for {source_id} ({status}); will retry with backoff"
+        )
+    raise ConnectorRunFailed(f"connector run for {source_id} ended {status}; not retried")
+
+
+def _text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    return value.decode("utf-8", "replace") if isinstance(value, bytes) else value
 
 
 def _register_bucket_tick(bucket: str, cron: str) -> None:
@@ -119,6 +210,7 @@ def _register_bucket_tick(bucket: str, cron: str) -> None:
             try:
                 run_connector.configure(
                     queue=queue,
+                    lock=execution_lock_for(source_id),
                     queueing_lock=queueing_lock_for(source_id),
                 ).defer(source_id=source_id)
             except procrastinate.exceptions.AlreadyEnqueued:
@@ -194,6 +286,51 @@ def _tick_post_draft(timestamp: int) -> None:  # jitter offset (cadence.py's CRO
         post_draft_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous post_draft_tick still queued or running")
+
+
+# The rest of the loop (module docstring). Queues are ones the compose `worker` service already
+# consumes (`normalise`, `resolve`; infra/scheduler/worker.py's docstring), so no compose change.
+
+
+@app.task(name="load_source", queue="normalise", retry=0)
+def load_source(source_id: str, ts: str) -> dict[str, Any]:
+    """Load one run's normalised parquet + events into the store (`services.ingest.loader`),
+    then ask for a store-wide resolve pass. Deferred by `run_connector` under the same per-source
+    `lock`, so it never reads a parquet the next fetch is rewriting. `retry=0`: the next
+    successful fetch of the source re-enqueues it, and the loader is idempotent."""
+    report = _run_with_timeout(lambda: jobs.load_source_job(source_id, ts), timeout_s=LOAD_TIMEOUT_S)
+    try:
+        resolve_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: resolve_tick already queued", extra={"source_id": source_id})
+    return report
+
+
+@app.task(name="resolve_tick", queue="resolve", retry=0, queueing_lock="resolve_tick", lock="resolve")
+def resolve_tick() -> dict[str, Any]:
+    """Store-wide resolution (docs/20 §3.5) through the entry points `services/resolve/report.py`
+    already uses; body in `infra/scheduler/jobs.py`. Chains to `enrich_tick`."""
+    report = _run_with_timeout(jobs.resolve_tick_job, timeout_s=RESOLVE_TIMEOUT_S)
+    try:
+        enrich_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: enrich_tick already queued")
+    return report
+
+
+@app.task(name="enrich_tick", queue="resolve", retry=0, queueing_lock="enrich_tick", lock="resolve")
+def enrich_tick() -> dict[str, Any]:
+    """Enrichment (docs/20 §3.6): the geocode backfill today; body in `infra/scheduler/jobs.py`."""
+    return _run_with_timeout(jobs.enrich_tick_job, timeout_s=ENRICH_TIMEOUT_S)
+
+
+@app.periodic(cron="37 4 * * *", periodic_id="tick:resolve")  # after the daily fetch bucket (03:07)
+@app.task(name="tick_resolve", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_resolve(timestamp: int) -> None:
+    try:
+        resolve_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous resolve_tick still queued or running")
 
 
 def main() -> None:

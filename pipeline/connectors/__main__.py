@@ -107,6 +107,10 @@ def main(argv: list[str] | None = None) -> int:
             log.error("not registered", extra={"source_id": sid, "error": str(e)})
             rc = 2
             continue
+        except Exception as e:
+            log.exception("run crashed", extra={"source_id": sid, "error": repr(e)[:500]})
+            rc = 1
+            continue
         r = res.run
         log.info(
             "result",

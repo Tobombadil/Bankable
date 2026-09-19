@@ -296,7 +296,9 @@ def test_deletion_task_shows_redaction_warning_and_completes(web_client: TestCli
     with db_sessionmaker() as db:
         user = db.query(User).filter_by(public_id=user_public_id).one()
         assert user.status == "anonymised"
-        assert user.email is None
+        # Erasure tombstones the address (`erased-<hash>@erased.invalid`) so the row keeps a unique,
+        # non-personal key; the real address survives only as a peppered hash in the audit log.
+        assert user.email is not None and user.email.endswith("@erased.invalid")
 
 
 def test_deletion_task_completion_503_when_crm_unreachable(web_client: TestClient, db_sessionmaker) -> None:

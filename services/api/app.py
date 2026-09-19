@@ -36,7 +36,7 @@ from sqlalchemy.orm import (
 )
 
 from services.api.auth import AuthContext, get_auth_context
-from services.api.common import API_HOST, WEB_HOST, ensure_aware, new_request_id, utcnow
+from services.api.common import API_HOST, WEB_HOST, new_request_id, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
 from services.api.feeds import render_json_feed, render_rss
@@ -52,6 +52,7 @@ from services.api.serialize import (
     event_licence_row,
     licence_summary_from_source_aggregates,
     licence_summary_row,
+    location_redactions,
     serialize_event,
     serialize_licence,
     serialize_opportunity,
@@ -62,6 +63,7 @@ from services.api.serialize import (
 from services.api.visibility import (
     event_public_filter,
     event_visibility_filter,
+    location_exact_permitted,
     opportunity_public_filter,
     opportunity_visibility_filter,
     proposal_public_filter,
@@ -92,6 +94,7 @@ app.add_exception_handler(ProblemError, problem_exception_handler)
 # auth, saved searches, alerts, keys, webhooks, the private saved-search feed, and the interim
 # admin entitlement-grant endpoint. Kept in its own module (services/api/pro.py) per that task's
 # "extend, don't rewrite" instruction for this file — one import and one include_router call.
+from services.api.privacy_routes import router as privacy_router  # noqa: E402
 from services.api.pro import router as pro_router  # noqa: E402 - after `app` exists, by design
 from services.api.unsubscribe_routes import router as unsubscribe_router  # noqa: E402
 
@@ -99,6 +102,8 @@ from services.api.unsubscribe_routes import router as unsubscribe_router  # noqa
 # pro.py's `GET /v1/alerts/{alert_id}` would otherwise swallow `/v1/alerts/unsubscribe`
 # (US-502 AC3, US-908; found while building the unsubscribe route).
 app.include_router(unsubscribe_router)
+# Same ordering reason: `POST /v1/privacy/requests` must not fall into a Pro path (US-910).
+app.include_router(privacy_router)
 app.include_router(pro_router)
 
 # Sprint 3, first wave (docs/00-PLAN.md "Sprint 3 kickoff" item 1 and 2): the Attio CRM adapter's
@@ -246,17 +251,6 @@ PROPOSAL_SORT_ALLOWLIST = {"last_changed", "first_seen", "capacity_mw", "name_ca
 PLACEMENT_REGION_PRECISIONS = ("county_centroid", "state_centroid", "country_centroid")
 
 
-def _placement_precisions(grades: list[str]) -> list[str]:
-    precisions: list[str] = []
-    if "exact" in grades:
-        precisions.append("exact")
-    if "region" in grades:
-        precisions.extend(PLACEMENT_REGION_PRECISIONS)
-    if "none" in grades:
-        precisions.append("unknown")
-    return precisions
-
-
 def _apply_placement_filter(
     stmt: sa.Select[Any], request: Request, *, default: list[str] | None
 ) -> sa.Select[Any]:
@@ -276,8 +270,20 @@ def _apply_placement_filter(
         raise validation_error(
             "placement", f"unknown placement value(s): {', '.join(unknown)}", request.url.path
         )
-    precisions = _placement_precisions(grades)
-    loc_subquery = select(Location.id).where(Location.precision.in_(precisions))
+    # Placement is judged on the grade a row is *served* at, not the one it is stored at
+    # (restricted-precision rule, docs/04 D-9): an `exact` row whose licence forbids raw
+    # publication is a `region` row on every non-admin surface (`services/api/geo.py::
+    # effective_placement`), so `placement=exact` must not select it and `placement=region`
+    # must -- `location_exact_permitted` is the SQL twin of that rule (services/api/visibility.py).
+    clauses: list[sa.ColumnElement[bool]] = []
+    if "exact" in grades:
+        clauses.append(sa.and_(Location.precision == "exact", location_exact_permitted()))
+    if "region" in grades:
+        clauses.append(Location.precision.in_(PLACEMENT_REGION_PRECISIONS))
+        clauses.append(sa.and_(Location.precision == "exact", sa.not_(location_exact_permitted())))
+    if "none" in grades:
+        clauses.append(Location.precision == "unknown")
+    loc_subquery = select(Location.id).where(sa.or_(*clauses))
     return stmt.where(Proposal.location_id.in_(loc_subquery))
 
 
@@ -404,10 +410,12 @@ def _proposal_geo_plottable_query(
     separate, much cheaper column-only query instead of full ORM hydration.
 
     `sponsor` (the list endpoint's default, `lazy="joined"` on the model, never read here) is
-    dropped entirely; `location`'s own `lazy="joined"` `source`/`licence` (needed only for the
-    below-`SPLIT_THRESHOLD` individual-feature path's restricted-precision check,
-    `services/api/geo.py::_precision_reason`) fall back to a per-record lazy load instead of an
-    eager join on every row; `.sources` is not loaded here at all -- `_source_licence_aggregate`
+    dropped entirely; `location`'s own `lazy="joined"` `source` falls back to a per-record lazy
+    load instead of an eager join on every row, while `location.licence` *is* joined (two columns
+    of a table with one row per source) because `services/api/geo.py::effective_placement` reads
+    `allows_raw_publication` for every plotted row to decide whether an `exact` point may be
+    served at all (restricted-precision rule; a lazy load there would be an N+1 over the whole
+    placed set); `.sources` is not loaded here at all -- `_source_licence_aggregate`
     below computes the licence summary with one SQL aggregate instead, and the individual-feature
     path lazy-loads `.sources` per record (bounded by `SPLIT_THRESHOLD`, so at most a few hundred
     small queries). Together with the visibility indexes (services/db/models.py), this is the
@@ -417,13 +425,14 @@ def _proposal_geo_plottable_query(
     stmt = (
         select(Proposal)
         .join(Location, Location.id == Proposal.location_id)
+        .join(Licence, Licence.id == Location.licence_id)
         .where(*proposal_visibility_filter(entitlement), Location.geom.is_not(None))
         .options(
             load_only(*_GEO_PROPOSAL_COLUMNS),
             noload(Proposal.sponsor),
             loc_load.load_only(*_GEO_LOCATION_COLUMNS),
             loc_load.lazyload(Location.source),
-            loc_load.lazyload(Location.licence),
+            loc_load.contains_eager(Location.licence).load_only(Licence.id, Licence.allows_raw_publication),
         )
     )
     stmt = _apply_proposal_filters(stmt, request)
@@ -609,7 +618,10 @@ def get_proposal(
     data = serialize_proposal(prop)
     meta = build_meta("proposal", tier=ctx.entitlement)
     return build_envelope(
-        data, meta=meta, licence_summary=build_licence_summary(_proposal_licence_rows([prop]))
+        data,
+        meta=meta,
+        licence_summary=build_licence_summary(_proposal_licence_rows([prop])),
+        redactions=location_redactions(prop.public_id, prop.location),
     )
 
 
@@ -1213,16 +1225,14 @@ def get_event(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    ev = _find_event_by_public_id(db, event_id)
+    event_uuid = _event_uuid_from_public_id(event_id)
+    if event_uuid is None:
+        raise not_found(request.url.path)
+    # The same `event_visibility_filter` the list and feed use, as a `WHERE` on the decoded id
+    # (2026-09-18 audit): a hand-rolled re-statement here used to check timing and the event's own
+    # licence but not the subject's visibility, so a hidden proposal's event answered 200 by id.
+    ev = db.scalar(select(Event).where(Event.id == event_uuid, *event_visibility_filter(ctx.entitlement)))
     if ev is None:
-        raise not_found(request.url.path)
-    # Pro/API read `published_at`; public reads `public_at` (docs/21 §5.4) — mirrors
-    # `event_visibility_filter` exactly, applied here to one already-fetched row rather than as a
-    # `WHERE` clause since the row is looked up by its derived public id, not queried directly.
-    timing_field = ev.public_at if ctx.entitlement == "public" else ev.published_at
-    if timing_field is None or ensure_aware(timing_field) > utcnow():
-        raise not_found(request.url.path)
-    if ev.licence and ev.licence.reuse_class not in ("open", "attribution"):
         raise not_found(request.url.path)
     data = serialize_event(ev, **_subject_info(db, ev))
     lag_days = 0 if ctx.entitlement != "public" else _lag_days_for_subject(ev.subject_type)
@@ -1231,9 +1241,9 @@ def get_event(
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary([row] if row else []))
 
 
-def _find_event_by_public_id(db: Session, event_id: str) -> Event | None:
+def _event_uuid_from_public_id(event_id: str) -> _uuid.UUID | None:
     """`evt_<crockford>` ids are synthesised from `event.id` at serialization time (docs/21 §3.10
-    has no separate `public_id` column for events); reverse it by scanning candidates is not
+    has no separate `public_id` column for events); reversing it by scanning candidates is not
     viable at scale, so this walks the crockford alphabet back to a uuid instead."""
     from services.ids import _CROCKFORD
 
@@ -1244,10 +1254,9 @@ def _find_event_by_public_id(db: Session, event_id: str) -> Event | None:
         n = 0
         for ch in digits:
             n = n * 32 + _CROCKFORD.index(ch)
-        candidate = _uuid.UUID(int=n)
+        return _uuid.UUID(int=n)
     except (ValueError, OverflowError):
         return None
-    return db.get(Event, candidate)
 
 
 # ----------------------------------------------------------------------------------- sources/licences

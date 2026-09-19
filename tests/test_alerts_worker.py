@@ -11,6 +11,7 @@ import datetime as dt
 import httpx
 import pytest
 
+from services.alerts.mail import ResendAlertMailer, reset_counters
 from services.alerts.webhooks import BACKOFF_SCHEDULE_SECONDS
 from services.alerts.worker import (
     AlertTickReport,
@@ -19,7 +20,7 @@ from services.alerts.worker import (
     main,
     run_alert_tick,
 )
-from services.api.auth import ResendEmailAdapter, SentEmail
+from services.api.auth import SentEmail
 from services.api.conftest import make_event, make_open_licence, make_public_source, make_visible_proposal
 from services.db.models import Alert, SavedSearch, WebhookDelivery, WebhookEndpoint
 from services.db.session import get_engine, get_sessionmaker, init_db
@@ -104,18 +105,36 @@ def _seed(db):
     }
 
 
+@pytest.fixture(autouse=True)
+def _sender_identity(monkeypatch):
+    """`services/alerts/mail.py` refuses to send through a port that is not a dry run unless the
+    legal sender line is configured; the recording port below is deliberately *not* marked
+    dry-run (it stands in for a real sender), so every test here runs with an obviously fake
+    identity set. `test_missing_sender_identity_*` below clears it again on purpose."""
+    monkeypatch.setenv("SENDER_LEGAL_NAME", "Test Sender Ltd (not a real entity)")
+    monkeypatch.setenv("SENDER_POSTAL_ADDRESS", "1 Test Street, Testville, TS1 1TS (fake)")
+    monkeypatch.setenv("AUDIT_HASH_PEPPER", "test-pepper-not-a-secret")
+    reset_counters()
+
+
 class RecordingEmailPort:
+    """A header-capable `AlertMailer` double that is *not* a dry run (no `dry_run` attribute):
+    `services/alerts/mail.py` then treats it as a real sender and requires the legal sender
+    line, which is what production would do."""
+
     def __init__(self) -> None:
         self.sent: list[SentEmail] = []
+        self.headers: list[dict[str, str]] = []
 
-    def send(self, *, to: str, subject: str, body: str) -> SentEmail:
+    def send(self, *, to: str, subject: str, body: str, headers: dict[str, str]) -> SentEmail:
         record = SentEmail(to=to, subject=subject, body=body, provider_message_id="rec_1", dry_run=True)
         self.sent.append(record)
+        self.headers.append(dict(headers))
         return record
 
 
 class RaisingEmailPort:
-    def send(self, *, to: str, subject: str, body: str) -> SentEmail:
+    def send(self, *, to: str, subject: str, body: str, headers: dict[str, str]) -> SentEmail:
         raise RuntimeError("email provider down")
 
 
@@ -340,7 +359,7 @@ def test_default_email_port_is_dry_run_and_default_transport_handles_no_pending_
     assert report.emails_sent == 1
     assert report.deliveries_attempted == 0
 
-    assert isinstance(worker_module._default_email_port, ResendEmailAdapter)
+    assert isinstance(worker_module._default_email_port, ResendAlertMailer)
     assert worker_module._default_email_port.dry_run is True
     assert len(worker_module._default_email_port.sent) == 1
     assert worker_module._default_email_port.sent[0].provider_message_id.startswith("dryrun_")
@@ -442,7 +461,7 @@ def test_cli_dry_run_forces_dry_run_email_and_recording_transport(session_factor
     exit_code = main(["--dry-run"])
 
     assert exit_code == 0
-    assert isinstance(captured["email_port"], ResendEmailAdapter)
+    assert isinstance(captured["email_port"], ResendAlertMailer)
     assert captured["email_port"].dry_run is True
     assert isinstance(captured["transport"], DryRunTransport)
 

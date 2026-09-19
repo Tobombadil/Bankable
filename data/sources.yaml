@@ -7,6 +7,12 @@
 #   access   : api | bulk_file | html | js_app | pdf | rss | email | wsdl
 #   reuse    : open (public domain / open licence) | attribution (open with credit) |
 #              restricted (redistribution needs licence or consent) | unknown (terms not retrievable)
+#   publication : raw_ok (rows render in full on public pages and in exports) |
+#              derived_only (normalised fields, events and county/state placement only; raw row,
+#              status_raw and exact coordinates withheld; link out) | none (nothing published).
+#              Must be no more permissive than the docs/13-legal-data-rights.md §6 rule for the
+#              source; scripts/check_manifest_licences.py enforces it (2026-09-18). restricted and
+#              unknown sources are always `none`.
 #   tier     : 1 = MVP, 2 = second wave, 3 = later / opportunistic
 #   effort   : S (<1 day connector) | M (1–3 days) | L (>3 days or needs agreements/browser automation)
 #   verified : result of scripts/probe_sources.py on the date shown (see data/probes/)
@@ -14,7 +20,7 @@
 # Reuse of US federal government works is public domain (17 U.S.C. §105). ISO/RTO and state sites are
 # NOT federal works: each carries its own terms and is recorded individually below.
 
-version: 2026-09-12
+version: 2026-09-18
 sources:
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -32,6 +38,7 @@ sources:
   cadence: weekly
   license: 'CAISO Terms of Use (rev. 2025-05-14), retrieved 2026-09-12 — "No material or information from this Website ... may be copied, reproduced, republished ... except (i) as authorized in these Terms of Use"; and "may be used by you provided that you keep intact all copyright ... notices and that you credit the California ISO"'
   reuse: attribution
+  publication: derived_only
   tier: 1
   effort: S
   connector: gridstatus.CAISO.get_interconnection_queue
@@ -54,6 +61,7 @@ sources:
   cadence: monthly
   license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — "raw data provided in public portions of this website may be used, reproduced, and redistributed in compilations, charts, and analyses without maintaining such notices"'
   reuse: open
+  publication: raw_ok
   tier: 1
   effort: S
   connector: gridstatus.Ercot.get_interconnection_queue
@@ -76,6 +84,7 @@ sources:
   cadence: monthly
   license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — raw public data "may be used, reproduced, and redistributed in compilations, charts, and analyses"'
   reuse: open
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: GET}
@@ -106,6 +115,7 @@ sources:
   cadence: daily
   license: 'SPP Terms & Conditions (Copyright), retrieved 2026-09-12 — "Permission is implicitly granted to copy and distribute ... EXCEPT when such materials will be used, in whole or in part, within a commercial publication ... Any commercial use of these materials requires prior, express written authorization from the author(s) or a duly authorized officer of SPP"'
   reuse: restricted
+  publication: none
   tier: 1
   effort: S
   connector: gridstatus.SPP.get_interconnection_queue
@@ -129,6 +139,7 @@ sources:
   cadence: weekly
   license: 'NYISO Legal Notice, retrieved 2026-09-12 — only express prohibition is "Downloading, republishing, retransmitting, reproducing, or other use of any image or video on this website as a stand-alone file is strictly prohibited"; otherwise reserves rights; no assent clause; no data-reuse restriction'
   reuse: attribution
+  publication: derived_only
   tier: 1
   effort: S
   connector: gridstatus.NYISO.get_interconnection_queue
@@ -150,6 +161,7 @@ sources:
   cadence: daily
   license: 'ISO-NE Legal and Privacy, retrieved 2026-09-12 with a browser user-agent (403 to plain clients) — "By using this website, you signify your assent to these Terms and Conditions" and "Any duplication of the Content or non-personal use may violate copyright, trademark, and other laws"'
   reuse: restricted
+  publication: none
   tier: 1
   effort: S
   connector: gridstatus.ISONE.get_interconnection_queue
@@ -173,6 +185,7 @@ sources:
   cadence: daily
   license: 'Three documents retrieved 2026-09-12. Data Miner 2 Terms of Use PDF — "Members may republish data, however non-members are specifically prohibited from republishing data". apiportal.pjm.com — "for internal use only and redistribution ... is strictly prohibited without an effective PJM-issued Redistribution License". pjm.com Legal & Privacy (governs planning pages) — reserves rights, contains no redistribution clause'
   reuse: restricted
+  publication: none
   tier: 1
   effort: M
   connector: gridstatus.PJM.get_interconnection_queue (PJM_API_KEY)
@@ -197,6 +210,7 @@ sources:
   cadence: daily
   license: MISO Legal & Privacy (page returns 403 to non-browser clients — terms not retrievable)
   reuse: unknown
+  publication: none
   tier: 1
   effort: M
   connector: gridstatus.MISO.get_interconnection_queue
@@ -220,7 +234,9 @@ sources:
   format: xlsx
   cadence: annual (data through 2025 published May–Jun 2026)
   license: CC BY 4.0 (attribute LBNL and GridTracker)
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1266) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 1
   effort: S
   probe: {method: GET}
@@ -245,6 +261,7 @@ sources:
   cadence: unknown
   license: 'NOT RETRIEVED — https://ourgridfuture.org/ returned HTTP 403 (Cloudflare challenge) on the root page and nine guessed terms/about paths, 2026-09-15; https://opengridworks.com/attribution (the citing page named in the task) returned HTTP 429 ("Vercel Security Checkpoint"), 2026-09-15; archive.org blocked by sandbox egress policy'
   reuse: unknown
+  publication: none
   tier: 2
   effort: M
   probe: {method: GET}
@@ -268,6 +285,7 @@ sources:
   cadence: daily
   license: '© Interconnection.fyi. All rights reserved — commercial dataset sold via CSV/Snowflake/API'
   reuse: restricted
+  publication: none
   tier: 3
   effort: n/a
   probe: {method: GET}
@@ -289,6 +307,7 @@ sources:
   cadence: monthly
   license: US federal work — public domain
   reuse: open
+  publication: raw_ok
   tier: 1
   effort: S
   connector: PUDL (catalyst.coop) or direct xlsx parse; gridstatus.io mirrors it
@@ -312,6 +331,7 @@ sources:
   cadence: varies
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -332,6 +352,7 @@ sources:
   cadence: annual
   license: 'US federal work — public domain; EIA copyright/reuse page quoted in docs/13-legal-data-rights.md section 2.11 (retrieved 2026-09-15) asks that EIA be cited as the source. The dataset-level licenseInfo field on the Atlas item was not retrieved (the Hub catalogue API returned no row for the slug, 2026-09-15); read it in a browser before the layer ships'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
   probe: {method: GET}
@@ -353,7 +374,9 @@ sources:
   format: html/xlsx/pdf (one layout per utility)
   cadence: weekly–monthly
   license: per-utility; most publish under FERC Order 2003/2023 transparency obligations
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1270) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 2
   effort: L
   notes: >
@@ -376,6 +399,7 @@ sources:
   cadence: realtime
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 1
   effort: M
   probe: {method: POST, body: '{"searchText":"interconnection agreement","searchDescription":true,"searchFullText":false,"searchDocketNumber":false,"resultsPerPage":3,"curPage":1,"sortBy":"","groupBy":"DOCKET","filterDate":{"dateType":"filed_date","startDate":"09/01/2026","endDate":"09/12/2026"},"docketNumbers":[],"documentClasses":[],"documentTypes":[],"availability":"P","categories":[],"idList":[],"accessionNumber":"","libraryTypes":[],"filedBy":"","affiliations":""}'}
@@ -396,6 +420,7 @@ sources:
   cadence: monthly
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -413,6 +438,7 @@ sources:
   cadence: quarterly
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
 
@@ -428,6 +454,7 @@ sources:
   cadence: weekly (Federal Register notices Fridays)
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
   probe: {method: GET}
@@ -445,6 +472,7 @@ sources:
   cadence: continuous (state submissions)
   license: 'US federal work — public domain; EIA-style reuse quote for EPA in docs/13 is not yet recorded for this site: data.gov catalogue entry (https://catalog.data.gov/dataset/ract-bact-laer-clearninghouse-rblc, retrieved 2026-09-15) shows Access Level public, publisher EPA OAR, dataset last updated 2015-09-23 with no licence text beyond a bare "License" link; read the dashboard terms before ingest'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
   probe: {method: GET}
@@ -469,6 +497,7 @@ sources:
   cadence: weekly
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: GET}
@@ -493,6 +522,7 @@ sources:
   cadence: daily
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
   probe: {method: GET}
@@ -511,6 +541,7 @@ sources:
   cadence: monthly
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
 
@@ -526,6 +557,7 @@ sources:
   cadence: weekly
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 3
   effort: M
   probe: {method: GET}
@@ -544,6 +576,7 @@ sources:
   cadence: monthly
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 3
   effort: M
   probe: {method: GET}
@@ -562,6 +595,7 @@ sources:
   cadence: realtime
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 3
   effort: M
   notes: Only if nuclear (SMR COL/CP applications, restarts) is in scope. High-value given 2026 policy tilt to nuclear.
@@ -578,6 +612,7 @@ sources:
   cadence: realtime
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 3
   effort: S
   probe: {method: GET, url: "https://api.regulations.gov/v4/documents?api_key=DEMO_KEY&filter%5BsearchTerm%5D=solar"}
@@ -597,7 +632,9 @@ sources:
   format: html/pdf (one system per state)
   cadence: weekly
   license: state public records; per-site terms
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1282) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 2
   effort: L
   notes: Highest-signal state layer for utility-scale solar/wind/storage. Start with OH (OPSB case map), NY (ORES/DMM), IL, MI, MN. One connector per board.
@@ -613,7 +650,9 @@ sources:
   format: html/pdf
   cadence: daily
   license: public records; per-site terms
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1283) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 3
   effort: L
   notes: >
@@ -631,7 +670,9 @@ sources:
   format: 'html/pdf (issuer sites: NYSERDA, SVCE, MCE, CPA, SDG&E, Xcel, PacifiCorp, Duke, Georgia Power, co-op G&Ts)'
   cadence: continuous
   license: issuer sites public; Energy Adepto is a private aggregator — do not scrape
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1284) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 1
   effort: L
   notes: >
@@ -650,6 +691,7 @@ sources:
   cadence: daily
   license: aggregator ToS prohibit scraping; state portals are public
   reuse: restricted
+  publication: none
   tier: 3
   effort: L
   notes: Buy alerts rather than scrape; or connect to state portals directly (e.g. Cal eProcure, NY Contract Reporter, Texas ESBD).
@@ -669,6 +711,7 @@ sources:
   cadence: realtime
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: POST, body: '{"keyword":"energy","oppStatuses":"forecasted|posted","rows":5}'}
@@ -687,6 +730,7 @@ sources:
   cadence: realtime
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET, url: "https://api.sam.gov/opportunities/v2/search?limit=1&postedFrom=09/01/2026&postedTo=09/12/2026"}
@@ -705,6 +749,7 @@ sources:
   cadence: weekly
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 1
   effort: M
   probe: {method: GET}
@@ -726,6 +771,7 @@ sources:
   cadence: monthly
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
   notes: REAP grants paused pending new regs (Mar 2026); guaranteed loans open. Co-op audience = user's professional network.
@@ -742,6 +788,7 @@ sources:
   cadence: daily
   license: public domain
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: POST, body: '{"filters":{"keywords":["solar"],"award_type_codes":["02","03","04","05"],"time_period":[{"start_date":"2026-01-01","end_date":"2026-09-12"}]},"fields":["Award ID","Recipient Name","Award Amount","Awarding Agency"],"limit":3}'}
@@ -763,6 +810,7 @@ sources:
   cadence: twice weekly
   license: 'National Energy SO Open Data Licence v1.0 (based on OGL v3), retrieved 2026-09-12 — free to "exploit the Information commercially and non-commercially"; must "Acknowledge NESO as the source of the Information by including the following attribution statement: Supported by National Energy SO Open Data"'
   reuse: attribution
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: GET}
@@ -786,6 +834,7 @@ sources:
   cadence: annual (republished alongside each year's Future Energy Scenarios; 2021–2024 vintages seen)
   license: 'National Energy SO Open Data Licence v1.0 (identical to the TEC register''s own licence, docs/13-legal-data-rights.md §2.5 — this dataset''s own package_show confirms the same license_title/license_id/license_url); must "Acknowledge NESO as the source of the Information by including the following attribution statement: Supported by National Energy SO Open Data"'
   reuse: attribution
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: GET}
@@ -810,6 +859,7 @@ sources:
   cadence: weekly
   license: OGL v3
   reuse: attribution
+  publication: raw_ok
   tier: 2
   effort: M
   probe: {method: GET}
@@ -827,6 +877,7 @@ sources:
   cadence: realtime
   license: OGL v3
   reuse: attribution
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: GET, url: "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?updatedFrom=2026-09-10T00:00:00"}
@@ -844,6 +895,7 @@ sources:
   cadence: daily
   license: 'TED legal notice (Copyright notice), retrieved 2026-09-12 — "Unless otherwise noted, the procurement notices published in the Supplement to the Official Journal of the European Union can be freely reused, for commercial or non-commercial purposes" (Decision 2011/833/EU); editorial content CC BY 4.0; system metadata CC0 1.0'
   reuse: attribution
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: POST, body: '{"query":"classification-cpv=09* AND publication-date>=20260901","limit":3,"fields":["publication-number","notice-title"]}'}
@@ -863,7 +915,9 @@ sources:
   format: json/geojson behind map app
   cadence: biennial + amendments
   license: ENTSO-E terms; attribution
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1295) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 2
   effort: M
 
@@ -879,6 +933,7 @@ sources:
   cadence: biennial
   license: EU reuse policy
   reuse: attribution
+  publication: raw_ok
   tier: 2
   effort: S
 
@@ -894,6 +949,7 @@ sources:
   cadence: daily
   license: dl-de/by-2-0 (Datenlizenz Deutschland – Namensnennung)
   reuse: attribution
+  publication: raw_ok
   tier: 2
   effort: S
   connector: open-mastr (OpenEnergyPlatform)
@@ -909,7 +965,9 @@ sources:
   format: pdf/xlsx
   cadence: per-batch
   license: EirGrid terms
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1298) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 3
   effort: M
 
@@ -924,7 +982,9 @@ sources:
   format: html/xlsx
   cadence: monthly
   license: IESO terms
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1299) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 2
   effort: S
   probe: {method: GET}
@@ -941,7 +1001,9 @@ sources:
   format: json
   cadence: weekly
   license: AESO terms
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1300) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 2
   effort: S
 
@@ -957,6 +1019,7 @@ sources:
   cadence: weekly
   license: Open Government Licence – Canada
   reuse: attribution
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -974,6 +1037,7 @@ sources:
   cadence: quarterly (scorecard); monthly (Generation Information)
   license: AEMO terms (attribution, non-modification)
   reuse: attribution
+  publication: derived_only
   tier: 2
   effort: M
   probe: {method: GET}
@@ -992,6 +1056,7 @@ sources:
   cadence: weekly
   license: CC BY 4.0
   reuse: attribution
+  publication: raw_ok
   tier: 3
   effort: S
   probe: {method: GET}
@@ -1008,7 +1073,9 @@ sources:
   format: html/pdf
   cadence: weekly
   license: GoI open data (attribution)
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1304) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 3
   effort: M
 
@@ -1023,7 +1090,9 @@ sources:
   format: html/pdf
   cadence: per-auction
   license: gov.br open data
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1305) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 3
   effort: M
 
@@ -1038,7 +1107,9 @@ sources:
   format: html/pdf
   cadence: per-window
   license: IPP Office terms
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1306) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 3
   effort: M
 
@@ -1057,6 +1128,7 @@ sources:
   cadence: daily
   license: World Bank Open Data (CC BY 4.0)
   reuse: attribution
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: GET, url: "https://search.worldbank.org/api/v2/procnotices?format=json&rows=2"}
@@ -1074,6 +1146,7 @@ sources:
   cadence: daily
   license: CC BY 4.0
   reuse: attribution
+  publication: raw_ok
   tier: 2
   effort: S
 
@@ -1088,7 +1161,9 @@ sources:
   format: html/pdf; AfDB has data portal; ADB has business opportunities RSS
   cadence: daily
   license: per-institution (generally attribution)
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1309) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 2
   effort: L
 
@@ -1107,6 +1182,7 @@ sources:
   cadence: semi-annual/quarterly
   license: 'GEM Download Data page, retrieved 2026-09-12 — "When the data set is being shared or adapted and our Creative Commons CC BY 4.0 International license applies, please read the license for attribution requirements"; records carrying a TZ ID are "Distributed under a Creative Commons Attribution-Non-Commercial 4.0 International License (CC BY-NC 4.0)"'
   reuse: attribution
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: GET}
@@ -1129,7 +1205,9 @@ sources:
   format: xlsx
   cadence: annual
   license: CC BY 4.0
-  reuse: attribution
+  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1312) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  reuse: unknown
+  publication: none
   tier: 3
   effort: S
 
@@ -1148,6 +1226,7 @@ sources:
   cadence: 15-min
   license: GDELT open (attribution); article text is third-party copyright
   reuse: attribution
+  publication: derived_only
   tier: 2
   effort: S
   probe: {method: GET, url: "https://api.gdeltproject.org/api/v2/doc/doc?query=%22battery%20storage%22%20%22interconnection%22&mode=artlist&maxrecords=3&format=json&timespan=3d"}
@@ -1165,6 +1244,7 @@ sources:
   cadence: continuous
   license: 'news.google.com/robots.txt, retrieved 2026-09-12 — "User-agent: *" / "Disallow: /" with Allow only for /, /home, /nwshp, /topics/, /publications/, /stories/, /swg/, /about; the /rss/ path is NOT allowed'
   reuse: restricted
+  publication: none
   tier: 3
   effort: S
   probe: {method: GET}
@@ -1187,6 +1267,7 @@ sources:
   cadence: continuous
   license: 'PR Newswire Terms of Use, retrieved 2026-09-12 — may not "reproduce, distribute, frame, mirror, scrape, republish or retransmit information or content ... without the express prior written permission of PR Newswire"; no "robot, spider, site search/retrieval application, or other manual or automatic device or process to access, search, download, retrieve, index or data mine"; PR Newswire Materials may not be used "in full, in part, in full text or in abstract" beyond personal non-commercial use. Business Wire terms NOT retrieved (Akamai HTTP 403 on 2026-09-12)'
   reuse: restricted
+  publication: none
   tier: 2
   effort: S
   probe: {method: GET, url: "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeEFpRVQ=="}
@@ -1209,6 +1290,7 @@ sources:
   cadence: continuous
   license: publisher copyright — headline/link/snippet only
   reuse: restricted
+  publication: none
   tier: 2
   effort: S
 
@@ -1231,6 +1313,7 @@ sources:
   cadence: annual (final in Q3/Q4 of the following year; early release earlier)
   license: 'US federal work — public domain; EIA reuse statement quoted in docs/13-legal-data-rights.md section 2.11'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
   probe: {method: GET}
@@ -1257,6 +1340,7 @@ sources:
   cadence: annual
   license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11. Dataset-level licenseInfo on the Atlas item not retrieved by script (JS app); read it in a browser before the layer ships, same task as us.eia.atlas.gas_pipelines'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -1278,6 +1362,7 @@ sources:
   cadence: annual
   license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11. Dataset-level licenseInfo not retrieved by script; read in a browser before the layer ships'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -1298,6 +1383,7 @@ sources:
   cadence: annual
   license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11. Dataset-level licenseInfo not retrieved by script; read in a browser before the layer ships'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -1320,6 +1406,7 @@ sources:
   cadence: annual
   license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11. Dataset-level licenseInfo not retrieved by script; read in a browser before the layer ships'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -1341,6 +1428,7 @@ sources:
   cadence: annual (as of January 1, published mid-year)
   license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -1362,6 +1450,7 @@ sources:
   cadence: periodic (roughly annual composite refresh)
   license: 'US federal work — public domain under 17 U.S.C. §105 for EPA-authored data; EPA''s copyright-status page hedges ("Commercial use of the documents available from the EPA websites may be protected"), quoted and assessed in docs/13-legal-data-rights.md section 2.12; counsel item 7.x before publication'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -1384,6 +1473,7 @@ sources:
   cadence: periodic
   license: 'US federal work — public domain under 17 U.S.C. §105 for EPA-authored data; same EPA hedge as us.epa.lmop, docs/13 section 2.12'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: S
   probe: {method: GET}
@@ -1404,6 +1494,7 @@ sources:
   cadence: monthly (RIN data), continuous (registrations)
   license: 'US federal work — public domain under 17 U.S.C. §105; same EPA hedge, docs/13 section 2.12'
   reuse: open
+  publication: raw_ok
   tier: 3
   effort: M
   probe: {method: GET}
@@ -1425,6 +1516,7 @@ sources:
   cadence: periodic (ANL updates on its own schedule)
   license: 'NOT RETRIEVED — the page answered a Cloudflare challenge (403 "Just a moment...") to the script probe on 2026-09-18. Argonne is contractor-operated (UChicago Argonne, LLC), so 17 U.S.C. §105 does not apply automatically; ANL data terms must be read in a browser before any row is stored'
   reuse: unknown
+  publication: none
   tier: 2
   effort: M
   probe: {method: GET}
@@ -1446,6 +1538,7 @@ sources:
   cadence: annual (reports due March 15 for the prior year)
   license: 'US federal work — public domain under 17 U.S.C. §105 (DOT-authored compilations of operator filings); page NOT RETRIEVED by script (403 challenge, 2026-09-18) so the data-page notice is unread'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
   probe: {method: GET}
@@ -1467,6 +1560,7 @@ sources:
   cadence: 3× daily deltas; full file daily
   license: 'CC0 1.0 Universal — GLEIF LEI Data Terms of Use (https://www.gleif.org/en/meta/lei-data-terms-of-use, retrieved 2026-09-18): "The data available through the Access Service are provided under the CC0 licence, see CC0 1.0 Universal"; quoted in docs/13 section 2.13'
   reuse: open
+  publication: raw_ok
   tier: 2
   effort: M
   probe: {method: GET}
@@ -1489,6 +1583,7 @@ sources:
   cadence: annual
   license: 'US federal work — public domain (17 U.S.C. §105); same basis as the vendored Census Gazetteer used by services/ingest/geocode.py'
   reuse: open
+  publication: raw_ok
   tier: 1
   effort: S
   probe: {method: GET}

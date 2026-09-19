@@ -63,7 +63,8 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
-from services.api.audit import record_audit_event
+from services.alerts.suppression import suppress
+from services.api.audit import hash_identifier, record_audit_event
 from services.api.auth import AuthContext, require_admin, revoke_session
 from services.api.common import WEB_HOST, iso, utcnow
 from services.api.deps import get_db
@@ -99,6 +100,7 @@ from services.db.models import (
     Organization,
     Proposal,
     ProposalSource,
+    SavedSearch,
     Source,
     Subscription,
     Task,
@@ -800,6 +802,14 @@ def admin_delete_user(
     user.status = "disabled"
     _revoke_user_sessions(db, user)
     _revoke_user_api_keys(db, user, now=utcnow())
+    # The request itself is the signal to stop writing to the address (docs/13 §4 CASL: an
+    # unsubscribe is actioned within 10 business days; here, immediately): the user's saved
+    # searches are paused so no digest is built during the 30-day window, and the address goes
+    # on the suppression store now rather than at completion. Neither the email nor the name is
+    # written to the audit event — the log is append-only (`services/api/audit.py`).
+    for search in db.scalars(select(SavedSearch).where(SavedSearch.user_id == user.id)).all():
+        search.status = "paused"
+    suppress(db, user.email, "erasure")
 
     if ctx.user is None:  # unreachable: require_admin() already refused an unauthenticated caller
         raise ProblemError("unauthenticated", "An operator session is required")
@@ -900,9 +910,66 @@ def admin_get_task(
     )
 
 
+#: The reserved-TLD tombstone an erased user's `email` becomes (RFC 2606 `.invalid`): a
+#: non-deliverable, non-personal value built from the *peppered* hash, so an operator can still
+#: answer "was this address one of ours?" by hashing a candidate, without the log or the row
+#: holding the address (docs/50-audit-2026-09-18.md §3.1).
+_ERASED_EMAIL_DOMAIN = "erased.invalid"
+
+
+def _tombstone_email(email: str | None) -> str | None:
+    digest = hash_identifier(email)
+    return f"erased-{digest[:16]}@{_ERASED_EMAIL_DOMAIN}" if digest else None
+
+
+def _cancel_billing_for_erased_user(db: Session, user: User, billing: BillingPort) -> dict[str, Any]:
+    """Cancels the erased user's subscriptions through the billing port — but only for a
+    `personal` account, whose one member is the person being erased. An `organization`
+    account's subscription belongs to the organisation and outlives any one member (docs/21
+    §3.13/§3.14). `services.sor.ports.BillingPort` has no cancel operation yet (ADR 0006's
+    port surface: checkout, portal, create, get, invoices, webhook), so the call is made
+    through `cancel_subscription(ref=...)` when the adapter provides it and recorded as pending
+    otherwise — never silently skipped. The local `subscription` mirror is *not* edited here:
+    it is written only from the provider's webhook (`services/billing/entitlement.py`)."""
+    account = db.get(Account, user.account_id)
+    if account is None or account.kind != "personal":
+        return {"billing": "not_applicable"}
+    active = [
+        s
+        for s in db.scalars(select(Subscription).where(Subscription.account_id == account.id)).all()
+        if s.status in ("trialing", "active", "past_due", "paused")
+    ]
+    if not active:
+        return {"billing": "no_active_subscription"}
+    cancel = getattr(billing, "cancel_subscription", None)
+    if cancel is None:
+        return {
+            "billing": "cancellation_pending",
+            "subscription_refs": [s.sor_ref for s in active],
+            "detail": "billing port has no cancel_subscription operation",
+        }
+    cancelled = [str(cancel(ref=s.sor_ref)) for s in active]
+    return {"billing": "cancelled", "subscription_refs": cancelled}
+
+
 def _complete_deletion_task(
-    db: Session, task: Task, request: Request, ctx: AuthContext, *, reason: str, crm: CrmPort
+    db: Session,
+    task: Task,
+    request: Request,
+    ctx: AuthContext,
+    *,
+    reason: str,
+    crm: CrmPort,
+    billing: BillingPort,
 ) -> None:
+    """The erasure itself (US-910; docs/50-audit-2026-09-18.md §3.1). Order matters: the CRM
+    deletion goes first because it needs the real address and can fail (the task then stays open
+    with nothing changed); then the row is anonymised — email to a tombstone, name and password
+    null, sessions and keys revoked, saved searches paused so no digest is ever built for it,
+    the address written to the suppression store, the personal account's subscriptions cancelled
+    through the billing port — and only then is the audit event written, carrying *hashes* of
+    the identifiers (`hash_identifier`), never the values, because the log is append-only. The
+    task's `contact` (the one place a deletion request may hold a contact) is nulled with it."""
     if task.subject_type != "user" or task.subject_id is None:
         raise ProblemError("conflict", "Deletion task has no user subject", instance=request.url.path)
     user = db.get(User, task.subject_id)
@@ -920,15 +987,26 @@ def _complete_deletion_task(
             instance=request.url.path,
         ) from exc
 
-    before = {"email": user.email, "name": user.name, "status": user.status}
+    before = {
+        "email_hash": hash_identifier(original_email),
+        "name_hash": hash_identifier(user.name),
+        "status": user.status,
+    }
     now = utcnow()
-    user.email = None
+    billing_outcome = _cancel_billing_for_erased_user(db, user, billing)
+    suppress(db, original_email, "erasure")
+    user.email = _tombstone_email(original_email)
     user.name = None
     user.password_hash = None
     user.status = "anonymised"
     user.anonymised_at = now
+    user.marketing_consent = False
     _revoke_user_sessions(db, user)
     _revoke_user_api_keys(db, user, now=now)
+    for search in db.scalars(select(SavedSearch).where(SavedSearch.user_id == user.id)).all():
+        search.status = "paused"
+        search.channels = [c for c in search.channels if c != "email"]
+    task.contact = None
 
     if ctx.user is None:  # unreachable: require_admin() already refused an unauthenticated caller
         raise ProblemError("unauthenticated", "An operator session is required")
@@ -940,7 +1018,14 @@ def _complete_deletion_task(
         actor=ctx.user,
         reason=reason,
         before=before,
-        after={"email": None, "name": None, "status": "anonymised"},
+        after={
+            "email": "tombstone",
+            "name": None,
+            "status": "anonymised",
+            "suppressed": True,
+            "saved_searches": "paused",
+            **billing_outcome,
+        },
     )
     task.status = "done"
     task.completed_at = now
@@ -956,6 +1041,7 @@ def admin_update_task(
     db: Annotated[Session, Depends(get_db)],
     ctx: Annotated[AuthContext, Depends(require_admin())],
     crm: Annotated[CrmPort, Depends(get_crm_port)],
+    billing: Annotated[BillingPort, Depends(get_billing_port)],
 ) -> Any:
     reason = _require_reason(body, request)
     task = _find_task(db, task_id)
@@ -983,7 +1069,7 @@ def admin_update_task(
             raise ProblemError(
                 "conflict", "This deletion request is already completed", instance=request.url.path
             )
-        _complete_deletion_task(db, task, request, ctx, reason=reason, crm=crm)
+        _complete_deletion_task(db, task, request, ctx, reason=reason, crm=crm, billing=billing)
         if has_assignee_key:
             task.assignee_user_id = new_assignee_id
         if notes is not None:

@@ -108,6 +108,19 @@ def queue_for_source(source: dict[str, Any]) -> str:
 _NON_ALNUM = re.compile(r"[^a-zA-Z0-9]+")
 
 
+def safe_id(source_id: str) -> str:
+    """A registry id rendered lock-safe (`us.iso.ercot.gen_queue` -> `us-iso-ercot-gen-queue`)."""
+    return _NON_ALNUM.sub("-", source_id.strip())
+
+
+def execution_lock_for(source_id: str) -> str:
+    """Procrastinate `lock` shared by every job that touches one source's files and rows (the
+    `fetch` and the `load_source` job): jobs holding the same lock never *run* concurrently,
+    where `queueing_lock_for` only stops a second one from being *queued*. Together they close
+    the overlap the audit named (a load reading a parquet the next fetch is rewriting)."""
+    return f"source:{safe_id(source_id)}"
+
+
 def queueing_lock_for(source_id: str) -> str:
     """A stable per-source lock so a still-running or still-queued fetch is never queued a second
     time by the next tick (docs/20 §4.2: every job is idempotent on its `(type, key)`;
@@ -115,5 +128,4 @@ def queueing_lock_for(source_id: str) -> str:
     `AlreadyEnqueued`, caught in `infra/scheduler/app.py`, instead of silently double-running a
     fetch — rather than an application convention that can be forgotten).
     """
-    safe_id = _NON_ALNUM.sub("-", source_id.strip())
-    return f"fetch:{safe_id}"
+    return f"fetch:{safe_id(source_id)}"

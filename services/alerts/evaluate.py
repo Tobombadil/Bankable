@@ -14,6 +14,19 @@ exists yet (services/README.md "Open decisions" 1, unchanged this sprint).
 
 Every alert body carries attribution and the source link (task brief; docs/04 DA-2/D-34): each
 matched item's line names its source and a deep link into the platform.
+
+**Visibility** (docs/50-audit-2026-09-18.md §3.1): the candidate events are selected through
+`services.alerts.visibility.event_with_visible_subject_filter` — the event's own predicate *and*
+the record-level predicate on the proposal/opportunity it describes, for the account's
+entitlement. Before this, `_new_events_for_search` gated the event alone and then fetched the
+subject with `db.get`, so a hidden or restricted record whose event happened to be publishable
+reached the digest with its name, URL and transition. The webhook and private-feed paths apply the
+same composed filter (`services/alerts/webhooks.py`, `services/alerts/feed.py`).
+
+**Sending** (`services/alerts/mail.py`): every email goes through `deliver` with
+`List-Unsubscribe`/`List-Unsubscribe-Post` headers, a legal-sender postal line and the
+delayed-data notice in the body; the recipient is checked against the suppression store first;
+and the rendered body is refused if it carries a bare `None` token (`services/social/textgate.py`).
 """
 
 from __future__ import annotations
@@ -21,16 +34,31 @@ from __future__ import annotations
 import datetime as dt
 import uuid as _uuid
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from services.alerts.mail import (
+    FROM_ADDRESS,
+    OutboundEmail,
+    SenderIdentity,
+    delayed_data_notice,
+    deliver,
+    product_name,
+    sender_identity,
+    strict_for,
+    unsubscribe_headers,
+)
 from services.alerts.matching import event_matches_query, matches_query
-from services.api.auth import EmailPort
-from services.api.common import DOMAIN, WEB_HOST
-from services.api.visibility import event_visibility_filter
+from services.alerts.suppression import is_suppressed
+from services.alerts.visibility import event_with_visible_subject_filter
+from services.api.common import WEB_HOST
 from services.db.models import Account, Alert, Event, Opportunity, Proposal, SavedSearch, User
 from services.ids import public_id
+from services.social.textgate import reject_bare_none
+
+DIGEST_TEMPLATE_ID = "digest.email.v2"
 
 
 @dataclass
@@ -60,7 +88,7 @@ def _subject_and_attribution(db: Session, event: Event) -> tuple[Proposal | Oppo
 def _new_events_for_search(db: Session, search: SavedSearch, account: Account) -> list[Event]:
     subject_type = {"proposal": "proposal", "opportunity": "opportunity"}.get(search.entity)
     stmt = select(Event).where(
-        Event.seq > search.watermark_seq, *event_visibility_filter(account.entitlement)
+        Event.seq > search.watermark_seq, *event_with_visible_subject_filter(account.entitlement)
     )
     if subject_type is not None:
         stmt = stmt.where(Event.subject_type == subject_type)
@@ -124,25 +152,40 @@ def evaluate_saved_search(db: Session, search: SavedSearch, account: Account) ->
     return matched
 
 
-def render_digest_body(search: SavedSearch, items: list[MatchedItem], *, unsubscribe_token: str) -> str:
+def render_digest_body(
+    search: SavedSearch,
+    items: list[MatchedItem],
+    *,
+    unsubscribe_token: str,
+    identity: SenderIdentity | None = None,
+    entitlement: str = "pro",
+) -> str:
     """`unsubscribe_token` is `Alert.unsubscribe_token` for the digest this body belongs to (the
     caller creates that row first so the token exists here — module docstring, US-908/US-502 AC3).
-    The last two lines are the CAN-SPAM/PECR/CASL minimum every outbound marketing message needs
-    (docs/13-legal-outreach-and-social.md §1/§8): the sender identity (the same `alerts@infraque.com`
-    address `ResendEmailAdapter.send` sends *from*, `services/api/auth.py`) and a one-click
-    unsubscribe link built from that alert's own token, never a shared or guessable one."""
+    The footer is docs/32 §2.2's "Email footer (every send)" plus the delayed-data notice: the
+    sender identity (`alerts@` plus the legal name and postal address from `identity`), why the
+    reader is receiving it, the one-click unsubscribe link built from that alert's own token
+    (never a shared or guessable one), and the manage link. `identity` defaults to the
+    non-strict placeholder so a direct caller can preview a body; `run_alert_cycle` passes the
+    strict one. The finished text is refused if any field rendered as a bare `None`."""
+    identity = identity or sender_identity(strict=False)
     lines = [f'Saved search "{search.name}": {len(items)} new match(es).', ""]
     for item in items:
         credit = item.attribution_text or item.source_name or "the platform"
         lines.append(f"- {item.name} — {item.url} (source: {credit})")
     lines.append("")
+    lines.append(
+        f"You are receiving this because you subscribed at {WEB_HOST}. Data derived from public "
+        "sources cited above; see each item's source and licence."
+    )
+    lines.append(delayed_data_notice(entitlement))
+    lines.append(f"Unsubscribe (one click): {WEB_HOST}/unsubscribe?token={unsubscribe_token}")
     lines.append(f"Manage this saved search: {WEB_HOST}/account/saved-searches")
-    lines.append(f"Sent by Infraque <alerts@{DOMAIN}>")
-    lines.append(f"Unsubscribe from this alert: {WEB_HOST}/unsubscribe?token={unsubscribe_token}")
-    return "\n".join(lines)
+    lines.append(f"Sent by {product_name()} <{FROM_ADDRESS}> on behalf of {identity.postal_line}")
+    return reject_bare_none("\n".join(lines), template_id=DIGEST_TEMPLATE_ID)
 
 
-def run_alert_cycle(db: Session, *, email_port: EmailPort, now: dt.datetime | None = None) -> list[Alert]:
+def run_alert_cycle(db: Session, *, email_port: Any, now: dt.datetime | None = None) -> list[Alert]:
     """One pass over every active saved search: evaluate, and for each channel other than `rss`
     (served live from the current query, never stored as an `alert` row — docs/23 §9.2) write one
     digest `Alert` row grouping every match found this pass, per US-502's "digest mode" and the
@@ -152,6 +195,10 @@ def run_alert_cycle(db: Session, *, email_port: EmailPort, now: dt.datetime | No
     "a webhook is a saved search with a URL as its channel" framing describing that other
     mechanism, not this field (services/README.md "Pro tier and alerts" decision)."""
     now = now or dt.datetime.now(dt.UTC)
+    # Resolved once per cycle, before any search is evaluated: when the legal sender line is
+    # missing where a real send could happen this raises (`services/alerts/mail.py`), and no
+    # watermark moves — the next cycle picks the same events up once the environment is fixed.
+    identity = sender_identity(strict=strict_for(email_port))
     created: list[Alert] = []
     searches = list(db.scalars(select(SavedSearch).where(SavedSearch.status == "active")).all())
     for search in searches:
@@ -192,9 +239,26 @@ def run_alert_cycle(db: Session, *, email_port: EmailPort, now: dt.datetime | No
             db.add(alert)
             db.flush()
             alert.public_id = public_id("alr", alert.id)
-            if channel == "email" and user.email:
-                body = render_digest_body(search, items, unsubscribe_token=alert.unsubscribe_token)
-                sent = email_port.send(to=user.email, subject=alert.subject or "", body=body)
+            if channel == "email" and user.email and is_suppressed(db, user.email):
+                # The suppression store wins over the saved search's own channel list: an erased
+                # or unsubscribed address is never written to again, whatever the row says.
+                alert.status = "suppressed"
+                alert.error = "recipient is on the suppression list"
+            elif channel == "email" and user.email:
+                body = render_digest_body(
+                    search,
+                    items,
+                    unsubscribe_token=alert.unsubscribe_token,
+                    identity=identity,
+                    entitlement=account.entitlement,
+                )
+                message = OutboundEmail(
+                    to=user.email,
+                    subject=alert.subject or "",
+                    body=body,
+                    headers=unsubscribe_headers(alert.unsubscribe_token),
+                )
+                sent = deliver(email_port, message)
                 alert.provider_message_id = sent.provider_message_id
                 alert.status = "sent"
                 alert.sent_at = now
@@ -206,4 +270,10 @@ def run_alert_cycle(db: Session, *, email_port: EmailPort, now: dt.datetime | No
     return created
 
 
-__all__ = ["MatchedItem", "evaluate_saved_search", "render_digest_body", "run_alert_cycle"]
+__all__ = [
+    "DIGEST_TEMPLATE_ID",
+    "MatchedItem",
+    "evaluate_saved_search",
+    "render_digest_body",
+    "run_alert_cycle",
+]

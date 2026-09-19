@@ -48,8 +48,17 @@ Decisions taken in normalisation, each of which changed a measured number:
   recover 67 values from the summer/winter columns (the rest are null there too). Coverage moves from a misleading 98.1% to an honest 86.9%.
 - **`record_id` must be unique.** ISO-NE reuses queue ids (92 ids over 242 rows, 27 of them across different
   states) and NYISO has 1,350 rows with no queue position at all. No-id rows get a content hash
-  (`docs/20` §3.1); repeat ids get `#2, #3…`. 1,505 ids were disambiguated this way, 1,348 of which are NYISO
+  (`docs/20` §3.1); repeat ids get a suffix. 1,505 ids were disambiguated this way, 1,348 of which are NYISO
   withdrawn rows carrying only State + Status, which are indistinguishable from each other by design.
+  **Changed 2026-09-18** (audit §3.1): the suffix was `#2, #3…` in file order, so a row reorder in the source
+  swapped identities and fabricated a withdrawal plus a re-creation per repeated id. It is now
+  `#h<10 hex>`, a hash of the row's stable fields (name, capacity, county/state, technology, sponsor —
+  `pipeline/connectors/dedupe.py::content_disambiguator`), on every member of a repeated group; status and dates
+  are excluded so a status change never becomes a new identity. Rows with identical stable fields fall back to
+  the raw-row hash, byte-identical rows to their order among themselves (interchangeable, so harmless). Stored
+  rows keyed the old way are not migrated: the runner re-keys a previous snapshot by the same hash before the diff
+  (`align_previous_keys`), and the loader matches an incoming row against stored siblings of its natural key by
+  stable fields (`services/ingest/loader.py::_match_link`), so the first run after the change updates in place.
 - **Technology vocabulary** of 26 values via ordered regexes. The test suite caught that ERCOT's
   "Combustion (gas) Turbine, but not part of a Combined-Cycle" (52 rows) matched the combined-cycle rule
   first; fixed with explicit exclusion rules. `unknown` = 1,840 rows, of which NYISO 1,562 (the no-id rows)
@@ -246,6 +255,14 @@ Deterministic, model-free (`docs/20` §3.3), keyed on `record_id`, one event row
 `capacity_change` (> 0.5 MW **and** > 1 %, or null↔value), `cod_change`. A record can emit several events.
 Removal is an event, never a delete: for ERCOT (no withdrawn rows in the file) and EIA-860M Planned (units leave
 the sheet on COD) it is the *only* way those transitions are observable.
+
+Event identity in the store (`services/ingest/loader.py`, changed 2026-09-18, audit §3.1):
+`event.idempotency_key = source:record_id:event_type:field:sha1(before)[:12]:sha1(after)[:12]:observed_at`.
+The key used to be `source:record_id:event_type:sha1(after)`, so a status that returned to an earlier value
+(A→B→A) and a second removal after a re-sighting were dropped as duplicates; and `removed` events were skipped
+altogether because their record is no longer in the frame. Re-loading one snapshot is still a no-op (same
+observation time, same before/after); the subject of a `removed` event is found through the stored link for its
+`record_id`, and a record seen again clears that link's `gone_at`. Tests: `services/ingest/test_loader_events.py`.
 
 Demonstration: `diff.py --demo` perturbs today's normalised snapshot with disjoint, seeded edits
 (seed 0) and diffs it against the original.

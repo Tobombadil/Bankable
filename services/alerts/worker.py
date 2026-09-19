@@ -34,25 +34,27 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from services.alerts.evaluate import run_alert_cycle
+from services.alerts.mail import AlertMailer, ResendAlertMailer, refused_send_count
 from services.alerts.webhooks import Transport, deliver_pending
-from services.api.auth import EmailPort, ResendEmailAdapter
 from services.db.models import SavedSearch, WebhookEndpoint
 from services.db.session import get_engine, get_sessionmaker, init_db
 
 logger = logging.getLogger(__name__)
 
-#: Decision 1 (services/alerts/README.md): one `ResendEmailAdapter()` per process, built lazily on
-#: first use rather than at import time, so importing this module never touches `os.environ`
-#: before a caller has had a chance to set `RESEND_API_KEY` (relevant for the CLI and for tests
-#: that import this module before configuring the environment). It is dry-run whenever
-#: `RESEND_API_KEY` is unset (`services/api/auth.py`), which is always true in this sandbox.
-_default_email_port: EmailPort | None = None
+#: Decision 1 (services/alerts/README.md): one mailer per process, built lazily on first use
+#: rather than at import time, so importing this module never touches `os.environ` before a
+#: caller has had a chance to set `RESEND_API_KEY` (relevant for the CLI and for tests that import
+#: this module before configuring the environment). `ResendAlertMailer` (`services/alerts/mail.py`)
+#: replaces `services.api.auth.ResendEmailAdapter` here because it carries the `List-Unsubscribe`
+#: headers every digest must have; it is dry-run whenever `RESEND_API_KEY` is unset, which is
+#: always true in this sandbox.
+_default_email_port: AlertMailer | None = None
 
 
-def _process_default_email_port() -> EmailPort:
+def _process_default_email_port() -> AlertMailer:
     global _default_email_port
     if _default_email_port is None:
-        _default_email_port = ResendEmailAdapter()
+        _default_email_port = ResendAlertMailer()
     return _default_email_port
 
 
@@ -123,12 +125,15 @@ class AlertTickReport:
     deliveries_delivered: int
     deliveries_failed: int
     errors: tuple[str, ...]
+    #: Sends this process has refused for a missing legal sender line (`SENDER_LEGAL_NAME` /
+    #: `SENDER_POSTAL_ADDRESS`, `services/alerts/mail.py`), cumulative since process start.
+    emails_refused: int = 0
 
 
 def _run_alert_half(
     session_factory: sessionmaker[Session],
     *,
-    email_port: EmailPort,
+    email_port: Any,
     now: dt.datetime,
     errors: list[str],
 ) -> tuple[int, int, int]:
@@ -190,12 +195,12 @@ def _run_delivery_half(
 def run_alert_tick(
     session_factory: sessionmaker[Session],
     *,
-    email_port: EmailPort | None = None,
+    email_port: Any | None = None,
     transport: Transport | None = None,
     now: dt.datetime | None = None,
 ) -> AlertTickReport:
     """One tick: the alert half, then the webhook-delivery half, each in its own transaction
-    (module docstring). `email_port` defaults to a process-wide `ResendEmailAdapter()` (dry-run
+    (module docstring). `email_port` defaults to a process-wide `ResendAlertMailer()` (dry-run
     without `RESEND_API_KEY`); `transport` defaults to a fresh `HttpxTransport()`, closed at the
     end of this call when this function is the one that built it (an injected transport is the
     caller's to close)."""
@@ -238,6 +243,7 @@ def run_alert_tick(
         deliveries_delivered=deliveries_delivered,
         deliveries_failed=deliveries_failed,
         errors=tuple(errors),
+        emails_refused=refused_send_count(),
     )
 
 
@@ -252,6 +258,7 @@ def _format_report(report: AlertTickReport) -> str:
         f"deliveries_attempted={report.deliveries_attempted} "
         f"deliveries_delivered={report.deliveries_delivered} "
         f"deliveries_failed={report.deliveries_failed} "
+        f"emails_refused={report.emails_refused} "
         f"errors={len(report.errors)}"
     )
 
@@ -260,7 +267,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """`python -m services.alerts.worker`: run one tick against `DATABASE_URL` and write a
     one-line summary to stdout (not `logging`, so the summary is visible even at a quiet log
     level — the scheduler's own job log is expected to capture stdout, task brief). `--dry-run`
-    forces a dry-run `ResendEmailAdapter` (even if `RESEND_API_KEY` happens to be set) and a
+    forces a dry-run `ResendAlertMailer` (even if `RESEND_API_KEY` happens to be set) and a
     `DryRunTransport` that never makes an outbound webhook call. Exit code is non-zero when the
     tick recorded any error, so a scheduler wrapper can treat that as a failed job."""
     parser = argparse.ArgumentParser(
@@ -285,10 +292,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     init_db(engine)
     session_factory = get_sessionmaker(engine)
 
-    email_port: EmailPort | None = None
+    email_port: AlertMailer | None = None
     transport: Transport | None = None
     if args.dry_run:
-        email_port = ResendEmailAdapter(api_key="")
+        email_port = ResendAlertMailer(api_key="")
         transport = DryRunTransport()
 
     report = run_alert_tick(session_factory, email_port=email_port, transport=transport)

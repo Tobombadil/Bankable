@@ -1154,6 +1154,26 @@ field whose `field_provenance` points only at PJM removed from the response, and
 **visible** sources. This is exactly why provenance is per field (§3.1) rather than per record. An entity whose
 *only* evidence is restricted is invisible, full stop.
 
+**Manifest field (2026-09-18).** The row a source falls under is declared, not inferred: `data/sources.yaml`
+carries `publication: raw_ok | derived_only | none` on every source alongside `reuse`. `raw_ok` is the plain
+`open`/`attribution` row; `derived_only` is the "`attribution`, raw withheld" row and is what sets
+`licence.allows_raw_publication = false` at load (CAISO, NYISO, AEMO, GDELT today); `none` is the only value a
+`restricted`/`unknown` source may carry. `scripts/check_manifest_licences.py` fails when either field is more
+permissive than the register's class or rule for that source (`docs/13` §6), and
+`tests/test_manifest_licences.py` runs it in CI. The loader's older free-text match on "derived-only" in
+`notes` remains only as a warned fallback for a manifest without the field.
+
+**Restricted-precision rule at the API boundary (2026-09-18).** The `precise_geo` field class above is
+enforced where a row is *served*, not only where it is loaded: a `location` stored `exact` whose licence has
+`allows_raw_publication = false` (a licence reclassified after load, or a row loaded before the derived-only
+override existed) is returned at its region grade — county centroid, else state centroid, else unplaced —
+with `precision_reason = licence`, on every non-admin surface (record detail and lists, the proposals map,
+`placement=` filtering, `nearby-proposals`, exports), and the stored coordinate is never read
+(`services/api/geo.py::effective_placement`; SQL twin `services/api/visibility.py::location_exact_permitted`).
+Assets go through the same `visible_asset_predicate` (licence class publishable, source on the surface) on
+every read path, and an event is visible only when its subject record is (`event_visibility_filter` joins the
+subject's own predicate), which is what makes item 2 of the checklist above hold for the global feed and RSS.
+
 For `attribution` sources the credit line is not optional and not a UI concern: the API returns it
 (`docs/23` §10), the page renders it, the CSV carries it as columns plus a header line (US-105 AC2, US-603 AC2),
 the RSS item carries it (US-503 AC3) and the social post carries it (US-801 AC2). A response that omits the

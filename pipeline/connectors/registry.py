@@ -80,6 +80,10 @@ class SourceEntry:
     probe: dict[str, Any] = field(default_factory=dict)
     egress: str = ""
     max_rps: float = 1.0
+    #: data/sources.yaml `publication` (raw_ok | derived_only | none; docs/21 §8, validated by
+    #: scripts/check_manifest_licences.py). None when an entry predates the field: the loader
+    #: then warns and falls back to its notes regex.
+    publication: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -140,6 +144,7 @@ class SourceEntry:
             verified=dict(e.get("verified") or {}),
             probe=dict(e.get("probe") or {}),
             egress=str(e.get("egress") or _default_egress(str(e.get("access", "")))),
+            publication=str(e["publication"]) if e.get("publication") is not None else None,
             raw=e,
         )
         src.max_rps = _rate_limit(src, e)

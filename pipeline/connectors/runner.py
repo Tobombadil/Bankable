@@ -20,11 +20,13 @@ from typing import Any
 import pandas as pd
 
 from pipeline.connectors.base import (
+    BlockedError,
     ConnectorError,
     GateViolation,
     RawSnapshot,
     utcnow,
 )
+from pipeline.connectors.dedupe import align_previous_keys
 from pipeline.connectors.dq import DQResult, run_gates
 from pipeline.connectors.http import HttpBlocked, HttpFailed, PoliteSession
 from pipeline.connectors.registry import Registry
@@ -155,9 +157,14 @@ def run(
     # 1. fetch ------------------------------------------------------------
     try:
         snap = raw or connector.fetch()
-    except HttpBlocked as e:
+    except (HttpBlocked, BlockedError) as e:
         return finish("blocked", e)
     except (ConnectorError, HttpFailed) as e:
+        return finish("failed", e)
+    except GateViolation:
+        raise  # never caught-and-continued (docs/04 E-17)
+    except Exception as e:
+        log.exception("fetch crashed", extra={"source_id": source_id, "run_id": run_id})
         return finish("failed", e)
     ts = ts_token(snap.retrieved_at)
     record["_ts"] = ts
@@ -190,18 +197,28 @@ def run(
     result.paths["snapshot"] = path
 
     # 3. parse + normalise ------------------------------------------------
+    # Fail closed on *anything* the parser raises (docs/04 E-17): a truncated xlsx surfaces as
+    # `zipfile.BadZipFile`, a corrupt CSV as a pandas parser error, a layout change as
+    # `KeyError` — none of them may escape this function, because the run record is the only
+    # evidence the batch has that this source is broken, and the next source must still run
+    # (audit 2026-09-18 §3.1 item 3). The raw snapshot above is kept as evidence.
     try:
         rows = connector.parse(snap)
         df = connector.normalize(rows, snap)
-    except ConnectorError as e:
-        return finish("failed", e)
-    except (KeyError, ValueError, TypeError) as e:  # parser hit a layout change: fail closed
+    except GateViolation:
+        raise
+    except Exception as e:
+        log.exception("parse/normalise failed", extra={"source_id": source_id, "run_id": run_id})
         return finish("failed", e)
     record["rows_fetched"] = len(df)
     record["snapshot"]["record_count"] = len(df)
     source_columns = _source_columns(rows)
 
     prev_df, prev_run_id = st.previous_normalized(source_id)
+    if prev_df is not None:
+        # Legacy positional `#N` keys, and unique <-> duplicated transitions, are matched to the
+        # current content keys before anything is compared (pipeline/connectors/dedupe.py).
+        prev_df = align_previous_keys(prev_df, df)
     if connector.snapshot_mode == "incremental" and prev_df is not None:
         keep = prev_df[~prev_df["record_id"].isin(df["record_id"])]
         df = pd.concat([keep[df.columns.intersection(keep.columns)], df], ignore_index=True)

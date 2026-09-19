@@ -22,12 +22,24 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from services.api.admin_people import router
+from services.api.audit import hash_identifier
 from services.api.auth import create_session, hash_password
 from services.api.deps import get_db
 from services.api.errors import ProblemError, problem_exception_handler
 from services.billing.fake import InMemoryBilling
 from services.crm.fake import InMemoryCrm
-from services.db.models import Account, ApiKey, Organization, Proposal, Task, User
+from services.db.models import (
+    Account,
+    ApiKey,
+    Event,
+    Organization,
+    Proposal,
+    SavedSearch,
+    Subscription,
+    Suppression,
+    Task,
+    User,
+)
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id, slugify
 from services.sor.ports import SorUnavailable
@@ -43,6 +55,67 @@ OPENAPI_PATH = REPO_ROOT / "api" / "openapi.yaml"
 def spec() -> dict:
     with OPENAPI_PATH.open(encoding="utf-8") as fh:
         return yaml.safe_load(fh)
+
+
+@pytest.fixture(autouse=True)
+def _audit_pepper(monkeypatch):
+    """`services/api/audit.py` hashes identifiers with a server-side pepper; tests use an
+    obviously fake one rather than the dev fallback."""
+    monkeypatch.setenv("AUDIT_HASH_PEPPER", "test-pepper-not-a-secret")
+
+
+class _CancellingBilling(InMemoryBilling):
+    """`InMemoryBilling` plus the `cancel_subscription` operation the erasure path calls when the
+    adapter offers it (`services.sor.ports.BillingPort` does not declare one yet; see
+    `_cancel_billing_for_erased_user`)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cancelled: list[str] = []
+
+    def cancel_subscription(self, *, ref: str) -> str:
+        self.cancelled.append(ref)
+        return f"cancelled:{ref}"
+
+
+def _make_saved_search(db: Session, account: Account, user: User) -> SavedSearch:
+    search = SavedSearch(
+        public_id="",
+        user_id=user.id,
+        account_id=account.id,
+        name="mine",
+        entity="proposal",
+        query={},
+        query_hash="x",
+        channels=["email", "rss"],
+    )
+    db.add(search)
+    db.flush()
+    search.public_id = public_id("ss", search.id)
+    db.flush()
+    return search
+
+
+def _make_subscription(db: Session, account: Account, *, status: str = "active") -> Subscription:
+    now = dt.datetime.now(UTC)
+    sub = Subscription(
+        public_id="",
+        account_id=account.id,
+        sor_kind="stripe",
+        sor_ref=f"sub_fake_{account.public_id[-6:]}",
+        plan_code="pro_monthly",
+        plan_tier="pro",
+        status=status,
+        seats=1,
+        current_period_start=now - dt.timedelta(days=10),
+        current_period_end=now + dt.timedelta(days=20),
+        currency="USD",
+    )
+    db.add(sub)
+    db.flush()
+    sub.public_id = public_id("sub", sub.id)
+    db.flush()
+    return sub
 
 
 class _FlakyCrm(InMemoryCrm):
@@ -421,6 +494,7 @@ def test_delete_user_creates_deletion_task_and_disables(client: TestClient, db: 
     db.add(key)
     db.flush()
     key.public_id = public_id("key", key.id)
+    search = _make_saved_search(db, account, user)
     db.commit()
     _login(client, db, operator)
 
@@ -439,6 +513,17 @@ def test_delete_user_creates_deletion_task_and_disables(client: TestClient, db: 
     assert session_row.revoked_at is not None
     db.refresh(key)
     assert key.revoked_at is not None
+    # Item 2/3 (docs/50 §3.1): the request pauses the user's alerts and suppresses the address
+    # immediately, and the audit row never carries the address or the name.
+    db.refresh(search)
+    assert search.status == "paused"
+    suppression = db.scalar(select(Suppression))
+    assert suppression is not None
+    assert suppression.reason == "erasure"
+    assert suppression.email_hash == hash_identifier("ana@example.com")
+    audit = db.scalar(select(Event).where(Event.subject_type == "user"))
+    assert "ana@example.com" not in str(audit.before) + str(audit.after)
+    assert "Ana Ruiz" not in str(audit.before) + str(audit.after)
 
 
 def test_delete_user_requires_a_reason_with_min_length(client: TestClient, db: Session) -> None:
@@ -519,9 +604,11 @@ def test_complete_deletion_task_redacts_and_requests_crm_deletion(
     operator = _operator(db)
     account = _make_account(db)
     subject = _make_user(db, account, email="delete-me@example.com")
+    search = _make_saved_search(db, account, subject)
     task = _make_intake_task(db, type_="deletion_request")
     task.subject_type = "user"
     task.subject_id = subject.id
+    task.contact = {"email": "delete-me@example.com", "name": "Ana Ruiz"}
     db.commit()
     session_row, _cookie = create_session(db, subject)
     db.commit()
@@ -535,19 +622,107 @@ def test_complete_deletion_task_redacts_and_requests_crm_deletion(
     body = resp.json()
     assert_valid(spec, "TaskDetailResponse", body)
     assert body["data"]["status"] == "done"
+    assert body["data"]["contact"] is None
 
     db.refresh(subject)
-    assert subject.email is None
+    # Item 2 (docs/50 §3.1): anonymised, not merely flagged — tombstone email, null name/password.
+    assert subject.email == f"erased-{hash_identifier('delete-me@example.com')[:16]}@erased.invalid"
+    assert "delete-me" not in subject.email
     assert subject.name is None
     assert subject.password_hash is None
     assert subject.status == "anonymised"
     assert subject.anonymised_at is not None
+    assert subject.marketing_consent is False
     db.refresh(session_row)
     assert session_row.revoked_at is not None
+    db.refresh(search)
+    assert search.status == "paused" and "email" not in search.channels
+    db.refresh(task)
+    assert task.contact is None
+
+    # The append-only audit row carries hashes of the identifiers, never the values.
+    audit = db.scalar(select(Event).where(Event.event_type == "personal_data_redacted"))
+    assert audit is not None
+    assert audit.before["email_hash"] == hash_identifier("delete-me@example.com")
+    assert audit.before["name_hash"] == hash_identifier("Ana Ruiz")
+    text = str(audit.before) + str(audit.after)
+    assert "delete-me@example.com" not in text and "Ana Ruiz" not in text
+    assert audit.after["suppressed"] is True
+    assert audit.after["billing"] == "not_applicable", (
+        "an organization account's subscription is not the user's"
+    )
+
+    suppression = db.scalar(select(Suppression).where(Suppression.reason == "erasure"))
+    assert suppression is not None
+    assert suppression.email_hash == hash_identifier("delete-me@example.com")
 
     assert len(fake_crm.tasks) == 1
     recorded = next(iter(fake_crm.tasks.values()))
-    assert recorded.email == "delete-me@example.com"
+    assert recorded.email == "delete-me@example.com", "the CRM deletion needs the real address"
+
+
+def test_complete_deletion_task_cancels_a_personal_accounts_subscription_through_the_port(
+    db_sessionmaker: sessionmaker[Session], fake_crm: InMemoryCrm
+) -> None:
+    billing = _CancellingBilling()
+    app = _build_app()
+
+    def _override_db() -> Iterator[Session]:
+        s = db_sessionmaker()
+        try:
+            yield s
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
+        finally:
+            s.close()
+
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_crm_port] = lambda: fake_crm
+    app.dependency_overrides[get_billing_port] = lambda: billing
+    with TestClient(app) as client, db_sessionmaker() as db:
+        operator = _operator(db)
+        account = _make_account(db, kind="personal", entitlement="pro")
+        subject = _make_user(db, account, email="solo@example.com")
+        sub = _make_subscription(db, account)
+        _make_subscription(db, _make_account(db, name="Other"), status="active")  # someone else's
+        task = _make_intake_task(db, type_="deletion_request")
+        task.subject_type = "user"
+        task.subject_id = subject.id
+        db.commit()
+        _login(client, db, operator)
+
+        resp = client.patch(
+            f"/admin/v1/tasks/{task.public_id}", json={"status": "done", "reason": "verified"}
+        )
+        assert resp.status_code == 200
+        assert billing.cancelled == [sub.sor_ref]
+        audit = db.scalar(select(Event).where(Event.event_type == "personal_data_redacted"))
+        assert audit.after["billing"] == "cancelled"
+        assert audit.after["subscription_refs"] == [f"cancelled:{sub.sor_ref}"]
+
+
+def test_complete_deletion_task_records_pending_cancellation_when_the_port_cannot_cancel(
+    client: TestClient, db: Session
+) -> None:
+    """`InMemoryBilling` (like `BillingPort` today) has no cancel operation: the outcome is
+    recorded as pending, never silently skipped."""
+    operator = _operator(db)
+    account = _make_account(db, kind="personal", entitlement="pro")
+    subject = _make_user(db, account, email="solo2@example.com")
+    sub = _make_subscription(db, account)
+    task = _make_intake_task(db, type_="deletion_request")
+    task.subject_type = "user"
+    task.subject_id = subject.id
+    db.commit()
+    _login(client, db, operator)
+
+    resp = client.patch(f"/admin/v1/tasks/{task.public_id}", json={"status": "done", "reason": "verified"})
+    assert resp.status_code == 200
+    audit = db.scalar(select(Event).where(Event.event_type == "personal_data_redacted"))
+    assert audit.after["billing"] == "cancellation_pending"
+    assert audit.after["subscription_refs"] == [sub.sor_ref]
 
 
 def test_complete_deletion_task_sor_unavailable_leaves_user_and_task_untouched(

@@ -23,7 +23,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from services.alerts.matching import event_matches_query, matches_query
-from services.db.models import Event, Opportunity, Proposal, WebhookDelivery, WebhookEndpoint
+from services.alerts.visibility import event_with_visible_subject_filter
+from services.db.models import Account, Event, Opportunity, Proposal, WebhookDelivery, WebhookEndpoint
 from services.ids import public_id
 
 #: docs/23 §9.1: "5 attempts over ~6 hours with exponential backoff and jitter". Jitter is the
@@ -101,8 +102,27 @@ def webhook_type_for_event(event: Event) -> str:
     return _EVENT_TYPE_TO_WEBHOOK_TYPE.get(event.event_type, "event.published")
 
 
+def _endpoint_entitlement(db: Session, endpoint: WebhookEndpoint) -> str:
+    account = db.get(Account, endpoint.account_id)
+    return account.entitlement if account is not None else "public"
+
+
+def event_visible_for_endpoint(db: Session, endpoint: WebhookEndpoint, event: Event) -> bool:
+    """The visibility predicate for the endpoint's own tier — the event's *and* its subject
+    record's (`services/alerts/visibility.py`; docs/50 §3.1) — evaluated as SQL against this one
+    event, so a hidden or restricted record's transition is never enqueued or, if it was hidden
+    after enqueueing, never posted (`attempt_delivery`). This is "the payload is tier-filtered and
+    licence-gated exactly like a GET on the same key" (docs/23 §9.1) enforced here rather than
+    assumed of the caller."""
+    entitlement = _endpoint_entitlement(db, endpoint)
+    stmt = select(Event.id).where(Event.id == event.id, *event_with_visible_subject_filter(entitlement))
+    return db.scalar(stmt) is not None
+
+
 def _event_matches_endpoint(db: Session, endpoint: WebhookEndpoint, event: Event) -> bool:
     if webhook_type_for_event(event) not in endpoint.types:
+        return False
+    if not event_visible_for_endpoint(db, endpoint, event):
         return False
     if endpoint.entity == "event":
         return event_matches_query(event, endpoint.query)
@@ -120,11 +140,10 @@ def _event_matches_endpoint(db: Session, endpoint: WebhookEndpoint, event: Event
 
 def enqueue_deliveries_for_event(db: Session, event: Event) -> list[WebhookDelivery]:
     """One `WebhookDelivery` row (`status = "pending"`, `attempt = 1`) per active endpoint on the
-    event's account whose `types`/`query` match — "the payload is tier-filtered and licence-gated
-    exactly like a GET on the same key" (docs/23 §9.1) is true here because `event` rows reaching
-    this function have already passed the visibility predicate for the endpoint's own tier
-    (the caller's responsibility, mirroring how `services/api/app.py` never constructs an
-    ungated query in the first place)."""
+    event's account whose `types`/`query` match and for which the event *and its subject record*
+    pass the visibility predicate at the endpoint's tier (`event_visible_for_endpoint`) — "the
+    payload is tier-filtered and licence-gated exactly like a GET on the same key" (docs/23 §9.1),
+    enforced here rather than left to the caller (docs/50 §3.1)."""
     endpoints = list(db.scalars(select(WebhookEndpoint).where(WebhookEndpoint.status == "active")).all())
     created = []
     for endpoint in endpoints:
@@ -185,6 +204,15 @@ def attempt_delivery(
     now = now or dt.datetime.now(dt.UTC)
     endpoint = delivery.endpoint
     event = db.get(Event, delivery.event_id) if delivery.event_id else None
+    if event is not None and not event_visible_for_endpoint(db, endpoint, event):
+        # Hidden (or its licence restricted) between enqueue and delivery: the payload would
+        # name the record, so it is not posted. Terminal for this delivery, not counted against
+        # the endpoint's failure streak — the endpoint did nothing wrong.
+        delivery.status = "failed"
+        delivery.error_class = "SubjectNotVisible"
+        endpoint.last_delivery_at = now
+        db.flush()
+        return delivery
     payload = (
         _event_payload(db, event)
         if event is not None
@@ -242,8 +270,17 @@ def retry_delivery(delivery: WebhookDelivery) -> WebhookDelivery:
 def replay_from_seq(db: Session, endpoint: WebhookEndpoint, *, since_seq: int) -> list[WebhookDelivery]:
     """`POST /v1/webhooks/{id}/replay?since=<seq>` (docs/23 §9.1): re-enqueues every event with
     `seq > since_seq` this endpoint would have matched, each starting a fresh `attempt = 1`
-    delivery with a new delivery id (consumers dedupe on `data.event.id`, per the spec)."""
-    events = list(db.scalars(select(Event).where(Event.seq > since_seq).order_by(Event.seq.asc())).all())
+    delivery with a new delivery id (consumers dedupe on `data.event.id`, per the spec). The
+    candidate query is visibility-gated at the endpoint's tier (docs/50 §3.1: before this it was
+    an ungated `seq > since` scan, so a replay shipped hidden and restricted records)."""
+    entitlement = _endpoint_entitlement(db, endpoint)
+    events = list(
+        db.scalars(
+            select(Event)
+            .where(Event.seq > since_seq, *event_with_visible_subject_filter(entitlement))
+            .order_by(Event.seq.asc())
+        ).all()
+    )
     created = []
     for event in events:
         if not _event_matches_endpoint(db, endpoint, event):

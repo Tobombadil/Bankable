@@ -143,6 +143,62 @@ def unsubscribe(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "legal/unsubscribe.html", context, status_code=status_code)
 
 
+# --------------------------------------------------------------------------- privacy request
+def _privacy_request_context(
+    form: dict[str, str], *, submitted: bool, status_code: int = 0, body: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    return {
+        "form": form,
+        "submitted": submitted,
+        "ok": submitted and 200 <= status_code < 300,
+        "body": body or {},
+    }
+
+
+@router.get("/privacy/request", response_class=HTMLResponse)
+def privacy_request(request: Request) -> HTMLResponse:
+    """The form behind the privacy notice's "someone named in a filing we index" sentence
+    (`services/api/privacy_routes.py`; docs/50-audit-2026-09-18.md §3.1). Renders the empty form;
+    the API is not called until the form is submitted."""
+    return templates.TemplateResponse(
+        request, "legal/privacy_request.html", _privacy_request_context({}, submitted=False)
+    )
+
+
+@router.post("/privacy/request", response_class=HTMLResponse)
+def privacy_request_submit(
+    request: Request,
+    kind: Annotated[str, Form()] = "erasure",
+    record_public_id: Annotated[str, Form()] = "",
+    contact_email: Annotated[str, Form()] = "",
+    message: Annotated[str, Form()] = "",
+) -> Response:
+    """Same-origin-guarded like every other state-changing route here; forwards to
+    `POST /v1/privacy/requests` and re-renders the form with the API's own problem on a 4xx so
+    the person can fix the field, or the request id on success."""
+    if not _is_same_origin(request):
+        return _csrf_rejection()
+    form = {
+        "kind": kind,
+        "record_public_id": record_public_id.strip(),
+        "contact_email": contact_email.strip(),
+        "message": message.strip(),
+    }
+    api = get_api(request)
+    result = api.post(
+        "/v1/privacy/requests",
+        json={
+            "kind": form["kind"],
+            "record_public_id": form["record_public_id"],
+            "contact_email": form["contact_email"],
+            "message": form["message"] or None,
+        },
+    )
+    status_code = result.status_code if result.status_code >= 400 else 200
+    context = _privacy_request_context(form, submitted=True, status_code=result.status_code, body=result.body)
+    return templates.TemplateResponse(request, "legal/privacy_request.html", context, status_code=status_code)
+
+
 @router.post("/unsubscribe", response_class=HTMLResponse)
 def unsubscribe_submit(
     request: Request,

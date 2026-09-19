@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Privacy request -- Infraque{% endblock %}
+{% block meta_description %}Ask for a record that names you to be corrected or for your details to be removed from it.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Privacy request</h1>
+  <p>For people named in a record we index. Give the record's id (shown on its page), what you want done, and an address we can answer at. An operator handles every request by hand; nothing is sent automatically. Your address is deleted from the request once it is closed. See the <a href="/privacy">privacy notice</a>.</p>
+</div>
+{% if submitted and ok %}
+<p class="notice" role="status">Request <span class="mono">{{ body.data.public_id }}</span> recorded. Keep that id; an operator will reply to the address you gave.</p>
+{% else %}
+{% if submitted %}
+<p class="notice notice--error" role="alert">{{ body.title if body else 'The request could not be recorded.' }}{% if body and body.detail %}: {{ body.detail }}{% endif %}{% if body and body.errors %} ({% for e in body.errors %}{{ e.field }}: {{ e.message }}{% if not loop.last %}; {% endif %}{% endfor %}){% endif %}</p>
+{% endif %}
+<form class="auth-form" method="post" action="/privacy/request" novalidate>
+  <div class="field">
+    <label for="privacy-kind">What do you want done?</label>
+    <select id="privacy-kind" name="kind" required>
+      <option value="erasure" {% if form.kind != 'correction' %}selected{% endif %}>Remove my details from the record</option>
+      <option value="correction" {% if form.kind == 'correction' %}selected{% endif %}>Correct the record</option>
+    </select>
+  </div>
+  <div class="field">
+    <label for="privacy-record">Record id</label>
+    <input id="privacy-record" name="record_public_id" type="text" required value="{{ form.record_public_id or '' }}" placeholder="prop_...">
+  </div>
+  <div class="field">
+    <label for="privacy-email">Your email address</label>
+    <input id="privacy-email" name="contact_email" type="email" required value="{{ form.contact_email or '' }}">
+  </div>
+  <div class="field">
+    <label for="privacy-message">Details (optional)</label>
+    <textarea id="privacy-message" name="message" rows="5" maxlength="4000">{{ form.message or '' }}</textarea>
+  </div>
+  <div class="form-actions">
+    <button type="submit">Send request</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

@@ -18,10 +18,16 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import hashlib
+import logging
+import os
 import re
 from typing import Any, Literal
 
+from services.api.common import DOMAIN, WEB_HOST
 from services.social.models import PostDraft, ValidationResult
+from services.social.textgate import BareNoneError, contains_bare_none, reject_bare_none
+
+logger = logging.getLogger(__name__)
 
 EventType = str  # canonical docs/21 §7.3-style names, e.g. "proposal.new"
 
@@ -147,22 +153,63 @@ CHANNEL_LIMITS: dict[str, int] = {"bluesky": 300, "linkedin": 3000, "x": 280}
 #: human-reviewed exemption in EU AI Act Art. 50(4) (docs/13 §6.2), so no per-post disclosure
 #: line is required there. This is a recorded assumption (services/social/README.md), not a
 #: re-derivation of docs/13.
-DISCLOSURE_TEXT: dict[str, str] = {
-    "bluesky": (
-        "Automated feed run by Bankable (bankablehq.com). Posts are generated from public "
-        "records and are commercial in nature. Not monitored for replies — contact: hello@bankablehq.com."
-    ),
-    "x": (
-        "Automated feed run by Bankable (bankablehq.com). Posts are generated from public "
-        "records and are commercial in nature. Not monitored for replies — contact: hello@bankablehq.com."
-    ),
-    "linkedin": (
-        "Human-reviewed: generated from structured public data by Bankable's pipeline and "
-        "reviewed by a named editor before publication (docs/13-legal-outreach-and-social.md §6.5)."
-    ),
-}
+#:
+#: The operator identity in the text is read from the environment at call time — `PRODUCT_NAME`,
+#: `PRODUCT_URL`, `PRODUCT_CONTACT_EMAIL` — with defaults naming the product (Infraque, the site
+#: host `services.api.common.WEB_HOST`, `hello@` on its domain). The previous constant named the
+#: old company (docs/50-audit-2026-09-18.md §3.2), and a disclosure that names the wrong operator
+#: is a false statement about who runs the account (docs/13 §6.1 FTC; §6.3 B.O.T. Act).
+DEFAULT_PRODUCT_NAME = "Infraque"
+DEFAULT_PRODUCT_URL = WEB_HOST
+DEFAULT_PRODUCT_CONTACT_EMAIL = f"hello@{DOMAIN}"
 
-#: docs/32 §1.5: $0.20 per post containing a URL (every Bankable post does), plus an amortised
+
+def product_identity() -> tuple[str, str, str]:
+    """`(name, url, contact_email)` for the disclosure texts, environment first."""
+    name = os.environ.get("PRODUCT_NAME", "").strip() or DEFAULT_PRODUCT_NAME
+    url = os.environ.get("PRODUCT_URL", "").strip() or DEFAULT_PRODUCT_URL
+    contact = os.environ.get("PRODUCT_CONTACT_EMAIL", "").strip() or DEFAULT_PRODUCT_CONTACT_EMAIL
+    return name, url, contact
+
+
+def disclosure_texts() -> dict[str, str]:
+    """The docs/13 §6.5 texts with the current operator identity filled in. Built per call, not
+    at import, so a process that sets `PRODUCT_*` after importing this module still discloses
+    the right operator."""
+    name, url, contact = product_identity()
+    host = url.removeprefix("https://").removeprefix("http://").rstrip("/")
+    automated = (
+        f"Automated feed run by {name} ({host}). Posts are generated from public "
+        f"records and are commercial in nature. Not monitored for replies — contact: {contact}."
+    )
+    return {
+        "bluesky": automated,
+        "x": automated,
+        "linkedin": (
+            f"Human-reviewed: generated from structured public data by {name}'s pipeline and "
+            "reviewed by a named editor before publication (docs/13-legal-outreach-and-social.md §6.5)."
+        ),
+    }
+
+
+def disclosure_text_for(channel: str) -> str:
+    return disclosure_texts()[channel]
+
+
+class _DisclosureTexts(dict[str, str]):
+    """Backward-compatible `DISCLOSURE_TEXT[channel]` that resolves the environment on every
+    lookup, so existing callers and tests keep their subscript syntax."""
+
+    def __getitem__(self, channel: str) -> str:
+        return disclosure_text_for(channel)
+
+    def __contains__(self, channel: object) -> bool:
+        return channel in disclosure_texts()
+
+
+DISCLOSURE_TEXT: dict[str, str] = _DisclosureTexts()
+
+#: docs/32 §1.5: $0.20 per post containing a URL (every post does), plus an amortised
 #: metrics-read cost (7 owned reads/post at $0.001 each -- docs/32 §1.1, §4.9).
 X_COST_PER_POST_USD = 0.20 + 7 * 0.001
 BLUESKY_COST_PER_POST_USD = 0.0
@@ -811,7 +858,11 @@ def render(event: SocialEvent, channel: str) -> tuple[str, str, str]:
     renderer = _RENDERERS.get(event.event_type)
     if renderer is None:
         raise ValueError(f"no template for event_type {event.event_type!r}")
-    return renderer(event, channel), f"{event.event_type}.{channel}", _TEMPLATE_VERSION
+    template_id = f"{event.event_type}.{channel}"
+    # The "None" gate (services/social/textgate.py; docs/50 §3.2): a template that interpolated a
+    # null field is refused here, before attribution, validation or the review queue see it.
+    body = reject_bare_none(renderer(event, channel), template_id=template_id)
+    return body, template_id, _TEMPLATE_VERSION
 
 
 def attribution_line_for(event: SocialEvent) -> str:
@@ -1018,6 +1069,11 @@ def validate_draft(
     if not disclosure_text:
         failures.append("disclosure text missing")
 
+    # Belt and braces for a body edited after `render` (a reviewer's edit in the queue): the
+    # same gate `render` applies, as a validation failure rather than an exception.
+    if contains_bare_none(body):
+        failures.append("body contains a bare 'None' token")
+
     return ValidationResult(passed=not failures, failures=tuple(failures))
 
 
@@ -1045,7 +1101,7 @@ def build_draft(event: SocialEvent, channel: str, config: EditorialConfig = DEFA
     `validate_draft` with `is_duplicate` set once it knows the store's state."""
     body, template_id, template_version = render(event, channel)
     attribution = attribution_line_for(event)
-    disclosure = DISCLOSURE_TEXT[channel]
+    disclosure = disclosure_text_for(channel)
     lag_notice = delayed_tier_notice_for(event, channel)
     validation = validate_draft(
         body,
@@ -1082,5 +1138,13 @@ def draft_events(events: list[SocialEvent], config: EditorialConfig = DEFAULT_CO
     drafts = []
     for event in events:
         for channel in channels_for_event(event, config):
-            drafts.append(build_draft(event, channel, config))
+            try:
+                drafts.append(build_draft(event, channel, config))
+            except BareNoneError as exc:
+                # One event with a null field its template did not guard must not stop the
+                # batch; it is logged with the template id (never the text, which may carry a
+                # name) and produces no draft at all.
+                logger.warning(
+                    "draft_rejected_bare_none template_id=%s event_id=%s", exc.template_id, event.event_id
+                )
     return drafts

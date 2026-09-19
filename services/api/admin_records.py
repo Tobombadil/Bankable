@@ -78,7 +78,6 @@ import decimal
 import hashlib
 import hmac
 import json
-import os
 import uuid as _uuid
 from typing import Annotated, Any
 
@@ -265,10 +264,11 @@ def _decode_crockford(prefix: str, value: str) -> _uuid.UUID | None:
 
 
 def _session_secret() -> str:
-    # Same source and dev-only fallback as `services/api/auth.py::_serializer` (CLAUDE.md:
-    # secrets from environment only). Duplicated as a small literal rather than importing that
-    # module's private constant, to avoid coupling this module to auth.py's internals.
-    return os.environ.get("SESSION_SECRET", "dev-only-insecure-session-secret-do-not-deploy")
+    # One source of truth (services/api/auth.py::session_secret): dev-only fallback outside
+    # production, RuntimeError when unset or short in production (blockers sprint, 2026-09-19).
+    from services.api.auth import session_secret
+
+    return session_secret()
 
 
 def _empty_licence_summary() -> dict[str, Any]:

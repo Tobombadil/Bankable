@@ -260,15 +260,23 @@ def serialize_organization_summary(org: Organization) -> dict[str, Any]:
 
 
 def serialize_location(loc: Location) -> dict[str, Any]:
+    """Restricted-precision rule applied here, once, for every record surface that embeds a
+    location (proposal list/detail, opportunities, Pro exports, nearby-proposals): an `exact` row
+    under a licence with `allows_raw_publication = false` is served at its region grade with
+    `precision_reason = licence` and its stored coordinate is never read
+    (`services/api/geo.py::effective_placement`; 2026-09-18 audit, docs/50 §3.1)."""
+    from services.api.geo import effective_placement
+
+    placement = effective_placement(loc)
     geom = None
-    if loc.geom is not None:
-        lon, lat = loc.geom
+    if placement.geom is not None:
+        lon, lat = placement.geom
         geom = {"type": "Point", "coordinates": [lon, lat]}
     return {
         "kind": loc.kind,
         "geom": geom,
-        "precision": loc.precision,
-        "precision_reason": loc.precision_reason,
+        "precision": placement.precision,
+        "precision_reason": "licence" if placement.downgraded else loc.precision_reason,
         "county_fips": loc.county_fips,
         "county_name": loc.county_name,
         "state_code": loc.state_code,
@@ -279,6 +287,25 @@ def serialize_location(loc: Location) -> dict[str, Any]:
             loc.source, loc.licence, source_url=loc.source_url, retrieved_at=loc.retrieved_at
         ),
     }
+
+
+def location_redactions(record_public_id: str, loc: Location | None) -> list[dict[str, Any]]:
+    """The envelope's `redactions[]` entry for a licence-downgraded location (api/openapi.yaml
+    `Redaction`, reason `licence_precision`: "exact geometry replaced by a centroid"). Empty when
+    the record has no location or its location is served as stored."""
+    from services.api.geo import effective_placement
+
+    if loc is None or not effective_placement(loc).downgraded:
+        return []
+    return [
+        {
+            "public_id": record_public_id,
+            "field": "location.geom",
+            "reason": "licence_precision",
+            "source_id": loc.source_id,
+            "note": "exact coordinate withheld under the source licence; region centroid returned",
+        }
+    ]
 
 
 def serialize_proposal(proposal: Proposal, *, sources: list[ProposalSource] | None = None) -> dict[str, Any]:

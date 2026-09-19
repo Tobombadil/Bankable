@@ -4,6 +4,11 @@
 Assets carry no lag and no tier gating (ADR 0008: every source in scope this sprint is public
 domain or CC BY) -- every caller, credentialed or not, sees the same response, same as
 `GET /v1/context/plants/geo` before it (`services/api/context_routes.py`'s module docstring).
+They do carry the licence gate (2026-09-18 audit, docs/50 §3.1 "the asset endpoint had no licence
+gate"): every read path here -- list, detail, geo index (and its cache key), nearby, organisation
+assets and the plants alias -- filters through `services/api/visibility.py::
+asset_visibility_filter`, so an asset whose licence is `restricted`/`unknown` or whose source is
+not on the public surface is absent, not greyed out (docs/21 §8 checklist items 1 and 4).
 
 `GET /v1/assets/geo`'s clustering follows `services/api/context_routes.py`'s pan/zoom-performance
 design exactly (`AssetIndexRow` generalises that module's `PlantIndexRow`): a process-local cache
@@ -32,7 +37,7 @@ from sqlalchemy.orm import Session, load_only, selectinload
 from pipeline.normalize import TECH_RULES
 from services.api.deps import get_db
 from services.api.errors import not_found, validation_error
-from services.api.geo import SPLIT_THRESHOLD, _in_bbox
+from services.api.geo import SPLIT_THRESHOLD, _in_bbox, effective_placement
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import check_allowed, csv_param
 from services.api.serialize import (
@@ -47,7 +52,12 @@ from services.api.serialize import (
     serialize_asset,
     serialize_proposal,
 )
-from services.api.visibility import proposal_public_filter
+from services.api.visibility import (
+    PUBLISHABLE_REUSE_CLASSES,
+    asset_visibility_filter,
+    location_exact_permitted,
+    proposal_public_filter,
+)
 from services.db.models import (
     ASSET_TYPES,
     Asset,
@@ -116,7 +126,7 @@ class AssetIndexRow:
 
 @dataclass(frozen=True)
 class _AssetIndexCache:
-    key: tuple[int, int, str | None]
+    key: tuple[int, int, str | None, str | None, str | None]
     rows: tuple[AssetIndexRow, ...]
 
 
@@ -131,12 +141,26 @@ def _reset_asset_index_cache() -> None:
         _index_cache = None
 
 
-def _asset_index_cache_key(db: Session) -> tuple[int, int, str | None]:
+def _asset_index_cache_key(db: Session) -> tuple[int, int, str | None, str | None, str | None]:
+    """`(bind, visible placed count, max last_changed over the visible set, max source.updated_at,
+    max licence.updated_at)`: the last two are what make a licence reclassification or a source
+    `publish_state` flip invalidate the cache -- neither touches `asset.last_changed`, so a key
+    over the asset table alone would keep serving a gated asset until an unrelated asset moved."""
     bind_id = id(db.get_bind())
     count, max_last_changed = db.execute(
-        select(sa.func.count(), sa.func.max(Asset.last_changed)).where(Asset.geom.is_not(None))
+        select(sa.func.count(), sa.func.max(Asset.last_changed)).where(
+            Asset.geom.is_not(None), *asset_visibility_filter()
+        )
     ).one()
-    return (bind_id, count, max_last_changed.isoformat() if max_last_changed is not None else None)
+    max_source_updated = db.scalar(select(sa.func.max(Source.updated_at)))
+    max_licence_updated = db.scalar(select(sa.func.max(Licence.updated_at)))
+    return (
+        bind_id,
+        count,
+        max_last_changed.isoformat() if max_last_changed is not None else None,
+        max_source_updated.isoformat() if max_source_updated is not None else None,
+        max_licence_updated.isoformat() if max_licence_updated is not None else None,
+    )
 
 
 def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
@@ -148,7 +172,7 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
         lat_col = sa.func.ST_Y(Asset.geom)
         stmt = select(
             id_col, lon_col, lat_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country
-        ).where(Asset.geom.is_not(None))
+        ).where(Asset.geom.is_not(None), *asset_visibility_filter())
         for asset_id, lon, lat, asset_type, technology, capacity_mw, country in db.execute(stmt).all():
             rows.append(
                 AssetIndexRow(
@@ -167,7 +191,7 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
     geom_col = sa.cast(Asset.geom, sa.Text)
     stmt = select(
         id_col, geom_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country
-    ).where(Asset.geom.is_not(None))
+    ).where(Asset.geom.is_not(None), *asset_visibility_filter())
     for asset_id, geom_text, asset_type, technology, capacity_mw, country in db.execute(stmt).all():
         if geom_text is None:  # pragma: no cover - excluded by the WHERE clause; defensive only
             continue
@@ -448,7 +472,7 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
         .select_from(Asset)
         .join(Source, Source.id == Asset.source_id)
         .join(Licence, Licence.id == Asset.licence_id)
-        .where(Asset.geom.is_not(None)),
+        .where(Asset.geom.is_not(None), *asset_visibility_filter()),
         asset_types,
         technologies,
         countries,
@@ -478,7 +502,11 @@ def get_context_plants_geo_alias(request: Request, db: Annotated[Session, Depend
 
 # ------------------------------------------------------------------------------------- list/detail
 def _asset_query_with_filters(request: Request) -> sa.Select[tuple[Asset]]:
-    stmt = select(Asset).options(selectinload(Asset.owners).selectinload(AssetOwner.organization))
+    stmt = (
+        select(Asset)
+        .where(*asset_visibility_filter())
+        .options(selectinload(Asset.owners).selectinload(AssetOwner.organization))
+    )
     qp = request.query_params
     if v := qp.get("slug"):
         stmt = stmt.where(Asset.slug == v)
@@ -559,12 +587,16 @@ def list_assets(request: Request, db: Annotated[Session, Depends(get_db)]) -> An
 def get_asset(public_id: str, request: Request, db: Annotated[Session, Depends(get_db)]) -> Any:
     asset = db.scalar(
         select(Asset)
-        .where(Asset.public_id == public_id)
+        .where(Asset.public_id == public_id, *asset_visibility_filter())
         .options(selectinload(Asset.owners).selectinload(AssetOwner.organization))
     )
     if asset is None:
         raise not_found(request.url.path)
-    data = serialize_asset(asset)
+    # An ownership edge carries its own provenance quartet (docs/21 §3.23); one recorded under a
+    # gated licence is omitted from the visible asset's `owners[]`, same rule as a proposal's
+    # restricted `proposal_source` row (docs/21 §8 item 3).
+    owners = [o for o in asset.owners if o.licence.reuse_class in PUBLISHABLE_REUSE_CLASSES]
+    data = serialize_asset(asset, owners=owners)
     meta = build_meta(lag_days=0, tier="public")
     licence_row = licence_summary_row(asset.source, asset.licence, asset.retrieved_at)
     licence_summary = build_licence_summary([licence_row])
@@ -586,7 +618,7 @@ def _haversine_km(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
 @router.get("/v1/assets/{public_id}/nearby-proposals")
 def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Session, Depends(get_db)]) -> Any:
     check_allowed(request, {"radius_km", "limit", "slug"})
-    asset = db.scalar(select(Asset).where(Asset.public_id == public_id))
+    asset = db.scalar(select(Asset).where(Asset.public_id == public_id, *asset_visibility_filter()))
     if asset is None:
         raise not_found(request.url.path)
     if asset.geom is None:
@@ -610,7 +642,10 @@ def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Sessio
     asset_lon, asset_lat = asset.geom
 
     # Exact-precision proposals only (ADR 0008: "region-grade and none-grade proposals are never
-    # returned here"), public-tier visibility rules -- a bounding box in SQL first (cheap,
+    # returned here") *as served*: an exact row whose licence forbids raw publication is region
+    # grade on this surface (`location_exact_permitted`, the restricted-precision rule) and is
+    # excluded, since "within N km of this asset" would otherwise disclose the withheld point.
+    # Public-tier visibility rules -- a bounding box in SQL first (cheap,
     # generous: 1 degree of latitude is ~111 km, so `radius_km / 100` degrees is always an
     # over-approximation at `radius_km <= 100`), the exact haversine cut in Python after.
     deg_pad = max(radius_km / 100.0, 0.05)
@@ -626,6 +661,7 @@ def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Sessio
         .where(
             *proposal_public_filter(),
             Location.precision == "exact",
+            location_exact_permitted(),
             Location.geom.is_not(None),
         )
         .options(selectinload(Proposal.sources))
@@ -633,9 +669,12 @@ def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Sessio
     candidates = list(db.scalars(stmt).all())
     within: list[tuple[float, Proposal]] = []
     for p in candidates:
-        if p.location is None or p.location.geom is None:
+        if p.location is None:
             continue
-        lon, lat = p.location.geom
+        placement = effective_placement(p.location)
+        if placement.downgraded or placement.geom is None:  # pragma: no cover - excluded in SQL
+            continue
+        lon, lat = placement.geom
         if not (bbox[0] <= lon <= bbox[2] and bbox[1] <= lat <= bbox[3]):
             continue
         distance_km = _haversine_km(asset_lon, asset_lat, lon, lat)
@@ -675,7 +714,10 @@ def list_organization_assets(
 
     limit = clamp_limit(_int_param(request, "limit"))
     stmt = (
-        select(AssetOwner).where(AssetOwner.organization_id == org.id).options(selectinload(AssetOwner.asset))
+        select(AssetOwner)
+        .join(Asset, Asset.id == AssetOwner.asset_id)
+        .where(AssetOwner.organization_id == org.id, *asset_visibility_filter())
+        .options(selectinload(AssetOwner.asset))
     )
     rows, next_cursor, has_more = paginate(
         db,

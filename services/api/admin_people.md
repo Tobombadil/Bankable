@@ -14,7 +14,7 @@ Twelve operations under `/admin/v1`, all behind `require_admin()` (`operator`/`o
   task, disables the user, revokes sessions and the user's own API keys; 202).
 - **Tasks** (US-907, US-204, US-910, US-1002): `GET /tasks`, `GET /tasks/{id}`, `PATCH /tasks/{id}`
   (status/assignee/notes; completing a `deletion_request` runs the redaction procedure through the
-  CRM port first, then nulls email/name/password_hash, anonymises, revokes sessions/keys),
+  CRM port first, then anonymises the row — see "Erasure (2026-09-19)" below),
   `POST /tasks/{id}/approve-intake` (approve creates a Proposal/Opportunity from `pending_record`,
   link merges identifiers into an existing record, reject just closes the task; optional
   `create_lead` and `add_curated_issuer`).
@@ -190,3 +190,26 @@ services/billing/test_router.py: 1 warning
 
 Nothing in the wider suite (existing `services/api`, `services/billing`, `services/crm` tests, or
 the contract test) broke — 84 passed, 0 failed, before my own 60 are added on top.
+
+## Erasure (2026-09-19; docs/50-audit-2026-09-18.md §3.1)
+
+The audit found three defects in the deletion flow and this revision fixes them in
+`_complete_deletion_task` / `admin_delete_user`:
+
+1. **Identifiers in the append-only log.** `before` used to hold the email and name in the clear.
+   Now `before = {"email_hash", "name_hash", "status"}` via `services.api.audit.hash_identifier`
+   (SHA-256 over `AUDIT_HASH_PEPPER`; dev fallback pepper is low-entropy and refused when
+   `ENVIRONMENT=production` (alias `APP_ENV`); tests set an obviously fake pepper). `after` names outcomes, never values.
+2. **Anonymised, not flagged.** `DELETE /users/{id}` still opens the 30-day task and disables the
+   user, but now also pauses the user's saved searches and writes the address to the `suppression`
+   table (reason `erasure`) immediately. Completion sets `email` to the tombstone
+   `erased-<hash16>@erased.invalid` (RFC 2606 domain; derived from the peppered hash, so "was this
+   one of ours?" stays answerable without the address), nulls `name`/`password_hash`, clears
+   `marketing_consent`, revokes sessions and keys, strips `email` from and pauses every saved search,
+   and nulls `task.contact`. A downstream test asserting `user.email is None` after redaction should
+   assert `user.email.endswith("@erased.invalid")` instead.
+3. **Subscriptions.** For a `personal` account the erased user's active subscriptions are cancelled
+   through the billing port's `cancel_subscription(ref=...)` when the adapter provides it;
+   `services.sor.ports.BillingPort` does not declare that operation yet, so with today's adapters
+   the audit `after` records `billing: cancellation_pending` plus the refs for the operator, never a
+   silent skip. Organisation accounts are untouched (the subscription is the organisation's).

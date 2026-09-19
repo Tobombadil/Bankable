@@ -160,3 +160,71 @@ def test_rate_limits_come_from_the_registry():
     assert reg.get("news.gdelt.doc").max_rps == pytest.approx(0.2)  # one per five seconds
     assert reg.get("us.iso.pjm.gen_queue").max_rps == pytest.approx(0.1)  # 6 connections/min
     assert reg.get("us.eia.860m").max_rps == 1.0  # default
+
+
+# ------------------------------------------- 403 challenges and robots UA (audit 2026-09-18 item 4)
+def test_a_403_cloudflare_challenge_is_blocked_not_retried():
+    """Cloudflare serves its managed challenge as 403 with `cf-mitigated: challenge`; that is a
+    block signal, not a transient error, so it must surface as HttpBlocked on the first attempt."""
+    ps, stub, slept = session(
+        [StubResponse(403, b"<html><title>Just a moment...</title>", headers={"cf-mitigated": "challenge"})]
+        + [StubResponse(200)] * 3,
+        rate_limits={"api.example.invalid": 1000},
+    )
+    with pytest.raises(HttpBlocked, match="challenge"):
+        ps.get("https://api.example.invalid/x", honour_robots=False)
+    assert len(stub.calls) == 1
+    assert not [d for d in slept if d > 0.5]  # no backoff sleep: nothing was retried
+
+
+def test_a_403_with_a_challenge_body_but_no_header_is_blocked_too():
+    ps, stub, _ = session(
+        [StubResponse(403, b'<script src="/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page">')]
+    )
+    with pytest.raises(HttpBlocked):
+        ps.get("https://api.example.invalid/x", honour_robots=False)
+    assert len(stub.calls) == 1
+
+
+def test_a_503_challenge_page_is_blocked_not_retried():
+    ps, stub, _ = session(
+        [StubResponse(503, b"<html>Attention Required! | Cloudflare</html>")] + [StubResponse(200)] * 3,
+        rate_limits={"api.example.invalid": 1000},
+    )
+    with pytest.raises(HttpBlocked):
+        ps.get("https://api.example.invalid/x", honour_robots=False)
+    assert len(stub.calls) == 1
+
+
+def test_a_plain_403_is_a_failure_not_a_block_and_not_retried():
+    ps, stub, _ = session([StubResponse(403, b"Forbidden")])
+    r = ps.get("https://api.example.invalid/x", honour_robots=False)
+    assert r.status_code == 403 and len(stub.calls) == 1
+
+
+def test_robots_rules_naming_our_bot_win_over_the_wildcard():
+    robots = StubResponse(200, b"User-agent: *\nAllow: /\n\nUser-agent: Bankable\nDisallow: /\n")
+    ps, stub, _ = session([robots, StubResponse()])
+    with pytest.raises(HttpBlocked):
+        ps.get("https://example.invalid/anything")
+    assert len(stub.calls) == 1
+
+
+def test_robots_wildcard_is_the_fallback_when_our_bot_is_not_named():
+    robots = StubResponse(200, b"User-agent: Googlebot\nAllow: /\n\nUser-agent: *\nDisallow: /private/\n")
+    ps, _, _ = session([robots, StubResponse()])
+    assert ps.allowed_by_robots("https://example.invalid/public")
+    assert not ps.allowed_by_robots("https://example.invalid/private/x")
+
+
+def test_robots_allow_for_our_bot_overrides_a_wildcard_disallow():
+    robots = StubResponse(200, b"User-agent: *\nDisallow: /\n\nUser-agent: Bankable\nAllow: /\n")
+    ps, _, _ = session([robots, StubResponse()])
+    assert ps.allowed_by_robots("https://example.invalid/data.csv")
+
+
+def test_the_robots_token_comes_from_the_sessions_user_agent():
+    from pipeline.connectors.http import robots_token
+
+    assert robots_token(user_agent()) == "Bankable"
+    assert robots_token("Mozilla/5.0 (compatible; OtherBot/1.0; +https://x.example/bot)") == "OtherBot"

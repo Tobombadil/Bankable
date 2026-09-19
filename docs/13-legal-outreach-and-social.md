@@ -620,17 +620,26 @@ email is outside it; an autonomous chat agent is inside it. Utah's regime is con
 B2B prospecting is at its edge, but the safe harbour is trivially satisfied by disclosure at the outset and
 throughout, which is the same design the EU AI Act requires. **Confidence: moderate-high.**
 
-### 6.5 The disclosure texts Bankable uses
+### 6.5 The disclosure texts the product uses
 
-Recorded as a decision:
+Recorded as a decision. The operator named in every text is the product, **Infraque**, not the owner's
+other company: the 2026-09-18 audit found the shipped constant still read "Bankable (bankablehq.com)",
+and a disclosure that names the wrong operator is itself a false statement about who runs the account
+(§6.1, §6.3). `services/social/editorial.py` renders these from the environment — `PRODUCT_NAME`
+(default `Infraque`), `PRODUCT_URL` (default the site host in `services/api/common.py`),
+`PRODUCT_CONTACT_EMAIL` (default `hello@` on that domain) — so a rename is a deploy-time setting, not
+a code change. The email footer's legal name and postal address come from `SENDER_LEGAL_NAME` and
+`SENDER_POSTAL_ADDRESS` (`services/alerts/mail.py`); no send leaves production while either is unset
+(owner decision D5: no legal entity or address yet).
 
 | Surface | Text |
 |---|---|
-| Automated social account (X, Bluesky, any) — bio | "Automated feed run by Bankable (bankablehq.com). Posts are generated from public records and are commercial in nature. Not monitored for replies — contact: [email]." |
+| Automated social account (X, Bluesky, any) — bio | "Automated feed run by Infraque (infraque.com). Posts are generated from public records and are commercial in nature. Not monitored for replies — contact: hello@infraque.com." |
 | Automated social account — display name | contains "(automated)" or "feed" |
 | Auto-published item without human review | trailing line "Auto-generated summary from [source]; not human-reviewed." |
 | Human-reviewed published item | editor of record recorded in the CMS; no on-item AI disclosure required; site-wide editorial policy page states that drafting uses AI and a named editor reviews |
-| On-site chat/assistant | first message: "I'm Bankable's AI assistant, not a human. …" and a persistent label; disclosure repeated on request |
+| On-site chat/assistant | first message: "I'm Infraque's AI assistant, not a human. …" and a persistent label; disclosure repeated on request |
+| Alert/digest email — footer (every send) | "You are receiving this because you subscribed at infraque.com. Data derived from public sources cited above; see each item's source and licence." + the delayed-data notice for the reader's tier + one-click unsubscribe link + "Sent by Infraque <alerts@infraque.com> on behalf of {SENDER_LEGAL_NAME}, {SENDER_POSTAL_ADDRESS}". Headers: `List-Unsubscribe` (mailto + https), `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058). |
 | Human-sent email drafted with AI | no AI disclosure required (human sender, human review); the sender's real name and the statements in §7.2 |
 
 ---

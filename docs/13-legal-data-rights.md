@@ -1327,6 +1327,54 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.anl.rng_database` | **unknown** | do not store; gated until terms read | §2.14 not retrieved | n/a |
 | `us.phmsa.pipeline_operator_reports` | public-domain | raw-ok | 17 U.S.C. §105; §2.14 page not retrieved | high |
 | `global.gleif.lei` | open (CC0) | raw-ok | §2.13 quoted | high |
+| `us.eia.atlas.gas_pipelines` | public-domain | raw-ok; Atlas `licenseInfo` unread (browser task) | 17 U.S.C. §105; §2.11 quoted; added 2026-09-18 from the manifest entry, not re-verified | high |
+| `us.epa.rblc` | public-domain | raw-ok; dashboard terms unread before ingest | 17 U.S.C. §105; §2.12 by analogy; added 2026-09-18 from the manifest entry, not re-verified | mod-high |
+| `gb.neso.fes_gsp_gazetteer` | open-attribution | raw-ok + exact string "Supported by National Energy SO Open Data" | §2.5 quoted (same licence id as the TEC register per the dataset's package_show); added 2026-09-18 | high |
+| `us.census.cartographic_boundaries` | public-domain | raw-ok | 17 U.S.C. §105 (same basis as the vendored Gazetteer); added 2026-09-18 | high |
+
+**This matrix is machine-read.** `scripts/check_manifest_licences.py` (run by `tests/test_manifest_licences.py`
+under the pytest job) parses every row above whose first cell is one or more backticked `source_id`s, takes the
+strictest class named in the Class cell and the strictest rule named in the Publication rule cell, and fails
+when `data/sources.yaml`'s `reuse` or `publication` is more permissive. Keep the vocabulary of §0 in these two
+cells; prose belongs after it, as in the PJM and GEM rows.
+
+### 6.1 Manifest reconciliation, 2026-09-18
+
+The 2026-09-18 audit (`docs/50` §3.1) found fourteen sources this matrix classifies `unknown` recorded
+`reuse: attribution` in `data/sources.yaml`, the field the loader and the API gate on, so their rows were
+publishable raw on the free tier with no terms read. Each is now `reuse: unknown`, `publication: none` in the
+manifest, gated until its terms are retrieved and quoted here. Per source, the register row that governs:
+
+| `source_id` | Manifest before | Register row (this document) | Manifest now |
+|---|---|---|---|
+| `us.lbnl.queued_up` | attribution | §6: `**unknown** (CC BY unverified)`, derived-only; §2.1 not retrieved | unknown / none |
+| `us.oasis.non_iso_queues` | attribution | §6: `unknown (per-utility)`, derived-only; read per-utility terms first | unknown / none |
+| `us.state.siting_boards` | attribution | §6: `unknown (per-state)`, derived-only | unknown / none |
+| `us.state.puc_dockets` | attribution | §6: `unknown (per-state)`, derived-only | unknown / none |
+| `us.utility_rfps` | attribution | §6: `unknown (per-issuer)`, derived-only from issuer sites | unknown / none |
+| `eu.entsoe.tyndp` | attribution | §6: `**unknown**`, derived-only; EU database right §4.1 | unknown / none |
+| `ie.eirgrid.connections` | attribution | §6: `**unknown**`, derived-only; EU database right | unknown / none |
+| `ca.ieso.connection_status` | attribution | §6: `unknown`, derived-only | unknown / none |
+| `ca.aeso.connection_list` | attribution | §6: `unknown`, derived-only | unknown / none |
+| `in.seci_mnre.tenders` | attribution | §6: `unknown`, derived-only | unknown / none |
+| `br.aneel.leiloes` | attribution | §6: `unknown`, derived-only | unknown / none |
+| `za.ipp_office.reipppp` | attribution | §6: `unknown`, derived-only | unknown / none |
+| `mdb.others` | attribution | §6: `unknown (per-institution)`, derived-only | unknown / none |
+| `global.iea.demo_projects` | attribution | §6: `unknown (IEA CC licences are dataset-specific)`, derived-only | unknown / none |
+
+The register's `derived-only` rule for these fourteen described what *would* be allowed once terms are read; with
+class `unknown` the loader refuses the source altogether (`CLAUDE.md`: unknown is treated as restricted), so
+`none` is the only manifest value consistent with the class. Re-opening any of them is a register edit first
+(quote the terms, set the class), then the manifest.
+
+Four sources present in the manifest had no row here and were added above from their manifest `license` text
+without fresh retrieval: `us.eia.atlas.gas_pipelines`, `us.epa.rblc`, `gb.neso.fes_gsp_gazetteer`,
+`us.census.cartographic_boundaries`. Their evidence cells say so.
+
+The manifest's `publication` field (`raw_ok | derived_only | none`) is new on every source (2026-09-18): it
+replaces the loader's free-text match on "derived-only" in `notes`. CAISO, NYISO (`attribution-restricted`),
+AEMO (non-modification term) and GDELT (metadata + link only) are `derived_only`; every `restricted`/`unknown`
+source is `none`; the rest are `raw_ok`.
 
 **Tier-1 MVP consequence.** Of the seven US ISO queues, only ERCOT (×2) is clearly publishable raw at launch.
 CAISO and NYISO are publishable derived. SPP, ISO-NE, MISO and PJM are link-out-only until resolved. A US-first
