@@ -991,6 +991,57 @@ Same publisher, same §105 basis and the same EPA hedge already assessed at §2.
 carries no cover sheet or notice of its own (checked 2026-09-19, the §2.12 cover-sheet rule).
 Classification and publication rule unchanged: `public-domain` / `raw-ok`.
 
+### 2.17 ONS Index of Place Names (GB) and OS Open Names — both OGL v3, retrieved
+
+`services/ingest/geocode.py` needed a UK settlement gazetteer to resolve the NESO TEC register's
+"Connection Site" strings that name a town rather than a Grid Supply Point. Two candidates were
+assessed on their actual terms; a third was excluded without being fetched.
+
+**ONS Index of Place Names in Great Britain (July 2024) — chosen.** Retrieved 2026-09-20 from the
+ONS Open Geography Portal (item `208d9884575647c29f0dd5a1184e711a`). The item's own `licenseInfo`
+field points at `https://www.ons.gov.uk/methodology/geography/licences`, retrieved 2026-09-20:
+
+> Under the terms of the Open Government Licence and UK Government Licensing Framework (launched 30
+> September 2010), if you wish to use or re-use ONS material, whether commercially or privately, you
+> may do so freely without a specific application for a licence … If you are reproducing ONS content
+> you must include a source accreditation to ONS.
+
+The dataset's own user guide, shipped in the download, gives the copyright block: "© Crown copyright
+2024. Contains Ordnance Survey data © Crown copyright and database right 2016. You may re-use this
+information (not including logos) free of charge in any format or medium, under the terms of the Open
+Government Licence", with the OGL v3 URL. (The guide's own text reads "database right 20167" — an
+evident typo for 2016 in a 2024 publication; the ONS licences page gives the same statement as a
+template with a bracketed `[year]`. The attribution used is the vendored edition's year, 2024.) OGL v3 itself is already quoted at §2.4 above and grants
+commercial exploitation against attribution. Required attribution: **"Source: Office for National
+Statistics licensed under the Open Government Licence v3.0"** and **"Contains OS data © Crown
+copyright and database right 2024"**. Two third-party elements were checked and are excluded from
+what is vendored: the guide credits the Historic County Borders Project for the historic-county
+columns (dropped), and ONS's Royal Mail condition attaches to its postcode and UPRN products, which
+the IPN is not. Classification: `open-attribution`. Publication rule: `raw-ok`. **Confidence: high.**
+
+**OS Open Names — equally suitable on terms, not chosen on fit.** Retrieved 2026-09-20. The product
+is an open download from the OS Data Hub with no API key
+(`https://api.os.uk/downloads/v1/products/OpenNames`, version 2026-07). The terms were read from the
+package's own `Doc/licence.txt`:
+
+> ORDNANCE SURVEY DATA LICENCE — Your use of OS OpenData is subject to the terms at
+> http://os.uk/opendata/licence. The copyright acknowledgements to use for the attribution statement
+> are: Contains OS data © Crown Copyright and database rights 2026. Contains Royal Mail data © Royal
+> Mail copyright and database right 2026. Contains National Statistics data © Crown copyright and
+> database right 2026
+
+`http://os.uk/opendata/licence` redirects (200) to the National Archives OGL v3 page quoted at §2.4.
+So OS Open Names is `open-attribution` / `raw-ok` on the same basis, with three attribution strings
+instead of two. It was passed over on engineering fit, not on rights: 103 MB of per-grid-square CSV
+covering roads and postcodes as well as settlements, and coordinates in British National Grid
+(EPSG:27700) that would need an OSGB36→WGS84 transform. Recorded here so the next lane does not
+re-read it. **Confidence: high.**
+
+**OpenStreetMap — excluded, not fetched.** ODbL 1.0's share-alike obligation on a Derivative Database
+(§4.4, quoted at §2.10) makes "does extracting settlement points into our table trigger it" a
+question for counsel — open question 7(b) — and this is a commercial product. An OGL source answers
+the same need with no such question, so OSM was not retrieved and no OSM-derived data is vendored.
+
 ---
 
 ## 3. US scraping law
@@ -1392,9 +1443,10 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `global.gleif.lei` | open (CC0) | raw-ok | §2.13 quoted | high |
 | `us.eia.atlas.gas_pipelines` | public-domain | raw-ok; Atlas `licenseInfo` unread (browser task) | 17 U.S.C. §105; §2.11 quoted; added 2026-09-18 from the manifest entry, not re-verified | high |
 | `us.epa.rblc` | public-domain | raw-ok; dashboard terms unread before ingest | 17 U.S.C. §105; §2.12 by analogy; added 2026-09-18 from the manifest entry, not re-verified | mod-high |
-| `gb.neso.fes_gsp_gazetteer` | open-attribution | raw-ok + exact string "Supported by National Energy SO Open Data" | §2.5 quoted (same licence id as the TEC register per the dataset's package_show); added 2026-09-18 | high |
+| `gb.neso.fes_gsp_gazetteer` | open-attribution | raw-ok + exact string "Supported by National Energy SO Open Data" | §2.5 quoted (same licence id as the TEC register per the dataset's package_show); added 2026-09-18. Re-downloaded 2026-09-20 and a `region` column derived from the same CSV's own `GSP Group`: same dataset, same licence, same attribution — no new terms to read | high |
 | `us.census.cartographic_boundaries` | public-domain | raw-ok | 17 U.S.C. §105 (same basis as the vendored Gazetteer); added 2026-09-18 | high |
 | `curated.organization_parents` | permissive | raw-ok | Not a third-party dataset: parent links curated by Infraque from each company's own published statements, one URL per rule in `data/vendored/organizations/parents.yaml` (first rule: Tallgrass Energy's natural-gas page, read 2026-09-19); facts, not expression; added 2026-09-19 | high |
+| `gb.ons.ipn_gazetteer` | open-attribution | raw-ok + "Source: Office for National Statistics licensed under the Open Government Licence v3.0" and "Contains OS data © Crown copyright and database right 2024" | §2.17 quoted (item `licenseInfo` -> ONS licences page -> OGL v3, §2.4); added 2026-09-20 | high |
 | `curated.organization_aliases` | permissive | raw-ok | Not a third-party dataset: alias rules curated by Infraque from public filings, one URL per rule in `data/vendored/organizations/aliases.yaml` (all seven rows cite a `data.sec.gov` submissions document); facts, not expression; added 2026-09-20 | high |
 
 **This matrix is machine-read.** `scripts/check_manifest_licences.py` (run by `tests/test_manifest_licences.py`
