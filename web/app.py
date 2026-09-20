@@ -915,6 +915,11 @@ app.include_router(auth_router)
 from web.legal import router as legal_router  # noqa: E402
 
 app.include_router(legal_router)
+# Sprint 3 item 6: the public pricing page and its checkout hand-off (own router in
+# web/pricing.py, same reason as the two above).
+from web.pricing import router as pricing_router  # noqa: E402
+
+app.include_router(pricing_router)
 
 # Sprint 3 item 3: the admin panel shell (operator guard, chrome) — page routers for each nav
 # group are mounted below it as they land.
@@ -2155,6 +2160,7 @@ SITEMAP_STATIC_PATHS = (
     "/search",
     "/about",
     "/attribution",
+    "/pricing",
 )
 
 

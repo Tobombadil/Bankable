@@ -571,3 +571,40 @@ def test_pmtiles_basemap_renders_real_labels_end_to_end(pmtiles_proof_server: ob
             page.screenshot(path=str(SCREENSHOT_DIR / "pmtiles-austin-real.png"), full_page=True)
         finally:
             browser.close()
+
+
+def test_smoke_pricing_page_reached_from_the_nav_and_legible_at_400px(server: object) -> None:
+    """The pricing page (`web/pricing.py`, docs/41) in a real browser at the narrow width docs/31
+    §4 sets as the floor: reached by clicking the nav link rather than typed in, all four tiers
+    on screen, no horizontal scroll, and the signed-out control carrying the chosen tier into
+    registration. `web/test_pricing.py` covers the states and the checkout hand-off; this is the
+    end-to-end path a visitor actually walks."""
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=NARROW_VIEWPORT)
+            _install_offline_routes(page)
+            page.goto(BASE_URL + "/about")
+            page.click('.primary-nav a[href="/pricing"]')
+            page.wait_for_url("**/pricing")
+
+            for tier in ("Free", "Pro", "Team", "API / Data"):
+                assert page.locator(f'.tier h2:text-is("{tier}")').count() == 1, f"{tier} tier missing"
+            overflow = page.evaluate(
+                "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+            )
+            assert overflow <= 0, f"page scrolls horizontally at 400px by {overflow}px"
+
+            # Signed out: the control says what it does and comes back to the tier that was picked.
+            href = page.get_attribute('.tier[aria-labelledby="tier-pro"] .tier__cta a', "href")
+            assert href == "/register?next=%2Fpricing%3Fplan%3Dpro", href
+
+            # docs/41's do-not-publish rule, checked once against the rendered page too.
+            rendered = page.inner_text("main").lower()
+            assert "export" not in rendered
+            assert "watchlist" not in rendered
+
+            page.screenshot(path=str(SCREENSHOT_DIR / "pricing-400.png"), full_page=True)
+        finally:
+            browser.close()

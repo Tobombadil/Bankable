@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Pricing -- Infraque{% endblock %}
+{% block meta_description %}What Infraque costs: every record is free to read, and what the paid plans add -- saved searches, alerts and the API.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Pricing</h1>
+  <p>Reading the register is free. What you pay for is not having to look: saved searches, alerts and the API.</p>
+  <p class="coverage-line">{{ coverage_line }} <a href="/about#sources">Sources and licences</a>.</p>
+</div>
+
+{#- The one surviving delay, stated once, from `GET /v1/health`'s `lag_days_default
+    .iso_change_events` (`services/ingest/lag.py`, `data/sources.yaml`). If the owner drops it
+    (docs/00-PLAN.md, 2026-09-20 open question), the field goes to zero and this block and the
+    free tier's line below both disappear with no copy edit anywhere. The wording follows docs/41's
+    caution: the *event* is held; the record and the date it last changed are public immediately,
+    so this must never read as "free readers cannot see that something changed". -#}
+{%- if iso_change_event_lag_days %}
+<p class="delayed-notice" role="status">
+  <span class="stamp-label">One delay</span> Every record is public the moment it is ingested, on every plan.
+  The only thing held back is a <em>change event</em> from an ISO interconnection queue, which reaches the free
+  plan <span class="tnum">{{ iso_change_event_lag_days }}</span> days after it happens. The record itself, and
+  the date it last changed, are public straight away.
+</p>
+{%- endif %}
+
+{%- if notice %}
+<div class="notice notice--error" role="alert">
+  <p class="notice__title">{{ notice.title }}</p>
+  {%- if notice.detail %}<p>{{ notice.detail }}</p>{% endif %}
+  {%- if notice.request_id %}<p class="notice__ref">Reference <code class="tnum">{{ notice.request_id }}</code> -- quote it if you write to us.</p>{% endif %}
+</div>
+{%- endif %}
+
+{%- if no_email %}
+<div class="notice notice--error" id="no-email" role="alert">
+  <p class="notice__title">{{ no_email_title }}</p>
+  <p>{{ no_email_detail }}</p>
+</div>
+{%- endif %}
+
+{%- if subscribed %}
+<div class="notice" role="status">
+  <p class="notice__title">You are on a paid plan.</p>
+  <p>Change the plan, update the card or cancel from the billing page.</p>
+  <form method="post" action="/pricing/portal" class="inline-form">
+    <div class="form-actions">
+      <button type="submit">Open the billing page</button>
+    </div>
+    <p class="field-hint">Opens our payment provider, where your subscription and invoices live.</p>
+  </form>
+</div>
+{%- endif %}
+
+<div class="tier-list">
+  {%- for tier in tiers %}
+  <section class="tier{% if selected_plan == tier.id %} tier--selected{% endif %}" aria-labelledby="tier-{{ tier.id }}">
+    <h2 id="tier-{{ tier.id }}">{{ tier.name }}</h2>
+    <p class="tier__price"><span class="tnum">{{ tier.price }}</span> <span class="tier__period">{{ tier.price_period }}</span></p>
+    {#- An anchor figure from the market review, not a measured price (docs/41 marks it "verify
+        before publishing"). Said in words, next to the number, never carried by styling alone. -#}
+    {%- if tier.price_is_provisional %}
+    <p class="tier__provisional">Indicative price. It is not fixed for launch yet -- ask us before you plan around it.</p>
+    {%- endif %}
+    <p class="tier__summary">{{ tier.summary }}</p>
+    <ul class="tier__includes">
+      {%- for item in tier.includes %}
+      <li>{{ item }}</li>
+      {%- endfor %}
+      {#- The other half of the delay copy, guarded by the same value as the notice above, so the
+          two sentences about the ISO change-event delay live next to each other and go together
+          if the owner drops it. -#}
+      {%- if tier.shows_live_iso_events and iso_change_event_lag_days %}
+      <li>ISO queue change events as they happen, instead of <span class="tnum">{{ iso_change_event_lag_days }}</span> days later</li>
+      {%- endif %}
+    </ul>
+
+    {%- if selected_plan == tier.id %}
+    <p class="tier__selected-note" role="status">This is the plan you picked.</p>
+    {%- endif %}
+
+    <div class="tier__cta">
+      {%- if tier.id == 'free' %}
+      <a class="tier__button" href="/proposals">Read the register</a>
+      <p class="field-hint">No account, no card.</p>
+      {%- elif tier.plan is none %}
+      <a class="tier__button" href="mailto:{{ sales_email }}">Email us about API access</a>
+      <p class="field-hint">Priced two ways -- as an add-on to Team, or on its own -- so we set it up with you rather than at a button.</p>
+      {%- elif subscribed %}
+      <p class="field-hint">You already have a paid plan. Change or cancel it from the billing page above.</p>
+      {%- elif no_email %}
+      <a class="tier__button" href="#no-email">Add an email to your account first</a>
+      <p class="field-hint">We cannot start a payment without one.</p>
+      {%- elif signed_in %}
+      <form method="post" action="/pricing/checkout" class="inline-form">
+        <input type="hidden" name="plan" value="{{ tier.id }}">
+        <div class="form-actions">
+          <button type="submit">Continue to payment for {{ tier.name }}</button>
+        </div>
+        <p class="field-hint">Takes you to our payment provider's checkout page. Your card details never reach this site.</p>
+      </form>
+      {%- else %}
+      <a class="tier__button" href="{{ register_links[tier.id] }}">Create an account to buy {{ tier.name }}</a>
+      <p class="field-hint">Already have one? <a href="{{ login_links[tier.id] }}">Sign in</a> and you will come back here to {{ tier.name }}.</p>
+      {%- endif %}
+    </div>
+  </section>
+  {%- endfor %}
+</div>
+
+<section class="pricing-notes" aria-labelledby="pricing-notes-heading">
+  <h2 id="pricing-notes-heading">The small print</h2>
+  <ul>
+    <li>Prices are in US dollars and exclude any sales tax or VAT your jurisdiction adds.</li>
+    <li>Payment is handled by our payment provider on its own pages. This site never sees or stores card details.</li>
+    <li>What each plan can reach is enforced per request, not by what this page says: see <a href="/about#tiers">how the tiers work</a>.</li>
+    <li>Some sources are published as derived records only, and some are linked out rather than republished, under the register's own licence. The <a href="/about#sources">source table</a> names which, per source.</li>
+    <li>A question this page does not answer: <a href="mailto:{{ sales_email }}">{{ sales_email }}</a>.</li>
+  </ul>
+</section>
+{% endblock %}
