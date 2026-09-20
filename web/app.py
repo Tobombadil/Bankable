@@ -16,12 +16,13 @@ import datetime as dt
 import json
 import math
 import os
+import re
 import time
 from collections.abc import Iterable, Mapping
 from html import escape
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import FastAPI, Request
@@ -115,19 +116,37 @@ ASSET_TYPE_LABELS: dict[str, tuple[str, str]] = {
     "substation": ("substation", "substations"),
     "refinery": ("refinery", "refineries"),
 }
-#: The "Existing assets" control on the map (home_map.html): `(value, label, live)` -- the five
-#: types with data behind them are enabled; ethanol and RNG are listed as coming (owner,
-#: 2026-09-19: "ethanol and RNG points riding along" once their loaders land).
+#: The "Existing assets" control on the map (home_map.html): `(value, label, live)` -- every type
+#: with data behind it is enabled. Ethanol and RNG went live with the second midstream slice
+#: (2026-09-19 evening: EIA Atlas ethanol plants, EPA LMOP landfill-gas projects, EPA AgSTAR
+#: digesters); the `live` flag stays so a future type (biodiesel, refineries) can be listed as
+#: coming rather than silently absent.
 HOME_MAP_ASSET_TYPES: list[tuple[str, str, bool]] = [
     ("power_plant", "Power plants", True),
     ("gas_pipeline", "Gas pipelines", True),
     ("gas_processing_plant", "Gas processing", True),
     ("gas_storage", "Gas storage", True),
     ("lng_terminal", "LNG terminals", True),
-    ("ethanol_plant", "Ethanol", False),
-    ("rng_project", "RNG", False),
+    ("ethanol_plant", "Ethanol", True),
+    ("rng_project", "RNG", True),
 ]
 LINE_ASSET_TYPES = {"gas_pipeline", "transmission_line"}
+#: Fuel-side asset types whose promoted rows replace the plant-shaped Technology / Capacity /
+#: Commissioned rows on the asset page (`_fuel_fields`).
+FUEL_ASSET_TYPES = {"ethanol_plant", "rng_project"}
+#: `asset.technology` values the RNG loaders emit (us.epa.lmop `lfg_electricity|rng|lfg_direct_use`,
+#: us.epa.agstar `farm_digester`) -> the words the page, drawer and search row show.
+RNG_TECHNOLOGY_LABELS: dict[str, str] = {
+    "lfg_electricity": "Landfill gas to electricity",
+    "lfg_direct_use": "Landfill gas direct use",
+    "rng": "Renewable natural gas",
+    "farm_digester": "Farm digester",
+}
+#: AgSTAR livestock head counts in `attributes` (one column per animal type); a non-zero count
+#: is the digester's feedstock when the source carries no feedstock text.
+AGSTAR_HERD_KEYS = ("dairy", "swine", "cattle", "poultry")
+#: Words for the capacity units the fuel loaders emit; anything else renders as the source wrote it.
+CAPACITY_UNIT_LABELS = {"mmgal/yr": "MMgal/yr", "mmscfd": "MMscf/d", "cu-ft/day": "cu ft/day"}
 #: `attributes` keys the asset page promotes to a named field (operator, class, diameter, states,
 #: length); the generic Attributes table omits them so a value is never shown twice.
 PROMOTED_ATTRIBUTE_KEYS = (
@@ -228,6 +247,145 @@ def _diameter_text(entity: Mapping[str, Any]) -> str | None:
     return str(raw)
 
 
+def _quantity(value: Any, unit: str | None, *, digits: int = 1) -> str | None:
+    """`55 MMgal/yr`, `1.725 MMscf/d`, `1,814,400 cu ft/day`: thousands separators, at most
+    `digits` decimals, a trailing `.0` dropped -- the page's number style, the source's unit word."""
+    number = _number(value)
+    if number is None:
+        return None
+    text = f"{number:,.{digits}f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    label = CAPACITY_UNIT_LABELS.get(str(unit or "").lower(), unit)
+    return f"{text} {label}" if label else text
+
+
+def _year(value: Any) -> str | None:
+    number = _number(value)
+    return str(int(number)) if number is not None and number > 0 else None
+
+
+def _padd(value: Any) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return None
+    return text if text.upper().startswith("PADD") else f"PADD {text}"
+
+
+_LMOP_PROJECT_NAME = re.compile(r"^Project\s+#\d+\s+-\s+(?P<landfill>.+)$")
+
+
+def _host_landfill(entity: Mapping[str, Any]) -> str | None:
+    """The landfill an LMOP project sits on: the source's own column when the record carries it,
+    else read back out of the loader's `Project #N - <Landfill name>` naming (services/ingest,
+    us.epa.lmop) -- a presentation rule over a name the data lane composed, not new data."""
+    named = _attr(entity, "landfill_name", "host_landfill")
+    if named:
+        return str(named)
+    match = _LMOP_PROJECT_NAME.match(str(entity.get("name") or ""))
+    return match.group("landfill").strip() if match else None
+
+
+def _feedstock(entity: Mapping[str, Any]) -> str | None:
+    named = _attr(entity, "feedstock", "animal_farm_types", "feedstock_raw")
+    if named:
+        return str(named)
+    herds: list[str] = []
+    for key in AGSTAR_HERD_KEYS:
+        head = _number(_attr(entity, key))
+        if head and head > 0:
+            herds.append(f"{key.capitalize()} ({head:,.0f} head)")
+    return "; ".join(herds) if herds else None
+
+
+def _fuel_fields(entity: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """The promoted rows for an ethanol plant or RNG project (task brief, second midstream slice):
+    `(rows, consumed_attribute_keys)`. A row exists only where the record carries the value (the
+    "None" gate); the consumed keys are dropped from the generic Attributes table so nothing shows
+    twice. Ethanol: nameplate capacity with its unit, feedstock, PADD, the capacity's as-of year.
+    RNG: project type, technology family, rated MW and/or LFG flow (or a digester's biogas
+    estimate), biogas end use, host landfill or digester type, feedstock, start and shutdown year.
+    Text attributes the API does not serialise yet (PADD, data period, end use, landfill name) are
+    read by key so they render the day the API sends them, and are simply absent until then."""
+    asset_type = entity.get("asset_type")
+    unit = str(entity.get("capacity_unit") or "").lower()
+    rows: list[dict[str, Any]] = []
+    consumed: list[str] = []
+
+    def add(label: str, value: str | None, *keys: str, tnum: bool = False) -> None:
+        consumed.extend(keys)
+        if value:
+            rows.append({"label": label, "value": value, "tnum": tnum})
+
+    if asset_type == "ethanol_plant":
+        nameplate = _attr(entity, "nameplate_capacity_mmgal_yr")
+        if nameplate is None and unit == "mmgal/yr":
+            nameplate = entity.get("capacity_value")
+        add("Nameplate capacity", _quantity(nameplate, "MMgal/yr"), "nameplate_capacity_mmgal_yr", tnum=True)
+        add("Feedstock", _feedstock(entity), "feedstock", "feedstock_raw")
+        add("PADD", _padd(_attr(entity, "padd")), "padd")
+        as_of = _year(_attr(entity, "as_of_year")) or (
+            str(_attr(entity, "data_period")) if _attr(entity, "data_period") else None
+        )
+        add("Capacity as of", as_of, "as_of_year", "data_period", tnum=True)
+        return rows, consumed
+
+    if asset_type == "rng_project":
+        technology = str(entity.get("technology") or "")
+        digester = technology == "farm_digester"
+        project_type = _attr(entity, "lfg_energy_project_type", "project_type") or (
+            None if digester else entity.get("technology_raw")
+        )
+        add(
+            "Project type",
+            str(project_type) if project_type else None,
+            "lfg_energy_project_type",
+            "project_type",
+        )
+        add("Technology", RNG_TECHNOLOGY_LABELS.get(technology) or (technology.replace("_", " ") or None))
+        add(
+            "Rated capacity", _quantity(_attr(entity, "rated_mw", "capacity_mw"), "MW"), "rated_mw", tnum=True
+        )
+        lfg_flow = _attr(entity, "lfg_flow_to_project_mmscfd")
+        if lfg_flow is None and unit == "mmscfd":
+            lfg_flow = entity.get("capacity_value")
+        add(
+            "LFG flow to project",
+            _quantity(lfg_flow, "MMscf/d", digits=3),
+            "lfg_flow_to_project_mmscfd",
+            tnum=True,
+        )
+        biogas = _attr(entity, "biogas_generation_estimate_cuft_day")
+        if biogas is None and unit == "cu-ft/day":
+            biogas = entity.get("capacity_value")
+        add(
+            "Biogas generation (est.)",
+            _quantity(biogas, "cu ft/day", digits=0),
+            "biogas_generation_estimate_cuft_day",
+            tnum=True,
+        )
+        end_use = _attr(entity, "biogas_end_uses", "lfg_use_details", "project_type_category")
+        add(
+            "Biogas end use",
+            str(end_use) if end_use else None,
+            "biogas_end_uses",
+            "lfg_use_details",
+            "project_type_category",
+        )
+        if digester:
+            digester_type = _attr(entity, "digester_type") or entity.get("technology_raw")
+            add("Digester type", str(digester_type) if digester_type else None, "digester_type")
+        else:
+            add("Host landfill", _host_landfill(entity), "landfill_name", "host_landfill")
+        add("Feedstock", _feedstock(entity), "feedstock", "animal_farm_types", *AGSTAR_HERD_KEYS)
+        start = _year(_attr(entity, "project_start_year", "year_operational", "commissioned_year"))
+        add("Start year", start, "project_start_year", "year_operational", tnum=True)
+        add("Shutdown year", _year(_attr(entity, "year_shutdown")), "year_shutdown", tnum=True)
+        return rows, consumed
+
+    return rows, consumed
+
+
 def _geometry_of(obj: Mapping[str, Any] | None) -> dict[str, Any] | None:
     """GeoJSON geometry from whichever key the API puts it under (`geometry` on asset detail per
     the API lane's contract; `geom` and `location.geom` are the older proposal spellings)."""
@@ -298,9 +456,17 @@ def _asset_extras(entity: Mapping[str, Any]) -> dict[str, Any]:
     promoted = [
         k for k in PROMOTED_ATTRIBUTE_KEYS if k in bag and (is_line or k in ("length_miles", "operator"))
     ]
+    fuel_rows, fuel_keys = _fuel_fields(entity)
+    promoted += [k for k in fuel_keys if k in bag and k not in promoted]
+    technology = str(entity.get("technology") or "")
     return {
         "promoted_attributes": promoted,
         "type_label": _type_label(asset_type),
+        # RNG: the family word ("Landfill gas to electricity") wherever a one-liner names the
+        # technology (header badge, search row, mini-map subtitle); other types keep the class.
+        "technology_label": RNG_TECHNOLOGY_LABELS.get(technology) if asset_type == "rng_project" else None,
+        "fuel_fields": fuel_rows,
+        "is_fuel": asset_type in FUEL_ASSET_TYPES,
         "is_line": is_line,
         "line_class": _line_class(entity) if is_line else None,
         "length_miles": _number(_attr(entity, "length_miles", "miles")),
@@ -420,6 +586,8 @@ def _mini_map(features: list[dict[str, Any]], *, label: str, caption: str) -> di
 
 def _asset_feature(record: Mapping[str, Any], geometry: Mapping[str, Any]) -> dict[str, Any]:
     subtitle_bits = [record.get("type_label") or _type_label(record.get("asset_type"))]
+    if record.get("technology_label"):
+        subtitle_bits.append(str(record["technology_label"]))
     operator = record.get("operator") or {}
     if isinstance(operator, Mapping) and operator.get("name"):
         subtitle_bits.append(str(operator["name"]))
@@ -457,6 +625,102 @@ def _proposal_feature(record: Mapping[str, Any], geometry: Mapping[str, Any]) ->
             "url": f"/proposals/{record['slug']}" if record.get("slug") else None,
         },
     }
+
+
+def group_nearby_proposals(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse EIA-860M's one-row-per-generator-unit into one nearby row per project: rows that
+    share `(name, sponsor, county)` become a single entry carrying `unit_count`, the summed
+    `capacity_mw` (None when no member has one) and the nearest member's `distance_km` and
+    nearest-asset fields; every other field is the nearest member's. Order is preserved (the API
+    returns nearest first), so the group sits where its nearest unit sat. Shared by the asset
+    page, the company page and (in `map.js`, the same key) the map's in-view list."""
+    groups: dict[tuple[Any, Any, Any], dict[str, Any]] = {}
+    order: list[tuple[Any, Any, Any]] = []
+    for raw in rows:
+        row = dict(raw)
+        key = (row.get("name"), row.get("sponsor"), row.get("county"))
+        capacity = _number(row.get("capacity_mw"))
+        distance = _number(row.get("distance_km"))
+        group = groups.get(key)
+        if group is None:
+            row["unit_count"] = 1
+            row["capacity_mw"] = capacity
+            row["distance_km"] = distance
+            groups[key] = row
+            order.append(key)
+            continue
+        group["unit_count"] += 1
+        if capacity is not None:
+            group["capacity_mw"] = (group["capacity_mw"] or 0.0) + capacity
+        if distance is not None and (group["distance_km"] is None or distance < group["distance_km"]):
+            group["distance_km"] = distance
+            for field in ("nearest_asset_name", "nearest_asset_slug", "slug", "public_id"):
+                if row.get(field) is not None:
+                    group[field] = row[field]
+    return [groups[key] for key in order]
+
+
+#: What an organisation typed `other` is called from the assets it holds (task brief: "OTHER" under
+#: the name is meaningless for an ethanol producer). Keyed by `asset_type`; the two largest
+#: holdings make a two-part descriptor ("Ethanol producer and RNG developer").
+ORG_DESCRIPTORS: dict[str, str] = {
+    "gas_pipeline": "Gas pipeline operator",
+    "gas_processing_plant": "Gas processing operator",
+    "gas_storage": "Gas storage operator",
+    "lng_terminal": "LNG terminal operator",
+    "compressor_station": "Gas pipeline operator",
+    "ethanol_plant": "Ethanol producer",
+    "biodiesel_plant": "Biodiesel producer",
+    "rng_project": "RNG developer",
+    "power_plant": "Power plant owner",
+    "transmission_line": "Transmission owner",
+    "substation": "Transmission owner",
+    "refinery": "Refiner",
+}
+
+
+def org_descriptor(org_type: str | None, type_counts: Mapping[str, Any]) -> str | None:
+    """`None` unless the organisation's `type` is `other` (or unset) and it holds assets; else the
+    descriptor of what it holds most of, joined with the runner-up when there is one. The raw
+    type stays in the page's fields table -- this only replaces the header's badge."""
+    if org_type not in (None, "", "other"):
+        return None
+    ranked: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    order = list(ORG_DESCRIPTORS)
+    for asset_type, count in type_counts.items():
+        label = ORG_DESCRIPTORS.get(str(asset_type))
+        n = int(count) if isinstance(count, int | float) else 0
+        if not label or n <= 0 or label in seen:
+            continue
+        seen.add(label)
+        ranked.append((-n, order.index(str(asset_type)), label))
+    if not ranked:
+        return None
+    labels = [label for _, _, label in sorted(ranked)][:2]
+    return " and ".join(labels)
+
+
+def _org_type_counts(asset_counts: Any, groups: list[dict[str, Any]]) -> dict[str, int]:
+    """`{asset_type: n}` from the API's `asset_counts.by_type` (any role), else over the page's
+    rows -- the same fallback `_org_summary_parts` uses."""
+    if isinstance(asset_counts, Mapping):
+        by_type = asset_counts.get("by_type")
+        if isinstance(by_type, Mapping):
+            return {str(k): int(v) for k, v in by_type.items() if isinstance(v, int | float)}
+        by_role_and_type = asset_counts.get("by_role_and_type")
+        if isinstance(by_role_and_type, Mapping):
+            totals: dict[str, int] = {}
+            for per_type in by_role_and_type.values():
+                if isinstance(per_type, Mapping):
+                    for k, v in per_type.items():
+                        if isinstance(v, int | float):
+                            totals[str(k)] = totals.get(str(k), 0) + int(v)
+            return totals
+    totals = {}
+    for g in groups:
+        totals[g["asset_type"]] = totals.get(g["asset_type"], 0) + int(g["count"])
+    return totals
 
 
 _PLANT_FAMILY_PREFIXES = (
@@ -719,6 +983,188 @@ templates.env.globals["footer_lag_days"] = get_lag_days
 templates.env.globals["asset_version"] = ASSET_VERSION
 
 
+# ---- SEO surface: canonical URLs, Open Graph / Twitter cards, JSON-LD ---------------------------
+# docs/50 §3.2 web bullet ("no Open Graph or structured data") and docs/00-PLAN.md 2026-09-19
+# item 4. docs/50 §4.4 is the reason it matters: the asset map and the crawlable asset and company
+# pages are the acquisition surface, so every public page has to be findable by a crawler and
+# legible when it is pasted into a chat or a social post.
+#
+# A page's title and description each have exactly one source: the `title` and `meta_description`
+# blocks the page template already defines. `base.html` re-reads them through Jinja's
+# `self.<block>()`, which returns the block's already-escaped `Markup` (so a name carrying a quote
+# is escaped exactly once, never twice -- covered by
+# `test_meta.py::test_record_name_with_quote_and_angle_bracket_...`). A description is therefore
+# always built from the record the API returned and never from a template constant, and it cannot
+# leak a field the visibility gate withheld, because the gate ran before the template saw the row.
+SITE_NAME = "Infraque"
+
+
+def canonical_url(request: Request, path: str | None = None) -> str:
+    """The absolute URL for `rel=canonical` and `og:url`. `path` is the canonical path the route
+    chose (record pages: the slug URL; index pages: the path plus only the filter parameters the
+    page understands, so a URL carrying a stray tracking parameter canonicalises to the clean
+    one); absent, the request's own path, which is right for every static page."""
+    base = str(request.base_url).rstrip("/")
+    return base + (request.url.path if path is None else path)
+
+
+def canonical_query(params: QueryParams, names: Iterable[str]) -> str:
+    """`?a=1&b=2` over `names` in a fixed order, skipping absent ones -- so two requests that
+    differ only in parameter order share one canonical URL."""
+    kept = [(name, params[name]) for name in names if params.get(name)]
+    return ("?" + urlencode(kept)) if kept else ""
+
+
+JSONLD_CONTEXT = "https://schema.org"
+#: Rows an index page's `ItemList` names. The list describes the page, so it is the page's own
+#: rows -- not the whole filtered corpus, which `numberOfItems` carries as a number.
+JSONLD_LIST_CAP = 50
+
+
+def _prune(value: Any) -> Any:
+    """Drop `None` and empty members recursively, so every field that survives into a JSON-LD
+    graph is one this record actually carries (task item 4: no invented fields)."""
+    if isinstance(value, Mapping):
+        out: dict[str, Any] = {}
+        for key, raw in value.items():
+            pruned = _prune(raw)
+            if pruned is None or pruned == "" or pruned == [] or pruned == {}:
+                continue
+            out[key] = pruned
+        return out
+    if isinstance(value, list):
+        return [_prune(item) for item in value if item is not None]
+    return value
+
+
+def jsonld_block(obj: Mapping[str, Any]) -> str:
+    """One `<script type="application/ld+json">` payload, rendered with `| safe`.
+
+    `ensure_ascii=True` plus the three replacements below leave no `<`, `>` or `&` anywhere in the
+    output, so a record named `Acme "Big" <Energy> & Co </script>` can neither close the script
+    element early nor be re-read as markup. `\\u003c` inside a JSON string is ordinary JSON string
+    escaping, so a parser still recovers the original characters -- the graph stays honest while
+    the page stays unbreakable.
+    """
+    text = json.dumps(_prune(obj), ensure_ascii=True, separators=(",", ":"))
+    return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+def breadcrumb_jsonld(request: Request, trail: list[tuple[str, str]]) -> str:
+    """schema.org `BreadcrumbList` for a record page (docs/30 §1: "breadcrumbs on every record
+    page"). `trail` is `[(name, path), ...]` from the home page to this record; every `item` is
+    the absolute URL of a page that exists on this site."""
+    return jsonld_block(
+        {
+            "@context": JSONLD_CONTEXT,
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+                {
+                    "@type": "ListItem",
+                    "position": position,
+                    "name": name,
+                    "item": canonical_url(request, path),
+                }
+                for position, (name, path) in enumerate(trail, start=1)
+            ],
+        }
+    )
+
+
+def item_list_jsonld(
+    request: Request,
+    *,
+    name: str,
+    description: str,
+    path: str,
+    rows: list[tuple[str, str]],
+    total: int | None = None,
+) -> str:
+    """schema.org `ItemList` for an index page: the rows this page renders, in the order it
+    renders them. `numberOfItems` is the size of the whole list the page paginates through, which
+    is what schema.org's note on multi-page pagination asks for -- omitted entirely when the count
+    is an estimate or unknown rather than guessed at."""
+    return jsonld_block(
+        {
+            "@context": JSONLD_CONTEXT,
+            "@type": "ItemList",
+            "name": name,
+            "description": description,
+            "url": canonical_url(request, path),
+            "numberOfItems": total,
+            "itemListElement": [
+                {
+                    "@type": "ListItem",
+                    "position": position,
+                    "name": row_name,
+                    "url": canonical_url(request, row_path),
+                }
+                for position, (row_name, row_path) in enumerate(rows[:JSONLD_LIST_CAP], start=1)
+            ],
+        }
+    )
+
+
+#: `organization.ids` keys (`api/openapi.yaml` `Organization.ids`) -> the `propertyID` a
+#: schema.org `PropertyValue` carries. Only identifiers actually stored are emitted.
+ORG_IDENTIFIER_LABELS = {
+    "lei": "LEI",
+    "sam_uei": "SAM UEI",
+    "eia_utility_id": "EIA utility id",
+    "cik": "SEC CIK",
+    "duns": "DUNS",
+}
+
+
+def organization_jsonld(
+    request: Request,
+    record: Mapping[str, Any],
+    *,
+    ids: Mapping[str, Any] | None,
+    path: str,
+    description: str | None = None,
+) -> str:
+    """schema.org `Organization` for a company page. Name, URL, the identifiers this row actually
+    holds, its website as `sameAs`, its country as a `PostalAddress`, and its parent -- nothing
+    that is not a stored field (task item 4). `_prune` drops every absent one."""
+    identifiers = [
+        {
+            "@type": "PropertyValue",
+            "propertyID": ORG_IDENTIFIER_LABELS.get(str(key), str(key)),
+            "value": str(value),
+        }
+        for key, value in (ids or {}).items()
+        if value not in (None, "")
+    ]
+    parent_name = record.get("parent_name")
+    parent_ident = record.get("parent_slug") or record.get("parent_public_id")
+    return jsonld_block(
+        {
+            "@context": JSONLD_CONTEXT,
+            "@type": "Organization",
+            "name": record.get("name"),
+            "url": canonical_url(request, path),
+            "description": description,
+            "identifier": identifiers,
+            "sameAs": [record["website"]] if record.get("website") else None,
+            "address": (
+                {"@type": "PostalAddress", "addressCountry": record["country"]}
+                if record.get("country")
+                else None
+            ),
+            "parentOrganization": (
+                {
+                    "@type": "Organization",
+                    "name": parent_name,
+                    "url": canonical_url(request, f"/organizations/{parent_ident}"),
+                }
+                if parent_name and parent_ident
+                else None
+            ),
+        }
+    )
+
+
 def querystring_without(params: QueryParams, *drop: str) -> str:
     kept = [(k, v) for k, v in params.multi_items() if k not in drop]
     return "&".join(f"{k}={v}" for k, v in kept)
@@ -923,8 +1369,12 @@ def proposals_list(request: Request) -> HTMLResponse:
         api, extra_filters={n: qp[n] for n in ("technology", "jurisdiction", "kind") if qp.get(n)}
     )
 
+    records = [flatten_proposal(e) for e in envelope["data"]]
+    canonical_path = "/proposals" + canonical_query(
+        qp, (*PROPOSAL_PASSTHROUGH_FILTERS, "include_withdrawn", "sort", "cursor")
+    )
     context = {
-        "records": [flatten_proposal(e) for e in envelope["data"]],
+        "records": records,
         "total": envelope["meta"].get("total"),
         "total_is_estimate": envelope["meta"].get("total_is_estimate", False),
         "has_more": envelope["page"]["has_more"],
@@ -938,6 +1388,17 @@ def proposals_list(request: Request) -> HTMLResponse:
         "lifecycle_explicit": explicit,
         "filters": dict(qp),
         "breakdown": breakdown,
+        "canonical_path": canonical_path,
+        "jsonld": [
+            item_list_jsonld(
+                request,
+                name="Proposals",
+                description="Interconnection queue and generator proposals matching these filters.",
+                path=canonical_path,
+                rows=[(r["name"], f"/proposals/{r['slug']}") for r in records],
+                total=(None if envelope["meta"].get("total_is_estimate") else envelope["meta"].get("total")),
+            )
+        ],
     }
     if is_htmx(request):
         return templates.TemplateResponse(request, "partials/_proposal_rows.html", context)
@@ -975,6 +1436,7 @@ def proposal_detail(request: Request, slug: str) -> HTMLResponse:
     if entity is None:
         return not_found_response(request, "proposal")
     record = flatten_proposal(entity)
+    path = f"/proposals/{record['slug']}"
     return templates.TemplateResponse(
         request,
         "proposal_detail.html",
@@ -982,6 +1444,12 @@ def proposal_detail(request: Request, slug: str) -> HTMLResponse:
             "record": record,
             "provenance_rows": provenance_panel_rows(api, record["provenance"]),
             "delayed": delayed_notice(request, "proposal"),
+            "canonical_path": path,
+            "jsonld": [
+                breadcrumb_jsonld(
+                    request, [("Home", "/"), ("Proposals", "/proposals"), (record["name"], path)]
+                )
+            ],
         },
     )
 
@@ -1000,8 +1468,12 @@ def opportunities_list(request: Request) -> HTMLResponse:
     envelope = api.get("/v1/opportunities", params=params)
     vocab = api.get("/v1/meta/vocabularies")["data"]
 
+    records = [flatten_opportunity(e) for e in envelope["data"]]
+    canonical_path = "/opportunities" + canonical_query(
+        qp, (*OPPORTUNITY_PASSTHROUGH_FILTERS, "status", "cursor")
+    )
     context = {
-        "records": [flatten_opportunity(e) for e in envelope["data"]],
+        "records": records,
         "total": envelope["meta"].get("total"),
         "total_is_estimate": envelope["meta"].get("total_is_estimate", False),
         "has_more": envelope["page"]["has_more"],
@@ -1013,6 +1485,17 @@ def opportunities_list(request: Request) -> HTMLResponse:
         "statuses": [v["value"] for v in vocab["opportunity_status"]],
         "technologies": [v["value"] for v in vocab["technology"]],
         "filters": {**dict(qp), "status": qp.get("status", "open")},
+        "canonical_path": canonical_path,
+        "jsonld": [
+            item_list_jsonld(
+                request,
+                name="Opportunities",
+                description="Grants, tenders and procurement notices matching these filters.",
+                path=canonical_path,
+                rows=[(r["title"], f"/opportunities/{r['slug']}") for r in records],
+                total=(None if envelope["meta"].get("total_is_estimate") else envelope["meta"].get("total")),
+            )
+        ],
     }
     if is_htmx(request):
         return templates.TemplateResponse(request, "partials/_opportunity_rows.html", context)
@@ -1026,6 +1509,7 @@ def opportunity_detail(request: Request, slug: str) -> HTMLResponse:
     if entity is None:
         return not_found_response(request, "opportunity")
     record = flatten_opportunity(entity)
+    path = f"/opportunities/{record['slug']}"
     return templates.TemplateResponse(
         request,
         "opportunity_detail.html",
@@ -1033,8 +1517,169 @@ def opportunity_detail(request: Request, slug: str) -> HTMLResponse:
             "record": record,
             "provenance_rows": provenance_panel_rows(api, record["provenance"]),
             "delayed": delayed_notice(request, "opportunity"),
+            "canonical_path": path,
+            "jsonld": [
+                breadcrumb_jsonld(
+                    request,
+                    [("Home", "/"), ("Opportunities", "/opportunities"), (record["title"], path)],
+                )
+            ],
         },
     )
+
+
+# ---- /assets index (docs/00-PLAN.md 2026-09-19 item 4; docs/30 §1.1) ----------------------------
+#: The filters `/assets` forwards, named exactly as `GET /v1/assets` names them (D-17: one filter
+#: vocabulary and one URL grammar across list, map and feed). `technology` is deliberately not
+#: exposed as a control -- its vocabulary is plant-shaped and means nothing for a pipeline -- but
+#: it is forwarded when present so a link from the map keeps working.
+ASSET_INDEX_FILTERS = ("asset_type", "state", "q", "technology")
+#: `sort=` tokens `services/api/assets.py::ASSET_SORT_ALLOWLIST` accepts, with the words the
+#: control shows. Capacity descending is the default: the biggest thing is the most interesting
+#: row on an index of infrastructure. Length is *not* an API sort field, so a pipeline's mileage
+#: shows in its row but never orders the list; name ascending is the tiebreak a reader can reach.
+ASSET_INDEX_SORTS = (
+    ("-capacity_mw", "Capacity, largest first"),
+    ("name", "Name, A to Z"),
+    ("-last_changed", "Recently changed"),
+)
+ASSET_INDEX_DEFAULT_SORT = "-capacity_mw"
+#: A line asset carries no `capacity_mw`, so a capacity sort over a pipeline-only view orders it
+#: by nothing at all. `length_miles` is not in the API's sort allowlist, so the honest default for
+#: such a view is the one key that does order it: name.
+ASSET_INDEX_LINE_DEFAULT_SORT = "name"
+ASSET_TYPE_COUNTS_CACHE_SECONDS = 900
+
+
+def _asset_index_default_sort(selected_types: set[str]) -> str:
+    if selected_types and selected_types <= LINE_ASSET_TYPES:
+        return ASSET_INDEX_LINE_DEFAULT_SORT
+    return ASSET_INDEX_DEFAULT_SORT
+
+
+#: The subject of `/assets`' description when no type is selected.
+ASSET_INDEX_SUBJECT = (
+    "Power plants, gas pipelines, gas processing and storage sites, LNG terminals, ethanol "
+    "plants and RNG projects"
+)
+
+
+def _asset_index_description(selected_types: set[str], counts: Mapping[str, int], params: QueryParams) -> str:
+    """The page's `<meta name="description">`, built from the filters actually in force.
+
+    A filtered index that repeated the unfiltered page's sentence would hand a crawler one
+    description for many URLs, and would claim a corpus total beside a list that does not show
+    it. The count is quoted only for a view whose size `asset_type_counts()` actually knows: the
+    whole corpus, or one type of it, with no other filter narrowing the rows."""
+    only = next(iter(selected_types)) if len(selected_types) == 1 else None
+    subject = _type_label(only, plural=True) if only else ASSET_INDEX_SUBJECT
+    where = f" in {params['state']}" if params.get("state") else ""
+    total = counts.get(only) if only else (sum(counts.values()) or None)
+    counted = f" -- {total:,} of them" if total and not where and not params.get("q") else ""
+    return (
+        f"{subject}{where} from US public registers{counted}, each with its owner, operator, "
+        "location and the register it came from."
+    )
+
+
+def asset_type_counts(request: Request) -> dict[str, int]:
+    """`{asset_type: n}` for the counts above `/assets`, read from `GET /v1/assets/geo`'s
+    `totals.asset_type_counts` over the whole world in one call.
+
+    `GET /v1/assets` has no `include=count` (`services/api/assets.py::list_assets`'s allowlist),
+    and one counting call per type would be twelve round trips per page render, so the map
+    endpoint -- which already counts by type for the legend -- is the cheaper honest source. Its
+    denominator is assets with a published location, which is *not* the same set as the list
+    below (an asset whose licence forbids raw publication keeps its row and page but is off the
+    map, `docs/23` `/v1/assets/geo`), so the template says so rather than implying the two agree.
+    The counts change once per data load, so they are cached per app process like the sitemap; a
+    failed call returns `{}` and the page simply renders no counts.
+    """
+    cache: dict[str, tuple[float, dict[str, int]]] = request.app.state.__dict__.setdefault(
+        "asset_type_counts_cache", {}
+    )
+    cached = cache.get("world")
+    if cached and time.monotonic() - cached[0] < ASSET_TYPE_COUNTS_CACHE_SECONDS:
+        return cached[1]
+    counts: dict[str, int] = {}
+    try:
+        envelope = get_api(request).get("/v1/assets/geo", params={"bbox": WORLD_BBOX, "zoom": "3"})
+        data = envelope.get("data")
+        totals = data.get("totals") if isinstance(data, Mapping) else None
+        raw = totals.get("asset_type_counts") if isinstance(totals, Mapping) else None
+        if isinstance(raw, Mapping):
+            counts = {str(k): int(v) for k, v in raw.items() if isinstance(v, int | float) and v > 0}
+    except (ApiError, httpx.HTTPError):
+        return {}
+    cache["world"] = (time.monotonic(), counts)
+    return counts
+
+
+@app.get("/assets", response_class=HTMLResponse)
+def assets_list(request: Request) -> HTMLResponse:
+    """The crawlable index of every registry asset (docs/50 §4.4: the asset pages are the
+    acquisition surface, so they need a path in from a page a crawler can reach). Same markup,
+    pagination and empty state as `/proposals` -- `partials/_asset_rows.html` mirrors
+    `partials/_proposal_rows.html` rather than inventing a second list idiom."""
+    api = get_api(request)
+    qp = request.query_params
+    selected_types = set((qp.get("asset_type") or "").split(",")) - {""}
+    sort = qp.get("sort") or _asset_index_default_sort(selected_types)
+    if sort not in {token for token, _label in ASSET_INDEX_SORTS}:
+        sort = _asset_index_default_sort(selected_types)
+    params: dict[str, str | None] = {name: qp[name] for name in ASSET_INDEX_FILTERS if qp.get(name)}
+    params["sort"] = sort
+    params["cursor"] = qp.get("cursor")
+    envelope = api.get("/v1/assets", params=params)
+    records: list[dict[str, Any]] = []
+    for entity in envelope["data"]:
+        record = flatten_asset(entity)
+        record.update(_asset_extras(entity))
+        records.append(record)
+    counts = asset_type_counts(request)
+    type_counts = [
+        {
+            "value": asset_type,
+            "label": _type_label(asset_type, plural=True),
+            "count": counts[asset_type],
+            "selected": asset_type in selected_types,
+        }
+        for asset_type in sorted(counts, key=lambda k: (-counts[k], _type_label(k, plural=True)))
+    ]
+    page = envelope["page"]
+    canonical_path = "/assets" + canonical_query(qp, (*ASSET_INDEX_FILTERS, "sort", "cursor"))
+    # `numberOfItems` only when the page is the unfiltered index: `asset_type_counts()` counts the
+    # whole corpus, so quoting it beside a filtered list would be a number the page does not show.
+    filtered = any(qp.get(name) for name in ASSET_INDEX_FILTERS)
+    corpus_total = (sum(counts.values()) or None) if not filtered else None
+    context = {
+        "records": records,
+        "type_counts": type_counts,
+        "counts_total": sum(counts.values()) or None,
+        "sorts": ASSET_INDEX_SORTS,
+        "sort": sort,
+        "sort_caption": next(label.lower() for token, label in ASSET_INDEX_SORTS if token == sort),
+        "description": _asset_index_description(selected_types, counts, qp),
+        "has_more": page["has_more"],
+        "next_cursor": page["next_cursor"],
+        "prev_cursor": page.get("prev_cursor"),
+        "querystring": querystring_without(qp, "cursor"),
+        "filters": dict(qp),
+        "canonical_path": canonical_path,
+        "jsonld": [
+            item_list_jsonld(
+                request,
+                name="Assets",
+                description=_asset_index_description(selected_types, counts, qp),
+                path=canonical_path,
+                rows=[(r["name"], f"/assets/{r['slug']}") for r in records if r.get("slug")],
+                total=corpus_total,
+            )
+        ],
+    }
+    if is_htmx(request):
+        return templates.TemplateResponse(request, "partials/_asset_rows.html", context)
+    return templates.TemplateResponse(request, "assets_list.html", context)
 
 
 def _resolve_asset_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | None:
@@ -1098,6 +1743,8 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
                 features.append(_proposal_feature(flat, geometry))
     except ApiError:
         nearby = []
+    # One list row per project, not per EIA-860M generator unit; the map keeps every unit's dot.
+    nearby = group_nearby_proposals(nearby)
     tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
     tile_mode = _tile_mode(tile_url)
     placed = sum(1 for f in features if f["properties"]["kind"] == "proposal")
@@ -1109,6 +1756,7 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
         + _basemap_attribution(tile_mode, tile_url)
     )
     mini_map = _mini_map(features, label=f"Map of {record['name']}", caption=caption)
+    path = f"/assets/{record['slug']}"
     return templates.TemplateResponse(
         request,
         "asset_detail.html",
@@ -1119,6 +1767,10 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
             "mini_map": mini_map,
             "tile_url": tile_url,
             "tile_mode": tile_mode,
+            "canonical_path": path,
+            "jsonld": [
+                breadcrumb_jsonld(request, [("Home", "/"), ("Assets", "/assets"), (record["name"], path)])
+            ],
         },
     )
 
@@ -1136,6 +1788,105 @@ def asset_by_public_id(request: Request, public_id: str) -> Response:
     if not slug:
         return not_found_response(request, "asset")
     return RedirectResponse(url=f"/assets/{slug}", status_code=302)
+
+
+@app.get("/api/assets/{public_id}")
+def asset_detail_proxy(request: Request, public_id: str) -> JSONResponse:
+    """Same-origin relay for `GET /v1/assets/{public_id}` (no params, no cookies): the map drawer
+    fetches it when a point asset is opened, because `/v1/assets/geo` point features carry no
+    `capacity_value`/`capacity_unit`/`attributes` (only line features do) and an ethanol plant's
+    nameplate or a landfill project's LFG flow lives there. The drawer renders what the feature
+    has first and re-renders when this answers, so a failure here costs rows, never the drawer."""
+    api = get_api(request)
+    try:
+        envelope = api.get(f"/v1/assets/{public_id}")
+    except ApiError as exc:
+        return JSONResponse(exc.body, status_code=exc.status_code)
+    return JSONResponse(envelope)
+
+
+# ---- /organizations index (docs/00-PLAN.md 2026-09-19 item 4) -----------------------------------
+#: Forwarded to `GET /v1/organizations` under the API's own names; `q` is a case-insensitive
+#: substring of `name_canonical` (`services/api/app.py::list_organizations`), which is exactly the
+#: "searchable by name" this index needs.
+ORG_INDEX_FILTERS = ("q", "type", "country")
+#: Smaller than the 50-row proposals page on purpose: `GET /v1/organizations` list rows carry no
+#: `asset_counts` (only `GET /v1/organizations/{id}` does), so each row costs one extra call.
+#: Twenty-five keeps the worst case at 26 upstream calls per render. When the API lane adds
+#: `asset_counts` to the list row, `_org_holdings()` loses its second call and this can grow.
+ORG_INDEX_PAGE_SIZE = 25
+
+
+def _org_holdings(api: ApiClient, public_id: str | None) -> dict[str, Any]:
+    """What a company-index row says the organisation holds: the `asset_counts` the detail
+    response carries, turned into the same descriptor and the same "Operates 3 gas pipelines"
+    clauses the company page shows, through `org_descriptor()`/`_org_type_counts()`/
+    `_org_summary_parts()` -- the helpers the ownership lane landed, reused rather than copied.
+    `group_asset_counts` is preferred where present for the same reason the company page passes
+    `include_subsidiaries=true`: a holding parent holds no edge itself, its subsidiaries do.
+    A failed or absent count leaves the row rendering name and type alone, never a zero."""
+    if not public_id:
+        return {"type_counts": {}, "summary_parts": [], "asset_total": None}
+    try:
+        detail = api.get(f"/v1/organizations/{public_id}")["data"]
+    except ApiError:
+        return {"type_counts": {}, "summary_parts": [], "asset_total": None}
+    counts = detail.get("group_asset_counts") or detail.get("asset_counts")
+    type_counts = _org_type_counts(counts, [])
+    return {
+        "type_counts": type_counts,
+        "summary_parts": _org_summary_parts(counts, []),
+        "asset_total": sum(type_counts.values()) or None,
+        "proposal_count": detail.get("proposal_count"),
+        "opportunity_count": detail.get("opportunity_count"),
+    }
+
+
+@app.get("/organizations", response_class=HTMLResponse)
+def organizations_list(request: Request) -> HTMLResponse:
+    """The crawlable index of companies. Mirrors `/proposals`' markup, pagination and empty state;
+    the searchable control is a single name box because `GET /v1/organizations`'s `q` is a name
+    substring and promising more than that would be a filter the API cannot honour."""
+    api = get_api(request)
+    qp = request.query_params
+    params: dict[str, str | None] = {name: qp[name] for name in ORG_INDEX_FILTERS if qp.get(name)}
+    params["limit"] = str(ORG_INDEX_PAGE_SIZE)
+    params["cursor"] = qp.get("cursor")
+    envelope = api.get("/v1/organizations", params=params)
+    records: list[dict[str, Any]] = []
+    for entity in envelope["data"]:
+        record = flatten_organization(entity)
+        holdings = _org_holdings(api, record["public_id"])
+        record.update(holdings)
+        record["descriptor"] = org_descriptor(record.get("type"), holdings["type_counts"])
+        record["href"] = f"/organizations/{record['slug'] or record['public_id']}"
+        records.append(record)
+    page = envelope["page"]
+    canonical_path = "/organizations" + canonical_query(qp, (*ORG_INDEX_FILTERS, "cursor"))
+    context = {
+        "records": records,
+        "has_more": page["has_more"],
+        "next_cursor": page["next_cursor"],
+        "prev_cursor": page.get("prev_cursor"),
+        "querystring": querystring_without(qp, "cursor"),
+        "filters": dict(qp),
+        "canonical_path": canonical_path,
+        "jsonld": [
+            item_list_jsonld(
+                request,
+                name="Companies",
+                description=(
+                    "Owners and operators of the assets, proposals and opportunities in the "
+                    "Infraque register."
+                ),
+                path=canonical_path,
+                rows=[(r["name"], r["href"]) for r in records if r.get("name")],
+            )
+        ],
+    }
+    if is_htmx(request):
+        return templates.TemplateResponse(request, "partials/_organization_rows.html", context)
+    return templates.TemplateResponse(request, "organizations_list.html", context)
 
 
 @app.get("/organizations/{ident}", response_class=HTMLResponse)
@@ -1208,6 +1959,7 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
                 features.append(_proposal_feature(flat, geometry))
     except ApiError:
         nearby = []
+    nearby = group_nearby_proposals(nearby)
     tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
     tile_mode = _tile_mode(tile_url)
     mapped = sum(1 for f in features if f["properties"]["kind"] == "asset")
@@ -1233,6 +1985,8 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
             "the organisation record itself is derived from them."
         )
     )
+    descriptor = org_descriptor(record.get("type"), _org_type_counts(asset_counts, groups))
+    path = f"/organizations/{record['slug'] or record['public_id']}"
     return templates.TemplateResponse(
         request,
         "organization_detail.html",
@@ -1241,6 +1995,21 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
             "assets": assets,
             "asset_groups": groups,
             "summary_parts": _org_summary_parts(asset_counts, groups),
+            "descriptor": descriptor,
+            "canonical_path": path,
+            "jsonld": [
+                breadcrumb_jsonld(
+                    request,
+                    [("Home", "/"), ("Companies", "/organizations"), (record["name"], path)],
+                ),
+                organization_jsonld(
+                    request,
+                    record,
+                    ids=entity.get("ids") if isinstance(entity.get("ids"), Mapping) else None,
+                    path=path,
+                    description=descriptor,
+                ),
+            ],
             "subsidiaries": _org_subsidiaries(entity),
             "nearby_proposals": nearby,
             "proposals": proposals,
@@ -1346,9 +2115,29 @@ def attribution(request: Request) -> HTMLResponse:
 #: "capped at a sensible page count" (task brief): 25 pages of 200 rows is 5,000 URLs per
 #: resource, generous for this data set's actual size (docs/adr/0008 ~7,700 active proposals) while
 #: bounding one request's worst case to 100 upstream calls total across the four resources.
-SITEMAP_MAX_PAGES_PER_RESOURCE = 25
+#: Raised from 25 on 2026-09-19 (task item 6): 25 pages capped a resource at 5,000 URLs, which
+#: silently truncated assets (17.4k visible on today's dev load) and organisations (5.5k). 150
+#: pages of 200 (`services/api/pagination.py::MAX_LIMIT`) is 30,000 URLs per resource, which
+#: covers every resource with headroom and bounds one cold build at 600 upstream calls.
+SITEMAP_MAX_PAGES_PER_RESOURCE = 150
 SITEMAP_PAGE_SIZE = 200
 SITEMAP_CACHE_SECONDS = 3600
+#: The sitemaps protocol caps one file at 50,000 URLs and 50 MB uncompressed. 25,000 URLs is half
+#: that count and, at roughly 80 bytes per `<url>`, about 2 MB -- so neither limit can be reached
+#: even if a URL grows. Above one chunk, `/sitemap.xml` becomes a `<sitemapindex>` pointing at
+#: `/sitemaps/{n}.xml`; at or below it, it stays the single `<urlset>` it has always been.
+SITEMAP_URLS_PER_FILE = 25_000
+#: Static public pages, listed first so they are in the first chunk whatever the record counts do.
+SITEMAP_STATIC_PATHS = (
+    "/",
+    "/proposals",
+    "/opportunities",
+    "/assets",
+    "/organizations",
+    "/search",
+    "/about",
+    "/attribution",
+)
 
 
 def _sitemap_paths_for(
@@ -1381,24 +2170,24 @@ def _render_sitemap_xml(base_url: str, paths: list[str]) -> str:
     )
 
 
-@app.get("/sitemap.xml")
-def sitemap(request: Request) -> Response:
-    """Task item 3: proposals, opportunities, assets and organisations, cursor-paginated per
-    resource and capped (see `SITEMAP_MAX_PAGES_PER_RESOURCE`). No such route existed before this
-    task (`docs/23` §3.1's `/sitemap.xml`/`/sitemaps/proposals-{n}.xml` split-by-resource-file
-    shape is not implemented here -- one file covering all four resources is what "if none exists,
-    create one ... and say so in the CHANGELOG line" asks for). A resource whose list call errors
-    is skipped rather than failing the whole sitemap."""
-    api = get_api(request)
-    base = str(request.base_url).rstrip("/")
-    # Rendering costs up to 100 sequential upstream list calls (web audit 2026-09-18: an
-    # uncached amplifier on a public route, and a connection reset mid-way 500ed the whole
-    # response). Cache the rendered XML per base URL for an hour; the sitemap changes daily at most.
-    cache: dict[str, tuple[float, str]] = request.app.state.__dict__.setdefault("sitemap_cache", {})
-    cached = cache.get(base)
-    if cached and time.monotonic() - cached[0] < SITEMAP_CACHE_SECONDS:
-        return Response(content=cached[1], media_type="application/xml")
-    paths: list[str] = ["/", "/proposals", "/opportunities", "/search"]
+def _render_sitemap_index_xml(base_url: str, paths: list[str]) -> str:
+    entries = "".join(f"<sitemap><loc>{escape(base_url + p)}</loc></sitemap>" for p in paths)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + entries + "</sitemapindex>"
+    )
+
+
+def _build_sitemap_documents(api: ApiClient, base: str) -> dict[str, str]:
+    """Every sitemap document this site serves, keyed by path, from one walk of every resource.
+
+    Proposals, opportunities, assets and organisations, cursor-paginated per resource and capped
+    (`SITEMAP_MAX_PAGES_PER_RESOURCE`). A resource whose list call errors is skipped rather than
+    blanking the whole sitemap. When the URLs fit one file, `/sitemap.xml` is that `<urlset>`;
+    above that it becomes a `<sitemapindex>` over `/sitemaps/{n}.xml` (`docs/23` §3.1's
+    split-by-file shape), so the protocol's 50,000-URL and 50 MB limits stay out of reach.
+    """
+    paths: list[str] = list(SITEMAP_STATIC_PATHS)
     resources: list[tuple[str, str, dict[str, str]]] = [
         ("/v1/proposals", "/proposals", {"lifecycle_state": ALL_PROPOSAL_LIFECYCLE_STATES_CSV}),
         ("/v1/opportunities", "/opportunities", {"status": ALL_OPPORTUNITY_STATUSES_CSV}),
@@ -1410,9 +2199,88 @@ def sitemap(request: Request) -> Response:
             paths += _sitemap_paths_for(api, api_path, prefix, extra_params=extra)
         except (ApiError, httpx.HTTPError):
             continue  # one resource's list call failing must not blank the whole sitemap
-    xml = _render_sitemap_xml(base, paths)
-    cache[base] = (time.monotonic(), xml)
+    if len(paths) <= SITEMAP_URLS_PER_FILE:
+        return {"/sitemap.xml": _render_sitemap_xml(base, paths)}
+    documents: dict[str, str] = {}
+    children: list[str] = []
+    for number, start in enumerate(range(0, len(paths), SITEMAP_URLS_PER_FILE), start=1):
+        child = f"/sitemaps/{number}.xml"
+        documents[child] = _render_sitemap_xml(base, paths[start : start + SITEMAP_URLS_PER_FILE])
+        children.append(child)
+    documents["/sitemap.xml"] = _render_sitemap_index_xml(base, children)
+    return documents
+
+
+def _sitemap_documents(request: Request) -> dict[str, str]:
+    """The cached `{path: xml}` for this base URL, built on a miss.
+
+    Building costs up to 600 sequential upstream list calls (web audit 2026-09-18: an uncached
+    amplifier on a public route, and a connection reset mid-way 500ed the whole response), so the
+    rendered documents are cached per base URL for an hour -- the sitemap changes daily at most.
+    The cache now holds every document from one walk rather than one file's XML, so a crawler
+    fetching the index and then twenty child sitemaps still costs one walk, not twenty-one."""
+    base = str(request.base_url).rstrip("/")
+    cache: dict[str, tuple[float, dict[str, str]]] = request.app.state.__dict__.setdefault(
+        "sitemap_cache", {}
+    )
+    cached = cache.get(base)
+    if cached and time.monotonic() - cached[0] < SITEMAP_CACHE_SECONDS:
+        return cached[1]
+    documents = _build_sitemap_documents(get_api(request), base)
+    cache[base] = (time.monotonic(), documents)
+    return documents
+
+
+@app.get("/sitemap.xml")
+def sitemap(request: Request) -> Response:
+    return Response(content=_sitemap_documents(request)["/sitemap.xml"], media_type="application/xml")
+
+
+@app.get("/sitemaps/{number}.xml")
+def sitemap_chunk(request: Request, number: str) -> Response:
+    """One chunk of a split sitemap. Only reachable from `/sitemap.xml`'s index; a number that is
+    not in the current build is a 404, never an empty `<urlset>`, which a crawler would read as
+    "these URLs were removed"."""
+    xml = _sitemap_documents(request).get(f"/sitemaps/{number}.xml")
+    if xml is None:
+        return Response(content="No such sitemap.\n", media_type="text/plain", status_code=404)
     return Response(content=xml, media_type="application/xml")
+
+
+# ---- robots.txt (task item 5; none existed before 2026-09-19) ----------------------------------
+#: Everything public is crawlable; these are the paths that are not. `/admin` is operator-only
+#: (D-16 puts it on its own host in production, but it is mounted here in dev and a stray link
+#: must never be followed), `/api/` is this site's own same-origin relay for its JavaScript rather
+#: than a public API (`/v1` on the API host is the documented one), and the rest are session
+#: routes: a crawler that follows them gets a form or a 401, never content. `/search?` blocks the
+#: query-string form only, so the empty `/search` page in the sitemap stays crawlable while a
+#: crawler cannot wander an unbounded space of result pages.
+ROBOTS_DISALLOW = (
+    "/admin",
+    "/api/",
+    "/login",
+    "/register",
+    "/logout",
+    "/verify",
+    "/account",
+    "/privacy/request",
+    "/unsubscribe",
+    "/health",
+    "/search?",
+)
+
+
+@app.get("/robots.txt")
+def robots(request: Request) -> Response:
+    """`Allow: /` first, then the disallowed prefixes: the sitemaps protocol and every major
+    crawler resolve the most specific matching rule, so the order is documentation, not logic.
+    The `Sitemap:` line must be absolute, so it is built from this request's own base URL and the
+    file is not a static asset."""
+    base = str(request.base_url).rstrip("/")
+    lines = ["User-agent: *", "Allow: /"]
+    lines += [f"Disallow: {path}" for path in ROBOTS_DISALLOW]
+    lines += ["", f"Sitemap: {base}/sitemap.xml", ""]
+    return Response(content="\n".join(lines), media_type="text/plain")
 
 
 @app.get("/health")

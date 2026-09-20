@@ -694,3 +694,320 @@ operating subsidiaries without an LEI of their own, and the strings are not lega
 stays. Nothing in the curated file asserts a share, a legal form or an ownership chain beyond one parent
 hop, and none of it is inferred from a name alone — each row is a statement the company itself published.
 
+
+### 15.3 EIA-860 Schedule 4 owner shares (2026-09-19)
+
+The Schedule 4 connector now fetches its own archive. EIA publishes the current final release at
+`xls/eia860<year>.zip`, which robots.txt allows; only past years move to the disallowed `archive/xls/`
+path. `python -m pipeline.connectors run us.eia.860` took the 2025 final release
+(<https://www.eia.gov/electricity/data/eia860/xls/eia8602025.zip>, 23,622,347 bytes, server date 2026-09-10,
+retrieved 2026-09-19T20:48:22Z, sha256 `2b27929d…`), 5,680 Ownership rows, DQ pass.
+`pipeline/context/eia_owners.py --latest-snapshot` wrote 5,680 owner rows over 2,534 plants, 4,018
+generators and 2,038 distinct owner strings. Two columns are new: `generator_status` (the sheet's own
+status code) and the generator/plant nameplate joined from the same zip's `3_1_Generator_Y2025.xlsx`
+"Operable" sheet (4,983 of 5,680 rows carry a generator nameplate; the rest are retired, cancelled or
+proposed units).
+
+**The share a company owns of a plant.** Schedule 4 reports a percentage per *generator*, and its title
+row says it lists "Jointly or Third-Party Owned" generators only. So a plant-level share is neither the
+mean of the generator percentages nor a number that sums to 100 across the listed owners. The loader
+computes `share_pct = Σ(pct_g × nameplate_g) / plant_nameplate`, where the denominator is the nameplate of
+**every** operable generator at the plant, listed on Schedule 4 or not. A plant whose other units are
+wholly owned by its operator therefore shows its joint owners at their true share of the site, and the
+unlisted remainder stays implicit — no edge is invented for an owner the registry does not name. Where the
+parquet carries no nameplate (a fixture, or an owner whose rows are all retired units) the loader falls back
+to the unweighted mean, or writes a NULL share; `OwnershipLoadResult` counts which path each edge took
+(3,024 nameplate-weighted, 27 unweighted mean, 67 without a share, on the run below).
+
+Over-allocated generators are **flagged, never normalised**: the 2025 release has two whose listed shares
+sum above 100 (plant 341 generator CT5 at 150.0, plant 70387 BESS1 at 100.09). They are reported in the load
+result and logged, and their rows are used exactly as stated. Rescaling would hide a registry error behind a
+plausible number on a company page. Rows whose owner is the placeholder `Other` (35 rows on 11 plants,
+Ownership ID 99999, no address — EIA's filing for an unnamed minority owner) are counted and skipped rather
+than resolved into an organisation called "Other".
+
+Measured, loading `data/normalized/context/us.eia.860.owners.parquet` into a copy of the dev store
+(`web/.data/dev-shots2.db`, which already held 14,659 `power_plant` assets and 5,513 organisations):
+5,680 rows seen, 35 placeholder rows skipped, **2,315 of 2,534 plants matched** an EIA-860M asset by plant
+id (91.4 %), **3,118 owner edges** written over 1,867 organisations, of which **1,735 were created and 132
+matched organisations the proposal and midstream lanes had already made**. The 219 unmatched plants are
+plants EIA-860M does not carry as operating: 200 have only retired or cancelled generators on Schedule 4,
+17 only proposed ones, 2 are mixed; none has an operable nameplate. A second run wrote 0 new organisations
+and 0 duplicate edges (33.6 s then 3.4 s). Top ten owners by owned MW (share × the asset's EIA-860M
+nameplate): Constellation Nuclear 6,228 MW; Georgia Power Co 4,678; Oglethorpe Power Corporation 4,082;
+Virginia Electric & Power Co 3,873; ArcLight Capital Partners LLC 3,596; MidAmerican Energy Co 3,424;
+PacifiCorp 3,321; Evergy Metro 3,093; Cornerstone Generation 2,718; Comanche Peak Power Co, LLC 2,430 —
+the nuclear and large-coal joint ventures, which is what a jointly-owned-generators register should surface.
+
+### 15.4 What the ownership load taught us about the organisation key
+
+**The key must be one function.** The index was built on `norm_org` alone while the lookup fell back to the
+upper-cased raw string when `norm_org` returned nothing. `norm_org("US Solar")` is `None` — both tokens are
+on the suffix list — so that owner was created, indexed under a key nothing would look up, and re-created on
+every run: 1 organisation and 20 edges churned per load. `services/ingest/ownership.py::org_key` is now the
+single function the index, the lookup and the aggregation group key all use, and a regression test covers
+exactly this name. The same bug shape exists in `services/ingest/midstream.py::_get_or_create_parent`
+(line 285), which still inlines the fallback; it is that lane's file, recorded here rather than edited.
+
+**The group key was too narrow.** Aggregation grouped on the raw case-folded owner string, so two spellings
+of one owner at one plant were two groups and the second edge write overwrote the first. It now groups on
+`org_key`, the same key resolution uses.
+
+**How much collapses, and how much should not.** 2,038 distinct owner strings resolve to 2,020 keys — 18
+keys carry more than one spelling. Some are exactly what the key is for (`Wellhead Services, Inc.` /
+`Wellhead Services, Inc`; `Vistra Corp` / `Vistra Energy`; `Nextera Energy Resources` / `NextEra Energy
+Resources, LLC`; `Clearway Energy, Inc` / `Clearway Energy Group`). Others are **over-merges**: `norm_org`
+strips `energy`, `power`, `solar`, `wind`, `renewables`, `storage`, `holdings`, `partners` and `project`
+along with the corporate suffixes, so `MidAmerican Energy Co` and `MidAmerican Solar LLC` both reduce to
+MIDAMERICAN, as do `Entergy Corp` / `Entergy Power, LLC`, `Prairie Power Inc` / `Prairie Solar LLC`,
+`Shell Renewables` / `Shell Wind Energy Inc.`, `BP America Inc` / `BP Wind Energy North America Inc`,
+`SunRay Power LLC` / `Sunray Energy Inc` and `Anderson Wind Project, LLC` / `Anderson North Solar Project,
+LLC`. These are separate legal entities inside one family, or two unrelated projects sharing a first word —
+a parent link or nothing, not an identity. Seven of the eighteen multi-spelling keys are of this kind, and
+each costs a company page precision (one "MidAmerican" row instead of a utility and its solar affiliate). Narrowing the suffix list is a §13 resolver decision
+with consequences for every source, so it is recorded here as a measured cost, not changed by this lane.
+
+**What the key cannot reach** goes in `data/vendored/organizations/aliases.yaml` (new, same contract as
+`parents.yaml`: one entity per row, a cited document per row, nothing inferred from a name). Four rules,
+all read from SEC EDGAR submissions metadata on 2026-09-19: `Wisconsin Power and Light Co` →
+`Wisconsin Power & Light Co` (one registrant, CIK 0000107832; "and" survives `norm_org` where "&" becomes a
+space, so the two spellings split); `Kansas City Power & Light Co` → `Evergy Metro` and `Westar Energy Inc`
+/ `Western Resources Inc` → `Evergy Kansas Central, Inc` (EDGAR `formerNames`, renamed 2019 — no string
+similarity to reach across, and older registry vintages still carry the former names). No loader reads the
+file yet. Two candidates were left out for want of a source: `Farm Credit Leasing Service Corp` /
+`Farm Credit Leasing Services Corporation` (farmcreditleasing.com serves an expired certificate; the FCA
+institution directory does not name it in fetchable text) and `John Hancock` / `John Hancock Funding
+Company` / `Manulife Infrastructure II Holdings A, L.P.` (manulife.com and johnhancock.com answer 403 to a
+scripted request) — the last of which is the 31-plant and 30-plant pair in the top twenty, so it is worth a
+human minute in a browser.
+
+The twenty most frequent owner strings are dominated by financing and municipal-aggregation entities, not
+utilities: `GSRP Project Holdings I LLC` (49 rows, 37 plants), `Nordic Solar, LLC` (40 rows, 9 plants),
+`John Hancock Funding Company` (31 plants), `Manulife Infrastructure II Holdings A, L.P.` (30),
+`Generate C&I Warehouse, LLC` (28), `Hunt Energy Network, LLC` (27), `NJR Clean Energy Ventures III
+Corporation` (23), `Generate NY Community Solar Lessor III` (20), eight Ohio municipalities
+(`City of Hamilton - (OH)` and siblings, 8–11 plants each), `Public Service Co of NM` (14),
+`Wisconsin Public Service Corp` (13), `FirstLight Hydro Generating Company` (8) and
+`Florida Municipal Power Agency (FL)` (7).
+Three of the twenty matched an organisation another lane had already created — `Hunt Energy Network, LLC`
+(ERCOT queue sponsor), `Public Service Co of NM` (EIA Atlas pipeline operator) and
+`NJR Clean Energy Ventures III Corporation` (NYISO queue sponsor) — which is the join the ownership graph
+exists for: a tax-equity or IPP name on an operating plant is the same row as the sponsor on a queued one.
+The other seventeen were new, as expected for financing vehicles and municipalities that never file a queue
+request.
+
+## 16. The organisation key: legal forms only (2026-09-19)
+
+**Status:** measured and applied. Code `pipeline/normalize.py` (`norm_org`, `org_key`), consumers
+`services/resolve/merge.py`, `services/ingest/ownership.py`, `services/ingest/midstream.py` and
+`sponsor_norm` in the connectors (not `services/ingest/loader.py` — see §16.3). Labelled data `data/eval/organization_pairs.csv` (757 hand-labelled
+pairs). Tests `tests/test_org_key.py`. Every number below was measured on the 7,642 distinct
+organisation strings reachable today: the 5,513 live `organization` rows and 5,702 distinct
+canonical-plus-alias spellings in the dev store (`web/.data/dev-shots2.db`, 2026-09-19 build)
+together with the 2,038 distinct EIA-860 Schedule 4 owner strings.
+
+### 16.1 The defect
+
+`norm_org` stripped, alongside the legal forms, this list: `energy, energies, power, renewables,
+solar, wind, storage, development, developments, partners, group, usa, us, america, american,
+north, project, projects, holdings`. Those are not legal forms; they are exactly the words that
+distinguish one legal entity from another inside a corporate family, and one project SPV from its
+sibling. §15.4 measured 7 over-merges over the EIA owner strings alone. Over the full corpus the
+number is much larger, and it is on a live product surface: a company page lists the assets of
+every organisation that collides on the key, and `asset_owner` edges are attributed to whichever
+of them the loader created first.
+
+### 16.2 Both error rates, measured
+
+**Over-merge (the key merges two names).** This is a *census*, not a sample: the old key put
+7,642 names into 7,189 keys, 380 of which hold more than one name, giving **557 name pairs** —
+all of them labelled by hand. Labelling rule, stated because it is a modelling choice: `same` =
+one legal entity (punctuation, case, spacing, legal form, abbreviation, `&`/`and`, or a plural
+spelling); `different` = distinct legal persons, including two SPVs of one developer that differ
+by technology word, and two unrelated companies sharing a first token; `family` = the ambiguous
+middle, a parent or brand against its named affiliate (`AES` / `AES Energy Storage, LLC`, `RWE` /
+`RWE Renewables`, `Chevron` / `Chevron USA Inc`, the 21 Invenergy affiliate pairs). **The decision
+for `family` is split**: they are separate legal persons that file separately and own different
+assets, so one identity is wrong; the relationship belongs in `parents.yaml`
+(`organization.parent_org_id`), which already exists for exactly this.
+
+| Label | Pairs | Share of the 557 |
+|---|---|---|
+| `same` — one legal entity | 299 | 53.7 % |
+| `family` — parent/affiliate, ambiguous | 137 | 24.6 % |
+| `different` — distinct companies | 121 | 21.7 % |
+
+**46.3 % of what the old key merged is not one company** (258/557; no confidence interval is
+quoted because this is the whole population, not a sample).
+
+**Over-split (the key keeps two names apart).** No census is possible — the non-merged pairs are
+~29 million. Candidates were generated by blocking on `rapidfuzz.token_sort_ratio >= 88` over all
+7,642 names: 1,813 pairs, of which **1,610 are split by the old key**. A **random sample of 200**
+(seed 11) was labelled by the same rule: **3 `same`, 7 `family`, 190 `different`**. The
+over-split rate among high-similarity candidates is therefore **1.5 % (3/200), 95 % Wilson CI
+0.51 %–4.32 %**, or 5.0 % (2.74 %–8.96 %) counting `family`. Scaled to the 1,610 candidates that
+is ~24 truly-same pairs split today (CI ~8–70). **Caveat that must travel with this number:** it
+only covers pairs that *look* alike. A rename (`Westar Energy` → `Evergy Kansas Central`) has no
+string similarity at all and is invisible to this measurement; those are alias work, §16.5.
+
+The asymmetry is the finding. Over-merge is ~46 % of a small population of merges; over-split is
+~1.5 % of a small population of look-alike splits, and its mass is nearly all numbered sibling
+SPVs (`Cottontail Solar 1` / `Cottontail Solar 8`, `KCE NY 22` / `KCE NY 28`, `ENSO GREEN HOLDINGS
+J` / `... L`) which *must* stay apart. Tightening the key is clearly the right trade.
+
+### 16.3 The corrected key
+
+`norm_org` now does, in order: lower-case; `&` → ` and `; non-alphanumerics → space; fold
+co-op/co op/cooperative to one spelling; remove legal-form tokens repeatedly until stable; fold a
+**closed list** of business-vocabulary plurals to the singular; upper-case.
+
+- `LEGAL_FORM_TOKENS` is `llc, l l c, inc, incorporated, corp, corporation, co, company,
+  companies, lp, l p, llp, lllp, ltd, limited, plc, pllc` — and nothing else. `RESERVED_CONTENT_WORDS`
+  names the words that must never join it, and `tests/test_org_key.py` fails if one does.
+  Rejected from the list after measurement: `gp` (it merges `CMD Carson GP LLC` into `CMD Carson
+  LLC`, which are a general partner and the partnership it manages — two entities); `lc` and `pc`
+  (too easily a pair of initials); and the non-US forms `sa/nv/bv/ag/kg/oy/ab`, where `ag` alone
+  reduces `AG Energy Inc` to `ENERGY`.
+- The `&`/`and` fold: `Wisconsin Power & Light Co` == `Wisconsin Power and Light Co`, the split
+  the alias file was seeded to patch; also `Louisville Gas & Electric`.
+- The plural fold is a closed list (`renewables→renewable`, `holdings→holding`, `services→service`,
+  …, 24 entries), **not** a "drop a trailing s" rule, which would destroy Texas, Kansas, Illinois,
+  Dallas, Hess and Atlas. It recovers 12 of the 19 same-company pairs a legal-forms-only key would
+  otherwise split (`EDF Renewable Development Inc.` / `EDF Renewables Development`; `NextEra …
+  Interconnection Holding, LLC` / `… Holdings, LLC`; `Valero Renewable Fuels` / `Valero
+  Renewables Fuels LLC`; `Renegade Renewable LLC` / `Renegade Renewables, LLC`; `SED NY Holding
+  LLC` / `SED NY Holdings LLC`).
+- Iterated stripping handles stacked forms: `Astoria Generating Company, L.P.` == `Astoria
+  Generating Co.`.
+- `norm_org` still returns `None` for a string that is nothing but legal forms (`"LLC"`).
+  `pipeline.normalize.org_key` is the total version, and **it is now the one function** the
+  resolver, the ownership index, the midstream parent lookup and their group keys all call —
+  `services/ingest/ownership.py::org_key` re-exports it and `midstream.py`'s inlined,
+  divergent fallback (§15.4 flagged it as the same bug shape) is gone.
+
+One correction to the brief this lane was given: `services/ingest/loader.py` is **not** a
+`norm_org` consumer. Its `_org_punct_key` is a punctuation-and-case-only key, deliberately
+conservative at insert time, with `resolve_organizations` doing the suffix-level merging
+afterwards as a recorded, reversible event. So the loader is unaffected by this change; the four
+call sites that move are `services/resolve/merge.py`, `services/ingest/ownership.py`,
+`services/ingest/midstream.py`, and `sponsor_norm` in `pipeline/normalize.py` and the connectors
+(which feeds `pipeline/resolve.py`'s sponsor scoring component).
+
+### 16.4 What the change does, quantified
+
+On the 557-pair census:
+
+| | Old key | Corrected key |
+|---|---|---|
+| Pairs merged | 557 | 305 |
+| … `same` | 299 | **292** (7 lost) |
+| … `family` | 137 | 13 (124 split) |
+| … `different` | **121** | **0** (all 121 split) |
+| Precision of the merge decision (`same` / merged) | 0.537 | **0.957** |
+| … counting `family` as acceptable | 0.783 | **1.000** |
+
+On the 200-pair over-split sample the corrected key is also *better*, not worse: it merges 2 of
+the 3 `same` pairs the old key split (`Astoria Generating Company LP` / `… Company, L.P.`;
+`Farm Credit Leasing Service Corp` / `… Services Corporation`, the pair §15.4 could not find a
+source for) and merges none of the 190 `different` ones. Across the whole corpus it gains 17 new
+merges, every one of them hand-checked and a true same-company pair.
+
+**Effect on the resolver's own evaluation** (`pipeline/resolve.py --sweep` against
+`data/eval/labels.csv`, 85 usable labels, chosen threshold 75 — the §6 numbers):
+
+| | precision | recall | F1 | weighted P | weighted R | tp/fp/fn/tn |
+|---|---|---|---|---|---|---|
+| Before | 0.927 | 0.950 | 0.938 | 0.915 | 0.946 | 38/3/2/42 |
+| **After** | **0.975** | **0.975** | **0.975** | **0.961** | **0.976** | 39/1/1/44 |
+
+Two false positives and one false negative are removed: the sponsor component can now tell two
+companies apart, which is what §7.3 said organisation resolution was a prerequisite for.
+`data/eval/normalized.parquet`, `matches.parquet` and `clusters.parquet` were regenerated.
+
+**Effect on the store path** (`python -m services.resolve.report`, in-memory store, same 2026-09-12
+pull, same gate, run both ways on 2026-09-19 — the §13.4 measurement repeated):
+
+| | Before | After |
+|---|---|---|
+| Organizations before / after resolution | 3,034 / 2,784 | 3,034 / **2,883** |
+| Normalised-name groups merged | 212 (250 absorbed) | **133 (151 absorbed)** |
+| Store-path precision / recall, 77 usable labels | 0.946 / 0.946 (tp35 fp2 fn2 tn38) | **1.000 / 0.973** (tp36 fp0 fn1 tn40) |
+
+99 of the 250 organisation merges the store used to apply were wrong by the census above, and the
+proposal-level precision through the store rises to 1.000 on the labels it can answer.
+
+**Effect on today's loaded data** (dev store, 2026-09-19 build):
+
+- 5,513 live organisations today. Rebuilt under the corrected key the 5,702 name strings yield
+  **5,455 keys instead of 5,318 — about +137 organisations (+2.6 %)**.
+- 101 groups of live organisations (224 rows) that `resolve_organizations` would have merged stay
+  apart.
+- **122 of the 3,217 `asset_owner` edges (3.8 %) move to a different organisation** — their raw
+  owner string no longer keys to the organisation they currently hang off. Examples, each a wrong
+  attribution on a live company page today: `WM` (24 edges) → under `WM Renewable Energy, LLC`; `Dominion Energy Transmission, Inc.` (19 edges across its two
+  spellings) → under `Dominion Transmission Co`; `BLACK HILLS ENERGY CORP` (7) →
+  under `Black Hills Power, Inc.`; `Williams Partners LP` (4) → under `Williams`;
+  `North American Power Systems` (4) → under `Renewable Energy Systems Limited`, an unrelated
+  company.
+
+### 16.5 What the key deliberately cannot reach, and belongs in `organization_alias`
+
+Seven pairs in the census (five distinct entities) are one legal entity that no legal-form key can merge, because the
+difference is a content word or a rename. They are alias work, not key work — a key loose enough
+to reach them merges MidAmerican Energy with MidAmerican Solar again:
+
+| Pair | Evidence read 2026-09-19 |
+|---|---|
+| `Vistra Energy` → `Vistra Corp` | SEC EDGAR CIK 0001692819: conformed name "Vistra Corp.", formerName "Vistra Energy Corp." through 2020-06-29 — one registrant renamed. |
+| `Enable Midstream` → `Enable Midstream Partners` | SEC EDGAR CIK 0001591763, conformed name "Enable Midstream Partners, LP"; the bare form is a short spelling in EIA-860 Schedule 4. |
+| `Noble Environmental` → `Noble Environmental Power, LLC` | SEC EDGAR CIK 0001381415, conformed name "NOBLE ENVIRONMENTAL POWER LLC", no former names. |
+| `Dominion Transmission Co` → `Dominion Energy Transmission, Inc.` | **Not yet sourced.** The May-2017 Dominion rebrand is visible on EDGAR for sibling registrants (CIK 0001603291 "Dominion Gas Holdings" → "Dominion Energy Gas Holdings", CIK 0001603286 "Dominion Midstream Partners" → "Dominion Energy Midstream Partners", both 2017-05-16) but DTI itself has no EDGAR registration, so the rule is *not* written: inference by analogy is what the curated-file contract forbids. Worth a FERC Form 2 minute. 19 `asset_owner` edges hang on it. |
+| `NY Power Authority & LS Power Grid NY Corporation II` / `… Development & …` | Not sourced; a JV filing would settle it. |
+
+`data/vendored/organizations/aliases.yaml` was re-purposed during this sprint by the features lane
+into a PHMSA↔Atlas operator-alias file with a different schema and its own loader
+(`services/ingest/enrich.py::apply_context_features`). **The three sourced rules above are
+therefore recorded here, not written to that file**, and the next lane to own an organisation
+alias loader should apply them — three rows, `kind="filing_spelling"`, `confidence=1.0`, each
+carrying its `data.sec.gov` URL. `tests/test_org_key.py` (`test_rename_and_short_form_pairs_are_alias_work_not_key_work`) pins all four pairs as *not* key merges so a later "loosen the key a
+little" is measured against them.
+
+### 16.6 A production migration, if there is ever data to migrate
+
+There is none today: the dev store is rebuilt from parquet on every `web/dev_up.py` run, and no
+production database exists. When one does, the change is **not** a re-key in place, because
+splitting an organisation is not expressible as an `unmerge` unless the merge was recorded as an
+event. A migration would have to:
+
+1. Recompute `org_key` for every `organization.name_canonical` and every `organization_alias.alias`
+   and find the groups that the old key had collapsed (the 101 groups / 224 rows measured above).
+2. For every organisation that is a *merge product*, reverse it: where §13's
+   `resolve_organizations` produced the merge there is an `organization` `merged` event carrying a
+   full `before` payload, so `unmerge_organization` restores the absorbed row exactly (docs/21 §6.3
+   invariant M1), and that covers every proposal-side organisation, because the proposal loader
+   inserts on the punctuation-only `_org_punct_key` and leaves the suffix-level merge to §13.
+   The ownership and midstream loaders are the other case: `_resolve_organization` matches on
+   `org_key` *at insert time*, so one row was created for two spellings with no event and no
+   `before` state. There the only correct fix is to create the new organisation, move the affected
+   `asset_owner` / `proposal.sponsor_org_id` / operator edges by re-keying their stored raw
+   strings (`asset_owner.owner_name_raw` exists for exactly this; the proposal side would need the
+   `proposal_source` raw sponsor), and write a `split`-reason `alias_removed`/`created` event pair
+   so the move is itself reversible.
+3. Re-point the ~3.8 % of edges whose raw string re-keys elsewhere, then recompute
+   `organization.asset_count`-style derived fields and invalidate every company-page cache.
+4. Keep the old key available for one release as `legacy_org_key` so a URL or public id that was
+   issued against a collapsed organisation can still redirect.
+
+The cheap alternative, while no durable rows exist: **rebuild**. That is what should happen now.
+
+### 16.7 Assumptions recorded
+
+- A-22-8: `family` pairs (a parent or brand against its named affiliate) are split, not merged.
+  This is a product judgement as much as a data one — a user looking at "Invenergy" probably wants
+  the whole family, and the answer to that is `parent_org_id` plus a rolled-up company page, not
+  one identity. 137 of the 557 census pairs turn on it; if the owner decides the other way, the
+  right implementation is still a parent link, never a looser key.
+- A-22-9: the over-split rate (1.5 %, n=200) is measured only over pairs with
+  `token_sort_ratio >= 88`. Renames and abbreviations below that threshold are not counted and are
+  not reachable by any key; their size is unknown and would need a different sampling frame
+  (e.g. pairs that share an EIA plant or a FERC docket).

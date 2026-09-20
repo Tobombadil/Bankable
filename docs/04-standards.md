@@ -349,13 +349,25 @@ are the dominant failure mode (`docs/20` §12).
 
 **E-7 Coverage floors.** ≥ 80 % lines on `pipeline/` and `services/`; 100 % branches on the visibility predicate,
 licence-gate and redaction modules (`docs/21` §5.4, §6.6, §8); reported per package; a drop blocks merge.
+The 100 % figure is measured with no `# pragma: no cover` in the gate module — an excluded line is a
+lowered floor wearing a green badge, so a branch no test can reach is either given a test or reported as
+unreachable with its evidence, never excluded. Enforced for `services/api/visibility.py` since 2026-09-19
+(`.github/workflows/ci.yml`, job `test-core`: 45 statements, 2 branches, nothing excluded, `--fail-under=100`
+without `continue-on-error`). The licence-gate and redaction modules have no such step yet — they are inside
+the 80 % floor and nothing else; naming them here is the standard, not the current state.
 *Why:* the gate modules are where a miss is a legal event.
 
 **E-8 Contract tests against OpenAPI 3.1.** `api/openapi.yaml` (https://spec.openapis.org/oas/v3.1.1) is
 generated at build and compared byte-for-byte with the committed file; a property-based suite (schemathesis or
 equivalent) exercises every operation for schema conformance, the §10 envelope, RFC 9457 bodies and rate-limit
-headers; every example response is itself validated (US-704 AC1). *Why:* `docs/23` §12 — contract and API
-cannot drift.
+headers; every example response is itself validated (US-704 AC1).
+Two enumeration rules, learned the hard way on 2026-09-20 and pinned by
+`tests/test_spec_operation_inventory.py`: count the app's operations from `app.openapi()`, never from
+`app.routes` (this FastAPI version leaves one `_IncludedRouter` entry per `include_router` call, so
+`app.routes` lists 25 of the ~125 operations the app really serves); and count the spec's from **both**
+`paths` and `webhooks`, comparing only `paths` against the app — `api/check_story_coverage.py`'s 145 is those
+136 plus 9 webhook operations, not a contradiction. Two counters that disagree are a defect in a counter until
+one of them is proven right. *Why:* `docs/23` §12 — contract and API cannot drift.
 
 **E-9 Integration fixtures for tier and gate.** The seeded database holds ≥ 1 record per `publish_state` and
 per `reuse_class`, one at lag−1 day and one at lag+1 day, one mixed-provenance proposal (ERCOT + PJM), one

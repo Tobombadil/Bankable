@@ -1,0 +1,65 @@
+# Curated organisation alias rules (docs/22 §15.3). Companion to `parents.yaml`, same contract:
+# one rule per row, every rule cites the document it was read from, nothing is inferred from a
+# name alone. No loader reads this file yet (2026-09-19) -- it is proposed by the ownership lane
+# and applied by whichever lane next touches `organization_alias`; until then these rows are a
+# record of measured splits, not applied data.
+#
+# Why a curated file at all. Resolution keys on `pipeline.normalize.norm_org`, which strips
+# corporate and sector suffixes and punctuation. That merges "NextEra Energy Resources, LLC" with
+# "NEXTERA ENERGY RESOURCES LLC" without help, but it cannot merge:
+#   - "and" against "&"  ("Wisconsin Power and Light Co" -> WISCONSIN AND LIGHT,
+#     "Wisconsin Power & Light Co" -> WISCONSIN LIGHT: the ampersand becomes a space and vanishes,
+#     the word "and" survives), and
+#   - a renamed company against its former name (no string similarity at all).
+# Both kinds are spellings of one legal entity, and both are decidable from a public filing.
+#
+# Schema, one row per rule:
+#   alias         : the spelling to attach (matched case-insensitively, whole string, after
+#                   trimming -- not a regular expression; `parents.yaml` uses patterns because a
+#                   parent covers a family of subsidiaries, an alias names one entity)
+#   canonical     : the organisation the alias belongs to, as `organization.name_canonical`
+#   source_url    : the filing or company page the identity is read from
+#   retrieved_at  : when that document was read (ISO 8601, UTC)
+#   note          : what the document says, and where both spellings occur in our data
+#
+# Out of scope for this file: two entities that merely share a corporate family ("Entergy Corp"
+# and "Entergy Power, LLC"; "AEP Renewables" and "AEP Resources Service Corp.") -- those are
+# parent links (`parents.yaml`), not aliases. And two entities that look alike but are not the
+# same company: "Public Service Co of NH" and "Public Service Co of NM" differ by one letter, own
+# different plants, and must never be merged (token_sort_ratio 95 -- a similarity threshold alone
+# would merge them, which is why this file is curated and cited rather than computed).
+
+aliases:
+  - alias: Wisconsin Power and Light Co
+    canonical: Wisconsin Power & Light Co
+    source_url: https://data.sec.gov/submissions/CIK0000107832.json
+    retrieved_at: '2026-09-19T21:10:00Z'
+    note: >-
+      SEC EDGAR CIK 0000107832, conformed name "WISCONSIN POWER & LIGHT CO", no former names --
+      one registrant, and EIA-860 Schedule 4 (2025 release) spells it both ways: "Wisconsin Power
+      & Light Co" on 6 plants and "Wisconsin Power and Light Co" on 1. `norm_org` gives
+      WISCONSIN LIGHT and WISCONSIN AND LIGHT, so today they are two organisations.
+  - alias: Kansas City Power & Light Co
+    canonical: Evergy Metro
+    source_url: https://data.sec.gov/submissions/CIK0000054476.json
+    retrieved_at: '2026-09-19T21:10:00Z'
+    note: >-
+      SEC EDGAR CIK 0000054476: conformed name "EVERGY METRO, INC.", formerName "KANSAS CITY POWER
+      & LIGHT CO" through 2019-08-07 -- the same registrant renamed, not two companies. EIA-860
+      Schedule 4 (2025) uses "Evergy Metro" (3 plants); the pre-2019 spelling is what older
+      registry vintages and EPA LMOP carry ("City of St. Joseph, MO; Kansas City Power & Light"),
+      so this rule attaches nothing today and prevents a split the moment such a row is loaded.
+  - alias: Westar Energy Inc
+    canonical: Evergy Kansas Central, Inc
+    source_url: https://data.sec.gov/submissions/CIK0000054507.json
+    retrieved_at: '2026-09-19T21:10:00Z'
+    note: >-
+      SEC EDGAR CIK 0000054507: conformed name "EVERGY KANSAS CENTRAL, INC.", formerNames "WESTAR
+      ENERGY INC /KS" (2002-07-01 to 2019-08-19) and "WESTERN RESOURCES INC /KS" (to 2002-06-10).
+      EIA-860 Schedule 4 (2025) uses "Evergy Kansas Central, Inc" (5 plants); as above, the former
+      spelling appears in older vintages.
+  - alias: Western Resources Inc
+    canonical: Evergy Kansas Central, Inc
+    source_url: https://data.sec.gov/submissions/CIK0000054507.json
+    retrieved_at: '2026-09-19T21:10:00Z'
+    note: Same filing, the earlier of the two former names (through 2002-06-10).

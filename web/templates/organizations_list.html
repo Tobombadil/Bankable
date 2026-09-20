@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Companies -- Infraque{% endblock %}
+{% block meta_description %}Owners and operators of the power plants, pipelines, processing and storage in the Infraque register, each with what it holds, the proposals it sponsors and the sources behind them.{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / Companies</nav>
+<div class="page-header">
+  <h1>Companies</h1>
+  <p>Every organisation the register names as an owner, operator, sponsor or issuer. Search by name; a company page shows what it holds, where, and which register said so.</p>
+</div>
+
+<form id="filters" class="filter-bar" method="get" action="/organizations" hx-get="/organizations" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" role="search">
+  <div class="filter-field">
+    <label for="f-org-q">Company name</label>
+    <input id="f-org-q" type="search" name="q" placeholder="e.g. Tallgrass" value="{{ filters.get('q', '') }}">
+  </div>
+  <button class="filter-bar__submit" type="submit">Search</button>
+  {% if filters.get('q') or filters.get('type') or filters.get('country') %}
+  <a class="filter-bar__clear" href="/organizations">Clear</a>
+  {% endif %}
+</form>
+
+<div id="result-rows">
+  {% include "partials/_organization_rows.html" %}
+</div>
+{% endblock %}

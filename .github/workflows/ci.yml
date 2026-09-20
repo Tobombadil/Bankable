@@ -17,11 +17,25 @@ name: ci
 #     `test-core`; it is left for whoever owns `web/` to un-skip.
 #   - The OpenAPI "generated == committed, byte-for-byte" check (docs/04 E-8, docs/23 §12): the
 #     hand-written api/openapi.yaml is the contract and `services.api.app` implements a subset of
-#     it (measured 2026-09-18: 120 of its 135 path operations; the 15 missing are listed by the
-#     step itself). A byte-for-byte diff therefore fails for coverage, not drift, until the last
-#     operation lands. The step now measures the real gap on every run (operations the spec has
-#     that the app lacks, and the reverse — the reverse must be empty) and stays
-#     `continue-on-error: true`; flip it off the day its output is "0 missing".
+#     it (measured 2026-09-20: 125 of the 136 operations under `paths:`). A byte-for-byte diff
+#     therefore fails for coverage, not drift, until the last operation lands. The step measures
+#     the real gap on every run and stays `continue-on-error: true`; flip it off the day its
+#     output is "0 missing" with no misfiled and no undocumented operations. Its output is
+#     grouped so the gap is legible without opening the spec: 15 operations in five whole unbuilt
+#     areas — bulk (3), exports (3), matches (6), documents (1), sitemaps (2) — by operation id,
+#     with the counts in the headline and a table in the job summary.
+#     Two enumeration traps this step had to be corrected for, both pinned by
+#     tests/test_spec_operation_inventory.py:
+#       * the app side is `app.openapi()`, never `app.routes`. `include_router` leaves one
+#         `_IncludedRouter` entry in `app.routes` on this FastAPI version instead of flattening
+#         the router's routes into it, so `app.routes` shows 25 APIRoutes for an app that serves
+#         ~125 operations (`GET /v1/assets` answers 200 and is not among them).
+#       * the spec has two operation groups. api/check_story_coverage.py counts `paths` AND
+#         `webhooks` (145); this step compares only `paths` (136), since a webhook is an outbound
+#         callback rather than an endpoint. Same enumeration, different group — not a
+#         disagreement. Four privacy operations the app serves are currently filed under
+#         `webhooks:` instead of `paths:` (2026-09-20) and are reported as a spec filing error,
+#         not as undocumented drift; fixing that belongs to whoever owns api/openapi.yaml.
 #   - Images are pushed by .github/workflows/release.yml (push to main and v* tags), not here;
 #     the `images` job below only proves the build and runs the trivy scan on every PR.
 #   - `import-linter`'s config lives at `infra/importlinter.ini`, not a root `.importlinter` file or
@@ -106,20 +120,25 @@ jobs:
         # `infra` covers infra/scheduler plus infra/test_compose.py, test_scripts.py,
         # test_entrypoint.py, test_logging_config.py and test_observability.py (2026-09-18).
         # Measured on the 2026-09-18 tree: 88% total, so the 80% floor is a real, passing gate.
-      - name: visibility predicate at 100% branch coverage (report-only, see comment)
+      - name: visibility predicate at 100% branch coverage (docs/04 E-7) — enforced
+        run: coverage report --include="services/api/visibility.py" -m --fail-under=100
+        # Was `--fail-under=100` with `continue-on-error: true` while one statement stayed
+        # uncovered (2026-09-18: 96%, 27 statements, 1 missed at line 164 — the opportunity arm of
+        # `event_visibility_filter`). That arm is no longer a statement of its own (the module was
+        # rewritten into a single `or_(...)`), so coverage stopped reporting the gap while the
+        # gap itself stayed open: no test in the suite built an event on an *opportunity* subject
+        # at all. tests/test_api_events_visibility.py's three `..._opportunity_...` tests close it
+        # (each fails if the opportunity arm's predicate is removed), and the module-level drift
+        # guard lost its `# pragma: no cover` in favour of a real test
+        # (tests/test_visibility_predicate.py), so the figure below excludes nothing.
+        # Measured on this tree: 45 statements, 0 missed, 2 branches, 0 partial = 100%. The gate
+        # blocks merge from here; it is not to be lowered or pragma'd back up to green.
+      - name: loader coverage (report-only — not a gate module, see comment)
         continue-on-error: true
-        run: |
-          coverage report --include="services/api/visibility.py" -m --fail-under=100
-          coverage report --include="services/ingest/loader.py" -m
-        # docs/04 E-7 asks for 100% branch coverage on the visibility predicate. Measured on the
-        # 2026-09-18 tree: services/api/visibility.py 96% (27 statements, 1 missed — line 164, the
-        # opportunity arm of `event_visibility_filter`'s correlated EXISTS, which the suite reaches
-        # only through the proposal arm); the file was also being edited by the visibility lane
-        # during that measurement. So this is `--fail-under=100` with `continue-on-error: true`:
-        # it prints the exact missing lines on every run and blocks nothing until a test covers
-        # them, at which point remove `continue-on-error`. services/ingest/loader.py (87%) also
-        # carries non-gate field-mapping logic (services/README.md open decision 11) and stays
-        # under the 80% floor above; the licence-gate paths in it are proven by two named tests
+        run: coverage report --include="services/ingest/loader.py" -m
+        # services/ingest/loader.py (89% on this tree) carries non-gate field-mapping logic
+        # (services/README.md open decision 11) and is covered by the 80% floor above, not by its
+        # own gate; the licence-gate paths in it are proven by two named tests
         # (test_gate_refused_for_reuse_value_outside_the_known_vocabulary,
         # test_gate_refused_when_stored_licence_is_gated_even_if_the_manifest_now_says_open).
 
@@ -168,27 +187,108 @@ jobs:
       - run: python api/check_story_coverage.py --quiet
       - run: pytest tests/test_api_contract.py -v
       - name: generated spec == committed spec (docs/04 E-8) — report-only until 0 operations are missing
-        continue-on-error: true # see header note: measured 120/135 operations implemented on 2026-09-18
+        continue-on-error: true # see header note: measured 125 of 136 `paths` operations on 2026-09-20
         run: |
           python - <<'PY'
-          import sys, yaml
+          import os, sys, yaml
           from services.api.app import app
-          methods = {"get", "post", "put", "patch", "delete"}
-          def ops(paths):
-              return {(m.upper(), p) for p, item in paths.items() for m in item if m in methods}
-          generated = ops(app.openapi()["paths"])
-          committed = ops(yaml.safe_load(open("api/openapi.yaml"))["paths"])
-          extra = sorted(generated - committed)
-          missing = sorted(committed - generated)
-          print(f"committed operations: {len(committed)}; implemented: {len(generated)}; "
-                f"missing from the app: {len(missing)}; not in the spec: {len(extra)}")
-          for m, p in missing:
-              print(f"  missing  {m} {p}")
-          for m, p in extra:
-              print(f"  UNSPECIFIED  {m} {p}")
-          # Anything the app serves that the contract does not document is drift and must fail
-          # even while the coverage gap is tolerated.
-          sys.exit(1 if (missing or extra) else 0)
+
+          # Spec side: enumerated exactly as api/check_story_coverage.py::operations does — both
+          # groups, all eight methods — so the two counters reconcile instead of quietly
+          # disagreeing (that script's 145 = these 136 `paths` + 9 `webhooks` operations).
+          HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+          doc = yaml.safe_load(open("api/openapi.yaml"))
+
+          def spec_ops(group):
+              return {
+                  (m.upper(), p): op
+                  for p, item in (doc.get(group) or {}).items()
+                  for m, op in item.items()
+                  if m in HTTP_METHODS
+              }
+
+          documented = spec_ops("paths")
+          webhooks = spec_ops("webhooks")
+
+          # App side: `app.openapi()`, NOT `app.routes`. On this FastAPI version `include_router`
+          # leaves one `_IncludedRouter` entry in `app.routes` instead of flattening the router's
+          # routes into it, so a fresh import shows 25 `APIRoute`s while the app really serves
+          # ~125 operations — `GET /v1/assets` answers 200 and is absent from `app.routes`.
+          # `app.openapi()` walks the included routers and matches what is served;
+          # tests/test_spec_operation_inventory.py pins that against live requests.
+          served = {
+              (m.upper(), p)
+              for p, item in app.openapi()["paths"].items()
+              for m in item
+              if m in HTTP_METHODS
+          }
+
+          missing = sorted(set(documented) - served)
+          # Documented, but under `webhooks:` where an endpoint cannot be served or validated as
+          # one: a filing error in the spec, not undocumented drift. Webhook *events* are named
+          # `event.published`; an entry keyed like a URL is an endpoint in the wrong section.
+          misfiled = sorted(k for k in webhooks if k[1].startswith("/") and k in served)
+          undocumented = sorted(served - set(documented) - set(webhooks))
+
+          def area(method, path):
+              """The feature area a missing operation belongs to, so the gap reads as "bulk is not
+              built yet" rather than as fifteen unrelated lines. Path-derived, because the spec
+              tags sitemaps under `Feeds` and tags several operations twice."""
+              segments = [s for s in path.split("/") if s and not s.startswith("{")]
+              for name in ("bulk", "exports", "matches", "documents"):
+                  if name in segments:
+                      return name
+              if segments and segments[0].startswith("sitemap"):
+                  return "sitemaps"
+              tags = documented[(method, path)].get("tags") or ["uncategorised"]
+              return str(tags[0]).lower()
+
+          by_area = {}
+          for key in missing:
+              by_area.setdefault(area(*key), []).append(key)
+
+          headline = [
+              f"spec operations: {len(documented) + len(webhooks)} "
+              f"({len(documented)} under `paths`, {len(webhooks)} under `webhooks`) "
+              f"— same enumeration as api/check_story_coverage.py",
+              f"app operations: {len(served)} (from app.openapi(); app.routes under-reports here)",
+              f"MISSING FROM THE APP: {len(missing)} documented endpoints in {len(by_area)} areas",
+              f"FILED UNDER `webhooks:` BUT SERVED AS ENDPOINTS: {len(misfiled)} (spec defect)",
+              f"UNDOCUMENTED (drift — must be 0): {len(undocumented)}",
+          ]
+          lines = [*headline, ""]
+          summary = [
+              "### OpenAPI spec vs implementation",
+              "",
+              *[f"- {h}" for h in headline],
+              "",
+              "| area | missing | operation ids |",
+              "| --- | ---: | --- |",
+          ]
+          for name in sorted(by_area):
+              group = sorted(by_area[name], key=lambda k: documented[k].get("operationId", ""))
+              ids = [documented[k].get("operationId", f"{k[0]} {k[1]}") for k in group]
+              lines.append(f"  {name} ({len(group)} missing): {', '.join(ids)}")
+              for (m, p), op_id in zip(group, ids):
+                  lines.append(f"      {op_id:30s} {m} {p}")
+              summary.append(f"| {name} | {len(group)} | {', '.join(f'`{i}`' for i in ids)} |")
+          for label, keys, note in (
+              ("FILED UNDER `webhooks:` BUT SERVED AS ENDPOINTS", misfiled, "move them under `paths:`"),
+              ("UNDOCUMENTED (drift)", undocumented, "document them or stop serving them"),
+          ):
+              if keys:
+                  lines += ["", f"  {label} — {note}:"]
+                  summary += ["", f"**{label} — {note}:**", ""]
+                  for m, p in keys:
+                      lines.append(f"      {m} {p}")
+                      summary.append(f"- `{m} {p}`")
+          print("\n".join(lines))
+          if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
+              with open(summary_path, "a") as fh:
+                  fh.write("\n".join(summary) + "\n")
+          # Anything the app serves that the contract does not document as an endpoint is drift and
+          # must fail even while the coverage gap is tolerated.
+          sys.exit(1 if (missing or misfiled or undocumented) else 0)
           PY
 
   migrations:

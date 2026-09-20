@@ -1,0 +1,376 @@
+# Cross-dataset operator aliases: a spelling in an *external* dataset -> the organisation this
+# platform already holds (docs/22 §15 provenance convention). Loaded by
+# `services/ingest/enrich.py::apply_context_features`.
+#
+# NOT the same file as `aliases.yaml`, and the two must not be merged:
+#   * `aliases.yaml` (ownership lane) records two spellings of ONE legal entity -- a rename
+#     ("Westar Energy Inc" -> "Evergy Kansas Central, Inc") or an ampersand the key cannot fold --
+#     and is applied to `organization_alias`, changing who an organisation *is*. Its schema is
+#     alias / canonical / source_url / retrieved_at / note.
+#   * this file records that an external registry writes an operator's name differently from the
+#     registry our asset came from (PHMSA files "RUBY LLC"; the EIA Atlas layer prints "Ruby
+#     Pipeline LLC"). It creates no organisation and no alias row: it only tells the feature merge
+#     which asset a PHMSA operator's numbers belong to. Its schema carries the external dataset's
+#     id and key (`source_id`, `external_id`) and the evidence for the pair, which a rename file
+#     has no use for.
+# A rule here is therefore scoped to one source; a rule there is global to the entity.
+#
+# Why the file exists: `pipeline.normalize.org_key` (the key the resolver uses everywhere) matches
+# "TALLGRASS INTERSTATE GAS TRANSMISSION, LLC" to "Tallgrass Interstate Gas Transmission" by
+# itself, because it strips legal forms only. It cannot match a registry that files under a
+# different name than a map layer prints -- PHMSA's "RUBY LLC" against "Ruby Pipeline LLC", or
+# "COLUMBIA GULF TRANSMISSION, LLC" against "Columbia Gulf Pipeline". Those are claims about the
+# world, so each is written down with its evidence instead of being inferred by a fuzzy score at
+# run time.
+#
+# Schema, one row per (alias, organization) pair -- one external operator may name several
+# platform organisations (the Atlas splits Rockies Express into three operator strings):
+#   alias         : the spelling exactly as the external dataset writes it
+#   organization  : the spelling the platform holds (organization.name_canonical or an alias);
+#                   resolved through `org_key`, so punctuation and legal forms do not matter
+#   source_id     : the `data/sources.yaml` id the alias spelling comes from
+#   external_id   : that source's own key for the operator (PHMSA OPERATOR_ID)
+#   evidence      : what makes the pair checkable -- the states both datasets report for it, and
+#                   the mileage the external source states
+#   retrieved_at  : when the external spelling was read
+#
+# Evidence rule applied when this file was built (2026-09-19, features lane): a pair is listed only
+# when the two names share every distinctive token after abbreviation expansion (Jaccard >= 0.6 over
+# non-generic tokens) AND the states the two datasets report overlap AND no second PHMSA operator
+# scored as well. Pairs that failed any of the three are absent by design, not by oversight -- the
+# features simply do not reach those assets. Nothing here is inferred from a name alone.
+
+aliases:
+  - alias: 'ROCKIES EXPRESS PIPELINE LLC'
+    organization: 'Rockies Express Pipeline'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '32163'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 1766.1
+      shared_states: ['US-CO', 'US-IL', 'US-IN', 'US-KS', 'US-MO', 'US-NE', 'US-OH', 'US-WY']
+    retrieved_at: '2026-09-19'
+    note: >-
+      Tallgrass group. Resolves on the shared organisation key already (norm_org strips the LLC);
+      recorded here so the verified PHMSA spelling and operator id are in one place.
+  - alias: 'ROCKIES EXPRESS PIPELINE LLC'
+    organization: 'Rockies Express (Entrega)'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '32163'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 1766.1
+      shared_states: ['US-CO', 'US-WY']
+    retrieved_at: '2026-09-19'
+    note: >-
+      Tallgrass group. The Atlas layer splits Rockies Express into three operator strings (mainline,
+      Entrega, Echo Springs Lateral); PHMSA files one report for the system, so all three carry the
+      same operator's features.
+  - alias: 'ROCKIES EXPRESS PIPELINE LLC'
+    organization: 'Rockies Express (Echo Springs Lateral)'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '32163'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 1766.1
+      shared_states: ['US-WY']
+    retrieved_at: '2026-09-19'
+    note: >-
+      Tallgrass group. Same report as the Rockies Express mainline; see the Entrega rule.
+  - alias: 'TALLGRASS INTERSTATE GAS TRANSMISSION, LLC'
+    organization: 'Tallgrass Interstate Gas Transmission'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '1007'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 4308.3
+      shared_states: ['US-CO', 'US-KS', 'US-MO', 'US-NE', 'US-WY']
+    retrieved_at: '2026-09-19'
+    note: >-
+      Tallgrass group. Resolves on the shared organisation key already; recorded for the verified
+      spelling. PHMSA states the same five states the Atlas geometry crosses.
+  - alias: 'TRAILBLAZER PIPELINE CO'
+    organization: 'Trailblazer Pipeline Co'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '19574'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 88.6
+      shared_states: ['US-CO', 'US-NE']
+    retrieved_at: '2026-09-19'
+    note: >-
+      Tallgrass group. Resolves on the shared organisation key already. The 88.6 onshore transmission
+      miles left in the 2025 report reflect the system's conversion to CO2 service, which PHMSA
+      carries under a separate operator (TRAILBLAZER CO2 PIPELINE LLC, 40903) that has no Atlas row.
+  - alias: 'RUBY LLC'
+    organization: 'Ruby Pipeline LLC'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '40623'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 682.8
+      shared_states: ['US-NV', 'US-OR', 'US-UT', 'US-WY']
+    retrieved_at: '2026-09-19'
+    note: >-
+      Tallgrass group, and the one member the shared key cannot match: PHMSA files as RUBY LLC
+      (norm_org key RUBY) while the Atlas operator string is Ruby Pipeline LLC (key RUBY PIPELINE).
+      Four of the five Atlas states appear in PHMSA's report.
+  - alias: 'EAST CHEYENNE GAS STORAGE, LLC'
+    organization: 'EAST CHEYENNE GAS STORAGE LLC'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '32655'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 7.9
+      shared_states: ['US-CO']
+    retrieved_at: '2026-09-19'
+    note: >-
+      Tallgrass group. The Atlas storage layer's company string; both normalise to EAST CHEYENNE GAS,
+      so this rule is a record of the verified PHMSA spelling rather than a new link.
+  - alias: 'COLUMBIA GULF TRANSMISSION, LLC'
+    organization: 'Columbia Gulf Pipeline'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '2620'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 3361.3
+      shared_states: ['US-KY', 'US-LA', 'US-MS', 'US-TN']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report KY, LA, MS, TN for it, and PHMSA states 3361.3 onshore transmission miles in the
+      2025 report year.
+  - alias: 'TRANSWESTERN PIPELINE COMPANY LLC'
+    organization: 'Transwestern Gas Co'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '19610'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 2562.0
+      shared_states: ['US-AZ', 'US-CA', 'US-CO', 'US-NM', 'US-TX']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report AZ, CA, CO, NM, TX for it, and PHMSA states 2562.0 onshore transmission miles in
+      the 2025 report year.
+  - alias: 'KINDER MORGAN TEXAS PIPELINE CO'
+    organization: 'Kinder Morgan Texas Pipeline Co'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '31451'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 2553.4
+      shared_states: ['US-TX']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report TX for it, and PHMSA states 2553.4 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'ONEOK WESTEX TRANSMISSION, LLC'
+    organization: 'ONEOK Westex Pipeline'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '31531'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 2446.9
+      shared_states: ['US-TX']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report TX for it, and PHMSA states 2446.9 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'GREAT LAKES GAS TRANSMISSION LIMITED PARTNERSHIP'
+    organization: 'Great Lakes Gas Trans Co'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '6660'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 2114.8
+      shared_states: ['US-MI', 'US-MN', 'US-WI']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report MI, MN, WI for it, and PHMSA states 2114.8 onshore transmission miles in the
+      2025 report year.
+  - alias: 'ENABLE MISSISSIPPI RIVER TRANSMISSION, LLC'
+    organization: 'Mississippi River Trans Corp'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '12576'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 1680.5
+      shared_states: ['US-AR', 'US-IL', 'US-LA', 'US-MO', 'US-TX']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report AR, IL, LA, MO, TX for it, and PHMSA states 1680.5 onshore transmission miles in
+      the 2025 report year.
+  - alias: 'EAST TENNESSEE NATURAL GAS, LLC'
+    organization: 'East Tennessee Gas Co'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '4070'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 1538.6
+      shared_states: ['US-GA', 'US-NC', 'US-TN', 'US-VA']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report GA, NC, TN, VA for it, and PHMSA states 1538.6 onshore transmission miles in the
+      2025 report year.
+  - alias: 'WEST TEXAS GAS UTILITY, LLC.'
+    organization: 'West Texas Gas'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '22435'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 634.2
+      shared_states: ['US-TX']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report TX for it, and PHMSA states 634.2 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'SABAL TRAIL TRANSMISSION, LLC'
+    organization: 'Sabal Trail Pipeline'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '39167'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 517.0
+      shared_states: ['US-AL', 'US-FL', 'US-GA']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report AL, FL, GA for it, and PHMSA states 517.0 onshore transmission miles in the 2025
+      report year.
+  - alias: 'DOW PIPELINE LLC'
+    organization: 'Dow Pipeline Co (TX)'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '3527'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 334.2
+      shared_states: ['US-TX']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report TX for it, and PHMSA states 334.2 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'SOUTHEAST SUPPLY HEADER, LLC'
+    organization: 'Southeast Supply Header Pipeline Co'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '32341'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 293.2
+      shared_states: ['US-AL', 'US-LA', 'US-MS']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report AL, LA, MS for it, and PHMSA states 293.2 onshore transmission miles in the 2025
+      report year.
+  - alias: 'EMPIRE PIPELINE INC'
+    organization: 'Empire Pipeline'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '31592'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 269.9
+      shared_states: ['US-NY']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report NY for it, and PHMSA states 269.9 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'BOARDWALK TEXAS INTRASTATE, LLC'
+    organization: 'Texas Intrastate Pipeline Co'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '39701'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 223.6
+      shared_states: ['US-TX']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report TX for it, and PHMSA states 223.6 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'PORTLAND NATURAL GAS TRANSMISSION SYSTEM'
+    organization: 'Portland Natural Gas PL'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '31145'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 188.1
+      shared_states: ['US-ME', 'US-NH', 'US-VT']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report ME, NH, VT for it, and PHMSA states 188.1 onshore transmission miles in the 2025
+      report year.
+  - alias: 'LOST CREEK GATHERING COMPANY, LLC'
+    organization: 'Lost Creek Gathering Header'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '40375'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 161.0
+      shared_states: ['US-WY']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report WY for it, and PHMSA states 161.0 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'WORSHAM-STEED GAS STORAGE, LLC'
+    organization: 'Worsham-Steed Pipeline'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '32285'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 116.6
+      shared_states: ['US-TX']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report TX for it, and PHMSA states 116.6 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'CENTRA PIPELINE MINNESOTA INC.'
+    organization: 'Centra Minnesota Pipeline Co'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '31024'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 66.4
+      shared_states: ['US-MN']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report MN for it, and PHMSA states 66.4 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'CHENIERE CORPUS CHRISTI PIPELINE'
+    organization: 'Corpus Christi Pipeline'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '39429'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 26.1
+      shared_states: ['US-TX']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report TX for it, and PHMSA states 26.1 onshore transmission miles in the 2025 report
+      year.
+  - alias: 'NORTH COUNTRY GAS PIPELINE'
+    organization: 'North Country Pipeline Co'
+    source_id: us.phmsa.pipeline_operator_reports
+    external_id: '30679'
+    evidence:
+      report_year: 2025
+      onshore_transmission_miles: 22.0
+      shared_states: ['US-NY']
+    retrieved_at: '2026-09-19'
+    note: >-
+      PHMSA files under the operating entity; the EIA Atlas layer prints the system name. Both
+      datasets report NY for it, and PHMSA states 22.0 onshore transmission miles in the 2025 report
+      year.

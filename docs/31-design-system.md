@@ -92,8 +92,9 @@ tokens above 8px are not defined, which is deliberate (no pill buttons, no round
 ### 1.6 Colour and icons — existing-asset layers (added 2026-09-19, midstream slice)
 
 The map's "Existing assets" control draws power plants (per-technology palette, `--plant-*`, unchanged) and,
-per the owner's 2026-09-19 option (a), gas pipelines as a **line layer** and gas processing plants, gas storage
-and LNG terminals as **point layers**; ethanol and RNG are listed as coming. One hue per type, dimmer than the
+per the owner's 2026-09-19 option (a), gas pipelines as a **line layer** and gas processing plants, gas storage,
+LNG terminals, ethanol plants and RNG projects as **point layers** (ethanol and RNG live since the second
+midstream slice, 2026-09-19 evening). One hue per type, dimmer than the
 status families (§1.2) so an existing asset never reads as a proposal state; the type is always carried by
 **shape + label**, never hue alone (D-5). Contrast by the §1.1 method (relative luminance against the exact hex).
 
@@ -103,8 +104,8 @@ status families (§1.2) so an existing asset never reads as a proposal state; th
 | Gas processing plant | `--asset-gas-processing` | `#8a4a5a` | 5.96:1 | `#d9a3b0` | 7.87:1 | diamond |
 | Gas storage | `--asset-gas-storage` | `#4f5a8a` | 6.04:1 | `#a9b3dc` | 8.15:1 | ring |
 | LNG terminal | `--asset-lng-terminal` | `#2f6a7a` | 5.52:1 | `#8ec6d3` | 8.96:1 | triangle |
-| Ethanol plant (coming) | `--asset-ethanol` | `#7a6a2a` | 4.87:1 | `#cfc07a` | 9.20:1 | hexagon |
-| RNG project (coming) | `--asset-rng` | `#2f7a5a` | 4.71:1 | `#8fd0b0` | 9.48:1 | pentagon |
+| Ethanol plant | `--asset-ethanol` | `#7a6a2a` | 4.87:1 | `#cfc07a` | 9.20:1 | hexagon |
+| RNG project | `--asset-rng` | `#2f7a5a` | 4.71:1 | `#8fd0b0` | 9.48:1 | pentagon |
 | Power plant | `--plant-*` (§ above) | — | — | — | — | square, family hue |
 
 **Pipeline line rule.** Width by zoom, linear: z3 0.8px, z6 1.4px, z9 2.4px, z12 4px; a casing in `--map-land`
@@ -115,7 +116,22 @@ class and operator; click opens the §5.8 drawer with the asset's fields (rows p
 carries the value). Point types share the plant square's opacity (0.7) and label rule (z9+).
 
 **Legend.** One group per type, shown only while its checkbox is on (`data-legend-type`), so the legend names
-exactly what is drawn. The pipeline group carries the two line samples (solid, dashed) with their words.
+exactly what is drawn. The pipeline group carries the two line samples (solid, dashed) with their words. The
+ethanol and RNG groups carry a one-line muted note (`.legend__note`) saying which rows are *not* points: EIA
+capacity-table plants placed at state grade and AgSTAR digesters placed at county grade never render as points
+(`/v1/assets/geo` omits them; there is no region feature for assets) and live on the asset, company and search
+lists instead.
+
+**Ethanol and RNG rows (tooltip, drawer, page).** Hue by type, hexagon (ethanol) and pentagon (RNG); the RNG
+technology family (landfill gas to electricity, landfill gas direct use, renewable natural gas, farm digester)
+is carried by words in the tooltip, drawer subtitle, in-view row and page badge, never by a sub-hue. Promoted
+rows, each present only where the source carries the value: ethanol — nameplate capacity (MMgal/yr), feedstock,
+PADD, capacity as-of year, operator; RNG — project type, technology, rated capacity (MW), LFG flow to project
+(MMscf/d), biogas generation estimate (cu ft/day, digesters), biogas end use, host landfill or digester type,
+feedstock (AgSTAR herd counts when no text), start and shutdown year. The drawer renders from the geo feature
+first and again with the asset's detail row merged (`/api/assets/{public_id}`), since geo point features carry
+no capacity value, unit or attributes. Units: `MMgal/yr`, `MMscf/d`, `cu ft/day`, numbers with thousands
+separators and at most one decimal (three for MMscf/d).
 
 **Mini-map (asset and company pages).** Server-rendered SVG of the record's geometry (`.mini-map__line`,
 `--intrastate` dashed, `.mini-map__point`, `.mini-map__proposal` in the Progress family hue) as the no-JS
@@ -296,6 +312,22 @@ rejected (reason visible, required at reject time, US-802 AC3); published (metri
 likes, reposts, `fetched_at`).
 **Rule satisfied:** US-801, US-802, US-803, D-35.
 
+### 5.14 Count chips (added 2026-09-19, navigation and discoverability lane)
+
+The by-type totals above `/assets`. Links, never buttons or a segmented control: each chip is a real URL
+(`/assets?asset_type=…`) a crawler can follow and a reader can copy, which is the point of an index page
+(`docs/50` §4.4).
+**Anatomy:** a `<nav aria-label="Assets by type">` wrapping a wrapping flex list; each chip is a bordered pill
+holding a label and a tabular-numeral count, largest type first, with an "All types" chip carrying the sum. A
+type with no rows behind it is absent rather than shown as zero. One line beneath states the counts'
+denominator, because it is not the list's (see `docs/30` §3.2).
+**States:** default; hover/focus (border and text take `--link`); **selected** — `aria-current="page"`, which is
+what a screen reader announces; the heavier border and weight are the visible echo of it, never the only signal.
+**Tokens only:** `--border`, `--link`, `--text`, `--text-muted`, `--radius-3`, `--space-1/2/3`, `--text-1`. No
+fill, so the chip reads identically in both themes.
+**Rule satisfied:** D-24 (no card grid for data), D-29 (never a fabricated zero), §7 AA (1.4.1 — state is not
+carried by colour alone; the chips wrap rather than scroll at 400px).
+
 ## 6. Empty, loading and error states — cross-component rule
 
 Per D-29, specified once here and referenced, not restated per component: **empty** states name the filter
@@ -401,3 +433,8 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
   `docs/30-design-ia.md` v1.
 - 2026-09-19 — §1.6 added (frontend-developer, midstream slice): existing-asset type palette and icons,
   pipeline line rule, per-type legend groups, mini-map classes.
+- 2026-09-19 — §1.6 updated (frontend-developer, second midstream slice): ethanol and RNG live (no longer
+  "coming"), legend notes for unplaced rows, the ethanol/RNG tooltip, drawer and page row set and units.
+- 2026-09-19 — §5.14 added (frontend-developer, navigation and discoverability lane): count chips for the
+  `/assets` index. The `/assets` and `/organizations` indexes otherwise add no components — they are §5.5
+  (table), §5.9 (filter bar) and §6 (empty state) as already specified.

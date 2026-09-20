@@ -1317,16 +1317,44 @@ sources:
   tier: 2
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'index 200; archive/xls/eia8602024.zip 200, 22,100,342 bytes, application/x-zip-compressed, contains 4___Owner_Y2024.xlsx (495,686 bytes); xls/eia8602025ER.zip answers 200 with a 55 KB HTML placeholder, same pattern as EIA-860M future months — check the zip magic before parsing. Connector built (pipeline/connectors/us_eia_860/): Ownership sheet header is on the second row (row index 1, one row earlier than the Planned/Operating sheets); parsed 0.76s for the real 5,496-row sheet (openpyxl, zip already on disk). Row filter measured against the real 2024 sheet: 1 row has no Generator ID (dropped, plant 62844) and 2 rows have a blank Percent Owned (kept, ownership_pct null) -> 5,495 owner rows via pipeline/context/eia_owners.py --archive. Percent Owned is a 0-1 fraction in the source, multiplied by 100 for the documented 0-100 range. 60-row test fixture (tests/fixtures/eia860_owner_2024_sample.zip, 9,630 bytes) built from this same download, including the three messy rows above.'}
+  verified: {date: 2026-09-19, result: ok, note: 'First real connector run 2026-09-19T20:48:22Z (python -m pipeline.connectors run us.eia.860): index 200; xls/eia8602025.zip (the 2025 final release, dated 2026-09-10 on the server, robots-allowed, no longer an archive/ path) 200, 23,622,347 bytes, application/x-zip-compressed, sha256 2b27929d...; 5,680 Ownership rows, DQ pass, run record data/runs/us.eia.860/20260919T204822Z.json. pipeline/context/eia_owners.py --latest-snapshot: 5,680 owner rows (0 without Generator ID this year, 1 blank Percent Owned kept null), 2,534 plants, 4,018 generators, 2,038 owner strings; generator nameplate joined from the same zip 3_1_Generator_Y2025.xlsx Operable sheet (4,983 rows with MW; Schedule 4 lists jointly/third-party owned generators only, per its title row); 2 generators whose shares sum over 100 (341/CT5 150, 70387/BESS1 100.09) flagged, not normalised; 35 rows with owner "Other" (Ownership ID 99999) skipped by the loader. Loaded on a copy of web/.data/dev-shots2.db: 2,315 of 2,534 plants matched EIA-860M power_plant assets (219 unmatched: 200 all-retired/cancelled, 17 all-proposed, 2 mixed), 3,118 owner edges, 1,735 organisations created + 132 matched existing, re-run 0 new organisations and 0 duplicate edges (33.6 s / 3.4 s). Older years remain under archive/xls/ (robots-disallowed; --archive PATH for a browser download). 60-row test fixture tests/fixtures/eia860_owner_2024_sample.zip unchanged.'}
   notes: >-
     The ownership graph's spine for generation: Schedule 4 lists each owner and its percentage share per
     generator, keyed by Plant ID + Generator ID, the same identity EIA-860M uses, so it joins straight onto
     built_plant and onto EIA-860M proposals. Owner names are free text; resolve to organization via the
     existing resolver, then to a parent via GLEIF where an LEI exists. Annual, so it lags 860M by up to a year.
-    2026-09-18 (ADR 0008): the annual archive lives at `archive/xls/eia860<year>.zip`, a path eia.gov's
-    robots.txt disallows (`/*archive/`); the connector crawls only `xls/` and records a human-downloaded
-    archive's row counts here (see `verified.note`) rather than fetching it itself. See the docstring of
-    `pipeline/connectors/us_eia_860/connector.py` and `pipeline/context/eia_owners.py`.
+    2026-09-18 (ADR 0008): past years live at `archive/xls/eia860<year>.zip`, a path eia.gov's robots.txt
+    disallows (`/*archive/`); the connector crawls only `xls/`. 2026-09-19: the current final release is
+    published at `xls/eia860<year>.zip` (2025 final appeared there 2026-09-10), so the connector fetches it
+    itself; a year that has moved to the archive is a browser download handed to `eia_owners.py --archive`.
+    See the docstrings of `pipeline/connectors/us_eia_860/connector.py`, `pipeline/context/eia_owners.py`
+    and `services/ingest/ownership.py` (plant-level share = owned nameplate / plant nameplate).
+
+- id: us.eia.form923
+  name: EIA-923 Power Plant Operations Report — annual generation and fuel consumption per plant (Schedules 2, 3, 4, 5)
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration
+  url: https://www.eia.gov/electricity/data/eia923/
+  access: bulk_file
+  auth: none
+  format: 'zip of xlsx (xls/f923_<year>.zip; member EIA923_Schedules_2_3_4_5_M_12_<year>_Final.xlsx, sheet "Page 1 Generation and Fuel Data")'
+  cadence: annual final (mid-September for the prior year) plus monthly early-release files
+  license: 'US federal work — public domain; EIA''s own reuse statement is quoted in docs/13-legal-data-rights.md section 2.11: "U.S. government publications are in the public domain and are not subject to copyright protection. You may use and/or distribute any of our data, files, databases, reports, graphs, charts, and other information products that are on our website", with an acknowledgment requested in the form "Source: U.S. Energy Information Administration (Sep 2026)". Crediting is requested, not a licence condition'
+  reuse: open
+  publication: raw_ok
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-19, result: ok, note: 'Features lane, measured: index page 200; it links one zip per year, and everything under archive/ is robots-disallowed (Disallow: /*archive/), leaving xls/f923_2025.zip and xls/f923_2026.zip. The 2026 zip is an early release (member EIA923_Schedules_2_3_4_5_M_06_2026_21AUG2026.xlsx, no _Final), so the connector stepped back a year, as the page says it should ("Annual release date: September 14, 2026; Final release 2025 data"). Fetched https://www.eia.gov/electricity/data/eia923/xls/f923_2025.zip at 2026-09-19T21:52:51Z: 23,340,452 bytes, Last-Modified Fri, 11 Sep 2026 13:28:33 GMT, sha256 1bff7092a86f6678c069c986829da5a23104048fc1aafb65b0776e3c904284de; member EIA923_Schedules_2_3_4_5_M_12_2025_Final.xlsx, sheet "Page 1 Generation and Fuel Data" (header on row 6, 97 columns), 18,889 rows -> 14,045 plants (13,133 reporting fuel) in data/normalized/context/us.eia.form923.parquet; national net generation 4,425,028,524 MWh, the right order for the US fleet. 13,910 of the 14,659 loaded power_plant assets match on Plant Id (94.9%). 19-row fixture at pipeline/context/fixtures/eia923_generation_fuel_sample.zip.'}
+  notes: >-
+    The objective operating features for power_plant assets (owner decision 2026-09-18: "capacity factor and
+    heat rate derived from EIA-923"). Keyed by Plant Id, the same plant key EIA-860M uses, so it joins to
+    asset.source_asset_id with no name matching. Annual net generation (MWh) and fuel consumption (MMBtu)
+    are what the form states; capacity factor and heat rate are derived at enrichment against the asset's
+    nameplate capacity (services/ingest/enrich.py). Everything under eia.gov/electricity/data/eia923/archive/
+    is disallowed by robots.txt, so only the newest one or two years are fetchable; that is enough for a
+    current-year feature.
 
 - id: us.eia.atlas.gas_processing_plants
   name: EIA US Energy Atlas — Natural Gas Processing Plants (point geometries, operator, capacity)
@@ -1521,7 +1549,7 @@ sources:
   tier: 3
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: ok, note: 'page 200, title "Public Data for the Renewable Fuel Standard"; no xlsx/csv hrefs in the static HTML, the tables are behind JS — browser task to locate the file URLs'}
+  verified: {date: 2026-09-19, result: ok_fallback, note: 'Features lane, measured: the RFS public-data page (the url above) answers 200 but publishes no facility-level file at all -- its tables are a Qlik Sense application and its "Historical Monthly Data" links are aggregate RIN volumes with no facility, pathway or location, which settles the 2026-09-18 browser task. The registered facilities with their D codes are published one level up in the same EPA tree, on "Registered Companies and Facilities in EPA''s Fuel Programs" (https://www.epa.gov/fuels-registration-reporting-and-compliance-help/registered-companies-and-facilities-epas-fuel), as a daily-refreshed workbook at https://cdxoarapps.epa.gov/oar-otaq-reg-III/rest/public/reports/Part80FuelsProgramsList, fetched 2026-09-19T21:52:09Z: 5,765,120 bytes, sha256 76183ab0b630121b49742b35c5b79caefc6f5f0636fb0c49da68511ee02c150b, a legacy OLE2/BIFF8 .xls (no CSV or JSON variant: ?format=csv returns the same bytes). Sheet "Part 80 Company Information", 13,535 rows -> 1,138 facilities carrying a D code (D3 770, D4 164, D5 164, D6 257, D7 3); its facility address block repeats the company block''s column labels, so those columns are read by position. The list is a current-state snapshot with no registration date, so first_registered_year is null with a feature_flags note. 319 of 2,239 ethanol/RNG assets match (ethanol 271/388 = 69.8%, RNG 48/1,851 = 2.6%). Fixture: pipeline/context/fixtures/rfs_part80_registrations_sample.xls.'}
   notes: >-
     Adds the RIN pathway (the objective feature that separates RNG economics: D3 cellulosic vs D5 advanced)
     and the registered producer list. Third in priority behind LMOP and AgSTAR because it needs a browser
@@ -1565,7 +1593,7 @@ sources:
   tier: 2
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-09-18, result: blocked, note: '403 challenge to the script probe; browser task to confirm the file layout'}
+  verified: {date: 2026-09-19, result: ok_fallback, note: 'Features lane, measured: every www.phmsa.dot.gov URL -- the data page, both data files and robots.txt itself -- answers HTTP 403 from an AkamaiGHost edge (an "Access Denied" page, not a Cloudflare challenge; the 2026-09-18 note called it a challenge), so the origin is unreadable from this egress and the connector falls back to the Internet Archive, recording both answers per run (docs/13 section 2.16). Annual reports: https://web.archive.org/web/20260508070546id_/https://www.phmsa.dot.gov/sites/phmsa.dot.gov/files/data_statistics/pipeline/annual_gas_transmission_gathering_2010_present.zip fetched 2026-09-19T21:55:04Z, 109,916,599 bytes, sha256 5ed2ef12efb3321521cc6b0c98816b7dd78e1568ab51495e9ac44bf3739da641, origin Last-Modified Thu, 07 May 2026 19:39:56 GMT. Three members of that zip are damaged at source (identical sha over two downloads): annual_..._2010.xlsx, annual_..._2019.xlsx and GT AR 2025 Part J.csv raise zlib/CRC errors, so the connector reads the newest intact per-year workbook (annual_gas_transmission_gathering_2025.xlsx, DATAFILE_AS_OF 2026-05-01) rather than the loose per-part CSVs. Parts A-D/H/J/L parsed: 1,427 reports from 1,376 operators, 297,165 onshore transmission miles nationally (Parts L, J and H agree per operator to within a mile). Incidents: incident_gas_transmission_gathering_jan2010_present.zip via the same path, 2,254,132 bytes, 2,010 rows 2010-2026 (tab-separated, cp1252), 622 in the 2021-2025 window across 153 operators. The public incident file carries no SIGNIFICANT flag and no 1984-dollar cost, and PHMSA_Pipeline_Safety_Flagged_Incidents.zip (which carries the flag) could not be retrieved from either origin or archive, so incidents_5y_significant is null with a feature_flags note. 92 of the 259 gas_pipeline assets carry the features (35.5%). Fixtures: pipeline/context/fixtures/phmsa_annual_gt_sample.zip, phmsa_incident_gt_sample.zip.'}
   notes: >-
     The pipeline objective feature set (mileage, diameter mix, vintage, incident count per operator) keyed by
     PHMSA Operator ID, which joins to the EIA Atlas pipeline layer's operator name only by name resolution.

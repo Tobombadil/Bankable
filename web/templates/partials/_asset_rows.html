@@ -1,0 +1,56 @@
+{# The asset index's rows. Deliberately the same shape as `_proposal_rows.html`: a count line, one
+   `.record-table` inside `.table-scroll`, the shared `m.pager`, and the same `.empty-state` -- the
+   repo has one list idiom and this is it. Columns a row cannot fill render an em dash, never the
+   word "None" (blockers-sprint "None" gate). `length` only appears for line assets, so a pipeline
+   shows its mileage where a plant shows its megawatts. #}
+{% import "_macros.html" as m %}
+<p class="result-count" aria-live="polite">
+  {%- if records -%}
+  {{ records | length }} asset{{ 's' if records | length != 1 }} on this page{% if filters.get('q') %}, matching &ldquo;{{ filters.get('q') }}&rdquo;{% endif %}.
+  {%- else -%}
+  No assets match these filters.
+  {%- endif -%}
+</p>
+{% if records %}
+<div class="table-scroll">
+<table class="record-table">
+  <caption class="visually-hidden">Registry assets matching the current filters, {{ sort_caption }}.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Name</th>
+      <th scope="col">Type</th>
+      <th scope="col">Technology</th>
+      <th scope="col" class="num">Capacity</th>
+      <th scope="col" class="num">Length (miles)</th>
+      <th scope="col">Location</th>
+      <th scope="col">Operator</th>
+      <th scope="col">Source</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td data-label="Name">{% if r.slug %}<a class="row-link" href="/assets/{{ r.slug }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
+      <td data-label="Type">{{ r.type_label }}</td>
+      <td data-label="Technology">{{ r.technology_label or r.line_class or r.technology or '—' }}</td>
+      <td data-label="Capacity" class="num tnum">
+        {%- if r.capacity_mw is not none %}{{ '%.1f'|format(r.capacity_mw) }} MW
+        {%- elif r.fuel_fields %}{{ r.fuel_fields[0].value }}
+        {%- else %}—{% endif -%}
+      </td>
+      <td data-label="Length (miles)" class="num tnum">{% if r.length_miles is not none %}{{ '{:,.0f}'.format(r.length_miles) }}{% else %}—{% endif %}</td>
+      <td data-label="Location">{{ r.states or r.state or r.country or '—' }}</td>
+      <td data-label="Operator">{% if r.operator.slug %}<a href="/organizations/{{ r.operator.slug }}">{{ r.operator.name }}</a>{% else %}{{ r.operator.name or '—' }}{% endif %}</td>
+      <td data-label="Source" class="mono">{% if r.source_url %}<a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_id }}</a>{% else %}{{ r.source_id or '—' }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{{ m.pager(prev_cursor, next_cursor, querystring, "/assets") }}
+{% else %}
+<div class="empty-state">
+  <p>No assets match these filters.</p>
+  <p><a href="/assets">Clear all filters</a></p>
+</div>
+{% endif %}

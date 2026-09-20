@@ -776,3 +776,24 @@ def test_national_and_regional_views_over_3000_synthetic_lines_are_small_and_war
     # The app compresses every JSON response over 1 KB for a client that accepts gzip.
     resp = client.get("/v1/assets/geo", params=national, headers={"Accept-Encoding": "gzip"})
     assert resp.headers.get("content-encoding") == "gzip"
+
+
+def test_assets_geo_records_total_covers_the_whole_filter_match_not_the_viewport(client, db):
+    """Contract pin (docs/23, `AssetGeoTotals.records`): `totals.records` counts every asset
+    matching the filters, not the ones the viewport shows. A map labelling "in view" must count
+    the returned features instead -- reading this field for that reported 1,536 assets in view
+    beside eight rows (web/static/js/map.js, 2026-09-19)."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    make_asset(db, src, lic, source_asset_id="near", geom=(-100.0, 32.0))
+    make_asset(db, src, lic, source_asset_id="far", geom=(10.0, 50.0))
+    db.commit()
+
+    narrow = client.get("/v1/assets/geo", params={"bbox": "-101,31,-99,33", "zoom": 8})
+    assert narrow.status_code == 200
+    body = narrow.json()["data"]
+    assert len(body["features"]) == 1, "the viewport shows one asset"
+    assert body["totals"]["records"] == 2, "but the total covers both, by design"
+
+    world = client.get("/v1/assets/geo", params={"bbox": WORLD_BBOX, "zoom": 2})
+    assert world.json()["data"]["totals"]["records"] == 2

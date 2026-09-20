@@ -50,6 +50,7 @@ import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pipeline.normalize import org_key
 from services.db.models import Event, Organization, OrganizationAlias, Proposal, ProposalSource
 from services.resolve.models import ResolutionDecision
 
@@ -559,19 +560,31 @@ class OrganizationResolutionReport:
     merge_events: list[Event] = field(default_factory=list)
 
 
-def resolve_organizations(session: Session, norm_org_fn: Any) -> OrganizationResolutionReport:
+def resolve_organizations(session: Session, norm_org_fn: Any = None) -> OrganizationResolutionReport:
     """Conservative organization resolution (task step 3): group live organizations by
-    `norm_org(name_canonical)` (`pipeline.normalize.norm_org` -- the same corp-suffix-stripping
-    key `pipeline/resolve.py`'s sponsor component already relies on) and merge every group of
-    size > 1. This is a deterministic-key match, not a fuzzy score, and is deliberately not the
-    same "score >= 75" gate the proposal clusters use: `docs/22 §13` explains why a fuzzy pass
-    over the ~3,000 sponsor organizations in this dataset is deferred rather than run without a
-    labelled sample to measure it against. The rule fires with confidence 1.0, the same
-    convention `pipeline/resolve.py`'s deterministic (D-prefixed) passes use."""
+    `pipeline.normalize.org_key(name_canonical)` -- the one organisation key every consumer uses
+    (the ownership loader, the midstream operator edges, the proposal loader) -- and merge every
+    group of size > 1. This is a deterministic-key match, not a fuzzy score, and is deliberately
+    not the same "score >= 75" gate the proposal clusters use: `docs/22 §13` explains why a fuzzy
+    pass over the ~3,000 sponsor organizations in this dataset is deferred rather than run without
+    a labelled sample to measure it against. The rule fires with confidence 1.0, the same
+    convention `pipeline/resolve.py`'s deterministic (D-prefixed) passes use.
+
+    Since 2026-09-19 that key strips legal forms only. It previously stripped industry and
+    geography words as well, which merged organizations that are not one legal entity: measured
+    over the 7,642 organisation strings in the dev store and EIA-860 Schedule 4, 258 of the 557
+    pairs it merged were a different company or a parent/affiliate, and this function applied
+    those merges to the store as `merged` events (reversible, but wrong). docs/22 §16 has the
+    census; same-company spellings the narrower key cannot reach belong in `organization_alias`
+    (`data/vendored/organizations/aliases.yaml`), not in a looser key.
+
+    `norm_org_fn` stays accepted so an existing caller or test can inject a key; omit it and the
+    canonical `org_key` is used."""
+    key_fn = norm_org_fn if norm_org_fn is not None else org_key
     orgs = session.scalars(select(Organization).where(Organization.merged_into_id.is_(None))).all()
     groups: dict[str, list[Organization]] = {}
     for org in orgs:
-        key = norm_org_fn(org.name_canonical) or org.name_normalised
+        key = key_fn(org.name_canonical) or org.name_normalised
         groups.setdefault(key, []).append(org)
 
     report = OrganizationResolutionReport()

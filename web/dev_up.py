@@ -115,7 +115,9 @@ def _load_ownership(session: Session, data_dir: Path) -> None:
         log.info("asset ownership: services.ingest.ownership not available yet (%s), skipping", exc)
         return
     report = load_owner_shares_parquet(session, parquet_path)
-    log.info("asset ownership: loaded from %s (%s)", parquet_path, report)
+    # `as_report()` where it exists: its unmatched-plant list is a sample, so this stays one line.
+    summary = report.as_report() if hasattr(report, "as_report") else report
+    log.info("asset ownership: loaded from %s (%s)", parquet_path, summary)
 
 
 #: `data/normalized/context/<file>` -> `asset_type` for the midstream and fuels context layers
@@ -136,16 +138,39 @@ _CONTEXT_ASSET_FILES: tuple[tuple[str, str], ...] = (
 )
 
 
+def _apply_context_features(session: Session, data_root: Path) -> None:
+    """The enrichment lane's `services.ingest.enrich.apply_context_features(session, data_root)`
+    (derived asset features such as nearby-asset and ownership context), called exactly once, after
+    every asset, edge and owner-share load and before the curated parent links are applied. The
+    module is a separate lane that may not exist yet when this runs, and its parquet inputs may be
+    absent, so a missing module, a missing file or an unwired feature is one log line, never a
+    failure of the rest of `dev_up`."""
+    try:
+        from services.ingest.enrich import apply_context_features  # type: ignore[import-not-found]
+    except ImportError as exc:
+        log.info("context features: services.ingest.enrich not available yet (%s), skipping", exc)
+        return
+    try:
+        report = apply_context_features(session, data_root)
+    except FileNotFoundError as exc:
+        log.info("context features: input not found (%s), skipping", exc)
+        return
+    log.info("context features: applied (%s)", report)
+
+
 def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
     """Load the midstream/fuels asset layers through the ingest lanes' own loaders -- same rule as
     `_load_plants_context_layer`: this script never invents a load path. Per file, in order:
     `services.ingest.assets.load_assets_parquet(session, path, asset_type)` (the rows) then
     `services.ingest.midstream.load_operator_edges_parquet(session, path, asset_type)` (the
-    `asset_owner` operator edges); once every file is done, `services.ingest.midstream.
+    `asset_owner` operator edges); once every file is done, `_load_ownership` writes the EIA-860
+    Schedule 4 owner shares (they join onto the `power_plant` rows `_load_plants_context_layer`
+    loaded first, so this runs after the plants and after every other asset and edge load), then
+    `_apply_context_features` runs the enrichment lane once, and last `services.ingest.midstream.
     load_parents(session)` applies the curated parent links (`data/vendored/organizations/
-    parents.yaml`). Any file or module that is not there yet, or an `asset_type` the loader has
-    not wired, is one log line with the reason, never a failure of the rest of `dev_up`; every
-    successful step logs its counts."""
+    parents.yaml`) over every organisation the loads above created. Any file or module that is
+    not there yet, or an `asset_type` the loader has not wired, is one log line with the reason,
+    never a failure of the rest of `dev_up`; every successful step logs its counts."""
     context_dir = data_dir / "normalized" / "context"
     try:
         from services.ingest.assets import UnsupportedAssetTypeError, load_assets_parquet
@@ -175,6 +200,8 @@ def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
         if load_operator_edges_parquet is not None:
             edges = load_operator_edges_parquet(session, parquet_path, asset_type)
             log.info("context asset layers: operator edges from %s (%s)", file_name, edges)
+    _load_ownership(session, data_dir)
+    _apply_context_features(session, data_dir)
     if loaded and load_parents is not None:
         try:
             parents = load_parents(session)
@@ -218,8 +245,7 @@ def main(argv: list[str] | None = None) -> int:
                 sample_per_state=args.sample_per_state,
             )
             _load_plants_context_layer(session, args.data_dir)
-            _load_context_asset_layers(session, args.data_dir)
-            _load_ownership(session, args.data_dir)
+            _load_context_asset_layers(session, args.data_dir)  # includes owner shares + features
             session.commit()  # belt-and-braces: correct even if either loader above also commits
         finally:
             session.close()

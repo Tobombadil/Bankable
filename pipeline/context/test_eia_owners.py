@@ -84,3 +84,123 @@ def test_provenance_columns(owners):
     assert row["source_url"] == "https://www.eia.gov/electricity/data/eia860/archive/xls/eia8602024.zip"
     assert row["retrieved_at"] == "2026-09-18T00:00:00Z"
     assert row["licence"] == "public-domain"
+
+
+# ---------------------------------------------------------------- Schedule 3 nameplate join (2026-09-19)
+def _zip_with_generator_member(owner_zip: bytes, rows: list[tuple[int, str, float | None]]) -> bytes:
+    """The fixture's owner member plus a synthetic `3_1_Generator_Y2024.xlsx` whose "Operable"
+    sheet has the real layout: a title row, then the header row, then `rows`."""
+    import io
+    import zipfile
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Operable"
+    ws.append(["2024 Form EIA-860 Data - Schedule 3, 'Generator Data' (Operable Units Only)"])
+    ws.append(["Utility ID", "Plant Code", "Generator ID", "Technology", "Nameplate Capacity (MW)"])
+    for plant, gen, mw in rows:
+        ws.append([1, plant, gen, "Conventional Steam Coal", mw])
+    xlsx = io.BytesIO()
+    wb.save(xlsx)
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(owner_zip)) as src, zipfile.ZipFile(out, "w") as dst:
+        for name in src.namelist():
+            dst.writestr(name, src.read(name))
+        dst.writestr("3_1_Generator_Y2024.xlsx", xlsx.getvalue())
+    return out.getvalue()
+
+
+def test_fixture_has_no_generator_member_so_capacity_columns_are_null(owners):
+    from pipeline.context.eia_owners import extract_generator_capacity
+
+    assert extract_generator_capacity(fixture_path(FIXTURE).read_bytes()) is None
+    assert owners["generator_capacity_mw"].isna().all()
+    assert owners["plant_capacity_mw"].isna().all()
+    assert pd.api.types.is_float_dtype(owners["generator_capacity_mw"])
+    assert pd.api.types.is_float_dtype(owners["plant_capacity_mw"])
+
+
+def test_generator_status_is_carried_from_the_sheet(owners):
+    assert owners["generator_status"].notna().all()
+    assert set(owners["generator_status"]) <= {
+        "OP",
+        "SB",
+        "OS",
+        "RE",
+        "CN",
+        "P",
+        "L",
+        "T",
+        "U",
+        "V",
+        "TS",
+        "IP",
+        "OA",
+    }
+    assert (
+        owners[(owners["source_plant_id"] == "10") & (owners["generator_id"] == "1")]["generator_status"]
+        == "OP"
+    ).all()
+
+
+def test_generator_nameplate_joins_per_generator_and_plant_total_counts_unlisted_units(sheet):
+    """Plant 10 has generators 1 and 2 on Schedule 4 (60/40 and 100 % rows); the synthetic
+    Schedule 3 also lists generator 3 (wholly operator-owned, so absent from Schedule 4) -- the
+    plant total must include it, because the loader's share is "share of the plant's nameplate"."""
+    from pipeline.context.eia_owners import extract_generator_capacity
+
+    df, year = sheet
+    archive = _zip_with_generator_member(
+        fixture_path(FIXTURE).read_bytes(),
+        [(10, "1", 250.0), (10, "2", 250.0), (10, "3", 500.0), (26, "1", 0.0)],
+    )
+    generators = extract_generator_capacity(archive)
+    assert generators is not None
+    assert len(generators) == 4
+    owners = build_owner_rows(
+        df,
+        year=year,
+        source_url="https://example.test/eia860.zip",
+        retrieved_at="2026-09-19T00:00:00Z",
+        generators=generators,
+    )
+    assert list(owners.columns) == OUTPUT_COLUMNS
+    gen1 = owners[(owners["source_plant_id"] == "10") & (owners["generator_id"] == "1")]
+    assert set(gen1["generator_capacity_mw"]) == {250.0}
+    assert set(gen1["plant_capacity_mw"]) == {1000.0}
+    # A reported 0 MW nameplate is "unknown", not a zero-MW unit; a plant with only such rows has no total.
+    p26 = owners[owners["source_plant_id"] == "26"]
+    assert p26["generator_capacity_mw"].isna().all()
+    assert p26["plant_capacity_mw"].isna().all()
+    # A plant Schedule 3 does not list at all keeps both columns null.
+    other = owners[~owners["source_plant_id"].isin({"10", "26"})]
+    assert other["generator_capacity_mw"].isna().all()
+    assert other["plant_capacity_mw"].isna().all()
+
+
+def test_snapshot_metadata_reads_the_run_record_for_a_store_snapshot(tmp_path, monkeypatch):
+    import json
+
+    from pipeline.context import eia_owners
+
+    monkeypatch.setattr(eia_owners, "RUNS_DIR", tmp_path)
+    stamp = "20260919T204822Z"
+    (tmp_path / f"{stamp}.json").write_text(
+        json.dumps(
+            {"snapshot": {"fetched_url": "https://www.eia.gov/electricity/data/eia860/xls/eia8602025.zip"}}
+        )
+    )
+    retrieved_at, url = eia_owners._snapshot_metadata(tmp_path / f"{stamp}.zip", 2025)
+    assert retrieved_at == "2026-09-19T20:48:22Z"
+    assert url == "https://www.eia.gov/electricity/data/eia860/xls/eia8602025.zip"
+
+
+def test_snapshot_metadata_falls_back_to_the_archive_template_for_a_browser_download(tmp_path):
+    from pipeline.context.eia_owners import _snapshot_metadata
+
+    retrieved_at, url = _snapshot_metadata(tmp_path / "eia8602024.zip", 2024)
+    assert url == "https://www.eia.gov/electricity/data/eia860/archive/xls/eia8602024.zip"
+    assert retrieved_at.endswith("Z")

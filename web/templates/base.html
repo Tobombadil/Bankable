@@ -5,7 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Infraque{% endblock %}</title>
 <meta name="description" content="{% block meta_description %}Energy and infrastructure proposals and opportunities, fused into one record per project, with attribution to source registers.{% endblock %}">
-{% block canonical %}{% endblock %}
+{#- Open Graph and Twitter card (docs/50 §3.2 web bullet; task item 3). Title and description are
+    re-read from the two blocks above through `self.<block>()`, which hands back the block's
+    already-escaped Markup -- one source of truth per page, escaped exactly once, so a record whose
+    name carries a quote or an angle bracket cannot break an attribute. `canonical_path` is set by
+    the route when the canonical URL is not simply the request path (record slugs, and index pages
+    whose canonical carries only the filters the page understands); `canonical_url` makes it
+    absolute. No `og:image`: the repo ships no committed card image, and a third-party image URL is
+    not allowed (task item 3). -#}
+{#- Built from `request` alone, not from a template global: this repo runs four Jinja environments
+    (web/app.py, web/auth.py, web/legal.py, web/admin/shell.py) and every one of them renders this
+    file, so anything `base.html` needs has to come from the context every environment injects.
+    `request.base_url` always ends in a slash, so the path loses its leading one. -#}
+{%- set canonical_relative = canonical_path | default(request.url.path, true) -%}
+{%- set canonical_href = (request.base_url | string) ~ (canonical_relative[1:] if canonical_relative.startswith('/') else canonical_relative) -%}
+<link rel="canonical" href="{{ canonical_href }}">
+<meta name="robots" content="{% block robots %}index, follow{% endblock %}">
+<meta property="og:site_name" content="Infraque">
+<meta property="og:type" content="{% block og_type %}website{% endblock %}">
+<meta property="og:title" content="{{ self.title() }}">
+<meta property="og:description" content="{{ self.meta_description() }}">
+<meta property="og:url" content="{{ canonical_href }}">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{{ self.title() }}">
+<meta name="twitter:description" content="{{ self.meta_description() }}">
+{#- JSON-LD (task item 4). Each entry is already inert JSON built by web/app.py::jsonld_block:
+    `<`, `>` and `&` are escaped to `\uXXXX`, so `| safe` here cannot emit markup. -#}
+{%- for graph in jsonld | default([], true) %}
+<script type="application/ld+json">{{ graph | safe }}</script>
+{%- endfor %}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,200..800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -33,6 +62,8 @@
       <a href="/">Map</a>
       <a href="/proposals">Proposals</a>
       <a href="/opportunities">Opportunities</a>
+      <a href="/assets">Assets</a>
+      <a href="/organizations">Companies</a>
       <a href="/about">About &amp; sources</a>
       {% if request.cookies.get('session') %}
       <a href="/account">Account</a>

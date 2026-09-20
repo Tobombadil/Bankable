@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Assets -- Infraque{% endblock %}
+{#- Built in web/app.py::_asset_index_description from the filters in force, so a filtered index
+    describes itself rather than repeating the unfiltered page's sentence. -#}
+{% block meta_description %}{{ description }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / Assets</nav>
+<div class="page-header">
+  <h1>Assets</h1>
+  <p>Infrastructure that exists, from public registers: identity, attributes, owners and operators, and the proposals near it. Free to read, cited to the register it came from.</p>
+</div>
+
+{% if type_counts %}
+{# Counts come from the map endpoint's own by-type totals (web/app.py::asset_type_counts), whose
+   denominator is assets with a published location -- said plainly below rather than implied to
+   agree with the list, since an asset whose licence withholds coordinates keeps its row and page. #}
+<nav class="count-chips" aria-label="Assets by type">
+  <ul>
+    <li>
+      <a href="/assets" {% if not filters.get('asset_type') %}aria-current="page"{% endif %}>
+        <span class="count-chips__label">All types</span> <span class="count-chips__n tnum">{{ '{:,}'.format(counts_total) }}</span>
+      </a>
+    </li>
+    {% for t in type_counts %}
+    <li>
+      <a href="/assets?asset_type={{ t.value }}" {% if t.selected %}aria-current="page"{% endif %}>
+        <span class="count-chips__label">{{ t.label }}</span> <span class="count-chips__n tnum">{{ '{:,}'.format(t.count) }}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</nav>
+<p class="attribution-line">Counts are of assets with a published location. An asset whose source licence withholds coordinates still has a row and a page here, and is not counted above.</p>
+{% endif %}
+
+<form id="filters" class="filter-bar" method="get" action="/assets" hx-get="/assets" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
+  <div class="filter-field">
+    <label for="f-asset-type">Type</label>
+    <select id="f-asset-type" name="asset_type">
+      <option value="">All</option>
+      {% for t in type_counts %}<option value="{{ t.value }}" {% if t.selected %}selected{% endif %}>{{ t.label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-state">State</label>
+    <input id="f-state" type="text" name="state" placeholder="e.g. US-TX" value="{{ filters.get('state', '') }}">
+  </div>
+  <div class="filter-field">
+    <label for="f-q">Name or operator</label>
+    <input id="f-q" type="search" name="q" placeholder="e.g. Rockies Express" value="{{ filters.get('q', '') }}">
+  </div>
+  <div class="filter-field">
+    <label for="f-sort">Sort</label>
+    <select id="f-sort" name="sort">
+      {% for token, label in sorts %}<option value="{{ token }}" {% if token == sort %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="filter-bar__submit" type="submit">Apply filters</button>
+  {% if filters.get('asset_type') or filters.get('state') or filters.get('q') or filters.get('technology') %}
+  <a class="filter-bar__clear" href="/assets">Clear all</a>
+  {% endif %}
+</form>
+
+<div id="result-rows">
+  {% include "partials/_asset_rows.html" %}
+</div>
+{% endblock %}

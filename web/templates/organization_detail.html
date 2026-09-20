@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
-{% block meta_description %}{{ record.name }}{% if record.type %}: {{ record.type | replace('_', ' ') }}{% endif %}{% if summary_parts %}. {{ summary_parts | join('; ') }}{% endif %}{% if record.jurisdiction %} ({{ record.jurisdiction }}){% endif %}.{% endblock %}
-{% block canonical %}<link rel="canonical" href="/organizations/{{ record.slug or record.public_id }}">{% endblock %}
+{#- `descriptor` before the raw type: an organisation whose stored `type` is `other` would
+    otherwise describe itself to a search engine as "Tallgrass Energy: other". -#}
+{% block meta_description %}{{ record.name }}{% if descriptor %}: {{ descriptor | lower }}{% elif record.type and record.type != 'other' %}: {{ record.type | replace('_', ' ') }}{% endif %}{% if summary_parts %}. {{ summary_parts | join('; ') }}{% endif %}{% if record.jurisdiction %} ({{ record.jurisdiction }}){% endif %}.{% endblock %}
 {% block extra_head %}
 {% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
 {% endblock %}
@@ -10,7 +11,10 @@
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
-  {% if record.type %}<span class="reuse-badge">{{ record.type | replace('_', ' ') }}</span>{% endif %}
+  {# `descriptor` (web/app.py::org_descriptor) replaces a meaningless "other" with what the
+     organisation holds -- "Ethanol producer", "Gas pipeline operator and Power plant owner"; the
+     raw type stays in the fields table below. #}
+  {% if descriptor %}<span class="reuse-badge" id="org-descriptor">{{ descriptor }}</span>{% elif record.type %}<span class="reuse-badge">{{ record.type | replace('_', ' ') }}</span>{% endif %}
 </div>
 {# "Operates 3 gas pipelines · Owns 12 power plants": one clause per (role, type) group, from the
    API's `asset_counts` where it sends them, else counted over the rows on this page. #}

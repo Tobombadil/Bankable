@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}Search -- Infraque{% endblock %}
+{% block meta_description %}Search Infraque proposals, opportunities, assets and companies by name, sponsor, operator or queue ID.{% endblock %}
+{% block robots %}{% if q %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
 {% block content %}
 <div class="page-header"><h1>Search</h1></div>
 {% if not q %}
@@ -39,6 +41,7 @@
   <li><a href="/assets/{{ r.slug }}">{{ r.name }}</a>
     <span class="meta">
       {%- set parts = [r.type_label] -%}
+      {%- if r.technology_label %}{% set _ = parts.append(r.technology_label) %}{% endif -%}
       {%- if r.operator_name %}{% set _ = parts.append(r.operator_name) %}{% endif -%}
       {%- if r.states %}{% set _ = parts.append(r.states) %}{% elif r.state %}{% set _ = parts.append(r.state) %}{% endif -%}
       {{ parts | join(' · ') }}

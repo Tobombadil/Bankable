@@ -14,6 +14,7 @@ from services.api.conftest import (
     make_event,
     make_open_licence,
     make_public_source,
+    make_visible_opportunity,
     make_visible_proposal,
 )
 from services.db.models import Licence, Source
@@ -183,3 +184,130 @@ def test_event_on_a_non_record_subject_is_never_public(client, db):
     body = client.get("/v1/events").json()
     assert all(e["subject_type"] != "user" for e in body["data"])
     assert client.get(f"/v1/events/{_event_id(ev)}").status_code == 404
+
+
+# --------------------------------------------------------------------------- opportunity subjects
+# `event_visibility_filter`'s subject clause is an `or_` of two arms; every test above reaches it
+# through the `proposal` arm only. The `opportunity` arm had no test at all (the CI coverage step's
+# note called this out as "line 164 ... which the suite reaches only through the proposal arm";
+# after the module was rewritten the arm is no longer a statement of its own, so coverage stopped
+# flagging it while the gap stayed open). These three tests close it in both directions: an event
+# on a visible opportunity is *served*, and events on hidden, restricted and not-yet-public
+# opportunities are not.
+
+
+def _opportunity_event(db, opp, source, *, suffix: str = "1", event_type: str = "status_change"):
+    from services.db.models import Event
+
+    now = dt.datetime.now(UTC)
+    ev = Event(
+        subject_type="opportunity",
+        subject_id=opp.id,
+        event_type=event_type,
+        observed_at=now - dt.timedelta(days=2),
+        source_id=source.id,
+        source_url=source.url,
+        retrieved_at=now - dt.timedelta(days=2),
+        licence_id=source.licence_id,
+        before={"status": "open"},
+        after={"status": "closed"},
+        changed_keys=["status"],
+        public_at=now - dt.timedelta(days=1),
+        published_at=now - dt.timedelta(days=1),
+        idempotency_key=f"opp-event-{suffix}",
+    )
+    db.add(ev)
+    db.flush()
+    return ev
+
+
+def _seed_opportunities(db):
+    """The opportunity twin of `_seed`: four opportunities, each with one event whose *own*
+    licence/source/timing clauses pass, so only the subject join can exclude it."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    now = dt.datetime.now(UTC)
+
+    shown = make_visible_opportunity(db, src, public_id_suffix="1")
+    shown.title = "Visible RFP"
+    ev_shown = _opportunity_event(db, shown, src, suffix="1")
+
+    hidden = make_visible_opportunity(db, src, public_id_suffix="2")
+    hidden.title = "Hidden RFP Title"
+    hidden.publish_state = "unpublished"
+    ev_hidden = _opportunity_event(db, hidden, src, suffix="2")
+
+    restricted_src = _restricted_source(db)
+    restricted = make_visible_opportunity(db, restricted_src, public_id_suffix="3")
+    restricted.title = "Restricted RFP Title"
+    restricted.min_reuse_class = "restricted"
+    # Recorded under the open licence, like the proposal seed: the per-event clauses pass.
+    ev_restricted = _opportunity_event(db, restricted, src, suffix="3")
+
+    pending = make_visible_opportunity(db, src, public_id_suffix="4")
+    pending.title = "Pending RFP Title"
+    pending.public_at = now + dt.timedelta(days=5)
+    pending.published_at = now - dt.timedelta(minutes=1)
+    ev_pending = _opportunity_event(db, pending, src, suffix="4")
+    db.commit()
+    return {
+        "shown": (shown, ev_shown),
+        "hidden": (hidden, ev_hidden),
+        "restricted": (restricted, ev_restricted),
+        "pending": (pending, ev_pending),
+    }
+
+
+OPPORTUNITY_LEAK_NAMES = ("Hidden RFP Title", "Restricted RFP Title", "Pending RFP Title")
+
+
+def test_public_events_list_and_feeds_carry_an_event_on_a_visible_opportunity(client, db):
+    seeded = _seed_opportunities(db)
+    shown, ev_shown = seeded["shown"]
+
+    body = client.get("/v1/events").json()
+    assert [e["id"] for e in body["data"]] == [_event_id(ev_shown)]
+    assert [e["subject_type"] for e in body["data"]] == ["opportunity"]
+    assert [e["subject_id"] for e in body["data"]] == [shown.public_id]
+
+    filtered = client.get("/v1/events", params={"subject_type": "opportunity"}).json()
+    assert [e["id"] for e in filtered["data"]] == [_event_id(ev_shown)]
+
+    for fmt in ("json", "rss"):
+        feed = client.get(f"/feeds/events.{fmt}")
+        assert feed.status_code == 200
+        assert "Visible RFP" in feed.text, fmt
+        for name in OPPORTUNITY_LEAK_NAMES:
+            assert name not in feed.text, (fmt, name)
+        for key in ("hidden", "restricted", "pending"):
+            assert seeded[key][0].slug not in feed.text, (fmt, key)
+
+
+def test_public_event_by_id_is_404_for_invisible_opportunity_subjects(client, db):
+    seeded = _seed_opportunities(db)
+    assert client.get(f"/v1/events/{_event_id(seeded['shown'][1])}").status_code == 200
+    for key in ("hidden", "restricted", "pending"):
+        resp = client.get(f"/v1/events/{_event_id(seeded[key][1])}")
+        assert resp.status_code == 404, key
+        for name in OPPORTUNITY_LEAK_NAMES:
+            assert name not in resp.text
+        assert (
+            client.get("/v1/events", params={"subject_id": seeded[key][0].public_id}).json()["data"] == []
+        ), key
+
+
+def test_pro_sees_the_pending_opportunity_subject_but_never_hidden_or_restricted(client, db):
+    seeded = _seed_opportunities(db)
+    headers = _pro_headers(db)
+
+    body = client.get("/v1/events", headers=headers).json()
+    assert body["meta"]["tier"] == "pro"
+    assert sorted(e["subject_id"] for e in body["data"]) == sorted(
+        [seeded["shown"][0].public_id, seeded["pending"][0].public_id]
+    )
+    for name in ("Hidden RFP Title", "Restricted RFP Title"):
+        assert name not in str(body)
+
+    assert client.get(f"/v1/events/{_event_id(seeded['pending'][1])}", headers=headers).status_code == 200
+    assert client.get(f"/v1/events/{_event_id(seeded['hidden'][1])}", headers=headers).status_code == 404
+    assert client.get(f"/v1/events/{_event_id(seeded['restricted'][1])}", headers=headers).status_code == 404

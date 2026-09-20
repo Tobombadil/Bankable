@@ -929,6 +929,68 @@ DOE laboratories publish data under their own terms, so `us.anl.rng_database` st
 gated until the owner or counsel reads its terms in a browser (`docs/40` §0). If the terms are restrictive,
 LMOP, AgSTAR and the RFS tables cover operational RNG assets without it; only the planned-project view is lost.
 
+### 2.15 EIA-923 (annual generation and fuel) — public domain, covered by §2.11
+
+`us.eia.form923` was registered on 2026-09-19 by the features lane. No separate terms retrieval was
+needed: EIA's reuse statement quoted in §2.11 is site-wide and covers "any of our data, files,
+databases, reports, graphs, charts, and other information products that are on our website", which
+is exactly what the EIA-923 workbooks are. Classification `public-domain`, publication `raw-ok`,
+acknowledgment rendered as "Source: U.S. Energy Information Administration (Sep 2026)" per EIA's
+own example form. **Confidence: high.**
+
+Two access facts belong on the record, because they constrain how the connector may fetch rather
+than what may be published:
+
+- **`archive/` is robots-disallowed.** `eia.gov/robots.txt` (read live 2026-09-19) carries
+  `Disallow: /*archive/`, which covers `electricity/data/eia923/archive/xls/f923_<year>.zip` — the
+  path holding every year before the current two. The connector therefore reads only the
+  non-archive years, and a backfill of older years would need a different, permitted route (EIA's
+  bulk API, or a request to EIA) rather than crawling that path.
+- **Early-release files are not final.** EIA publishes the current year monthly ("EIA-923 June
+  2026") and finalises the prior year each September; the 2026 workbook is an early release of a
+  partial year. Deriving a capacity factor from it would understate every plant, so the connector
+  requires a `_Final` workbook member and steps back a year otherwise. This is a data-quality rule,
+  not a licence one, and is recorded here because the year it lands on is visible in published
+  attribute keys (`capacity_factor_2025`).
+
+### 2.16 PHMSA data read from the Internet Archive — the data is §105, the access route is not PHMSA
+
+`us.phmsa.pipeline_operator_reports` was recorded on 2026-09-18 as `public-domain` / `raw-ok` on the
+§105 reasoning in §2.14, with the data page unread. On 2026-09-19 the features lane established more
+precisely what is happening, and it is not a Cloudflare challenge as §2.14 assumed:
+
+> `HTTP/2 403` · `server: AkamaiGHost` · `<TITLE>Access Denied</TITLE>` · "You don't have permission
+> to access … on this server." (retrieved 2026-09-19 for the data page, both data files, and
+> `https://www.phmsa.dot.gov/robots.txt` itself)
+
+*Inference, two parts.* **The data.** PHMSA is a DOT operating administration and these are
+compilations of operator filings prepared by federal employees: 17 U.S.C. §105 applies, the
+classification `public-domain` stands, and it does not depend on which server the bytes arrive from.
+**The route.** Because the origin refuses this egress — including `robots.txt`, so no crawl
+directive can be read at all — the connector reads the Internet Archive's captures of the same two
+files (`web.archive.org/web/<timestamp>id_/<phmsa url>`), recording the origin's answer, the capture
+used and the origin's own `Last-Modified` in every run record, and keeping the PHMSA URL as the
+published `source_url`. That is a second party's service, so its terms govern the *fetch*, not the
+data: the Archive offers these captures publicly and without charge, the connector takes two files
+at 0.5 rps, and nothing is bypassed or spoofed (a 403 is honoured as a 403 — no retry, no alternate
+user-agent). Reading a public-domain federal file from a public mirror is not a licence question;
+if the Archive's terms are later read and found to restrict automated retrieval, the fallback is
+what stops, not the source. **Confidence: high** on the data, **moderate** on the route pending a
+read of the Archive's terms of use (added to the browser tasks in `docs/40` §0).
+
+A third fact, recorded because it affects what we can publish: three members of PHMSA's own
+published annual zip are damaged at source (`annual_…_2010.xlsx`, `annual_…_2019.xlsx`, `GT AR 2025
+Part J.csv` — zlib/CRC errors on two byte-identical downloads). The connector reads the newest
+intact per-year workbook and reports which one; no year is silently substituted for another.
+
+Finally, `us.epa.rfs_public_data`: the page named in the manifest publishes no facility-level data
+(Qlik application; aggregate RIN volumes only). The D-code registrations come from EPA's Part 80
+registered company/facility list on the same fuels-programs site (`cdxoarapps.epa.gov`, linked from
+`epa.gov/fuels-registration-reporting-and-compliance-help/registered-companies-and-facilities-epas-fuel`).
+Same publisher, same §105 basis and the same EPA hedge already assessed at §2.12; the workbook
+carries no cover sheet or notice of its own (checked 2026-09-19, the §2.12 cover-sheet rule).
+Classification and publication rule unchanged: `public-domain` / `raw-ok`.
+
 ---
 
 ## 3. US scraping law
@@ -1267,6 +1329,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.gridtracker.interconnection_fyi` | restricted | do not ingest at all | ToS + hot-news §3.4 | high |
 | `us.eia.860m` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted | high |
 | `us.eia.api` | public-domain | raw-ok | 17 U.S.C. §105 | high |
+| `us.eia.form923` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted, applied at §2.15 (robots-disallowed `archive/`; final-release rule); added 2026-09-19 by the features lane | high |
 | `us.oasis.non_iso_queues` | unknown (per-utility) | derived-only; read per-utility terms before each connector | not retrieved | low |
 | `us.ferc.elibrary` | public-domain | raw-ok | 17 U.S.C. §105 | high |
 | `us.ferc.pipelines_pending` | public-domain | raw-ok | 17 U.S.C. §105 | high |
@@ -1323,9 +1386,9 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.eia.860` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted | high |
 | `us.eia.atlas.gas_processing_plants`, `us.eia.atlas.gas_storage`, `us.eia.atlas.lng_terminals`, `us.eia.atlas.ethanol_plants` | public-domain | raw-ok; Atlas `licenseInfo` unread (browser task) | 17 U.S.C. §105; §2.11 quoted | high |
 | `us.eia.ethanol_capacity` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted | high |
-| `us.epa.lmop`, `us.epa.agstar`, `us.epa.rfs_public_data` | public-domain | raw-ok, cover-sheet check per workbook | §2.12 quoted (EPA hedge) | mod-high |
+| `us.epa.lmop`, `us.epa.agstar`, `us.epa.rfs_public_data` | public-domain | raw-ok, cover-sheet check per workbook | §2.12 quoted (EPA hedge); §2.16 records that the RFS rows come from EPA's Part 80 registration list, same publisher | mod-high |
 | `us.anl.rng_database` | **unknown** | do not store; gated until terms read | §2.14 not retrieved | n/a |
-| `us.phmsa.pipeline_operator_reports` | public-domain | raw-ok | 17 U.S.C. §105; §2.14 page not retrieved | high |
+| `us.phmsa.pipeline_operator_reports` | public-domain | raw-ok | 17 U.S.C. §105; §2.16 quotes the origin's 403 and records the archive fallback (§2.14 superseded on the nature of the block) | high |
 | `global.gleif.lei` | open (CC0) | raw-ok | §2.13 quoted | high |
 | `us.eia.atlas.gas_pipelines` | public-domain | raw-ok; Atlas `licenseInfo` unread (browser task) | 17 U.S.C. §105; §2.11 quoted; added 2026-09-18 from the manifest entry, not re-verified | high |
 | `us.epa.rblc` | public-domain | raw-ok; dashboard terms unread before ingest | 17 U.S.C. §105; §2.12 by analogy; added 2026-09-18 from the manifest entry, not re-verified | mod-high |
