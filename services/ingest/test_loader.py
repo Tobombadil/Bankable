@@ -148,7 +148,7 @@ def test_gate_refused_when_stored_licence_is_gated_even_if_the_manifest_now_says
         upsert_licence_and_source(session, entry, "2026-09-12")
 
 
-def test_load_dataframe_creates_proposal_with_public_at_lag(session: Session) -> None:
+def test_load_dataframe_creates_proposal_public_immediately(session: Session) -> None:
     entry = open_source_entry()
     src = upsert_licence_and_source(session, entry, "2026-09-12")
     df = pd.DataFrame([sample_proposal_row()])
@@ -162,7 +162,10 @@ def test_load_dataframe_creates_proposal_with_public_at_lag(session: Session) ->
     assert prop.public_at is not None
     assert prop.published_at is not None
     lag = prop.public_at - prop.published_at
-    assert lag == dt.timedelta(days=14)  # supply default (services/ingest/lag.py)
+    # No record carries a publication delay any more: the paywall is by shape, not by time
+    # (owner, 2026-09-19; `services/ingest/lag.py`). `tests/test_iso_change_event_lag.py` covers
+    # the one delay that survives -- change events from an ISO queue register.
+    assert lag == dt.timedelta(0)
     assert prop.sponsor is not None
     assert prop.sponsor.name_canonical == "Acme Power LLC"
     assert prop.location is not None

@@ -67,6 +67,7 @@ from pipeline.context import shapefile
 from pipeline.context.geo import (
     StateIndex,
     geodesic_length_miles,
+    merge_touching_lines,
     representative_point,
     simplify,
     wkt_multilinestring,
@@ -474,6 +475,8 @@ def normalise_pipelines(
         groups[(operator, pipe_type)].append(f)
 
     rows: list[dict[str, Any]] = []
+    parts_in = 0
+    parts_out = 0
     for (operator, pipe_type), segs in groups.items():
         lines: list[list[list[float]]] = []
         statuses: set[str] = set()
@@ -486,6 +489,16 @@ def normalise_pipelines(
                 statuses.add(s)
         if not lines:
             continue
+        # Chain segments that touch before anything is measured or written: the source is one
+        # shapefile network, so a segment's end coordinate is usually exactly the next one's
+        # start. Douglas-Peucker keeps both endpoints of every part, so unchained parts cost two
+        # vertices each at every zoom and the national view is set by part count, not detail.
+        # Length is preserved (only duplicated joints go), so `miles` is unchanged; the
+        # representative point may move onto the midpoint of a continuous run instead of an
+        # arbitrary segment, which is the intended improvement (docs/21-data-model.md §3.22).
+        parts_in += len(lines)
+        lines = merge_touching_lines(lines)
+        parts_out += len(lines)
         miles = round(geodesic_length_miles(lines), 1)
         rep = representative_point(lines)
         lon, lat = (rep[0], rep[1]) if rep else (None, None)
@@ -528,6 +541,8 @@ def normalise_pipelines(
         )
     df = _frame(rows)
     df.attrs["dropped_no_geometry"] = dropped_no_geometry
+    df.attrs["parts_before_merge"] = parts_in
+    df.attrs["parts_after_merge"] = parts_out
     return df
 
 
@@ -811,6 +826,8 @@ def run_layer(
     }
     if layer.key == "gas_pipelines":
         summary["dropped_no_geometry"] = df.attrs.get("dropped_no_geometry", 0)
+        summary["parts_before_merge"] = df.attrs.get("parts_before_merge", 0)
+        summary["parts_after_merge"] = df.attrs.get("parts_after_merge", 0)
         summary["total_miles"] = (
             round(float(df["attributes"].map(lambda a: a["miles"]).sum()), 1) if len(df) else 0
         )

@@ -8,6 +8,10 @@ Everything here works on GeoJSON-style ``[lon, lat]`` coordinate lists in WGS84:
   ``Shape_Leng`` is in degrees and unusable for mileage.
 - ``simplify`` — Douglas-Peucker in degrees (planar), kept only to bound parquet size; the
   default in `eia_atlas.py` is 0.0 (off) because the unsimplified layer is already small.
+- ``merge_touching_lines`` — chain parts whose endpoints coincide at the stored precision into
+  maximal runs. The Atlas pipeline layer is one network split into 33,184 parts, and Douglas-
+  Peucker keeps both endpoints of every part, so at national zoom the payload is set by part
+  count, not detail; chaining is the only thing that moves it.
 - ``representative_point`` — the vertex nearest the midpoint (by length) of the longest part, so
   the point sits *on* the line, not at a centroid that can fall off it.
 - ``wkt_multilinestring`` / ``wkt_point`` — WKT writers with a fixed decimal precision.
@@ -21,6 +25,7 @@ from __future__ import annotations
 import json
 import math
 import pathlib
+from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from typing import Any
 
@@ -217,3 +222,114 @@ class StateIndex:
                 if s:
                     seen.add(s)
         return sorted(seen)
+
+
+#: Decimal places at which two endpoints count as the same node in ``merge_touching_lines``.
+#: This is the precision ``wkt_multilinestring`` writes at, so two parts that chain here are
+#: exactly two parts that would otherwise be stored sharing a vertex.
+JOINT_PRECISION = 6
+
+
+def _node(coord: Coord, precision: int) -> tuple[float, float]:
+    return (round(float(coord[0]), precision), round(float(coord[1]), precision))
+
+
+def merge_touching_lines(
+    lines: Iterable[Line], *, precision: int = JOINT_PRECISION
+) -> list[list[list[float]]]:
+    """Chain parts whose endpoints coincide into maximal runs, reversing a part where that is
+    what makes it join.
+
+    The EIA Atlas pipeline layer is one shapefile network dissolved per (operator, type), so a
+    segment's end coordinate is usually *exactly* another segment's start coordinate. Stored as
+    separate parts they cost two vertices each at every zoom -- Douglas-Peucker keeps both
+    endpoints of every part, so the national view is dominated by part count, not vertex count,
+    and no tolerance can help. Chaining removes the part, not the detail.
+
+    **Only degree-2 nodes are joined.** Where three or more part-endpoints meet, every chain
+    stops: welding two of the three branches into one part would assert a continuous run the
+    source does not describe. Measured 2026-09-20 on the 259 real rows, that rule takes 33,184
+    parts to 17,997 (zoom-4 vertices 36,571 -> 24,309). Chaining greedily *through* junctions
+    instead was measured at 11,945 parts and 19,955 zoom-4 vertices, and not taken: the extra
+    reduction is bought by inventing topology. See ``docs/21-data-model.md`` §3.22.
+
+    Guarantees, all asserted against the recorded layer in ``test_eia_atlas.py``:
+
+    - *idempotent* -- merging an already-merged set returns the same geometry. A chain that
+      closes on itself keeps both of its endpoint slots at its node, so degrees do not drift
+      between passes.
+    - *length-preserving* -- the only vertices removed are the duplicated joints, so
+      ``geodesic_length_miles`` is unchanged (measured max drift 7.3e-12 miles over the layer).
+    - *deterministic* -- chains come out ordered by the lowest original part index they contain.
+    - *linear-ish* -- one endpoint dictionary, each part walked a bounded number of times.
+
+    Parts of fewer than two vertices cannot chain; they are passed through in place.
+    """
+    parts: list[list[list[float]]] = [[[float(c[0]), float(c[1])] for c in ln] for ln in lines]
+    ends: dict[int, tuple[tuple[float, float], tuple[float, float]]] = {}
+    nodes: dict[tuple[float, float], list[tuple[int, int]]] = defaultdict(list)
+    for i, part in enumerate(parts):
+        if len(part) < 2:
+            continue
+        head, tail = _node(part[0], precision), _node(part[-1], precision)
+        ends[i] = (head, tail)
+        nodes[head].append((i, 0))
+        nodes[tail].append((i, 1))
+
+    # A node joins two parts only when exactly two endpoint slots meet there. A ring occupies
+    # both of its own slots, so it is never joinable to itself and never frees its node.
+    joinable = {node: slots for node, slots in nodes.items() if len(slots) == 2}
+
+    def neighbour(part_index: int, node: tuple[float, float]) -> tuple[int, int] | None:
+        slots = joinable.get(node)
+        if slots is None:
+            return None
+        others = [s for s in slots if s[0] != part_index]
+        return others[0] if len(others) == 1 else None
+
+    used: list[bool] = [False] * len(parts)
+    chains: list[tuple[int, list[list[float]]]] = []
+    for start in range(len(parts)):
+        if start not in ends or used[start]:
+            continue
+        # Walk back to the far end of this chain so the run is emitted whole and in one order.
+        head_index, head_dir = start, 1
+        entry = ends[start][0]
+        seen = {start}
+        while True:
+            found = neighbour(head_index, entry)
+            if found is None:
+                break
+            prev_index, prev_end = found
+            if prev_index in seen:  # closed loop: stop, the walk forward covers it
+                break
+            seen.add(prev_index)
+            head_index = prev_index
+            head_dir = 1 if prev_end == 1 else -1
+            entry = ends[prev_index][0] if head_dir == 1 else ends[prev_index][1]
+
+        coords: list[list[float]] = []
+        members: list[int] = []
+        index, direction = head_index, head_dir
+        while True:
+            if used[index]:
+                break
+            used[index] = True
+            members.append(index)
+            run = parts[index] if direction == 1 else parts[index][::-1]
+            coords.extend(run if not coords else run[1:])
+            exit_node = ends[index][1] if direction == 1 else ends[index][0]
+            found = neighbour(index, exit_node)
+            if found is None:
+                break
+            next_index, next_end = found
+            if used[next_index]:
+                break
+            index, direction = next_index, (1 if next_end == 0 else -1)
+        chains.append((min(members), coords))
+
+    for i, part in enumerate(parts):
+        if i not in ends:
+            chains.append((i, part))
+    chains.sort(key=lambda item: item[0])
+    return [coords for _, coords in chains]

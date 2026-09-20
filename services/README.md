@@ -116,7 +116,8 @@ services/db/
 
 services/ingest/
   loader.py          Idempotent parquet+events -> store loader; the licence/reuse-class gate
-  lag.py             public_at = published_at + lag(kind) (14d supply / 7d opportunities)
+  lag.py             public_at: records = published_at (no delay); change events = + the
+                     source's own change-event lag (ISO queue registers, 14d)
   test_loader.py     Idempotency, gate refusal (both independent checks), lag computation
 
 services/ids.py      Crockford-base32 public ids (prop_/opp_/org_/evt_) and slugify()
@@ -187,12 +188,18 @@ are architecture changes; all are bounded follow-ups.
    construction, from a publishable source — so it is loaded straight to `public` rather than
    sitting in `pending_review` forever with no admin surface to move it. Once admin ships, it
    gains the ability to demote individual records without a loader change.
-4. **Public lag default: 14 days supply / 7 days opportunities**, per this task's brief and
-   `docs/04-standards.md` §10 pick 1. `docs/20-architecture.md` A-8 (7 days flat) and
-   `docs/21-data-model.md` §9 D-1 (14 days flat) disagree with each other and with this; that
-   three-way conflict already exists in `docs/21` §10 (correction C-4) and is not resolved here —
-   this sprint follows the more specific, later standards document rather than picking a third
-   answer.
+4. ~~**Public lag default: 14 days supply / 7 days opportunities**~~ **Superseded 2026-09-19 by
+   owner decision: the paywall is by shape, not by time.** "Alerts, exports, API and watchlists
+   are paid; free users see every record; the delay is kept only on ISO change events." Records
+   carry no lag on any tier (`record_public_at` is the identity); a change event waits only when
+   its source declares a lag, which today is the eight `us.iso.*` interconnection-queue registers
+   at 14 days (`data/sources.yaml change_event_lag_days` → `source.lag_days` →
+   `change_event_public_at`). The three-way 7-vs-14 conflict between `docs/20` A-8, `docs/21` D-1
+   and `docs/04` §10 pick 1 is closed by the decision rather than settled: none of the three
+   numbers applies to a record any more. Migration `0016` recomputed `public_at` on existing rows,
+   because it is stored rather than computed. `services/api/visibility.py` was **not** edited for
+   this — the predicate reads the same column it always did, which is why the licence gate
+   provably cannot have loosened (`tests/test_licence_gate_survives_lag_removal.py`).
 5. **Source-level gate for the public tier requires `publish_state = 'public'` exactly**, not
    `api_only` (docs/21 §5.4's `source_permits`). The loader's own default for a newly-seen source
    is `api_only` (open decision 3's flip side: a source is publishable-by-licence before an

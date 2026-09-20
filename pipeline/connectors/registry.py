@@ -84,6 +84,11 @@ class SourceEntry:
     #: scripts/check_manifest_licences.py). None when an entry predates the field: the loader
     #: then warns and falls back to its notes regex.
     publication: str | None = None
+    #: data/sources.yaml `change_event_lag_days`: days a *change event* from this source is
+    #: withheld from the public tier (`services/ingest/lag.py`). None/absent = no delay. Records
+    #: are never delayed (owner, 2026-09-19, paywall by shape). Mirrored into `source.lag_days`
+    #: by `services/ingest/loader.py::upsert_licence_and_source`.
+    change_event_lag_days: int | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -145,6 +150,9 @@ class SourceEntry:
             probe=dict(e.get("probe") or {}),
             egress=str(e.get("egress") or _default_egress(str(e.get("access", "")))),
             publication=str(e["publication"]) if e.get("publication") is not None else None,
+            change_event_lag_days=(
+                int(e["change_event_lag_days"]) if e.get("change_event_lag_days") is not None else None
+            ),
             raw=e,
         )
         src.max_rps = _rate_limit(src, e)

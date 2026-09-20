@@ -33,7 +33,6 @@ from sqlalchemy.orm import Session
 
 from services.api.common import WEB_HOST, ensure_aware
 from services.db.models import Event, Opportunity, Proposal
-from services.ingest.lag import LAG_DAYS_BY_KIND
 from services.social.editorial import SocialEvent
 
 
@@ -113,6 +112,22 @@ def _docket_id(identifiers: dict[str, Any] | None) -> str | None:
     return str(value) if value else None
 
 
+def _event_lag_days(event: Event) -> int | None:
+    """How far behind the public feed is *for this event*, or `None` for "no delay to disclose".
+
+    `services/social/editorial.py` prints "this public feed runs N days behind our live tier" only
+    when this is truthy. Since the paywall became a matter of shape rather than time (owner,
+    2026-09-19) that clause is true only of a change event from a source that declares a
+    change-event lag — the eight ISO queue registers today — so it is read back from the event's
+    own two stored columns rather than from a per-kind constant: a record is never delayed, and a
+    post that claimed otherwise would be a false statement on a public channel.
+    """
+    if event.public_at is None or event.published_at is None:
+        return None
+    days = (ensure_aware(event.public_at) - ensure_aware(event.published_at)).days
+    return days if days > 0 else None
+
+
 def _lifecycle_value(payload: dict[str, Any] | None, key: str = "lifecycle_state") -> str | None:
     return (payload or {}).get(key) if payload else None
 
@@ -135,7 +150,7 @@ def _proposal_social_event(event: Event, event_type: str, proposal: Proposal) ->
         retrieved_at=retrieved_at,
         reuse_class=event.licence.reuse_class if event.licence else "unknown",
         page_url=f"{WEB_HOST}/proposals/{proposal.slug}",
-        lag_days=LAG_DAYS_BY_KIND["proposal"],
+        lag_days=_event_lag_days(event),
         proposal_name=proposal.name_canonical,
         technology=proposal.technology,
         capacity_mw=float(proposal.capacity_mw) if proposal.capacity_mw is not None else None,
@@ -194,7 +209,7 @@ def _opportunity_social_event(event: Event, event_type: str, opportunity: Opport
         retrieved_at=retrieved_at,
         reuse_class=event.licence.reuse_class if event.licence else "unknown",
         page_url=f"{WEB_HOST}/opportunities/{opportunity.slug}",
-        lag_days=LAG_DAYS_BY_KIND["opportunity"],
+        lag_days=_event_lag_days(event),
         technology=technology,
         capacity_mw=(
             float(opportunity.capacity_sought_mw) if opportunity.capacity_sought_mw is not None else None

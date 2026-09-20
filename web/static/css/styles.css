@@ -728,3 +728,18 @@ h3 { font-size: var(--text-4); }
 @media (max-width: 719px) {
   .auth-form { max-width: 100%; }
 }
+
+/* Footer build line (services/api/build_info.py): which commit served the page and how fresh its
+   rows are. Quiet by design -- it answers "am I seeing the latest version?" for whoever asks, and
+   is ignorable for everyone else. */
+.site-footer__build {
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted, #5b6b7c);
+}
+.site-footer__build code {
+  font-size: inherit;
+}
+.site-footer__dirty {
+  color: var(--color-danger, #8c3a2e);
+}

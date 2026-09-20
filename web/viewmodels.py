@@ -372,3 +372,35 @@ def restricted_precision_note(location: Mapping[str, Any] | None) -> str | None:
     if location.get("precision_reason") == "licence":
         return "Location shown at county level (source licence)."
     return None
+
+
+def footer_build(request: Any, api: Any) -> dict[str, Any]:
+    """The commit the API is running and the vintage of the rows it serves, for the footer
+    (`services/api/build_info.py`). Read from `/v1/health` once per app process and cached on
+    `app.state` beside the lag figures, for the same reason: it is server configuration, not
+    per-request data. Any failure renders nothing rather than an error, because a diagnostic line
+    must never take a page down.
+
+    It lives here rather than in `web/app.py` because `web/auth.py` and `web/legal.py` keep their
+    own `Jinja2Templates`, `get_api` and footer globals on purpose (see `web/auth.py`'s module
+    docstring) and importing from `web.app` would close the circle those copies exist to avoid.
+    Each module passes its own `get_api(request)`; the cache is shared, since all three routers
+    are mounted on one FastAPI application.
+
+    The web process reports the API's commit, not its own: they are deployed together, and the
+    question a reader is asking is which build served this page.
+    """
+    cached: dict[str, Any] | None = getattr(request.app.state, "build_info", None)
+    if cached is None:
+        try:
+            health = api.get("/v1/health")
+            build = health.get("build") or {}
+            cached = {
+                "commit": build.get("commit"),
+                "dirty": build.get("dirty"),
+                "source_data_as_of": health.get("source_data_as_of"),
+            }
+        except Exception:
+            cached = {"commit": None, "dirty": None, "source_data_as_of": None}
+        request.app.state.build_info = cached
+    return cached

@@ -13,6 +13,12 @@
 #              Must be no more permissive than the docs/13-legal-data-rights.md §6 rule for the
 #              source; scripts/check_manifest_licences.py enforces it (2026-09-18). restricted and
 #              unknown sources are always `none`.
+#   change_event_lag_days : days a *change event* from this source is withheld from the public tier
+#              (`Event.public_at = published_at + this`). Records themselves are never delayed:
+#              the paywall is by shape, not by time (owner, 2026-09-19; docs/00-PLAN.md decisions
+#              log). Absent or 0 = change events publish live. Carried today by the eight
+#              `us.iso.*` interconnection-queue registers only, which is the set the owner's
+#              decision names; pinned by tests/test_iso_change_event_lag.py.
 #   tier     : 1 = MVP, 2 = second wave, 3 = later / opportunistic
 #   effort   : S (<1 day connector) | M (1–3 days) | L (>3 days or needs agreements/browser automation)
 #   verified : result of scripts/probe_sources.py on the date shown (see data/probes/)
@@ -39,6 +45,7 @@ sources:
   license: 'CAISO Terms of Use (rev. 2025-05-14), retrieved 2026-09-12 — "No material or information from this Website ... may be copied, reproduced, republished ... except (i) as authorized in these Terms of Use"; and "may be used by you provided that you keep intact all copyright ... notices and that you credit the California ISO"'
   reuse: attribution
   publication: derived_only
+  change_event_lag_days: 14
   tier: 1
   effort: S
   connector: gridstatus.CAISO.get_interconnection_queue
@@ -62,6 +69,7 @@ sources:
   license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — "raw data provided in public portions of this website may be used, reproduced, and redistributed in compilations, charts, and analyses without maintaining such notices"'
   reuse: open
   publication: raw_ok
+  change_event_lag_days: 14
   tier: 1
   effort: S
   connector: gridstatus.Ercot.get_interconnection_queue
@@ -85,6 +93,7 @@ sources:
   license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — raw public data "may be used, reproduced, and redistributed in compilations, charts, and analyses"'
   reuse: open
   publication: raw_ok
+  change_event_lag_days: 14
   tier: 1
   effort: S
   probe: {method: GET}
@@ -116,6 +125,7 @@ sources:
   license: 'SPP Terms & Conditions (Copyright), retrieved 2026-09-12 — "Permission is implicitly granted to copy and distribute ... EXCEPT when such materials will be used, in whole or in part, within a commercial publication ... Any commercial use of these materials requires prior, express written authorization from the author(s) or a duly authorized officer of SPP"'
   reuse: restricted
   publication: none
+  change_event_lag_days: 14
   tier: 1
   effort: S
   connector: gridstatus.SPP.get_interconnection_queue
@@ -140,6 +150,7 @@ sources:
   license: 'NYISO Legal Notice, retrieved 2026-09-12 — only express prohibition is "Downloading, republishing, retransmitting, reproducing, or other use of any image or video on this website as a stand-alone file is strictly prohibited"; otherwise reserves rights; no assent clause; no data-reuse restriction'
   reuse: attribution
   publication: derived_only
+  change_event_lag_days: 14
   tier: 1
   effort: S
   connector: gridstatus.NYISO.get_interconnection_queue
@@ -162,6 +173,7 @@ sources:
   license: 'ISO-NE Legal and Privacy, retrieved 2026-09-12 with a browser user-agent (403 to plain clients) — "By using this website, you signify your assent to these Terms and Conditions" and "Any duplication of the Content or non-personal use may violate copyright, trademark, and other laws"'
   reuse: restricted
   publication: none
+  change_event_lag_days: 14
   tier: 1
   effort: S
   connector: gridstatus.ISONE.get_interconnection_queue
@@ -186,6 +198,7 @@ sources:
   license: 'Three documents retrieved 2026-09-12. Data Miner 2 Terms of Use PDF — "Members may republish data, however non-members are specifically prohibited from republishing data". apiportal.pjm.com — "for internal use only and redistribution ... is strictly prohibited without an effective PJM-issued Redistribution License". pjm.com Legal & Privacy (governs planning pages) — reserves rights, contains no redistribution clause'
   reuse: restricted
   publication: none
+  change_event_lag_days: 14
   tier: 1
   effort: M
   connector: gridstatus.PJM.get_interconnection_queue (PJM_API_KEY)
@@ -211,6 +224,7 @@ sources:
   license: MISO Legal & Privacy (page returns 403 to non-browser clients — terms not retrievable)
   reuse: unknown
   publication: none
+  change_event_lag_days: 14
   tier: 1
   effort: M
   connector: gridstatus.MISO.get_interconnection_queue
@@ -1444,6 +1458,30 @@ sources:
     these rows for every organisation with an LEI once that loader exists; rows stay only where GLEIF has no
     record. Cheyenne Connector appears in Tallgrass's statement but not in the 202001 Atlas layer, so it has
     no rule yet (a rule with nothing to match would be noise).
+
+- id: curated.organization_aliases
+  name: Curated organisation alias rules (renames and short forms no key can reach) — data/vendored/organizations/aliases.yaml
+  jurisdiction: US
+  category: registry
+  operator: Infraque (curated from SEC EDGAR submissions metadata and company filings)
+  url: file:///data/vendored/organizations/aliases.yaml
+  access: bulk_file
+  auth: none
+  format: yaml (alias, canonical, source_url, retrieved_at, note)
+  cadence: continuous
+  license: 'curated by Infraque from public filings; each row cites the filing URL it was read from'
+  reuse: open
+  publication: raw_ok
+  tier: 2
+  effort: S
+  verified: {date: 2026-09-20, result: ok, note: 'Seven rules as of 2026-09-20, each citing a data.sec.gov submissions URL: the four seeded 2026-09-19 (Wisconsin Power and Light, Kansas City Power & Light -> Evergy Metro, Westar Energy and Western Resources -> Evergy Kansas Central) plus the three docs/22 §16.5 left for a loader (Vistra Energy -> Vistra Corp, Enable Midstream -> Enable Midstream Partners, Noble Environmental -> Noble Environmental Power). Loaded by services/ingest/organizations.py::load_aliases, which writes organization_alias rows with kind=filing_spelling, confidence 1.0 and this source id. Not a fetched source: the file is in the repo, the URL above is where it lives.'}
+  notes: >-
+    Sibling of curated.organization_parents and the same contract: one legal entity per row, a cited public
+    filing per row, nothing inferred from a name alone. It holds the identities `pipeline.normalize.org_key`
+    deliberately cannot reach — a rename with no string similarity, or a short form that differs by a content
+    word — because a key loose enough to reach them re-merges distinct entities inside one family
+    (docs/22 §16.2 measured that at 46.3 %). Family relationships belong in curated.organization_parents or
+    GLEIF Level 2, never here.
 
 - id: us.eia.atlas.ethanol_plants
   name: EIA US Energy Atlas — Ethanol Plants (point geometries, owner, nameplate capacity)

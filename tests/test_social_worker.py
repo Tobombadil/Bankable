@@ -520,7 +520,10 @@ def test_social_event_from_db_maps_proposal_fields(db: Session) -> None:
     assert social_event.source_url == event.source_url
     assert social_event.reuse_class == licence.reuse_class
     assert social_event.page_url == f"{WEB_HOST}/proposals/{proposal.slug}"
-    assert social_event.lag_days == 14
+    # Paywall by shape (owner, 2026-09-19): this event publishes live -- `make_event` writes
+    # `public_at == published_at` -- so there is no delay to disclose and the draft must not claim
+    # one. `test_social_event_lag_days_is_the_events_own_delay` covers the delayed case.
+    assert social_event.lag_days is None
     assert social_event.capacity_mw == float(proposal.capacity_mw)
     assert social_event.technology == proposal.technology
     assert social_event.county == "Travis"
@@ -562,6 +565,29 @@ def test_social_event_from_db_maps_status_change_before_after(db: Session) -> No
     assert social_event.status_to == "filed"
 
 
+def test_social_event_lag_days_is_the_events_own_delay(db: Session) -> None:
+    """The "public feed runs N days behind" clause tracks the *event's* stored delay.
+
+    Since the paywall became a matter of shape rather than time (owner, 2026-09-19) a draft may
+    only claim a delay that the event actually carries: `public_at - published_at`. An ISO queue
+    change event held 14 days discloses 14; anything published live discloses nothing.
+    """
+    licence = make_attribution_licence(db, id_="iso-lic")
+    source = make_public_source(db, licence, id_="us.iso.test.gen_queue")
+    source.lag_days = 14
+    proposal = make_visible_proposal(db, source)
+    db.flush()
+    now = dt.datetime.now(dt.UTC)
+    event = make_event(db, proposal, source, event_type="created", public_at=now + dt.timedelta(days=13))
+    event.published_at = now - dt.timedelta(days=1)
+    db.commit()
+
+    social_event = social_event_from_db(db, event)
+
+    assert social_event is not None
+    assert social_event.lag_days == 14
+
+
 def test_social_event_from_db_maps_opportunity_fields(db: Session) -> None:
     licence = make_open_licence(db)
     source = make_public_source(db, licence, id_="us.test.mapping_opportunity")
@@ -582,7 +608,7 @@ def test_social_event_from_db_maps_opportunity_fields(db: Session) -> None:
     assert social_event.issuer_org == "State Utility Commission"
     assert social_event.deadline_date == opportunity.due_at.date()
     assert social_event.page_url == f"{WEB_HOST}/opportunities/{opportunity.slug}"
-    assert social_event.lag_days == 7
+    assert social_event.lag_days is None  # opportunities are never delayed (owner, 2026-09-19)
     assert social_event.capacity_mw is None  # make_visible_opportunity leaves capacity_sought_mw unset
     assert social_event.technology == opportunity.technologies[0]
 

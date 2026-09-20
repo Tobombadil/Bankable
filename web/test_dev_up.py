@@ -98,15 +98,38 @@ def test_context_layers_run_owner_shares_then_features_after_the_asset_files(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """With no midstream parquet present the file loop does nothing and `load_parents` is not
-    reached, but the owner-share load and the single features call still run, in that order, after
-    the loop -- the ownership edges must exist before features derived from them are computed."""
+    reached, but the three post-loop steps still run, in this order: the owner-share load, the
+    single features call, then the organisation graph (GLEIF parents and curated aliases,
+    docs/22 §17). Ownership edges must exist before features derived from them are computed, and
+    the organisation graph reads what all of them created."""
     order: list[str] = []
     monkeypatch.setattr(dev_up, "_load_ownership", lambda session, data_dir: order.append("ownership"))
     monkeypatch.setattr(
         dev_up, "_apply_context_features", lambda session, data_root: order.append("features")
     )
+    monkeypatch.setattr(
+        dev_up, "_load_organization_graph", lambda session, data_dir: order.append("org_graph")
+    )
     (tmp_path / "normalized" / "context").mkdir(parents=True)
     with caplog.at_level(logging.INFO, logger=dev_up.log.name):
         dev_up._load_context_asset_layers(object(), tmp_path)  # type: ignore[arg-type]
-    assert order == ["ownership", "features"]
+    assert order == ["ownership", "features", "org_graph"]
     assert any("no midstream/fuels parquet" in r.getMessage() for r in caplog.records)
+
+
+def test_load_organization_graph_without_a_gleif_parquet_still_applies_aliases(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    """Unlike the two steps above, this one always has work to do: the curated alias file ships in
+    the repository, and applying it registers its source, so it needs a real session rather than
+    short-circuiting on a missing file. A missing GLEIF parquet is still only a log line, and the
+    aliases land regardless (docs/22 §17)."""
+    from services.db.session import get_engine, get_sessionmaker, init_db
+
+    engine = get_engine("sqlite+pysqlite:///:memory:")
+    init_db(engine)
+    with get_sessionmaker(engine)() as session, caplog.at_level(logging.INFO, logger=dev_up.log.name):
+        dev_up._load_organization_graph(session, tmp_path)
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("gleif" in m.lower() and "not found" in m.lower() for m in messages), messages
+    assert any("alias" in m.lower() for m in messages), messages

@@ -37,7 +37,8 @@ from sqlalchemy.orm import (
 from starlette.middleware.gzip import GZipMiddleware
 
 from services.api.auth import AuthContext, get_auth_context
-from services.api.common import API_HOST, WEB_HOST, new_request_id, utcnow
+from services.api.build_info import build_info, data_as_of
+from services.api.common import API_HOST, WEB_HOST, ensure_aware, new_request_id, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
 from services.api.feeds import render_json_feed, render_rss
@@ -82,7 +83,7 @@ from services.db.models import (
     Source,
 )
 from services.ids import public_id
-from services.ingest.lag import LAG_DAYS_BY_KIND
+from services.ingest.lag import ISO_CHANGE_EVENT_LAG_DAYS, RECORD_LAG_DAYS
 
 app = FastAPI(
     title="Platform API",
@@ -1181,11 +1182,12 @@ def list_events(
         instance=request.url.path,
     )
     data = [serialize_event(e, **_subject_info(db, e)) for e in rows]
-    lag_days = (
-        0
-        if ctx.entitlement != "public"
-        else max((_lag_days_for_subject(e.subject_type) for e in rows), default=14)
-    )
+    # `meta.lag_days` is a completeness claim about the feed, not about the rows that happened to
+    # land on this page: on the public tier the events feed is only complete as of
+    # `ISO_CHANGE_EVENT_LAG_DAYS` ago, because an ISO queue change event from yesterday exists and
+    # is withheld. Reporting the maximum over `rows` would answer `0` for a page with no ISO event
+    # on it and tell the caller the feed was current when it is not.
+    lag_days = 0 if ctx.entitlement != "public" else ISO_CHANGE_EVENT_LAG_DAYS
     meta = build_meta(lag_days=lag_days, tier=ctx.entitlement)
     licence_rows = [r for e in rows if (r := event_licence_row(e)) is not None]
     return build_list_envelope(
@@ -1196,14 +1198,20 @@ def list_events(
     )
 
 
-def _lag_days_for_subject(subject_type: str) -> int:
-    """`LAG_DAYS_BY_KIND` is keyed by the `Kind` literal; `event.subject_type` is a plain `str`
-    column, so this narrows the lookup instead of an untypeable `dict.get(str, int)` call."""
-    if subject_type == "proposal":
-        return LAG_DAYS_BY_KIND["proposal"]
-    if subject_type == "opportunity":
-        return LAG_DAYS_BY_KIND["opportunity"]
-    return 14
+def _event_lag_days(event: Event) -> int:
+    """The delay this one event actually carries, read back from its own stored columns.
+
+    Since the paywall became a matter of shape rather than time (owner, 2026-09-19) the delay is a
+    per-source property -- the eight ISO queue registers withhold their change events, everything
+    else publishes live -- so there is no per-`subject_type` constant left to look up. Both
+    columns were written together by `services/ingest/lag.py::change_event_public_at`, so their
+    difference *is* the lag that was applied, including any per-event-type override an operator
+    set; nothing has to re-derive it from the source row. An event missing either column is not
+    visible on the public tier at all (`services/api/visibility.py` requires `public_at`), so the
+    fallback is the conservative one rather than `0`."""
+    if event.public_at is None or event.published_at is None:
+        return ISO_CHANGE_EVENT_LAG_DAYS
+    return max(0, (ensure_aware(event.public_at) - ensure_aware(event.published_at)).days)
 
 
 def _resolve_subject(db: Session, public_id_value: str) -> Proposal | Opportunity | None:
@@ -1251,7 +1259,7 @@ def get_event(
     if ev is None:
         raise not_found(request.url.path)
     data = serialize_event(ev, **_subject_info(db, ev))
-    lag_days = 0 if ctx.entitlement != "public" else _lag_days_for_subject(ev.subject_type)
+    lag_days = 0 if ctx.entitlement != "public" else _event_lag_days(ev)
     meta = build_meta(lag_days=lag_days, tier=ctx.entitlement)
     row = event_licence_row(ev)
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary([row] if row else []))
@@ -1512,13 +1520,16 @@ def get_health(db: Session = Depends(get_db)) -> Any:
     data = {
         "status": "ok" if database_ok else "degraded",
         "api_version": "v1",
-        "data_as_of": (now - dt.timedelta(days=LAG_DAYS_BY_KIND["proposal"]))
-        .isoformat()
-        .replace("+00:00", "Z"),
+        # Records carry no delay on any tier (owner, 2026-09-19), so the public materialised view
+        # is current: `data_as_of == live_as_of`. `lag_days_default` keeps its shape -- the public
+        # site reads it for the footer and `web/` would break on a missing key -- and gains
+        # `iso_change_events`, the one delay that survives.
+        "data_as_of": (now - dt.timedelta(days=RECORD_LAG_DAYS)).isoformat().replace("+00:00", "Z"),
         "live_as_of": now.isoformat().replace("+00:00", "Z"),
         "lag_days_default": {
-            "supply": LAG_DAYS_BY_KIND["proposal"],
-            "opportunities": LAG_DAYS_BY_KIND["opportunity"],
+            "supply": RECORD_LAG_DAYS,
+            "opportunities": RECORD_LAG_DAYS,
+            "iso_change_events": ISO_CHANGE_EVENT_LAG_DAYS,
         },
         "checks": {
             "database": database_ok,
@@ -1529,6 +1540,11 @@ def get_health(db: Session = Depends(get_db)) -> Any:
             "queue_age_seconds": None,
         },
         "generated_at": now.isoformat().replace("+00:00", "Z"),
+        # Which build is answering, and how fresh the rows it is serving are (services/api/
+        # build_info.py): two different questions that both get asked as "am I seeing the latest
+        # version?". `data_as_of` is the newest fetch from a source, not the publish lag above.
+        "build": build_info(),
+        "source_data_as_of": data_as_of(db),
     }
     return data
 
@@ -1641,7 +1657,7 @@ def feed_events(format: str, request: Request, db: Session = Depends(get_db)) ->
                     "licence_summary": build_licence_summary(
                         [r] if (r := event_licence_row(e)) is not None else []
                     ),
-                    "data_as_of": build_meta(lag_days=_lag_days_for_subject(e.subject_type))["data_as_of"],
+                    "data_as_of": build_meta(lag_days=_event_lag_days(e))["data_as_of"],
                 },
             }
         )

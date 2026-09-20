@@ -53,7 +53,7 @@ proposals platform is the **top of that funnel and its data asset**, not a stand
 - Fusion + change detection + action is unoccupied; listing is commoditised (`docs/01` §3.1, confidence
   moderate-high).
 - The demand side is thin but valuable in 2026 precisely because it is volatile (`docs/01` §3.6).
-- The free delayed tier and Bluesky/LinkedIn feed are marketing spend with a measured CAC for the paid tiers and
+- The free tier (every record, undelayed since 2026-09-19) and the Bluesky/LinkedIn feed are marketing spend with a measured CAC for the paid tiers and
   for any later deal-workflow revenue (`docs/01` §4; later consideration).
 
 The kill signals for each bet are the validation plan in `docs/01-feasibility.md` §6 and are restated as MVP
@@ -91,9 +91,9 @@ tier design. S3–S6 are served by the same features with filters; they are not 
 | Sources | Tier-1 rows in `data/sources.yaml` whose `reuse` is `open` or `attribution` and whose legal evidence is recorded: CAISO, ERCOT GIS, ERCOT large load, EIA-860M, LBNL Queued Up (history), FERC eLibrary (ER/CP dockets), Permitting Dashboard, grants.gov, DOE eXCHANGE, curated utility/co-op/CCA RFP issuers (target 50), TED, World Bank procurement, NESO TEC, GEM trackers. SPP, NYISO and ISO-NE ingest in Sprint 1 but publish only after their terms are read and recorded (`docs/02` §4). |
 | Graph | Proposal, opportunity, organization, event, match, source, proposal_source per the schema seed in `docs/02-data-sources.md` §5. Deterministic then probabilistic entity resolution with reversible merges. One lifecycle vocabulary. |
 | Change feed | Snapshot diff per source run; typed events; per-proposal timeline; global and filtered feeds. |
-| Public delayed tier | Browse/search/filter/map-list of proposals and opportunities; detail pages with provenance and attribution; RSS per saved filter; records visible after a configured lag. No login required. |
-| Pro live tier | Same surfaces with zero lag; saved searches; email alerts (immediate and digest); CSV export; seat-based subscription. |
-| Team/API tier | Read API with keys, plan-based rate limits, delayed vs live enforced server-side. |
+| Public tier | Browse/search/filter/map-list of proposals and opportunities; detail pages with provenance and attribution; RSS per saved filter; **every record, visible as soon as it is ingested**. No login required. |
+| Pro tier | The paid shapes, not fresher records: saved searches; email alerts (immediate and digest); CSV export; watchlists; seat-based subscription. Also the live view of ISO change events. |
+| Team/API tier | Read API with keys, plan-based rate limits, shape entitlement enforced server-side. |
 | Matching | Rule-based proposal ↔ opportunity matches with an explanation; model-assisted re-ranking only if the data-scientist's evaluation shows a measured gain (§8.4). |
 | Syndication | Bluesky first, LinkedIn second (via approved API or an approved scheduler until MDP approval), X on a capped budget if the owner funds it. Every post goes through a review queue until the owner lifts review per channel. |
 | Admin | Users; customers and subscriptions read from and written through the CRM/ERP adapter; source health; publish/unpublish per source and per record with a licence gate; post review queue; intake review. |
@@ -144,11 +144,17 @@ a source to public while its gate is unmet.
 
 Conventions: IDs are stable; do not renumber. "Segment" names who the story serves. Acceptance criteria are
 written so QA can turn each into a test without asking the author. "Tier" says which tier sees the behaviour
-(Public = delayed free, Pro = live paid, API = key-based, Admin = internal). Terms:
+(Public = free, every record, undelayed since 2026-09-19; Pro = paid workflow shapes; API = key-based; Admin = internal). Terms:
 
 - **Lag** — the configured delay between a record or event becoming visible to Pro and becoming visible to
-  Public. Default 14 days, configurable per source and per event type, bounded 7–30 days (`docs/01` §3.4,
-  assumption A-7 in §7).
+  Public. ~~Default 14 days, configurable per source and per event type, bounded 7–30 days (`docs/01` §3.4,
+  assumption A-7 in §7).~~ **Superseded 2026-09-19 (owner): the paywall is by shape, not by time.** Verbatim:
+  "alerts, exports, API and watchlists are paid; free users see every record; the delay is kept only on ISO
+  change events. Supersedes the time-delay model in docs/10 and docs/41". A **record** therefore has no lag on
+  any tier. A **change event** has a lag only when its source declares one (`data/sources.yaml`
+  `change_event_lag_days`); today that is the eight `us.iso.*` interconnection-queue registers at 14 days.
+  Every "lag" below is to be read against that rule; the paragraphs that assumed a blanket record delay are
+  marked where they occur.
 - **Provenance** — `source_id`, `source_url`, `retrieved_at`, `licence` on every stored record (`CLAUDE.md`).
 - **Lifecycle vocabulary** — announced, filed, studied, permitted, contracted, built, withdrawn, cancelled
   (`docs/02` §1), plus `unknown` for rows with no mappable status (216 SPP rows have blank status, `docs/01` §3.3).
@@ -160,8 +166,12 @@ can scan what is active.
 - AC1: List shows name_canonical, kind, technology, capacity_mw (and storage_mwh where present), jurisdiction,
   state/county, lifecycle_state, last_changed, source count. Default sort: last_changed desc.
 - AC2: Page size 50; total count shown; pagination is stable under concurrent ingestion (cursor, not offset).
-- AC3: Public tier shows only records whose `first_seen` is older than the lag and whose latest visible event
-  is older than the lag; Pro shows all. Verified by a fixture with one record at lag−1 day and one at lag+1 day.
+- AC3: ~~Public tier shows only records whose `first_seen` is older than the lag and whose latest visible event
+  is older than the lag; Pro shows all.~~ **Amended 2026-09-19 (paywall by shape):** the public tier shows every
+  record the licence and source gates allow, with no age test; only an *event* from a source that declares a
+  change-event lag is withheld, and then only from the event surfaces (timeline, `/v1/events`, feeds). Verified
+  by a fixture with one ISO change event at lag−1 day and one at lag+1 day, and by a record fixture ingested
+  seconds ago that the public tier returns.
 - AC4: No record from a gated source (§3.3) appears in any tier while the gate is unmet. Verified by a fixture
   with a PJM-tagged record.
 
@@ -210,8 +220,16 @@ stitched together.
 - AC2: For restricted or attribution-with-restriction sources (CAISO), the raw row is not rendered; the page
   shows derived fields and a "view at source" link (`docs/02` §4).
 - AC3: Page has a stable, human-readable URL that survives merges (old ids redirect 301 to the surviving id).
-- AC4: Public tier renders the record as of `now − lag`: fields and events newer than the lag are hidden and a
-  banner says "Updated N days ago on the live tier" with a Pro call-to-action.
+- AC4: ~~Public tier renders the record as of `now − lag`: fields and events newer than the lag are hidden and a
+  banner says "Updated N days ago on the live tier" with a Pro call-to-action.~~ **Amended 2026-09-19 (paywall
+  by shape):** the public tier renders the record's current fields. Only its *timeline* is partial, and only for
+  sources that declare a change-event lag; the banner states that instead (`docs/04` D-3/D-28).
+  **Invalidated by this amendment:** the argument that the record page is itself a conversion surface because a
+  visitor is looking at stale fields. It is not any more — the page is current, so whatever conversion the
+  record page produces has to come from the alert and watchlist calls-to-action, and the figures in `docs/11`
+  that were reasoned from "free users see stale data" (§3's delay schedule and the conversion argument built on
+  it) are not evidence for the new shape. They have not been re-derived; nothing here should be read as a
+  measured conversion claim.
 
 **US-202 Lifecycle timeline.** As a developer (S1), I want to see every event on a project in order so I know
 its stage and history.
@@ -291,7 +309,8 @@ source so its records carry provenance like any other.
   the source of truth for metrics M-5.
 
 **US-503 RSS feeds.** As a public visitor, I want an RSS feed for a filter so I can follow without an account.
-- AC1: Every public list URL has an RSS equivalent; the feed contains items at the public lag.
+- AC1: Every public list URL has an RSS equivalent; the feed contains every item whose source publishes change
+  events live, and items from a source with a change-event lag once that lag has elapsed (amended 2026-09-19).
 - AC2: Every social post links to a page that offers the RSS feed and the alert sign-up (`content-social.md`).
 - AC3: Feed items carry the source credit line.
 
@@ -304,9 +323,14 @@ source so its records carry provenance like any other.
 **US-601 Tier enforcement is server-side.** As the owner, I need the lag enforced in the data layer so no
 client can bypass it.
 - AC1: A single visibility function decides what a given tier sees; every read surface (web, RSS, API, export)
-  calls it. A test proves an unauthenticated API request for a record newer than the lag returns the delayed
-  view, and the same request with a Pro key returns the live view.
-- AC2: The lag is stored per source and per event type in the source registry; changing it needs no deploy.
+  calls it. ~~A test proves an unauthenticated API request for a record newer than the lag returns the delayed
+  view, and the same request with a Pro key returns the live view.~~ **Amended 2026-09-19:** the test proves it
+  for an *ISO change event*; the same request for a record newly ingested returns the record on both tiers.
+  The licence and source clauses of the predicate are unchanged and still exclude restricted/unknown sources on
+  every non-admin tier.
+- AC2: The change-event lag is stored per source and per event type in the source registry
+  (`change_event_lag_days` / `lag_overrides`); changing it needs no deploy. There is no record-level lag to
+  configure.
 
 **US-602 Pro entitlement.** As a Pro subscriber, my seat unlocks the live tier on web and API.
 - AC1: Entitlement is read from the subscription record via the CRM/ERP adapter (US-903) and cached with a
@@ -319,7 +343,9 @@ client can bypass it.
 - AC3: Exports are logged per user (metric M-6 source).
 
 **US-604 Public tier messaging.** As a public visitor, I understand what I am not seeing.
-- AC1: Every public page states the lag ("Public data is N days delayed") with a link to the tiers page.
+- AC1: Every public page states its tier line with a link to the tiers page: "Every record is published as soon
+  as it is ingested; ISO queue change events are held N days on the free tier" where no record delay applies,
+  and "Public data is N days delayed" on a surface where one does (amended 2026-09-19; `docs/04` D-3/D-28).
 
 ### 4.7 API keys and rate limits (US-7xx) — S2, developers integrating
 
@@ -532,7 +558,7 @@ Further assumptions made in this document:
 
 | ID | Assumption | Basis | Affected |
 |---|---|---|---|
-| A-7 | Public lag defaults to 14 days, configurable 7–30 per source/event type | `docs/01` §3.4 gives the 7–30 day range; 14 is the midpoint | US-101 AC3, US-601, US-604 |
+| A-7 | ~~Public lag defaults to 14 days, configurable 7–30 per source/event type~~ **Retired 2026-09-19 by owner decision.** Records have no lag; 14 days survives only as the ISO change-event lag | The assumption's basis (`docs/01` §3.4's 7–30 day range) was about how long a free tier can be held back. The owner replaced the question: the free tier is a marketing surface, the paid tier is workflow | US-101 AC3, US-601, US-604 — all amended above |
 | A-8 | Default rate limits: Public 60/h per IP, Pro 600/h, API 6,000/h + daily cap | No prior evidence; sized to allow browsing without bulk mining; architect finalises | US-702 |
 | A-9 | Resolution quality bar: precision ≥ 0.9, recall ≥ 0.7 on the labelled sample | No prior evidence; precision prioritised because wrong merges are visible to sponsors and damage trust | M-2, US-401 AC3 |
 | A-10 | Find a Tender is an MVP feed | `docs/00-PLAN.md` decisions and `docs/01` §4 name FTS in MVP, but `data/sources.yaml` `gb.find_a_tender` is `tier: 2`. PRD follows the PLAN; the YAML tier should be corrected to 1 by the data-engineer or the PLAN amended | §3.1, Sprint 2 |

@@ -202,7 +202,7 @@ Events are emitted by the pipeline (`03-agent-operating-model.md` §3 steps 2–
 
 | Event type | Post when | Channels | Timing |
 |---|---|---|---|
-| `proposal.new` | capacity ≥ 50 MW, or ≥ 100 MW for solar/storage in high-volume ISOs, or load ≥ 100 MW, or transmission ≥ 100 kV, or capex ≥ $100m where stated | Bluesky, X; LinkedIn if ≥ 200 MW / ≥ $250m / nuclear, LNG, CCS, transmission ≥ 230 kV | Public-tier release (after the delayed-tier lag) |
+| `proposal.new` | capacity ≥ 50 MW, or ≥ 100 MW for solar/storage in high-volume ISOs, or load ≥ 100 MW, or transmission ≥ 100 kV, or capex ≥ $100m where stated | Bluesky, X; LinkedIn if ≥ 200 MW / ≥ $250m / nuclear, LNG, CCS, transmission ≥ 230 kV | Public-tier release, which since 2026-09-19 is publication itself for a record and the source's own change-event lag for an ISO queue event |
 | `proposal.status_changed` | any transition between canonical stages (e.g. queued → study, study → agreement, agreement → construction, → operational) on a proposal that met the size threshold | Bluesky, X; LinkedIn for reaching interconnection agreement, construction or operation | Public-tier release |
 | `proposal.withdrawn` | any withdrawal of a proposal that met the threshold | Bluesky, X; LinkedIn if ≥ 200 MW | Public-tier release |
 | `opportunity.rfp_opened` | any RFP/tender/solicitation in scope from an open-licence procurement source | All | Live (public procurement is already public and time-bound) |
@@ -222,7 +222,7 @@ Every post, on every channel, in this order:
 2. Identifiers where useful: queue ID, docket, solicitation number.
 3. Link to the proposal/opportunity page on bankablehq.com (UTM: `utm_source={channel}&utm_medium=social&utm_campaign={event_type}&utm_content={event_id}`).
 4. Attribution line: `Source: {source_name}, {retrieved_date}` (full URL and licence are on the page; on LinkedIn and email include the source URL inline too).
-5. Delayed-tier notice (proposal events only): `Public feed runs {lag_days} days behind. Live alerts: bankablehq.com/alerts`.
+5. Delayed-tier notice — **amended 2026-09-19** (owner: the paywall is by shape, not by time): carried only when the event the post is drawn from actually carries a delay, i.e. `lag_days > 0`, which since that decision means a change event from an ISO interconnection queue and nothing else. `Public feed runs {lag_days} days behind. Live alerts: bankablehq.com/alerts`. A post about a live event must not claim a delay the product does not apply; `services/social/db_events.py` reads `lag_days` back from the event's own `public_at - published_at` for exactly this reason.
 
 Fields available to templates (nothing else is passed to the model): `event_type, event_date, proposal_name, technology, capacity_mw, capacity_unit, load_mw, voltage_kv, capex_usd, county, state, country, iso_rto, queue_id, docket_id, solicitation_id, status_from, status_to, developer_org, issuer_org, awardee_org, award_usd, deadline_date, source_name, source_url, retrieved_at, licence, page_url, lag_days, digest_items[]`. `developer_org`, `issuer_org`, `awardee_org` are used only when present in the official record; never inferred.
 
@@ -301,7 +301,7 @@ Components: `publisher/filter.py`, `publisher/draft.py`, `publisher/validate.py`
 1. Length within channel limit (graphemes for Bluesky; X's weighted count; LinkedIn 3,000).
 2. Contains `page_url` exactly once, and the URL resolves (HEAD 200) to a page whose canonical proposal ID matches the event.
 3. Contains the attribution line from `sources.yaml` unchanged.
-4. Contains the lag notice when `event_type` starts with `proposal.`.
+4. Contains the lag notice when, and only when, the event carries a delay (`lag_days > 0`) — amended 2026-09-19 from "when `event_type` starts with `proposal.`", which was true while every proposal was delayed and is false now that only ISO change events are.
 5. Every number in the text appears in the event fields (regex extract → set membership; allows unit conversion MW↔GW and USD rounding).
 6. Every organisation name in the text appears in `developer_org|issuer_org|awardee_org`.
 7. No banned words (§3.4 list); no `@` mentions of any account on X and Bluesky (no unsolicited mentions); no URLs other than `page_url`.

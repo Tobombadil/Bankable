@@ -42,17 +42,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCES_YAML = ROOT / "data" / "sources.yaml"
 DEFAULT_QUEUE_PATH = pathlib.Path(__file__).resolve().parent / "var" / "queue.json"
 
-#: docs/00-PLAN.md decisions log: "public-tier lag is 7 days for opportunities and 14 days for
-#: supply rows". Opportunity/funding events post live (docs/32 §3.1) so they carry no lag notice
-#: regardless of this value; it only reaches proposal events.
-LAG_DAYS = {"proposal": 14, "opportunity": 7}
 
 _DIFF_COLUMNS = {"event_type", "record_id", "source_id", "field", "before", "after", "observed_at"}
 
 
-def _load_source_meta() -> dict[str, dict[str, str]]:
-    """Read-only lookup into `data/sources.yaml` for provenance (name, url, reuse class). This
-    package never writes that file -- CLAUDE.md/task scope reserve it to the ingest side."""
+def _load_source_meta() -> dict[str, dict[str, Any]]:
+    """Read-only lookup into `data/sources.yaml` for provenance (name, url, reuse class) and the
+    source's declared change-event lag. This package never writes that file -- CLAUDE.md/task
+    scope reserve it to the ingest side."""
     if not SOURCES_YAML.exists():
         return {}
     data = yaml.safe_load(SOURCES_YAML.read_text())
@@ -61,6 +58,7 @@ def _load_source_meta() -> dict[str, dict[str, str]]:
             "name": s.get("name", s["id"]),
             "url": s.get("url", ""),
             "reuse_class": s.get("reuse", "unknown"),
+            "change_event_lag_days": s.get("change_event_lag_days"),
         }
         for s in data.get("sources", [])
     }
@@ -75,8 +73,15 @@ def _page_url_for(row: dict[str, Any]) -> str:
 
 
 def _lag_days_for(row: dict[str, Any]) -> int | None:
-    subject_type = editorial.infer_subject_type(str(row["source_id"]))
-    return LAG_DAYS[subject_type] if subject_type == "proposal" else None
+    """The "public feed runs N days behind" clause a draft may carry, or `None` for no clause.
+
+    Since the paywall became a matter of shape rather than time (owner, 2026-09-19) there is no
+    per-kind lag to print: records publish live, and the only delayed shape is a change event from
+    a source that declares `change_event_lag_days` in `data/sources.yaml`. A row whose `source_id`
+    is not a manifest id — `pipeline/diff.py`'s eval frames use short names like `ercot` — yields
+    `None`, so a draft never claims a delay this module could not verify."""
+    lag = _load_source_meta().get(str(row["source_id"]), {}).get("change_event_lag_days")
+    return int(lag) if lag else None
 
 
 def _str_keyed(row: pd.Series[Any]) -> dict[str, Any]:

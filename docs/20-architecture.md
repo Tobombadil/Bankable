@@ -289,14 +289,19 @@ Tiers are a property of the **reader**, not copies of the data. Every `event` an
 
 | Tier | Who | Sees | Enforced by |
 |---|---|---|---|
-| `public` | anonymous, or free account | Events with `published_at <= now() − lag`; derived fields only; restricted sources aggregated or linked out | Row-level predicate in the store layer applied to every query; page cache keyed by day |
+| `public` | anonymous, or free account | **Every record as it commits** (amended 2026-09-19); events with `published_at <= now() − lag`, which is a delay only for a source that declares one; derived fields only; restricted sources aggregated or linked out | Row-level predicate in the store layer applied to every query; page cache keyed by day |
 | `pro` | account with entitlement `pro` (session or API key) | Everything as it commits; alerts; exports; saved searches | Entitlement check on session/key; `lag = 0` |
 | `api` | account with entitlement `api` | As `pro`, plus bulk endpoints, webhooks, higher limits | API key scopes and quotas |
 | `admin` | users with role `operator`/`owner` | Unpublished, dead-lettered, merge candidates, costs | Separate hostname, session + role, IP allowlist optional |
 
-- `lag` is configuration, default **7 days** **[A-8]** (`docs/01` §3.4 gives a 7–30 day range). It can be set
+- ~~`lag` is configuration, default **7 days** **[A-8]** (`docs/01` §3.4 gives a 7–30 day range). It can be set
   per source class so that slow sources (annual LBNL, quarterly GEM) carry no lag at all, since there is no
-  freshness premium to protect (`docs/01` §7).
+  freshness premium to protect (`docs/01` §7).~~ **Amended 2026-09-19 (owner: the paywall is by shape, not by
+  time).** There is no record lag on any tier. `lag` is configuration only for **change events**, per source
+  (`data/sources.yaml change_event_lag_days` → `source.lag_days`, per-event-type override in
+  `source.lag_overrides`), and today only the eight `us.iso.*` interconnection-queue registers set it, at 14
+  days. `docs/21` §5.4 carries the full statement; the 7-vs-14 disagreement between **[A-8]** and `docs/10`
+  A-7 is closed by the decision rather than settled.
 - Licence gating is orthogonal to tier and stricter: a `licence` row states whether derived fields, raw fields
   and API redistribution are allowed (`docs/21` §3.19). PJM rows (`reuse: restricted`) are therefore invisible to
   `public` and returned to `pro`/`api` only as derived aggregates with a link out until a licence exists;
@@ -538,7 +543,7 @@ a Python-first story, and a well-trodden migration away from it.
 | A-5 | No GridTracker/Cleanview partnership at MVP | Open question 5 | A partner feed becomes one more connector with `reuse: restricted` licence gating |
 | A-6 | International feeds limited to TED, FTS, NESO at MVP | Decision log 2026-09-12 | More connectors; no architectural change |
 | A-7 | Raw snapshot retention 24 months, then monthly samples | none | Storage line item |
-| A-8 | Public delay 7 days by default, per-source-class override | Pricing work in Phase 1 | Configuration only |
+| A-8 | ~~Public delay 7 days by default, per-source-class override~~ **Retired 2026-09-19: no record delay; 14 days on ISO change events only** | Owner decision (paywall by shape), superseding the Phase 1 pricing work this assumption waited on | `services/ingest/lag.py`, migration `0016` |
 | A-9 | Cost-per-changed-record demotion threshold USD 0.50 | Phase 1 unit economics | Configuration only |
 | A-10 | Second factor for admin via identity provider (Google) rather than a bespoke TOTP flow | none | Add TOTP later if non-Google operators are needed |
 | A-11 | Prices in §14 are list prices at time of writing | devops-engineer verification | Budget line changes, not architecture |

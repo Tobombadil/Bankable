@@ -7,11 +7,17 @@
 {%- endmacro %}
 
 {% macro delayed_banner(delayed) -%}
+{%- if delayed.lag_days %}
 <p class="delayed-notice" role="status">
   <span class="stamp-label">Delayed</span> Public data is <span class="tnum">{{ delayed.lag_days }}</span> days delayed (as of <span class="tnum">{{ delayed.data_as_of }}</span>). <a href="/about#tiers">Live in Pro &rarr;</a>
 </p>
+{%- else %}
+<p class="delayed-notice" role="status">
+  <span class="stamp-label">Live</span> Every record is published as soon as it is ingested{% if delayed.iso_change_event_lag_days %}; ISO queue <em>change events</em> are held <span class="tnum">{{ delayed.iso_change_event_lag_days }}</span> days on the free tier{% endif %}. <a href="/about#tiers">Alerts and API in Pro &rarr;</a>
+</p>
+{%- endif %}
 {%- if delayed.preview_active %}
-<p class="preview-banner" role="status"><span class="stamp-label">Dev preview</span> The publish delay is bypassed for this data so today&rsquo;s rows are visible now. The notice above still states the real configured lag.</p>
+<p class="preview-banner" role="status"><span class="stamp-label">Dev preview</span> The publish delay was bypassed for this data. Since records carry no delay, this now changes nothing except for rows loaded before that decision; the notice above still states the real configured lag either way.</p>
 {%- endif %}
 {%- endmacro %}
 

@@ -216,13 +216,30 @@ feeds (`01-feasibility.md` §5), which this document does not size.
 
 | Tier | Price | Includes | Rationale |
 |---|---|---|---|
-| Free (delayed) | $0 | Public pages, derived records, attribution, RSS/Bluesky/LinkedIn feed; lag per table below; search and map; no export, no alerts | SEO and audience engine (Cleanview's newsletter and Interconnection.fyi prove the model); PJM/MISO rows absent until licensed |
+| Free (~~delayed~~ every record, undelayed since 2026-09-19) | $0 | Public pages, derived records, attribution, RSS/Bluesky/LinkedIn feed; ~~lag per table below~~ only ISO change events delayed; search and map; no export, no alerts | SEO and audience engine (Cleanview's newsletter and Interconnection.fyi prove the model); PJM/MISO rows absent until licensed |
 | Pro | $149/mo or $1,490/yr per seat | Live data, saved searches, daily change-feed email/Slack alerts, CSV export (capped), opportunity deadlines calendar | Sits between Energy Adepto Starter ($120–150/mo) and Professional ($320–400/mo) with strictly more data (supply + demand + funding + tenders). `01-feasibility.md` §6 pre-sale test is $150–250/mo; start at the bottom of that band to win the first ten logos |
 | Team | $9,000/yr, 5 seats | Everything in Pro, shared watchlists, unlimited export, entity-resolution links to dockets/EIA/permits, proposal-to-opportunity matching | Price-matches Cleanview exactly so procurement cannot say "more expensive than Cleanview"; the buyer compares breadth |
 | API / Data | +$5,000/yr on Team (Team+API $14,000), or $25,000/yr standalone enterprise with bulk/Snowflake | Change-event webhooks, bulk pulls, licence pass-through for restricted sources | Matches Cleanview's +$5k add-on; the $25k enterprise point is below any WoodMac/Enverus/NPM line ($40–80k) and above Halcyon's data-subscription level |
 
-Delayed-tier lag by source cadence (the premium exists only where updates are at least weekly, per
-`01-feasibility.md` §7):
+> **Flagged 2026-09-20 — this section's pricing logic rests on an assumption the owner has since reversed.**
+> On 2026-09-19 the owner moved the paywall from time to shape: "alerts, exports, API and watchlists are paid;
+> free users see every record; the delay is kept only on ISO change events" (`docs/00-PLAN.md`). The table below
+> and the conversion estimate under it were both reasoned from a free tier that shows *stale* data — "14 days
+> costs free users little and makes Pro's change feed the reason to pay", "the freshness premium the
+> delayed/live model needs". That premium no longer exists for records. What this invalidates, precisely:
+>
+> * the **delay schedule** below is superseded by the implemented rule (records live; ISO change events at 14
+>   days; everything else live) — it is kept here as the record of what was decided before, not as guidance;
+> * the **1–2% free-to-Pro conversion estimate** under it, which was moderate-confidence and unmeasured even
+>   under the old model, now rests on a mechanism (freshness) the product no longer sells. It has **not** been
+>   re-derived, and nothing in this document should be read as evidence for conversion under the shape model;
+> * the **Team tier's** differentiators (shared watchlists, unlimited export) are unbuilt, which is why the
+>   owner priced Team as "seats plus support" until they exist (`docs/41`).
+>
+> The **prices** themselves were set by competitor positioning, not by the delay, and are unaffected.
+
+Delayed-tier lag by source cadence — **superseded 2026-09-19, see the flag above** (the premium exists only
+where updates are at least weekly, per `01-feasibility.md` §7):
 
 | Source cadence | Examples | Free-tier lag | Why |
 |---|---|---|---|
@@ -232,8 +249,11 @@ Delayed-tier lag by source cadence (the premium exists only where updates are at
 | Quarterly/annual | LBNL Queued Up, GEM, EIA-860 | No lag | No freshness premium possible; publish fully with attribution |
 | Status changes (cancelled, frozen, reinstated, withdrawn, window opening) | DOE award actions, USDA REAP status, ZEG-style queue windows | Pro only for 30 days, then free | The change event *is* the product (`00-PLAN.md` principle) |
 
-I (moderate): expect 1–2% free-to-Pro conversion on an engaged list; at 5,000 monthly active free users that is
-50–100 Pro seats, which is the break-even band in `01-feasibility.md` §3.4.
+I (moderate, **and now resting on a superseded mechanism — see the flag above**): expect 1–2% free-to-Pro
+conversion on an engaged list; at 5,000 monthly active free users that is 50–100 Pro seats, which is the
+break-even band in `01-feasibility.md` §3.4. Under the shape paywall the conversion driver is alerts and the
+API rather than freshness; no figure has been measured for that, and this one should not be carried forward as
+though it had.
 
 ## 4. Demand-side reality check (September 2026)
 
@@ -298,8 +318,11 @@ signals and international tenders; federal funding is a status-change feed, not 
    notices/month, ≈100 World Bank open-type/month, 30–60 live US utility RFPs) are large enough to be a product and
    too scattered for any single buyer to watch.
 2. **Change events are unowned.** Cancellation, freeze, reinstatement, queue-window opening, RFP pause (Duke NC),
-   RFP re-issue: none of the competitors sells a status-change feed across sources. That is the freshness premium
-   the delayed/live model needs, and it works even where the underlying register is slow.
+   RFP re-issue: none of the competitors sells a status-change feed across sources. ~~That is the freshness
+   premium the delayed/live model needs~~ — **flagged 2026-09-20:** the observation that nobody sells a
+   cross-source change feed still stands and is still the product; what no longer follows from it is that the
+   feed must be sold by withholding it from free readers (owner, 2026-09-19). It is sold as alerts, an API and
+   a watchlist: a shape a free reader has to build for themselves, not a fact they cannot see.
 3. **The buyer for fusion exists and is under-served:** capital allocators (300 finance orgs, 150 data-centre power
    teams) want "which proposals are positioned for which demand", which is precisely Bankable's routing question.
    Halcyon's customer list (OpenAI, SemiAnalysis, DESRI, Acadia) shows that this buyer pays five figures for

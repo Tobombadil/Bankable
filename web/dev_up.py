@@ -12,7 +12,8 @@ a couple of minutes wall clock, which a developer iterating on a template or rou
 want to pay.
 
     python -m web.dev_up                 # loads the full data set, starts both servers, Ctrl-C stops both
-    python -m web.dev_up --preview       # also bypasses the publish delay so today's rows show
+    python -m web.dev_up --preview       # bypasses the publish delay (a no-op since 2026-09-19:
+                                        # records carry none -- see web/data_loading.py)
     python -m web.dev_up --sample 200    # cap each source to 200 rows/lifecycle-state, for fast iteration
     python -m web.dev_up --skip-load     # reuse whatever is already in --db
 
@@ -120,6 +121,37 @@ def _load_ownership(session: Session, data_dir: Path) -> None:
     log.info("asset ownership: loaded from %s (%s)", parquet_path, summary)
 
 
+def _load_organization_graph(session: Session, data_dir: Path) -> None:
+    """The ownership graph's organisation layer (docs/22 §17), after every asset, edge, owner-share
+    and curated-parent load because it reads what they created: GLEIF Level 2 parent links from
+    `data/normalized/context/global.gleif.lei.parents.parquet`, then the curated alias file. Same
+    rule as `_load_ownership` above -- this script never invents a load path, both the parquet and
+    the loader module are optional, and a missing module, a missing file or an unreadable YAML is
+    one log line each, never a failure of the rest of `dev_up`. GLEIF runs after the curated
+    parents and wins where it has a record; `services/ingest/midstream.py::load_parents` defers to
+    it on a later re-run, so the order here is a preference, not a correctness requirement."""
+    try:
+        from services.ingest.organizations import (  # type: ignore[import-not-found]
+            load_aliases,
+            load_gleif_parents_parquet,
+        )
+    except ImportError as exc:
+        log.info("organisation graph: services.ingest.organizations not available yet (%s), skipping", exc)
+        return
+    parquet_path = data_dir / "normalized" / "context" / "global.gleif.lei.parents.parquet"
+    if not parquet_path.exists():
+        log.info("organisation graph: %s not found, skipping GLEIF parents", parquet_path)
+    else:
+        report = load_gleif_parents_parquet(session, parquet_path)
+        log.info("organisation graph: GLEIF parents from %s (%s)", parquet_path, report.as_report())
+    try:
+        aliases = load_aliases(session)
+    except (FileNotFoundError, ValueError) as exc:
+        log.info("organisation graph: curated alias file unusable (%s), skipping", exc)
+    else:
+        log.info("organisation graph: curated aliases applied (%s)", aliases.as_report())
+
+
 #: `data/normalized/context/<file>` -> `asset_type` for the midstream and fuels context layers
 #: (owner option (a), 2026-09-19; file names and types as the data lanes landed them, coordinator
 #: note 2026-09-19). Two files may feed one type (ethanol from EIA capacity and the Atlas layer;
@@ -209,6 +241,7 @@ def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
             log.info("context asset layers: curated parents file not found (%s), skipping", exc)
         else:
             log.info("context asset layers: curated parents applied (%s)", parents)
+    _load_organization_graph(session, data_dir)
     if not loaded:
         log.info("context asset layers: no midstream/fuels parquet under %s yet, skipping", context_dir)
 

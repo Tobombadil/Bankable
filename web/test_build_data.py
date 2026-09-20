@@ -117,18 +117,27 @@ def test_delayed_tier_fields_present_regardless_of_no_lag(
     assert stats["lag_days"]["opportunity"] == LAG_DAYS_OPPORTUNITY
 
 
-def test_lag_filtering_excludes_freshly_retrieved_rows_without_no_lag(tmp_path: Path) -> None:
-    """Without `--no-lag`, today's fixtures (retrieved "now") are older than 0 days, never older
-    than the 14/7-day lag, so the public build is empty -- proving the filter is real, not a
-    no-op (docs/04 D-3).
+def test_freshly_retrieved_rows_are_visible_without_no_lag(tmp_path: Path) -> None:
+    """Records carry no publication delay (owner, 2026-09-19: the paywall is by shape, not by
+    time), so a row retrieved seconds ago is in the public build.
+
+    This test used to assert the opposite -- that the whole build came out empty because every
+    fixture was younger than the 14/7-day blanket lag. That lag is gone, and with it the only
+    thing the `--no-lag` flag was for: it now changes nothing, which is what the second half
+    asserts. `tests/test_iso_change_event_lag.py` covers the delay that survives (change events
+    from an ISO queue register); this static prototype builder does not build the event feed.
     """
     out_dir = tmp_path / "data"
-    stats = build_all(
-        data_dir=None,
-        sources_yaml=SOURCES_YAML,
-        eval_parquet=EVAL_PARQUET,
-        out_dir=out_dir,
-        no_lag=False,
-    )
-    assert stats.proposals_visible == 0
+    kwargs = {
+        "data_dir": None,
+        "sources_yaml": SOURCES_YAML,
+        "eval_parquet": EVAL_PARQUET,
+        "out_dir": out_dir,
+    }
+    stats = build_all(**kwargs, no_lag=False)
+    assert stats.proposals_visible > 0
     assert stats.no_lag is False
+    assert stats.lag_days == {"proposal": 0, "opportunity": 0}
+
+    previewed = build_all(**kwargs, no_lag=True)
+    assert previewed.proposals_visible == stats.proposals_visible

@@ -52,6 +52,9 @@ from web.viewmodels import (
     relativize_geo_feature_urls,
     resolve_proposal_lifecycle_param,
 )
+from web.viewmodels import (
+    footer_build as vm_footer_build,
+)
 
 ALL_OPPORTUNITY_STATUSES_CSV = ",".join(ALL_OPPORTUNITY_STATUSES)
 ALL_PROPOSAL_LIFECYCLE_STATES_CSV = ",".join(ALL_PROPOSAL_LIFECYCLE_STATES)
@@ -982,6 +985,8 @@ templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
 templates.env.globals["asset_version"] = ASSET_VERSION
 
+templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
+
 
 # ---- SEO surface: canonical URLs, Open Graph / Twitter cards, JSON-LD ---------------------------
 # docs/50 §3.2 web bullet ("no Open Graph or structured data") and docs/00-PLAN.md 2026-09-19
@@ -1174,12 +1179,25 @@ def delayed_notice(request: Request, kind: str) -> dict[str, Any]:
     """docs/04 D-3/D-28: the notice always states the *actual configured* lag for the record's
     class, sourced from the API's own health payload -- never a hard-coded string (product defect
     E, task item 5). `public_at` from the API is what actually governs visibility; this notice is
-    just the honest label for that, not a second filter."""
+    just the honest label for that, not a second filter.
+
+    Since the paywall became a matter of shape rather than time (owner, 2026-09-19) `lag_days` is
+    `0` for both kinds and the banner's job changes with it: it has to stop claiming a delay that
+    no longer exists and instead name the one that does -- change events from an ISO queue
+    register, `iso_change_event_lag_days`, still withheld from the free tier. Both numbers keep
+    coming from `/v1/health`, not from a constant in this file, so the page can never disagree
+    with the predicate that actually governs visibility."""
     lag_key = "supply" if kind == "proposal" else "opportunities"
-    lag_days = get_lag_days(request)[lag_key]
+    lag = get_lag_days(request)
+    lag_days = lag[lag_key]
     now = dt.datetime.now(dt.UTC)
     data_as_of = (now - dt.timedelta(days=lag_days)).strftime("%Y-%m-%d")
-    return {"lag_days": lag_days, "data_as_of": data_as_of, "preview_active": is_preview_active(request)}
+    return {
+        "lag_days": lag_days,
+        "iso_change_event_lag_days": lag.get("iso_change_events", 0),
+        "data_as_of": data_as_of,
+        "preview_active": is_preview_active(request),
+    }
 
 
 def not_found_response(request: Request, kind: str) -> HTMLResponse:

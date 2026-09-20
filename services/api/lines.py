@@ -173,12 +173,25 @@ def _part_extent(part: Part) -> float:
 
 def simplify_parts(parts: Parts, tolerance: float) -> Parts:
     """Simplify every part and drop the parts whose whole extent is below `tolerance` -- they
-    would draw as a dot smaller than half a pixel. Douglas-Peucker keeps both endpoints of every
-    part, so without this a dissolved EIA Atlas pipeline (`pipeline/context/eia_atlas.py`: one
-    row per operator x type, ~130 parts on average, 567 for the largest Texas intrastate row)
-    floors at two vertices per part however coarse the zoom; measured 2026-09-19 on the 259 real
-    rows this took the national view from 67,710 to a few thousand vertices. The longest part is
-    always kept so no asset disappears from the map."""
+    would draw as a dot smaller than half a pixel. The longest part is always kept so no asset
+    disappears from the map.
+
+    **The floor is two vertices per part, and it binds.** Douglas-Peucker keeps both endpoints
+    of every part, so a dissolved EIA Atlas pipeline row (`pipeline/context/eia_atlas.py`: one
+    row per operator x type) cannot go below `2 * len(parts)` however coarse the zoom. Measured
+    2026-09-20 on the 259 real rows (the figures in an earlier version of this docstring, 67,710
+    stored and "a few thousand" at zoom 4, were both wrong):
+
+    - stored before ingest-time chaining: 33,184 parts / 194,887 vertices (128 parts per row,
+      2,027 on the largest); at zoom 4, 17,613 parts / 36,571 vertices, of which 35,226 (96%)
+      were the two-per-part floor.
+    - stored since `geo.merge_touching_lines` chains touching parts at ingest (2026-09-20):
+      17,997 parts / 179,700 vertices (69 per row); at zoom 4, 10,511 parts / 24,309 vertices,
+      floor 21,022 (86%).
+
+    Because the national view is set by part count rather than detail, coarsening the tolerance
+    here cannot help; the fix is merging parts at ingest, not simplifying harder at request
+    time, and this function's behaviour is deliberately unchanged."""
     if tolerance <= 0.0:
         return parts
     if len(parts) == 1:

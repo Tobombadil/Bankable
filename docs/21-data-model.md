@@ -281,7 +281,7 @@ Every table below also has `created_at timestamptz NOT NULL DEFAULT now()` and, 
 | `last_changed` | timestamptz | No | Latest event that changed a canonical field | `2026-09-11T06:12:00Z` |
 | `publish_state` | text | No | `pending_review \| ingest_only \| api_only \| public \| unpublished` (US-905, US-1001 AC2) | `public` |
 | `published_at` | timestamptz | Yes | When the record became visible to the live tier | `2026-03-04T07:00:00Z` |
-| `public_at` | timestamptz | Yes | Materialised `published_at + lag`; the only column the public predicate reads (§5.4) | `2026-03-18T07:00:00Z` |
+| `public_at` | timestamptz | Yes | Materialised `published_at + lag`; the only column the public predicate reads (§5.4). Equal to `published_at` for every record since 2026-09-19 — records carry no delay | `2026-03-18T07:00:00Z` |
 | `min_reuse_class` | text | No | Most restrictive `licence.reuse_class` across linked sources; drives §8 | `attribution` |
 | `field_provenance` | jsonb | No | Per-field `{source_id, licence_id, retrieved_at, snapshot_id}` — the record-level provenance contract at field granularity | `{"capacity_mw":{"source_id":"us.iso.caiso.gen_queue",…}}` |
 | `overrides` | jsonb | No | Fields pinned by a human decision: `{field:{value,event_id,set_at,user_id}}`; the normaliser skips them (§6.4) | `{"sponsor_org_id":{…}}` |
@@ -363,7 +363,19 @@ produces a `closed` event only after the DQ partial-file check passes (`docs/20`
 | `ids` | jsonb | No | `{lei, sam_uei, eia_utility_id, cik, duns}` (`docs/02` §5) | `{"lei":"5493…"}` |
 | `website` | text | Yes | Primary domain | `https://www.nexteraenergyresources.com` |
 | `is_curated_issuer` | boolean | No | True when this organisation is on the 50-issuer RFP list (US-303) | `false` |
+| `parent_org_id` | uuid | Yes | FK `organization` — the direct accounting parent, one hop (migration 0011) | `018f3e…` |
+| `parent_source_id` | text | Yes | FK `source` — which source stated the parent link | `global.gleif.lei` |
+| `parent_as_of` | date | Yes | The date the parent link is stated as of (migration 0015) | `2019-02-08` |
 | `first_seen`, `last_changed`, `publish_state`, `merged_into_id`, `search_tsv` | — | — | As §3.1 | — |
+
+**The parent triple.** `parent_org_id` is one hop, not a chain, and the three columns travel together: a company
+page may render a parent only alongside the source that stated it and the date it was stated as of. Two sources
+write them (docs/22 §17): GLEIF Level 2 (`global.gleif.lei`, CC0), which sets `parent_as_of` from the
+relationship's own period start, and the curated file (`curated.organization_parents`), which leaves
+`parent_as_of` NULL because a company page states a fact, not the date the ownership began. GLEIF wins where it
+has a record and the curated loader defers to it, so the two are order-independent. The LEI itself lives in
+`ids["lei"]`, written for both ends of every link GLEIF makes — never as a free-standing name match, which has
+not been evaluated.
 
 Organisations hold **no personal data**. Named individuals in filings are stored as `organization_alias` rows or
 document references only (`docs/20` §11; `docs/02` §4 last row).
@@ -757,6 +769,46 @@ regasification Bcf/d. `source_asset_id` is the registry key where one exists (st
 `(operator, type)` slug for pipelines, and a content hash of name + state + county + coordinates for
 processing plants and LNG terminals, whose registries have no key (and repeat names: two `Wheeler / TX`).
 
+**Pipeline parts are chained at ingest (2026-09-20).** The Atlas pipeline layer is one shapefile network
+split into 33,184 parts across the 259 rows (128 per row, 2,027 on the largest), and most of those parts
+touch: a segment's end coordinate is exactly the next segment's start. Stored unchained they were expensive
+at every zoom for a reason no tolerance could fix — Douglas-Peucker keeps both endpoints of every part, so at
+zoom 4 (`services/api/lines.py::simplify_parts`) 35,226 of the 36,571 drawn vertices, 96%, were the
+two-per-part floor. `pipeline/context/geo.py::merge_touching_lines` now chains parts whose endpoints coincide
+at the stored 6-decimal precision into maximal runs before the WKT is written, reversing a part where that is
+what makes it join. Measured on the recorded 2026-09-19 snapshot:
+
+| | parts | stored vertices | zoom-4 parts | zoom-4 vertices | zoom-4 GeoJSON |
+|---|---|---|---|---|---|
+| before | 33,184 | 194,887 | 17,613 | 36,571 | 662.5 KB / 168.8 KB gzipped |
+| after | 17,997 | 179,700 | 10,511 | 24,309 | 445.5 KB / 114.9 KB gzipped |
+
+The GeoJSON column is geometry only — a `FeatureCollection` of the 259 rows with empty `properties`, so the
+two figures differ by geometry alone. The served payload is larger: `services/api/assets.py::_line_feature`
+adds the name, operator, length, `attributes` subset and the provenance quartet per feature.
+
+**Only degree-2 nodes are joined.** Where three or more part-endpoints meet, every chain stops: welding two
+of three branches into one part would assert a continuous run the source does not describe. Chaining greedily
+*through* junctions instead would reach 11,945 parts and 19,955 zoom-4 vertices — measured, and not taken,
+because the extra reduction is bought with invented topology (ADR 0008 §4, "nothing the registry does not
+state or the geometry does not yield").
+
+What the merge does not change, verified row by row against the unchained output of the same snapshot:
+`miles` is identical on all 259 rows (the only vertices removed are duplicated joints; underlying drift
+7.3e-12 miles), `states_crossed` is identical on all 259, and the distinct vertex set of every row is
+identical. `attributes.part_count` now counts stored parts, not source segments; `segment_count` and
+`unit_count` still count what the source shipped, so the two no longer agree and are not meant to.
+
+What it does change: `geom`, the representative point, is the vertex nearest the midpoint of the *longest
+part*, and merging makes the longest part longer. It moved on 131 of 259 rows (median 92 km, p90 458 km, max
+1,197 km) — the midpoint of a continuous run rather than of an arbitrary segment, which is the improvement.
+It remains a stored vertex of its own line on all 259 rows. **`state_code` changed on 30 rows**, all of them
+multi-state pipelines crossing 2–16 states: 25 moved to a different state and 5 had previously fallen outside
+every state polygon (offshore) and now land on land; none became null, and in all 30 the new state is one the
+row's own `states_crossed` lists. On a multi-state interstate line `state_code` was always an arbitrary pick
+among the states it crosses, and it still is — it is a convenience for filtering, not a claim that the asset
+sits in one state.
+
 **Feature keys written by `services/ingest/enrich.py` (features lane, 2026-09-19).** The loaders
 write what a registry states about the asset itself; a second pass merges the *objective feature
 sets* from three sources that are keyed by something other than the asset id, and it only ever adds
@@ -808,17 +860,21 @@ Rules this pass follows, each of which shows up in the stored values:
 Unique: (`asset_id`, `organization_id`, `role`, `source_id`). Sources in order: EIA-860 Schedule 4 (`us.eia.860`,
 shares), EIA-860M and EIA Atlas operator fields (`operator`), EPA LMOP/AgSTAR owner and developer fields, GEM
 owner fields (CC BY, TZ-ID rows dropped). `organization.parent_org_id` (added in the same migration, nullable FK
-to `organization`, with `parent_source_id`) records the GLEIF Level 2 direct accounting parent where an LEI
-matches; the LEI itself goes in `organization.ids.lei`.
+to `organization`, with `parent_source_id`, plus `parent_as_of` since migration 0015) records the GLEIF Level 2
+direct accounting parent where a match holds; the LEI itself goes in `organization.ids.lei`. See §3.5 for the
+triple and docs/22 §17 for the match rule and its measured precision.
 
 Loaded at 2026-09-19 (`services/ingest/midstream.py`, docs/22 §15): the EIA Atlas `Operator`/`Company` strings
 become `operator` edges and the Atlas `Owner` strings (processing plants, LNG) become `owner` edges with a NULL
 share, each edge carrying the layer's own provenance quartet; measured on the four layers, 1,126 operator and
-457 owner edges over 1,157 assets, 628 organisations after `norm_org` dedupe. Until GLEIF Level 2 lands,
-`parent_org_id` is also set from the curated file `data/vendored/organizations/parents.yaml`
+457 owner edges over 1,157 assets, 628 organisations after `norm_org` dedupe. GLEIF Level 2 landed 2026-09-20
+(`services/ingest/organizations.py`, docs/22 §17): 199 organisations linked to 105 parents on the dev store,
+alongside the 9 the curated file `data/vendored/organizations/parents.yaml` links
 (`parent_source_id = curated.organization_parents`, registered in `data/sources.yaml` §K; every row cites the
-company statement it came from). The two sources are told apart by `parent_source_id`, so the GLEIF loader can
-overwrite curated rows where an LEI matches and leave the rest.
+company statement it came from). The two are told apart by `parent_source_id`; GLEIF overwrites a curated row
+where it has a record and the curated loader refuses to overwrite a GLEIF one. There is no overlap today —
+GLEIF publishes no Level 2 record for any of the nine Tallgrass children — so every curated rule still does
+work.
 
 ### 3.21 `ui_event` — identifier-free interaction counters (added 2026-09-14)
 
@@ -864,8 +920,8 @@ overwritten from YAML on every boot, fields marked *runtime* are never touched b
 | `implemented` | boolean | No | runtime | False = manifest entry only, shown as "unimplemented" in admin | `true` |
 | `licence_id` | text | No | manifest | FK `licence` | `caiso-tou` |
 | `publish_state` | text | No | runtime | `ingest_only \| api_only \| public` (US-905 AC1) | `public` |
-| `lag_days` | int | Yes | runtime | Override of the global public lag (US-601 AC2) | `null` |
-| `lag_overrides` | jsonb | No | runtime | Per-event-type lag, e.g. `{"withdrawn":0}` | `{}` |
+| `lag_days` | int | Yes | runtime | Days a **change event** from this source waits before the public tier sees it (US-601 AC2). Seeded from the manifest's `change_event_lag_days`; null/0 = publish live. Since 2026-09-19 it does **not** delay the record (§5.4) | `14` |
+| `lag_overrides` | jsonb | No | runtime | Per-event-type change-event lag, e.g. `{"withdrawn":0}` | `{}` |
 | `schedule_cron` | text | No | runtime | Derived from cadence, editable in admin | `0 6 * * 1` |
 | `next_run_at` | timestamptz | Yes | runtime | Scheduler state | `2026-09-14T06:00:00Z` |
 | `paused` | boolean | No | runtime | Operator pause (US-904 AC2) | `false` |
@@ -1003,6 +1059,35 @@ scan on one column rather than a join against configuration. Changing a lag valu
 The trade-off — a lag change is not instantaneous across historical rows — is accepted and must be stated in the
 admin UI. The alternative (evaluating lag at query time) was rejected because it puts a configuration join on
 the hottest public path.
+
+**Amended 2026-09-19 — what `lag()` now returns (owner decision: the paywall is by shape, not by time).**
+Verbatim: "alerts, exports, API and watchlists are paid; free users see every record; the delay is kept only on
+ISO change events." The predicate above is unchanged, including every licence and source clause; only the
+function that fills `public_at` changed:
+
+| Row | `lag()` | `public_at` |
+|---|---|---|
+| `proposal`, `opportunity` | 0 days, on every tier, not configurable per source | `= published_at` |
+| `event` whose `source.lag_days` is null or 0 | 0 days | `= published_at` |
+| `event` whose source declares a change-event lag | `source.lag_overrides[event_type]` if set, else `source.lag_days` | `= published_at + that` |
+
+The delayed set is declared as data, not code: `data/sources.yaml` carries `change_event_lag_days` per source,
+the loader mirrors it into `source.lag_days`, and an operator can change it per source through
+`PATCH /admin/v1/sources/{id}` (audited). Today exactly the eight `us.iso.*` interconnection-queue registers
+carry it at 14 days, which is the set the owner's decision names; `tests/test_iso_change_event_lag.py` pins that
+set against the manifest. The rule is deliberately not keyed on `source.category`, whose `generation_queue`
+vocabulary also covers six non-ISO connection registers (NESO, AEMO, EirGrid, IESO, AESO, the OASIS
+non-ISO queues).
+
+Migration `0016` recomputed `public_at` on every existing row, because it is stored, not computed: without it a
+free reader would have kept waiting out the old blanket lag on rows already in the store.
+
+**What this does not change.** `licence_permits` is untouched: `restricted` and `unknown` sources remain
+invisible on every non-admin tier, PJM included, and `source_permits` still requires `publish_state = 'public'`
+for the free tier. The time gate and the licence gate are orthogonal (`docs/20` §5) — tier answers "how old",
+licence answers "at all" — and removing the first cannot widen the second. `services/api/visibility.py` was not
+edited for this decision at all; `tests/test_licence_gate_survives_lag_removal.py` fails if it ever is in a way
+that loosens the licence clause.
 
 ## 6. The event log
 
@@ -1194,8 +1279,8 @@ Behaviour by `licence.reuse_class`, for a source whose gate is clear:
 
 | Class | Example sources | Public (delayed) | Pro / API (live) | Export & bulk | RSS & social |
 |---|---|---|---|---|---|
-| `open` | ERCOT, all US federal, EIA, grants.gov | everything, at lag | everything | everything | everything |
-| `attribution` | LBNL, GEM, NESO, TED, World Bank, curated issuers | everything, at lag, with the credit line rendered | everything + credit | everything + licence header row | credit line in every item and post |
+| `open` | ERCOT, all US federal, EIA, grants.gov | everything; records live, ISO change events at lag | everything | everything | everything |
+| `attribution` | LBNL, GEM, NESO, TED, World Bank, curated issuers | everything, with the credit line rendered; records live, ISO change events at lag | everything + credit | everything + licence header row | credit line in every item and post |
 | `attribution`, raw withheld | **CAISO** (`allows_raw_publication = false`) | derived + identifying; **no raw**, no `status_raw`, no exact coordinates — county centroid only; "view at source" link | same as public but live | derived columns only | derived only, credit CAISO, link out |
 | `restricted` | **PJM** until a Redistribution License exists | **nothing** — no record, no event, no aggregate, no count | **nothing** (see §10, correction C-3) | nothing | nothing |
 | `unknown` | **MISO, SPP, NYISO, ISO-NE** until terms are read and recorded | treated exactly as `restricted` (`CLAUDE.md`) | treated as `restricted` | nothing | nothing |
@@ -1248,7 +1333,7 @@ attribution for a source present in the payload is a bug that fails the launch c
 
 | Id | Assumption | Depends on | Effect if wrong |
 |---|---|---|---|
-| D-1 | Public lag default **14 days**, per-source and per-event-type override, bounded 7–30 | `docs/10` A-7 vs `docs/20` A-8 (7 days) — owner decides with pricing | Configuration only; `public_at` recomputed by the `relag` job |
+| D-1 | ~~Public lag default **14 days**, per-source and per-event-type override, bounded 7–30~~ **Closed 2026-09-19 by owner decision: records carry no lag; the delay survives only on ISO change events at 14 days (§5.4).** The 7-vs-14 argument in `docs/10` A-7 and `docs/20` A-8 is moot for records; 14 is the figure that carried over to ISO change events | Owner, paywall by shape | Migration `0016`; `services/ingest/lag.py` |
 | D-2 | `restricted` and `unknown` sources are invisible on **every** non-admin surface, Pro included | `docs/10` §3.2/§3.3 (stricter) vs `docs/20` §5 (allows derived aggregates to Pro/API) | If the owner and legal-compliance accept derived aggregates for Pro, the §8 table gains a row; the mechanism already supports it |
 | D-3 | `uuid` v7 keys with separate public ids | none | Cosmetic |
 | D-4 | `event` partitioned monthly on `observed_at` from the first migration | `docs/20` §13 | Rewrite later if skipped |
@@ -1266,7 +1351,7 @@ document did and what should change in `docs/20`.
 | C-1 | `docs/20` §1, §2 boundary rule, §7 | Cross-references the CRM/ERP system of record as "§11"; the CRM/ERP section is **§9** and §11 is Security and privacy | Referenced §9 | Renumber the three references to §9 |
 | C-2 | `docs/20` §4.1, §4.4, §7, §12 | Refer to "the scaling path in §15"; the scaling path is **§13** and §15 is Technology recommendations | Referenced §13 | Renumber four references to §13 |
 | C-3 | `docs/20` §5 vs `docs/10` §3.2, §3.3, `CLAUDE.md` | §5 says PJM rows are "returned to `pro`/`api` only as derived aggregates with a link out"; the PRD puts PJM rows out of scope for **any public or Pro surface** until the licence is signed, and `CLAUDE.md` says PJM rows are not public until a licence exists | Took the stricter reading (D-2): invisible everywhere except admin | Either restate §5 to match the PRD, or have legal-compliance and the owner record explicitly that derived aggregates are permitted under PJM terms, with the evidence in `licence.evidence_url` |
-| C-4 | `docs/20` A-8 vs `docs/10` A-7 | Default public lag is 7 days in `docs/20`, 14 days in the PRD | Used 14 (D-1) and made it configuration | Align the two docs once pricing (Phase 1) settles the number |
+| C-4 | `docs/20` A-8 vs `docs/10` A-7 | Default public lag is 7 days in `docs/20`, 14 days in the PRD | **Resolved 2026-09-19: neither. Records have no lag at all** (owner, paywall by shape, §5.4). 14 days survives only on ISO change events | Closed |
 | C-5 | `docs/20` §5 table vs `docs/10` US-901 AC1 | `docs/20` roles are `viewer \| member \| operator \| owner`; the PRD lists user "role" as `public \| pro \| api \| admin`, which are entitlements, not roles | Kept `docs/20`'s roles on `user.role` and put `public \| pro \| api \| admin` on `account.entitlement` | Note in the PRD that US-901 AC1's "role" column renders `user.role` + `account.entitlement` |
 | C-6 | `docs/20` §3.4 / §4.3 | `egress` is described as a field the data-engineer will add to `data/sources.yaml`, but the topology already routes on it | Modelled `source.egress` as manifest-sourced with a default derived from `access` until the YAML field exists | No change to §4.3; the YAML change is a data-engineer task with a deadline in Sprint 1 |
 | C-7 | `docs/20` §11 (personal data) vs US-1001 | §11 says filer contacts are never stored as contact records; the intake form deliberately collects a contact name and email | Intake contact fields live on `task` + the CRM through the port, never on `organization`, and are in the personal-data inventory | Add one sentence to §11 distinguishing *scraped* contacts (never stored) from *submitted* contacts (stored with consent, deletable) |

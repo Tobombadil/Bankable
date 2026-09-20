@@ -44,6 +44,7 @@ from fastapi.templating import Jinja2Templates
 
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
+from web.viewmodels import footer_build as vm_footer_build
 from web.viewmodels import web_relative_url
 
 router = APIRouter()
@@ -81,6 +82,7 @@ def get_lag_days(request: Request) -> dict[str, int]:
 
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
+templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
 templates.env.globals["asset_version"] = ASSET_VERSION
 
 
