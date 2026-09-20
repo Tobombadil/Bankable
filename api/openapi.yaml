@@ -1671,6 +1671,10 @@ paths:
         order; `totals.assets_considered` says how many were); results are nearest first and capped by `limit`,
         with `page.has_more` when more lie within the radius. Same exact-grade and licence rules as the per-asset
         endpoint.
+        `technology` narrows the result to the given technology tokens. It is applied after the distance pass, so
+        `totals` carries both counts: `proposals_within_radius` is what the filter left, and
+        `proposals_within_radius_unfiltered` is what it was taken from — the pair a caller needs to state "N of M"
+        instead of silently showing a short list (the company page's default relevance filter, 2026-09-20).
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -1681,6 +1685,7 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/AssetOwnerRoleFilter'
         - $ref: '#/components/parameters/AssetType'
+        - $ref: '#/components/parameters/Technology'
         - $ref: '#/components/parameters/IncludeSubsidiaries'
       responses:
         '200':
@@ -9073,7 +9078,7 @@ components:
                 $ref: '#/components/schemas/OrganizationNearbyProposalSummary'
             totals:
               type: object
-              required: [assets_considered, proposals_within_radius]
+              required: [assets_considered, proposals_within_radius, proposals_within_radius_unfiltered]
               properties:
                 assets_considered:
                   type: integer
@@ -9082,7 +9087,16 @@ components:
                 proposals_within_radius:
                   type: integer
                   minimum: 0
-                  description: Distinct proposals within `radius_km` of any considered asset, before `limit`.
+                  description: >-
+                    Distinct proposals within `radius_km` of any considered asset that match `technology`, before
+                    `limit`. The count of what `data` is a page of.
+                proposals_within_radius_unfiltered:
+                  type: integer
+                  minimum: 0
+                  description: >-
+                    The same count ignoring `technology`, so a caller can say "N of M" rather than showing a
+                    shortened list with no denominator. Equal to `proposals_within_radius` when no `technology`
+                    is given.
 
     # ---------- Region polygons (docs/23 §3.1, ADR 0008) ----------
     RegionFeature:

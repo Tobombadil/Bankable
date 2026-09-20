@@ -75,11 +75,35 @@
   {% endif %}
 </section>
 
-<section aria-label="Nearby proposals">
+<section aria-label="Nearby proposals" id="nearby">
   {{ m.section_heading("2.", "Proposals near these assets") }}
   <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of any asset this organisation owns or operates, nearest first, each with the asset it is closest to (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
+  {# The narrowing is stated before the list, in body text, with both numbers and the reason, and
+     undone by the link beside it. A shortened list with no explanation reads as thin coverage --
+     the one outcome worse than no filter at all (owner brief, 2026-09-20). #}
+  {% if nearby_notice %}
+  <p class="filter-notice filter-notice--{{ nearby_notice.tone }}" id="nearby-filter-notice" role="status">
+    <span class="filter-notice__text">{{ nearby_notice.text }}</span>
+    {% if nearby_notice.link_text %}<a class="filter-notice__undo" href="{{ nearby_notice.link_href }}">{{ nearby_notice.link_text }}</a>{% endif %}
+  </p>
+  {% endif %}
+  {# Plain GET form, one control, no JavaScript: the same idiom as /proposals' technology select
+     (docs/04 D-30, web/test_e2e.py runs with scripts off). #}
+  <form id="nearby-filters" class="filter-bar" method="get" action="{{ canonical_path }}">
+    <div class="filter-field">
+      <label for="f-nearby-technology">Technology</label>
+      <select id="f-nearby-technology" name="{{ nearby_param }}">
+        {% if nearby_filter.default_available %}<option value="" {% if nearby_filter.mode == 'default' %}selected{% endif %}>Relevant to this company</option>{% endif %}
+        <option value="all" {% if nearby_filter.mode in ('off', 'none') %}selected{% endif %}>All technologies</option>
+        {% for t in nearby_technologies %}<option value="{{ t }}" {% if nearby_filter.selected == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="filter-bar__submit" type="submit">Apply</button>
+  </form>
   {% if nearby_proposals %}
   {{ m.nearby_proposals_list(nearby_proposals) }}
+  {% elif nearby_filter.technologies %}
+  <p>No proposals of the chosen technologies within 25&nbsp;km of these assets. <a href="{{ canonical_path }}?{{ nearby_param }}=all">Show all technologies</a>.</p>
   {% else %}
   <p>No exact-grade proposals within 25&nbsp;km of these assets.</p>
   {% endif %}

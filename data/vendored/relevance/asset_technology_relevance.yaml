@@ -1,0 +1,119 @@
+# Which proposal technologies are relevant to a company, given what that company owns or operates.
+#
+# THIS FILE IS A COMMERCIAL JUDGEMENT, NOT A DERIVED FACT. Nothing in the data says a gas pipeline
+# operator does not care about solar. It is an editorial rule about what a sales conversation with
+# that company is likely to be about, written down here so it can be argued with, changed by hand
+# and cited, instead of being buried in code. Change a list, restart the site, done: no migration,
+# no reload, no code change. Every record the filter hides is still one query-string away
+# (`?nearby_technology=all`) and the company page says so in words above the list.
+#
+# WHERE IT IS USED
+#   Only the company page's "Proposals near these assets" section (`web/app.py::organization_detail`
+#   via `web/relevance.py`). It narrows the `technology` parameter of
+#   `GET /v1/organizations/{public_id}/nearby-proposals`. The API itself applies no relevance rule:
+#   it takes the technologies it is given. Nothing here gates publication, licence or visibility.
+#
+# THE RULES, IN ORDER
+#   1. Take the asset types the company (and its subsidiaries) hold.
+#   2. If ANY of those types appears in `unfiltered` below, or in neither list, the company gets NO
+#      default filter and sees every nearby proposal. A company that holds both pipelines and wind
+#      farms is not a midstream pure-play, and half-applying a midstream rule to it would hide the
+#      neighbours of its own turbines.
+#   3. Otherwise the default is the union of `technologies` over every matching group.
+#   4. A company with no assets at all gets no default filter.
+#   Consequence worth stating: the failure mode is always "too much shown", never "too little".
+#
+# `technologies` values are the normalised proposal technology tokens (`GET /v1/meta/vocabularies`
+# -> `technology`, from `pipeline/normalize.py::TECH_RULES`). An unknown token here would be
+# rejected by the API, so `web/test_relevance.py` pins every one of them against that vocabulary.
+#
+# Recorded 2026-09-20 for the first midstream customer conversation. Owner: edit freely.
+
+version: 1
+
+groups:
+  - id: gas_midstream
+    # Tallgrass Energy is the worked example: gas pipelines, gas processing, gas storage.
+    asset_types:
+      - gas_pipeline
+      - gas_processing_plant
+      - gas_storage
+      - lng_terminal
+      - compressor_station
+    technologies:
+      - gas_cc
+      - gas_ct
+      - gas_steam
+      - gas_ice
+      - gas_other
+      # Hydrogen and fuel cells: the molecule business these operators say they are moving into,
+      # and the proposals most often sited on existing gas rights-of-way.
+      - hydrogen
+      - fuel_cell
+      # --- DELIBERATELY EXCLUDED, and this is the line most likely to be wrong ---
+      # `storage` (standalone batteries) is the single biggest technology bucket in the register
+      # (3,218 of 10,306 proposals on the 2026-09-20 load, more than solar). Standalone storage is
+      # usually not a midstream operator's business, so including it would swamp the list with rows
+      # the reader skips. But co-located storage next to a gas plant IS their business, and the
+      # register does not distinguish standalone from co-located on the `storage` token. If a
+      # midstream customer says they track batteries, uncomment the next line and nothing else.
+      # - storage
+      # `load` (data centres and other large-load requests) is arguably the strongest gas-demand
+      # signal there is, and is not in the owner's proposed default, so it is not applied. There
+      # are 0 `load` proposals on the current load, so uncommenting it changes nothing today.
+      # - load
+    filter_label: gas-related technologies
+    # `reason` is a predicate: the page renders "because this company <reason>".
+    reason: operates gas infrastructure
+
+  - id: liquid_and_gaseous_fuels
+    # Ethanol, biodiesel and RNG producers (docs/33 §1.8 names them as a buyer segment). Their
+    # neighbours of interest are other biogenic and waste-derived projects, and the hydrogen /
+    # fuel-cell projects that compete for the same feedstock and offtake conversations.
+    asset_types:
+      - ethanol_plant
+      - biodiesel_plant
+      - rng_project
+    technologies:
+      - biomass
+      - waste
+      - gas_other
+      - hydrogen
+      - fuel_cell
+      # Not included: `gas_cc` / `gas_ct`. A biofuels producer buys gas and sells molecules; a
+      # combined-cycle plant down the road is a neighbour, not a counterparty. Add them if a
+      # customer disagrees.
+    filter_label: fuels and biogas technologies
+    reason: produces liquid or gaseous fuels
+
+  - id: refining
+    asset_types:
+      - refinery
+    technologies:
+      - gas_cc
+      - gas_ct
+      - gas_steam
+      - gas_ice
+      - gas_other
+      - oil
+      # Refineries are among the largest industrial hydrogen consumers, so hydrogen proposals in
+      # the neighbourhood are a live commercial conversation, not background.
+      - hydrogen
+      - fuel_cell
+    filter_label: gas, oil and hydrogen technologies
+    reason: operates refining assets
+
+# Asset types deliberately left with NO default filter. Holding any of these switches the whole
+# company back to the unfiltered list (rule 2 above). Each needs a reason, and
+# `web/test_relevance.py` fails if an asset type in ADR 0008 appears in neither list, so a new
+# asset type cannot arrive and quietly inherit somebody else's rule.
+unfiltered:
+  power_plant: >-
+    Owning a power plant says nothing about what a company is interested in; the technology of the
+    plant would, and that is a different join from the one this file makes. A utility with a gas
+    fleet and a solar fleet is the common case.
+  transmission_line: >-
+    A transmission owner's business is every generator that wants to interconnect, whatever it
+    burns. Filtering their list by technology would remove exactly what they came to see.
+  substation: >-
+    Same as transmission_line.

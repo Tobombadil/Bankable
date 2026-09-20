@@ -696,7 +696,11 @@ def test_organization_nearby_proposals_dedupes_and_names_the_nearest_asset(clien
     rows = body["data"]
     assert [r["nearest_asset"]["public_id"] for r in rows] == [pipe.public_id, plant.public_id]
     assert rows[0]["distance_km"] < rows[1]["distance_km"]
-    assert body["totals"] == {"assets_considered": 2, "proposals_within_radius": 2}
+    assert body["totals"] == {
+        "assets_considered": 2,
+        "proposals_within_radius": 2,
+        "proposals_within_radius_unfiltered": 2,
+    }
     assert body["page"]["has_more"] is False
 
     owned_only = client.get(
@@ -797,3 +801,85 @@ def test_assets_geo_records_total_covers_the_whole_filter_match_not_the_viewport
 
     world = client.get("/v1/assets/geo", params={"bbox": WORLD_BBOX, "zoom": 2})
     assert world.json()["data"]["totals"]["records"] == 2
+
+
+# ------------------------------------- organisation nearby-proposals: the technology filter
+def _org_with_pipeline_and_neighbours(db):
+    """A one-pipeline operator with four exact-grade proposals along the line: two gas, one solar,
+    one storage. The shape the company page's default relevance filter is built for."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    org = make_org(db, "Midstream Test Co")
+    line = _make_line(db, src, lic, [(-100.0, 32.0), (-98.0, 32.0)], source_asset_id="l1")
+    make_asset_owner(db, line, org, src, lic, role="operator", share_pct=None)
+    for suffix, technology in (("1", "gas_ct"), ("2", "gas_cc"), ("3", "solar"), ("4", "storage")):
+        make_visible_proposal(
+            db,
+            src,
+            public_id_suffix=suffix,
+            technology=technology,
+            location=make_location(db, src, lic, geom=(-99.0 - int(suffix) / 100, 32.02), precision="exact"),
+        )
+    db.commit()
+    return org
+
+
+def test_organization_nearby_proposals_technology_filter_and_both_totals(client, db, spec):
+    org = _org_with_pipeline_and_neighbours(db)
+    path = f"/v1/organizations/{org.public_id}/nearby-proposals"
+
+    unfiltered = client.get(path).json()
+    assert_valid(spec, "OrganizationNearbyProposalsResponse", unfiltered)
+    assert unfiltered["totals"]["proposals_within_radius"] == 4
+    # No filter given: the two counts agree, so a caller never has to special-case the absence.
+    assert unfiltered["totals"]["proposals_within_radius_unfiltered"] == 4
+
+    filtered = client.get(path, params={"technology": "gas_ct,gas_cc"}).json()
+    assert_valid(spec, "OrganizationNearbyProposalsResponse", filtered)
+    assert {p["technology"] for p in filtered["data"]} == {"gas_ct", "gas_cc"}
+    # "N of M": the filtered count and the count it was taken from, so the caller can say both.
+    assert filtered["totals"]["proposals_within_radius"] == 2
+    assert filtered["totals"]["proposals_within_radius_unfiltered"] == 4
+    assert filtered["totals"]["assets_considered"] == 1
+    # Every row keeps the provenance quartet and its nearest asset (CLAUDE.md: the API never
+    # returns a record without them).
+    for row in filtered["data"]:
+        quartet = row["provenance"][0]
+        assert quartet["source_id"] and quartet["source_url"] and quartet["retrieved_at"]
+        assert quartet["licence_id"] and quartet["reuse_class"]
+        assert row["nearest_asset"]["public_id"].startswith("asset_")
+
+    # A technology nothing nearby carries is an honest empty list under the same denominator,
+    # never a silent fallback to everything.
+    empty = client.get(path, params={"technology": "nuclear"}).json()
+    assert empty["data"] == []
+    assert empty["totals"] == {
+        "assets_considered": 1,
+        "proposals_within_radius": 0,
+        "proposals_within_radius_unfiltered": 4,
+    }
+
+
+def test_organization_nearby_proposals_rejects_an_unknown_technology(client, db):
+    org = _org_with_pipeline_and_neighbours(db)
+
+    resp = client.get(
+        f"/v1/organizations/{org.public_id}/nearby-proposals", params={"technology": "unobtanium"}
+    )
+    assert resp.status_code == 400
+    assert "unobtanium" in resp.json()["detail"]
+
+
+def test_organization_nearby_proposals_technology_composes_with_limit(client, db):
+    """`limit` pages the filtered list, and `totals` stays the count of the whole filtered set --
+    the company page states counts from `totals`, never from the rows it rendered."""
+    org = _org_with_pipeline_and_neighbours(db)
+
+    body = client.get(
+        f"/v1/organizations/{org.public_id}/nearby-proposals",
+        params={"technology": "gas_ct,gas_cc", "limit": 1},
+    ).json()
+
+    assert len(body["data"]) == 1 and body["page"]["has_more"] is True
+    assert body["totals"]["proposals_within_radius"] == 2
+    assert body["totals"]["proposals_within_radius_unfiltered"] == 4

@@ -1372,8 +1372,15 @@ def list_organization_nearby_proposals(
     `nearest_asset`. Distance is to the geometry: to the pipe for a line asset, to the point for
     a plant. Assets are taken in `asset_owner.id` order up to `ORG_NEARBY_ASSET_CAP`; the
     candidate proposal set is loaded once and cut per asset by bounding box, so the cost is one
-    proposal query plus bbox tests, with segment distance only for candidates near a line."""
-    check_allowed(request, {"radius_km", "limit", "role", "asset_type", "include_subsidiaries"})
+    proposal query plus bbox tests, with segment distance only for candidates near a line.
+
+    `technology` (CSV, the same vocabulary as `GET /v1/proposals`) narrows the result. It is
+    applied *after* the distance pass rather than in the candidate SQL, on purpose: `totals` then
+    reports both the filtered count and the count the filter was taken from, so a caller can say
+    "N of M" honestly (the company page does exactly that, 2026-09-20). The cost of the wider
+    candidate load is bounded by the bounding box either way, so the SQL cut would only save
+    distance arithmetic on rows already in memory."""
+    check_allowed(request, {"radius_km", "limit", "role", "asset_type", "include_subsidiaries", "technology"})
     org = db.scalar(select(Organization).where(Organization.public_id == public_id))
     if org is None:
         raise not_found(request.url.path)
@@ -1381,6 +1388,7 @@ def list_organization_nearby_proposals(
     limit = clamp_limit(_int_param(request, "limit"))
     roles = _role_filter_values(request)
     asset_types = _asset_type_filter_values(request)
+    technologies = _technology_filter_values(request)
     scope = _org_scope_ids(db, org, _include_subsidiaries_param(request))
 
     stmt = (
@@ -1428,6 +1436,10 @@ def list_organization_nearby_proposals(
                     best[p.public_id] = (distance_km, p, asset)
 
     ranked = sorted(best.values(), key=lambda t: (t[0], t[1].public_id))
+    within_radius_unfiltered = len(ranked)
+    if technologies is not None:
+        wanted = frozenset(technologies)
+        ranked = [row for row in ranked if row[1].technology in wanted]
     page = ranked[:limit]
     data = []
     for distance_km, p, asset in page:
@@ -1443,5 +1455,9 @@ def list_organization_nearby_proposals(
         licence_summary=build_licence_summary(_nearby_licence_rows([p for _, p, _ in page])),
         page=build_page(None, None, len(ranked) > limit),
     )
-    env["totals"] = {"assets_considered": considered, "proposals_within_radius": len(ranked)}
+    env["totals"] = {
+        "assets_considered": considered,
+        "proposals_within_radius": len(ranked),
+        "proposals_within_radius_unfiltered": within_radius_unfiltered,
+    }
     return env

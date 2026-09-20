@@ -35,6 +35,14 @@ from web.api_client import ApiClient, ApiError, ApiNotFound, build_client
 from web.assets import ASSET_VERSION
 from web.auth import router as auth_router
 from web.regions import Region, regions_with_data
+from web.relevance import (
+    PARAM as NEARBY_TECHNOLOGY_PARAM,
+)
+from web.relevance import (
+    load_relevance,
+    nearby_notice,
+    resolve_nearby_filter,
+)
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
     ALL_OPPORTUNITY_STATUSES,
@@ -238,6 +246,16 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _count_or(value: Any, fallback: int) -> int:
+    """A non-negative integer from an API `totals` field, else `fallback`. Guards the company
+    page's "N of M" line against a transport that sends no totals at all."""
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return count if count >= 0 else fallback
 
 
 def _diameter_text(entity: Mapping[str, Any]) -> str | None:
@@ -1963,12 +1981,32 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
     features = [_asset_feature(a, a["geometry"]) for a in assets if a.get("geometry")]
     # "Proposals near those pipelines" (owner, 2026-09-19): exact-grade proposals within 25 km of
     # any of the organisation's assets, each at its distance to the nearest one, which is named.
-    nearby: list[dict[str, Any]] = []
+    # Narrowed by default to the technologies the company's own asset types make relevant
+    # (`data/vendored/relevance/asset_technology_relevance.yaml`, owner 2026-09-20: "given
+    # tallgrass doesnt do solar, I dont want them seeing solar"). The narrowing is stated in words
+    # with both counts above the list and undone by one link, because a silently shortened list
+    # reads as thin coverage.
     try:
-        nearby_env = api.get(
-            f"/v1/organizations/{public_id}/nearby-proposals",
-            params={"limit": ORG_NEARBY_LIMIT, "include_subsidiaries": "true"},
-        )
+        technology_vocabulary = [v["value"] for v in api.get("/v1/meta/vocabularies")["data"]["technology"]]
+    except (ApiError, KeyError, TypeError):
+        technology_vocabulary = []
+    relevance_default = load_relevance().default_for(
+        _org_type_counts(entity.get("group_asset_counts") or asset_counts, groups)
+    )
+    nearby_filter = resolve_nearby_filter(
+        request.query_params.get(NEARBY_TECHNOLOGY_PARAM),
+        default=relevance_default,
+        vocabulary=technology_vocabulary or None,
+    )
+    nearby: list[dict[str, Any]] = []
+    nearby_totals: Mapping[str, Any] = {}
+    try:
+        nearby_params: dict[str, Any] = {"limit": ORG_NEARBY_LIMIT, "include_subsidiaries": "true"}
+        if nearby_filter.technologies:
+            nearby_params["technology"] = ",".join(nearby_filter.technologies)
+        nearby_env = api.get(f"/v1/organizations/{public_id}/nearby-proposals", params=nearby_params)
+        raw_totals = nearby_env.get("totals")
+        nearby_totals = raw_totals if isinstance(raw_totals, Mapping) else {}
         for e in nearby_env["data"]:
             flat = flatten_proposal(e)
             flat["distance_km"] = _number(e.get("distance_km"))
@@ -1982,6 +2020,11 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
                 features.append(_proposal_feature(flat, geometry))
     except ApiError:
         nearby = []
+    # Counts for the "N of M" line come from the API's `totals`, never from the rendered rows:
+    # `limit` caps the page and `group_nearby_proposals` collapses a project's generator units, so
+    # the row count is neither the matched count nor the total.
+    nearby_shown = _count_or(nearby_totals.get("proposals_within_radius"), len(nearby))
+    nearby_total = _count_or(nearby_totals.get("proposals_within_radius_unfiltered"), nearby_shown)
     nearby = group_nearby_proposals(nearby)
     tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
     tile_mode = _tile_mode(tile_url)
@@ -2010,6 +2053,14 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
     )
     descriptor = org_descriptor(record.get("type"), _org_type_counts(asset_counts, groups))
     path = f"/organizations/{record['slug'] or record['public_id']}"
+    notice = nearby_notice(
+        nearby_filter,
+        shown=nearby_shown,
+        total=nearby_total,
+        path=path,
+        listed_cap=ORG_NEARBY_LIMIT,
+        listed_projects=len(nearby),
+    )
     return templates.TemplateResponse(
         request,
         "organization_detail.html",
@@ -2035,6 +2086,10 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
             ],
             "subsidiaries": _org_subsidiaries(entity),
             "nearby_proposals": nearby,
+            "nearby_filter": nearby_filter,
+            "nearby_notice": notice,
+            "nearby_technologies": technology_vocabulary,
+            "nearby_param": NEARBY_TECHNOLOGY_PARAM,
             "proposals": proposals,
             "opportunities": opportunities,
             "provenance_rows": provenance_panel_rows(api, provenance) if provenance else [],

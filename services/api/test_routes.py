@@ -549,3 +549,35 @@ def test_cursor_pagination_survives_a_null_sort_value(client, db):
             cursor = body["page"]["next_cursor"]
         assert sorted(seen) == sorted(expected), sort
         assert len(seen) == len(set(seen)), sort
+
+
+def test_organization_proposals_apply_technology_and_jurisdiction(client, db):
+    """Regression: `check_allowed` accepted `technology` and `jurisdiction` from the day this
+    endpoint landed, but the handler never applied either, so `?technology=solar` returned the
+    whole list and no error (found 2026-09-20). Both now filter the way `kind` already did."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    org = make_org(db, "Mixed Fleet Power LLC")
+    solar = make_visible_proposal(
+        db, src, public_id_suffix="31", sponsor=org, technology="solar", jurisdiction="US-TX"
+    )
+    gas = make_visible_proposal(
+        db, src, public_id_suffix="32", sponsor=org, technology="gas_ct", jurisdiction="US-CO"
+    )
+    db.commit()
+
+    path = f"/v1/organizations/{org.public_id}/proposals"
+    assert {p["public_id"] for p in client.get(path).json()["data"]} == {solar.public_id, gas.public_id}
+
+    only_gas = client.get(path, params={"technology": "gas_ct"}).json()["data"]
+    assert [p["public_id"] for p in only_gas] == [gas.public_id]
+
+    # CSV is an OR, the same grammar `GET /v1/proposals` uses.
+    both = client.get(path, params={"technology": "gas_ct,solar"}).json()["data"]
+    assert {p["public_id"] for p in both} == {solar.public_id, gas.public_id}
+
+    only_co = client.get(path, params={"jurisdiction": "US-CO"}).json()["data"]
+    assert [p["public_id"] for p in only_co] == [gas.public_id]
+
+    # The two compose, and a combination nothing matches is empty rather than unfiltered.
+    assert client.get(path, params={"technology": "solar", "jurisdiction": "US-CO"}).json()["data"] == []

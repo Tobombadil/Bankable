@@ -1078,6 +1078,13 @@ def list_organization_proposals(
         stmt = stmt.where(Proposal.kind.in_(csv_param(v)))
     if v := qp.get("lifecycle_state"):
         stmt = stmt.where(Proposal.lifecycle_state.in_(csv_param(v)))
+    # `technology` and `jurisdiction` were accepted by `check_allowed` from the day this endpoint
+    # landed but never applied, so `?technology=solar` returned the unfiltered list and no error
+    # (found 2026-09-20). Applied here the same way `kind` and `lifecycle_state` are.
+    if v := qp.get("technology"):
+        stmt = stmt.where(Proposal.technology.in_(csv_param(v)))
+    if v := qp.get("jurisdiction"):
+        stmt = stmt.where(Proposal.jurisdiction.in_(csv_param(v)))
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
