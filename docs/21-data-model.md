@@ -735,6 +735,12 @@ status is planned or under construction is a proposal, not an asset.
 | `first_seen`, `last_changed` | timestamptz | No | Load bookkeeping | — |
 
 Unique: (`source_id`, `source_asset_id`). Index: `asset_type`, `state_code`, `geom` (GiST on Postgres).
+The GiST index over `geom` is `ix_asset_geom` and there is exactly one of it: migration 0007 created
+`built_plant` with both an explicit `ix_built_plant_geom` and the implicit `idx_built_plant_geom` that
+GeoAlchemy2 adds for a `Geography` column, 0009 renamed the table and dropped only the explicit one, and
+Postgres maintained the orphan alongside `ix_asset_geom` until migration 0014 dropped it (verified on the
+CI PostGIS, 2026-09-19). A migration that renames a table with a geography column has to drop the
+`idx_<old table>_<column>` index by hand; nothing renames it for you.
 
 Sources loaded at 2026-09-19 (`services/ingest/assets.py::ASSET_TYPE_SOURCE_IDS`): `power_plant` from
 EIA-860M; `gas_pipeline`, `gas_processing_plant`, `gas_storage`, `lng_terminal` from the EIA Atlas natural gas
@@ -750,6 +756,41 @@ plant capacity in MMcf/d; `lng_terminal.capacity_value` is liquefaction Bcf/d fo
 regasification Bcf/d. `source_asset_id` is the registry key where one exists (storage `ID`), the
 `(operator, type)` slug for pipelines, and a content hash of name + state + county + coordinates for
 processing plants and LNG terminals, whose registries have no key (and repeat names: two `Wheeler / TX`).
+
+**Feature keys written by `services/ingest/enrich.py` (features lane, 2026-09-19).** The loaders
+write what a registry states about the asset itself; a second pass merges the *objective feature
+sets* from three sources that are keyed by something other than the asset id, and it only ever adds
+keys — the layer's own `attributes` (`miles`, `segment_count`, `source_vintage`, …) are untouched.
+The call is `apply_context_features(session, data_root)`, idempotent, creating nothing.
+
+| Key | Type | On | From | Meaning |
+|---|---|---|---|---|
+| `phmsa` | object | `gas_pipeline` | `us.phmsa.pipeline_operator_reports` | `{operator_id, operator_name, report_year, onshore_transmission_miles, miles_by_decade{unknown\|pre_1940\|1940s…2020s}, miles_by_diameter{4_or_less\|6\|8…56\|58_or_more\|other}, incidents_5y_total, incidents_5y_significant, incidents_5y_with_fatality\|injury\|ignition\|explosion, incident_years[], matched_on, source_id, source_url, retrieved_at, feature_flags[]}` |
+| `rfs` | object | `ethanol_plant`, `rng_project` | `us.epa.rfs_public_data` | `{d_codes[], pathway_count, first_registered_year, facility_name, company_name, facility_type, matched_on, source_id, source_url, retrieved_at, feature_flags[]}` |
+| `capacity_factor_<year>` | number \| null | `power_plant` | `us.eia.form923` | Net generation ÷ (`capacity_mw` × 8,760) for that data year |
+| `heat_rate_btu_kwh_<year>` | number \| null | `power_plant` | `us.eia.form923` | Fuel MMBtu × 1,000 ÷ net generation MWh, **thermal plants only** |
+| `net_generation_mwh_<year>`, `fuel_mmbtu_<year>` | number \| null | `power_plant` | `us.eia.form923` | The two filed inputs, so a reader can recompute or see why a derived value is null |
+| `feature_flags` | array of strings | any | this pass | Why a derived key is null, namespaced by source (`eia923:…`); a merge rewrites only its own prefix |
+
+Rules this pass follows, each of which shows up in the stored values:
+
+- **Nothing is clamped.** A capacity factor over 1.05, or a heat rate outside 5,000–30,000
+  Btu/kWh, is stored as `null` with a `feature_flags` entry naming the computed value; the inputs
+  stay on the row. "We do not know" and "it is low" stay distinguishable (owner's objective-feature
+  rule, ADR 0008 §4).
+- **Thermal means it burns something.** EIA-923 fills the fuel column for hydro, wind and solar at
+  the 3,412 Btu/kWh energy equivalence, so `fuel_mmbtu > 0` is not the test; a heat rate is written
+  only when the plant reported a combustible fuel code, and a non-combustion plant gets no key and
+  no flag.
+- **Nulls that mean "not published".** `incidents_5y_significant` and `first_registered_year` are
+  `null` on every row with a flag saying so: PHMSA publishes the significant flag in a file this
+  environment cannot reach, and EPA's registration list states no registration date. Neither is
+  inferred from the fields that *are* published.
+- **`matched_on` records how the row was joined** (`org_key`, `alias_file`, `expanded_key` for
+  PHMSA; `facility_name`, `company_name` for RFS), so a questionable feature can be traced to the
+  rule that attached it. Measured on the 2026-09-19 load: PHMSA 92 of 259 `gas_pipeline` assets,
+  EIA-923 13,910 of 14,659 `power_plant` assets, RFS 271 of 388 `ethanol_plant` and 48 of 1,851
+  `rng_project` assets.
 
 ### 3.23 `asset_owner` — ownership and operation edges (ADR 0008, 2026-09-18)
 
