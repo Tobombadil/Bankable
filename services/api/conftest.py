@@ -281,6 +281,8 @@ def make_visible_proposal(
     sponsor: Organization | None = None,
     location: Location | None = None,
     lifecycle_state: str = "filed",
+    technology: str = "bess_li_ion",
+    jurisdiction: str = "US-TX",
 ) -> Proposal:
     from services.ids import public_id, slugify
 
@@ -290,10 +292,10 @@ def make_visible_proposal(
         slug="",
         kind="storage",
         name_canonical=f"Test Storage Project {public_id_suffix}",
-        jurisdiction="US-TX",
+        jurisdiction=jurisdiction,
         lifecycle_state=lifecycle_state,
         capacity_mw=100.0 + int(public_id_suffix),
-        technology="bess_li_ion",
+        technology=technology,
         publish_state="public",
         published_at=now - dt.timedelta(days=20),
         public_at=public_at or (now - dt.timedelta(days=1)),
