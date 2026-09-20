@@ -52,6 +52,9 @@ from web.viewmodels import (
     relativize_geo_feature_urls,
     resolve_proposal_lifecycle_param,
 )
+from web.viewmodels import (
+    footer_build as vm_footer_build,
+)
 
 ALL_OPPORTUNITY_STATUSES_CSV = ",".join(ALL_OPPORTUNITY_STATUSES)
 ALL_PROPOSAL_LIFECYCLE_STATES_CSV = ",".join(ALL_PROPOSAL_LIFECYCLE_STATES)
@@ -981,6 +984,8 @@ def is_htmx(request: Request) -> bool:
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
 templates.env.globals["asset_version"] = ASSET_VERSION
+
+templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
 
 
 # ---- SEO surface: canonical URLs, Open Graph / Twitter cards, JSON-LD ---------------------------

@@ -83,6 +83,10 @@
 </main>
 <footer class="site-footer">
   <p>Public data is delayed <span class="tnum">{{ lag.supply }}</span> days for proposals, <span class="tnum">{{ lag.opportunities }}</span> for opportunities. <a href="/about#sources">Sources and licences</a>. <a href="/attribution">Attribution</a>. <a href="/privacy">Privacy</a>.</p>
+  {%- set build = footer_build(request) %}
+  {%- if build.commit or build.source_data_as_of %}
+  <p class="site-footer__build">Build <code class="tnum">{{ build.commit or 'unknown' }}</code>{% if build.dirty %} <span class="site-footer__dirty">(modified working tree)</span>{% endif %}{% if build.source_data_as_of %} &middot; sources last fetched <time datetime="{{ build.source_data_as_of }}">{{ build.source_data_as_of[:10] }}</time>{% endif %}.</p>
+  {%- endif %}
 </footer>
 {% block extra_scripts %}{% endblock %}
 </body>

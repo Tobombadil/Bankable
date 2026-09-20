@@ -37,6 +37,7 @@ from sqlalchemy.orm import (
 from starlette.middleware.gzip import GZipMiddleware
 
 from services.api.auth import AuthContext, get_auth_context
+from services.api.build_info import build_info, data_as_of
 from services.api.common import API_HOST, WEB_HOST, new_request_id, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
@@ -1529,6 +1530,11 @@ def get_health(db: Session = Depends(get_db)) -> Any:
             "queue_age_seconds": None,
         },
         "generated_at": now.isoformat().replace("+00:00", "Z"),
+        # Which build is answering, and how fresh the rows it is serving are (services/api/
+        # build_info.py): two different questions that both get asked as "am I seeing the latest
+        # version?". `data_as_of` is the newest fetch from a source, not the publish lag above.
+        "build": build_info(),
+        "source_data_as_of": data_as_of(db),
     }
     return data
 

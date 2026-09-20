@@ -9246,6 +9246,32 @@ components:
           type: string
           format: date-time
           description: Last committed event time.
+        build:
+          type: object
+          description: >-
+            Which build is answering: the commit it was built from, where that came from, and
+            whether the working tree had uncommitted edits when it was read. Diagnostic, not a
+            contract; every field may be absent or null on a build that cannot tell.
+          properties:
+            commit:
+              type: string
+              nullable: true
+              description: Short commit (12 characters), or null when neither a stamp nor a checkout is available.
+            commit_source:
+              type: string
+              description: Where the commit came from — a build-time environment variable's name, `working-tree`, or `unavailable`.
+            dirty:
+              type: boolean
+              nullable: true
+              description: Uncommitted edits were present when the commit was read; null when unknowable, as in a stamped image.
+        source_data_as_of:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            The newest `retrieved_at` across loaded source records — how recently the platform
+            fetched from a source, which moves independently of `data_as_of` above (that one is
+            the publish lag). Null when nothing is loaded.
         lag_days_default:
           type: object
           description: Class defaults in force (docs/04 §10 pick 1).
