@@ -182,25 +182,25 @@ read model of the commercial record, independent of what the platform does with 
 
 ## Deferred (not built this wave)
 
-- **`POST /admin/v1/subscriptions`** (create-through-adapter) stays unimplemented — `api/openapi.yaml`
-  already marks it `x-status: planned`, and `api/fragments/billing.yaml` leaves it that way too. It
-  needs the admin-console write path (choosing a plan/seats for a customer who did not self-serve
-  checkout) that the admin wave, not this one, owns. `GET /admin/v1/subscriptions` (the read-only
-  mirror list) is fully implemented and flipped to `x-status: live` in the fragment.
-- **Mounting `services.billing.router.router` onto `services.api.app.app`.** This package writes
-  only under `services/billing/**` (CLAUDE.md "one agent per file area"); `services/api/app.py` is
-  explicitly out of bounds. `router = APIRouter()` is exported for the coordinator's one
-  `include_router` call. `services/billing/test_router.py` exercises the router against a
-  standalone test-local FastAPI app (`services/billing/conftest.py`) that mounts this router
-  plus a read-only import of `services.api.pro.router` (needed for the one test that checks
-  `GET /v1/me` reflects a webhook's entitlement change end-to-end) — never against the shared
-  production `app` object, so this package's tests cannot interfere with the two other agents
-  working concurrently in `services/crm/` and `web/`.
-- **Wiring `subscriptions_for_account` into `GET /v1/account`'s `subscriptions` field.**
-  `services/api/pro.py:get_account` currently hardcodes `"subscriptions": []`; this package exports
-  `services.billing.router.subscriptions_for_account(db, account) -> list[dict]` (same serializer
-  the admin list uses) for the coordinator to call from there — `services/api/pro.py` is not in
-  this package's write scope either.
+> **Three of these were stale and are corrected below (2026-09-20).** They had been handed off to
+> the coordinator and done at the time, but this list was never updated, so it kept describing
+> gaps that had closed. That is not free: a lane building the pricing page read this file,
+> reported `GET /v1/account` as still returning an empty `subscriptions` list, and the claim was
+> repeated in a pull request before anyone checked `services/api/pro.py`. A handed-off item is
+> not deferred once it lands — close it here when it does.
+
+### Done, previously listed here as deferred
+
+- **`POST /admin/v1/subscriptions`** — implemented at `services/api/admin_people.py:1489` with
+  reason, account, plan, seat and trial validation, and `x-status: live` in `api/openapi.yaml`
+  alongside the read-only list.
+- **Mounting `services.billing.router.router`** — mounted at `services/api/app.py:128`. The
+  reasoning below still explains why this package could not do it itself.
+- **Wiring `subscriptions_for_account` into `GET /v1/account`** — wired at
+  `services/api/pro.py:172`; the field has not been hardcoded since the Sprint 3 first wave.
+
+### Still deferred
+
 - **`BillingPort.list_invoices`** is implemented and tested but has no HTTP route yet — no invoice
   history endpoint exists in `api/openapi.yaml` for this sprint's scope.
 - **Reverse pagination** (`page.prev_cursor`) on `GET /admin/v1/subscriptions` is always `null`,
