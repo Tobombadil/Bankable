@@ -2,7 +2,6 @@
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
 {% block meta_description %}{{ record.name }}: {{ record.technology or record.kind }} proposal, {{ record.capacity_mw ~ ' MW, ' if record.capacity_mw }}{{ record.county ~ ', ' if record.county }}{{ record.state or record.jurisdiction or '' }}.{% endblock %}
-{% block canonical %}<link rel="canonical" href="/proposals/{{ record.slug }}">{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/proposals">Proposals</a> / {{ record.name }}</nav>
 <div class="detail-header">

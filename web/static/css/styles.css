@@ -453,6 +453,26 @@ h3 { font-size: var(--text-4); }
 .filter-bar__clear { align-self: center; font-size: var(--text-1); }
 .result-count { color: var(--text-muted); font-size: var(--text-1); margin: 0 0 var(--space-3); }
 
+/* ---------- 6.1 Count chips (the `/assets` index's by-type totals) ----------
+   A row of filter links, not buttons: each one is a real URL a crawler can follow, which is the
+   point of the index (docs/50 §4.4). Tokens only -- ink on surface, the selected one carrying the
+   text colour rather than a fill, so it reads the same in both themes. `aria-current="page"` is
+   what marks the selected chip; the border is the visible echo of it, never the only signal. */
+.count-chips ul {
+  display: flex; flex-wrap: wrap; gap: var(--space-2);
+  list-style: none; margin: 0 0 var(--space-3); padding: 0;
+}
+.count-chips a {
+  display: inline-flex; align-items: baseline; gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-3);
+  color: var(--text); text-decoration: none; font-size: var(--text-1);
+}
+.count-chips a:hover, .count-chips a:focus-visible { border-color: var(--link); color: var(--link); }
+.count-chips a[aria-current="page"] { border-color: var(--text); font-weight: 600; }
+.count-chips__n { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.count-chips a[aria-current="page"] .count-chips__n { color: var(--text); }
+
 @media (max-width: 719px) {
   .filter-bar { flex-direction: column; align-items: stretch; }
   .filter-field select, .filter-field input, .filter-bar__submit { width: 100%; }

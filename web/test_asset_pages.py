@@ -98,6 +98,10 @@ def web_client() -> Iterator[TestClient]:
         yield client
     web_app.state.__dict__.pop("api_client", None)
     web_app.state.__dict__.pop("lag_days_default", None)
+    # The sitemap cache is keyed on base URL and every test here shares `http://testserver`,
+    # so one test's canned build would otherwise be served to the next.
+    web_app.state.__dict__.pop("sitemap_cache", None)
+    web_app.state.__dict__.pop("asset_type_counts_cache", None)
 
 
 def _install(transport: FakeTransport) -> None:

@@ -23,10 +23,16 @@ flowchart TD
   H --> P["/proposals (US-101,102,103)"]
   H --> O["/opportunities (US-301)"]
   H --> S["/search?q= (US-103)"]
+  H --> A["/assets (index, 2026-09-19)"]
+  H --> ORGS["/organizations (index, 2026-09-19)"]
   P --> PD["/proposals/{slug} (US-201,202,203,204)"]
   O --> OD["/opportunities/{slug} (US-302)"]
-  PD --> ORG["/organizations/{slug} (US-203)"]
+  A --> AD["/assets/{slug} (ADR 0008)"]
+  ORGS --> ORG["/organizations/{slug} (US-203)"]
+  PD --> ORG
   OD --> ORG
+  AD --> ORG
+  H --> RB["/robots.txt -> /sitemap.xml -> /sitemaps/{n}.xml"]
   M -.->|"select marker/cluster/polygon"| DR["detail drawer (D-12)"]
   DR --> PD
   DR --> OD
@@ -127,6 +133,8 @@ announces "N proposals, M opportunities in view" debounced 500ms; above 500, the
 | `/proposals/{slug}` | Public/Pro | Canonical record, provenance, timeline | US-201, US-202, US-203, US-204 | `GET /v1/proposals/{id}`, `/events`, `/sources`, `/matches` | US-201 AC4 "as of now−lag" banner; Sources panel omits gated rows (D-27); `field_provenance` Pro+ only |
 | `/opportunities` | Public/Pro | Filtered, sorted opportunity list | US-301 | `GET /v1/opportunities` | Same tier rules as US-101 AC3–4 |
 | `/opportunities/{slug}` | Public/Pro | Record, provenance, status timeline, matches | US-302, US-402 | `GET /v1/opportunities/{id}`, `/events`, `/sources` | Linked documents = title+link only (no article bodies, `docs/02` §4) |
+| `/assets` | Public/Pro | Asset index: by-type counts, filters (type, state, name/operator), sort, paged rows | US-104, US-203 | `GET /v1/assets`, `GET /v1/assets/geo` (by-type totals only) | None; no lag |
+| `/organizations` | Public/Pro | Company index: name search, what each company holds, paged rows | US-203, US-303 | `GET /v1/organizations`, `GET /v1/organizations/{id}` per row (counts) | None; no lag |
 | `/organizations/{slug}` | Public/Pro | Company page: summary line by role and type, map of every asset with geometry, assets grouped by role then type, parent/subsidiaries, proposals, opportunities, sources of those records | US-203 AC1, US-303 | `GET /v1/organizations/{id}`, `/assets`, `/proposals`, `/opportunities`; `GET /v1/assets?organization=` when asset rows carry no geometry | None beyond list-level tier rules; no lag (assets are public-domain / CC BY) |
 | `/assets/{slug}` | Public/Pro | Existing-asset page (ADR 0008): fields by type, static map (SVG, MapLibre-enhanced), attributes, owners/operators, nearby exact-grade proposals with distance, sources | US-104, US-203 | `GET /v1/assets?slug=`, `/v1/assets/{id}/nearby-proposals` | None; no lag |
 | `/search` | Public/Pro | Free-text + identifier search | US-103 | `GET /v1/proposals?q=`, `/v1/opportunities?q=` | Same as list |
@@ -175,6 +183,67 @@ pipeline name and its operator both resolve) and `/sitemap.xml`.
   points and are not returned by `/v1/assets/geo`; the legend says so and the lists carry them. The in-view list gains labelled groups for **Regions** (links to the filtered list) and
   **Existing assets** (points and lines; each row links to the asset page and has a Details button that opens
   the same drawer a map click does), so both are keyboard-reachable (audit finding 2026-09-18).
+
+### 3.2 Discoverability: index pages, machine-readable meta, robots and sitemap (added 2026-09-19)
+
+Closes the `docs/50` §3.2 web bullet ("no Open Graph or structured data") and item 4 of the 2026-09-19 plan.
+The thesis it serves is `docs/50` §4.4: the asset map and the crawlable asset and company pages are the
+acquisition surface; proposals are the paid product. A page nobody can find, and a link that pastes into a chat
+as a bare URL, are both failures of that surface.
+
+**Index pages.** `/assets` and `/organizations` are the crawl entries to the record pages that previously had
+none — before this, an asset page was reachable only from the map drawer, `/search` or the sitemap, so a crawler
+following links found none of them, and neither did a reader without JavaScript. Both mirror `/proposals`
+exactly: the same `.filter-bar`, the same `.record-table` in `.table-scroll`, the same `pager` macro on cursor
+pagination, the same `.empty-state`. Both are in the primary nav, as **Assets** and **Companies**.
+
+- `/assets` — a row of by-type count links above the filters (largest type first, plus an "All types" total),
+  then filters for type, state and a name/operator query, and a sort control. Sorting is bounded by the API's
+  allowlist (`last_changed`, `first_seen`, `name`, `capacity_mw`): capacity descending is the default, but a
+  view filtered to line assets alone defaults to name, because a pipeline carries no `capacity_mw` and
+  `length_miles` is not a sort field — its mileage shows in the row and orders nothing. The counts come from
+  `GET /v1/assets/geo`'s `totals.asset_type_counts` (the one call that counts by type; `GET /v1/assets` has no
+  `include=count`), whose denominator is assets with a published location. That is a smaller set than the list
+  — an asset whose licence forbids raw publication keeps its row and page but is off the map — so the page says
+  so in a line under the counts rather than implying the two agree. Measured 2026-09-19: 17,352 counted against
+  18,055 listed.
+- `/organizations` — a single name search (`GET /v1/organizations`'s `q` is a `name_canonical` substring;
+  promising more would be a filter the API cannot honour), and per row the same descriptor and holdings clauses
+  the company page shows, from the same helpers (`org_descriptor()`, `_org_type_counts()`,
+  `_org_summary_parts()`). List rows carry no `asset_counts`, so each row costs one `GET /v1/organizations/{id}`;
+  the page is 25 rows to bound that at 26 calls. **Ask of the API lane:** `asset_counts` on the
+  `GET /v1/organizations` list row removes the second call and lets this page grow.
+
+**Meta on every public page.** Title, description, `rel=canonical`, `og:site_name`, `og:type`, `og:title`,
+`og:description`, `og:url`, `og:locale`, and `twitter:card|title|description`. Title and description have one
+source each — the template's own `title`/`meta_description` blocks, re-read in `base.html` — so a description is
+always built from the record the API returned, never a constant, and cannot leak a field the visibility gate
+withheld (the gate runs before the template sees the row). No `og:image`: the repo ships no card image, and a
+third-party image URL is not permitted. Canonical URLs are absolute and carry only the parameters the page
+understands, so `?utm_source=` collapses to the clean URL and two orderings of the same filters agree. Session
+and result pages carry `noindex` (`/login`, `/register`, `/verify`, `/account`, the privacy and unsubscribe
+forms, `/search?q=`); the bare `/search` stays indexable because it is in the sitemap.
+
+**Structured data.** `BreadcrumbList` on every record page (proposal, opportunity, asset, company);
+`Organization` on a company page — name, URL, the identifiers actually stored (`lei`, `sam_uei`,
+`eia_utility_id`, `cik`, `duns` as `PropertyValue`), `sameAs` for a stored website, `addressCountry`,
+`parentOrganization` — with every absent field dropped rather than emitted empty; `ItemList` on each index and
+list page, naming the rows that page renders, with `numberOfItems` only where the count is known and exact.
+Every block is serialised with `<`, `>` and `&` escaped to `\uXXXX`, so a record named
+`Acme "Big" <Energy> & Co </script>` can neither close the script element nor reach the document as markup.
+
+**robots.txt.** None existed. Public pages allowed; `/admin`, `/api/` (this site's own same-origin relay, not
+the documented API), the session routes, `/health` and `/search?` (the query form only, to bound crawl space)
+disallowed; `Sitemap:` absolute, from the request's base URL.
+
+**Sitemap.** Assets and organisations were already in the builder but capped at 5,000 URLs each, which
+truncated both. The per-resource cap is now 30,000 URLs, and above 25,000 URLs in total `/sitemap.xml` becomes a
+`<sitemapindex>` over `/sitemaps/{n}.xml` — half the protocol's 50,000-URL limit and about 2 MB against its
+50 MB. Measured on the full dev load, 2026-09-19: 34,692 URLs (18,055 assets, 10,409 proposals, 5,513
+companies, 707 opportunities, 8 static pages) in two files of 25,000 and 9,692, a 20-second cold build and
+8 ms thereafter. The existing per-base-URL cache now holds the whole build rather than one file, so a crawler
+fetching the index and every chunk still costs one walk.
+
 
 ## 4. Core-job flows
 
@@ -439,3 +508,5 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
   (frontend-developer, midstream slice).
 - 2026-09-19 — §3.1 updated (frontend-developer, second midstream slice): ethanol and RNG asset rows, the
   company-page descriptor for `other`-typed holders, grouped nearby rows, ethanol/RNG live on the map.
+- 2026-09-19 — §1.1, §3 and new §3.2 (frontend-developer, navigation and discoverability lane): `/assets` and
+  `/organizations` index pages, Open Graph and Twitter card meta, JSON-LD, `robots.txt`, and the split sitemap.

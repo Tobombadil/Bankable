@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}Search -- Infraque{% endblock %}
+{% block meta_description %}Search Infraque proposals, opportunities, assets and companies by name, sponsor, operator or queue ID.{% endblock %}
+{% block robots %}{% if q %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
 {% block content %}
 <div class="page-header"><h1>Search</h1></div>
 {% if not q %}

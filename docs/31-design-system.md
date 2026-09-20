@@ -312,6 +312,22 @@ rejected (reason visible, required at reject time, US-802 AC3); published (metri
 likes, reposts, `fetched_at`).
 **Rule satisfied:** US-801, US-802, US-803, D-35.
 
+### 5.14 Count chips (added 2026-09-19, navigation and discoverability lane)
+
+The by-type totals above `/assets`. Links, never buttons or a segmented control: each chip is a real URL
+(`/assets?asset_type=…`) a crawler can follow and a reader can copy, which is the point of an index page
+(`docs/50` §4.4).
+**Anatomy:** a `<nav aria-label="Assets by type">` wrapping a wrapping flex list; each chip is a bordered pill
+holding a label and a tabular-numeral count, largest type first, with an "All types" chip carrying the sum. A
+type with no rows behind it is absent rather than shown as zero. One line beneath states the counts'
+denominator, because it is not the list's (see `docs/30` §3.2).
+**States:** default; hover/focus (border and text take `--link`); **selected** — `aria-current="page"`, which is
+what a screen reader announces; the heavier border and weight are the visible echo of it, never the only signal.
+**Tokens only:** `--border`, `--link`, `--text`, `--text-muted`, `--radius-3`, `--space-1/2/3`, `--text-1`. No
+fill, so the chip reads identically in both themes.
+**Rule satisfied:** D-24 (no card grid for data), D-29 (never a fabricated zero), §7 AA (1.4.1 — state is not
+carried by colour alone; the chips wrap rather than scroll at 400px).
+
 ## 6. Empty, loading and error states — cross-component rule
 
 Per D-29, specified once here and referenced, not restated per component: **empty** states name the filter
@@ -419,3 +435,6 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
   pipeline line rule, per-type legend groups, mini-map classes.
 - 2026-09-19 — §1.6 updated (frontend-developer, second midstream slice): ethanol and RNG live (no longer
   "coming"), legend notes for unplaced rows, the ethanol/RNG tooltip, drawer and page row set and units.
+- 2026-09-19 — §5.14 added (frontend-developer, navigation and discoverability lane): count chips for the
+  `/assets` index. The `/assets` and `/organizations` indexes otherwise add no components — they are §5.5
+  (table), §5.9 (filter bar) and §6 (empty state) as already specified.

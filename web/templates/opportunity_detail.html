@@ -2,7 +2,6 @@
 {% import "_macros.html" as m %}
 {% block title %}{{ record.title }} -- Infraque{% endblock %}
 {% block meta_description %}{{ record.title }}: {{ record.kind }} from {{ record.issuer or 'issuer unstated' }}, due {{ record.due_at[:10] if record.due_at else 'unstated' }}.{% endblock %}
-{% block canonical %}<link rel="canonical" href="/opportunities/{{ record.slug }}">{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/opportunities">Opportunities</a> / {{ record.title }}</nav>
 <div class="detail-header">

@@ -1,0 +1,47 @@
+{# The company index's rows: same list idiom as `_proposal_rows.html` and `_asset_rows.html`.
+   "Holds" is `_org_summary_parts()` -- the same "Operates 3 gas pipelines · Owns 12 power plants"
+   clauses the company page shows, from the same API counts -- and the badge is `org_descriptor()`,
+   which replaces a meaningless type of "other" with what the organisation actually holds. Both are
+   absent for an organisation the API reports no assets for, and the row then says nothing rather
+   than zero. #}
+{% import "_macros.html" as m %}
+<p class="result-count" aria-live="polite">
+  {%- if records -%}
+  {{ records | length }} compan{{ 'y' if records | length == 1 else 'ies' }} on this page{% if filters.get('q') %}, matching &ldquo;{{ filters.get('q') }}&rdquo;{% endif %}.
+  {%- else -%}
+  No companies match this search.
+  {%- endif -%}
+</p>
+{% if records %}
+<div class="table-scroll">
+<table class="record-table">
+  <caption class="visually-hidden">Companies matching the current search, by name.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Company</th>
+      <th scope="col">Type</th>
+      <th scope="col">Holds</th>
+      <th scope="col" class="num">Assets</th>
+      <th scope="col">Country</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td data-label="Company"><a class="row-link" href="{{ r.href }}">{{ r.name }}</a></td>
+      <td data-label="Type">{% if r.descriptor %}<span class="reuse-badge">{{ r.descriptor }}</span>{% elif r.type %}{{ r.type | replace('_', ' ') }}{% else %}—{% endif %}</td>
+      <td data-label="Holds">{% if r.summary_parts %}{{ r.summary_parts | join(' · ') }}{% else %}—{% endif %}</td>
+      <td data-label="Assets" class="num tnum">{% if r.asset_total is not none %}{{ '{:,}'.format(r.asset_total) }}{% else %}—{% endif %}</td>
+      <td data-label="Country">{{ r.country or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{{ m.pager(prev_cursor, next_cursor, querystring, "/organizations") }}
+{% else %}
+<div class="empty-state">
+  <p>No companies match this search.</p>
+  <p><a href="/organizations">Clear the search</a></p>
+</div>
+{% endif %}
