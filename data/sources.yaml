@@ -852,13 +852,44 @@ sources:
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-13, result: ok, rows: 373, note: 'FES 2024 Grid Supply Point Info CSV, 373 GSPs with name/lat/lon; 371 vendored to services/ingest/data/gb_substations.tsv after dropping 2 byte-identical rows; matches 6/30 (20.0%) of the gb.neso.tec_register fixture''s distinct Connection Site strings and 346/1,237 (28.0%) of the live TEC register''s — the remainder are project-specific new-build substations and connection nodes, not public GSPs, and correctly stay unplaced'}
+  verified: {date: 2026-09-20, result: ok, rows: 373, note: 'Re-downloaded 2026-09-20 (HTTP 200, 16,416 bytes, still 373 rows and the same seven columns); all 371 vendored rows join back to their source row on an exact (Name, Latitude, Longitude) triple, so the 2026-09-13 vendoring is unchanged at source. FES 2024 Grid Supply Point Info CSV, 373 GSPs with name/lat/lon; 371 vendored to services/ingest/data/gb_substations.tsv after dropping 2 byte-identical rows; matches 6/30 (20.0%) of the gb.neso.tec_register fixture''s distinct Connection Site strings and 346/1,237 (28.0%) of the live TEC register''s — the remainder are project-specific new-build substations and connection nodes, not public GSPs, and correctly stay unplaced. 2026-09-20: the source''s own GSP Group column, dropped at first vendoring, was re-derived and collapsed to a region column (_P north_scotland 72, _N south_scotland 94, the other twelve groups england_wales 205) — the transmission geography the settlement tier''s region precondition is built on; agrees with the register''s own HOST TO on 345 of 347 GSP-placed site/owner pairs'}
   notes: >-
     Reference data, not a proposal/opportunity feed: used only by services/ingest/geocode.py to resolve a
     TEC register "Connection Site" (a substation name) to a point, county_centroid precision (never exact —
     a substation is not the project's location, docs/21-data-model.md §3.7). Not a live feed; re-vendor when
-    NESO publishes the next FES vintage. Full provenance, licence comparison against the other candidates
-    checked (NESO GIS boundary datasets, National Grid ET's own open data), and coverage measurement in
+    NESO publishes the next FES vintage. Since 2026-09-20 it also carries the dataset's own GSP Group as a
+    three-value region column, which is the only GB transmission geography in the repository and the basis
+    of the region precondition on the settlement tier (gb.ons.ipn_gazetteer); a re-vendor must keep it.
+    Full provenance, licence comparison against the other candidates checked (NESO GIS boundary datasets,
+    National Grid ET's own open data), the region derivation and coverage measurement in
+    services/ingest/data/README.md.
+
+- id: gb.ons.ipn_gazetteer
+  name: ONS Index of Place Names in Great Britain (vendored gazetteer for TEC register settlement geocoding)
+  jurisdiction: GB
+  category: registry
+  operator: Office for National Statistics
+  url: https://geoportal.statistics.gov.uk/datasets/208d9884575647c29f0dd5a1184e711a/about
+  access: bulk_file
+  auth: none
+  format: csv
+  cadence: annual (published each summer; the July 2024 edition indexes place names as at December 2023)
+  license: 'Open Government Licence v3.0 (docs/13-legal-data-rights.md §2.17; the Open Geography Portal item''s own licenseInfo points at https://www.ons.gov.uk/methodology/geography/licences, which states ONS material may be re-used "whether commercially or privately … freely without a specific application for a licence", and the dataset''s user guide repeats the OGL v3 grant); attribution required: "Source: Office for National Statistics licensed under the Open Government Licence v3.0" and "Contains OS data © Crown copyright and database right 2024"'
+  reuse: attribution
+  publication: raw_ok
+  tier: 1
+  effort: S
+  probe: {method: GET, url: "https://www.arcgis.com/sharing/rest/content/items/208d9884575647c29f0dd5a1184e711a?f=json"}
+  verified: {date: 2026-09-20, result: ok, rows: 104395, note: 'IPN_GB_2024.csv, 104,395 rows, cp1252-encoded; 52,110 rows vendored to services/ingest/data/gb_settlements.tsv after keeping only settlement-type records (LOC/BUA/PAR/COM) and collapsing to one row per normalised name, 47,027 of which carry coordinates and the remaining 5,083 record that the name denotes more than one place; lifts gb.neso.tec_register placement from 739/2,198 rows (33.6%) to 1,049/2,198 (47.7%) and from 346/1,237 distinct Connection Sites to 499/1,237, with 56 sites (105 rows) rejected as ambiguous and a further 13 sites (19 rows) rejected by the region precondition rather than guessed'}
+  notes: >-
+    Reference data, not a proposal/opportunity feed: used only by services/ingest/geocode.py as a fallback
+    after the NESO GSP lookup (gb.neso.fes_gsp_gazetteer), for TEC register "Connection Site" strings that
+    name a settlement rather than a Grid Supply Point. county_centroid precision, never exact — the project
+    is near a substation which is near the town this names (docs/21-data-model.md §3.7). A GSP match always
+    wins; a name borne by more than one place is left unplaced, never tie-broken. Not a live feed; re-vendor
+    when ONS publishes the next IPN edition. Full provenance, the licence comparison against OS Open Names
+    (equally OGL v3, passed over on fit) and against OpenStreetMap (ODbL share-alike, excluded and not
+    fetched), the trimming method, the coverage measurement and a measured failure mode are in
     services/ingest/data/README.md.
 
 - id: gb.pins.nsip

@@ -84,6 +84,8 @@ from services.db.models import (
 )
 from services.ids import public_id
 from services.ingest.lag import ISO_CHANGE_EVENT_LAG_DAYS, RECORD_LAG_DAYS
+from services.sor.ports import BillingPort
+from services.sor.wiring import get_billing_port
 
 app = FastAPI(
     title="Platform API",
@@ -1510,7 +1512,10 @@ def get_vocabularies(db: Session = Depends(get_db)) -> Any:
 
 
 @app.get("/v1/health")
-def get_health(db: Session = Depends(get_db)) -> Any:
+def get_health(
+    db: Session = Depends(get_db),
+    billing_port: BillingPort = Depends(get_billing_port),
+) -> Any:
     try:
         db.execute(select(1))
         database_ok = True
@@ -1538,6 +1543,11 @@ def get_health(db: Session = Depends(get_db)) -> Any:
             "edge_cache": True,
             "backup_age_hours": None,
             "queue_age_seconds": None,
+            # Whether a real payment processor is wired, so a surface that asks for money can say
+            # payments are off *before* the visitor presses the button rather than after. The web
+            # host is a separate deployable and cannot see the processor secret, which lives only
+            # here; this is the boolean it reads instead. Configuration, never a secret.
+            "billing_configured": billing_port.live,
         },
         "generated_at": now.isoformat().replace("+00:00", "Z"),
         # Which build is answering, and how fresh the rows it is serving are (services/api/

@@ -125,7 +125,7 @@ sponsor + county + capacity ± 10% + technology; fuzzy name. Every merge is reco
 - FERC's backend occasionally returns HTTP 200 with `success:false`; treat as error, retry with backoff.
 - SAM.gov and EIA v2 need free API keys; register both now.
 
-## 8. Reference data: GB substation gazetteer
+## 8. Reference data: GB substation and settlement gazetteers
 
 `gb.neso.tec_register` rows carry a "Connection Site" — a transmission substation name — and nothing else
 geographic. `services/ingest/data/gb_substations.tsv` (371 rows: name, latitude, longitude) is vendored from
@@ -144,6 +144,42 @@ specific generator or BESS project, which no general gazetteer covers. Unmatched
 guessed. Full provenance, the other candidates checked and why they were not used (NESO's own GIS boundary
 datasets, National Grid Electricity Transmission's open data), and the coverage measurement are in
 `services/ingest/data/README.md`.
+
+**Settlement fallback (2026-09-20).** Of the 1,459 TEC register rows the GSP list leaves unplaced, 1,010 name a
+real UK settlement rather than a Grid Supply Point ("Cilfynydd 400kV Substation", "Navenby", "Chirk GSP") —
+GB transmission sites are overwhelmingly named after the place they stand next to. `services/ingest/data/
+gb_settlements.tsv` (52,110 rows: name, latitude, longitude, local authority district, and a count of the
+places that bear the name) is vendored from the **ONS Index of Place Names in Great Britain (July 2024)** on
+the ONS Open Geography Portal, under the Open Government Licence v3 (`13-legal-data-rights.md` §2.17; required
+attribution "Source: Office for National Statistics licensed under the Open Government Licence v3.0" and
+"Contains OS data © Crown copyright and database right 2024"). `data/sources.yaml` id `gb.ons.ipn_gazetteer`,
+category `registry`. OS Open Names was assessed and is equally OGL v3, passed over on fit (British National
+Grid coordinates, 103 MB including roads and postcodes); OpenStreetMap was excluded and never fetched (ODbL
+share-alike, a question for counsel, and this is a commercial product).
+
+`geocode()` consults it only after the GSP lookup misses — a substation's own coordinates beat a settlement
+centroid — and reports the same `county_centroid` precision, which is a further step removed (the project is
+near a substation which is near that town) but the same county-scale uncertainty. A name borne by more than
+one place is left `unknown`, never tie-broken: "Thornton" is six places, "Overton" sixteen.
+
+**The settlement tier places nothing unless it is given a region.** The caller must supply the transmission
+owner the register carries in `HOST TO` (`NGET`, `SPT`, `SHET`, `OFTO`), and a match whose point falls in
+another owner's area is refused. That is a precondition rather than a filter, so wiring `country` through at
+the loader's call site cannot by itself switch on unconstrained placement. The area test is a
+nearest-neighbour classifier over the 371 vendored GSPs, each carrying a transmission region derived from the
+NESO dataset's own `GSP Group` column (`_P` north Scotland, `_N` south Scotland, the other twelve England and
+Wales) — added to `gb_substations.tsv` on 2026-09-20 under the licence already recorded for that dataset. It
+agrees with the register's own `HOST TO` on 345 of 347 site/owner pairs where both are known. The GSP tier
+takes no region: those 371 names are NESO's own list of the substations the register connects into.
+
+Measured (2026-09-20, stored snapshot): placement rises from 739 to 1,049 of 2,198 rows (33.6% → 47.7%) and
+from 346 to 499 of 1,237 distinct Connection Sites (28.0% → 40.3%). 56 sites (105 rows) are rejected as
+ambiguous, 15 rows are `OFTO` (no onshore area), and the region precondition refuses a further 13 sites (19
+rows) — of which 8 sites were demonstrably wrong placements and 3 were correct placements lost to a
+register-side `HOST TO` inconsistency or a border artefact. An independent latitude-band cross-check that
+found 11 impossible placements in the unconstrained 166 finds 0 in the constrained 153. One known-wrong
+placement survives, `Norton East`, because it is an England-to-England collision the region cannot separate.
+`services/ingest/data/README.md` has the per-site inspection.
 
 ## 9. EIA-860M operating plants (context layer)
 

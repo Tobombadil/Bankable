@@ -76,6 +76,9 @@ class InMemoryBilling:
     works."""
 
     sor_kind = "stripe"
+    #: A dry run cannot take a payment: its checkout URLs are under the reserved `.invalid` TLD
+    #: and can never resolve. Surfaces that ask for money read this (`BillingPort.live`).
+    live = False
 
     def __init__(self, *, webhook_secret: str = _DEFAULT_WEBHOOK_SECRET) -> None:
         self.webhook_secret = webhook_secret
