@@ -6,6 +6,7 @@ features, the `placement` and `county_fips` filters on `GET /v1/proposals` and
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 import yaml
@@ -17,6 +18,9 @@ from tests.test_api_contract import assert_valid
 
 _OPENAPI_PATH = pathlib.Path(__file__).resolve().parents[2] / "api" / "openapi.yaml"
 WORLD_BBOX = "-179,-85,179,85"
+#: `api/openapi.yaml`'s public-id pattern, so "is this still a valid public id" is checked
+#: against the published contract rather than against a character of the id.
+PUBLIC_ID = re.compile(r"^[a-z]{2,8}_[0-9A-HJKMNP-TV-Z]{10,32}$")
 
 
 @pytest.fixture(scope="module")
@@ -147,7 +151,14 @@ def test_placement_filter_on_plain_proposal_list(client, db):
     resp2 = client.get("/v1/proposals", params={"placement": "none"})
     data = resp2.json()["data"]
     assert len(data) == 1
-    assert data[0]["public_id"].endswith("2") is False  # sanity: still a valid public id
+    # The one returned is the unplaced proposal. Identify it by slug: `public_id_suffix` is what
+    # the fixture puts in the slug and the source record id, never in `public_id`, which is
+    # Crockford base32 over a random UUID. The assertion here used to read
+    # `public_id.endswith("2") is False`, which tested nothing about the record and came up false
+    # whenever that random id happened to end in "2" -- measured at 3.09% over 200,000 ids
+    # against the uniform 1/32, so roughly one CI run in 32 went red on it.
+    assert data[0]["slug"].endswith("-2")
+    assert PUBLIC_ID.match(data[0]["public_id"])
     assert data[0]["location"]["precision"] == "unknown"
 
 
