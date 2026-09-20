@@ -9306,6 +9306,12 @@ components:
               type: [number, 'null']
             queue_age_seconds:
               type: [number, 'null']
+            billing_configured:
+              type: boolean
+              description: >-
+                A real payment processor is wired, rather than the dry-run fallback. Lets a
+                surface that asks for money say payments are off before the visitor presses the
+                button. Reports configuration, never a secret.
         generated_at:
           type: string
           format: date-time

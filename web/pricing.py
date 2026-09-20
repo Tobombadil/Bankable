@@ -285,6 +285,31 @@ def _iso_change_event_lag_days(request: Request) -> int:
         return 0
 
 
+def _billing_configured(request: Request) -> bool:
+    """Whether a real payment processor is wired, read from `GET /v1/health`'s
+    `checks.billing_configured`. The web host is a separate deployable from the API and cannot
+    see the processor secret, so asking is the only way it can know.
+
+    This exists so the page does not offer "Continue to payment" when nothing can take a payment.
+    `POST /pricing/checkout` still refuses a dry-run URL afterwards -- that guard is the backstop
+    and is not replaced by this.
+
+    **An unreadable health check assumes payments ARE live, deliberately.** The two failure
+    directions are not symmetric: guessing "live" when it is not costs the visitor one press and
+    an honest explanation from the backstop, while guessing "not live" when it is would hide
+    checkout from a paying customer with nothing to catch it.
+    """
+    try:
+        health = getattr(request.app.state, "billing_configured", None)
+        if health is None:
+            body = get_api(request).get("/v1/health")
+            health = bool(body["checks"]["billing_configured"])
+            request.app.state.billing_configured = health
+        return bool(health)
+    except Exception:
+        return True
+
+
 def _notice(title: str, detail: str | None = None, *, request_id: str | None = None) -> dict[str, Any]:
     """An error the reader can act on: what went wrong, and what to do about it (docs/31 §6 —
     the RFC 9457 `title` and `request_id`, never a raw exception)."""
@@ -334,6 +359,8 @@ def _context(
         "tiers": TIERS,
         "coverage_line": COVERAGE_LINE,
         "iso_change_event_lag_days": _iso_change_event_lag_days(request),
+        # Say payments are off before the button rather than after it (`_billing_configured`).
+        "billing_configured": _billing_configured(request),
         "signed_in": me is not None,
         "tier": tier,
         # `admin` is a manual grant, never derived from billing (docs/21 §3.13), so it is not a

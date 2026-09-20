@@ -332,6 +332,14 @@ class EntitlementChange:
 class BillingPort(Protocol):
     sor_kind: str
 
+    #: Whether this adapter can actually take a payment. False on the dry-run fallback, whose
+    #: checkout URLs are unreachable by construction. It is a property of the wired adapter, not
+    #: of the environment: a caller that reads an environment variable instead gets the wrong
+    #: answer wherever the port is injected, which is every test and every future adapter.
+    #: `services/api/app.py` publishes it as `/v1/health`'s `checks.billing_configured` so a
+    #: surface that asks for money can say payments are off before the visitor presses.
+    live: bool
+
     def create_checkout(self, request: CheckoutRequest) -> CheckoutSession: ...
 
     def open_portal(self, *, billing_ref: str, return_url: str) -> PortalSession: ...

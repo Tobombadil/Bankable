@@ -69,6 +69,10 @@ class LiveLikeBilling(InMemoryBilling):
     """The same fake, answering with a resolvable host — a stand-in for a configured processor,
     so the redirect itself can be exercised. Still no network: nothing fetches the URL."""
 
+    #: It stands in for a configured processor, so it reports itself live and the page offers the
+    #: buy button (`BillingPort.live`).
+    live = True
+
     def create_checkout(self, request: CheckoutRequest) -> CheckoutSession:
         session = super().create_checkout(request)
         return replace(session, url=f"https://pay.example.com/c/{session.session_ref}")
@@ -101,6 +105,7 @@ def web_client(db_sessionmaker: sessionmaker[Session], billing_port: InMemoryBil
     api_app.dependency_overrides[get_billing_port] = lambda: billing_port
     web_app.state.api_client = ApiClient(TestClient(api_app, base_url="http://api-internal"))
     web_app.state.lag_days_default = None
+    web_app.state.billing_configured = None
     with TestClient(web_app) as client:
         yield client
     api_app.dependency_overrides.clear()
@@ -130,6 +135,7 @@ def live_client(
     api_app.dependency_overrides[get_billing_port] = lambda: live_billing_port
     web_app.state.api_client = ApiClient(TestClient(api_app, base_url="http://api-internal"))
     web_app.state.lag_days_default = None
+    web_app.state.billing_configured = None
     with TestClient(web_app) as client:
         yield client
     api_app.dependency_overrides.clear()
@@ -257,11 +263,15 @@ def test_dropping_the_delay_is_one_field_not_a_copy_edit(web_client: TestClient)
 
 # -------------------------------------------------------------------------- signed-in, free
 def test_signed_in_free_user_gets_a_checkout_button_per_purchasable_tier(
-    web_client: TestClient,
+    live_client: TestClient,
 ) -> None:
-    _register(web_client)
+    """Driven by `live_client` rather than `web_client` since 2026-09-20: a buy button is only
+    correct when the wired port can actually take a payment, and the plain dry-run fake cannot.
+    The same visitor against `web_client` gets the "payments are not switched on yet" answer,
+    which `test_the_buy_button_is_replaced_when_no_processor_is_configured` asserts."""
+    _register(live_client)
 
-    body = web_client.get("/pricing").text
+    body = live_client.get("/pricing").text
 
     assert 'action="/pricing/checkout"' in body
     assert 'value="pro"' in body
@@ -417,3 +427,65 @@ def test_manage_billing_without_a_billing_customer_explains_the_conflict(
 
 def test_portal_post_from_another_site_is_refused(web_client: TestClient) -> None:
     assert web_client.post("/pricing/portal").status_code == 403
+
+
+# ------------------------------------------------- payments not switched on (checks.billing_configured)
+def test_the_buy_button_is_replaced_when_no_processor_is_configured(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    """`web_client` runs the plain dry-run fake, which cannot take a payment. A signed-in visitor
+    must learn that before pressing, not after. `POST /pricing/checkout`'s dry-run guard still
+    catches the press; a button that cannot complete is a lie told at the moment we ask for
+    money, and the guard does not excuse telling it."""
+    _sign_in_as(web_client, db_sessionmaker)
+    body = web_client.get("/pricing").text
+
+    assert "Card payments are not switched on yet" in body
+    assert "Email us to subscribe to Pro" in body
+    assert "Continue to payment for Pro" not in body
+
+
+def test_the_buy_button_is_shown_when_a_processor_is_configured(
+    live_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    """The other branch, driven by a port that reports itself live, so the notice above cannot
+    become unconditional without failing here."""
+    _sign_in_as(live_client, db_sessionmaker)
+    body = live_client.get("/pricing").text
+
+    assert "Continue to payment for Pro" in body
+    assert "Card payments are not switched on yet" not in body
+
+
+def test_an_api_that_does_not_report_the_field_assumes_payments_are_live(
+    live_client: TestClient, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two failure directions are not symmetric, and the default follows the cheaper one.
+
+    Guessing "live" when it is not costs one press and an honest explanation from the checkout
+    guard. Guessing "not live" when it is would hide checkout from a paying customer, with
+    nothing to catch it. So a health response missing the field -- an API host older than this
+    change -- shows the button.
+    """
+    _sign_in_as(live_client, db_sessionmaker)
+    real_get = ApiClient.get
+
+    def _without_the_field(self: ApiClient, path: str, **kwargs: object) -> dict[str, object]:
+        body = real_get(self, path, **kwargs)  # type: ignore[arg-type]
+        if path == "/v1/health":
+            body = {**body, "checks": {k: v for k, v in body["checks"].items() if k != "billing_configured"}}
+        return body
+
+    monkeypatch.setattr(ApiClient, "get", _without_the_field)
+    web_app.state.billing_configured = None
+    body = live_client.get("/pricing").text
+
+    assert "Continue to payment for Pro" in body
+
+
+def test_the_dry_run_port_reports_itself_not_live(billing_port: InMemoryBilling) -> None:
+    """`BillingPort.live` is a property of the wired adapter, not of the environment. Reading an
+    environment variable instead gives the wrong answer wherever the port is injected -- which is
+    every test, and every adapter that is not Stripe."""
+    assert billing_port.live is False
+    assert LiveLikeBilling().live is True

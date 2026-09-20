@@ -128,6 +128,8 @@ class StripeBillingAdapter:
     applies instead (services/billing/README.md "API version decision")."""
 
     sor_kind = "stripe"
+    #: A configured Stripe account takes real payments (`BillingPort.live`).
+    live = True
 
     def __init__(
         self,

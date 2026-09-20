@@ -90,6 +90,9 @@
       {%- elif no_email %}
       <a class="tier__button" href="#no-email">Add an email to your account first</a>
       <p class="field-hint">We cannot start a payment without one.</p>
+      {%- elif signed_in and not billing_configured %}
+      <a class="tier__button" href="mailto:{{ sales_email }}">Email us to subscribe to {{ tier.name }}</a>
+      <p class="field-hint">Card payments are not switched on yet. Write to us and we will set the subscription up by hand.</p>
       {%- elif signed_in %}
       <form method="post" action="/pricing/checkout" class="inline-form">
         <input type="hidden" name="plan" value="{{ tier.id }}">
