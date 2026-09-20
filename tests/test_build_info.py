@@ -41,6 +41,80 @@ def test_the_working_tree_is_read_when_nothing_is_stamped(monkeypatch: pytest.Mo
         assert info["dirty"] in (True, False)
 
 
+def test_a_command_that_printed_nothing_is_not_a_failed_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_git` must distinguish "ran, printed nothing" from "did not run".
+
+    This is where the bug was. `git status --porcelain` prints nothing for a clean tree, and
+    `stdout.strip() or None` turned that into the same `None` a missing git binary produces, so a
+    clean checkout reported `dirty: None`. It stayed invisible on any machine with work in
+    progress -- a dirty tree prints something -- and failed only on CI, which checks out clean
+    every time. Stubbing `_git` cannot catch this; the empty-string handling has to be exercised
+    here, one level down.
+    """
+
+    class _Result:
+        returncode = 0
+        stdout = "\n"
+
+    monkeypatch.setattr(bi.shutil, "which", lambda _name: "/usr/bin/git")
+    monkeypatch.setattr(bi.pathlib.Path, "exists", lambda _self: True)
+    monkeypatch.setattr(bi.subprocess, "run", lambda *a, **k: _Result())
+    assert bi._git("status", "--porcelain") == ""
+
+
+def test_a_command_that_failed_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The other half of the same distinction, so neither side can drift back."""
+
+    class _Result:
+        returncode = 128
+        stdout = ""
+
+    monkeypatch.setattr(bi.shutil, "which", lambda _name: "/usr/bin/git")
+    monkeypatch.setattr(bi.pathlib.Path, "exists", lambda _self: True)
+    monkeypatch.setattr(bi.subprocess, "run", lambda *a, **k: _Result())
+    assert bi._git("status", "--porcelain") is None
+
+
+def test_a_clean_tree_is_reported_clean_not_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`git status --porcelain` prints nothing for a clean tree. That empty string is the answer
+    "no uncommitted edits", not a failed call, and the two must not collapse into one `None`.
+
+    This is the regression: locally the tree is almost always dirty, so `dirty` came back a real
+    boolean and the bug hid; CI checks out clean every time, so it failed there and only there.
+    """
+    for name in bi.COMMIT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    calls: list[tuple[str, ...]] = []
+
+    def fake_git(*args: str) -> str | None:
+        calls.append(args)
+        return "0123456789abcdef0123456789abcdef01234567" if args[0] == "rev-parse" else ""
+
+    monkeypatch.setattr(bi, "_git", fake_git)
+    info = bi.build_info()
+    assert info == {
+        "commit": "0123456789ab",
+        "commit_source": "working-tree",
+        "dirty": False,
+    }
+    assert ("status", "--porcelain") in calls
+
+
+def test_an_unreadable_status_is_unknown_rather_than_clean(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The other side of the same distinction: a `git status` that actually failed says nothing
+    about the tree, so `dirty` is null. Claiming "clean" there would be a guess."""
+    for name in bi.COMMIT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        bi,
+        "_git",
+        lambda *args: "0123456789abcdef" if args[0] == "rev-parse" else None,
+    )
+    assert bi.build_info()["dirty"] is None
+
+
 def test_nothing_raises_when_git_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     """A read-only checkout, a container without git, a stripped image: the footer renders nothing
     rather than failing the page."""

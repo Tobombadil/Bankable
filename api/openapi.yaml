@@ -6851,7 +6851,7 @@ components:
         kind: {type: string, enum: [erasure, correction]}
         record_public_id: {type: string, pattern: '^[a-z]{2,8}_[0-9A-HJKMNP-TV-Z]{10,32}$'}
         contact_email: {type: string, format: email}
-        message: {type: string, maxLength: 4000, nullable: true}
+        message: {type: [string, "null"], maxLength: 4000}
     PrivacyRequest:
       type: object
       required: [public_id, kind, record_public_id, status, created_at]
@@ -6861,14 +6861,14 @@ components:
         record_public_id: {type: string}
         status: {type: string, enum: [open, in_progress, done, rejected]}
         created_at: {type: string, format: date-time}
-        completed_at: {type: string, format: date-time, nullable: true}
+        completed_at: {type: [string, "null"], format: date-time}
     PrivacyRequestAdmin:
       allOf:
         - $ref: '#/components/schemas/PrivacyRequest'
         - type: object
           properties:
-            contact_email: {type: string, nullable: true}
-            message: {type: string, nullable: true}
+            contact_email: {type: [string, "null"]}
+            message: {type: [string, "null"]}
     PrivacyRequestResponse:
       type: object
       required: [data, meta, licence_summary]
@@ -9254,20 +9254,17 @@ components:
             contract; every field may be absent or null on a build that cannot tell.
           properties:
             commit:
-              type: string
-              nullable: true
+              type: [string, "null"]
               description: Short commit (12 characters), or null when neither a stamp nor a checkout is available.
             commit_source:
               type: string
               description: Where the commit came from — a build-time environment variable's name, `working-tree`, or `unavailable`.
             dirty:
-              type: boolean
-              nullable: true
+              type: [boolean, "null"]
               description: Uncommitted edits were present when the commit was read; null when unknowable, as in a stamped image.
         source_data_as_of:
-          type: string
+          type: [string, "null"]
           format: date-time
-          nullable: true
           description: >-
             The newest `retrieved_at` across loaded source records — how recently the platform
             fetched from a source, which moves independently of `data_as_of` above (that one is

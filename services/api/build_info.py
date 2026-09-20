@@ -41,8 +41,15 @@ log = logging.getLogger(__name__)
 
 
 def _git(*args: str) -> str | None:
-    """`git` output, or `None` for any reason at all -- no git binary, no repository, a permission
-    error, a timeout. Never raises: this is a footer line, not a health check."""
+    """`git` output on success -- which may be the empty string, and for `status --porcelain` on a
+    clean tree that is the answer, not a failure -- or `None` for any reason at all: no git binary,
+    no repository, a permission error, a timeout. Never raises: this is a footer line, not a
+    health check.
+
+    The empty-versus-`None` distinction is the whole point. Collapsing them (`stdout.strip() or
+    None`) made a clean checkout report `dirty: None` while a developer's edited tree reported a
+    real boolean, so the bug was invisible on every machine that had work in progress and showed
+    up only on CI, which is the one place the tree is always clean."""
     git = shutil.which("git")
     if git is None or not (_REPO_ROOT / ".git").exists():
         return None
@@ -58,7 +65,7 @@ def _git(*args: str) -> str | None:
         return None
     if result.returncode != 0:
         return None
-    return result.stdout.strip() or None
+    return result.stdout.strip()
 
 
 @functools.lru_cache(maxsize=1)
@@ -71,7 +78,7 @@ def build_info() -> dict[str, Any]:
         if value:
             return {"commit": value[:12], "commit_source": name, "dirty": None}
     commit = _git("rev-parse", "HEAD")
-    if commit is None:
+    if not commit:
         return {"commit": None, "commit_source": "unavailable", "dirty": None}
     status = _git("status", "--porcelain")
     return {
