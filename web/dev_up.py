@@ -36,6 +36,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from sqlalchemy import Engine
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from services.db.session import get_engine, get_sessionmaker, init_db
@@ -259,6 +261,24 @@ def _wait_for(url: str, timeout_s: float = 20.0) -> None:
     raise RuntimeError(f"{url} did not come up in time: {last_error}")
 
 
+def _columns_missing_from(engine: Engine) -> list[str]:
+    """`table.column` for every ORM column the database does not have. Empty when the schema is
+    current. Only the columns are compared -- types, indexes and constraints are the migrations'
+    business, not a dev runner's."""
+    import services.db.models  # noqa: F401 -- registers tables on Base.metadata
+    from services.db.base import Base
+
+    inspector = sa_inspect(engine)
+    present = set(inspector.get_table_names())
+    missing: list[str] = []
+    for table in Base.metadata.sorted_tables:
+        if table.name not in present:
+            continue  # a missing table is `create_all`'s job and it does do that one
+        have = {c["name"] for c in inspector.get_columns(table.name)}
+        missing.extend(f"{table.name}.{c.name}" for c in table.columns if c.name not in have)
+    return missing
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = _parse_args(argv)
@@ -266,6 +286,16 @@ def main(argv: list[str] | None = None) -> int:
     database_url = f"sqlite+pysqlite:///{args.db}"
 
     if not args.skip_load:
+        # Start from an empty file. `init_db` is `metadata.create_all`, which creates missing
+        # *tables* and never adds a column to a table that already exists, so a `dev.db` left
+        # over from before a migration keeps its old schema for ever and every page that reads
+        # the new column dies with "no such column". That is what happened to a database written
+        # before migration 0015 added `organization.parent_org_id`: the site started, then threw
+        # on the proposals query. Since a run without `--skip-load` reloads every row anyway,
+        # keeping the old file buys nothing but that failure mode.
+        if args.db.exists():
+            log.info("rebuilding %s from scratch (a full load follows)", args.db)
+            args.db.unlink()
         engine = get_engine(database_url)
         init_db(engine)
         session: Session = get_sessionmaker(engine)()
@@ -284,6 +314,19 @@ def main(argv: list[str] | None = None) -> int:
             session.close()
         log.info("loaded: %s", report)
     else:
+        # Reuse is the whole point of --skip-load, so the stale-schema case cannot be fixed by
+        # rebuilding here. Say so plainly instead of letting it surface as a SQL error from
+        # whichever page happens to read the missing column first.
+        engine = get_engine(database_url)
+        missing = _columns_missing_from(engine)
+        if missing:
+            log.error(
+                "--skip-load: %s predates the current models and is missing %s. "
+                "Re-run without --skip-load to rebuild it.",
+                args.db,
+                ", ".join(missing[:8]) + (" ..." if len(missing) > 8 else ""),
+            )
+            return 1
         log.info("--skip-load: reusing %s", args.db)
 
     env = dict(os.environ)
