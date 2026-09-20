@@ -35,7 +35,13 @@ as an anchor rather than a measured price.
 **Price:** $0 (`docs/11` §3, row "Free (delayed)" — the price is unchanged; the name "delayed" is not).
 
 Every record, published as soon as it is ingested: public pages, derived records, full attribution, search, map
-and an RSS / Bluesky / LinkedIn feed. No alerts, no export, no API, no watchlists.
+and an RSS feed. No alerts, no export, no API, no watchlists.
+
+> **Corrected 2026-09-20: this line said "RSS / Bluesky / LinkedIn feed".** The RSS feeds are real and served.
+> Bluesky and LinkedIn are *our own* syndication queue (`services/social/`), awaiting a human-approved posting
+> channel per CLAUDE.md — they are a channel we publish to, not a feature a free user subscribes to, and no
+> account may exist to point a reader at. The rendered page says RSS only. Restore the other two here only if
+> they ever become something a reader signs up for, which is not what they are.
 
 ~~**Delay:** free-tier lag is set per source cadence (`docs/11` §3, "Delayed-tier lag by source cadence" table):~~
 ~~- Daily/intraday sources (ISO queues, grants.gov, SAM.gov, TED, FTS, FERC eLibrary, World Bank notices):~~
@@ -95,13 +101,18 @@ differentiators below are the plan, not the product:
 ## API / Data
 
 **Price:** +$5,000/yr on top of Team (Team+API = $14,000/yr), or $25,000/yr as a standalone enterprise tier
-with bulk pulls and Snowflake delivery (`docs/11` §3, row "API / Data"). *The $25,000 enterprise figure is
+with bulk pulls and Snowflake delivery (`docs/11` §3, row "API / Data") — **neither of which is built; see
+the Adds list below**. *The $25,000 enterprise figure is
 below the WoodMac/Enverus/NPM range ($40,000–80,000/yr) and above Halcyon's data-subscription level — a market
 positioning, not a measured price; verify before publishing.*
 
 Adds:
 - Change-event webhooks
-- Bulk data pulls
+- ~~Bulk data pulls~~ **Not built — do not publish (2026-09-20).** `GET /v1/bulk/proposals`,
+  `/v1/bulk/opportunities` and `/v1/bulk/events` are all `x-status: planned` in `api/openapi.yaml` and
+  nothing in `services/api/` implements them. This line was not flagged when the export and watchlist
+  claims were, so the page was being asked to advertise a fourth unbuilt thing. The rendered page omits
+  it; restore this bullet when the routes ship.
 - Licence pass-through for restricted sources (subject to the customer-terms and indemnity work still
   outstanding — see the legal footer below)
 
