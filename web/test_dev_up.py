@@ -133,3 +133,38 @@ def test_load_organization_graph_without_a_gleif_parquet_still_applies_aliases(
     messages = [r.getMessage() for r in caplog.records]
     assert any("gleif" in m.lower() and "not found" in m.lower() for m in messages), messages
     assert any("alias" in m.lower() for m in messages), messages
+
+
+# ------------------------------------------------- a stale dev database is rebuilt, not reused
+def test_columns_missing_from_reports_a_column_the_database_lacks(tmp_path: Path) -> None:
+    """`init_db` is `metadata.create_all`, which creates missing *tables* and never adds a column
+    to one that already exists. So a `dev.db` written before a migration keeps its old schema for
+    ever, and the first page to read the new column dies with "no such column" -- which is what a
+    database written before 0015 added `organization.parent_org_id` actually did."""
+    import sqlalchemy as sa
+
+    from services.db.session import get_engine
+
+    db = tmp_path / "stale.db"
+    engine = get_engine(f"sqlite+pysqlite:///{db}")
+    with engine.begin() as conn:
+        # One real table, one column short of the model.
+        conn.execute(sa.text("CREATE TABLE organization (id TEXT PRIMARY KEY)"))
+
+    missing = dev_up._columns_missing_from(engine)
+
+    assert any(m == "organization.parent_org_id" for m in missing), missing
+    # A table the database does not have at all is `create_all`'s job, so it is not reported here.
+    assert not any(m.startswith("proposal.") for m in missing), missing
+
+
+def test_columns_missing_from_is_empty_for_a_current_database(tmp_path: Path) -> None:
+    """The other direction, so the check cannot start reporting phantom drift on a good database
+    and send someone rebuilding for no reason."""
+    from services.db.session import get_engine, init_db
+
+    db = tmp_path / "fresh.db"
+    engine = get_engine(f"sqlite+pysqlite:///{db}")
+    init_db(engine)
+
+    assert dev_up._columns_missing_from(engine) == []
