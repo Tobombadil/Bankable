@@ -43,8 +43,12 @@ DEFAULT_SOURCES_YAML = REPO_ROOT / "data" / "sources.yaml"
 DEFAULT_OUT_DIR = REPO_ROOT / "web" / "static" / "data"
 COUNTY_CENTROID_TSV = REPO_ROOT / "web" / "data_ref" / "us_county_centroids.tsv"
 
-LAG_DAYS_PROPOSAL = 14
-LAG_DAYS_OPPORTUNITY = 7
+# Paywall by shape, not by time (owner, 2026-09-19; `services/ingest/lag.py`): a record is public
+# the moment it is ingested, so this static prototype builder applies no cutoff either. Kept as
+# named constants rather than deleted because the `--no-lag` preview flag and the stats fragment
+# both still speak in terms of a lag, and a future per-shape cutoff would land here.
+LAG_DAYS_PROPOSAL = 0
+LAG_DAYS_OPPORTUNITY = 0
 
 Family = Literal["neutral", "progress", "committed", "success", "danger"]
 

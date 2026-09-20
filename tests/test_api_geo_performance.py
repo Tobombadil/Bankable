@@ -58,11 +58,11 @@ def loaded_sessionmaker() -> sessionmaker[Session]:
         )
         session.commit()
         assert result.proposals_created > 2000, "expected the real ~2,341-row EIA-860M file"
-        # The loader computes `public_at = published_at(now) + 14 days` (services/ingest/lag.py):
-        # freshly-loaded rows are correctly invisible for two weeks. Pull them back to "now" the
-        # same way `web/data_loading.py::apply_preview_lag_override` does for dev/test previewing
-        # -- this is a test-only bypass of the delayed tier, not a change to the visibility
-        # predicate itself.
+        # The loader writes `public_at = published_at` for a record (`services/ingest/lag.py`:
+        # records carry no delay since the 2026-09-19 paywall-by-shape decision), so freshly
+        # loaded rows are already visible. Pulling `public_at` back by a second is kept only to
+        # take the "published this very instant" boundary out of a timing measurement; it is not
+        # bypassing a delay any more, because there is none to bypass.
         now = dt.datetime.now(UTC)
         session.execute(sa.update(Proposal).values(public_at=now - dt.timedelta(seconds=1)))
         session.commit()

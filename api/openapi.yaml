@@ -25,8 +25,8 @@ info:
 
     | Tier | Credential | What it sees |
     |---|---|---|
-    | `public` | none (or a `read:public` key / free session) | records and events whose `public_at <= now()`; derived fields only; attribution rendered in every response |
-    | `pro` | session or key with `read:live` | the same shapes with `lag_days = 0`, plus `field_provenance`, saved searches, alerts, exports |
+    | `public` | none (or a `read:public` key / free session) | records and events whose `public_at <= now()` — which since 2026-09-19 is **every** record, undelayed; only change events from an ISO queue register still wait. Derived fields only; attribution rendered in every response |
+    | `pro` | session or key with `read:live` | the same shapes with `lag_days = 0` on the event surfaces too, plus `field_provenance`, saved searches, alerts. Exports and watchlists are plan shapes that do not exist as routes yet |
     | `api` | key with `read:live` + `read:bulk` / `write:webhooks` | as Pro, plus NDJSON bulk streams, webhooks and higher limits |
     | `admin` | operator/owner session on the `admin.` host | everything, including unpublished, gated and dead-lettered records |
 
@@ -77,9 +77,9 @@ servers:
 
 tags:
   - name: Proposals
-    description: Supply-side objects — one record per real-world project (docs/21 §3.1). Public, delayed.
+    description: Supply-side objects — one record per real-world project (docs/21 §3.1). Public, undelayed.
   - name: Opportunities
-    description: Demand-side objects — RFPs, funding, tenders, auctions, programmes (docs/21 §3.3). Public, delayed.
+    description: Demand-side objects — RFPs, funding, tenders, auctions, programmes (docs/21 §3.3). Public, undelayed.
   - name: Organizations
     description: Sponsors and issuers (docs/21 §3.5). No personal data.
   - name: Events
@@ -132,21 +132,31 @@ x-tier-definitions:
     `x-tier` on an operation is the **minimum** entitlement. A higher tier sees the same shape with `meta.lag_days = 0`
     and more fields. Tier is a property of the reader, not a copy of the data (docs/20 §5). Licence gating is
     orthogonal and stricter: it decides whether a field may leave at all (docs/21 §8); tier decides how old it must be.
+    Since 2026-09-19 (owner: the paywall is by shape, not by time) "how old" applies to one shape only — a change
+    event from a source that declares a change-event lag. Records are the same age on every tier.
   public_at_semantics: |
     Every entity and event carries `published_at` (when it became visible to the live tier) and `public_at`
     (materialised `published_at + lag(source_id, event_type)`). The public predicate reads `public_at` only:
     `public_at IS NOT NULL AND public_at <= now()`. Pro/API/admin read `published_at <= now()`. A lag change is a
     configuration change that enqueues a `relag` job to recompute `public_at`; it is not instantaneous across
-    historical rows and the admin UI says so (docs/21 §5.4). On the public tier a detail response renders the
-    record as of `now − lag`: fields and events newer than the lag are absent, and `meta.data_as_of` states the
-    cut (US-201 AC4). Default lag is per source class — 14 days supply, 7 days opportunities, bounded 7–30 —
-    with per-source and per-event-type overrides (docs/04 §10 pick 1; `source.lag_days`, `source.lag_overrides`).
+    historical rows and the admin UI says so (docs/21 §5.4).
+
+    What `lag()` returns changed on 2026-09-19 (owner: the paywall is by shape, not by time — "free users see
+    every record; the delay is kept only on ISO change events"). For a `proposal` or an `opportunity` it is
+    **0 on every tier**, so `public_at == published_at` and a public detail response renders the record's current
+    fields, not a `now − lag` view. For an `event` it is `source.lag_overrides[event_type]` if set, else
+    `source.lag_days`, which the loader seeds from `data/sources.yaml change_event_lag_days` — today the eight
+    `us.iso.*` interconnection-queue registers at 14 days, and nothing else. `meta.lag_days` on an event
+    response is that event's own delay; on a list of events it is the feed's completeness, i.e. the ISO
+    change-event lag, because a withheld ISO event from yesterday exists whether or not it is on the page.
+    The licence clauses of the predicate are unchanged by any of this: `restricted`/`unknown` sources remain
+    invisible on every non-admin tier (docs/21 §8).
   tiers:
     public:
       credential: none, or an API key with only `read:public`, or a free-account session
       predicate: public_at <= now(); publish_state = public; source and licence permit the public tier
       fields: derived and identifying classes only; `raw`, `status_raw`, `raw_place`, exact coordinates from attribution-with-restriction sources and everything from restricted/unknown sources withheld
-      lag_days: source.lag_days (or class default)
+      lag_days: 0 on records; `source.lag_days` (per-event-type override first) on change events
     pro:
       credential: session with account.entitlement in {pro, api, admin}, or key with `read:live`
       predicate: published_at <= now(); same licence gating as public
@@ -264,7 +274,7 @@ x-feed-servers: &feed_servers
     description: Feeds and sitemaps on the product host.
 
 paths:
-  # ───────────────────────────── §3.1 Public — delayed, no key required ─────────────────────────────
+  # ───────────────────────────── §3.1 Public — no key required, no record delay ─────────────────────────────
   /v1/proposals:
     get:
       operationId: listProposals
@@ -4919,7 +4929,7 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         <<: *common_errors
 
-  # ───────────────────────────── §9.2 RSS, JSON Feed and sitemaps — public, delayed ─────────────────────────────
+  # ─────────────────── §9.2 RSS, JSON Feed and sitemaps — public; ISO change events delayed ───────────────────
   /feeds/proposals.{format}:
     servers: *feed_servers
     parameters:
@@ -4932,7 +4942,8 @@ paths:
         Feed twin of `GET /v1/proposals` with the same query string (US-503 AC1). Items are the published events on
         matching proposals at the public lag, never earlier; each item carries the source credit line and the
         `data_as_of` date (US-503 AC3). A filter that returns only gated sources yields an empty feed, not `404`.
-        The feed `<title>` states "Public feed, N days delayed — live in Pro" (US-604). RSS: `atom:link rel="self"`,
+        The feed `<title>` states "Public feed, ISO change events N days delayed — live in Pro" (US-604) — since
+        2026-09-19 an ISO queue change event is the only thing the public feed withholds. RSS: `atom:link rel="self"`,
         `dc:creator` = source credit, `pubDate` = `public_at`, `guid` = event id, `category` = event type and kind.
         JSON Feed: `date_published` = `public_at`, plus a `_platform` extension with `event_type`, `subject`,
         `provenance` and `licence_summary`. Edge-cached, 120/hour per IP.
@@ -5177,7 +5188,7 @@ paths:
       operationId: sitemapIndex
       tags: [Feeds]
       summary: Sitemap index
-      description: Points at `/sitemaps/proposals-{n}.xml` and the opportunity and organization sitemaps; regenerated hourly from the delayed view (docs/23 §9.2). Public-tier detail pages only.
+      description: Points at `/sitemaps/proposals-{n}.xml` and the opportunity and organization sitemaps; regenerated hourly from the public view (docs/23 §9.2). Public-tier detail pages only.
       x-tier: public
       x-status: planned
       x-sprint: 2
@@ -7220,7 +7231,7 @@ components:
         lag_days:
           type: integer
           minimum: 0
-          description: Effective lag applied to this response; `0` on Pro and above. On mixed-source lists it is the maximum lag present.
+          description: 'Effective lag applied to this response, in days; `0` on Pro and above, and `0` on every record response on every tier since 2026-09-19 (the paywall is by shape, not by time). Non-zero only for change events from a source that declares a change-event lag: on a single event it is that event''s own delay, on the events list and the feeds it is the feed''s completeness (the ISO change-event lag), because a withheld event from yesterday exists whether or not it is on the page.'
         data_as_of:
           type: string
           format: date-time
@@ -8344,10 +8355,10 @@ components:
           $ref: '#/components/schemas/SourcePublishState'
         lag_days:
           type: [integer, 'null']
-          description: Override of the class default; null = default.
+          description: 'Days a **change event** from this source waits before the public tier sees it; null or 0 = publish live. Seeded from the manifest''s `change_event_lag_days`. Since 2026-09-19 it does not delay the record itself.'
         lag_overrides:
           type: object
-          description: 'Per-event-type lag, e.g. `{"withdrawn": 0}`.'
+          description: 'Per-event-type change-event lag, e.g. `{"withdrawn": 0}`.'
           additionalProperties:
             type: integer
             minimum: 0
@@ -9271,11 +9282,13 @@ components:
             the publish lag). Null when nothing is loaded.
         lag_days_default:
           type: object
-          description: Class defaults in force (docs/04 §10 pick 1).
+          description: 'Lag defaults in force. `supply` and `opportunities` are the record lag, `0` on every tier since 2026-09-19 (the paywall is by shape, not by time); `iso_change_events` is the one delay that survives.'
           properties:
             supply:
               type: integer
             opportunities:
+              type: integer
+            iso_change_events:
               type: integer
         checks:
           type: object
@@ -9474,7 +9487,7 @@ components:
           prop_01JBQ7Z8KD,Gemini Solar + Storage,storage,bess_li_ion,690.000,1380.000,US-NV,studied,2026-09-11T06:12:00Z,us.iso.caiso.gen_queue,https://www.caiso.com/…,2026-09-11T05:00:00Z,caiso-tou
     RssFeed:
       type: string
-      description: RSS 2.0 with `atom:link rel="self"`, `dc:creator` = source credit, `pubDate` = `public_at`, `guid` = event id, `category` = event type and kind. Channel title states "Public feed, N days delayed — live in Pro".
+      description: RSS 2.0 with `atom:link rel="self"`, `dc:creator` = source credit, `pubDate` = `public_at`, `guid` = event id, `category` = event type and kind. Channel title states "Public feed, ISO change events N days delayed — live in Pro".
     JsonFeedItem:
       type: object
       required: [id, url, title, content_text, date_published, tags, _platform]
@@ -9530,7 +9543,7 @@ components:
           const: https://jsonfeed.org/version/1.1
         title:
           type: string
-          examples: ['Proposals — Public feed, 14 days delayed — live in Pro']
+          examples: ['Proposals — Public feed, ISO change events 14 days delayed — live in Pro']
         home_page_url:
           type: string
           format: uri
@@ -12253,8 +12266,8 @@ components:
           has_more: true
         meta:
           tier: public
-          lag_days: 14
-          data_as_of: '2026-08-29T05:00:00Z'
+          lag_days: 0
+          data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1a
           terms_url: https://infraque.com/legal/api-licence
@@ -12379,8 +12392,8 @@ components:
                 reuse_class: attribution
         meta:
           tier: public
-          lag_days: 14
-          data_as_of: '2026-08-29T05:00:00Z'
+          lag_days: 0
+          data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1b
           terms_url: https://infraque.com/legal/api-licence
@@ -12486,8 +12499,8 @@ components:
           has_more: false
         meta:
           tier: public
-          lag_days: 7
-          data_as_of: '2026-09-05T05:00:00Z'
+          lag_days: 0
+          data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1c
           terms_url: https://infraque.com/legal/api-licence
@@ -12640,8 +12653,8 @@ components:
               wind_onshore: 175
         meta:
           tier: public
-          lag_days: 14
-          data_as_of: '2026-08-29T05:00:00Z'
+          lag_days: 0
+          data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1e
           terms_url: https://infraque.com/legal/api-licence
@@ -12783,7 +12796,7 @@ components:
       summary: JSON Feed 1.1 item with the platform extension
       value:
         version: https://jsonfeed.org/version/1.1
-        title: Proposals — Public feed, 14 days delayed — live in Pro
+        title: Proposals — Public feed, ISO change events 14 days delayed — live in Pro
         home_page_url: https://infraque.com/proposals?technology=bess_li_ion&jurisdiction=US-NV
         feed_url: https://infraque.com/feeds/proposals.json?technology=bess_li_ion&jurisdiction=US-NV
         description: Published changes to matching proposals, 14 days after the live tier. Source credit in every item.

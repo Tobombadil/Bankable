@@ -11,7 +11,7 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from services.api.common import WEB_HOST, iso
-from services.ingest.lag import LAG_DAYS_BY_KIND, Kind
+from services.ingest.lag import ISO_CHANGE_EVENT_LAG_DAYS, Kind
 
 
 def feed_title(resource: str, kind: Kind, *, live: bool = False) -> str:
@@ -21,8 +21,14 @@ def feed_title(resource: str, kind: Kind, *, live: bool = False) -> str:
     "items are live (`lag_days = 0`) for the owner's tier"."""
     if live:
         return f"{resource} — Live feed (Pro)"
-    lag = LAG_DAYS_BY_KIND[kind]
-    return f"{resource} — Public feed, {lag} days delayed — live in Pro"
+    # The records themselves are no longer delayed (owner, 2026-09-19, paywall by shape), so the
+    # old blanket "N days delayed" would now be false on the one surface it is printed. Both of
+    # these are *event* feeds, and the delay that survives is on change events from an ISO queue
+    # register — which is what the title has to name if US-604's disclosure is to stay true.
+    del kind  # the delay is a property of the event's source now, not of the subject's kind
+    return (
+        f"{resource} — Public feed, ISO change events {ISO_CHANGE_EVENT_LAG_DAYS} days delayed — live in Pro"
+    )
 
 
 def render_rss(

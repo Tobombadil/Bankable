@@ -12,7 +12,8 @@ a couple of minutes wall clock, which a developer iterating on a template or rou
 want to pay.
 
     python -m web.dev_up                 # loads the full data set, starts both servers, Ctrl-C stops both
-    python -m web.dev_up --preview       # also bypasses the publish delay so today's rows show
+    python -m web.dev_up --preview       # bypasses the publish delay (a no-op since 2026-09-19:
+                                        # records carry none -- see web/data_loading.py)
     python -m web.dev_up --sample 200    # cap each source to 200 rows/lifecycle-state, for fast iteration
     python -m web.dev_up --skip-load     # reuse whatever is already in --db
 

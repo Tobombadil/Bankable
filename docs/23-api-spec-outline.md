@@ -50,7 +50,14 @@ that generation must produce; where the two disagree, the generated document is 
 Every endpoint in §3 and §4 returns the envelope of §10 and enforces the visibility predicate of `docs/21` §5.4. "Tier"
 is the minimum entitlement; a higher tier sees the same shape with `lag = 0` and more fields.
 
-### 3.1 Public — delayed, no key required
+### 3.1 Public — no key required, no record delay
+
+> **Amended 2026-09-19 (owner: the paywall is by shape, not by time).** "Free users see every record; the delay
+> is kept only on ISO change events." Every "delayed"/"at the public lag" below now means: records are not
+> delayed on any tier, and an event waits only where its source declares a change-event lag
+> (`data/sources.yaml change_event_lag_days` → `source.lag_days`), which today is the eight `us.iso.*`
+> interconnection-queue registers at 14 days. `docs/21` §5.4 carries the full statement. Licence gating is
+> untouched and still stricter: `restricted`/`unknown` sources return nothing on any non-admin tier.
 
 | Method & path | Purpose | Stories |
 |---|---|---|
@@ -298,7 +305,7 @@ the same query string. Pro users get private live feeds at `/feeds/saved/<rss_to
 | Same paths with `.json` | JSON Feed 1.1 | `id`, `url`, `title`, `content_text`, `date_published` (= `public_at`), `tags`, `_bankable` extension with `event_type`, `subject`, `provenance`, `licence_summary` |
 | `/sitemap.xml`, `/sitemaps/proposals-{n}.xml` | Sitemap protocol | Detail pages visible on the public tier only; regenerated hourly with the delayed view |
 
-Feed rules: items appear at the public lag, never earlier; every item carries the source credit line and the
+Feed rules: items appear at the public lag, never earlier — since 2026-09-19 that is a delay only for a source that declares one; every item carries the source credit line and the
 `data_as_of` date; feeds for a filter that returns only gated sources are empty, not `404`; the feed `<title>`
 states "Public feed, N days delayed — live in Pro" (US-604). Social posts link to the detail page, which offers
 the feed and the alert sign-up (US-503 AC2).

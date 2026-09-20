@@ -54,7 +54,7 @@
 <header class="site-header">
   <div class="masthead">
     <span class="masthead__ref">Infraque register &middot; public edition</span>
-    <span class="masthead__lag">Proposals <span class="tnum">{{ lag.supply }}</span>d delayed &middot; Opportunities <span class="tnum">{{ lag.opportunities }}</span>d delayed</span>
+    <span class="masthead__lag">Every record live{% if lag.iso_change_events %} &middot; ISO change events <span class="tnum">{{ lag.iso_change_events }}</span>d delayed{% endif %}</span>
   </div>
   <div class="site-header__bar">
     <a class="wordmark" href="/">Infraque</a>
@@ -82,7 +82,7 @@
 {% block content %}{% endblock %}
 </main>
 <footer class="site-footer">
-  <p>Public data is delayed <span class="tnum">{{ lag.supply }}</span> days for proposals, <span class="tnum">{{ lag.opportunities }}</span> for opportunities. <a href="/about#sources">Sources and licences</a>. <a href="/attribution">Attribution</a>. <a href="/privacy">Privacy</a>.</p>
+  <p>Every proposal and opportunity is public as soon as it is ingested{% if lag.iso_change_events %}; ISO queue change events are held <span class="tnum">{{ lag.iso_change_events }}</span> days on the free tier{% endif %}. <a href="/about#sources">Sources and licences</a>. <a href="/attribution">Attribution</a>. <a href="/privacy">Privacy</a>.</p>
   {%- set build = footer_build(request) %}
   {%- if build.commit or build.source_data_as_of %}
   <p class="site-footer__build">Build <code class="tnum">{{ build.commit or 'unknown' }}</code>{% if build.dirty %} <span class="site-footer__dirty">(modified working tree)</span>{% endif %}{% if build.source_data_as_of %} &middot; sources last fetched <time datetime="{{ build.source_data_as_of }}">{{ build.source_data_as_of[:10] }}</time>{% endif %}.</p>

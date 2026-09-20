@@ -135,7 +135,9 @@ def test_data_as_of_is_the_newest_fetch_not_the_publish_lag(db: Session) -> None
     assert stamp is not None and stamp.endswith("Z")
     parsed = dt.datetime.fromisoformat(stamp.replace("Z", "+00:00"))
     # `make_visible_proposal` stamps the source link's `retrieved_at` a day ago; the assertion is
-    # that this reports the fetch, which is recent, not the publish lag of 14 days.
+    # that this reports the fetch date rather than a publication timestamp. (The two used to be
+    # a fortnight apart, which made the distinction vivid; since 2026-09-19 a record publishes
+    # immediately, so the test now turns on the day of ingest lag in the fixture.)
     assert dt.datetime.now(UTC) - parsed < dt.timedelta(days=3)
 
 

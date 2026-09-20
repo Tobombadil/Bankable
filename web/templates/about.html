@@ -5,13 +5,13 @@
 {% block content %}
 <div class="page-header">
   <h1>About &amp; sources</h1>
-  <p>Infraque fuses public energy and infrastructure registers into one record per project. This is the public, delayed tier only: no login, no live data, no admin.</p>
+  <p>Infraque fuses public energy and infrastructure registers into one record per project. This is the public tier: every record, no login, no admin. The paid tier is workflow &mdash; alerts, the API and, when they are built, exports and watchlists.</p>
   <p class="reuse-badge">Infraque is a placeholder codename, not the permanent product name. Every hostname and brand reference in this build is a stand-in.</p>
 </div>
 
 <section id="tiers">
   {{ m.section_heading("1.", "Tiers") }}
-  <p>Public data is delayed <span class="tnum">{{ lag_days.supply }}</span> days for proposals and <span class="tnum">{{ lag_days.opportunities }}</span> days for opportunities from the date a source was retrieved. A live, undelayed tier (Pro) and a bulk API are planned but not built on this site yet.</p>
+  <p>The free tier shows every record, undelayed: a proposal or an opportunity is public the moment it is ingested. {% if lag_days.iso_change_events %}The one thing held back is <em>change events</em> from an ISO interconnection queue, which stay on the free tier for <span class="tnum">{{ lag_days.iso_change_events }}</span> days.{% endif %} What the paid tier buys is shape, not freshness: alerts, the API and &mdash; once built &mdash; exports and watchlists. The Pro surfaces are live in the API; this public site does not expose them yet.</p>
 </section>
 
 <section id="sources">

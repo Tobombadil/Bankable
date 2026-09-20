@@ -45,7 +45,7 @@ from services.db.models import (
     WebhookDelivery,
     WebhookEndpoint,
 )
-from services.ingest.lag import LAG_DAYS_BY_KIND, Kind
+from services.ingest.lag import RECORD_LAG_DAYS, Kind
 
 
 # --------------------------------------------------------------------------------- envelope
@@ -60,9 +60,16 @@ def build_meta(
     `meta.tier` and `meta.lag_days = 0` reflecting the entitlement resolved for their request
     (`services/api/auth.py` `AuthContext.entitlement`), not a hardcoded `"public"` — `docs/23` §10
     "every envelope" states tier honestly per caller, and `docs/04` D-3/D-28's delayed-tier
-    messaging depends on it being true."""
+    messaging depends on it being true.
+
+    Since the paywall became a matter of shape rather than time (owner, 2026-09-19) `kind` no
+    longer selects a lag: a `proposal` and an `opportunity` are both `RECORD_LAG_DAYS` (zero) on
+    every tier, the free one included. The parameter stays because every record route passes it to
+    say what it is returning, and because the one shape that *is* still delayed — a change event
+    from an ISO queue register — is not a `Kind` and passes its own `lag_days` explicitly
+    (`services/api/app.py::_event_lag_days`)."""
     if lag_days is None:
-        lag_days = 0 if tier != "public" else (LAG_DAYS_BY_KIND[kind] if kind else 0)
+        lag_days = RECORD_LAG_DAYS
     now = utcnow()
     data_as_of = now - dt.timedelta(days=lag_days)
     meta: dict[str, Any] = {

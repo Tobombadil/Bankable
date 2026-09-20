@@ -368,7 +368,12 @@ def _check_desktop_and_narrow(browser: object) -> None:
         " window.__map.queryRenderedFeatures({layers:['region-fill']}).length > 0)",
         timeout=15000,
     )
-    assert "days delayed" in page.locator(".delayed-notice").inner_text()
+    # docs/04 D-3/D-28: the tier line is always on screen and always true. Since the paywall
+    # became a matter of shape rather than time (owner, 2026-09-19) that means the live wording
+    # on a record surface, naming the one delay that survives rather than claiming a record one.
+    tier_line = page.locator(".delayed-notice").inner_text()
+    assert "published as soon as it is ingested" in tier_line
+    assert "ISO queue change events are held 14 days" in tier_line
     # The pmtiles CDN scripts are aborted above (see _install_offline_routes) -- this proves the
     # same-origin fallback outline layer is what keeps the map from rendering blank.
     fallback_rendered = page.evaluate(

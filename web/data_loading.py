@@ -183,10 +183,19 @@ def load_eval_fixture(
 def apply_preview_lag_override(session: Session, *, source_ids: Iterable[str] | None = None) -> int:
     """Dev/test-only: pull `public_at` back to "now" for rows whose real `public_at` (computed by
     the loader as `published_at + lag_days`, `services/ingest/lag.py`) is still in the future,
-    because they were just ingested. Docs/00-PLAN.md task item 5: "add a dev-only override flag so
-    today's rows can be previewed, clearly labelled in the UI when active" -- `web/app.py` renders
-    that label whenever this has run (`app.state.preview_active`), separate from the always-on
-    delayed-tier notice, which keeps stating the real configured lag regardless.
+    because they were just ingested.
+
+    **Vestigial since 2026-09-19** (owner: the paywall is by shape, not by time). No record
+    carries a publication delay any more -- the loader writes `public_at = published_at` -- so on
+    a freshly loaded store this finds nothing and returns 0, and `--preview` changes what the
+    site shows only for rows that predate migration 0016. Kept, not deleted, because it is the
+    mechanism for the one delay that survives and for any record delay a future owner decision
+    reintroduces; the `Dev preview` label still renders whenever it has run.
+
+    Docs/00-PLAN.md task item 5: "add a dev-only override flag so today's rows can be previewed,
+    clearly labelled in the UI when active" -- `web/app.py` renders that label whenever this has
+    run (`app.state.preview_active`), separate from the always-on tier notice, which keeps
+    stating the real configured lag regardless.
 
     This does not touch `services/api/visibility.py`'s predicate -- it changes the stored value
     the predicate reads, exactly as a record would look once it had genuinely aged past its lag.
