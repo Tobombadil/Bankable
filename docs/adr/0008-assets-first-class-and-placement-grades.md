@@ -86,5 +86,10 @@ adapters, CI and legal register that are independent of the framing.
   graph, asset and company pages and placement grades serve proposals directly and are not gated.
 - Line layers (pipelines, transmission) are pre-built vector tiles on the tiles bucket (ADR 0007);
   the `asset` row for a line carries the line geometry for pages and joins, not for drawing.
+  Amended 2026-09-20: pipelines are served as zoom-simplified GeoJSON until tiles exist (owner,
+  2026-09-19 option (a)), and the line geometry is stored with its touching parts chained
+  (`pipeline/context/geo.py::merge_touching_lines`; 33,184 parts -> 17,997, zoom-4 vertices
+  36,571 -> 24,309). Chains stop at any node where three or more parts meet, so no continuous run
+  is asserted that the source does not describe. Measured before/after in `docs/21` §3.22.
 - Measured facts to record when implemented: row counts per asset type, the share of proposals in
   each placement grade, and the size of the regions payload at the default zoom.

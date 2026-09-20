@@ -769,6 +769,46 @@ regasification Bcf/d. `source_asset_id` is the registry key where one exists (st
 `(operator, type)` slug for pipelines, and a content hash of name + state + county + coordinates for
 processing plants and LNG terminals, whose registries have no key (and repeat names: two `Wheeler / TX`).
 
+**Pipeline parts are chained at ingest (2026-09-20).** The Atlas pipeline layer is one shapefile network
+split into 33,184 parts across the 259 rows (128 per row, 2,027 on the largest), and most of those parts
+touch: a segment's end coordinate is exactly the next segment's start. Stored unchained they were expensive
+at every zoom for a reason no tolerance could fix — Douglas-Peucker keeps both endpoints of every part, so at
+zoom 4 (`services/api/lines.py::simplify_parts`) 35,226 of the 36,571 drawn vertices, 96%, were the
+two-per-part floor. `pipeline/context/geo.py::merge_touching_lines` now chains parts whose endpoints coincide
+at the stored 6-decimal precision into maximal runs before the WKT is written, reversing a part where that is
+what makes it join. Measured on the recorded 2026-09-19 snapshot:
+
+| | parts | stored vertices | zoom-4 parts | zoom-4 vertices | zoom-4 GeoJSON |
+|---|---|---|---|---|---|
+| before | 33,184 | 194,887 | 17,613 | 36,571 | 662.5 KB / 168.8 KB gzipped |
+| after | 17,997 | 179,700 | 10,511 | 24,309 | 445.5 KB / 114.9 KB gzipped |
+
+The GeoJSON column is geometry only — a `FeatureCollection` of the 259 rows with empty `properties`, so the
+two figures differ by geometry alone. The served payload is larger: `services/api/assets.py::_line_feature`
+adds the name, operator, length, `attributes` subset and the provenance quartet per feature.
+
+**Only degree-2 nodes are joined.** Where three or more part-endpoints meet, every chain stops: welding two
+of three branches into one part would assert a continuous run the source does not describe. Chaining greedily
+*through* junctions instead would reach 11,945 parts and 19,955 zoom-4 vertices — measured, and not taken,
+because the extra reduction is bought with invented topology (ADR 0008 §4, "nothing the registry does not
+state or the geometry does not yield").
+
+What the merge does not change, verified row by row against the unchained output of the same snapshot:
+`miles` is identical on all 259 rows (the only vertices removed are duplicated joints; underlying drift
+7.3e-12 miles), `states_crossed` is identical on all 259, and the distinct vertex set of every row is
+identical. `attributes.part_count` now counts stored parts, not source segments; `segment_count` and
+`unit_count` still count what the source shipped, so the two no longer agree and are not meant to.
+
+What it does change: `geom`, the representative point, is the vertex nearest the midpoint of the *longest
+part*, and merging makes the longest part longer. It moved on 131 of 259 rows (median 92 km, p90 458 km, max
+1,197 km) — the midpoint of a continuous run rather than of an arbitrary segment, which is the improvement.
+It remains a stored vertex of its own line on all 259 rows. **`state_code` changed on 30 rows**, all of them
+multi-state pipelines crossing 2–16 states: 25 moved to a different state and 5 had previously fallen outside
+every state polygon (offshore) and now land on land; none became null, and in all 30 the new state is one the
+row's own `states_crossed` lists. On a multi-state interstate line `state_code` was always an arbitrary pick
+among the states it crosses, and it still is — it is a convenience for filtering, not a claim that the asset
+sits in one state.
+
 **Feature keys written by `services/ingest/enrich.py` (features lane, 2026-09-19).** The loaders
 write what a registry states about the asset itself; a second pass merges the *objective feature
 sets* from three sources that are keyed by something other than the asset id, and it only ever adds

@@ -20,6 +20,7 @@ from pipeline.connectors.base import ParseError
 from pipeline.connectors.store import Store
 from pipeline.context import eia_atlas, geo, shapefile
 
+STATES_GEOJSON = eia_atlas.STATES_GEOJSON
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 PIPELINES_ZIP = FIXTURES / "eia_atlas_gas_pipelines_sample.zip"
 PIPELINES_GEOJSON = FIXTURES / "eia_atlas_gas_pipelines_sample.geojson"
@@ -117,6 +118,133 @@ def test_state_index_point_in_polygon_with_hole():
     assert idx.states_for([[[1, 1], [2, 2]], [[20, 20]]]) == ["US-SQ"]
 
 
+# ------------------------------------------------------------------- geo.merge_touching_lines
+def test_merge_chains_touching_parts_and_reverses_where_needed():
+    # b is stored back-to-front; joining it needs the reversal, and the joint appears once.
+    a = [[0.0, 0.0], [1.0, 0.0]]
+    b = [[2.0, 0.0], [1.0, 0.0]]
+    assert geo.merge_touching_lines([a, b]) == [[[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]]]
+    # and the same chain however the two parts are ordered on input
+    assert geo.merge_touching_lines([b, a]) == [[[2.0, 0.0], [1.0, 0.0], [0.0, 0.0]]]
+
+
+def test_merge_joins_only_at_the_stored_precision():
+    # 1e-7 apart: below the 6-decimal precision the WKT writer stores, so they are one node
+    near = geo.merge_touching_lines([[[0.0, 0.0], [1.0, 0.0]], [[1.0000001, 0.0], [2.0, 0.0]]])
+    assert len(near) == 1
+    # 1e-5 apart: a real gap at 6 decimals, so the source did not join them and neither do we
+    far = geo.merge_touching_lines([[[0.0, 0.0], [1.0, 0.0]], [[1.00001, 0.0], [2.0, 0.0]]])
+    assert len(far) == 2
+
+
+def test_merge_stops_at_a_three_way_junction_rather_than_inventing_topology():
+    # Three parts meet at (1, 0). Welding two of them would assert a continuous run the source
+    # does not describe, so every chain stops at the junction and all three parts survive.
+    parts = [
+        [[0.0, 0.0], [1.0, 0.0]],
+        [[1.0, 0.0], [2.0, 0.0]],
+        [[1.0, 0.0], [1.0, 1.0]],
+    ]
+    merged = geo.merge_touching_lines(parts)
+    assert len(merged) == 3
+    assert merged == [[[0.0, 0.0], [1.0, 0.0]], [[1.0, 0.0], [2.0, 0.0]], [[1.0, 0.0], [1.0, 1.0]]]
+    # a tail hanging off one branch still chains up to the junction and no further
+    tailed = geo.merge_touching_lines([*parts, [[2.0, 0.0], [3.0, 0.0]]])
+    assert len(tailed) == 3
+    assert [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]] in tailed
+
+
+def test_merge_handles_rings_and_parts_too_short_to_chain():
+    ring = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]
+    stub = [[5.0, 5.0]]
+    empty: list[list[float]] = []
+    merged = geo.merge_touching_lines([ring, stub, empty])
+    assert merged == [ring, stub, empty]  # unchanged, and in input order
+    # a ring keeps both of its endpoint slots, so a third part touching it is a junction
+    with_spur = geo.merge_touching_lines([ring, [[0.0, 0.0], [-1.0, 0.0]]])
+    assert len(with_spur) == 2
+    # four parts that close into a loop become one closed chain, not four
+    loop = geo.merge_touching_lines(
+        [
+            [[0.0, 0.0], [1.0, 0.0]],
+            [[1.0, 0.0], [1.0, 1.0]],
+            [[1.0, 1.0], [0.0, 1.0]],
+            [[0.0, 1.0], [0.0, 0.0]],
+        ]
+    )
+    assert len(loop) == 1
+    assert loop[0][0] == loop[0][-1] and len(loop[0]) == 5
+
+
+def _fixture_pipeline_lines() -> list[list[list[float]]]:
+    """Every real line part in the recorded EIA shapefile fixture, ungrouped."""
+    return [
+        [[float(c[0]), float(c[1])] for c in ln]
+        for f in shapefile.read_zip(PIPELINES_ZIP.read_bytes())
+        for ln in eia_atlas._lines(f)
+        if len(ln) >= 2
+    ]
+
+
+def test_merge_is_idempotent_and_length_preserving_on_the_recorded_layer():
+    lines = _fixture_pipeline_lines()
+    merged = geo.merge_touching_lines(lines)
+    assert len(merged) < len(lines)  # the fixture really does contain touching segments
+
+    # idempotent: merging the merged set changes nothing at all
+    assert geo.merge_touching_lines(merged) == merged
+    # deterministic: same input, same output, so the parquet is reproducible
+    assert geo.merge_touching_lines(lines) == merged
+
+    # length-preserving: the only vertices removed are the duplicated joints
+    before = geo.geodesic_length_miles(lines)
+    after = geo.geodesic_length_miles(merged)
+    assert abs(before - after) < 1e-6, f"{before} != {after}"
+
+    # and no vertex is invented or lost, only de-duplicated
+    seen_before = {(round(c[0], 6), round(c[1], 6)) for ln in lines for c in ln}
+    seen_after = {(round(c[0], 6), round(c[1], 6)) for ln in merged for c in ln}
+    assert seen_before == seen_after
+
+
+#: The full 259-row layer is only present after a local connector run (`data/normalized/` is
+#: gitignored), so the whole-layer assertion is opt-in; the fixture test above covers CI.
+FULL_PIPELINES_PARQUET = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "data"
+    / "normalized"
+    / "context"
+    / "us.eia.atlas.gas_pipelines.parquet"
+)
+
+
+def _read_multilinestring(wkt: str) -> list[list[list[float]]]:
+    """Read back what `geo.wkt_multilinestring` writes. Local on purpose: `pipeline` may not
+    import `services.api` (`infra/importlinter.ini`), and the format here is fixed by the writer
+    in the module under test."""
+    if wkt.endswith("EMPTY"):
+        return []
+    inner = wkt[wkt.index("(") + 1 : wkt.rindex(")")]
+    parts = []
+    for chunk in inner.split("),"):
+        pairs = chunk.strip().lstrip("(").rstrip(")").split(",")
+        parts.append([[float(v) for v in pair.split()] for pair in pairs if pair.strip()])
+    return parts
+
+
+@pytest.mark.skipif(not FULL_PIPELINES_PARQUET.exists(), reason="full layer not normalised locally")
+def test_merge_is_idempotent_and_length_preserving_on_the_full_layer():
+    df = pd.read_parquet(FULL_PIPELINES_PARQUET)
+    assert len(df) == 259
+    worst = 0.0
+    for wkt in df["geom_line_wkt"]:
+        parts = _read_multilinestring(wkt)
+        merged = geo.merge_touching_lines(parts)
+        assert geo.merge_touching_lines(merged) == merged
+        worst = max(worst, abs(geo.geodesic_length_miles(parts) - geo.geodesic_length_miles(merged)))
+    assert worst < 1e-6, worst
+
+
 # ----------------------------------------------------------------------------------- parse
 def test_parse_accepts_zip_and_geojson_and_rejects_garbage():
     assert len(eia_atlas.parse(PIPELINES_ZIP.read_bytes())) == 119
@@ -154,7 +282,9 @@ def test_pipelines_dissolve_by_operator_and_type():
     assert rex["attributes"]["status_raw"] == ["Operating"]
     assert rex["attributes"]["source_vintage"] == "202001"
     assert rex["geom_line_wkt"].startswith("MULTILINESTRING((")
-    assert rex["geom_line_wkt"].count("(") == 49 + 1
+    # 49 source segments chain into 18 stored parts (test_pipelines_merges_touching_parts)
+    assert rex["geom_line_wkt"].count("(") == 18 + 1
+    assert rex["attributes"]["part_count"] == 18
     assert rex["capacity_value"] is None and rex["capacity_unit"] is None
     assert rex["operator_name"] == "Rockies Express Pipeline" and rex["owner_name"] is None
     assert rex["source_url"] == PROV.source_url and rex["retrieved_at"] == PROV.retrieved_at
@@ -212,6 +342,50 @@ def test_pipelines_geojson_and_shapefile_paths_agree():
         == from_zip.loc["trailblazer-pipeline-co-interstate", "attributes"]["segment_count"]
     )
     assert tb["geom_line_wkt"] == from_zip.loc["trailblazer-pipeline-co-interstate", "geom_line_wkt"]
+
+
+def test_pipelines_merges_touching_parts():
+    """Regression: the segments in the recorded layer touch, so `normalise_pipelines` must chain
+    them before writing WKT. Removing the `merge_touching_lines` call fails every assert here."""
+    df = _pipelines().set_index("source_asset_id")
+    assert df.attrs["parts_before_merge"] == 302
+    assert df.attrs["parts_after_merge"] == 231
+    # per row: the stored part count is the chained one, not the segment count
+    rex = df.loc["rockies-express-pipeline-interstate"]
+    assert rex["attributes"]["segment_count"] == 49  # what the source shipped
+    assert rex["attributes"]["part_count"] == 18  # what we store
+    assert rex["geom_line_wkt"].count("(") == rex["attributes"]["part_count"] + 1
+    trailblazer = df.loc["trailblazer-pipeline-co-interstate"]
+    assert trailblazer["attributes"]["segment_count"] == 39
+    assert trailblazer["attributes"]["part_count"] == 7
+    # every row is at or below its segment count, and the layer as a whole is well below
+    counts = df["attributes"].map(lambda a: (a["part_count"], a["segment_count"]))
+    assert all(parts <= segs or segs == 1 for parts, segs in counts)
+    assert df.attrs["parts_after_merge"] < df.attrs["parts_before_merge"]
+
+
+def test_pipelines_merge_changes_no_measurement(monkeypatch):
+    """Chaining removes duplicated joints only, so mileage, segment counts and the states the
+    line crosses are identical to what normalising without the merge produces."""
+    feats = eia_atlas.parse(PIPELINES_ZIP.read_bytes())
+    prov = eia_atlas.Provenance(**PROV.__dict__)
+    states = geo.StateIndex.from_file(STATES_GEOJSON) if STATES_GEOJSON.exists() else None
+    merged = eia_atlas.normalise_pipelines(feats, prov, states=states).set_index("source_asset_id")
+
+    def _identity(lines, **_kwargs):
+        return [[[float(c[0]), float(c[1])] for c in ln] for ln in lines]
+
+    monkeypatch.setattr(eia_atlas, "merge_touching_lines", _identity)
+    plain = eia_atlas.normalise_pipelines(feats, prov, states=states).set_index("source_asset_id")
+
+    assert plain.attrs["parts_after_merge"] == plain.attrs["parts_before_merge"] == 302
+    assert list(merged.index) == list(plain.index)
+    for key in merged.index:
+        a, b = merged.loc[key, "attributes"], plain.loc[key, "attributes"]
+        assert a["miles"] == b["miles"]
+        assert a["segment_count"] == b["segment_count"]
+        assert a["states_crossed"] == b["states_crossed"]
+        assert a["part_count"] <= b["part_count"]
 
 
 def test_pipelines_simplify_reduces_vertices():
