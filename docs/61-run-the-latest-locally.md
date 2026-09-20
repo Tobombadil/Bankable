@@ -114,7 +114,9 @@ it.
 .venv/bin/python -m web.dev_up --preview
 ```
 
-This loads everything it finds into a fresh local database and starts both processes. The site is
+This rebuilds the local database from scratch every time (it reloads every row anyway, and
+keeping the old file only preserved an out-of-date schema), loads everything it finds, and starts
+both processes. The site is
 at <http://127.0.0.1:8000> and the API at <http://127.0.0.1:8001>. Watch the log: it names every
 layer it loads and every one it skips because the file is absent, so you can see exactly what made
 it in. `--preview` bypasses the publish delay so today's rows are visible.
@@ -150,4 +152,9 @@ curl -s http://127.0.0.1:8001/v1/health | python3 -m json.tool | head -30
   step 4 for the layers you care about, then restart the site so it reloads them.
 - **A layer is missing from the map.** Check the startup log for a line naming that file as absent,
   then run its connector from step 4.
+- **`no such column: ...` from a page that used to work.** Your local database predates a schema
+  change. Step 5 now rebuilds it for you and logs `rebuilding ... from scratch`, so this should not
+  happen any more; it was real until 2026-09-20 and is what this section was missing. If you used
+  `--skip-load`, the runner stops and names the missing columns instead — drop the flag and let it
+  reload.
 - **Anything else.** Copy the terminal output and send it; the error text is usually specific.
