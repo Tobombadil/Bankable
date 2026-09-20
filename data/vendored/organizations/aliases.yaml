@@ -1,17 +1,31 @@
-# Curated organisation alias rules (docs/22 §15.3). Companion to `parents.yaml`, same contract:
-# one rule per row, every rule cites the document it was read from, nothing is inferred from a
-# name alone. No loader reads this file yet (2026-09-19) -- it is proposed by the ownership lane
-# and applied by whichever lane next touches `organization_alias`; until then these rows are a
-# record of measured splits, not applied data.
+# Curated organisation alias rules (docs/22 §15.3, §16.5, §17.5; source id `curated.organization_aliases`
+# in data/sources.yaml section K). Companion to `parents.yaml`, same contract: one rule per row, every
+# rule cites the document it was read from, nothing is inferred from a name alone. Loaded by
+# `python -m services.ingest.organizations aliases`, which writes one `organization_alias` row per rule
+# (kind `filing_spelling`, confidence 1.0, the rule's own `source_url` and `retrieved_at`).
 #
-# Why a curated file at all. Resolution keys on `pipeline.normalize.norm_org`, which strips
-# corporate and sector suffixes and punctuation. That merges "NextEra Energy Resources, LLC" with
-# "NEXTERA ENERGY RESOURCES LLC" without help, but it cannot merge:
-#   - "and" against "&"  ("Wisconsin Power and Light Co" -> WISCONSIN AND LIGHT,
-#     "Wisconsin Power & Light Co" -> WISCONSIN LIGHT: the ampersand becomes a space and vanishes,
-#     the word "and" survives), and
-#   - a renamed company against its former name (no string similarity at all).
-# Both kinds are spellings of one legal entity, and both are decidable from a public filing.
+# Not to be confused with `external_operator_aliases.yaml` in this directory: that is the features lane's
+# cross-dataset operator-name file (PHMSA/EIA-923/RFS -> the Atlas layers), with a different schema and its
+# own loader in `services/ingest/enrich.py`. This file is about the identity of one legal entity; that one
+# is about joining two datasets' spellings of an operator. They are not merged.
+#
+# Why a curated file at all. Resolution keys on `pipeline.normalize.org_key`, which since 2026-09-19 strips
+# legal forms and punctuation only (docs/22 §16) -- every industry and geography word is kept, because that
+# is what tells `MidAmerican Energy Co` from `MidAmerican Solar LLC`. The key therefore cannot merge:
+#   - a company against its former name ("Westar Energy Inc" / "Evergy Kansas Central, Inc" -- no string
+#     similarity at all), and
+#   - a short spelling that differs by a content word ("Vistra Energy" / "Vistra Corp";
+#     "Enable Midstream" / "Enable Midstream Partners"; "Noble Environmental" / "Noble Environmental
+#     Power, LLC" -- the docs/22 §16.5 rules).
+# Both kinds are spellings of one legal entity, and both are decidable from a public filing. A key loose
+# enough to reach them re-merges 46.3 % distinct entities (docs/22 §16.2), so they belong here instead.
+#
+# A rule that attaches nothing today is kept, not deleted, and the loader reports it rather than failing.
+# Measured 2026-09-20 on the dev store: "Kansas City Power & Light Co" -> "Evergy Metro" is inert because no
+# organisation named Evergy Metro is loaded yet (`rules_without_organization`), and the corrected key's
+# `&`/`and` fold already reaches "Wisconsin Power and Light Co" without help
+# (`rules_already_one_organization`). Both rows still carry their citation, and both start doing work the
+# moment a registry vintage brings the other spelling in.
 #
 # Schema, one row per rule:
 #   alias         : the spelling to attach (matched case-insensitively, whole string, after
@@ -24,8 +38,8 @@
 #
 # Out of scope for this file: two entities that merely share a corporate family ("Entergy Corp"
 # and "Entergy Power, LLC"; "AEP Renewables" and "AEP Resources Service Corp.") -- those are
-# parent links (`parents.yaml`), not aliases. And two entities that look alike but are not the
-# same company: "Public Service Co of NH" and "Public Service Co of NM" differ by one letter, own
+# parent links (`parents.yaml` or GLEIF Level 2), not aliases. And two entities that look alike but are not
+# the same company: "Public Service Co of NH" and "Public Service Co of NM" differ by one letter, own
 # different plants, and must never be merged (token_sort_ratio 95 -- a similarity threshold alone
 # would merge them, which is why this file is curated and cited rather than computed).
 
@@ -63,3 +77,28 @@ aliases:
     source_url: https://data.sec.gov/submissions/CIK0000054507.json
     retrieved_at: '2026-09-19T21:10:00Z'
     note: Same filing, the earlier of the two former names (through 2002-06-10).
+  - alias: Vistra Energy
+    canonical: Vistra Corp
+    source_url: https://data.sec.gov/submissions/CIK0001692819.json
+    retrieved_at: '2026-09-19T21:10:00Z'
+    note: >-
+      SEC EDGAR CIK 0001692819: conformed name "Vistra Corp.", formerName "Vistra Energy Corp."
+      through 2020-06-29 -- one registrant renamed. EIA-860 Schedule 4 (2025) spells it both ways
+      ("Vistra Corp" and "Vistra Energy"); the corrected legal-form-only key keeps them apart
+      because "Energy" is a content word (docs/22 §16.5), so the identity has to be stated here.
+  - alias: Enable Midstream
+    canonical: Enable Midstream Partners
+    source_url: https://data.sec.gov/submissions/CIK0001591763.json
+    retrieved_at: '2026-09-19T21:10:00Z'
+    note: >-
+      SEC EDGAR CIK 0001591763, conformed name "Enable Midstream Partners, LP", no former names.
+      The bare form is a short spelling in EIA-860 Schedule 4; "Partners" is a content word under
+      the corrected key, so the two spellings are two organisations without this rule.
+  - alias: Noble Environmental
+    canonical: Noble Environmental Power, LLC
+    source_url: https://data.sec.gov/submissions/CIK0001381415.json
+    retrieved_at: '2026-09-19T21:10:00Z'
+    note: >-
+      SEC EDGAR CIK 0001381415, conformed name "NOBLE ENVIRONMENTAL POWER LLC", no former names.
+      EIA-860 Schedule 4 carries both the short and the full spelling; "Power" is a content word,
+      so the corrected key splits them.

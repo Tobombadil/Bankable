@@ -68,11 +68,14 @@ def test_0014_upgrade_downgrade_upgrade_is_a_no_op_on_sqlite(sqlite_url: str) ->
     cfg = _alembic_config(sqlite_url)
     command.stamp(cfg, "0013")
 
-    command.upgrade(cfg, "head")
+    # `0014`, not `head`: this test is about one migration's round trip and the revision it
+    # records, so it must not move every time a later migration lands (updated 2026-09-20 when
+    # 0015 did).
+    command.upgrade(cfg, "0014")
     assert _asset_indexes(engine) == before
     command.downgrade(cfg, "-1")
     assert _asset_indexes(engine) == before
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "0014")
     assert _asset_indexes(engine) == before
 
     with engine.connect() as conn:

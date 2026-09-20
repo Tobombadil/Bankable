@@ -363,7 +363,19 @@ produces a `closed` event only after the DQ partial-file check passes (`docs/20`
 | `ids` | jsonb | No | `{lei, sam_uei, eia_utility_id, cik, duns}` (`docs/02` §5) | `{"lei":"5493…"}` |
 | `website` | text | Yes | Primary domain | `https://www.nexteraenergyresources.com` |
 | `is_curated_issuer` | boolean | No | True when this organisation is on the 50-issuer RFP list (US-303) | `false` |
+| `parent_org_id` | uuid | Yes | FK `organization` — the direct accounting parent, one hop (migration 0011) | `018f3e…` |
+| `parent_source_id` | text | Yes | FK `source` — which source stated the parent link | `global.gleif.lei` |
+| `parent_as_of` | date | Yes | The date the parent link is stated as of (migration 0015) | `2019-02-08` |
 | `first_seen`, `last_changed`, `publish_state`, `merged_into_id`, `search_tsv` | — | — | As §3.1 | — |
+
+**The parent triple.** `parent_org_id` is one hop, not a chain, and the three columns travel together: a company
+page may render a parent only alongside the source that stated it and the date it was stated as of. Two sources
+write them (docs/22 §17): GLEIF Level 2 (`global.gleif.lei`, CC0), which sets `parent_as_of` from the
+relationship's own period start, and the curated file (`curated.organization_parents`), which leaves
+`parent_as_of` NULL because a company page states a fact, not the date the ownership began. GLEIF wins where it
+has a record and the curated loader defers to it, so the two are order-independent. The LEI itself lives in
+`ids["lei"]`, written for both ends of every link GLEIF makes — never as a free-standing name match, which has
+not been evaluated.
 
 Organisations hold **no personal data**. Named individuals in filings are stored as `organization_alias` rows or
 document references only (`docs/20` §11; `docs/02` §4 last row).
@@ -808,17 +820,21 @@ Rules this pass follows, each of which shows up in the stored values:
 Unique: (`asset_id`, `organization_id`, `role`, `source_id`). Sources in order: EIA-860 Schedule 4 (`us.eia.860`,
 shares), EIA-860M and EIA Atlas operator fields (`operator`), EPA LMOP/AgSTAR owner and developer fields, GEM
 owner fields (CC BY, TZ-ID rows dropped). `organization.parent_org_id` (added in the same migration, nullable FK
-to `organization`, with `parent_source_id`) records the GLEIF Level 2 direct accounting parent where an LEI
-matches; the LEI itself goes in `organization.ids.lei`.
+to `organization`, with `parent_source_id`, plus `parent_as_of` since migration 0015) records the GLEIF Level 2
+direct accounting parent where a match holds; the LEI itself goes in `organization.ids.lei`. See §3.5 for the
+triple and docs/22 §17 for the match rule and its measured precision.
 
 Loaded at 2026-09-19 (`services/ingest/midstream.py`, docs/22 §15): the EIA Atlas `Operator`/`Company` strings
 become `operator` edges and the Atlas `Owner` strings (processing plants, LNG) become `owner` edges with a NULL
 share, each edge carrying the layer's own provenance quartet; measured on the four layers, 1,126 operator and
-457 owner edges over 1,157 assets, 628 organisations after `norm_org` dedupe. Until GLEIF Level 2 lands,
-`parent_org_id` is also set from the curated file `data/vendored/organizations/parents.yaml`
+457 owner edges over 1,157 assets, 628 organisations after `norm_org` dedupe. GLEIF Level 2 landed 2026-09-20
+(`services/ingest/organizations.py`, docs/22 §17): 199 organisations linked to 105 parents on the dev store,
+alongside the 9 the curated file `data/vendored/organizations/parents.yaml` links
 (`parent_source_id = curated.organization_parents`, registered in `data/sources.yaml` §K; every row cites the
-company statement it came from). The two sources are told apart by `parent_source_id`, so the GLEIF loader can
-overwrite curated rows where an LEI matches and leave the rest.
+company statement it came from). The two are told apart by `parent_source_id`; GLEIF overwrites a curated row
+where it has a record and the curated loader refuses to overwrite a GLEIF one. There is no overlap today —
+GLEIF publishes no Level 2 record for any of the nine Tallgrass children — so every curated rule still does
+work.
 
 ### 3.21 `ui_event` — identifier-free interaction counters (added 2026-09-14)
 

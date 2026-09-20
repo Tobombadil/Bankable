@@ -352,6 +352,11 @@ class Organization(Base, TimestampMixin):
     #: edge on the organisation row rather than a versioned fact with its own retrieval history.
     parent_org_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("organization.id"))
     parent_source_id: Mapped[str | None] = mapped_column(sa.ForeignKey("source.id"))
+    #: Migration 0015 (2026-09-20), docs/21 §3.5: the date the parent link is stated as of — for
+    #: GLEIF Level 2, the relationship period's start (else the accounting period end, else the
+    #: record's last update). NULL for a curated link, which cites when a page was read, not when
+    #: the ownership began. The counterpart of `asset_owner.as_of` on the organisation row.
+    parent_as_of: Mapped[dt.date | None] = mapped_column(sa.Date)
 
 
 # ====================================================================== organization_alias (§3.6)

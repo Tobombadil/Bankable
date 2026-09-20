@@ -1395,6 +1395,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `gb.neso.fes_gsp_gazetteer` | open-attribution | raw-ok + exact string "Supported by National Energy SO Open Data" | §2.5 quoted (same licence id as the TEC register per the dataset's package_show); added 2026-09-18 | high |
 | `us.census.cartographic_boundaries` | public-domain | raw-ok | 17 U.S.C. §105 (same basis as the vendored Gazetteer); added 2026-09-18 | high |
 | `curated.organization_parents` | permissive | raw-ok | Not a third-party dataset: parent links curated by Infraque from each company's own published statements, one URL per rule in `data/vendored/organizations/parents.yaml` (first rule: Tallgrass Energy's natural-gas page, read 2026-09-19); facts, not expression; added 2026-09-19 | high |
+| `curated.organization_aliases` | permissive | raw-ok | Not a third-party dataset: alias rules curated by Infraque from public filings, one URL per rule in `data/vendored/organizations/aliases.yaml` (all seven rows cite a `data.sec.gov` submissions document); facts, not expression; added 2026-09-20 | high |
 
 **This matrix is machine-read.** `scripts/check_manifest_licences.py` (run by `tests/test_manifest_licences.py`
 under the pytest job) parses every row above whose first cell is one or more backticked `source_id`s, takes the

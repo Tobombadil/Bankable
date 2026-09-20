@@ -687,11 +687,12 @@ Tallgrass-related string the four layers contain (Cheyenne Connector post-dates 
 and has no row to match; `Cheyenne Plains Pipeline Co` is a different company and is deliberately not
 matched). A re-run changed nothing (0 created, 0 linked, 9 unchanged).
 
-What replaces it: GLEIF Level 2 relationship records (CC0, docs/13 §2.14) keyed by LEI in
-`organization.ids.lei`, loaded with `parent_source_id = gleif.level2` (to be registered). Where an LEI
-matches, that loader overwrites the curated link; where it does not (most Atlas operator strings are
-operating subsidiaries without an LEI of their own, and the strings are not legal names), the curated row
-stays. Nothing in the curated file asserts a share, a legal form or an ownership chain beyond one parent
+What replaces it, and by how much: GLEIF Level 2 relationship records (CC0), loaded 2026-09-20 by
+`services/ingest/organizations.py` with `parent_source_id = global.gleif.lei` (§17). The answer measured
+there is that it replaces **none** of these nine rows — five of the children hold an LEI and not one files a
+Level 2 record — which is the general case for operating subsidiaries, so the curated file is a permanent
+mechanism rather than a placeholder. Where GLEIF does have a record it overwrites the curated link, and
+`load_parents` refuses to overwrite a GLEIF one, so the two are order-independent. Nothing in the curated file asserts a share, a legal form or an ownership chain beyond one parent
 hop, and none of it is inferred from a name alone — each row is a statement the company itself published.
 
 
@@ -964,12 +965,13 @@ to reach them merges MidAmerican Energy with MidAmerican Solar again:
 | `Dominion Transmission Co` → `Dominion Energy Transmission, Inc.` | **Not yet sourced.** The May-2017 Dominion rebrand is visible on EDGAR for sibling registrants (CIK 0001603291 "Dominion Gas Holdings" → "Dominion Energy Gas Holdings", CIK 0001603286 "Dominion Midstream Partners" → "Dominion Energy Midstream Partners", both 2017-05-16) but DTI itself has no EDGAR registration, so the rule is *not* written: inference by analogy is what the curated-file contract forbids. Worth a FERC Form 2 minute. 19 `asset_owner` edges hang on it. |
 | `NY Power Authority & LS Power Grid NY Corporation II` / `… Development & …` | Not sourced; a JV filing would settle it. |
 
-`data/vendored/organizations/aliases.yaml` was re-purposed during this sprint by the features lane
-into a PHMSA↔Atlas operator-alias file with a different schema and its own loader
-(`services/ingest/enrich.py::apply_context_features`). **The three sourced rules above are
-therefore recorded here, not written to that file**, and the next lane to own an organisation
-alias loader should apply them — three rows, `kind="filing_spelling"`, `confidence=1.0`, each
-carrying its `data.sec.gov` URL. `tests/test_org_key.py` (`test_rename_and_short_form_pairs_are_alias_work_not_key_work`) pins all four pairs as *not* key merges so a later "loosen the key a
+**Correction (2026-09-20, §17.5):** `data/vendored/organizations/aliases.yaml` was *not* re-purposed
+— it kept this schema throughout; the features lane's PHMSA↔Atlas operator file is the separate
+`external_operator_aliases.yaml`, with its own loader in
+`services/ingest/enrich.py::apply_context_features`. The three sourced rules above are now **written
+to `aliases.yaml` and applied** by `services/ingest/organizations.py::load_aliases` — three rows,
+`kind="filing_spelling"`, `confidence=1.0`, each carrying its `data.sec.gov` URL, under the new
+source id `curated.organization_aliases`. `tests/test_org_key.py` (`test_rename_and_short_form_pairs_are_alias_work_not_key_work`) pins all four pairs as *not* key merges so a later "loosen the key a
 little" is measured against them.
 
 ### 16.6 A production migration, if there is ever data to migrate
@@ -1011,3 +1013,244 @@ The cheap alternative, while no durable rows exist: **rebuild**. That is what sh
   `token_sort_ratio >= 88`. Renames and abbreviations below that threshold are not counted and are
   not reachable by any key; their size is unknown and would need a different sampling frame
   (e.g. pairs that share an EIA plant or a FERC docket).
+
+## 17. The ownership graph: GLEIF Level 2 parents, an alias loader, a corrections route (2026-09-20)
+
+**Status:** measured and applied, loader on by default. Code `pipeline/context/gleif.py` (the connector),
+`services/ingest/organizations.py` (both loaders), `services/ingest/midstream.py` (deference), migration
+`0015` (`organization.parent_as_of`), wiring `web/dev_up.py::_load_organization_graph`. Labelled data
+`data/eval/gleif_matches.csv` (272 hand-labelled pairs). Tests `pipeline/context/test_gleif.py`,
+`services/ingest/test_organizations.py`. Every number below was measured on the 2026-09-20 GLEIF publish
+and a **copy** of `web/.data/dev-shots2.db` (5,513 organisations, 3,217 `asset_owner` edges, 9 curated
+parent links), never the live dev file.
+
+### 17.1 The fetch: the small file plus one streaming pass over the large one
+
+GLEIF publishes the whole corpus as CC0 golden-copy zips, indexed at
+<https://goldencopy.gleif.org/api/v2/golden-copies/publishes?format=json> (`data/sources.yaml`
+`global.gleif.lei`; the CC0 statement is quoted in docs/13 §2.13). Two files, both fetched 2026-09-20T02:19Z
+from the 2026-09-20T00:00Z publish:
+
+| File | URL | Bytes | Records | sha256 |
+|---|---|---|---|---|
+| Relationships (`rr`, RR_2.1) | `…/2026/09/20/1278560/20260920-0000-gleif-goldencopy-rr-golden-copy.csv.zip` | 24,368,364 | 488,439 | `430f0995469775c40a9d14877e6a8f129220ef3e1648d16ddee34df6d1624d16` |
+| Entities (`lei2`, LEI_3.1) | `…/2026/09/20/1278515/20260920-0000-gleif-goldencopy-lei2-golden-copy.csv.zip` | 504,405,368 | 3,435,980 | `3bb4c1e3b571ab75d3e31adcf11f3a8d954e6a3b41a6fe2c6ececcf19b70ad9b` |
+
+**Which route, and why.** The relationship file *is* the filtered download: 23 MB holds every Level 2 record
+there is, so nothing is paged and the result is reproducible from one artefact. The entity file is not small,
+and it is needed because a relationship record carries LEIs and no names, and a name is all the loader can
+match on. The alternative — `api.gleif.org/api/v1/lei-records?filter[lei]=…`, 200 LEIs per request — is about
+920 requests against a rate-limited host for the same answer, so one 481 MB download is both faster and more
+polite. `read_entities` streams it: 1 MB chunks through `csv.reader`, keeping only the 183,855 LEIs that
+appear in a consolidation relationship, never the 5 GB of decompressed CSV. It asserts the seven column
+positions it uses against the header first, so a CDF change fails loudly instead of writing the wrong column
+onto a company page.
+
+**What comes out.** `python -m pipeline.context.gleif` → `data/normalized/context/global.gleif.lei.parents.parquet`,
+68.9 s, **259,784 rows**. Of the 488,439 relationship records, 259,790 are the two types that are ownership
+(`IS_DIRECTLY_CONSOLIDATED_BY` 126,807, `IS_ULTIMATELY_CONSOLIDATED_BY` 132,983); the other 228,649 are
+`IS_FUND-MANAGED_BY`, `IS_SUBFUND_OF`, `IS_FEEDER_TO` and `IS_INTERNATIONAL_BRANCH_OF` — fund administration
+and branch registrations, not ownership, and dropped. 140,431 distinct children, 54,186 distinct parents, 6 rows
+dropped because an LEI has no entity record. GLEIF's own as-of dates are all kept per row (relationship period
+start and end, accounting period end, record last-update); the loader picks. In GLEIF's model the **start node
+is the child**, which is why the type reads `IS_…_CONSOLIDATED_BY`.
+
+### 17.2 The labelled census, and the threshold
+
+The brief that created the curated file said GLEIF goes in "behind a 200-pair labelled sample". The candidate
+population turned out to be **272 pairs**, so this is a census, not a sample: every candidate the loader can
+draw was labelled by hand. `data/eval/gleif_matches.csv` holds all 272 with the evidence each judgement was
+made on (both names, LEI, GLEIF legal address, the platform organisation's evidence countries, its edge and
+proposal counts, the proposed parent) and a `note` on every non-`same` row.
+
+**How candidates are drawn** — exactly as the loader draws them: `pipeline.normalize.org_key` (the corrected
+legal-forms-only key, §16.3) over `organization.name_canonical` and every `organization_alias.alias`, against
+`org_key` of the GLEIF child legal name, after filtering GLEIF to live records (`relationship_status ACTIVE`,
+`registration_status PUBLISHED`, `child_entity_status ACTIVE`) and keeping one row per child, direct parent
+preferred over ultimate.
+
+**Labelling rule**, the same three-way rule §16.2 used, stated because it is a modelling choice: `same` = one
+legal person (differences of punctuation, case, legal form, `&`/`and`, plural or abbreviation); `family` = one
+corporate family, two legal persons (a brand or short name against a named affiliate, a parent against its own
+subsidiary); `different` = unrelated legal persons, **including two same-named entities in different
+jurisdictions**. Per A-22-8 `family` counts as *not* a match in the headline precision, and is reported
+separately.
+
+| Slice | n | `same` | `family` | `different` | Precision | 95 % Wilson CI | Counting `family` |
+|---|---|---|---|---|---|---|---|
+| Key equality alone (whole census) | 272 | 258 | 7 | 7 | 0.949 | 0.916–0.969 | 0.974 |
+| Key equality, the loader's own candidate set | 209 | 199 | 5 | 5 | 0.952 | 0.914–0.974 | 0.976 |
+| **What the loader accepts** | **201** | **198** | **3** | **0** | **0.985** | **0.957–0.995** | **1.000** |
+
+**The two gates, and what each buys.**
+
+1. **Country evidence.** `organization.country` is `US` on all 5,513 rows — the ownership and midstream
+   loaders hard-code it — so it carries no information at all, including for the 2,198 GB proposals' sponsors.
+   The organisation's *evidence* does: the two-letter prefix of every `proposal.jurisdiction` it sponsors, plus
+   the `country` of every asset it owns or operates. The GLEIF entity's legal-address country must be one of
+   them. This gate removes **all seven** `different` pairs and four of the seven `family` ones, and every one
+   of them is a real defect it prevents: `Ameresco, Inc.` (37 `asset_owner` edges) would have been given the
+   LEI of `AMERESCO LIMITED` of Leeds, whose parent is Ameresco, Inc.; `Cargill Inc.` that of `CARGILL PLC`;
+   `SPIRE INC` that of `SPIRE LIMITED` of Trinidad and Tobago; `DOW CHEMICAL COMPANY` that of the British
+   `DOW CHEMICAL COMPANY LIMITED`; `Constellation` and `Atlantic Energy, LLC` (US-NY sponsors) their French
+   namesakes; and `LAKESIDE ENERGY STORAGE LIMITED`, a GB proposal sponsor, a Delaware LLC of Jupiter Power.
+   It costs exactly one true match: a US-NY queue sponsor spelled `Brookfield Renewable Power`, against the
+   Canadian `BROOKFIELD RENEWABLE POWER INC.`. That is the trade, and it is clearly the right one.
+2. **One GLEIF entity per key.** Where two GLEIF entities survive the country gate on one key the loader links
+   neither. It fires on `Air Products`, which keys to a US LLC, a Belgian and a French entity; the country gate
+   already leaves one, so the measured count is 0 — the guard is for the day it is not.
+
+**Would I stake a company page on 0.985?** Yes, with the caveat that the three remaining errors are all
+`family`, not `different`: `Air Products` → `AIR PRODUCTS HELIUM, INC.` (the only one that is plainly wrong —
+the platform's bare brand string is really Air Products and Chemicals, Inc.), `ConocoPhillips` →
+`CONOCOPHILLIPS COMPANY`'s parent, and `Archaea Energy, LLC` → `BP PRODUCTS NORTH AMERICA INC.`. Two of the
+three still name the right corporate family; none puts one company's assets on an unrelated company's page,
+which is the failure mode §16 was about. The loader is therefore **on by default**. What would change that
+judgement is a `different` error surviving the gates; there is none in the census, and the CI's lower bound
+(0.957) is the number to re-measure against when the corpus grows.
+
+**Caveat that travels with the number.** This measures *precision*, not recall. The frame is "pairs the key
+already matches", so a rename or a short form that no key can reach is invisible here, exactly as A-22-9 says
+for the organisation key. 98,651 GLEIF children survive the status filter and only 220 keys touch the platform
+at all — coverage, not correctness, is the open problem, and §17.6's corrections route is part of the answer.
+
+### 17.3 What GLEIF covers, what the curated file still does — the Tallgrass verdict
+
+**GLEIF covers none of the nine.** Five of the curated file's nine children hold an LEI —
+`TALLGRASS INTERSTATE GAS TRANSMISSION, LLC` (`5493001PPWSDLETMIS87`), `ROCKIES EXPRESS PIPELINE LLC`
+(`W2ZGZGZKY5GGNY6F3V51`), `TRAILBLAZER PIPELINE COMPANY LLC` (`549300R4CX55WWLTX861`), `RUBY PIPELINE, L.L.C.`
+(`549300VXRTBPBK07QT94`) and `EAST CHEYENNE GAS STORAGE, LLC` (`MVIXRNC8YS7D5NZBAG33`) — and **not one of them
+is the start node of any Level 2 relationship record**. The only Tallgrass consolidation edges in the whole
+corpus are for entities the platform does not carry (`TALLGRASS MLP OPERATIONS, LLC`,
+`STANCHION GAS MARKETING, LLC`, `STANCHION ENERGY, LLC` and `HIGH PLAINS CARBON FINANCING, LLC`, all into
+`TALLGRASS ENERGY PARTNERS, LP`). So the question "does GLEIF agree with the curated rules" does not arise:
+there is nothing to agree or disagree with, all nine curated rules stand, and none of the 199 GLEIF links
+touches an organisation any curated pattern matches (measured: 0 overlap, and `load_parents`'
+`children_deferred_to_gleif` is 0). The curated file is not a placeholder that GLEIF retires; it is the
+mechanism for the operating subsidiaries that hold an LEI but file no Level 2 record, which on this evidence
+is most of the midstream layer.
+
+**How the two coexist.** `parent_source_id` tells them apart. `load_gleif_parents` overwrites a curated link
+only for an organisation it matches (counting it in `children_relinked_from_curated`); `load_parents` skips any
+organisation already carrying `parent_source_id = global.gleif.lei` (`children_deferred_to_gleif`). Order is
+therefore a preference, not a correctness requirement, and re-running either writes nothing.
+
+**Why status filtering matters here.** 75,420 of the 259,790 consolidation records carry
+`Registration.RegistrationStatus = LAPSED` — GLEIF still publishes them, but no LOU has re-validated them. They
+stay in the parquet (an expired parent is a fact about the past) and the loader drops them. That filter
+takes the candidate population from 272 pairs to 209.
+
+### 17.4 Measured before and after, on a copy of the dev store
+
+`cp web/.data/dev-shots2.db …/measure.db`, then `python -m services.ingest.organizations parents` (5.2 s) and
+`… aliases` (0.5 s). The live file and the servers on 8100/8101 were not touched.
+
+| | Before | After |
+|---|---|---|
+| Organisations | 5,513 | **5,600** (+87 parents GLEIF named that nothing had created) |
+| Organisations with a parent | 9 | **208** |
+| … from `curated.organization_parents` | 9 | 9 (unchanged) |
+| … from `global.gleif.lei` | 0 | **199** (165 direct, 34 ultimate) |
+| Organisations with `parent_as_of` | — | 199 (range 1912-08-17 … 2026-03-17) |
+| Organisations carrying `ids.lei` | 0 | **304** (199 children + 105 distinct parents) |
+| `organization_alias` rows | 5,702 | 5,793 (+87 GLEIF `legal_name`, +4 curated) |
+| `asset_owner` edges | 3,217 | 3,217 (unchanged — this lane writes no edges) |
+
+Reach: **143 `asset_owner` edges and 484 proposals** now hang off an organisation with a named parent. The
+largest families are RWE (18 children), Jupiter Power (13), ScottishPower (7), Ørsted, Entergy, Energix, Drax
+and Brookfield (5 each). Disagreement between the two sources: **0** (§17.3). Idempotence: a second GLEIF run
+reports 0 linked / 199 unchanged / 0 organisations created; a second alias run 0 written.
+
+Wiring: `web/dev_up.py::_load_organization_graph` runs after the owner shares, the context features and the
+curated parents, guarded exactly as its neighbours are — a missing module, a missing parquet or an unreadable
+YAML is one log line, never a failure of the rest of `dev_up`.
+
+### 17.5 The alias loader, and the three rules that were waiting for it
+
+`data/vendored/organizations/aliases.yaml` now has a loader
+(`python -m services.ingest.organizations aliases`) and the three SEC-sourced rules §16.5 left for it:
+`Vistra Energy` → `Vistra Corp` (CIK 0001692819), `Enable Midstream` → `Enable Midstream Partners`
+(CIK 0001591763), `Noble Environmental` → `Noble Environmental Power, LLC` (CIK 0001381415). The file keeps its
+schema and its contract — one legal entity per row, a cited filing per row, nothing inferred from a name. Its
+header now also states the split from `external_operator_aliases.yaml`, which is the features lane's
+cross-dataset operator file with its own loader in `services/ingest/enrich.py`; the two are not merged, and
+§16.5's note that this file had been re-purposed was out of date.
+
+Provenance needed a source id, so `curated.organization_aliases` is registered in `data/sources.yaml` §K and in
+the docs/13 §6 matrix (permissive, raw-ok, facts not expression), mirroring `curated.organization_parents`.
+Each written row is `kind = filing_spelling`, `confidence = 1.0` — higher than the ownership loader's 0.9,
+because this match is a statement read off a filing the row cites, not a key collision — and carries the rule's
+own `source_url` and `retrieved_at`.
+
+Measured on the dev-store copy: 7 rules, **4 alias rows written, 2 already present, 1 inert**. The inert one is
+`Kansas City Power & Light Co` → `Evergy Metro`: no organisation named Evergy Metro is loaded yet, so the rule
+attaches nothing and is *reported*, not an error — writing the rule before the data arrives is the point of the
+file. Three rules are also reported as `rules_already_one_organization`: the corrected key's `&`/`and` fold
+already reaches `Wisconsin Power and Light Co`, and the Enable/Noble pairs already share an organisation
+through an existing alias; the rows are still written so the spelling carries its citation. A rule whose alias
+already keys to a *different* live organisation is reported as a conflict and skipped — merging two live
+organisations is a §13 `resolve_organizations` decision with a reversible event behind it, never something an
+alias loader does silently.
+
+### 17.6 A corrections route for ownership, specified not built
+
+Ownership is the part of this graph most likely to be wrong in a way an outsider can see and we cannot: a
+registry vintage lags a sale, a name is truncated, a parent changed last quarter. §17.2's precision is about
+the links we make, not the ones we miss, and §17.3 shows how thin Level 2 coverage is for operating
+subsidiaries. A public "this ownership is wrong" route is the cheapest source of the corrections neither
+registry publishes.
+
+**It reuses the privacy-request pattern exactly** (`services/api/privacy_routes.py`, US-910 — that is another
+lane's file and nothing here is implemented in it). That pattern already solves every hard part: a public,
+unauthenticated `POST` that stores a row and answers `202` with its own public id; no email sent, because
+CLAUDE.md says outbound communication to real people is drafted by an agent and sent by a human; no IP, user
+agent or referrer recorded; no confirmation of whether the referenced record exists, so the endpoint cannot be
+used to probe for records the caller cannot see; per-IP rate limiting through the shared `default_limiter` at
+the same 20-per-window shape as the other public routes; and an operator queue under `/admin/v1/…` with a
+status filter, oldest-open-first, where closing the request clears the one piece of personal data it holds.
+
+**What it would store.** A `correction_request` table shaped like `privacy_request` and sharing its statuses
+(`open | in_progress | done | rejected`):
+
+| Field | Type | Null | Meaning |
+|---|---|---|---|
+| `id`, `public_id` | uuid, text | No | As `privacy_request` |
+| `subject_kind` | text | No | `organization_parent \| asset_owner \| organization_alias` — the vocabulary of things this route accepts a correction for, so a submission always points at a fact with a source, not at free text |
+| `subject_public_id` | text | No | The organisation's or asset's public id, as shown on the page the reader was looking at |
+| `claim` | text | No | `wrong_parent \| wrong_owner \| wrong_share \| not_this_entity \| out_of_date` |
+| `proposed_value` | text | Yes | What the submitter says is right (a parent name, an owner, a share, a date) |
+| `evidence_url` | text | Yes | Where they read it. **The field that decides whether the row is usable**: a correction with a citable public document can be applied under the same contract as `parents.yaml`; one without it can only prompt an operator to go looking |
+| `observed_source_id`, `observed_as_of` | text, date | No | The `parent_source_id`/`as_of` the page was showing, captured by the form, so an operator can tell a stale render from a real defect without re-deriving it |
+| `contact_email` | text | Yes | Optional, cleared on close, exactly as `privacy_request.contact_email` is |
+| `message` | text | Yes | ≤ 4,000 chars, same cap |
+| `status`, `completed_at`, `created_at` | — | — | As `privacy_request` |
+
+**How it reaches an operator.** The same way privacy requests do, and no other way: rows land in the admin
+queue, oldest open first, with the subject's current values rendered beside the claim. There is no automatic
+write to `organization.parent_org_id` from a submission — an anonymous POST must never be able to move an
+ownership edge on a public page. An accepted correction is applied by the operator through the existing
+curated files (a new `parents.yaml` or `aliases.yaml` row citing `evidence_url`, which is already the
+"one entity per row, one cited document per row" contract), so the correction arrives in the graph with
+provenance and is reversible by deleting a YAML row. A rejected one is closed with a `reason`, and an audit
+event carries only the hash of the contact address (`services/api/audit.hash_identifier`).
+
+**Two cheap wins it also buys.** A correction that names a parent GLEIF does not publish is exactly the
+`parents.yaml` row §17.3 says the midstream layer needs; and the count of open corrections per source is a
+data-quality signal the admin source-health page can show without any new instrumentation.
+
+### 17.7 Assumptions recorded
+
+- A-22-10: a GLEIF legal entity and a platform organisation are the same entity when the corrected `org_key`
+  matches **and** the entity's legal-address country is one the organisation's own evidence names. Measured
+  precision 0.985 (198/201, 95 % Wilson CI 0.957–0.995) on the 272-pair census in `data/eval/gleif_matches.csv`.
+  If the corpus grows past the US/GB mix it is measured on — say a Canadian or Mexican queue — the gate should
+  be re-measured before it is trusted, because its power comes entirely from evidence countries being few.
+- A-22-11: a Level 2 record is used for a live parent link only when the relationship is `ACTIVE`, its
+  registration `PUBLISHED` and the child entity `ACTIVE`. 75,420 of the 259,790 consolidation records are
+  `LAPSED` alone. The rows stay in the parquet, so the decision is reversible by changing one filter; the
+  filter costs 63 of the 272 candidate pairs.
+- A-22-12: `ids["lei"]` is written only for organisations on one end of a link this loader made. A free-standing
+  name match against all 3.4 M LEI records would be a different and unmeasured precision claim, and is not made.
+- A-22-13: `parent_org_id` stays one hop. GLEIF's ultimate parent is used only where no direct record exists;
+  the chain is not walked, because each hop would compound the match error and nothing on a company page needs
+  it yet.

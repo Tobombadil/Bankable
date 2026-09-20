@@ -27,9 +27,13 @@ named `parent` (created if absent, resolved by the same `org_key`) and `parent_s
 publication `raw_ok`; each YAML row cites the company statement it came from with its
 `source_url` and `retrieved_at`). A child that is itself the parent is skipped, so a pattern like
 ``^tallgrass`` cannot make Tallgrass Energy its own parent. The file is the interim source for
-parent links; GLEIF Level 2 (CC0) replaces it for every organisation with an LEI when that loader
-lands (docs/22 §15), and the `parent_source_id` column is what lets the two coexist and be told
-apart on the company page.
+parent links: since 2026-09-20 `services/ingest/organizations.py::load_gleif_parents` applies GLEIF
+Level 2 (CC0) over the same column and wins wherever it has a record, and this loader skips any
+organisation already carrying `parent_source_id = global.gleif.lei` (`children_deferred_to_gleif`).
+That makes the two order-independent and both re-runs no-ops, and `parent_source_id` is what lets
+them be told apart on the company page. GLEIF covers none of the nine Tallgrass children today —
+five hold an LEI, none is the start node of a Level 2 relationship record — so every curated rule
+still does work (docs/22 §17.3).
 
 Re-running either loader against the same inputs writes no duplicate: edges are keyed by the
 table's unique constraint `(asset_id, organization_id, role, source_id)` and looked up before
@@ -67,6 +71,8 @@ DEFAULT_DB_PATH = pathlib.Path("web/.data/dev.db")
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_PARENTS_PATH = ROOT / "data" / "vendored" / "organizations" / "parents.yaml"
 PARENTS_SOURCE_ID = "curated.organization_parents"
+#: The registry that supersedes this file where it has an answer (module docstring, docs/22 §17).
+GLEIF_PARENTS_SOURCE_ID = "global.gleif.lei"
 
 #: frame column -> `asset_owner.role`
 _EDGE_COLUMNS: tuple[tuple[str, str], ...] = (("operator_name", "operator"), ("owner_name", "owner"))
@@ -235,6 +241,7 @@ class ParentsLoadResult:
     parents_created: int = 0
     children_linked: int = 0
     children_unchanged: int = 0
+    children_deferred_to_gleif: int = 0
     rules_without_match: list[str] = field(default_factory=list)
     linked: dict[str, list[str]] = field(default_factory=dict)
 
@@ -244,6 +251,7 @@ class ParentsLoadResult:
             "parents_created": self.parents_created,
             "children_linked": self.children_linked,
             "children_unchanged": self.children_unchanged,
+            "children_deferred_to_gleif": self.children_deferred_to_gleif,
             "rules_without_match": list(self.rules_without_match),
             "linked": {k: sorted(v) for k, v in sorted(self.linked.items())},
         }
@@ -351,6 +359,13 @@ def load_parents(
             if not any(regex.search(n) for n in names):
                 continue
             matched_any = True
+            if org.parent_source_id == GLEIF_PARENTS_SOURCE_ID:
+                # A registry beat the curated rule to it. The curated file is the interim source
+                # (module docstring); it never overwrites a GLEIF Level 2 link, which is what makes
+                # the two loaders order-independent and both re-runs no-ops
+                # (`services/ingest/organizations.py::load_gleif_parents`, docs/22 §17.3).
+                result.children_deferred_to_gleif += 1
+                continue
             if org.parent_org_id == parent.id and org.parent_source_id == source.id:
                 result.children_unchanged += 1
                 continue

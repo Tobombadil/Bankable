@@ -1445,6 +1445,30 @@ sources:
     record. Cheyenne Connector appears in Tallgrass's statement but not in the 202001 Atlas layer, so it has
     no rule yet (a rule with nothing to match would be noise).
 
+- id: curated.organization_aliases
+  name: Curated organisation alias rules (renames and short forms no key can reach) — data/vendored/organizations/aliases.yaml
+  jurisdiction: US
+  category: registry
+  operator: Infraque (curated from SEC EDGAR submissions metadata and company filings)
+  url: file:///data/vendored/organizations/aliases.yaml
+  access: bulk_file
+  auth: none
+  format: yaml (alias, canonical, source_url, retrieved_at, note)
+  cadence: continuous
+  license: 'curated by Infraque from public filings; each row cites the filing URL it was read from'
+  reuse: open
+  publication: raw_ok
+  tier: 2
+  effort: S
+  verified: {date: 2026-09-20, result: ok, note: 'Seven rules as of 2026-09-20, each citing a data.sec.gov submissions URL: the four seeded 2026-09-19 (Wisconsin Power and Light, Kansas City Power & Light -> Evergy Metro, Westar Energy and Western Resources -> Evergy Kansas Central) plus the three docs/22 §16.5 left for a loader (Vistra Energy -> Vistra Corp, Enable Midstream -> Enable Midstream Partners, Noble Environmental -> Noble Environmental Power). Loaded by services/ingest/organizations.py::load_aliases, which writes organization_alias rows with kind=filing_spelling, confidence 1.0 and this source id. Not a fetched source: the file is in the repo, the URL above is where it lives.'}
+  notes: >-
+    Sibling of curated.organization_parents and the same contract: one legal entity per row, a cited public
+    filing per row, nothing inferred from a name alone. It holds the identities `pipeline.normalize.org_key`
+    deliberately cannot reach — a rename with no string similarity, or a short form that differs by a content
+    word — because a key loose enough to reach them re-merges distinct entities inside one family
+    (docs/22 §16.2 measured that at 46.3 %). Family relationships belong in curated.organization_parents or
+    GLEIF Level 2, never here.
+
 - id: us.eia.atlas.ethanol_plants
   name: EIA US Energy Atlas — Ethanol Plants (point geometries, owner, nameplate capacity)
   jurisdiction: US
