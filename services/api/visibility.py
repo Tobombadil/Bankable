@@ -62,9 +62,10 @@ from services.db.models import (
 Entitlement = str
 
 PUBLISHABLE_REUSE_CLASSES = ("open", "attribution")
-# Drift guard, not a real code path: pragma'd out of the module's required 100% branch coverage
-# (docs/04 E-7) rather than exercised by a test that would need to corrupt REUSE_CLASSES itself.
-if not set(PUBLISHABLE_REUSE_CLASSES) <= set(REUSE_CLASSES):  # pragma: no cover
+# Drift guard against `services.db.models.REUSE_CLASSES`. Both arcs are covered by
+# `tests/test_visibility_predicate.py` (ordinary import; a re-import under a patched vocabulary),
+# so this module carries no coverage exclusion and docs/04 E-7's 100% gate measures all of it.
+if not set(PUBLISHABLE_REUSE_CLASSES) <= set(REUSE_CLASSES):
     raise RuntimeError("PUBLISHABLE_REUSE_CLASSES has drifted from services.db.models.REUSE_CLASSES")
 
 #: `source_permits(source_id, t)` (docs/21 §5.4): the `source.publish_state` values each

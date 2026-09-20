@@ -5233,114 +5233,6 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
-
-# ───────────────────────────── §9.1 Outbound webhooks — API tier, scope write:webhooks ─────────────────────────────
-webhooks:
-  event.published:
-    post:
-      operationId: webhookEventPublished
-      summary: An event matching the endpoint's query was published to the key's tier
-      description: |
-        Delivered as `POST` JSON to the endpoint URL with headers `X-Platform-Signature`
-        (`t=<unix>,v1=<hex HMAC-SHA256 of "t.body">`, 5-minute tolerance), `X-Platform-Delivery-Id` and
-        `X-Platform-Event-Seq`. A `2xx` within 10 s is success. Retries: 5 attempts over ~6 hours with exponential
-        backoff and jitter; then the delivery is `failed`; after 24 consecutive failures the endpoint is `paused`
-        and the account emailed. Ordering is by `seq` per endpoint but not guaranteed across retries; dedupe on
-        `data.event.id`. The payload is tier-filtered and licence-gated exactly like a `GET` on the same key.
-      x-tier: api
-      x-prd-stories: [US-703, US-502]
-      parameters:
-        - $ref: '#/components/parameters/WebhookSignatureHeader'
-        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
-        - $ref: '#/components/parameters/WebhookEventSeqHeader'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WebhookEventPublished'
-            examples:
-              status_change:
-                $ref: '#/components/examples/WebhookEventPublished'
-      responses:
-        '2XX':
-          description: Acknowledged. Any other status, or no response within 10 s, is retried.
-  match.added:
-    post:
-      operationId: webhookMatchAdded
-      summary: A match was added on a subject matching the endpoint's query
-      x-tier: api
-      x-prd-stories: [US-703, US-401]
-      parameters:
-        - $ref: '#/components/parameters/WebhookSignatureHeader'
-        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
-        - $ref: '#/components/parameters/WebhookEventSeqHeader'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WebhookMatchChanged'
-      responses:
-        '2XX':
-          description: Acknowledged.
-  match.removed:
-    post:
-      operationId: webhookMatchRemoved
-      summary: A match was removed
-      x-tier: api
-      x-prd-stories: [US-703, US-401]
-      parameters:
-        - $ref: '#/components/parameters/WebhookSignatureHeader'
-        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
-        - $ref: '#/components/parameters/WebhookEventSeqHeader'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WebhookMatchChanged'
-      responses:
-        '2XX':
-          description: Acknowledged.
-  record.unpublished:
-    post:
-      operationId: webhookRecordUnpublished
-      summary: A record previously delivered to this endpoint was unpublished or taken down
-      description: Consumers must stop displaying the record (US-905 AC2). The payload carries the public id and the reason class only, never the takedown text.
-      x-tier: api
-      x-prd-stories: [US-703, US-905]
-      parameters:
-        - $ref: '#/components/parameters/WebhookSignatureHeader'
-        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
-        - $ref: '#/components/parameters/WebhookEventSeqHeader'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WebhookRecordUnpublished'
-      responses:
-        '2XX':
-          description: Acknowledged.
-  webhook.test:
-    post:
-      operationId: webhookTest
-      summary: Test delivery requested via `POST /v1/webhooks/{webhook_id}/test`
-      x-tier: api
-      x-prd-stories: [US-703]
-      parameters:
-        - $ref: '#/components/parameters/WebhookSignatureHeader'
-        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WebhookTest'
-      responses:
-        '2XX':
-          description: Acknowledged.
   /v1/privacy/requests:
     post:
       operationId: createPrivacyRequest
@@ -5455,6 +5347,114 @@ webhooks:
               schema:
                 $ref: '#/components/schemas/PrivacyRequestAdminResponse'
         <<: *common_errors
+
+# ───────────────────────────── §9.1 Outbound webhooks — API tier, scope write:webhooks ─────────────────────────────
+webhooks:
+  event.published:
+    post:
+      operationId: webhookEventPublished
+      summary: An event matching the endpoint's query was published to the key's tier
+      description: |
+        Delivered as `POST` JSON to the endpoint URL with headers `X-Platform-Signature`
+        (`t=<unix>,v1=<hex HMAC-SHA256 of "t.body">`, 5-minute tolerance), `X-Platform-Delivery-Id` and
+        `X-Platform-Event-Seq`. A `2xx` within 10 s is success. Retries: 5 attempts over ~6 hours with exponential
+        backoff and jitter; then the delivery is `failed`; after 24 consecutive failures the endpoint is `paused`
+        and the account emailed. Ordering is by `seq` per endpoint but not guaranteed across retries; dedupe on
+        `data.event.id`. The payload is tier-filtered and licence-gated exactly like a `GET` on the same key.
+      x-tier: api
+      x-prd-stories: [US-703, US-502]
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignatureHeader'
+        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
+        - $ref: '#/components/parameters/WebhookEventSeqHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEventPublished'
+            examples:
+              status_change:
+                $ref: '#/components/examples/WebhookEventPublished'
+      responses:
+        '2XX':
+          description: Acknowledged. Any other status, or no response within 10 s, is retried.
+  match.added:
+    post:
+      operationId: webhookMatchAdded
+      summary: A match was added on a subject matching the endpoint's query
+      x-tier: api
+      x-prd-stories: [US-703, US-401]
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignatureHeader'
+        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
+        - $ref: '#/components/parameters/WebhookEventSeqHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookMatchChanged'
+      responses:
+        '2XX':
+          description: Acknowledged.
+  match.removed:
+    post:
+      operationId: webhookMatchRemoved
+      summary: A match was removed
+      x-tier: api
+      x-prd-stories: [US-703, US-401]
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignatureHeader'
+        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
+        - $ref: '#/components/parameters/WebhookEventSeqHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookMatchChanged'
+      responses:
+        '2XX':
+          description: Acknowledged.
+  record.unpublished:
+    post:
+      operationId: webhookRecordUnpublished
+      summary: A record previously delivered to this endpoint was unpublished or taken down
+      description: Consumers must stop displaying the record (US-905 AC2). The payload carries the public id and the reason class only, never the takedown text.
+      x-tier: api
+      x-prd-stories: [US-703, US-905]
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignatureHeader'
+        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
+        - $ref: '#/components/parameters/WebhookEventSeqHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookRecordUnpublished'
+      responses:
+        '2XX':
+          description: Acknowledged.
+  webhook.test:
+    post:
+      operationId: webhookTest
+      summary: Test delivery requested via `POST /v1/webhooks/{webhook_id}/test`
+      x-tier: api
+      x-prd-stories: [US-703]
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignatureHeader'
+        - $ref: '#/components/parameters/WebhookDeliveryIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookTest'
+      responses:
+        '2XX':
+          description: Acknowledged.
 
 components:
   # ───────────────────────────── §5 Authentication and key scopes ─────────────────────────────
