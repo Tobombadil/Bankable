@@ -1067,7 +1067,7 @@ The page's entire download block is one custom element. Verbatim from the retrie
 
 The FAQ accordion on the same page:
 
-> **How do I cite this data?** Please refer to the [Download data page](/projects/global-energy-ownership-tracker#download) for citation guidance.
+> **How do I cite this data?** Please refer to the [Download data page](https://globalenergymonitor.org/projects/global-energy-ownership-tracker#download) for citation guidance.
 
 — where that link is an anchor back to the element quoted above, on the same page. The site footer:
 
