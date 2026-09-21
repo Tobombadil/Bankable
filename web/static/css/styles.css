@@ -468,6 +468,16 @@ h3 { font-size: var(--text-4); }
 .filter-notice__text { flex: 1 1 24rem; }
 .filter-notice__undo { flex: none; font-weight: 600; white-space: nowrap; }
 
+/* ---------- 5.x Ownership claims (company page, 2026-09-20) ----------
+   The date and source that qualify "X is owned by Y". Set beside the name rather than in a
+   footnote: the claim and its date are one fact, and an ownership claim with no date is the
+   failure this markup exists to make visible, so the undated variant is marked, not hidden. */
+.ownership-claim {
+  display: block; margin-block-start: var(--space-1);
+  font-size: var(--text-1); color: var(--text-muted);
+}
+.ownership-claim--undated { font-style: italic; }
+
 /* ---------- 6.1 Count chips (the `/assets` index's by-type totals) ----------
    A row of filter links, not buttons: each one is a real URL a crawler can follow, which is the
    point of the index (docs/50 §4.4). Tokens only -- ink on surface, the selected one carrying the

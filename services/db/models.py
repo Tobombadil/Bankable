@@ -357,6 +357,13 @@ class Organization(Base, TimestampMixin):
     #: record's last update). NULL for a curated link, which cites when a page was read, not when
     #: the ownership began. The counterpart of `asset_owner.as_of` on the organisation row.
     parent_as_of: Mapped[dt.date | None] = mapped_column(sa.Date)
+    #: Migration 0017 (2026-09-20), docs/21 §3.5: the stake the parent holds in this organisation,
+    #: 0.000–100.000, where a source states one. NULL means no source stated a stake — never zero
+    #: and never an assumed 100. Neither loaded parent source carries a percentage (GLEIF Level 2
+    #: asserts accounting consolidation, the curated file cites a company's own systems list), so
+    #: every row is NULL today; the column exists so the percentage-stake chains the next ownership
+    #: dataset models do not require the edge to be rebuilt. Mirrors `asset_owner.share_pct`.
+    parent_share_pct: Mapped[float | None] = mapped_column(sa.Numeric(6, 3))
 
 
 # ====================================================================== organization_alias (§3.6)

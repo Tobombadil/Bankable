@@ -865,7 +865,12 @@ paths:
       operationId: listOrganizationProposals
       tags: [Organizations, Proposals]
       summary: Proposals sponsored by the organization
-      description: Same shape and filters as `GET /v1/proposals`, scoped to `sponsor_org_id` (US-203 AC1).
+      description: >-
+        Same shape and filters as `GET /v1/proposals`, scoped to `sponsor_org_id` (US-203 AC1).
+        `scope` widens that to every organisation below this one in the ownership tree (2026-09-20): a holding
+        company sponsors nothing itself, its operating companies do, so `scope=self` — still the default, because
+        widening an existing list endpoint's default would change what every current caller's counts mean — is an
+        honest empty page for a group parent. The response's `scope` block says how the set was gathered.
       x-tier: public
       x-status: planned
       x-sprint: 2
@@ -879,6 +884,8 @@ paths:
         - $ref: '#/components/parameters/Technology'
         - $ref: '#/components/parameters/LifecycleState'
         - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/OrganizationScope'
+        - $ref: '#/components/parameters/IncludeSubsidiaries'
       responses:
         '200':
           description: A page of proposals.
@@ -886,7 +893,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProposalListResponse'
+                $ref: '#/components/schemas/OrganizationProposalsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
@@ -1403,6 +1412,7 @@ paths:
             minimum: 0
             maximum: 22
         - $ref: '#/components/parameters/AssetOrganizationFilter'
+        - $ref: '#/components/parameters/OrganizationScope'
         - $ref: '#/components/parameters/IncludeSubsidiaries'
         - $ref: '#/components/parameters/AssetType'
         - $ref: '#/components/parameters/Technology'
@@ -1641,6 +1651,7 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/AssetOwnerRoleFilter'
         - $ref: '#/components/parameters/AssetType'
+        - $ref: '#/components/parameters/OrganizationScope'
         - $ref: '#/components/parameters/IncludeSubsidiaries'
       responses:
         '200':
@@ -1686,6 +1697,7 @@ paths:
         - $ref: '#/components/parameters/AssetOwnerRoleFilter'
         - $ref: '#/components/parameters/AssetType'
         - $ref: '#/components/parameters/Technology'
+        - $ref: '#/components/parameters/OrganizationScope'
         - $ref: '#/components/parameters/IncludeSubsidiaries'
       responses:
         '200':
@@ -5778,13 +5790,38 @@ components:
     IncludeSubsidiaries:
       name: include_subsidiaries
       in: query
+      deprecated: true
       description: >-
-        `true` also spans the organisation's direct subsidiaries (`parent_org_id` links, one level): the group
-        parent the ownership lane links (e.g. a holding company over nine operating pipeline companies) holds no
-        `asset_owner` edge of its own. Default `false`.
+        **Deprecated 2026-09-20; use `scope`.** `true` also spans the organisation's direct subsidiaries
+        (`parent_org_id` links, one level): the group parent the ownership lane links (e.g. a holding company over
+        nine operating pipeline companies) holds no `asset_owner` edge of its own. Default `false`.
+
+
+        Its meaning is unchanged and will not change: `true` is exactly `scope=children`, `false` is
+        `scope=self`. The walk became recursive on 2026-09-20 and the wider behaviour is `scope=all`, which has to
+        be asked for — silently widening a published parameter would change what an existing caller's counts mean
+        with nothing in the response saying so. Sending both `scope` and `include_subsidiaries` is a `400`.
       schema:
         type: boolean
         default: false
+    OrganizationScope:
+      name: scope
+      in: query
+      description: >-
+        How far down the ownership tree (`organization.parent_org_id`) the query reaches.
+        `self` — this organisation alone (default).
+        `children` — it and its direct subsidiaries; identical to the deprecated `include_subsidiaries=true`.
+        `all` — the full descent, every organisation below it at any depth.
+
+
+        The descent carries a visited set, so a cycle in the ownership graph costs each organisation one visit
+        rather than hanging the request, and it is bounded at 10 levels and 500 organisations. Whenever a bound
+        bites, the response's `scope` block says so (`depth_capped`, `truncated`, `cycle_detected`) — a truncated
+        ownership scope is never presented as a complete one.
+      schema:
+        type: string
+        enum: [self, children, all]
+        default: self
     AssetOwnerRoleFilter:
       name: role
       in: query
@@ -7937,6 +7974,36 @@ components:
             created_by:
               type: string
               enum: [pipeline, model, user]
+    OwnershipEdge:
+      type: object
+      description: >-
+        One `child -> parent` ownership link with the provenance of the claim (docs/21 §3.5:
+        `organization.parent_org_id`, `parent_source_id`, `parent_as_of`, `parent_share_pct`).
+
+
+        `as_of` and `share_pct` are nullable and are **not** omitted when null. A rendered ownership claim with
+        no date is a claim about today made from a file that may state any year, so the null is part of the
+        answer and a surface showing the parent has to show it ("no date recorded"). `share_pct` is null on every
+        row today: neither loaded parent source states a percentage — GLEIF Level 2 asserts accounting
+        consolidation, and the curated file cites a company's own list of the systems it operates — and nothing
+        infers one.
+      required: [organization, source_id, as_of, share_pct]
+      properties:
+        organization:
+          description: The parent.
+          $ref: '#/components/schemas/OrganizationSummary'
+        source_id:
+          type: [string, 'null']
+          description: '`source.id` the link was read from (e.g. `global.gleif.lei`, `curated.organization_parents`).'
+        as_of:
+          type: [string, 'null']
+          format: date
+          description: The date the link is stated as of. Null where the source publishes none.
+        share_pct:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 100
+          description: The stake the parent holds, where a source states one. Null means "not stated", never zero and never an assumed 100.
     Organization:
       type: object
       description: docs/21 §3.5. Holds no personal data.
@@ -8002,13 +8069,45 @@ components:
         asset_counts:
           $ref: '#/components/schemas/OrganizationAssetTotals'
         group_asset_counts:
-          description: '`asset_counts` over the organisation and its direct subsidiaries together; equals `asset_counts` when it has none. Detail responses only.'
+          description: >-
+            `asset_counts` over the whole group — the organisation and every organisation below it at any depth
+            (`scope=all`); equals `asset_counts` when it has no subsidiaries. Detail responses only. Was the
+            organisation and its *direct* subsidiaries until 2026-09-20; the shape is unchanged and so is the
+            number for every tree only one level deep.
           $ref: '#/components/schemas/OrganizationAssetTotals'
+        group_proposal_count:
+          type: integer
+          minimum: 0
+          description: Visible proposals sponsored by any organisation in the group. Detail responses only.
+        group_opportunity_count:
+          type: integer
+          minimum: 0
+          description: Visible opportunities issued by any organisation in the group. Detail responses only.
+        group_scope:
+          description: How the group was gathered, and whether it is complete. Detail responses only.
+          $ref: '#/components/schemas/OrganizationScopeMeta'
         parent:
-          description: GLEIF Level 2 direct parent (`parent_org_id`), or null. Detail responses only.
+          description: Direct parent (`parent_org_id`), or null. Detail responses only. `parent_edge` carries the same link with its provenance.
           oneOf:
             - $ref: '#/components/schemas/OrganizationSummary'
             - type: 'null'
+        parent_edge:
+          description: >-
+            The direct-parent link *with the provenance of the claim*, or null. Detail responses only
+            (2026-09-20). `parent` alone states who owns this organisation without saying when that was true or
+            where it was read, which for an ownership graph is half the fact missing.
+          oneOf:
+            - $ref: '#/components/schemas/OwnershipEdge'
+            - type: 'null'
+        ancestors:
+          type: array
+          description: >-
+            The chain above this organisation, **root first**, one entry per link — the breadcrumbs a page
+            renders (holding company / operating company / this one). Empty when there is no parent. Bounded at
+            10 links and cycle-safe. Detail responses only (2026-09-20).
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/OwnershipEdge'
         subsidiaries:
           type: array
           description: Organisations whose `parent_org_id` is this one, name order, at most 50. Detail responses only.
@@ -8018,6 +8117,13 @@ components:
         subsidiary_count:
           type: integer
           minimum: 0
+          description: Direct subsidiaries, however many `subsidiaries` lists.
+        descendant_count:
+          type: integer
+          minimum: 0
+          description: >-
+            Organisations below this one at *any* depth. Detail responses only (2026-09-20). Differs from
+            `subsidiary_count` exactly when a subsidiary has subsidiaries of its own.
         provenance:
           type: array
           items:
@@ -8986,6 +9092,61 @@ components:
               format: date
             held_by:
               $ref: '#/components/schemas/OrganizationSummary'
+    OrganizationScopeMeta:
+      type: object
+      description: >-
+        How the ownership scope for this response was gathered, and whether it is complete. Present on every
+        endpoint that takes `scope`. `depth_capped`, `truncated` and `cycle_detected` are the three ways the walk
+        can stop short of the whole group; a caller that shows a group total must show these too, or a capped
+        group reads as a small one.
+      required: [scope, organizations, depth, depth_capped, truncated, cycle_detected, max_depth, max_organizations]
+      properties:
+        scope:
+          type: string
+          enum: [self, children, all]
+          description: What was asked for.
+        organizations:
+          type: integer
+          minimum: 1
+          description: Organisations the scope spans, the subject included.
+        depth:
+          type: integer
+          minimum: 0
+          description: Levels actually walked below the subject. `0` for `scope=self`, and for a subject with no subsidiaries.
+        depth_capped:
+          type: boolean
+          description: '`true` when the walk stopped at `max_depth` with organisations still below it.'
+        truncated:
+          type: boolean
+          description: '`true` when the walk stopped at `max_organizations`.'
+        cycle_detected:
+          type: boolean
+          description: >-
+            `true` when an organisation was reached twice — a cycle, or two parents naming the same child. It was
+            visited once; nothing was dropped and nothing looped.
+        max_depth:
+          type: integer
+          description: The level bound in force (10).
+        max_organizations:
+          type: integer
+          description: The organisation-count bound in force (500).
+    OrganizationPortfolioRow:
+      type: object
+      description: >-
+        One organisation inside a scope that actually holds `asset_owner` edges, with how many assets it holds.
+        This is what a fund-level page renders instead of a map: a scope spanning dozens of portfolio companies
+        has no readable map, and "which companies, holding how much" is the answer a reader at that level wants.
+      required: [organization, assets, by_type]
+      properties:
+        organization:
+          $ref: '#/components/schemas/OrganizationSummary'
+        assets:
+          type: integer
+          minimum: 1
+        by_type:
+          type: object
+          additionalProperties:
+            type: integer
     OrganizationAssetTotals:
       type: object
       description: The organisation's visible assets through `asset_owner`, counted over the whole set (not the page).
@@ -9012,6 +9173,27 @@ components:
             type: object
             additionalProperties:
               type: integer
+        by_organization:
+          type: array
+          description: >-
+            The portfolio breakdown: one row per organisation in scope holding at least one visible asset,
+            largest holding first, at most 100 rows. A single-organisation scope produces one row.
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/OrganizationPortfolioRow'
+        organization_count:
+          type: integer
+          minimum: 0
+          description: Organisations in scope holding at least one visible asset, whether or not `by_organization` lists them all.
+        scope:
+          $ref: '#/components/schemas/OrganizationScopeMeta'
+    OrganizationProposalsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ProposalListResponse'
+        - type: object
+          properties:
+            scope:
+              $ref: '#/components/schemas/OrganizationScopeMeta'
     OrganizationAssetsResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'
@@ -9024,6 +9206,8 @@ components:
                 $ref: '#/components/schemas/OrganizationAssetRow'
             totals:
               $ref: '#/components/schemas/OrganizationAssetTotals'
+            scope:
+              $ref: '#/components/schemas/OrganizationScopeMeta'
     AssetListResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'
@@ -9084,6 +9268,12 @@ components:
                   type: integer
                   minimum: 0
                   description: Assets with servable geometry that distances were measured from (≤ 200).
+                assets_in_scope:
+                  type: integer
+                  minimum: 0
+                  description: >-
+                    Assets the scope's organisations hold that reached the 200-asset cap's input — the number
+                    `assets_considered` was taken from, so a scope whose assets were capped says so.
                 proposals_within_radius:
                   type: integer
                   minimum: 0
@@ -9097,6 +9287,8 @@ components:
                     The same count ignoring `technology`, so a caller can say "N of M" rather than showing a
                     shortened list with no denominator. Equal to `proposals_within_radius` when no `technology`
                     is given.
+            scope:
+              $ref: '#/components/schemas/OrganizationScopeMeta'
 
     # ---------- Region polygons (docs/23 §3.1, ADR 0008) ----------
     RegionFeature:

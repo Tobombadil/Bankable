@@ -1079,7 +1079,7 @@ def test_organization_detail_lists_proposals_near_its_assets_with_nearest_asset(
     assert 'nearest: <a href="/assets/rockies-express-pipeline">Rockies Express Pipeline</a>' in section
     assert 'class="mini-map__proposal"' in body  # drawn on the company map too
     calls = [c for c in transport.calls if c[1].endswith("/nearby-proposals")]
-    assert calls and calls[0][2] == {"limit": 50, "include_subsidiaries": "true"}
+    assert calls and calls[0][2] == {"limit": 50, "scope": "all"}
 
 
 def test_organization_detail_survives_a_missing_nearby_endpoint(web_client: TestClient) -> None:
@@ -1245,9 +1245,11 @@ def test_organization_detail_requests_the_group_and_names_the_holding_subsidiary
 
     assert resp.status_code == 200
     asset_calls = [c for c in transport.calls if c[1] == "/v1/organizations/org_01TALLGRASS/assets"]
-    assert asset_calls and asset_calls[0][2].get("include_subsidiaries") == "true"
+    # 2026-09-20: `scope=all` replaced `include_subsidiaries=true` as the page's group request --
+    # the whole descent rather than one level.
+    assert asset_calls and asset_calls[0][2].get("scope") == "all"
     nearby_calls = [c for c in transport.calls if c[1].endswith("/nearby-proposals")]
-    assert nearby_calls and nearby_calls[0][2].get("include_subsidiaries") == "true"
+    assert nearby_calls and nearby_calls[0][2].get("scope") == "all"
     pipelines_table = resp.text.split('id="assets-operator-gas_pipeline"')[1].split("</table>")[0]
     assert "Held by" in pipelines_table
     assert 'href="/organizations/rockies-express-pipeline">Rockies Express Pipeline</a>' in pipelines_table

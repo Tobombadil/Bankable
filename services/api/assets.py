@@ -68,6 +68,7 @@ from services.api.lines import (
     simplify_parts,
     tolerance_for_zoom,
 )
+from services.api.orgtree import OwnershipEdge, org_ancestors, org_scope, scope_from_request, scope_ids
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import check_allowed, csv_param
 from services.api.serialize import (
@@ -760,19 +761,21 @@ ORGANIZATION_GEO_DEFAULT_BBOX: Bbox = (-180.0, -90.0, 180.0, 90.0)
 ORGANIZATION_GEO_DEFAULT_ZOOM = 5
 
 
-def _organization_asset_ids(db: Session, org_public_ids: list[str], include_subsidiaries: bool) -> set[str]:
+def _organization_asset_ids(db: Session, org_public_ids: list[str], scope: str) -> set[str]:
     """Ids of the assets any of `org_public_ids` owns or operates (`asset_owner`, either role),
-    plus their direct subsidiaries' when `include_subsidiaries`. An unknown organisation simply
-    matches nothing, as `GET /v1/assets?organization=` does."""
-    org_ids = select(Organization.id).where(Organization.public_id.in_(org_public_ids))
-    holder: sa.ColumnElement[bool] = Organization.id.in_(org_ids)
-    if include_subsidiaries:
-        holder = sa.or_(holder, Organization.parent_org_id.in_(org_ids))
-    stmt = (
-        select(sa.cast(AssetOwner.asset_id, sa.Text))
-        .join(Organization, Organization.id == AssetOwner.organization_id)
-        .where(holder)
-    )
+    widened down the ownership tree by `scope` (`services/api/orgtree.py`). An unknown
+    organisation simply matches nothing, as `GET /v1/assets?organization=` does.
+
+    Each named organisation is scoped separately and the id sets unioned, rather than one walk
+    from a synthetic multi-root: the walks share a `MAX_SCOPE_ORGS` budget only per organisation,
+    which is the right shape here because `organization=` is already a bounded CSV of names the
+    caller typed."""
+    holders: set[Any] = set()
+    for org in db.scalars(select(Organization).where(Organization.public_id.in_(org_public_ids))).all():
+        holders.update(scope_ids(db, org, scope))
+    if not holders:
+        return set()
+    stmt = select(sa.cast(AssetOwner.asset_id, sa.Text)).where(AssetOwner.organization_id.in_(list(holders)))
     return set(db.scalars(stmt).all())
 
 
@@ -794,7 +797,7 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
     technologies = _technology_filter_values(request)
     countries = _country_filter_values(request)
     org_asset_ids = (
-        _organization_asset_ids(db, org_filter, _include_subsidiaries_param(request))
+        _organization_asset_ids(db, org_filter, scope_from_request(request))
         if org_filter is not None
         else None
     )
@@ -875,7 +878,16 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
 def get_assets_geo(request: Request, db: Annotated[Session, Depends(get_db)]) -> Any:
     check_allowed(
         request,
-        {"bbox", "zoom", "asset_type", "technology", "country", "organization", "include_subsidiaries"},
+        {
+            "bbox",
+            "zoom",
+            "asset_type",
+            "technology",
+            "country",
+            "organization",
+            "scope",
+            "include_subsidiaries",
+        },
     )
     return _asset_geo_impl(request, db, forced_asset_type=None)
 
@@ -1202,55 +1214,43 @@ def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Sessio
 
 
 # ---------------------------------------------------------------------- organization -> assets
-def _subsidiary_ids(db: Session, org: Organization) -> list[Any]:
-    """Ids of the organisations whose `parent_org_id` is `org` (one level, the GLEIF/curated
-    direct-parent edge; not merged away)."""
-    return list(
-        db.scalars(
-            select(Organization.id).where(
-                Organization.parent_org_id == org.id, Organization.merged_into_id.is_(None)
-            )
-        ).all()
-    )
+# The walk down the ownership tree moved to `services/api/orgtree.py` on 2026-09-20 and became
+# recursive (`scope=self|children|all`, visited set, depth cap). What was `_subsidiary_ids` /
+# `_org_scope_ids` / `_include_subsidiaries_param` here is `org_scope` / `scope_from_request`
+# there, so `services/api/app.py` can scope the sponsored-proposals list through the same code.
 
 
-def _org_scope_ids(db: Session, org: Organization, include_subsidiaries: bool) -> list[Any]:
-    """The organisation ids an "organisation's assets" query spans: the organisation itself, plus
-    its direct subsidiaries when asked (`include_subsidiaries=true`). The group parent the data
-    lane links (e.g. Tallgrass Energy -> nine operating subsidiaries) holds no `asset_owner` edge
-    of its own, so a company page for the parent reads the group's assets through this."""
-    ids: list[Any] = [org.id]
-    if include_subsidiaries:
-        ids.extend(_subsidiary_ids(db, org))
-    return ids
+#: Portfolio rows (`totals.by_organization`) one response carries. A fund page lists the companies
+#: it holds rather than their assets, so this is the cap on that list; beyond it the response says
+#: `organization_count` and the page links to the subsidiaries index instead of pretending to be
+#: complete.
+PORTFOLIO_CAP = 100
 
 
-def _include_subsidiaries_param(request: Request) -> bool:
-    v = request.query_params.get("include_subsidiaries")
-    if v is None:
-        return False
-    if v.lower() in ("true", "1"):
-        return True
-    if v.lower() in ("false", "0"):
-        return False
-    raise validation_error(
-        "include_subsidiaries", "include_subsidiaries must be true or false", request.url.path
-    )
-
-
-def organization_asset_totals(
-    db: Session, org: Organization, *, include_subsidiaries: bool = False
-) -> dict[str, Any]:
+def organization_asset_totals(db: Session, org: Organization, *, scope: str = "self") -> dict[str, Any]:
     """Counts of the organisation's visible assets through `asset_owner`, for the company page's
     "operates 3 pipelines, owns 2 plants" line: `assets` (distinct), `by_role`, `by_type` (both
-    distinct assets per key) and `by_role_and_type`. An asset the organisation both owns and
-    operates counts once in `assets` and `by_type`, and once under each role. With
-    `include_subsidiaries` the direct subsidiaries' edges are counted too."""
+    distinct assets per key), `by_role_and_type`, and `by_organization` -- the portfolio breakdown,
+    one row per organisation in scope that actually holds an edge. An asset the organisation both
+    owns and operates counts once in `assets` and `by_type`, and once under each role.
+
+    `scope` widens the set down the ownership tree (`services/api/orgtree.py`). `by_organization`
+    is what makes a fund-level page renderable: with a scope spanning dozens of portfolio
+    companies, "1,400 assets" is not a page, and "Tallgrass Energy 10, Rockies Express 49, ..." is.
+    It costs nothing extra -- the same single query already reads one row per (edge, asset) and
+    only the group-by in Python changes.
+    """
+    org_scope_result = org_scope(db, org, scope)
     stmt = (
-        select(AssetOwner.role, Asset.asset_type, sa.cast(Asset.id, sa.Text))
+        select(
+            AssetOwner.role,
+            Asset.asset_type,
+            sa.cast(Asset.id, sa.Text),
+            sa.cast(AssetOwner.organization_id, sa.Text),
+        )
         .join(Asset, Asset.id == AssetOwner.asset_id)
         .where(
-            AssetOwner.organization_id.in_(_org_scope_ids(db, org, include_subsidiaries)),
+            AssetOwner.organization_id.in_(org_scope_result.ids),
             *asset_visibility_filter(),
         )
         .distinct()
@@ -1258,11 +1258,15 @@ def organization_asset_totals(
     by_role: dict[str, set[str]] = defaultdict(set)
     by_type: dict[str, set[str]] = defaultdict(set)
     by_role_and_type: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    per_org: dict[str, set[str]] = defaultdict(set)
+    per_org_types: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     all_ids: set[str] = set()
-    for role, asset_type, asset_id in db.execute(stmt).all():
+    for role, asset_type, asset_id, holder_id in db.execute(stmt).all():
         by_role[role].add(asset_id)
         by_type[asset_type].add(asset_id)
         by_role_and_type[role][asset_type] += 1
+        per_org[holder_id].add(asset_id)
+        per_org_types[holder_id][asset_type].add(asset_id)
         all_ids.add(asset_id)
     return {
         "assets": len(all_ids),
@@ -1271,17 +1275,78 @@ def organization_asset_totals(
         "by_role_and_type": {
             role: dict(sorted(types.items())) for role, types in sorted(by_role_and_type.items())
         },
+        **_portfolio_rows(db, per_org, per_org_types),
+        "scope": org_scope_result.as_meta(),
     }
+
+
+def _portfolio_rows(
+    db: Session,
+    per_org: dict[str, set[str]],
+    per_org_types: dict[str, dict[str, set[str]]],
+) -> dict[str, Any]:
+    """`by_organization` (largest holding first, `PORTFOLIO_CAP` rows) and `organization_count`
+    (every holder, capped or not), resolved to organisation summaries in one query."""
+    ranked = sorted(per_org.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:PORTFOLIO_CAP]
+    if not ranked:
+        return {"by_organization": [], "organization_count": 0}
+    wanted = [key for key, _ in ranked]
+    orgs = {
+        str(o.id): o
+        for o in db.scalars(select(Organization).where(sa.cast(Organization.id, sa.Text).in_(wanted))).all()
+    }
+    rows = []
+    for key, asset_ids in ranked:
+        holder = orgs.get(key)
+        if holder is None:  # pragma: no cover - the edge's FK guarantees the row
+            continue
+        rows.append(
+            {
+                "organization": serialize_organization_summary(holder),
+                "assets": len(asset_ids),
+                "by_type": {t: len(ids) for t, ids in sorted(per_org_types[key].items())},
+            }
+        )
+    return {"by_organization": rows, "organization_count": len(per_org)}
 
 
 SUBSIDIARY_CAP = 50
 
 
+def serialize_ownership_edge(edge: OwnershipEdge) -> dict[str, Any]:
+    """One `child -> parent` claim as the API states it: who, from what source, as of when, for
+    what stake -- with the nulls kept.
+
+    `as_of: null` is not omitted and not softened. A company page that prints "parent: X" with no
+    date is asserting a fact about today from a file that may state any year, which is exactly the
+    failure this field exists to make visible, so the null travels to the renderer and the
+    renderer says "no date recorded" (2026-09-20 brief). Same for `share_pct`: no loaded source
+    states a percentage, so every value is null today and nothing here fills one in.
+    """
+    return {
+        "organization": serialize_organization_summary(edge.parent),
+        "source_id": edge.source_id,
+        "as_of": edge.as_of.isoformat() if edge.as_of is not None else None,
+        "share_pct": edge.share_pct,
+    }
+
+
 def organization_hierarchy(db: Session, org: Organization) -> dict[str, Any]:
-    """`parent` (the GLEIF Level 2 direct parent, docs/21 §3.5 `parent_org_id`) as an organisation
-    summary or `null`, `subsidiaries` (organisations whose `parent_org_id` is this one, name order,
-    at most `SUBSIDIARY_CAP`) and `subsidiary_count` (the full number)."""
+    """Where this organisation sits in the ownership tree, in both directions.
+
+    * `parent` -- the direct parent as an organisation summary, or `null` (unchanged).
+    * `parent_edge` -- that same link with its provenance: `source_id`, `as_of`, `share_pct`
+      (2026-09-20). `parent` alone was an undated ownership claim.
+    * `ancestors` -- the chain above, **root first**, one `parent_edge`-shaped entry per link, so
+      a page renders breadcrumbs (Blackstone / Tallgrass / Trailblazer) without walking the API
+      one request per level. Bounded and cycle-safe (`services/api/orgtree.py`).
+    * `subsidiaries` / `subsidiary_count` -- the direct children, name order, `SUBSIDIARY_CAP`
+      rows (unchanged).
+    * `descendant_count` -- every organisation below this one at any depth, which is what a
+      holding company's page has to say instead of the direct count.
+    """
     parent = db.get(Organization, org.parent_org_id) if org.parent_org_id is not None else None
+    ancestors = org_ancestors(db, org)
     subs_stmt = (
         select(Organization)
         .where(Organization.parent_org_id == org.id, Organization.merged_into_id.is_(None))
@@ -1300,8 +1365,11 @@ def organization_hierarchy(db: Session, org: Organization) -> dict[str, Any]:
         )
     return {
         "parent": serialize_organization_summary(parent) if parent is not None else None,
+        "parent_edge": serialize_ownership_edge(ancestors[0]) if ancestors else None,
+        "ancestors": [serialize_ownership_edge(e) for e in reversed(ancestors)],
         "subsidiaries": [serialize_organization_summary(s) for s in subs[:SUBSIDIARY_CAP]],
         "subsidiary_count": count,
+        "descendant_count": org_scope(db, org, "all").organizations - 1,
     }
 
 
@@ -1309,7 +1377,15 @@ def organization_hierarchy(db: Session, org: Organization) -> dict[str, Any]:
 def list_organization_assets(
     public_id: str, request: Request, db: Annotated[Session, Depends(get_db)]
 ) -> Any:
-    check_allowed(request, {"limit", "cursor", "role", "asset_type", "include_subsidiaries"})
+    """The organisation's assets through `asset_owner`, one row per edge.
+
+    `scope` (2026-09-20) widens the set down the ownership tree: `self`, `children` (the direct
+    subsidiaries — what the deprecated `include_subsidiaries=true` has always meant and still
+    means) or `all` (the full descent). `totals` counts the whole scope regardless of paging or
+    the `role`/`asset_type` filters and carries the portfolio breakdown; the `scope` block says
+    how many organisations were spanned and whether any bound stopped the walk.
+    """
+    check_allowed(request, {"limit", "cursor", "role", "asset_type", "scope", "include_subsidiaries"})
     org = db.scalar(select(Organization).where(Organization.public_id == public_id))
     if org is None:
         raise not_found(request.url.path)
@@ -1317,12 +1393,12 @@ def list_organization_assets(
     limit = clamp_limit(_int_param(request, "limit"))
     roles = _role_filter_values(request)
     asset_types = _asset_type_filter_values(request)
-    include_subsidiaries = _include_subsidiaries_param(request)
-    scope = _org_scope_ids(db, org, include_subsidiaries)
+    scope = scope_from_request(request)
+    org_scope_result = org_scope(db, org, scope)
     stmt = (
         select(AssetOwner)
         .join(Asset, Asset.id == AssetOwner.asset_id)
-        .where(AssetOwner.organization_id.in_(scope), *asset_visibility_filter())
+        .where(AssetOwner.organization_id.in_(org_scope_result.ids), *asset_visibility_filter())
         .options(selectinload(AssetOwner.asset), selectinload(AssetOwner.organization))
     )
     if roles is not None:
@@ -1359,7 +1435,8 @@ def list_organization_assets(
         licence_summary=build_licence_summary(licence_rows),
         page=build_page(next_cursor, None, has_more),
     )
-    env["totals"] = organization_asset_totals(db, org, include_subsidiaries=include_subsidiaries)
+    env["totals"] = organization_asset_totals(db, org, scope=scope)
+    env["scope"] = org_scope_result.as_meta()
     return env
 
 
@@ -1379,8 +1456,18 @@ def list_organization_nearby_proposals(
     reports both the filtered count and the count the filter was taken from, so a caller can say
     "N of M" honestly (the company page does exactly that, 2026-09-20). The cost of the wider
     candidate load is bounded by the bounding box either way, so the SQL cut would only save
-    distance arithmetic on rows already in memory."""
-    check_allowed(request, {"radius_km", "limit", "role", "asset_type", "include_subsidiaries", "technology"})
+    distance arithmetic on rows already in memory.
+
+    `scope` (2026-09-20) widens the asset set down the ownership tree. The cost of a large scope
+    is bounded where it was already bounded: `ORG_NEARBY_ASSET_CAP` assets are measured from
+    whatever the scope spans, and `totals.assets_in_scope` now says how many the cap was taken
+    from, so a fund whose assets were cut is visible instead of silently short. The candidate
+    proposal load stays one query over the union of the measured assets' padded boxes -- widening
+    the scope widens that box, it does not multiply the queries."""
+    check_allowed(
+        request,
+        {"radius_km", "limit", "role", "asset_type", "scope", "include_subsidiaries", "technology"},
+    )
     org = db.scalar(select(Organization).where(Organization.public_id == public_id))
     if org is None:
         raise not_found(request.url.path)
@@ -1389,13 +1476,13 @@ def list_organization_nearby_proposals(
     roles = _role_filter_values(request)
     asset_types = _asset_type_filter_values(request)
     technologies = _technology_filter_values(request)
-    scope = _org_scope_ids(db, org, _include_subsidiaries_param(request))
+    org_scope_result = org_scope(db, org, scope_from_request(request))
 
     stmt = (
         select(Asset)
         .join(AssetOwner, AssetOwner.asset_id == Asset.id)
         .where(
-            AssetOwner.organization_id.in_(scope),
+            AssetOwner.organization_id.in_(org_scope_result.ids),
             sa.or_(Asset.geom.is_not(None), Asset.geom_line.is_not(None)),
             asset_geometry_permitted(),
             *asset_visibility_filter(),
@@ -1457,7 +1544,9 @@ def list_organization_nearby_proposals(
     )
     env["totals"] = {
         "assets_considered": considered,
+        "assets_in_scope": len(assets),
         "proposals_within_radius": len(ranked),
         "proposals_within_radius_unfiltered": within_radius_unfiltered,
     }
+    env["scope"] = org_scope_result.as_meta()
     return env

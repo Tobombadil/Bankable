@@ -25,6 +25,7 @@ import pathlib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
 import yaml
 
@@ -229,6 +230,16 @@ def _tail(shown: int, listed_cap: int | None, listed_projects: int | None) -> st
     return ""
 
 
+def _href(path: str, keep: Mapping[str, str] | None, **extra: str) -> str:
+    """`path` with `keep` (the page's other state, e.g. `scope=children`) and `extra` composed as
+    one query string. Added 2026-09-20 with the recursive ownership scope: the company page is now
+    a different page at each level of the tree, and a filter link that dropped `scope` would walk
+    the reader silently back up to the default level. With no `keep` the output is byte-identical
+    to the `f"{path}?..."` this replaced."""
+    params = {**(keep or {}), **extra}
+    return f"{path}?{urlencode(params)}" if params else path
+
+
 def nearby_notice(
     nearby_filter: NearbyFilter,
     *,
@@ -237,12 +248,16 @@ def nearby_notice(
     path: str,
     listed_cap: int | None,
     listed_projects: int | None = None,
+    keep: Mapping[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """The sentence above the list, and the link that undoes or applies the filter.
 
     Stated in whole words with both numbers in it, because the failure this guards against is a
     reader seeing a short list and concluding the coverage is thin (owner brief, 2026-09-20). The
     text is plain (Jinja escapes it); only the link is markup, so the sentence stays testable.
+
+    `keep` is the page state the links must carry through (the ownership `scope`); `path` stays a
+    bare path.
     """
     if shown is None or total is None:
         return None
@@ -256,7 +271,7 @@ def nearby_notice(
                 f"{nearby_filter.default.reason}.{capped}"
             ),
             "link_text": f"Show all {total}",
-            "link_href": f"{path}?{PARAM}={ALL}",
+            "link_href": _href(path, keep, **{PARAM: ALL}),
             "tone": "narrowed",
         }
     if nearby_filter.mode == "manual":
@@ -268,14 +283,14 @@ def nearby_notice(
                 f"you chose: {picked}.{capped}"
             ),
             "link_text": f"Show all {total}",
-            "link_href": f"{path}?{PARAM}={ALL}",
+            "link_href": _href(path, keep, **{PARAM: ALL}),
             "tone": "narrowed",
         }
     if nearby_filter.mode == "off" and nearby_filter.default is not None:
         return {
             "text": f"Showing all {total} nearby proposal{plural}, unfiltered.{capped}",
             "link_text": f"Narrow to {nearby_filter.default.label}",
-            "link_href": path,
+            "link_href": _href(path, keep),
             "tone": "all",
         }
     return {

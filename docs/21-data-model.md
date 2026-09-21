@@ -366,16 +366,33 @@ produces a `closed` event only after the DQ partial-file check passes (`docs/20`
 | `parent_org_id` | uuid | Yes | FK `organization` — the direct accounting parent, one hop (migration 0011) | `018f3e…` |
 | `parent_source_id` | text | Yes | FK `source` — which source stated the parent link | `global.gleif.lei` |
 | `parent_as_of` | date | Yes | The date the parent link is stated as of (migration 0015) | `2019-02-08` |
+| `parent_share_pct` | numeric(6,3) | Yes | The stake the parent holds, where a source states one (migration 0017) | `30.000` |
 | `first_seen`, `last_changed`, `publish_state`, `merged_into_id`, `search_tsv` | — | — | As §3.1 | — |
 
-**The parent triple.** `parent_org_id` is one hop, not a chain, and the three columns travel together: a company
+**The parent edge.** `parent_org_id` is one hop, not a chain, and the columns travel together: a company
 page may render a parent only alongside the source that stated it and the date it was stated as of. Two sources
 write them (docs/22 §17): GLEIF Level 2 (`global.gleif.lei`, CC0), which sets `parent_as_of` from the
 relationship's own period start, and the curated file (`curated.organization_parents`), which leaves
 `parent_as_of` NULL because a company page states a fact, not the date the ownership began. GLEIF wins where it
 has a record and the curated loader defers to it, so the two are order-independent. The LEI itself lives in
 `ids["lei"]`, written for both ends of every link GLEIF makes — never as a free-standing name match, which has
-not been evaluated.
+not been evaluated. Measured on the 2026-09-20 load: 298 links, 289 from GLEIF (all dated), 9 curated (none
+dated); of 137 rooted trees, 130 are one level deep, 5 are two and 2 are three (the deepest are ENEL - SPA and
+NEW JERSEY RESOURCES CORPORATION), and 9 organisations have a grandchild.
+
+`parent_share_pct` (migration 0017, 2026-09-20) is **NULL on every row and nothing infers a value**. Neither
+loaded source states a percentage — GLEIF Level 2 asserts accounting consolidation, which is a control claim
+rather than a stake, and the curated file cites a company's own list of the systems it operates. The column
+exists because the ownership dataset most likely to land next (Global Energy Monitor, subject to its licence)
+models ownership as chains of percentage stakes above a 5% threshold, and a boolean-only edge would have to be
+rebuilt to hold it. `0.000` and `100.000` are real values meaning what they say; NULL means "not stated". The
+expensive half of that future change — a stake belonging to a *set* of parents rather than one — is deliberately
+not taken, because no loaded source has produced a second parent for any organisation.
+
+**Walking the edge.** `services/api/orgtree.py` walks it in both directions for the API's `scope` parameter
+(`self` / `children` / `all`): breadth-first by level with a visited set, capped at 10 levels and 500
+organisations, with every cap and every re-entered node reported in the response rather than applied silently.
+The cycle guard is not hypothetical — two loaders write this column and neither sees the other's rows.
 
 Organisations hold **no personal data**. Named individuals in filings are stored as `organization_alias` rows or
 document references only (`docs/20` §11; `docs/02` §4 last row).
