@@ -283,6 +283,7 @@ def make_visible_proposal(
     lifecycle_state: str = "filed",
     technology: str = "bess_li_ion",
     jurisdiction: str = "US-TX",
+    proposed_online_date: dt.date | None = None,
 ) -> Proposal:
     from services.ids import public_id, slugify
 
@@ -303,6 +304,7 @@ def make_visible_proposal(
         source_count=1,
         sponsor_org_id=sponsor.id if sponsor else None,
         location_id=location.id if location else None,
+        proposed_online_date=proposed_online_date,
     )
     session.add(prop)
     session.flush()

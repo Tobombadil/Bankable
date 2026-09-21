@@ -62,6 +62,13 @@ from services.api.serialize import (
     serialize_proposal,
     serialize_source,
 )
+from services.api.slippage import (
+    SLIP_BUCKET_MAX_DAYS,
+    SLIP_BUCKETS,
+    SLIP_GRACE_DAYS,
+    slip_filter,
+)
+from services.api.slippage import today as slip_today
 from services.api.visibility import (
     event_public_filter,
     event_visibility_filter,
@@ -252,6 +259,10 @@ PROPOSAL_FILTERS = {
     "slug",
     "county_fips",
     "placement",
+    # Schedule slippage (services/api/slippage.py, docs/22 §18): derived at read time from
+    # `proposed_online_date` against the current date, never stored.
+    "slipped",
+    "slip_bucket",
 }
 PROPOSAL_SORT_ALLOWLIST = {"last_changed", "first_seen", "capacity_mw", "name_canonical"}
 
@@ -298,6 +309,63 @@ def _apply_placement_filter(
     return stmt.where(Proposal.location_id.in_(loc_subquery))
 
 
+def _apply_slip_filter(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]:
+    """`?slipped=true|false` and `?slip_bucket=under_1y,1_to_3y,over_3y`.
+
+    Both, rather than one or the other, because the distribution makes them answer different
+    questions. Measured on the 2026-09-21 load: 129 of 5,826 dated active proposals are slipped
+    (2.2 %) -- rare enough that a boolean is a usable way to find them at all -- but within those
+    129 the split is 67 / 48 / 14, and the buckets do not mean the same thing. A NESO "Consents
+    Approved" row eight months past its date is a live project with a late connection; the 14 rows
+    more than three years past are a different prospect entirely. With only a boolean, a caller
+    who wants the 14 has to pull all 129 and re-derive the threshold client-side, which is exactly
+    the kind of rule that then disagrees with ours.
+
+    `slipped=false` and a bucket list is the one contradictory pairing, and it is a 400 naming the
+    conflict rather than a 200 with an empty page: an empty page reads as "no such records",
+    which is a different and wrong answer (docs/04 API-3's rule that a request we cannot honour is
+    an error, never a silent no-op).
+    """
+    qp = request.query_params
+    # An empty value means "no filter" for both, as it does for every sibling filter here (the
+    # `if v := qp.get(name)` idiom below); a form that submits an unset control must not 400.
+    raw_slipped = qp.get("slipped") or None
+    raw_buckets = qp.get("slip_bucket")
+    if raw_slipped is None and not raw_buckets:
+        return stmt
+    slipped: bool | None = None
+    if raw_slipped is not None:
+        if raw_slipped not in ("true", "false"):
+            raise validation_error(
+                "slipped",
+                f"unknown slipped value {raw_slipped!r}; expected true or false",
+                request.url.path,
+            )
+        slipped = raw_slipped == "true"
+    buckets = csv_param(raw_buckets) if raw_buckets else None
+    if buckets:
+        unknown = [b for b in buckets if b not in SLIP_BUCKETS]
+        if unknown:
+            raise validation_error(
+                "slip_bucket",
+                f"unknown slip_bucket value(s): {', '.join(unknown)}; "
+                f"expected one of {', '.join(SLIP_BUCKETS)}",
+                request.url.path,
+            )
+        if slipped is False:
+            raise validation_error(
+                "slip_bucket",
+                "slip_bucket selects slipped proposals and cannot be combined with slipped=false",
+                request.url.path,
+            )
+    if not buckets and slipped is None:
+        # `?slip_bucket=,,` parses to no tokens. Without this, it would fall through to
+        # `slip_filter(slipped=None, ...)` and silently mean `slipped=false` -- a filter the
+        # caller never asked for. An empty value means "no filter", as everywhere else here.
+        return stmt
+    return stmt.where(slip_filter(slipped=slipped, buckets=buckets, on=slip_today()))
+
+
 def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]:
     qp = request.query_params
     if v := qp.get("kind"):
@@ -328,6 +396,7 @@ def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select
         # regardless of what the caller already joined.
         loc_subquery = select(Location.id).where(Location.county_fips.in_(csv_param(v)))
         stmt = stmt.where(Proposal.location_id.in_(loc_subquery))
+    stmt = _apply_slip_filter(stmt, request)
     if v := qp.get("q"):
         # Substring match over the three things a user actually types (web/templates/base.html
         # promises "name, sponsor, queue ID"): the canonical name, the sponsor organisation's
@@ -1526,6 +1595,30 @@ def _vocab(values: list[str]) -> list[dict[str, Any]]:
     ]
 
 
+def _slip_bucket_vocab() -> list[dict[str, Any]]:
+    labels = {
+        "under_1y": "Overdue under 1 year",
+        "1_to_3y": "Overdue 1-3 years",
+        "over_3y": "Overdue over 3 years",
+    }
+    out: list[dict[str, Any]] = []
+    lower = SLIP_GRACE_DAYS
+    for i, (name, maximum) in enumerate(SLIP_BUCKET_MAX_DAYS):
+        out.append(
+            {
+                "value": name,
+                "label": labels[name],
+                "sort_order": i,
+                "active": True,
+                "min_days_late": lower + 1,
+                "max_days_late": maximum,
+                "grace_days": SLIP_GRACE_DAYS,
+            }
+        )
+        lower = maximum if maximum is not None else lower
+    return out
+
+
 @app.get("/v1/meta/vocabularies")
 def get_vocabularies(db: Session = Depends(get_db)) -> Any:
     isos = [
@@ -1551,6 +1644,10 @@ def get_vocabularies(db: Session = Depends(get_db)) -> Any:
         "reuse_class": _vocab(REUSE_CLASS_VALUES),
         "publish_state": _vocab(PUBLISH_STATE_VALUES),
         "iso": _vocab(sorted(isos)),
+        # Slip buckets carry the day boundaries and the grace period, because a caller that draws
+        # its own "overdue" line from `proposed_online_date` and ours must be able to see where
+        # ours is rather than guess it (services/api/slippage.py).
+        "slip_bucket": _slip_bucket_vocab(),
     }
     meta = build_meta(lag_days=0)
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary([]))

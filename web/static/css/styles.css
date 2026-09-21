@@ -400,6 +400,24 @@ h3 { font-size: var(--text-4); }
 .chip--success   { background: var(--family-success-fill);   color: var(--family-success-text); }
 .chip--danger    { background: var(--family-danger-fill);    color: var(--family-danger-text); }
 
+/* Schedule slippage marker (services/api/slippage.py). Outlined, not filled: it must read as a
+   second-order annotation on the status chip beside it, never as a competing status. `--quiet`
+   (the `under_1y` bucket, 67 of 129 rows) carries no colour at all, only the words -- a few
+   months' slip on a consented project is ordinary and colouring it is how a signal stops being
+   read. D-25 holds either way: the label states the fact in words, colour only grades it. */
+.slip-note {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid currentColor; border-radius: var(--radius-1);
+  font-size: var(--text-1); font-weight: 500; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.slip-note__icon { flex: none; }
+.slip-note__date { opacity: 0.8; }
+.slip-note--quiet { color: var(--text-muted); }
+.slip-note--warn  { color: var(--family-danger-text); }
+
 /* ---------- 6. Filter bar as a control strip, not a form (D-17, API-3) ----------
    Underline-only inputs, mono small-caps labels, single bottom rule for the whole strip -- read
    as a toolbar the reader scans left to right, not a bordered form panel. */

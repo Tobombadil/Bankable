@@ -39,6 +39,13 @@
       <input id="f-capacity-max" type="number" min="0" step="1" name="capacity_mw[lte]" placeholder="Max" value="{{ filters.get('capacity_mw[lte]', '') }}">
     </div>
   </div>
+  <div class="filter-field">
+    <label for="f-slip">Schedule</label>
+    <select id="f-slip" name="slip_bucket">
+      <option value="">Any</option>
+      {% for b in slip_buckets %}<option value="{{ b.value }}" {% if filters.get('slip_bucket') == b.value %}selected{% endif %}>{{ b.label }}</option>{% endfor %}
+    </select>
+  </div>
   <div class="filter-field filter-field--checkbox">
     <label for="f-include-withdrawn">
       <input id="f-include-withdrawn" type="checkbox" name="include_withdrawn" value="1" {% if include_withdrawn %}checked{% endif %}>
@@ -46,7 +53,7 @@
     </label>
   </div>
   <button class="filter-bar__submit" type="submit">Apply filters</button>
-  {% if filters.get('technology') or filters.get('kind') or filters.get('jurisdiction') or filters.get('capacity_mw[gte]') or filters.get('capacity_mw[lte]') or include_withdrawn %}
+  {% if filters.get('technology') or filters.get('kind') or filters.get('jurisdiction') or filters.get('capacity_mw[gte]') or filters.get('capacity_mw[lte]') or filters.get('slip_bucket') or include_withdrawn %}
   <a class="filter-bar__clear" href="/proposals">Clear all</a>
   {% endif %}
 </form>

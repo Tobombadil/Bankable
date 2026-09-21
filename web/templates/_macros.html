@@ -6,6 +6,23 @@
 </span>
 {%- endmacro %}
 
+{# Schedule slippage (services/api/slippage.py, docs/22 §18). Deliberately not a status chip:
+   the chip says what lifecycle state the source reports, this says the project's own stated date
+   has passed, and conflating the two would make a derived inference look like a source fact. The
+   target date is always printed beside it -- a bare "overdue" badge with no date is unfalsifiable
+   to a reader, and the main false-positive mode here is a register that stopped maintaining the
+   date, which a visible date lets them spot. Renders nothing at all when `slip` is falsy. #}
+{% macro slip_note(slip, compact=False) -%}
+{%- if slip %}
+<span class="slip-note slip-note--{{ slip.tone }}" title="{{ slip.detail }}">
+  <svg class="slip-note__icon" aria-hidden="true" width="12" height="12"><use href="#icon-neutral"></use></svg>
+  <span class="slip-note__label">{{ slip.label }}</span>
+  {%- if not compact %} <span class="slip-note__date tnum">(target {{ slip.target_date }})</span>{% endif -%}
+  {%- if compact %}<span class="visually-hidden"> (target commercial-operation date {{ slip.target_date }})</span>{% endif -%}
+</span>
+{%- endif %}
+{%- endmacro %}
+
 {% macro delayed_banner(delayed) -%}
 {%- if delayed.lag_days %}
 <p class="delayed-notice" role="status">
