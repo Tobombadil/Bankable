@@ -23,6 +23,7 @@ import sqlalchemy as sa
 import yaml
 
 from services.api import assets as assets_module
+from services.api.common import WEB_HOST
 from services.api.conftest import (
     make_asset,
     make_asset_owner,
@@ -607,11 +608,36 @@ def test_organization_assets_role_annotation_filters_and_totals(client, db, spec
     body = client.get(f"/v1/organizations/{org.public_id}/assets").json()
     assert_valid(spec, "OrganizationAssetsResponse", body)
     assert len(body["data"]) == 6
-    assert body["totals"] == {
+    assert {k: body["totals"][k] for k in ("assets", "by_role", "by_type", "by_role_and_type")} == {
         "assets": 5,
         "by_role": {"operator": 4, "owner": 2},
         "by_type": {"gas_pipeline": 3, "power_plant": 2},
         "by_role_and_type": {"operator": {"gas_pipeline": 3, "power_plant": 1}, "owner": {"power_plant": 2}},
+    }
+    # 2026-09-20: the portfolio breakdown and the scope block ride on the same totals query.
+    assert body["totals"]["organization_count"] == 1
+    assert body["totals"]["by_organization"] == [
+        {
+            "organization": {
+                "public_id": org.public_id,
+                "slug": org.slug,
+                "name_canonical": org.name_canonical,
+                "type": org.type,
+                "url": f"{WEB_HOST}/organizations/{org.slug}",
+            },
+            "assets": 5,
+            "by_type": {"gas_pipeline": 3, "power_plant": 2},
+        }
+    ]
+    assert body["scope"] == {
+        "scope": "self",
+        "organizations": 1,
+        "depth": 0,
+        "depth_capped": False,
+        "truncated": False,
+        "cycle_detected": False,
+        "max_depth": 10,
+        "max_organizations": 500,
     }
     row = next(r for r in body["data"] if r["public_id"] == plant_b.public_id and r["role"] == "owner")
     assert row["share_pct"] == 50.0 and row["asset_type"] == "power_plant" and "geometry" not in row
@@ -654,7 +680,17 @@ def test_organization_detail_asset_counts_parent_and_subsidiaries(client, db, sp
 
     top = client.get(f"/v1/organizations/{parent.public_id}").json()["data"]
     assert top["parent"] is None and top["subsidiary_count"] == 1
-    assert top["asset_counts"] == {"assets": 0, "by_role": {}, "by_type": {}, "by_role_and_type": {}}
+    assert {k: top["asset_counts"][k] for k in ("assets", "by_role", "by_type", "by_role_and_type")} == {
+        "assets": 0,
+        "by_role": {},
+        "by_type": {},
+        "by_role_and_type": {},
+    }
+    # The holding company holds no edge of its own, and the pipeline sits two levels down: the
+    # group counts reach it, the organisation's own counts do not (2026-09-20 recursive scope).
+    assert top["descendant_count"] == 3 and top["subsidiary_count"] == 1
+    assert top["group_asset_counts"]["assets"] == 1
+    assert top["group_scope"]["depth"] == 2 and top["group_scope"]["organizations"] == 4
 
 
 def test_organization_nearby_proposals_dedupes_and_names_the_nearest_asset(client, db, spec):
@@ -698,6 +734,7 @@ def test_organization_nearby_proposals_dedupes_and_names_the_nearest_asset(clien
     assert rows[0]["distance_km"] < rows[1]["distance_km"]
     assert body["totals"] == {
         "assets_considered": 2,
+        "assets_in_scope": 2,
         "proposals_within_radius": 2,
         "proposals_within_radius_unfiltered": 2,
     }
@@ -855,6 +892,7 @@ def test_organization_nearby_proposals_technology_filter_and_both_totals(client,
     assert empty["data"] == []
     assert empty["totals"] == {
         "assets_considered": 1,
+        "assets_in_scope": 1,
         "proposals_within_radius": 0,
         "proposals_within_radius_unfiltered": 4,
     }

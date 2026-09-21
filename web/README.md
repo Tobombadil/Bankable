@@ -884,3 +884,51 @@ changes (confirmed by re-running it against the pre-task tree). Payload sizes fo
 proxy could not be measured live for the same reason; `docs/adr/0008`'s own "measured facts to
 record when implemented" (row counts per asset type, placement-grade share, regions payload size)
 are for whoever lands the API side to fill in once `services/api` imports cleanly.
+
+## Ownership tree on the company page (`web/ownership.py`, 2026-09-20)
+
+`?scope=self|children|all` is the whole drill-down, and no JavaScript is involved in any of it
+(docs/04 D-30; `web/test_e2e.py` runs with scripts off). Breadcrumbs walk up the ancestor chain,
+three scope links sit across the top, the portfolio table links down. The scope also rides as a
+hidden field on the technology filter's GET form, and `nearby_notice()` gained a `keep=` argument,
+because a browser replaces the whole query string on submit and either omission would silently
+walk the reader back to the default level of the tree.
+
+Four decisions in this module, each with the reasoning next to it in the source:
+
+1. **The page's default scope is `all`; the API's stays `self`.** They are not the same choice. A
+   holding company holds no `asset_owner` edge of its own, so a page defaulting to `self` renders
+   an empty row for exactly the organisation a reader arrived at the group to see. An
+   unparameterised *API* call is a different contract: widening it would change what an existing
+   integration's counts mean with nothing in the response saying so.
+2. **An unknown `?scope=` degrades to the default, never to a 400 or an empty list** — the same
+   rule as `?nearby_technology=`, for the same reason: a stale or hand-typed URL must not make the
+   register look emptier than it is.
+3. **A fund-level node renders as a portfolio of companies.** The group map is dropped above **40**
+   assets and the flat asset table above **100**, and the reason is printed in body text both
+   times. Neither number is new: 40 is `ORG_MAP_DETAIL_CAP`, the geometries the page can fetch in
+   one render — above it the map was already drawing whichever 40 came first in `asset_owner.id`
+   order, which is not a sample of a group — and 100 is the page's single `limit=100` assets call.
+   The thresholds apply to a *group* scope only; a single company renders as it always did however
+   much it holds, because the dot scatter the owner described is a fund problem and the eight
+   scopes in the current data above 40 assets are all single companies with no subsidiaries
+   (largest: WM Renewable Energy, 102 landfill-gas assets).
+4. **An ownership claim is never rendered as a bare name.** `Claim.note` always carries the source
+   and either the date or the words that the source published none — 289 of the 298 loaded parent
+   links are dated (GLEIF Level 2), 9 are not (the curated file cites when a page was read).
+   `ancestor_claims()` shifts each date one crumb down on purpose: an API `ancestors[i]` entry
+   names a *parent* and carries the date of the link reaching it from below, so rendering it where
+   it arrives labels the wrong company.
+
+Found while rendering this against the real load: `_resolve_organization()` returned the
+`GET /v1/organizations?slug=` **list** row, which carries none of the hierarchy fields, so the page
+silently had no breadcrumbs, no ownership provenance and no scope links. It now reads the detail
+envelope after resolving the slug — the same bug the asset page had on the first Tallgrass
+screenshots (2026-09-19).
+
+Measured on the 2026-09-20 load: `tallgrass-energy` at `scope=self` is 0 assets and 0 nearby
+proposals; at `children` and `all` (identical, because its tree is one level deep, as 130 of the
+137 rooted trees are) 10 assets across 9 subsidiaries and 67 nearby proposals, 18 after the
+default relevance filter — the same 18 of 67 the relevance lane measured, so PR #8 is intact at
+group scope. `trailblazer-pipeline-co` 1 asset, 8 of 12 nearby, ancestor Tallgrass Energy with no
+date recorded.

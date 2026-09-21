@@ -468,6 +468,12 @@ wiki prose is CC BY-NC-SA and must never be ingested. **Confidence: high** on bo
 Classification: `open-attribution` for tracker data, **except** TZ-flagged rows which are `restricted` for our
 purposes. Publication rule: `raw-ok` with the recommended citation, TZ rows excluded at ingest.
 
+**2026-09-21, ownership-terms lane:** this subsection covers the facility trackers only. The **Global Energy
+Ownership Tracker** is a separate dataset whose page carries no licence statement at all; it is read at §2.18
+and classified more strictly. §2.18 also records that the Download Data URL quoted above now redirects and
+that of thirteen tracker pages retrieved 2026-09-20 only the solar page still carries the CC BY sentence —
+flagged there, not resolved here.
+
 ### 2.3 EU reuse (Decision 2011/833/EU) as applied to TED — retrieved, clean
 
 Source: https://ted.europa.eu/en/legal-notice ("Copyright notice"), retrieved 2026-09-12 (HTTP 200).
@@ -1042,6 +1048,200 @@ re-read it. **Confidence: high.**
 question for counsel — open question 7(b) — and this is a commercial product. An OGL source answers
 the same need with no such question, so OSM was not retrieved and no OSM-derived data is vendored.
 
+### 2.18 GEM Global Energy Ownership Tracker — retrieved 2026-09-20; the licence is not stated on the dataset's own page
+
+Read separately from §2.2 on purpose. The power trackers' CC BY 4.0 grant is quoted there from the solar
+tracker's Download Data page; the ownership tracker is a different dataset with a different release cycle, and
+the task that commissioned this reading was explicit that inheriting §2.2's terms is the risk, not the answer.
+This subsection therefore records only what the ownership tracker's own pages say.
+
+**The dataset page.** Source: `https://globalenergymonitor.org/projects/global-energy-ownership-tracker`,
+retrieved 2026-09-20 (HTTP 200, 105,745 bytes). Note first that the URL shape §2.2 quotes no longer exists:
+`https://globalenergymonitor.org/projects/global-energy-ownership-tracker/download-data/` answers **301** to
+the page above, as does every other tracker's `/download-data/` URL including the Integrated Power Tracker's,
+which is the URL carried in `data/sources.yaml` for `global.gem.trackers`.
+
+The page's entire download block is one custom element. Verbatim from the retrieved HTML:
+
+> `<gem-download-form title="Download the Global Energy Ownership Tracker dataset" slugs="energy-ownership-tracker"><subtitle>The recommended citation is "Global Energy Ownership Tracker, Global Energy Monitor, August 2026 release."</subtitle><br></br></gem-download-form>`
+
+The FAQ accordion on the same page:
+
+> **How do I cite this data?** Please refer to the [Download data page](https://globalenergymonitor.org/projects/global-energy-ownership-tracker#download) for citation guidance.
+
+— where that link is an anchor back to the element quoted above, on the same page. The site footer:
+
+> © 2026 Global Energy Monitor
+> All Rights Reserved
+
+**There is no licence statement of any kind in this page.** A case-insensitive search of the retrieved HTML for
+`creative commons`, `cc by`, `licence`, `license`, `non-commercial`, `share-alike` and `attribution` returns
+nothing outside the word "attributing" in the emissions methodology. The recommended citation is a citation
+request, not a grant.
+
+**The contrast with the solar tracker is per-page and editorial, not a template change.** The same element on
+`https://globalenergymonitor.org/projects/global-solar-power-tracker` (retrieved 2026-09-20) carries the §2.2
+text inside its `<subtitle>`:
+
+> `<gem-download-form title="Download the Global Solar Power Tracker dataset" slugs="solar-power-tracker"><subtitle>The recommended citation is "Global Solar Power Tracker, Global Energy Monitor, February 2026 release."` … `When the data set is being shared or adapted and our Creative Commons CC BY 4.0 International license applies, please read the license for attribution requirements. Necessary attribution elements are included in our data download files.` … `Please note that records with a "TZ ID" in the Other IDs (unit/phase) column were partially or fully sourced from the TransitionZero, Solar Asset Mapper, August 2025.` … `Distributed under a Creative Commons Attribution-Non-Commercial 4.0 International License (CC BY-NC 4.0).</subtitle>`
+
+Of the thirteen tracker pages retrieved on 2026-09-20 — ownership, solar, integrated power, coal plant, oil &
+gas plant, coal mine, iron & steel, gas infrastructure, cement & concrete, hydropower, nuclear, geothermal,
+oil & gas extraction and methane emitters — **only the solar page carries CC BY prose.** The other twelve carry
+a recommended citation and, in seven cases, an offer of a supplemental ownership-chain file. The `<subtitle>`
+is free text a GEM editor writes per page; the omission is therefore an editorial fact about these pages, not
+evidence that a different licence applies.
+
+**Where a licence is actually named for this dataset: the download gate.** The element is rendered by
+`https://api.globalenergymonitor.org/static/gem-download-form.bundle.js` (retrieved 2026-09-20, HTTP 200,
+58,733 bytes), which the ownership tracker page loads. Verbatim from that bundle — the template that renders
+whenever the element has a download surface, which `slugs="energy-ownership-tracker"` supplies:
+
+> `class="license-note">` `Please review Global Energy Monitor's` `<a href="${escapeAttr(this._licenseUrl)}" target="_blank" rel="noopener noreferrer">Creative Commons Public License</a>` `</p>`
+>
+> `<label class="check" data-check="license">` `<input type="checkbox" name="license" required />` `<span>I have reviewed and understand Global Energy Monitor's Creative Commons Public License<span class="req">*</span></span>` `</label>`
+
+> `get _licenseUrl(){return this.getAttribute("license-url")||"/creative-commons-license"}`
+
+> `_licenseText(){return this._hasDownloadSurface?this.getAttribute("license-text")||"Creative Commons Attribution 4.0 International (CC BY 4.0) — "+this._licenseUrl:null}`
+
+and the submit-time validation, which refuses the download if the box is unchecked:
+
+> `let license=form.querySelector('input[name="license"]');return license&&!license.checked&&(license.closest(".check").classList.add("invalid"),ok=!1),ok||…`
+
+The ownership tracker's element sets neither `license-url` nor `license-text`, so both defaults apply: the
+download of `energy-ownership-tracker` is gated on acknowledging GEM's Creative Commons Public License, and the
+string GEM records against the submission is "Creative Commons Attribution 4.0 International (CC BY 4.0)".
+
+**The licence text.** `https://globalenergymonitor.org/creative-commons-license` (retrieved 2026-09-20, HTTP
+200; `https://globalenergymonitor.org/creative-commons-public-license/` serves the same 48,750-byte page) is
+the verbatim CC BY 4.0 text under the heading "Creative Commons License". Grant:
+
+> Subject to the terms and conditions of this Public License, the Licensor hereby grants You a worldwide,
+> royalty-free, non-sublicensable, non-exclusive, irrevocable license to exercise the Licensed Rights in the
+> Licensed Material to: reproduce and Share the Licensed Material, in whole or in part; and produce,
+> reproduce, and Share Adapted Material.
+
+Conditions, Section 3:
+
+> If You Share the Licensed Material (including in modified form), You must: retain the following if it is
+> supplied by the Licensor with the Licensed Material: identification of the creator(s) of the Licensed
+> Material and any others designated to receive attribution, in any reasonable manner requested by the
+> Licensor (including by pseudonym if designated); a copyright notice; a notice that refers to this Public
+> License; a notice that refers to the disclaimer of warranties; a URI or hyperlink to the Licensed Material
+> to the extent reasonably practicable; indicate if You modified the Licensed Material and retain an
+> indication of any previous modifications; and indicate the Licensed Material is licensed under this Public
+> License, and include the text of, or the URI or hyperlink to, this Public License.
+
+> If You Share Adapted Material You produce, the Adapter's License You apply must not prevent recipients of
+> the Adapted Material from complying with this Public License.
+
+Section 4, which is the clause that matters for a 27,000-entity relational dataset:
+
+> Where the Licensed Rights include Sui Generis Database Rights that apply to Your use of the Licensed
+> Material: for the avoidance of doubt, Section 2(1)(a) grants You the right to extract, reuse, reproduce, and
+> Share all or a substantial portion of the contents of the database; if You include all or a substantial
+> portion of the database contents in a database in which You have Sui Generis Database Rights, then the
+> database in which You have Sui Generis Database Rights (but not its individual contents) is Adapted
+> Material; and You must comply with the conditions in Section 3(1) if You Share all or a substantial portion
+> of the contents of the database.
+
+The page carries **no sentence scoping the licence to any GEM dataset.** Section 1 defines "Licensed Material"
+as "the artistic or literary work, database, or other material to which the Licensor applied this Public
+License" — so the page grants nothing by itself; something else must apply it to a dataset. For the ownership
+tracker, the only thing that does is the download gate quoted above. Note also that the page is not linked
+from the ownership tracker page's HTML at all (zero occurrences of `creative-commons` in it); the link is
+injected by the download component at render time.
+
+**What I could not read, and did not try to.** GEM's solar text says "Necessary attribution elements are
+included in our data download files", which implies a notice inside the workbook. The ownership tracker's
+download runs through an email-gated flow: the component POSTs name, email, organisation, sector, country and
+use-case to a Supabase RPC (`.../rest/v1/rpc/mint_submission`) and then presigns a file URL. **I did not
+register, did not submit an email address, and did not accept any terms**, so the in-file notice is unread and
+this subsection cannot quote it. `web.archive.org` is unreachable from this container (TLS connect failure on
+443, CDX over HTTP refused by the egress policy), so no earlier capture of the page was consulted either.
+
+*Inference,* separated from the above.
+
+1. **Commercial use: permitted, on the licence GEM's own download gate names.** CC BY 4.0 has no
+   non-commercial term; the Section 2 grant is unrestricted as to purpose and Section 4 expressly reaches
+   extraction and re-use of a substantial portion of the database contents. If CC BY 4.0 is the licence, a
+   paid product may use, join and republish this data. **Confidence: high that CC BY 4.0 permits what we want;
+   moderate-high that CC BY 4.0 is in fact what GEM applies to this dataset.** The residual is real and worth
+   naming precisely: the grant is evidenced by a checkbox label and a default string in a shared JavaScript
+   component, not by a sentence GEM wrote about this dataset, and the same site's footer says "All Rights
+   Reserved". The checkbox is also worded as an acknowledgement of review, not an acceptance — which does not
+   weaken a grant (a licence is GEM's offer, not our promise), but does mean no page states the offer in
+   words for this dataset.
+2. **Attribution: the CC BY 4.0 Section 3 elements plus GEM's requested citation string.** Render
+   "Global Energy Ownership Tracker, Global Energy Monitor, August 2026 release", a link to the tracker page,
+   the licence name with a link to the licence text, and an indication that we modified the material (we
+   normalise names and join it to our own graph, so we always will have). Our attribution-by-default rendering
+   covers the first two; the licence name, the licence link and the "modified" indication are the parts the
+   renderer does not carry today for CC BY sources and must.
+3. **Share-alike: none.** This is the question that makes OpenStreetMap unusable at §2.10, and CC BY 4.0
+   answers it the opposite way. There is no analogue of ODbL §4.4 here: Section 3(1)(b) requires only that any
+   Adapter's Licence we apply "must not prevent recipients … from complying with this Public License", which a
+   proprietary licence over *our own* additional content does not do, and Section 4(b) classifies our database
+   as Adapted Material without attaching a reciprocal licensing duty to it. There is no §4.6 share-back
+   equivalent either — nothing obliges us to publish our derived database. **Confidence: high.**
+4. **TransitionZero-style row-level carve-out: none found, and structurally unlikely.** The TZ notice at §2.2
+   is specific to the Solar Power Tracker, and the Global Solar Power Tracker is **not** one of the nine
+   trackers the ownership dataset covers (they are: coal plant, oil & gas plant, coal mine, iron & steel,
+   bioenergy, iron ore mines, natural-gas transmission pipelines from the Gas Infrastructure Tracker, crude
+   and NGL transmission pipelines from the Oil Infrastructure Tracker, and cement & concrete — listed on the
+   tracker page, retrieved 2026-09-20). None of those nine pages carries a TransitionZero notice. **Confidence:
+   moderate-high** — a carve-out could still be stated inside the download file I cannot read.
+5. **Ownership percentages and entity identifiers: one genuine separate-terms problem, and it is a column, not
+   a row.** The percentages are GEM's own measurements or estimates and carry no separate terms. The entity
+   identifiers do not all belong to GEM. The methodology lists the ID systems in use, verbatim:
+
+   > The ID systems currently in use in our data set are listed below, with the short identifiers in
+   > parentheses as assigned by org-id.guide. Global Legal Entity Identifier Index (XI-LEI) · Refinitiv PermID
+   > (XI-PID) · UK Companies House (GB-COH) · China's Unified Social Credit Identifier (CN-USCI) · China's
+   > State Administration for Industry and Commerce (CN-SAIC) · IDs assigned by the US Energy Information
+   > Administration, as published in Form EIA-860, for entities that own power-generating projects · S&P
+   > Capital IQ – SPCIQ: Can be found on companies pages in your S&P IQ account · India's Corporate
+   > Identification Number (Ministry of Corporate Affairs) (IN-CIN) · Russia's Uniform State Register of Legal
+   > Entities of Russian Federation (RU-INN) · Brazil's National Registry of Legal Entities (Federal Revenue
+   > Service) (BR-CNPJ)
+
+   CC BY 4.0 Section 1 limits the Licensed Rights to rights "that the Licensor has authority to license". GEM
+   has no authority to license S&P Global's rights in **S&P Capital IQ identifiers**, and GEM's own wording —
+   "Can be found on companies pages in your S&P IQ account" — describes a subscription product. **The SPCIQ
+   column must be dropped at ingest**, on the same reasoning and by the same mechanism as the TZ rows at §2.2.
+   LEI is CC0 (§2.13), EIA-860 ids are §105 public domain (§2.11), and the national registry numbers are
+   government registration data; none of those is a problem. PermID's own terms were not read in this lane and
+   are an open item, not a finding. **Confidence: high on SPCIQ; unresolved on PermID.**
+
+**Personal data.** The methodology records "natural person" as an entity type and says that where the
+lowest-level owner is a natural person, "a designation for 'natural person(s)' in general is reported, rather
+than listing names of individual natural persons". That is GEM's stated practice, not a schema guarantee. §5.4's
+minimisation rule applies: any row whose entity type is `natural person` is stored only if needed for
+resolution and is never published, and named individuals are not ingested at all.
+
+Classification: **`attribution-restricted`**. Publication rule: **`derived-only`** with the recommended
+citation and a CC BY 4.0 credit, SPCIQ identifiers and natural-person rows dropped at ingest. I am deliberately
+not rating this `open-attribution`/`raw-ok` as §2.2 rates the power trackers: the difference between the two is
+that §2.2 quotes GEM applying the licence to that dataset in prose and this subsection cannot. `derived-only`
+is also enough for the use that motivated the reading — an ownership-chain company page publishes stitched
+relationships, not a mirror of GEM's table.
+
+**Upgrade path, and who can take it.** One action closes this: a human downloads the ownership tracker
+workbook, opens the notice/attribution sheet, and records what it says. If it states CC BY 4.0, this becomes
+`open-attribution` / `raw-ok` on the same footing as §2.2 and the manifest moves with it. That download requires
+submitting an email address and accepting a licence acknowledgement on the company's behalf, which is the
+owner's decision to make, not an agent's — it is listed at §7 item 14.
+
+**One consequence for §2.2 that I am flagging rather than fixing.** §2.2's sentence "The same 'Download Data'
+boilerplate appears on each tracker page" does not hold on the 2026-09-20 site: the page it was read from is
+now a redirect, and of the thirteen tracker pages checked only solar carries the CC BY sentence. §2.2's quote
+was genuinely retrieved on 2026-09-12 and a licence once granted is not withdrawn by a site redesign, so I have
+not reclassified `global.gem.trackers` — but the evidence behind its `raw-ok` rating is now weaker than the row
+in §6 implies, and `global.gem.trackers` points at the Integrated Power Tracker, whose page carries no CC BY
+prose today. The same in-file notice check settles both. **Confidence: high that the pages read as described;
+no opinion on what it means for the 2026-09-12 grant.**
+
 ---
 
 ## 3. US scraping law
@@ -1422,6 +1622,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `mdb.worldbank.projects` | open-attribution (CC BY 4.0) | raw-ok + credit | not re-verified | mod |
 | `mdb.others` | unknown (per-institution) | derived-only | not retrieved | low |
 | `global.gem.trackers` | open-attribution (CC BY 4.0) **except TZ-ID rows (CC BY-NC 4.0)** | raw-ok + recommended citation; **drop TZ rows at ingest** | §2.2 quoted | high |
+| `global.gem.ownership_tracker` | attribution-restricted | derived-only + citation "Global Energy Ownership Tracker, Global Energy Monitor, August 2026 release" and a CC BY 4.0 credit; **drop the S&P Capital IQ identifier column and every natural-person row at ingest** | §2.18: no licence on the dataset page; CC BY 4.0 named only by the download gate; in-file notice unread (registration wall) | mod-high |
 | `us.ourgridfuture.transmission_projects` | **unknown** | do not ingest | §2.9 not retrieved (403/429) | n/a |
 | `global.iea.demo_projects` | unknown (IEA CC licences are dataset-specific) | derived-only | not re-verified | low |
 | `news.gdelt.doc` | open-attribution (GDELT) / third-party copyright in article text | derived-only: metadata + link; never article body | not re-verified | mod |
@@ -1577,6 +1778,16 @@ Numbered, in the order they block work.
     be protected"; our reading is that EPA-authored databases are §105 works and the hedge covers third-party
     documents. Confirm before the RNG layer is published; low legal risk, but it is the one federal source
     whose own wording does not say "public domain".
+
+14. **GEM Global Energy Ownership Tracker: read the notice inside the download file** (§2.18). The dataset page
+    states no licence; CC BY 4.0 is named only by the required acknowledgement in GEM's download form. Getting
+    the file means submitting an email address and ticking a licence acknowledgement on the company's behalf,
+    which an agent must not do — this is an owner or counsel action. If the in-file notice states CC BY 4.0,
+    the source moves to `open-attribution` / `raw-ok`; the same check settles the weakened evidence behind
+    `global.gem.trackers`. Two sub-questions for counsel while the file is open: whether GEM's CC BY grant can
+    reach the **S&P Capital IQ** identifier column at all (CC BY §1 limits the grant to rights the Licensor
+    "has authority to license"; our reading is that it cannot, hence the drop-at-ingest rule), and whether
+    **Refinitiv/LSEG PermID** carries any redistribution term of its own.
 
 ## 8. What changed in the repo as a result
 

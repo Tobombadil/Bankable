@@ -1430,3 +1430,66 @@ $ .venv/bin/python -m pytest services/api -q
 The pre-existing 9 `test_context_routes.py` tests pass unmodified against the refactored
 implementation; 2 new tests were added for the cache specifically (see "Pan/zoom performance"
 above). `services/api/test_ui_events.py` is untouched by this follow-up and still passes.
+
+## Ownership tree: recursive scope, dated edges (2026-09-20)
+
+`services/api/orgtree.py`. The walk down `organization.parent_org_id` was one level
+(`_subsidiary_ids` in `services/api/assets.py`) and the walk up was one field (`parent`); both are
+now recursive, and every ownership claim the API emits carries the provenance of the edge.
+
+**The parameter.** `scope=self|children|all` on `GET /v1/organizations/{id}/assets`,
+`/nearby-proposals`, `/proposals` and `GET /v1/assets/geo?organization=`.
+`include_subsidiaries` **keeps the meaning it was published with** — `true` is one level, exactly
+`scope=children` — and is marked `deprecated` in the spec rather than quietly re-pointed at the
+recursive walk, because that would change what an existing caller's numbers mean with nothing in
+the response saying so. A test pins that the legacy spelling still fails to reach a grandchild.
+Sending both parameters is a 400, not a precedence rule nobody would remember.
+`/proposals` is new to scoping altogether: it filtered `sponsor_org_id` single-org, so a holding
+company's proposals page was an empty page that was technically correct and useless.
+
+**Safety, and why it is not theoretical.** Every walk carries a visited set. Two loaders write
+`parent_org_id` (`global.gleif.lei` and `curated.organization_parents`) and neither sees the
+other's rows, so a two-node cycle is a plausible data state, not a hypothetical; without the
+visited set it is an unreturning request. Tested against a two-node cycle, a self-parent row and a
+rejoining diamond. `MAX_DEPTH = 10` levels and `MAX_SCOPE_ORGS = 500` organisations bound the
+walk, and **both are reported, never silent**: `scope.depth_capped`, `.truncated` and
+`.cycle_detected` ride on every scoped response and the page prints them in words. The depth cap
+is set at ten because the deepest real chain in the data is three levels — three times the
+observed depth, while still bounding a request at ten queries.
+
+**Cost, measured.** The descent is breadth-first *by level*: one
+`WHERE parent_org_id IN (level ids)` per level, so the **query count scales with depth, not with
+node count**. Counted with a `before_cursor_execute` hook on the 2026-09-20 load (7,412
+organisations, 298 parent links): `scope=self` 0 queries, `children` 1, `all` on
+`tallgrass-energy` 2, a synthetic 500-wide fan-out 1, a synthetic 12-deep chain 11. The consuming
+query is unchanged — one `IN` over the id list — which is what `MAX_SCOPE_ORGS` protects.
+
+A **recursive CTE was benchmarked and rejected.** Median of 25 runs on SQLite,
+`WITH RECURSIVE … UNION` (the dedup form, so it terminates on a cycle), BFS vs CTE:
+`tallgrass-energy` 2.4 vs 6.4 ms; THE SOUTHERN COMPANY (15 organisations, 3 levels) 3.6 vs 6.0;
+RWE (19) 2.4 vs 6.3; synthetic 500-wide plus 12-deep 2.4 vs 10.3. Slower at every size in the
+data, and it can express neither the depth cap nor which bound stopped the walk. **Re-measure on
+Postgres at the first deploy** — a round trip costs more there than SQLite's in-process call, so
+the crossover is closer.
+
+**Dated edges.** `GET /v1/organizations/{id}` gains `parent_edge` (the direct link with
+`source_id`, `as_of`, `share_pct`), `ancestors` (root-first, for breadcrumbs) and
+`descendant_count`. The nulls are **kept, not omitted**: a rendered ownership claim with no date
+is a statement about today made from a file that states some other year, so the null travels to
+the renderer and the renderer says so. 289 of the 298 loaded links are dated (GLEIF, from the
+relationship period start); 9 are not (the curated file cites when a page was read).
+
+**Migration 0017** adds `organization.parent_share_pct` (`Numeric(6,3)`, nullable, mirroring
+`asset_owner.share_pct`). It is **NULL on every row and nothing infers a value** — neither loaded
+source states a percentage. It exists so the percentage-stake chains GEM's ownership dataset
+models do not require the edge to be rebuilt if that licence clears. The expensive half of that
+future change, a stake belonging to a *set* of parents, is deliberately not taken: no loaded
+source has produced a second parent for any organisation.
+
+**`totals.by_organization`** (the portfolio breakdown, largest holding first, cap 100) rides on the
+existing totals query — the same single query already read one row per (edge, asset); only the
+group-by in Python is new. It is what makes a fund-level page renderable: at a scope spanning
+dozens of portfolio companies, "1,400 assets" is not a page and "Tallgrass Energy 10, Rockies
+Express 49, …" is.
+
+`services/api/visibility.py` has zero changes; the licence gate is untouched on every path here.

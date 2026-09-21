@@ -154,6 +154,7 @@ app.include_router(ui_events_router)
 # as a `TECHNOLOGY_VOCAB` re-export for web/test_map_layers.py, never mounted.
 from services.api.assets import organization_asset_totals, organization_hierarchy  # noqa: E402
 from services.api.assets import router as assets_router  # noqa: E402
+from services.api.orgtree import org_scope, scope_from_request  # noqa: E402
 from services.api.regions import router as regions_router  # noqa: E402
 
 app.include_router(assets_router)
@@ -1019,16 +1020,19 @@ def list_organizations(request: Request, db: Session = Depends(get_db)) -> Any:
     )
 
 
-def _counts_for_org(db: Session, org: Organization) -> tuple[int, int]:
+def _counts_for_org(
+    db: Session, org: Organization, scope_org_ids: list[Any] | None = None
+) -> tuple[int, int]:
+    ids = scope_org_ids if scope_org_ids is not None else [org.id]
     p = db.scalar(
         select(func.count())
         .select_from(Proposal)
-        .where(Proposal.sponsor_org_id == org.id, *proposal_public_filter())
+        .where(Proposal.sponsor_org_id.in_(ids), *proposal_public_filter())
     )
     o = db.scalar(
         select(func.count())
         .select_from(Opportunity)
-        .where(Opportunity.issuer_org_id == org.id, *opportunity_public_filter())
+        .where(Opportunity.issuer_org_id.in_(ids), *opportunity_public_filter())
     )
     return p or 0, o or 0
 
@@ -1038,17 +1042,28 @@ def get_organization(public_id: str, request: Request, db: Session = Depends(get
     org = db.scalar(select(Organization).where(Organization.public_id == public_id))
     if org is None:
         raise not_found(request.url.path)
+    group = org_scope(db, org, "all")
     p_count, o_count = _counts_for_org(db, org)
     data = serialize_organization(org, proposal_count=p_count, opportunity_count=o_count)
     # Company page (ADR 0008 §2; 2026-09-19 line layer): what the organisation owns or operates by
-    # type and role, and its GLEIF parent/subsidiaries where the data lane has set `parent_org_id`.
+    # type and role, and where it sits in the ownership tree -- parent with the provenance of that
+    # claim, the ancestor chain for breadcrumbs, the direct subsidiaries and the full descendant
+    # count (`organization_hierarchy`).
     data["asset_counts"] = organization_asset_totals(db, org)
     data.update(organization_hierarchy(db, org))
+    # `group_asset_counts` was the *direct* subsidiaries' assets until 2026-09-20 and is now the
+    # whole descent (`scope=all`). The field name and shape are unchanged, and so is the number
+    # wherever the tree is one level deep -- 130 of the 137 rooted trees on the 2026-09-20 load.
+    # It changes for the 9 organisations that have a grandchild, where the old number was simply
+    # wrong: THE SOUTHERN COMPANY reported its 2 direct subsidiaries' assets and not the 18 its
+    # group holds.
     data["group_asset_counts"] = (
-        organization_asset_totals(db, org, include_subsidiaries=True)
-        if data["subsidiary_count"]
-        else data["asset_counts"]
+        organization_asset_totals(db, org, scope="all") if group.organizations > 1 else data["asset_counts"]
     )
+    group_p, group_o = _counts_for_org(db, org, group.ids) if group.organizations > 1 else (p_count, o_count)
+    data["group_proposal_count"] = group_p
+    data["group_opportunity_count"] = group_o
+    data["group_scope"] = group.as_meta()
     meta = build_meta(lag_days=0)
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary([]))
 
@@ -1061,16 +1076,37 @@ def list_organization_proposals(
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
     check_allowed(
-        request, {"limit", "cursor", "sort", "kind", "technology", "lifecycle_state", "jurisdiction"}
+        request,
+        {
+            "limit",
+            "cursor",
+            "sort",
+            "kind",
+            "technology",
+            "lifecycle_state",
+            "jurisdiction",
+            "scope",
+            "include_subsidiaries",
+        },
     )
     org = db.scalar(select(Organization).where(Organization.public_id == public_id))
     if org is None:
         raise not_found(request.url.path)
     limit = clamp_limit(_int_param(request, "limit"))
     field, ascending = _sort_spec(request, PROPOSAL_SORT_ALLOWLIST, "-last_changed")
+    # `scope` (2026-09-20) gives this list the same ownership-tree treatment the asset and
+    # nearby-proposal lists have: a holding company sponsors nothing itself, its operating
+    # companies do, so "Tallgrass's proposals" at `scope=self` is an empty page that is
+    # technically correct and useless. Default stays `self` -- widening an existing list
+    # endpoint's default would change what every current caller's counts mean.
+    scope = scope_from_request(request)
+    scope_result = org_scope(db, org, scope)
     stmt = (
         select(Proposal)
-        .where(Proposal.sponsor_org_id == org.id, *proposal_visibility_filter(ctx.entitlement))
+        .where(
+            Proposal.sponsor_org_id.in_(scope_result.ids),
+            *proposal_visibility_filter(ctx.entitlement),
+        )
         .options(selectinload(Proposal.sources))
     )
     qp = request.query_params
@@ -1097,12 +1133,14 @@ def list_organization_proposals(
     )
     data = [serialize_proposal(p) for p in rows]
     meta = build_meta("proposal", tier=ctx.entitlement)
-    return build_list_envelope(
+    env = build_list_envelope(
         data,
         meta=meta,
         licence_summary=build_licence_summary(_proposal_licence_rows(rows)),
         page=build_page(next_cursor, None, has_more),
     )
+    env["scope"] = scope_result.as_meta()
+    return env
 
 
 @app.get("/v1/organizations/{public_id}/opportunities")

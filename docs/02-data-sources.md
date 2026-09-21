@@ -72,7 +72,8 @@ MISO once unblocked); federal funding and permitting stage signals; EU/UK/MDB te
 | Class | Sources | Rule |
 |---|---|---|
 | Public domain | All US federal (FERC, EIA, DOE, EPA, BLM, BOEM, USACE, NRC, grants.gov, SAM.gov, USAspending, Permitting Dashboard) | Free to use, republish, resell. Be polite on rate. |
-| Open with attribution | LBNL (CC BY), GEM (CC BY), NESO Open Data, OGL (UK), OGL-Canada, dl-de/by (MaStR), EU reuse (TED), World Bank (CC BY) | Republish with credit line and licence link on every derived record. |
+| Open with attribution | LBNL (CC BY), GEM facility trackers (CC BY — but see `13` §2.2 and §2.18), NESO Open Data, OGL (UK), OGL-Canada, dl-de/by (MaStR), EU reuse (TED), World Bank (CC BY) | Republish with credit line and licence link on every derived record. |
+| Open licence asserted but not evidenced for the dataset | GEM **Global Energy Ownership Tracker** | Its own page states no licence; CC BY 4.0 is named only by GEM's download gate. `attribution-restricted`, derived-only, not ingested. Drop the S&P Capital IQ id column and all natural-person rows if it ever ships. `13` §2.18. |
 | ISO — permissive | ERCOT | Raw data explicitly redistributable in compilations and analyses. |
 | ISO — attribution with restrictions | CAISO | Credit CAISO; publish derived records, link to source for raw. |
 | ISO — restricted | PJM (Data Miner / API) | No public redistribution without Redistribution License. Obtain terms before any PJM row is shown publicly. |

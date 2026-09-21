@@ -8,7 +8,10 @@
 {% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
 {% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
+{# Breadcrumbs walk the ownership chain, root first: Home / Companies / Tallgrass Energy /
+   Trailblazer Pipeline Co. Plain links, one URL per level -- this site's browser tests run with
+   scripts off (docs/04 D-30), so the whole drill-down is links and nothing else. #}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/organizations">Companies</a>{% for a in ancestors %} / {% if a.href %}<a href="{{ a.href }}"{% if a.note %} title="{{ a.note }}"{% endif %}>{{ a.name }}</a>{% else %}{{ a.name }}{% endif %}{% endfor %} / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
   {# `descriptor` (web/app.py::org_descriptor) replaces a meaningless "other" with what the
@@ -25,14 +28,63 @@
   {% if record.country %}<div><dt>Country</dt><dd>{{ record.country }}</dd></div>{% endif %}
   {% if record.jurisdiction %}<div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction }}</dd></div>{% endif %}
   {% if record.website %}<div><dt>Website</dt><dd><a href="{{ record.website }}" rel="noopener">{{ record.website }}</a></dd></div>{% endif %}
-  {% if record.parent_public_id %}
-  <div><dt>Parent organisation</dt><dd><a class="row-link" href="/organizations/{{ record.parent_slug or record.parent_public_id }}">{{ record.parent_name or record.parent_public_id }}</a></dd></div>
+  {# An ownership claim is never rendered as a bare name. "X owns Y" is a statement about today
+     read from a file that states some other day, so the source and the date -- or the plain fact
+     that the source published no date -- sit with the claim (owner brief, 2026-09-20). #}
+  {% if parent_claim %}
+  <div><dt>Parent organisation</dt><dd>
+    {% if parent_claim.href %}<a class="row-link" href="{{ parent_claim.href }}">{{ parent_claim.name }}</a>{% else %}{{ parent_claim.name }}{% endif %}
+    <span class="ownership-claim{% if not parent_claim.dated %} ownership-claim--undated{% endif %}" id="parent-provenance">{{ parent_claim.note }}</span>
+  </dd></div>
   {% endif %}
 </dl>
+
+{% if scope_links %}
+{# Drill-down without JavaScript: three URLs, one per depth of the ownership tree. #}
+<nav class="filter-bar" id="scope-links" aria-label="Ownership scope">
+  <span class="filter-field"><strong>Showing:</strong></span>
+  {% for s in scope_links %}
+  {% if s.current %}<span class="reuse-badge" aria-current="true">{{ s.label }}</span>{% else %}<a class="row-link" href="{{ s.href }}">{{ s.label }}</a>{% endif %}
+  {% endfor %}
+</nav>
+{% endif %}
+
+{% if group_view and group_view.is_group %}
+<p class="org-summary" id="group-summary">{{ group_view.assets }} asset{{ '' if group_view.assets == 1 else 's' }} held by {{ group_view.holder_count }} companies in a group of {{ group_view.organization_count }}{% if group_view.depth %}, {{ group_view.depth }} level{{ '' if group_view.depth == 1 else 's' }} deep{% endif %}.</p>
+{% endif %}
+{% for note in (group_view.notes if group_view else []) %}
+<p class="filter-notice filter-notice--all" id="group-note-{{ loop.index }}">{{ note }}</p>
+{% endfor %}
+
+{% if portfolio and portfolio | length > 1 %}
+{# A fund-level node is not a company page: a scope spanning many portfolio companies has no
+   readable map, and "which companies, holding how much" is what a reader at that level wants.
+   The table renders for any group; the map and the flat asset table below drop out by the
+   thresholds in web/ownership.py. #}
+<section aria-label="Portfolio">
+  <h2>Portfolio <span class="section-num">{% if group_view.holder_count > portfolio | length %}{{ portfolio | length }} of {{ group_view.holder_count }} companies{% else %}{{ portfolio | length }} companies{% endif %}</span></h2>
+  <div class="table-scroll">
+  <table class="record-table" id="portfolio-table">
+    <caption class="visually-hidden">Companies in this group holding assets, largest holding first.</caption>
+    <thead><tr><th scope="col">Company</th><th scope="col" class="num">Assets</th><th scope="col">Types</th></tr></thead>
+    <tbody>
+      {% for row in portfolio %}
+      <tr>
+        <td data-label="Company">{% if row.href %}<a class="row-link" href="{{ row.href }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}{% if row.is_subject %} <span class="reuse-badge">this company</span>{% endif %}</td>
+        <td data-label="Assets" class="num tnum">{{ row.assets }}</td>
+        <td data-label="Types">{{ row.by_type.keys() | map('replace', '_', ' ') | join(', ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
 
 {% if subsidiaries %}
 <section aria-label="Subsidiaries">
   <h2>Subsidiaries{% if record.subsidiary_count and record.subsidiary_count > subsidiaries | length %} <span class="section-num">{{ subsidiaries | length }} of {{ record.subsidiary_count }}</span>{% endif %}</h2>
+  {% if record.descendant_count and record.descendant_count > record.subsidiary_count %}<p class="attribution-line" id="descendant-count">Direct subsidiaries. {{ record.descendant_count }} companies sit below this one in total, across {{ group_view.depth if group_view else 0 }} levels.</p>{% endif %}
   <ul class="org-links">
     {% for s in subsidiaries %}
     <li><a class="row-link" href="/organizations/{{ s.slug or s.public_id }}">{{ s.name or s.public_id }}</a>{% if s.type %} <span class="reuse-badge">{{ s.type | replace('_', ' ') }}</span>{% endif %}</li>
@@ -44,7 +96,9 @@
 <section aria-label="Assets">
   {{ m.section_heading("1.", "Assets") }}
   {% if mini_map %}{{ m.mini_map(mini_map, tile_url, tile_mode) }}{% endif %}
-  {% if asset_groups %}
+  {% if group_view and not group_view.show_asset_table %}
+  <p>Open a company in the portfolio above for its assets.</p>
+  {% elif asset_groups %}
   {% for g in asset_groups %}
   <div class="asset-group">
     <h3 id="assets-{{ g.role }}-{{ g.asset_type }}">{{ g.role_label }} {{ g.count }} {{ g.type_label if g.count != 1 else g.type_label_singular }}</h3>
@@ -89,7 +143,11 @@
   {% endif %}
   {# Plain GET form, one control, no JavaScript: the same idiom as /proposals' technology select
      (docs/04 D-30, web/test_e2e.py runs with scripts off). #}
-  <form id="nearby-filters" class="filter-bar" method="get" action="{{ canonical_path }}">
+  <form id="nearby-filters" class="filter-bar" method="get" action="{{ canonical_path.split('?')[0] }}">
+    {# A GET form replaces the whole query string, so the ownership scope has to ride along as a
+       hidden field or submitting the technology filter would walk the reader back to the default
+       level of the tree. #}
+    {% if scope and scope != 'all' %}<input type="hidden" name="scope" value="{{ scope }}">{% endif %}
     <div class="filter-field">
       <label for="f-nearby-technology">Technology</label>
       <select id="f-nearby-technology" name="{{ nearby_param }}">
@@ -111,6 +169,7 @@
 
 <section aria-label="Proposals">
   {{ m.section_heading("3.", "Proposals") }}
+  {% if group_view and group_view.is_group %}<p class="attribution-line">Sponsored by any company in this group; each row names its sponsor where the register gives one.</p>{% endif %}
   {% if proposals %}
   <ul class="in-view-list">
     {% for r in proposals %}
@@ -120,6 +179,7 @@
         {%- if r.technology %}{% set _ = parts.append(r.technology) %}{% endif -%}
         {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
         {%- if r.capacity_mw %}{% set _ = parts.append('%.1f MW'|format(r.capacity_mw)) %}{% endif -%}
+        {%- if group_view and group_view.is_group and r.sponsor %}{% set _ = parts.append(r.sponsor) %}{% endif -%}
         {{ parts | join(' · ') }}
       </span>
     </li>

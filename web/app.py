@@ -34,6 +34,17 @@ from starlette.datastructures import QueryParams
 from web.api_client import ApiClient, ApiError, ApiNotFound, build_client
 from web.assets import ASSET_VERSION
 from web.auth import router as auth_router
+from web.ownership import (
+    DEFAULT_SCOPE,
+    GROUP_MAP_MAX_ASSETS,
+    SCOPE_PARAM,
+    ancestor_claims,
+    group_view,
+    parent_claim,
+    portfolio_rows,
+    resolve_scope,
+    scope_links,
+)
 from web.regions import Region, regions_with_data
 from web.relevance import (
     PARAM as NEARBY_TECHNOLOGY_PARAM,
@@ -180,7 +191,10 @@ PROMOTED_ATTRIBUTE_KEYS = (
 #: Company-page map: neither `/v1/organizations/{id}/assets` nor `/v1/assets` embeds geometry
 #: (`include_geometry=False`, API lane 2026-09-19), so the page reads it from each asset's own
 #: detail response, capped -- the map shows the first N assets, the caption says how many.
-ORG_MAP_DETAIL_CAP = 40
+#: Aliased to `web/ownership.py::GROUP_MAP_MAX_ASSETS` rather than repeated, because that module
+#: drops a *group's* map at exactly this number and cites this constant as the reason (2026-09-20);
+#: two copies of the same 40 would let the threshold and its justification drift apart.
+ORG_MAP_DETAIL_CAP = GROUP_MAP_MAX_ASSETS
 ORG_NEARBY_LIMIT = 50
 ORG_ROLE_LABELS = {"operator": "Operates", "owner": "Owns"}
 ORG_ROLE_ORDER = ("operator", "owner", "other")
@@ -1742,13 +1756,19 @@ def _resolve_organization(api: ApiClient, ident: str) -> dict[str, Any] | None:
     """
     envelope = api.get("/v1/organizations", params={"slug": ident, "limit": 1})
     entities: list[dict[str, Any]] = envelope["data"]
-    if entities:
-        return entities[0]
+    public_id = entities[0]["public_id"] if entities else ident
     try:
-        result: dict[str, Any] = api.get(f"/v1/organizations/{ident}")["data"]
+        # The list row resolves the slug and stops there: `serialize_organization` emits the
+        # hierarchy fields only on the detail response, so a page built from the list row has no
+        # `parent_edge`, no `ancestors` and no `descendant_count` and silently renders without
+        # breadcrumbs, without the ownership provenance and without the scope links. Found
+        # 2026-09-20 rendering Trailblazer against the real load, and the same class of bug as the
+        # asset page's "No ownership records" on the first Tallgrass screenshots (2026-09-19). One
+        # extra call, on a page that already makes four.
+        result: dict[str, Any] = api.get(f"/v1/organizations/{public_id}")["data"]
         return result
     except ApiNotFound:
-        return None
+        return entities[0] if entities else None
 
 
 @app.get("/assets/{slug}", response_class=HTMLResponse)
@@ -1932,8 +1952,16 @@ def organizations_list(request: Request) -> HTMLResponse:
 
 @app.get("/organizations/{ident}", response_class=HTMLResponse)
 def organization_detail(request: Request, ident: str) -> HTMLResponse:
-    """ADR 0008 company page: assets (through `asset_owner`, with role/share), proposals,
-    opportunities, provenance."""
+    """ADR 0008 company page: where this organisation sits in the ownership tree, and at whatever
+    level of it the URL asks for, the scope's assets, the proposals its companies sponsor, the
+    nearby proposals and the provenance behind all of them.
+
+    `?scope=self|children|all` is the whole drill-down: breadcrumbs up the ancestor chain, links
+    down into the portfolio, three scope links across. No JavaScript is involved in any of it
+    (docs/04 D-30; `web/test_e2e.py` runs with scripts off), which is why the scope also rides as
+    a hidden field on the technology filter's GET form — a browser replaces the query string on
+    submit and would otherwise walk the reader back to the default level.
+    """
     api = get_api(request)
     entity = _resolve_organization(api, ident)
     if entity is None:
@@ -1942,23 +1970,41 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
     parent_raw = entity.get("parent")
     record["parent_slug"] = parent_raw.get("slug") if isinstance(parent_raw, Mapping) else None
     record["subsidiary_count"] = entity.get("subsidiary_count")
+    record["descendant_count"] = _count_or(entity.get("descendant_count"), 0)
     public_id = record["public_id"]
     asset_counts = entity.get("asset_counts")
+    # How far down the ownership tree this page reads, from the URL (`?scope=self|children|all`,
+    # default `all`). Every level is a plain link: this site's browser tests run with scripts off
+    # (docs/04 D-30), so the drill-down is URLs and breadcrumbs, never a control.
+    scope = resolve_scope(request.query_params.get(SCOPE_PARAM))
+    # Two different "omit the default" rules, and they do not coincide: the API defaults to `self`
+    # (an unparameterised integration call must not change meaning), the page defaults to `all`
+    # (a holding company's page must not render empty). So `self` is the token the API needs
+    # spelled out only when it is not the default, and `all` is the token the URL can drop.
+    api_params = {} if scope == "self" else {SCOPE_PARAM: scope}
+    url_params = {} if scope == DEFAULT_SCOPE else {SCOPE_PARAM: scope}
+    scope_meta: Mapping[str, Any] = {}
     try:
-        # A parent such as Tallgrass Energy holds no edge itself; the subsidiaries do (curated
-        # parents, services/ingest/midstream.py), so the page always asks for the group.
+        # A parent such as Tallgrass Energy holds no `asset_owner` edge itself; the subsidiaries
+        # do (curated parents, services/ingest/midstream.py), and above it a holding company holds
+        # nothing either, so the page's default scope is the whole descent rather than one level.
         assets_env = api.get(
             f"/v1/organizations/{public_id}/assets",
-            params={"limit": 100, "include_subsidiaries": "true"},
+            params={"limit": 100, **api_params},
         )
         assets = [_org_asset_row(r) for r in assets_env["data"]]
-        meta = assets_env.get("meta")
-        if asset_counts is None and isinstance(meta, Mapping):
-            asset_counts = meta.get("asset_counts")
+        raw_totals = assets_env.get("totals")
+        if isinstance(raw_totals, Mapping):
+            asset_counts = raw_totals
+        raw_scope = assets_env.get("scope")
+        if isinstance(raw_scope, Mapping):
+            scope_meta = raw_scope
     except ApiError:
         assets = []
     try:
-        proposals_env = api.get(f"/v1/organizations/{public_id}/proposals", params={"limit": 100})
+        proposals_env = api.get(
+            f"/v1/organizations/{public_id}/proposals", params={"limit": 100, **api_params}
+        )
         proposals = [flatten_proposal(e) for e in proposals_env["data"]]
     except ApiError:
         proposals = []
@@ -1971,14 +2017,22 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
     except ApiError:
         opportunities = []
     groups = _org_asset_groups(assets)
+    # A fund-level page is not a company page (owner brief, 2026-09-20): `web/ownership.py`
+    # decides from the API's own counts whether this node renders as a company (map plus a flat
+    # asset table) or as a portfolio of companies, and says in words why anything is absent.
+    view = group_view(scope=scope, totals=asset_counts, scope_meta=scope_meta, asset_rows=assets)
+    portfolio = portfolio_rows(asset_counts, subject_public_id=public_id)
     # The map of everything the organisation owns or operates: geometry from the asset rows when
     # the API embeds it, else each asset's own detail response (capped, see ORG_MAP_DETAIL_CAP).
-    for a in [a for a in assets if not a.get("geometry") and a.get("public_id")][:ORG_MAP_DETAIL_CAP]:
-        try:
-            a["geometry"] = _geometry_of(api.get(f"/v1/assets/{a['public_id']}")["data"])
-        except ApiError:
-            continue
-    features = [_asset_feature(a, a["geometry"]) for a in assets if a.get("geometry")]
+    if view.show_map:
+        for a in [a for a in assets if not a.get("geometry") and a.get("public_id")][:ORG_MAP_DETAIL_CAP]:
+            try:
+                a["geometry"] = _geometry_of(api.get(f"/v1/assets/{a['public_id']}")["data"])
+            except ApiError:
+                continue
+    features = (
+        [_asset_feature(a, a["geometry"]) for a in assets if a.get("geometry")] if view.show_map else []
+    )
     # "Proposals near those pipelines" (owner, 2026-09-19): exact-grade proposals within 25 km of
     # any of the organisation's assets, each at its distance to the nearest one, which is named.
     # Narrowed by default to the technologies the company's own asset types make relevant
@@ -1990,9 +2044,10 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
         technology_vocabulary = [v["value"] for v in api.get("/v1/meta/vocabularies")["data"]["technology"]]
     except (ApiError, KeyError, TypeError):
         technology_vocabulary = []
-    relevance_default = load_relevance().default_for(
-        _org_type_counts(entity.get("group_asset_counts") or asset_counts, groups)
-    )
+    # The PR #8 relevance filter keys off the asset types held *in this scope*, so it stays
+    # correct at every level of the tree: the whole group's types at `scope=all`, one company's at
+    # `scope=self`. `asset_counts` is the scoped totals block the assets call just returned.
+    relevance_default = load_relevance().default_for(_org_type_counts(asset_counts, groups))
     nearby_filter = resolve_nearby_filter(
         request.query_params.get(NEARBY_TECHNOLOGY_PARAM),
         default=relevance_default,
@@ -2001,7 +2056,7 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
     nearby: list[dict[str, Any]] = []
     nearby_totals: Mapping[str, Any] = {}
     try:
-        nearby_params: dict[str, Any] = {"limit": ORG_NEARBY_LIMIT, "include_subsidiaries": "true"}
+        nearby_params: dict[str, Any] = {"limit": ORG_NEARBY_LIMIT, **api_params}
         if nearby_filter.technologies:
             nearby_params["technology"] = ",".join(nearby_filter.technologies)
         nearby_env = api.get(f"/v1/organizations/{public_id}/nearby-proposals", params=nearby_params)
@@ -2038,7 +2093,11 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
         + ". "
         + _basemap_attribution(tile_mode, tile_url)
     )
-    mini_map = _mini_map(features, label=f"Map of assets of {record['name']}", caption=caption)
+    mini_map = (
+        _mini_map(features, label=f"Map of assets of {record['name']}", caption=caption)
+        if view.show_map
+        else None
+    )
     # An organisation row carries no provenance of its own (`serialize_organization` emits []);
     # the panel shows the sources of its assets and proposals, or nothing -- never the "withheld
     # under licence" empty state, which would be a false licence claim (owner brief, 2026-09-19).
@@ -2052,14 +2111,19 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
         )
     )
     descriptor = org_descriptor(record.get("type"), _org_type_counts(asset_counts, groups))
-    path = f"/organizations/{record['slug'] or record['public_id']}"
+    base_path = f"/organizations/{record['slug'] or record['public_id']}"
+    # The scope belongs in every link the page emits: the technology filter's "show all" undo, the
+    # form action and the canonical URL. Dropping it would silently walk the reader back up to the
+    # default scope when they changed something else.
+    path = base_path if not url_params else f"{base_path}?{SCOPE_PARAM}={scope}"
     notice = nearby_notice(
         nearby_filter,
         shown=nearby_shown,
         total=nearby_total,
-        path=path,
+        path=base_path,
         listed_cap=ORG_NEARBY_LIMIT,
         listed_projects=len(nearby),
+        keep=url_params,
     )
     return templates.TemplateResponse(
         request,
@@ -2085,6 +2149,12 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
                 ),
             ],
             "subsidiaries": _org_subsidiaries(entity),
+            "ancestors": ancestor_claims(entity),
+            "parent_claim": parent_claim(entity),
+            "portfolio": portfolio,
+            "group_view": view,
+            "scope_links": scope_links(base_path, scope, descendant_count=record["descendant_count"]),
+            "scope": scope,
             "nearby_proposals": nearby,
             "nearby_filter": nearby_filter,
             "nearby_notice": notice,

@@ -1238,6 +1238,43 @@ sources:
     IDs (unit/phase) column carries a TZ ID (TransitionZero, CC BY-NC) — non-commercial rows cannot go in a
     commercial product. gem.wiki prose is CC BY-NC-SA and is never ingested. See docs/13-legal-data-rights.md
     section 2.2.
+    2026-09-21: of thirteen tracker pages retrieved 2026-09-20 only the solar page still carries the CC BY
+    sentence quoted above, and the Download Data URL it was read from now 301s to the project page. Not
+    reclassified (the 2026-09-12 quote was genuinely retrieved); re-verify from the notice inside a download
+    file before the next release is ingested. docs/13 section 2.18.
+
+- id: global.gem.ownership_tracker
+  name: Global Energy Monitor — Global Energy Ownership Tracker (entity, ownership-relationship and asset chains)
+  jurisdiction: global
+  category: registry
+  operator: Global Energy Monitor (non-profit)
+  url: https://globalenergymonitor.org/projects/global-energy-ownership-tracker
+  access: bulk_file
+  auth: email registration for download (not performed; no email submitted by any agent)
+  format: xlsx
+  cadence: follows the nine underlying trackers; most recent release August 2026
+  license: 'No licence statement on the dataset page (retrieved 2026-09-20, HTTP 200) — the page gives only "The recommended citation is ''Global Energy Ownership Tracker, Global Energy Monitor, August 2026 release.''" and a site footer "© 2026 Global Energy Monitor All Rights Reserved". CC BY 4.0 is named only by the download gate: GEM''s download component renders a required checkbox "I have reviewed and understand Global Energy Monitor''s Creative Commons Public License" and records licence "Creative Commons Attribution 4.0 International (CC BY 4.0)" (https://api.globalenergymonitor.org/static/gem-download-form.bundle.js, retrieved 2026-09-20), linking https://globalenergymonitor.org/creative-commons-license, which is the verbatim CC BY 4.0 text and scopes itself to no dataset. In-file notice unread: it sits behind a registration wall this lane did not pass.'
+  reuse: attribution
+  publication: derived_only
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-20, result: ok, note: 'terms review only; no data fetched, downloaded or vendored'}
+  notes: >-
+    Terms review 2026-09-20/21, docs/13-legal-data-rights.md section 2.18. Covers the ownership edge GLEIF
+    structurally misses (GEM: only 7.6% of tracked entities are publicly listed). Not ingested and not
+    approved for ingest: publication is derived_only and three ingest rules are unconditional if it ever
+    ships. (1) DROP the S&P Capital IQ (SPCIQ) identifier column — CC BY licenses only rights GEM "has
+    authority to license" and GEM describes SPCIQ as found in "your S&P IQ account"; same mechanism as the TZ
+    drop on global.gem.trackers. (2) DROP every row whose entity type is "natural person"; never publish one
+    (docs/13 section 5.4). (3) Carry GEM's imputed-share flag through to the surface — GEM divides unclaimed
+    shares equally among owners with unknown percentages, so a percentage may be an estimate, and publishing
+    one unlabelled as a fact is a product-integrity problem, not a licence one. Scope is fossil and heavy
+    industry only (coal plants, oil and gas plants, coal mines, iron and steel, bioenergy, iron ore mines,
+    gas transmission pipelines, oil/NGL transmission pipelines, cement and concrete) — no solar, wind, hydro,
+    geothermal, nuclear or LNG terminals, and no queue-stage proposals. Upgrade to open-attribution/raw_ok
+    only after the notice inside a download file is read (docs/13 section 7 item 14); that download needs an
+    email address and a licence acknowledgement, which is an owner action, not an agent one.
 
 - id: global.iea.demo_projects
   name: IEA Clean Energy Demonstration Projects Database
