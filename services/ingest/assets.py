@@ -41,7 +41,8 @@ from services.db.models import ASSET_TYPES, Asset, new_uuid
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id as make_public_id
 from services.ids import slugify
-from services.ingest.loader import upsert_licence_and_source
+from services.ingest.loader import set_source_vintage, upsert_licence_and_source
+from services.ingest.vintage import NOT_STATED_VINTAGE, Vintage, from_attributes
 
 DEFAULT_DB_PATH = pathlib.Path("web/.data/dev.db")
 
@@ -212,6 +213,21 @@ def _slug_for(name: str, state_code: str | None, used_slugs: set[str]) -> str:
     return slug
 
 
+def _frame_vintage(df: pd.DataFrame) -> Vintage:
+    """The release stated by an asset frame's `attributes.source_vintage`, or `not_stated`.
+
+    Scans rather than taking row zero: a layer joined from two files can carry the token on only
+    some rows, and the first row is not guaranteed to be one of them. Bounded to the first 50
+    rows because the token is a property of the fetched artefact, not of the row."""
+    if "attributes" not in df.columns:
+        return NOT_STATED_VINTAGE
+    for value in df["attributes"].head(50):
+        vintage = from_attributes(_to_attributes(value))
+        if vintage.stated:
+            return vintage
+    return NOT_STATED_VINTAGE
+
+
 def load_assets(
     session: Session,
     df: pd.DataFrame,
@@ -238,6 +254,11 @@ def load_assets(
     registry = Registry()
     entry = registry.get(resolve_source_id(df, asset_type, source_id))
     source = upsert_licence_and_source(session, entry, manifest_version or registry.version)
+    # The release the source states for this layer. The Energy Atlas puts it in the shapefile
+    # member names, which `pipeline/context/eia_atlas.py` already extracts onto every row's
+    # `attributes.source_vintage`; a layer whose rows carry no token resolves to `not_stated`
+    # rather than borrowing `retrieved_at` (`services/ingest/vintage.py`).
+    set_source_vintage(source, _frame_vintage(df))
 
     result = AssetsLoadResult(assets_seen=len(df))
     if not len(df):

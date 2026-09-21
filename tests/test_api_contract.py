@@ -207,6 +207,18 @@ def test_health_matches_schema(spec: dict, seeded_client) -> None:
     assert_valid(spec, "HealthResponse", resp.json())
 
 
+def test_coverage_matches_schema(spec: dict, seeded_client) -> None:
+    resp = seeded_client.get("/v1/coverage")
+    assert resp.status_code == 200
+    assert_valid(spec, "CoverageResponse", resp.json())
+
+
+def test_lifecycle_states_matches_schema(spec: dict, seeded_client) -> None:
+    resp = seeded_client.get("/v1/lifecycle-states")
+    assert resp.status_code == 200
+    assert_valid(spec, "LifecycleStatesResponse", resp.json())
+
+
 def test_not_found_matches_problem_schema(spec: dict, seeded_client) -> None:
     resp = seeded_client.get("/v1/proposals/prop_00000000ZZ")
     assert resp.status_code == 404

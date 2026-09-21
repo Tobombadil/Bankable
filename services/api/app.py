@@ -39,10 +39,12 @@ from starlette.middleware.gzip import GZipMiddleware
 from services.api.auth import AuthContext, get_auth_context
 from services.api.build_info import build_info, data_as_of
 from services.api.common import API_HOST, WEB_HOST, ensure_aware, new_request_id, utcnow
+from services.api.coverage import coverage, source_vintages
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
 from services.api.feeds import render_json_feed, render_rss
 from services.api.geo import build_geo_feature_collection
+from services.api.lifecycle import vocabulary as lifecycle_vocabulary
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import check_allowed, csv_param
 from services.api.serialize import (
@@ -1445,6 +1447,37 @@ def get_source(source_id: str, request: Request, db: Session = Depends(get_db)) 
     return build_envelope(serialize_source(src), meta=meta, licence_summary=build_licence_summary([]))
 
 
+@app.get("/v1/coverage")
+def get_coverage(request: Request, db: Session = Depends(get_db)) -> Any:
+    """What the register does and does not contain, measured at request time.
+
+    Every number is a query or a read of `data/sources.yaml`, so this cannot go stale the way a
+    written coverage paragraph does; only the `notes` are prose, and each carries the date it was
+    written (`services/api/coverage.py`). Public on every tier and unaffected by the visibility
+    predicate: which technologies have no rows and which sources are withheld are facts about our
+    coverage, not rows, and answering them differently per tier would be its own dishonesty."""
+    check_allowed(request, set())
+    return build_envelope(
+        coverage(db),
+        meta=build_meta(lag_days=0),
+        licence_summary=build_licence_summary([]),
+    )
+
+
+@app.get("/v1/lifecycle-states")
+def get_lifecycle_states(request: Request, db: Session = Depends(get_db)) -> Any:
+    """The published definitions of the status vocabulary, with the raw source values that map
+    into each one derived from `pipeline/status_map.yaml` and the per-connector status maps at
+    request time (`services/api/lifecycle.py`). The prose half carries the date it was written;
+    the mapping half cannot drift from the pipeline because it is read out of the same files."""
+    check_allowed(request, set())
+    return build_envelope(
+        lifecycle_vocabulary(),
+        meta=build_meta(lag_days=0),
+        licence_summary=build_licence_summary([]),
+    )
+
+
 @app.get("/v1/licences")
 def list_licences(request: Request, db: Session = Depends(get_db)) -> Any:
     check_allowed(request, {"limit", "cursor", "reuse_class"})
@@ -1653,6 +1686,20 @@ def get_vocabularies(db: Session = Depends(get_db)) -> Any:
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary([]))
 
 
+def _health_vintage(db: Session) -> dict[str, Any]:
+    """The release bound, small enough for a health probe: one indexed read of `source`."""
+    summary = source_vintages(db)
+    oldest = summary["oldest"]
+    return {
+        "oldest": oldest["vintage"] if oldest else None,
+        "oldest_label": oldest["vintage_label"] if oldest else None,
+        "oldest_source_id": oldest["source_id"] if oldest else None,
+        "sources_stating_a_release": summary["sources_stating_a_release"],
+        "sources_stating_none": summary["sources_stating_none"],
+        "sources_undetermined": summary["sources_undetermined"],
+    }
+
+
 @app.get("/v1/health")
 def get_health(
     db: Session = Depends(get_db),
@@ -1697,6 +1744,13 @@ def get_health(
         # version?". `data_as_of` is the newest fetch from a source, not the publish lag above.
         "build": build_info(),
         "source_data_as_of": data_as_of(db),
+        # `source_data_as_of` is *our* newest fetch. `source_vintage` is what the sources
+        # themselves say they released, which on the load this was added against was two months
+        # older for EIA-860M and nine years older for one Energy Atlas layer. A probe that reads
+        # only the fetch date and calls the data current is the mistake the pair exists to stop;
+        # `oldest` is the bound, and `sources_stating_none` says how many sources cannot be
+        # bounded that way at all rather than letting the fetch date pretend to (migration 0018).
+        "source_vintage": _health_vintage(db),
     }
     return data
 

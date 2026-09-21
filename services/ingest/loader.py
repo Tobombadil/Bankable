@@ -128,6 +128,7 @@ from services.db.models import (
 from services.ids import public_id, slugify
 from services.ingest.geocode import CountyGazetteer, default_gazetteer, geocode
 from services.ingest.lag import change_event_public_at, record_public_at
+from services.ingest.vintage import NOT_STATED_VINTAGE, Vintage, from_source_urls
 
 #: Default rows-per-flush for `load_dataframe`'s bulk-insert pass (Sprint 3, services/README.md
 #: "Bulk-insert pass (Sprint 3)"): every id used inside one call (`proposal`/`organization`/
@@ -350,6 +351,18 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
         source.licence_id = licence.id
     session.flush()
     return source
+
+
+def set_source_vintage(source: Source, vintage: Vintage) -> None:
+    """Record the release this source states, as resolved from the artefact just loaded.
+
+    Written on every load, including when the answer is `not_stated`: "we looked and the source
+    publishes no release label" is an answer the surfaces render, and leaving the column NULL
+    would make it indistinguishable from "never examined". Deliberately has no access to
+    `retrieved_at` — the whole point of the column is that a fetch date can never leak into it
+    (`services/ingest/vintage.py`)."""
+    source.vintage = vintage.value
+    source.vintage_basis = vintage.basis
 
 
 def _row_get(row: Mapping[str, Any], key: str) -> Any:
@@ -995,6 +1008,15 @@ def load_dataframe(
     link_cls: type[Any] = ProposalSource if kind == "proposal" else OpportunitySource
     fk_name = "proposal_id" if kind == "proposal" else "opportunity_id"
 
+    # The release this run's artefact states, beside the fetch date the link rows already carry
+    # (`services/ingest/vintage.py`). Resolved from the URLs the connector wrote onto the frame,
+    # so it is the source's own statement rather than anything inferred from when we ran.
+    set_source_vintage(
+        source,
+        from_source_urls(records_df["source_url"])
+        if "source_url" in records_df.columns
+        else NOT_STATED_VINTAGE,
+    )
     cache = _build_load_cache(session, source, entity_cls, link_cls, fk_name)
     records = records_df.to_dict("records") if len(records_df) else []
     distinct_record_ids: dict[str, set[str]] = {}

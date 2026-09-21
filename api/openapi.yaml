@@ -1113,6 +1113,81 @@ paths:
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
 
+  /v1/coverage:
+    get:
+      operationId: getCoverage
+      tags: [Sources & licences]
+      summary: Coverage and known absences
+      description: |
+        What this register contains and, more usefully, what it does not — measured at request time, never
+        asserted. Answers the question a reader cannot otherwise ask: is this category empty because nothing
+        is happening, or because we have no source for it?
+
+        Derived every request, so it cannot go stale: sources registered and sources with rows come from
+        `data/sources.yaml` and the store; `sources.withheld` is every registered source whose reuse terms the
+        ingestion gate refuses, with the registry's own reason (PJM, MISO, SPP and ISO-NE are here, and a
+        reader seeing no rows from those footprints should see this list); `technologies.absent` is the
+        vocabulary `pipeline/normalize.py` can emit minus the tokens with rows (`load` is on it today — the
+        register carries no large-load or data-centre proposals at all); `states.*_absent` is the same
+        subtraction over the status vocabularies; `ownership` counts recorded parents. `vintage` repeats the
+        per-source release summary from `GET /v1/health` in full.
+
+        `notes` is the only prose, and each note carries the date it was written and is dropped automatically
+        when the derived fact it explains stops being true.
+
+        Public on every tier and independent of the visibility predicate: what is missing from a register is
+        not a row, and tiering the answer would defeat its purpose.
+      x-tier: public
+      x-status: planned
+      x-sprint: 3
+      x-prd-stories: [US-105, US-604, US-904]
+      security: *sec_public
+      responses:
+        '200':
+          description: The coverage statement.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverageResponse'
+        <<: *common_errors
+
+  /v1/lifecycle-states:
+    get:
+      operationId: getLifecycleStates
+      tags: [Sources & licences]
+      summary: Status vocabulary definitions
+      description: |
+        What each lifecycle state and opportunity status means, what source facts map into it, and where that
+        mapping is a judgement rather than a reading. The chips rendered on every list, map drawer and record
+        page are these words; this is where a reader finds out what they assert.
+
+        Two halves that cannot disagree. The definition, exclusions and uncertainty of each word are prose from
+        `data/vocabulary/lifecycle_states.yaml` and carry `definitions_written`. `maps_from` is read out of
+        `pipeline/status_map.yaml` and the per-connector status maps on every request — the same files
+        `pipeline/normalize.py::harmonise_status` keys off at ingest — so the raw values shown are the raw
+        values used. A mapping whose source is withheld is reported with `rows_published: false` rather than
+        hidden.
+
+        `pre_construction_states` names the four states (`filed`, `studied`, `permitted`, `contracted`) that
+        this register distinguishes where trackers built from announcements publish a single pre-construction
+        bucket. `is_fallback` marks `unknown`, which is reached by falling through every map rather than by a
+        rule, so an empty `maps_from` on it is correct rather than a gap.
+      x-tier: public
+      x-status: planned
+      x-sprint: 3
+      x-prd-stories: [US-105, US-202, US-604]
+      security: *sec_public
+      responses:
+        '200':
+          description: The published status vocabulary.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LifecycleStatesResponse'
+        <<: *common_errors
+
   /v1/licences:
     get:
       operationId: listLicences
@@ -8549,6 +8624,8 @@ components:
         last_success_at:
           type: [string, 'null']
           format: date-time
+        vintage:
+          $ref: '#/components/schemas/SourceVintage'
         provenance:
           type: object
           description: The registry entry's own provenance — the manifest version and hash.
@@ -8560,6 +8637,38 @@ components:
             manifest_hash:
               type: string
               pattern: '^[0-9a-f]{64}$'
+
+    SourceVintage:
+      type: object
+      description: >-
+        The release the **source** states for the data last loaded from it — never a fetch date.
+        `last_success_at` on this object and `retrieved_at` on every record are ours; this one is
+        theirs, and until 2026-09-21 only ours was rendered, so a July 2026 EIA-860M workbook sat
+        under a "last fetched 2026-09-13" line with nothing saying so. A source that publishes no
+        release label resolves to `not_stated` and is rendered as such: there is deliberately no
+        fallback to the fetch date.
+      required: [value, label, basis, stated]
+      properties:
+        value:
+          type: [string, 'null']
+          description: 'Normalised release, `YYYY-MM` or `YYYY`, so text order is release order. Null unless `stated`.'
+          examples: ['2026-07']
+        label:
+          type: [string, 'null']
+          description: Reader's form of `value`.
+          examples: ['July 2026']
+        basis:
+          type: string
+          enum: [artefact_filename, shapefile_member, not_stated, undetermined]
+          description: >-
+            How the release was determined. `artefact_filename` — the fetched file's own name
+            (EIA-860M's `july_generator2026.xlsx`); `shapefile_member` — the vintage token in an
+            EIA Energy Atlas shapefile's member names; `not_stated` — examined, and the source
+            publishes no release label; `undetermined` — no load has resolved one yet. The last
+            two are different answers and are not collapsed.
+        stated:
+          type: boolean
+          description: The source states a release. False for both `not_stated` and `undetermined`.
 
     # ---------- Map (US-104; docs/04 §2.2) ----------
     GeoClusterProperties:
@@ -9557,6 +9666,28 @@ components:
             The newest `retrieved_at` across loaded source records — how recently the platform
             fetched from a source, which moves independently of `data_as_of` above (that one is
             the publish lag). Null when nothing is loaded.
+        source_vintage:
+          type: object
+          description: >-
+            The releases the sources themselves state, summarised — the counterpart to
+            `source_data_as_of` above, which is only when *we* last fetched. `oldest` is the bound
+            on how old the loaded data can be; `sources_stating_none` is how many loaded sources
+            publish no release label at all, for which the fetch date is the best available
+            statement and is labelled as a fetch, not as a release.
+          properties:
+            oldest:
+              type: [string, 'null']
+              description: Oldest stated release across loaded sources, `YYYY-MM` or `YYYY`. Null when no loaded source states one.
+            oldest_label:
+              type: [string, 'null']
+            oldest_source_id:
+              type: [string, 'null']
+            sources_stating_a_release:
+              type: integer
+            sources_stating_none:
+              type: integer
+            sources_undetermined:
+              type: integer
         lag_days_default:
           type: object
           description: 'Lag defaults in force. `supply` and `opportunities` are the record lag, `0` on every tier since 2026-09-19 (the paywall is by shape, not by time); `iso_change_events` is the one delay that survives.'
@@ -10091,6 +10222,283 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/Source'
+    CoverageResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Coverage'
+    Coverage:
+      type: object
+      description: >-
+        Measured coverage and known absences. Every field but `notes` is computed from the store and
+        `data/sources.yaml` at request time.
+      required: [sources, vintage, records, technologies, states, ownership, notes]
+      properties:
+        sources:
+          type: object
+          required: [registered, with_rows, loaded_source_ids, withheld]
+          properties:
+            registered:
+              type: integer
+              description: Entries in `data/sources.yaml`, including those with no connector.
+            with_rows:
+              type: integer
+              description: Sources with at least one stored proposal, opportunity or asset row.
+            loaded_source_ids:
+              type: array
+              items:
+                type: string
+            withheld:
+              type: array
+              description: >-
+                Registered sources the ingestion gate refuses, so nothing from them is published on any tier.
+                `supply` marks the interconnection registers, whose absence a reader of a map feels first;
+                they sort first. Social channels, news and private aggregators are excluded: they were never
+                candidates for publication as rows, so listing them here would be padding.
+              items:
+                type: object
+                required: [source_id, name, category, reuse, supply, reason]
+                properties:
+                  source_id:
+                    type: string
+                  name:
+                    type: string
+                  operator:
+                    type: [string, 'null']
+                  jurisdiction:
+                    type: [string, 'null']
+                  category:
+                    type: string
+                  reuse:
+                    type: string
+                    enum: [restricted, unknown]
+                  publication:
+                    type: [string, 'null']
+                  url:
+                    type: string
+                  supply:
+                    type: boolean
+                  reason:
+                    type: string
+        vintage:
+          type: object
+          description: Per-source release, and the oldest of them. See `SourceVintage`.
+          properties:
+            sources:
+              type: array
+              items:
+                type: object
+                properties:
+                  source_id:
+                    type: string
+                  name:
+                    type: string
+                  vintage:
+                    type: [string, 'null']
+                  vintage_label:
+                    type: [string, 'null']
+                  vintage_basis:
+                    type: string
+                    enum: [artefact_filename, shapefile_member, not_stated, undetermined]
+                  fetched_at:
+                    type: [string, 'null']
+                    format: date-time
+                    description: >-
+                      When *we* last fetched from this source — `source.last_success_at`, falling
+                      back to the newest `retrieved_at` on its stored rows. Printed beside the
+                      release, never in place of it.
+            oldest:
+              type: [object, 'null']
+              properties:
+                source_id:
+                  type: string
+                name:
+                  type: string
+                vintage:
+                  type: string
+                vintage_label:
+                  type: string
+            sources_stating_a_release:
+              type: integer
+            sources_stating_none:
+              type: integer
+            sources_undetermined:
+              type: integer
+        records:
+          type: object
+          properties:
+            proposals:
+              type: integer
+            opportunities:
+              type: integer
+            assets:
+              type: integer
+            proposal_kinds:
+              type: object
+              additionalProperties:
+                type: integer
+            opportunity_kinds:
+              type: object
+              additionalProperties:
+                type: integer
+            jurisdictions:
+              type: object
+              additionalProperties:
+                type: integer
+        technologies:
+          type: object
+          description: >-
+            `absent` is the honest half: the technology vocabulary the normaliser can emit minus the tokens
+            that have rows. A token here means no source publishes it, not that it was filtered out.
+          properties:
+            present:
+              type: object
+              additionalProperties:
+                type: integer
+            absent:
+              type: array
+              items:
+                type: string
+            vocabulary:
+              type: array
+              items:
+                type: string
+        states:
+          type: object
+          properties:
+            lifecycle_counts:
+              type: object
+              additionalProperties:
+                type: integer
+            lifecycle_absent:
+              type: array
+              items:
+                type: string
+            opportunity_status_counts:
+              type: object
+              additionalProperties:
+                type: integer
+            opportunity_status_absent:
+              type: array
+              items:
+                type: string
+            pre_construction_states:
+              type: array
+              items:
+                type: string
+            pre_construction_count:
+              type: integer
+        ownership:
+          type: object
+          properties:
+            organizations:
+              type: integer
+            with_recorded_parent:
+              type: integer
+            without_recorded_parent:
+              type: integer
+            parent_source_ids:
+              type: array
+              items:
+                type: string
+        notes:
+          type: array
+          description: >-
+            The written half. Each note explains a derived fact and carries the date it was written; a note
+            whose fact no longer holds is not returned.
+          items:
+            type: object
+            required: [id, headline, body, written]
+            properties:
+              id:
+                type: string
+              headline:
+                type: string
+              body:
+                type: string
+              written:
+                type: string
+                format: date
+
+    LifecycleStatesResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/LifecycleVocabulary'
+    LifecycleVocabulary:
+      type: object
+      required: [lifecycle_states, opportunity_statuses, definitions_written, pre_construction_states]
+      properties:
+        definitions_version:
+          type: [integer, 'null']
+        definitions_written:
+          type: string
+          description: When the prose definitions were written. The mappings under them are read from the pipeline's own files every request and need no such date.
+        lifecycle_states:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusDefinition'
+        opportunity_statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusDefinition'
+        pre_construction_states:
+          type: array
+          items:
+            type: string
+        status_map_files:
+          type: array
+          description: The files `maps_from` was read from, relative to the repository root.
+          items:
+            type: string
+    StatusDefinition:
+      type: object
+      required: [state, definition, maps_from, is_fallback]
+      properties:
+        state:
+          type: string
+        definition:
+          type: string
+        excludes:
+          type: [string, 'null']
+          description: What a reader would reasonably assume the word covers and it does not.
+        uncertainty:
+          type: [string, 'null']
+          description: Where the mapping into this state is a judgement rather than a reading. Null where it is a direct reading.
+        is_fallback:
+          type: boolean
+          description: Reached by falling through every map rather than by a rule, so an empty `maps_from` is correct.
+        maps_from:
+          type: array
+          description: Every raw source value and refine rule that produces this state, read from the status maps at request time.
+          items:
+            type: object
+            required: [status_key, raw, rule, rows_published]
+            properties:
+              source_id:
+                type: [string, 'null']
+                description: Null when no connector exists for this mapping — the source is withheld and the mapping produces no rows.
+              status_key:
+                type: string
+              field:
+                type: [string, 'null']
+                description: The raw column the base map keys off.
+              raw:
+                type: string
+                description: The source's own value, verbatim, or the refine rule's conditions.
+              rule:
+                type: string
+                description: '`map`, `fallback_map`, or the refine rule''s id.'
+              note:
+                type: [string, 'null']
+                description: The refine rule's own justification, where it carries one.
+              rows_published:
+                type: boolean
+
     LicenceListResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'

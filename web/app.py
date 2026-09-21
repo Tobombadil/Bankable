@@ -60,6 +60,8 @@ from web.viewmodels import (
     ALL_PROPOSAL_LIFECYCLE_STATES,
     WITHDRAWN_PROPOSAL_STATES,
     WORLD_BBOX,
+    absence_note,
+    coverage_facts,
     flatten_asset,
     flatten_opportunity,
     flatten_org_asset_row,
@@ -1451,6 +1453,9 @@ def proposals_list(request: Request) -> HTMLResponse:
         "lifecycle_explicit": explicit,
         "filters": dict(qp),
         "breakdown": breakdown,
+        # Only computed when the filter matched nothing: see `absence_note`'s docstring for why
+        # this is not rendered beside a result that has rows.
+        "absence": absence_note(coverage_facts(request, api), qp) if not records else None,
         "canonical_path": canonical_path,
         "jsonld": [
             item_list_jsonld(
@@ -2159,6 +2164,12 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
             "subsidiaries": _org_subsidiaries(entity),
             "ancestors": ancestor_claims(entity),
             "parent_claim": parent_claim(entity),
+            # Rendered only when this company has no parent edge: an empty parent field reads as
+            # "independent", and 96% of the time it means "we have no parent record". The
+            # numbers come from the measured coverage statement, never a hard-coded figure.
+            "ownership_coverage": (
+                None if parent_claim(entity) else coverage_facts(request, api).get("ownership")
+            ),
             "portfolio": portfolio,
             "group_view": view,
             "scope_links": scope_links(base_path, scope, descendant_count=record["descendant_count"]),
@@ -2249,6 +2260,44 @@ def about(request: Request) -> HTMLResponse:
     )
 
 
+#: How `source.vintage_basis` reads to someone who is not going to read the code. The four
+#: values are deliberately distinct: two ways of knowing, plus "the source states none" and "we
+#: have not resolved one", which are different answers and are never merged.
+VINTAGE_BASIS_LABELS = {
+    "artefact_filename": "the release is in the name of the file we fetch",
+    "shapefile_member": "the release is in the shapefile's member names",
+    "not_stated": "the source publishes no release label",
+    "undetermined": "no load has resolved a release for this source",
+}
+
+
+@app.get("/methodology", response_class=HTMLResponse)
+def methodology(request: Request) -> HTMLResponse:
+    """Coverage, vintage and the status definitions, on one page.
+
+    Everything here is served from `/v1/coverage` and `/v1/lifecycle-states`, which derive their
+    numbers from the store and the pipeline's own status maps at request time. Nothing on this
+    page is a figure typed into a template, because a typed figure is exactly what goes quietly
+    wrong: the page this one replaces printed a single fetch date and let readers take it for the
+    data's age.
+    """
+    api = get_api(request)
+    coverage_env = api.get("/v1/coverage")
+    vocabulary_env = api.get("/v1/lifecycle-states")
+    data = coverage_env["data"]
+    return templates.TemplateResponse(
+        request,
+        "methodology.html",
+        {
+            "coverage": data,
+            "vintage": data["vintage"],
+            "withheld_supply": [s for s in data["sources"]["withheld"] if s.get("supply")],
+            "vocabulary": vocabulary_env["data"],
+            "basis_labels": VINTAGE_BASIS_LABELS,
+        },
+    )
+
+
 @app.get("/attribution", response_class=HTMLResponse)
 def attribution(request: Request) -> HTMLResponse:
     """Task item 4: every source the API lists, plus a Basemap section (Protomaps/OSM ODbL,
@@ -2292,6 +2341,7 @@ SITEMAP_STATIC_PATHS = (
     "/organizations",
     "/search",
     "/about",
+    "/methodology",
     "/attribution",
     "/pricing",
 )

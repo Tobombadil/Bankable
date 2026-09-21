@@ -1,0 +1,188 @@
+# Published definitions of the lifecycle vocabulary.
+#
+# What this file is for
+#   The ten states in `services/db/models.py::LIFECYCLE_STATES` and the eight in
+#   `OPPORTUNITY_STATUSES` render as chips on every list, map drawer and record page. Until this
+#   file existed, no reader could find out what any of those words meant. Global Energy Monitor
+#   publishes a methodology page defining each of its statuses; this is the same thing, kept as
+#   data so the page that renders it cannot say something the code does not do.
+#
+# What this file is NOT
+#   It is not the mapping. Which raw source value becomes which canonical state is decided by
+#   `pipeline/status_map.yaml` and the per-connector `pipeline/connectors/*/status_map.yaml`
+#   files, and the published page derives that half from those files at render time. Nothing
+#   here restates a mapping, so nothing here can contradict one. `definition` is the meaning of
+#   the word; the evidence under it comes from the maps.
+#
+#   `tests/test_lifecycle_definitions.py` fails if a state exists in the code vocabulary and not
+#   here, or here and not in the code vocabulary, or if any status map produces a canonical state
+#   that neither knows about.
+#
+# Fields
+#   definition   : what the state asserts about the real-world project or opportunity.
+#   excludes     : what a reader would reasonably assume it covers and it does not.
+#   uncertainty  : where the mapping into this state is a judgement rather than a reading, named
+#                  so a reader can discount it. Omitted where the mapping is a direct reading.
+#
+# Prose in this file is written, not derived. `written` below is when.
+
+version: 1
+written: 2026-09-21
+
+# ─────────────────────────────────────────────────────────────── proposals (LIFECYCLE_STATES)
+lifecycle_states:
+
+  unknown:
+    definition: >-
+      The source publishes a status we could not place, or none at all. This is the fallback in
+      the status harmoniser, reached when a source has no entry in the status
+      maps, when its status column is blank, or when it carries a value no map lists.
+    excludes: >-
+      It is not "early stage" and not "no activity". A project in unknown may be anywhere in its
+      life; we are saying we cannot tell from what its source published.
+
+  announced:
+    definition: >-
+      A sponsor or an agency has declared the project exists, and no regulatory or interconnection
+      process has been recorded as started.
+    excludes: >-
+      No filing, application or study is implied. An announcement is the weakest evidence in the
+      register and a large share of announced projects never reach filed.
+
+  filed:
+    definition: >-
+      A request has been lodged with an interconnection operator or a regulator and study or
+      review has not been recorded as started.
+    excludes: >-
+      Not a permit, and not a queue position that has entered study — that is studied.
+
+  studied:
+    definition: >-
+      The request is inside the operator's or regulator's process: a cluster, system-impact or
+      facilities study, or an agency review that is under way.
+    excludes: >-
+      Says nothing about the outcome. Most interconnection queue rows in this register sit here,
+      and a large fraction of them will end at withdrawn.
+    uncertainty: >-
+      This is the broadest state, because most ISO queues publish a single "Active" value covering
+      everything from a freshly accepted request to a project weeks from an executed agreement.
+      Where a queue publishes a second column that resolves the ambiguity — CAISO's interconnection
+      agreement status, ERCOT's energisation approval — the refine rules in the status maps use it
+      and the row lands in a later state instead. Where it does not, the row stays here.
+
+  permitted:
+    definition: >-
+      The approvals the project needed from a regulator have been received, and it is not yet
+      under an executed interconnection or offtake contract and not yet building.
+    excludes: >-
+      Not "all permits". It means the permits the mapped source tracks; a project can be permitted
+      federally and unpermitted locally, and this register carries no local land-use permits at
+      all.
+    uncertainty: >-
+      Which permit is meant depends on the source. The Federal Permitting Dashboard's "Complete"
+      is the federal review that dashboard tracks; NESO's "Consents Approved" is GB planning
+      consent; EIA-860M's "(T) Regulatory approvals received" is the developer's own assertion to
+      EIA. They are not equivalent, and the register does not yet name which permit a row's
+      permitted refers to.
+
+  contracted:
+    definition: >-
+      An interconnection agreement has been executed, or an equivalent binding award has been
+      made, and construction has not been recorded as started.
+    excludes: >-
+      Not a signed power purchase agreement — no loaded source publishes offtake contracts — and
+      not a notice to proceed.
+    uncertainty: >-
+      SPP's "IA FULLY EXECUTED/ON SUSPENSION" and ISO-NE's "Suspended" map here: the contract is
+      executed and the project has stopped. Treating a suspended project as contracted overstates
+      it, and splitting suspension into its own state was not taken because the two sources that
+      publish it are both withheld pending licence clearance, so the state would have no rows.
+
+  under_construction:
+    definition: >-
+      Physical construction is under way and commercial operation has not been reached.
+    excludes: >-
+      Not site preparation or procurement on their own, where a source distinguishes them.
+    uncertainty: >-
+      EIA-860M's "(TS) Construction complete, but not yet in commercial operation" maps here
+      rather than to built, because the unit is not yet generating. A reader counting megawatts
+      as operating should use built, not this state.
+
+  built:
+    definition: >-
+      The project is in commercial operation or in service, as the source reports it.
+    excludes: >-
+      Not a statement that it is currently generating, and not a capacity factor. Retirement is
+      not tracked as a lifecycle state; a retired plant appears as an asset with an operating
+      status, not as a proposal.
+
+  withdrawn:
+    definition: >-
+      The sponsor withdrew the request.
+    excludes: >-
+      Not the operator terminating it — that is cancelled.
+    uncertainty: >-
+      Withdrawal wins over later-looking evidence. CAISO publishes rows that are both withdrawn
+      and carry an executed interconnection agreement; those map to withdrawn and are flagged
+      for review, because a withdrawal after an executed agreement is itself the signal.
+
+  cancelled:
+    definition: >-
+      The process was terminated by the operator, the agency or the issuer rather than abandoned
+      by the sponsor.
+    excludes: >-
+      Not a sponsor's own withdrawal, which is withdrawn.
+
+# ─────────────────────────────────────────────── opportunities (OPPORTUNITY_STATUSES)
+opportunity_statuses:
+
+  unknown:
+    definition: >-
+      The source publishes a notice type or status we could not place, or none at all. Same
+      fallback as the proposal side.
+
+  announced:
+    definition: >-
+      A forward notice that a procurement or funding programme is intended: a prior information
+      notice, a general procurement notice, or a forecasted funding opportunity. Bids are not
+      being accepted.
+    excludes: >-
+      Not an open call. Nothing can be responded to from this state.
+
+  open:
+    definition: >-
+      The notice invites a response and its stated deadline has not passed.
+    excludes: >-
+      Eligibility is not checked. An open notice may be closed to most readers.
+    uncertainty: >-
+      "Deadline has not passed" is evaluated against the deadline the source publishes, at the
+      time the row was normalised. A notice whose deadline passes between two of our runs stays
+      open until the next run.
+
+  frozen:
+    definition: >-
+      The issuer has paused the process without closing or cancelling it.
+    excludes: >-
+      Not cancelled; the process may resume.
+
+  reinstated:
+    definition: >-
+      A previously frozen or closed process has been reopened by the issuer.
+
+  closed:
+    definition: >-
+      The response deadline has passed, or the issuer marked the notice complete, and no award has
+      been published.
+    excludes: >-
+      Not a statement that no award was made — only that we have not seen one.
+
+  cancelled:
+    definition: >-
+      The issuer cancelled or abandoned the procurement, or recorded it as unsuccessful.
+
+  awarded:
+    definition: >-
+      The issuer published a contract award or equivalent result notice.
+    excludes: >-
+      The award's value, winner and scope are only as complete as the award notice; several
+      sources publish an award with no named winner.

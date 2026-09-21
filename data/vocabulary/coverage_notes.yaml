@@ -1,0 +1,63 @@
+# Prose that cannot be derived, for the coverage statement.
+#
+# Everything on `/methodology` that is a number — how many sources are registered, how many have
+# data flowing, which technologies have no rows, how many organisations have a recorded parent,
+# which states no source can produce — is measured from the database and the source registry when
+# the page renders, so it cannot go stale. What is left here is the *why*, which no query knows.
+#
+# Each note carries the date it was written. The page prints that date next to it, because a
+# hand-written sentence about coverage is exactly the thing that quietly stops being true.
+#
+# `applies_to` is the derived fact the note explains; the page drops a note whose derived fact is
+# no longer true (a withheld source that clears its licence, a technology that gains rows), so a
+# stale note disappears rather than contradicting the measurement beside it.
+
+version: 1
+
+notes:
+
+  - id: no_large_load
+    applies_to: {absent_technology: load}
+    written: 2026-09-20
+    headline: No large-load or data-centre proposals, anywhere in the register.
+    body: >-
+      This is an absence of sources, not a filter. No loaded source publishes large-load
+      interconnection requests as data: ERCOT meets its large-load reporting obligation with a
+      monthly PDF deck rather than a data product (checked 2026-09-12, and the connector watches
+      the catalogue for one appearing), and the queues that do publish load requests are among the
+      registers withheld pending licence clearance. For a reader working on gas demand this is
+      probably the most commercially interesting category in the scope, and it can be neither
+      filtered in nor out, because it is not there.
+
+  - id: withheld_sources
+    applies_to: {withheld_sources: true}
+    written: 2026-09-21
+    headline: Four US interconnection queues are withheld pending licence clearance.
+    body: >-
+      PJM, MISO, SPP and ISO-NE rows are ingested nowhere and published nowhere, on any tier,
+      because their terms either require a licence we do not hold or could not be retrieved at
+      all. Seeing no PJM projects on this site is a fact about our licences, not about PJM's
+      queue, which is among the largest in North America. The status mapping for SPP and ISO-NE
+      is already written and visible on this page; it produces no rows.
+
+  - id: ownership_depth
+    applies_to: {ownership: true}
+    written: 2026-09-21
+    headline: Most companies have no recorded parent.
+    body: >-
+      Ownership comes from GLEIF's Level 2 accounting-consolidation parents, which cover
+      LEI-registered entities only, plus a small curated file of edges taken from companies' own
+      published statements. A company shown with no parent is a company we have no parent
+      *record* for; privately held and fund-owned operators are systematically the ones missing,
+      which is the opposite of what an empty parent field looks like.
+
+  - id: geographic_scope
+    applies_to: {always: true}
+    written: 2026-09-21
+    headline: Coverage is US-first, with three non-US feeds.
+    body: >-
+      Supply coverage is three US interconnection queues plus the federal generator inventory and
+      the GB transmission register. Demand coverage is EU, GB, US federal and multilateral-bank
+      notices. There is no coverage of US state or local permitting, no non-GB European
+      interconnection queue, and no Canadian, Australian or Asian supply source. Absence of a
+      country here means we have not built it, never that nothing is happening there.

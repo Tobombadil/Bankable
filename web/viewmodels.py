@@ -413,6 +413,67 @@ def restricted_precision_note(location: Mapping[str, Any] | None) -> str | None:
     return None
 
 
+def absence_note(facts: Mapping[str, Any], filters: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Why an empty result may be empty, for the one place a reader actually asks.
+
+    An empty list is the moment an absence is most likely to be read as a fact about the world —
+    "there are no data-centre proposals in Texas" rather than "we have no source that publishes
+    them". This is deliberately *not* rendered next to a result that has rows: a caveat printed
+    beside 5,000 matching records is a disclaimer, gets skimmed, and costs the page more than it
+    pays. `None` when there is nothing specific to say.
+
+    Both branches are measured. The technology line fires only for a token the normaliser can
+    emit and no source has ever produced; the register line lists the withheld supply registers
+    from `data/sources.yaml` by name. Neither is a sentence anyone typed about a particular
+    source, so neither can survive the fact that justified it.
+    """
+    if not facts:
+        return None
+    lines: list[str] = []
+    absent = set(facts.get("technologies", {}).get("absent") or [])
+    requested = {token.strip() for token in str(filters.get("technology") or "").split(",") if token.strip()}
+    for token in sorted(requested & absent):
+        lines.append(
+            f"No source in this register publishes {token.replace('_', ' ')} proposals at all, "
+            "so this filter cannot match — the category is missing, not filtered out."
+        )
+    withheld = [s for s in (facts.get("sources", {}).get("withheld") or []) if s.get("supply")]
+    if withheld:
+        names = ", ".join(str(s.get("operator") or s.get("name")) for s in withheld[:4])
+        more = len(withheld) - 4
+        lines.append(
+            f"{len(withheld)} interconnection registers are withheld pending licence clearance "
+            f"({names}{f' and {more} more' if more > 0 else ''}). No row from them appears in any "
+            "result, on any tier."
+        )
+    if not lines:
+        return None
+    return {"lines": lines, "href": "/methodology#absences"}
+
+
+def coverage_facts(request: Any, api: Any) -> dict[str, Any]:
+    """The measured coverage numbers, for the in-place notes that appear where an absence bites.
+
+    Cached on `app.state` for the life of the process, like `footer_build` and the lag figures
+    and for the same reason: these numbers move when a load runs, not between two requests, and
+    `/v1/coverage` runs a dozen aggregates that no list page should pay for per row. The
+    `/methodology` page deliberately does *not* use this cache — it is the canonical statement and
+    reads the API fresh, so the one surface whose whole job is being accurate never serves a
+    number a restart-old cache is holding.
+
+    Any failure yields an empty mapping and every caller renders nothing. A note about coverage
+    is worth having; it is not worth a 500.
+    """
+    cached: dict[str, Any] | None = getattr(request.app.state, "coverage_facts", None)
+    if cached is None:
+        try:
+            cached = dict(api.get("/v1/coverage")["data"])
+        except Exception:
+            cached = {}
+        request.app.state.coverage_facts = cached
+    return cached
+
+
 def footer_build(request: Any, api: Any) -> dict[str, Any]:
     """The commit the API is running and the vintage of the rows it serves, for the footer
     (`services/api/build_info.py`). Read from `/v1/health` once per app process and cached on
@@ -434,12 +495,27 @@ def footer_build(request: Any, api: Any) -> dict[str, Any]:
         try:
             health = api.get("/v1/health")
             build = health.get("build") or {}
+            vintage = health.get("source_vintage") or {}
             cached = {
                 "commit": build.get("commit"),
                 "dirty": build.get("dirty"),
                 "source_data_as_of": health.get("source_data_as_of"),
+                # The oldest release the sources themselves state, which is the honest bound on
+                # the data's age and is not the fetch date beside it. The footer printed only
+                # "sources last fetched <date>" until 2026-09-21, and readers took that for the
+                # data's age; on that load the oldest loaded release was nine years older.
+                "oldest_vintage": vintage.get("oldest"),
+                "oldest_vintage_label": vintage.get("oldest_label"),
+                "sources_stating_none": vintage.get("sources_stating_none"),
             }
         except Exception:
-            cached = {"commit": None, "dirty": None, "source_data_as_of": None}
+            cached = {
+                "commit": None,
+                "dirty": None,
+                "source_data_as_of": None,
+                "oldest_vintage": None,
+                "oldest_vintage_label": None,
+                "sources_stating_none": None,
+            }
         request.app.state.build_info = cached
     return cached

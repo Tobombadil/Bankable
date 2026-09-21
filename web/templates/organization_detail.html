@@ -36,6 +36,13 @@
     {% if parent_claim.href %}<a class="row-link" href="{{ parent_claim.href }}">{{ parent_claim.name }}</a>{% else %}{{ parent_claim.name }}{% endif %}
     <span class="ownership-claim{% if not parent_claim.dated %} ownership-claim--undated{% endif %}" id="parent-provenance">{{ parent_claim.note }}</span>
   </dd></div>
+  {% elif ownership_coverage and ownership_coverage.organizations %}
+  {# An empty parent field reads as "independent". It almost never means that: ownership comes
+     from GLEIF Level 2 plus a curated file, and most companies here are simply not in either.
+     The number is measured, not written, so it cannot drift away from the data. #}
+  <div><dt>Parent organisation</dt><dd>
+    <span class="ownership-claim ownership-claim--undated" id="parent-provenance">No parent recorded &mdash; which is the usual case, not a finding: {{ ownership_coverage.without_recorded_parent }} of {{ ownership_coverage.organizations }} companies here have none. <a href="/methodology#ownership">Why</a>.</span>
+  </dd></div>
   {% endif %}
 </dl>
 
