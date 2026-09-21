@@ -8,8 +8,18 @@
 #   parent        : canonical name of the parent organisation (created if absent)
 #   source_url    : the company's own published statement the link is read from
 #   retrieved_at  : when that page was read (ISO 8601, UTC)
+#   as_of         : OPTIONAL. The date the *ownership* is stated to have begun (YYYY-MM-DD), written to
+#                   `organization.parent_as_of` and rendered on the company page. Distinct from
+#                   retrieved_at, which is when a human read the page. Omit it when the sources state no
+#                   date -- a company's own systems list usually does not, and the page then prints "no
+#                   date stated by the source", which is the honest rendering. Never borrow retrieved_at
+#                   for it: that dates the reading, not the ownership.
 #   note          : what the page says, quoted or closely paraphrased, and how the operator strings in the
 #                   registry data were matched
+#
+# There is no `share_pct` key. `organization.parent_share_pct` exists (migration 0017) and is NULL on every
+# row: no rule here has yet been able to defend a percentage from a primary source at a stated date, and a
+# field with no defensible value is an invitation to guess one. Add the key with the first rule that can.
 #
 # Interim source: GLEIF Level 2 ("who owns whom", CC0) replaces these rows for every organisation with an
 # LEI once that loader exists; rows here stay for organisations GLEIF does not cover. Each row cites its
@@ -61,3 +71,57 @@ parents:
       processing facilities with a combined capacity of approximately 190 mmcf/day". Atlas processing plant
       owner/operator string "Tallgrass Energy Midstream LLC" (Casper Plant 65 MMcf/d, Douglas Plant 130
       MMcf/d, both WY, 2017 vintage).
+
+  # The edge above Tallgrass. GLEIF Level 2 cannot supply it: measured on the 2026-09-20 golden copy
+  # (data/normalized/context/global.gleif.lei.parents.parquet, 259,784 relationship rows) the only
+  # record with a Tallgrass entity as the child is TALLGRASS MLP OPERATIONS, LLC -> TALLGRASS ENERGY
+  # PARTNERS, LP, and no Blackstone entity is the parent of any Tallgrass entity.
+  - child_pattern: '^tallgrass energy(,? ?l\.?p\.?)?$'
+    parent: Blackstone Infrastructure Partners
+    as_of: 2019-03-11
+    source_url: https://www.sec.gov/Archives/edgar/data/1633651/000119312519070906/d706091d8k.htm
+    retrieved_at: '2026-09-21T01:12:00Z'
+    note: >-
+      Tallgrass Energy, LP (SEC CIK 1633651) Form 8-K filed 2019-03-11, Explanatory Note: "On March 11,
+      2019, pursuant to the terms of the previously announced definitive purchase agreement ... entered
+      into among acquisition vehicles controlled by affiliates of Blackstone Infrastructure Partners
+      ('BIP' and, such acquisition vehicles, collectively, the 'Sponsor Entities') ... the Sponsor
+      Entities acquired from the Sellers (i) 100% of the membership interests in Tallgrass Energy GP,
+      LLC ('TGE GP'), the general partner of Tallgrass Energy, LP ('TGE') ... in exchange for aggregate
+      consideration of $3,213,161,149 in cash". Item 5.01, Changes in Control of Registrant: "Prairie GP
+      Acquiror LLC ... acquired 100% of the limited liability company interests of TGE GP and, as a
+      result, has the ability to control TGE's management and operations".
+      DATE: as_of is that closing date, the day control passed. Announced 2019-01-31 (8-K of that date,
+      .../000163365119000006/tge20191318-k.htm: "approximately 44% economic interest ... for total cash
+      consideration of approximately $3.3 billion"); the 2019-12-16 merger agreement to take TGE private
+      at $22.45 per Class A share (8-K of 2019-12-17, .../000119312519315516/d850802dex991.htm, naming
+      "affiliates of Blackstone Infrastructure Partners together with affiliates of Enagas, GIC, NPS and
+      USS") completed 2020-04-17 (8-K, .../000119312520110372/d910197d8k.htm: TGE "completed its merger
+      ... with Prairie Private Acquiror LP"). Those later dates changed who holds the economics, not who
+      controls, so the relationship still starts 2019-03-11.
+      NAME: the sources name a fund, not one legal holder. "Blackstone Infrastructure Partners" is the
+      string Tallgrass's own filings use, and the string Enagas uses in its own 2024-07-10 release
+      (https://www.enagas.es/en/press-room/news-room/press-releases/stake-sell-tallgrass-energy/,
+      read 2026-09-21: it "reached an agreement to sell its 30.2% shareholding in the American company
+      Tallgrass Energy" to Blackstone Infrastructure Partners for USD 1.1bn). The registered holders are
+      Delaware vehicles -- Prairie GP Acquiror LLC over the GP, Prairie ECI / VCOC / Non-ECI Acquiror LP
+      over the shares, Prairie Private Acquiror LP as the 2020 buyer -- and the chain above them in the
+      2019-03-11 Schedule 13D (.../000119312519070943/d719354dsc13d.htm) runs BIP Holdings Manager
+      L.L.C., Blackstone Infrastructure Associates L.P., BIA GP L.P., Blackstone Holdings III L.P., The
+      Blackstone Group L.P. No source read here states an entity literally named "Blackstone
+      Infrastructure Partners L.P.", so this rule carries the fund name the sources do state and invents
+      no legal suffix. It is deliberately not "Blackstone" or "Blackstone Inc.", the listed parent: that
+      spelling keys to BLACKSTONE under pipeline/normalize.py::org_key and would merge the infrastructure
+      fund into GLEIF's BLACKSTONE INC. node the day the Level 2 loader runs. "Blackstone Infrastructure
+      Partners" keys to BLACKSTONE INFRASTRUCTURE PARTNER, which collides with nothing in the
+      7,412-organisation load and nothing among GLEIF's 183,553 distinct legal names (2026-09-21).
+      SHARE: none recorded, and parent_share_pct stays NULL. No primary source read here states what
+      percentage of Tallgrass BIP itself holds at any date. The ~43.7% economic interest in the
+      2019-03-11 8-K is what the Sponsor Entities held collectively, with Enagas and GIC holding indirect
+      limited partner interests in those same vehicles; the 100% is of TGE GP, which is control, not an
+      economic share of TGE; after the 2020 take-private the consortium owns TGE outright but no read
+      source splits it between BIP, Enagas, GIC, NPS and USS; and Enagas's 2024 exit states Enagas's
+      30.2%, not the buyer's resulting total. A number none of those supports would be invented.
+      CONSORTIUM: this single-parent edge records the controlling interest only. GIC, NPS and USS remain
+      co-investors on the evidence above; the schema has one parent per organisation, so the rest of the
+      consortium is recorded here and nowhere else.

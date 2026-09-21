@@ -1,9 +1,10 @@
 """Loader tests for `services/ingest/midstream.py`: operator/owner edges from a context parquet's
 raw strings (dedupe through `norm_org`, idempotent re-run, unmatched assets reported) and the
-curated parent file (`organization.parent_org_id` / `parent_source_id`)."""
+curated parent file (`organization.parent_org_id` / `parent_source_id` / `parent_as_of`)."""
 
 from __future__ import annotations
 
+import datetime as dt
 import pathlib
 
 import pandas as pd
@@ -11,10 +12,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pipeline.normalize import org_key
 from services.db.models import Asset, AssetOwner, Organization
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ingest.assets import UnsupportedAssetTypeError, load_assets
 from services.ingest.midstream import (
+    DEFAULT_PARENTS_PATH,
     PARENTS_SOURCE_ID,
     load_operator_edges,
     load_operator_edges_parquet,
@@ -287,3 +290,93 @@ def test_load_parents_matches_on_alias_spellings(session, tmp_path):
     assert result.children_linked == 1
     session.refresh(org)
     assert org.parent_org_id is not None
+
+
+# ---------------------------------------------------------------- the dated edge above Tallgrass
+#: The shape of the real file's Blackstone rule: a parent over the top of the existing chain, with
+#: the one thing the nine operating-company rules cannot state -- the date the ownership began.
+DATED_PARENTS_YAML = """
+parents:
+  - child_pattern: '^rockies express'
+    parent: Tallgrass Energy
+    source_url: https://www.tallgrass.com/energy-solutions/natural-gas
+    retrieved_at: '2026-09-19T15:25:00Z'
+  - child_pattern: '^tallgrass energy(,? ?l\\.?p\\.?)?$'
+    parent: Blackstone Infrastructure Partners
+    as_of: 2019-03-11
+    source_url: https://www.sec.gov/Archives/edgar/data/1633651/000119312519070906/d706091d8k.htm
+    retrieved_at: '2026-09-21T01:12:00Z'
+    note: test
+"""
+
+
+def test_as_of_is_optional_parsed_as_a_date_and_never_taken_from_retrieved_at(tmp_path):
+    rules = read_parent_rules(_write_parents(tmp_path, DATED_PARENTS_YAML))
+    undated, dated = rules
+    assert undated.as_of is None  # a systems list states no date; retrieved_at is not borrowed
+    assert dated.as_of == dt.date(2019, 3, 11)
+    assert dated.retrieved_at == "2026-09-21T01:12:00Z"
+
+
+def test_a_malformed_as_of_raises_rather_than_half_loading(session, tmp_path):
+    """The whole file is parsed before the session is touched, so a typo in the last row cannot
+    leave the first rows applied."""
+    load_assets(session, pipelines_frame(), "gas_pipeline")
+    load_operator_edges(session, pipelines_frame(), "gas_pipeline")
+    bad = DATED_PARENTS_YAML.replace("as_of: 2019-03-11", "as_of: 'March 11 2019'")
+    with pytest.raises(ValueError, match="unparseable `as_of`"):
+        load_parents(session, _write_parents(tmp_path, bad))
+    assert not [o for o in session.scalars(select(Organization)) if o.parent_org_id is not None]
+    assert not session.scalars(
+        select(Organization).where(Organization.name_canonical == "Blackstone Infrastructure Partners")
+    ).all()
+
+
+def test_the_dated_edge_deepens_the_chain_and_carries_its_date(session, tmp_path):
+    load_assets(session, pipelines_frame(), "gas_pipeline")
+    load_operator_edges(session, pipelines_frame(), "gas_pipeline")
+
+    result = load_parents(session, _write_parents(tmp_path, DATED_PARENTS_YAML))
+    assert result.children_linked == 2 and result.children_dated == 1
+
+    rex = session.scalars(
+        select(Organization).where(Organization.name_canonical == "Rockies Express Pipeline")
+    ).one()
+    # the chain is now two levels: Rockies Express -> Tallgrass Energy -> Blackstone Infrastructure
+    chain = []
+    node = rex
+    while node.parent_org_id is not None:
+        node = session.get(Organization, node.parent_org_id)
+        chain.append(node.name_canonical)
+    assert chain == ["Tallgrass Energy", "Blackstone Infrastructure Partners"]
+
+    tallgrass = session.scalars(
+        select(Organization).where(Organization.name_canonical == "Tallgrass Energy")
+    ).one()
+    assert tallgrass.parent_as_of == dt.date(2019, 3, 11)
+    assert tallgrass.parent_source_id == PARENTS_SOURCE_ID
+    assert tallgrass.parent_share_pct is None  # no source states BIP's stake; never inferred
+    assert rex.parent_as_of is None  # the undated rule stays undated rather than borrowing one
+
+    again = load_parents(session, _write_parents(tmp_path, DATED_PARENTS_YAML))
+    assert again.children_linked == 0 and again.children_unchanged == 2 and again.children_dated == 0
+
+
+def test_the_repo_parent_file_carries_the_dated_blackstone_edge():
+    """The real file, not a fixture: the one curated edge whose sources date the transaction."""
+    rules = read_parent_rules(DEFAULT_PARENTS_PATH)
+    top = [r for r in rules if r.parent != "Tallgrass Energy"]
+    assert len(top) == 1, "this lane adds one curated edge, not a campaign"
+    edge = top[0]
+    assert edge.parent == "Blackstone Infrastructure Partners"
+    assert edge.as_of == dt.date(2019, 3, 11)
+    assert edge.source_url.startswith("https://www.sec.gov/Archives/edgar/data/1633651/")
+    # the fund, never the listed parent: "Blackstone" alone keys to BLACKSTONE, which is GLEIF's
+    # BLACKSTONE INC. node (docs/22 §17.3, and the note on the rule)
+    assert org_key(edge.parent) == "BLACKSTONE INFRASTRUCTURE PARTNER"
+    # and not the asset manager Blackstone spun out in 1994, whose name differs by two letters
+    assert org_key(edge.parent).startswith("BLACKSTONE ")
+    # narrow: the holding company only, never one of its operating subsidiaries
+    assert edge.regex.search("Tallgrass Energy") and edge.regex.search("Tallgrass Energy, LP")
+    for child in ("Tallgrass Energy Midstream LLC", "Tallgrass Energy Partners, LP", "Rockies Express"):
+        assert not edge.regex.search(child), child

@@ -307,6 +307,8 @@ paths:
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
         - $ref: '#/components/parameters/Placement'
+        - $ref: '#/components/parameters/Slipped'
+        - $ref: '#/components/parameters/SlipBucket'
         - $ref: '#/components/parameters/SponsorId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
@@ -387,6 +389,8 @@ paths:
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
         - $ref: '#/components/parameters/Placement'
+        - $ref: '#/components/parameters/Slipped'
+        - $ref: '#/components/parameters/SlipBucket'
         - $ref: '#/components/parameters/SponsorId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
@@ -4983,6 +4987,8 @@ paths:
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
         - $ref: '#/components/parameters/CapacityMwLte'
+        - $ref: '#/components/parameters/Slipped'
+        - $ref: '#/components/parameters/SlipBucket'
       responses:
         '200':
           description: The feed.
@@ -5777,6 +5783,36 @@ components:
         items:
           type: string
           enum: [exact, region, none]
+    Slipped:
+      name: slipped
+      in: query
+      description: >-
+        `true` returns only proposals whose own stated `proposed_online_date` passed more than 90 days ago
+        while the record is still in an active lifecycle state (`announced`, `filed`, `studied`, `permitted`,
+        `contracted`, `under_construction`); `false` returns the complement, which **includes** every proposal
+        with no `proposed_online_date` at all — nothing was promised, so nothing is late. Derived at read time
+        against the current date and never stored, so the same record can change answer tomorrow with no event
+        on it. The 90-day grace is not cosmetic: every `us.eia.860m` and `us.iso.nyiso.gen_queue` date is
+        month-granularity (the first of the month), so a bare "date has passed" test flags every project
+        targeting the current month. See `schedule_slip` on the `Proposal` schema and
+        `GET /v1/meta/vocabularies` → `slip_bucket` for the boundaries.
+      schema:
+        type: boolean
+    SlipBucket:
+      name: slip_bucket
+      in: query
+      description: >-
+        How far past its stated date a slipped proposal is: `under_1y` (91–365 days), `1_to_3y` (366–1,095),
+        `over_3y` (1,096+). Comma-separated for OR. Implies `slipped=true`; combining it with `slipped=false`
+        is a `400 validation_error` naming the conflict rather than an empty page. Boundaries are day counts,
+        published on `GET /v1/meta/vocabularies` → `slip_bucket` so a caller never has to guess where ours is.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [under_1y, 1_to_3y, over_3y]
     AssetType:
       name: asset_type
       in: query
@@ -7699,6 +7735,32 @@ components:
           items:
             type: string
       additionalProperties: true
+    ScheduleSlip:
+      type: object
+      description: >-
+        A derived read-time fact, not a lifecycle state and not a value any source publishes: this project's
+        own stated commercial-operation date has passed while it is still nominally active. Measured
+        2026-09-21 on 10,409 loaded proposals: 469 are past their date on a bare comparison, but 302 of those
+        carry a month-granularity date in the current or preceding month (EIA-860M reports a `Planned
+        Operation Month`/`Year` pair and the loaded file is the July 2026 report), so 90 days of grace is
+        applied before any slip is claimed, leaving 129. The residual false positive is a register that stops
+        maintaining the date once a project is finished, which is why `built`, `withdrawn` and `cancelled`
+        never carry this object and why `target_date` is always returned beside the verdict.
+      required: [target_date, days_late, bucket, grace_days]
+      properties:
+        target_date:
+          type: string
+          format: date
+          description: The `proposed_online_date` this verdict was reached against.
+        days_late:
+          type: integer
+          description: Whole days between `target_date` and the date the response was built; always > `grace_days`.
+        bucket:
+          type: string
+          enum: [under_1y, 1_to_3y, over_3y]
+        grace_days:
+          type: integer
+          description: Days past `target_date` before a slip is claimed. Returned so a caller can see the line rather than infer it.
     Proposal:
       type: object
       description: One real-world project (docs/21 §3.1). Fields absent on the caller's tier are listed in the envelope's `redactions[]`.
@@ -7752,6 +7814,15 @@ components:
         proposed_online_date:
           type: [string, 'null']
           format: date
+        schedule_slip:
+          oneOf:
+            - $ref: '#/components/schemas/ScheduleSlip'
+            - type: 'null'
+          description: >-
+            `null` unless the record is in an active lifecycle state and its own `proposed_online_date`
+            passed more than `grace_days` ago. Derived at read time, never stored — `null` means "no slip
+            signal", which for a record with no `proposed_online_date` means nothing was promised, **not**
+            that it is on schedule.
         first_seen:
           type: string
           format: date-time

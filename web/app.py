@@ -1252,6 +1252,11 @@ PROPOSAL_PASSTHROUGH_FILTERS = (
     # `/proposals` (the list) -- a region-polygon click lands on `/proposals?county_fips=...`.
     "placement",
     "county_fips",
+    # Schedule slippage (services/api/slippage.py, docs/22 §18). Passed straight through, so an
+    # unknown `slip_bucket` token surfaces the API's own 400 rather than a second, divergent
+    # allowlist here.
+    "slipped",
+    "slip_bucket",
 )
 OPPORTUNITY_PASSTHROUGH_FILTERS = ("kind", "jurisdiction", "technologies", "q")
 
@@ -1439,6 +1444,9 @@ def proposals_list(request: Request) -> HTMLResponse:
         "delayed": delayed_notice(request, "proposal"),
         "technologies": [v["value"] for v in vocab["technology"]],
         "kinds": [v["value"] for v in vocab["proposal_kind"]],
+        # `.get`, not `[...]`: the schedule filter is a control the page can do without, and an
+        # API deployed before this vocabulary landed must render the rest of the bar, not 500.
+        "slip_buckets": vocab.get("slip_bucket", []),
         "include_withdrawn": include_withdrawn,
         "lifecycle_explicit": explicit,
         "filters": dict(qp),

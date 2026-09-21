@@ -7,6 +7,7 @@
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
   {{ m.status_chip(record.lifecycle_state, record.lifecycle_family, record.status_raw) }}
+  {{ m.slip_note(record.slip) }}
 </div>
 {{ m.delayed_banner(delayed) }}
 
@@ -34,9 +35,12 @@
       <span class="timeline__event">Observed as <strong>{{ record.lifecycle_state | replace('_',' ') }}</strong> in {{ record.source_name }}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.</span>
     </li>
     {% if record.proposed_online_date %}
-    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date }}</time> <span class="timeline__event">Proposed commercial-operation date (source-stated; not a commitment).</span></li>
+    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date }}</time> <span class="timeline__event">Proposed commercial-operation date (source-stated; not a commitment).{% if record.slip %} This date passed <strong>{{ record.slip.amount }}</strong> ago and {{ record.source_name }} still reports the project as {{ record.lifecycle_state | replace('_',' ') }}.{% endif %}</span></li>
     {% endif %}
   </ul>
+  {% if record.slip %}
+  <p class="attribution-line">Overdue is derived at read time by comparing the source-stated date above with today&rsquo;s date; it is not a status the source publishes, and it is only claimed once the date is more than 90 days past. Some registers stop maintaining this date once a project is built, which would leave a finished project reading as overdue &mdash; check the retrieval date on the source row above before relying on it.</p>
+  {% endif %}
 </section>
 
 <p><a href="mailto:?subject=Report%20a%20problem%20with%20{{ record.name | urlencode }}">Report a problem with this record &rarr;</a></p>

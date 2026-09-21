@@ -25,6 +25,7 @@ from services.api.lines import (
     simplify_parts,
     tolerance_for_zoom,
 )
+from services.api.slippage import proposal_slip
 from services.db.models import (
     Account,
     Alert,
@@ -348,6 +349,10 @@ def serialize_proposal(proposal: Proposal, *, sources: list[ProposalSource] | No
         "status_raw": proposal.status_raw,
         "identifiers": proposal.identifiers or {},
         "proposed_online_date": iso(proposal.proposed_online_date),
+        # Derived at read time against today's date, never stored (services/api/slippage.py);
+        # `None` on every record that promised nothing or is not past its own date by the grace
+        # period, so absence never has to be read as "on schedule".
+        "schedule_slip": proposal_slip(proposal),
         "first_seen": iso(proposal.first_seen),
         "last_changed": iso(proposal.last_changed),
         "min_reuse_class": proposal.min_reuse_class,

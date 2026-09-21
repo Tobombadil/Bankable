@@ -18,7 +18,7 @@
   <tbody>
     {% for r in records %}
     <tr>
-      <td data-label="Status">{{ m.status_chip(r.lifecycle_state, r.lifecycle_family, r.status_raw) }}</td>
+      <td data-label="Status">{{ m.status_chip(r.lifecycle_state, r.lifecycle_family, r.status_raw) }}{{ m.slip_note(r.slip, compact=True) }}</td>
       <td data-label="Name"><a class="row-link" href="/proposals/{{ r.slug }}">{{ r.name }}</a></td>
       <td data-label="Technology">{{ r.technology or '—' }}</td>
       <td data-label="Capacity (MW)" class="num">{{ '%.1f'|format(r.capacity_mw) if r.capacity_mw is not none else '—' }}</td>

@@ -1254,3 +1254,204 @@ data-quality signal the admin source-health page can show without any new instru
 - A-22-13: `parent_org_id` stays one hop. GLEIF's ultimate parent is used only where no direct record exists;
   the chain is not walked, because each hop would compound the match error and nothing on a company page needs
   it yet.
+
+---
+
+## 18. Schedule slippage: a project past its own stated date (2026-09-21)
+
+**Status:** built · code in `services/api/slippage.py`, rendering in `web/viewmodels.py` and
+`web/templates/_macros.html`, tests in `services/api/test_slippage.py` and `web/test_slippage_view.py`.
+Every number below was measured on the 2026-09-21 load (`web/.data/dev.db`, 10,409 proposals) with
+`.venv/bin/python` against the ORM; the commands are in §18.7.
+
+### 18.1 What prompted it, and the direction the gap actually runs
+
+Global Energy Monitor splits cancellation and shelving into an **announced** state and one **inferred from
+lack of observed progress**. The first proposal was to split our `withdrawn` state the same way. Measured,
+that is wrong and there is nothing to do: all **3,215** `withdrawn` proposals carry a literal `WITHDRAWN`
+(1,762) or `Withdrawn` (1,453) in `status_raw`, straight from the ISO queue. Every one is announced. A split
+would produce an empty second bucket.
+
+The gap runs the other way. We hold no **inferred** signal of any kind, and there is one available:
+
+| | |
+|---|---|
+| proposals in an active lifecycle state with a `proposed_online_date` already past | **469** |
+| proposals carrying a `proposed_online_date` at all | **8,180** |
+| of the 469, overdue by more than three years | **14** |
+
+The 469 break down `under_construction` 316, `permitted` 47, `studied` 36, `filed` 36, `contracted` 34.
+(`announced` contributes 0: all 688 `announced` rows carry a date and all 688 are in the future.)
+
+`last_changed` cannot stand in for this. It records when *we* observed a change, not when the project moved.
+On the current load every one of the 10,409 rows has `first_seen` and `last_changed` inside a seven-second
+window on 2026-09-21 — the load itself — so a staleness query over it returns zero rows by construction.
+The `event` table is also empty (0 rows): there has been one load, so there is no change history to infer
+absence of progress from. Both are recorded here so that the next person does not re-derive them.
+
+### 18.2 Definition
+
+A proposal is **slipped** when all three hold:
+
+1. its `lifecycle_state` is one of `announced`, `filed`, `studied`, `permitted`, `contracted`,
+   `under_construction` (`SLIP_ACTIVE_STATES`) — `built` is excluded because a finished project's target
+   date is spent, `withdrawn`/`cancelled` because a dead project is not late, `unknown` because we cannot
+   claim it is active;
+2. `proposed_online_date` is not null — **nothing promised is never late**, and this is the single rule the
+   whole signal depends on not getting wrong;
+3. `(today - proposed_online_date).days > 90`.
+
+It is **not** a lifecycle state. `LIFECYCLE_STATES` is unchanged, there is no migration, and nothing about
+it is stored.
+
+### 18.3 The grace period is the whole design, and 90 days is measured
+
+A bare `proposed_online_date < today` test is mostly artefact. Sensitivity of the flagged count to the grace
+period, and how much of it comes from EIA-860M:
+
+| grace | flagged | `us.eia.860m` share | `under_construction` |
+|------:|--------:|--------------------:|---------------------:|
+|   0 d |     469 |        308 (66 %)   |                  316 |
+|  31 d |     283 |        129 (46 %)   |                  138 |
+|  60 d |     146 |          5 (3 %)    |                   14 |
+|**90 d**|**129** |      **0**          |                  **9** |
+| 120 d |     121 |          0          |                    9 |
+| 365 d |      62 |          0          |                    6 |
+
+Two source artefacts produce that cliff, and neither is slippage:
+
+- **Month-granularity dates.** All 2,341 `us.eia.860m` dates and all 201 `us.iso.nyiso.gen_queue` dates fall
+  on the first of a month, because the source field is a (`Planned Operation Month`, `Planned Operation Year`)
+  pair. **182** of the naive 469 carry `2026-09-01` — the current month, which has not finished. Those cannot
+  be late under any reading. (CAISO 892/2,022, ERCOT 433/1,778 and NESO 104/1,838 are first-of-month, so those
+  registers carry real per-project days.)
+- **Report vintage.** The loaded EIA-860M file is `july_generator2026.xlsx` — the **July 2026** report,
+  retrieved 2026-09-13. A further **125** rows carry `2026-08-01`, a month the evidence itself predates.
+  Separately, **111** of the 316 flagged `under_construction` rows carry the source status
+  `(TS) Construction complete, but not yet in commercial operation`: construction finished, commercial
+  operation not yet declared. That is the reporting lag, not a slip.
+
+90 days is where the curve flattens (129 → 121 over the next 30 days), it is longer than any calendar month
+so it clears the first artefact outright, and it is longer than EIA's two-month publication lag so it clears
+the second. One number for every source, so no per-source table can rot.
+
+### 18.4 How much of the 469 is real slippage, stated with the evidence
+
+- **307 of 469 (65 %) are month-granularity artefacts**, named individually: 182 at `2026-09-01` (current
+  month, 178 of them `under_construction`) and 125 at `2026-08-01` (one month back, from a report
+  published later). Not slippage.
+- **111 of 469 (24 %)** — overlapping the above — are EIA `(TS) Construction complete, but not yet in
+  commercial operation`. Not slippage even where the date is genuinely past.
+- **129 of 469 (28 %) survive the 90-day grace**, and **none of them come from `us.eia.860m`**: 79 from
+  `gb.neso.tec_register`, 33 CAISO, 16 ERCOT, 1 NYISO. Their source statuses are `Consents Approved` (39),
+  `ACTIVE` (33), `Scoping` (25), `Active` (17), `Awaiting Consents` (8), `Under Construction/Commissioning`
+  (7) — live projects, per-project dates, dates missed.
+- **62 of those are more than a year past** and **14 more than three years**, including dates in 2012, 2016,
+  2020 and 2021. Those are not explicable as reporting lag.
+
+**Judgement, calibrated:** of the naive 469, roughly two thirds is source-date artefact and the 129 that
+survive the grace are defensible as real slippage — with the caveat that we cannot yet *prove* the 67 in the
+`under_1y` bucket individually, because we hold one snapshot per source and no change history to corroborate
+them with. The 62 beyond a year are as close to certain as a single snapshot allows. What the grace cannot
+fix is a register that stops maintaining `proposed_online_date` once a project completes; that would keep a
+finished project reading as overdue for ever. Nothing in the current load exhibits it (73 `built` proposals
+have past dates and are excluded by rule 1), but it is the mode to watch, and it is why the UI always prints
+the target date beside the verdict rather than a bare badge.
+
+### 18.5 Where it is computed, and why
+
+**Read time, in `services/api/slippage.py`.** A stored `is_overdue` column would be wrong the day after it
+was written: the record does not change, the calendar does. Keeping one true needs a daily recompute job
+that does not exist, and a wrong flag on a published record is worse than no flag, because a caller cannot
+tell a stale one from a fresh one. Both things a column would buy are unnecessary here — the predicate is a
+plain range comparison on `proposed_online_date` (sargable, no function on the column), and the working set
+is 129 rows out of 10,409. No migration was written.
+
+There are two implementations and they are twins, the same pattern `services/api/geo.py::effective_placement`
+and `visibility.location_exact_permitted()` already use: `slip_days()` in Python for serialisation,
+`slip_filter()` in SQL for filtering. `test_sql_twin_agrees_with_the_python_twin` pins them together, because
+a disagreement would mean a filtered page whose rows contradict the filter that selected them. Both are
+expressed in whole-day arithmetic against literal date bounds computed in Python, so SQLite and Postgres
+behave identically and no SQL date function is involved.
+
+One SQL trap is worth recording: `NULL < date` is NULL and `NOT NULL` is NULL, so a naive negation for
+`slipped=false` would silently drop all **2,229** proposals with no target date out of the complement.
+`_slipped_clause` leads with `is_not(None)` so the conjunction is FALSE (never NULL) for those rows and
+their negation is TRUE; `test_slipped_false_keeps_undated_rows` holds it.
+
+### 18.6 API and UI
+
+**Both a boolean and buckets**, justified by the distribution rather than symmetry. 129 of 5,826 dated
+active proposals are slipped (2.2 %), rare enough that `?slipped=true` is a useful way to find them at all;
+but within the 129 the split is **67 / 48 / 14** and the buckets do not mean the same thing. A NESO
+`Consents Approved` row eight months past its date is a live project with a late connection; the 14 rows
+beyond three years are a different prospect. With only a boolean a caller wanting those 14 must pull all 129
+and re-derive the threshold client-side, which is exactly the rule that then disagrees with ours.
+
+- `?slipped=true|false` — anything else is a `400 validation_error` naming the value.
+- `?slip_bucket=under_1y,1_to_3y,over_3y` — `csv_param`, unknown token is a 400 naming the token. Day
+  boundaries 91–365 / 366–1,095 / 1,096+.
+- `slipped=false` with a bucket list is a **400 naming the conflict**, not a 200 with an empty page: an
+  empty page reads as "no such records", which is a different and wrong answer.
+- `GET /v1/meta/vocabularies` publishes `slip_bucket[]` with `min_days_late`, `max_days_late` and
+  `grace_days`, so a caller drawing its own line can see where ours is instead of guessing.
+- `Proposal.schedule_slip` is `{target_date, days_late, bucket, grace_days}` or `null` — null, not a zeroed
+  object, so "no promise on record" can never be read as "on schedule".
+
+**Rendering is graded, because a signal that cries wolf is ignored.** The 90-day grace already does most of
+that work: it takes `under_construction` from 316 flagged rows to **9 of 1,038**, so no badge lands on the
+ordinary EIA construction population at all. Beyond that, `under_1y` (67 rows) renders as plain outlined
+text with no colour — a connection date moving a few months is ordinary for a consented project — and
+`1_to_3y` and `over_3y` (48 and 14) take the warning colour. It is deliberately **not** a status chip: the
+chip states what the source reports, this states an inference of ours, and merging the two would dress a
+derivation as a source fact. The target date is printed beside it every time, and the detail page carries a
+sentence saying the verdict is derived at read time and that a register which stops maintaining the date
+would produce exactly this appearance.
+
+It is on the list and the detail page and **not** on the map, deliberately. The map's feature payload is
+column-narrowed on purpose (`services/api/app.py::_GEO_PROPOSAL_COLUMNS`, with a comment recording what
+unused-column hydration cost), `proposed_online_date` is not in it, and a per-row marker is unreadable at
+cluster scale anyway. The list and the detail page are where someone is judging one project; the filter
+works on `/v1/proposals/geo` regardless, so a caller can still draw a map of only the slipped ones.
+
+### 18.7 Commands
+
+```
+.venv/bin/python -m pytest services/api/test_slippage.py web/test_slippage_view.py -q
+DATABASE_URL="sqlite+pysqlite:///$PWD/web/.data/dev.db" \
+  .venv/bin/python scripts/measure_slippage.py --on 2026-09-21    # every count in §18.1, §18.3, §18.4
+```
+
+`scripts/measure_slippage.py` reproduces the whole of §18.3 and §18.4 from a loaded store and writes the
+grace sweep to `data/eval/slippage_distribution.csv`. It exists because 90 days is a judgement backed by one
+curve: if a register changes its date granularity or its publication lag the curve moves, and this is the
+command that shows it rather than a paragraph nobody can re-run.
+
+### 18.8 Assumptions recorded
+
+- **A-22-14:** a developer's own published `proposed_online_date`, more than 90 days past, is evidence that
+  a project has slipped. It is a *proxy* for GEM's "inferred from lack of observed progress", not the same
+  inference: GEM reasons from absence of news, we reason from a commitment the developer published. Ours is
+  better-grounded evidence (a dated claim by the party who would know, not our failure to find news) and
+  narrower in reach — it can only speak about the 8,180 records that carry a date at all, and it inherits
+  whatever date-maintenance discipline each register has.
+- **A-22-15:** 90 days of grace, applied uniformly. Re-measure it if a register with finer date granularity
+  than a month or a shorter publication lag becomes a large share of the corpus; the table in §18.3 is the
+  measurement to repeat.
+- **A-22-16:** `SLIP_ACTIVE_STATES` duplicates `web.viewmodels.ACTIVE_PROPOSAL_STATES` (services must not
+  import web). `test_active_states_match_the_web_default_view` fails if they diverge, because a row hidden
+  from the default list while still being flagged on it would be incoherent.
+- **A-22-17 (not built, deliberate):** queue age is the obvious second signal and is not used yet. `Queue
+  Date` is present on **1,673 of 5,837** active proposals (28.7 %) and only from the three US ISO queues —
+  nothing in EIA-860M or the NESO register carries one — against 5,826 of 5,837 (99.8 %) for
+  `proposed_online_date`. Its distribution is informative (616 under two years, 494 two-to-four, 280
+  four-to-six, **283 over six years**), but at a third of the coverage and on one region it would be a
+  second, differently-shaped signal rather than a better version of this one, and it is not parsed out of
+  the raw payload into a column today. Recorded as the next thing to build, not as a substitute.
+- **A-22-18:** the *structural* analogue of GEM's "inferred from lack of observed progress" is already
+  in the schema and is empty for want of a second pull, not for want of a design: `proposal_source.gone_at`
+  (a row that stopped appearing in its register's file) and the `event` log. Measured 2026-09-21 — 10,409
+  `proposal_source` rows, **0** with `gone_at` set, **0** inactive, **0** snapshots, **0** events, all
+  `first_seen` values on one day. That signal is not a competitor to this one and should not be traded
+  against it: a disappearance is evidence about the *register*, a missed date is evidence about the
+  *project*. Build it when a second pull exists; nothing in this section blocks it.

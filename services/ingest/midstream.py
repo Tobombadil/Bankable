@@ -25,8 +25,16 @@ expression, case-insensitive, anchored by the author) gets `parent_org_id` = the
 named `parent` (created if absent, resolved by the same `org_key`) and `parent_source_id` =
 `curated.organization_parents` (registered in `data/sources.yaml` section K: reuse `open`,
 publication `raw_ok`; each YAML row cites the company statement it came from with its
-`source_url` and `retrieved_at`). A child that is itself the parent is skipped, so a pattern like
-``^tallgrass`` cannot make Tallgrass Energy its own parent. The file is the interim source for
+`source_url` and `retrieved_at`). A row may also carry `as_of`, the date the *ownership* is
+stated to have begun, which is written to `organization.parent_as_of` and is distinct from
+`retrieved_at` (when a human read the page): a company's systems list is undated, but a change of
+control has a date, and `services/api/orgtree.py` prints "no date stated by the source" for an
+edge that has none. `as_of` is optional and never inferred -- a rule whose sources state no date
+leaves the column NULL rather than borrowing `retrieved_at`. There is deliberately **no**
+`share_pct` key: `organization.parent_share_pct` exists (migration 0017) but no curated rule has
+yet been able to defend a percentage from a primary source at a stated date, and a field with no
+defensible value is an invitation to guess one. A child that is itself the parent is skipped, so
+a pattern like ``^tallgrass`` cannot make Tallgrass Energy its own parent. The file is the interim source for
 parent links: since 2026-09-20 `services/ingest/organizations.py::load_gleif_parents` applies GLEIF
 Level 2 (CC0) over the same column and wins wherever it has a record, and this loader skips any
 organisation already carrying `parent_source_id = global.gleif.lei` (`children_deferred_to_gleif`).
@@ -229,6 +237,9 @@ class ParentRule:
     source_url: str
     retrieved_at: str
     note: str = ""
+    #: The date the ownership is stated to have begun (`organization.parent_as_of`), *not* the day
+    #: the page was read. None where the cited sources state no date; never inferred.
+    as_of: dt.date | None = None
 
     @property
     def regex(self) -> re.Pattern[str]:
@@ -241,6 +252,7 @@ class ParentsLoadResult:
     parents_created: int = 0
     children_linked: int = 0
     children_unchanged: int = 0
+    children_dated: int = 0
     children_deferred_to_gleif: int = 0
     rules_without_match: list[str] = field(default_factory=list)
     linked: dict[str, list[str]] = field(default_factory=dict)
@@ -251,10 +263,29 @@ class ParentsLoadResult:
             "parents_created": self.parents_created,
             "children_linked": self.children_linked,
             "children_unchanged": self.children_unchanged,
+            "children_dated": self.children_dated,
             "children_deferred_to_gleif": self.children_deferred_to_gleif,
             "rules_without_match": list(self.rules_without_match),
             "linked": {k: sorted(v) for k, v in sorted(self.linked.items())},
         }
+
+
+def _parse_as_of(path: pathlib.Path, index: int, value: object) -> dt.date | None:
+    """`as_of` as a date, or None when the row states none. Raises on anything unparseable, so a
+    typo fails the load rather than silently dropping the date off an ownership claim."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, dt.datetime):  # before dt.date: datetime is a subclass of it
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    try:
+        return dt.date.fromisoformat(str(value).strip())
+    except ValueError as exc:
+        raise ValueError(
+            f"{path}: row {index} has an unparseable `as_of` {value!r}; "
+            "expected an ISO 8601 date (YYYY-MM-DD), or no key at all"
+        ) from exc
 
 
 def read_parent_rules(path: pathlib.Path = DEFAULT_PARENTS_PATH) -> list[ParentRule]:
@@ -276,6 +307,7 @@ def read_parent_rules(path: pathlib.Path = DEFAULT_PARENTS_PATH) -> list[ParentR
                 source_url=str(row["source_url"]),
                 retrieved_at=str(row["retrieved_at"]),
                 note=str(row.get("note") or ""),
+                as_of=_parse_as_of(path, i, row.get("as_of")),
             )
         )
     return rules
@@ -366,13 +398,20 @@ def load_parents(
                 # (`services/ingest/organizations.py::load_gleif_parents`, docs/22 §17.3).
                 result.children_deferred_to_gleif += 1
                 continue
-            if org.parent_org_id == parent.id and org.parent_source_id == source.id:
+            if (
+                org.parent_org_id == parent.id
+                and org.parent_source_id == source.id
+                and org.parent_as_of == rule.as_of
+            ):
                 result.children_unchanged += 1
                 continue
             org.parent_org_id = parent.id
             org.parent_source_id = source.id
+            org.parent_as_of = rule.as_of  # None where the sources state no date; never inferred
             org.last_changed = now
             result.children_linked += 1
+            if rule.as_of is not None:
+                result.children_dated += 1
             result.linked.setdefault(parent.name_canonical, []).append(org.name_canonical)
         if not matched_any:
             result.rules_without_match.append(rule.child_pattern)

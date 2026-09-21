@@ -1512,7 +1512,7 @@ sources:
   url: file:///data/vendored/organizations/parents.yaml
   access: bulk_file
   auth: none
-  format: yaml (child_pattern, parent, source_url, retrieved_at, note)
+  format: yaml (child_pattern, parent, source_url, retrieved_at, note; optional as_of, the date the source states the relationship began)
   cadence: continuous
   license: 'curated by Infraque from the companies'' own published statements; each row cites its URL'
   reuse: open

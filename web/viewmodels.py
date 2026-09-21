@@ -137,6 +137,44 @@ def lifecycle_breakdown(api: ApiClient, *, extra_filters: Mapping[str, str] | No
     return {"active": active, "withdrawn": withdrawn, "other": total - active - withdrawn, "total": total}
 
 
+#: How loud each slip bucket renders. `under_1y` is deliberately plain text, not a coloured
+#: badge: 67 of the 129 slipped rows on the 2026-09-21 load are in it, and a connection date that
+#: has moved by a few months is ordinary for a consented project -- colouring all of them is the
+#: cry-wolf failure. `1_to_3y` and `over_3y` (48 and 14 rows) get the warning treatment, because
+#: at that distance the stated date has stopped describing the project.
+SLIP_TONE: dict[str, str] = {"under_1y": "quiet", "1_to_3y": "warn", "over_3y": "warn"}
+
+
+def slip_display(slip: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The API's `schedule_slip` object -> what a template prints, or `None` for no signal.
+
+    A record with no `proposed_online_date` never reaches here with a value: the API returns
+    `None` for it, and `None` in means `None` out, so "nothing promised" can never render as
+    "overdue" (`web/test_slippage_view.py`).
+    """
+    if not slip:
+        return None
+    days = int(slip["days_late"])
+    if days <= 365:
+        months = max(1, round(days / 30.44))
+        amount = f"{months} month{'s' if months != 1 else ''}"
+    else:
+        amount = f"{days / 365.25:.1f} years"
+    bucket = str(slip["bucket"])
+    return {
+        "bucket": bucket,
+        "tone": SLIP_TONE.get(bucket, "quiet"),
+        "days_late": days,
+        "target_date": slip["target_date"],
+        "amount": amount,
+        "label": f"overdue by {amount}",
+        "detail": (
+            f"Target commercial-operation date {slip['target_date']} passed {amount} ago and the "
+            f"record is still in an active lifecycle state."
+        ),
+    }
+
+
 def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
     """API `serialize_proposal()` shape -> the flat dict the detail/list templates read."""
     location = entity.get("location") or {}
@@ -167,6 +205,7 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
         "eia_generator_id": identifiers.get("eia_generator_id"),
         "queue_date": None,
         "proposed_online_date": entity.get("proposed_online_date"),
+        "slip": slip_display(entity.get("schedule_slip")),
         "source_count": entity.get("source_count"),
         "source_id": primary_source.get("source_id"),
         "source_name": primary_source.get("source_name"),
