@@ -47,6 +47,8 @@ from services.db.models import (
     WebhookEndpoint,
 )
 from services.ingest.lag import RECORD_LAG_DAYS, Kind
+from services.ingest.vintage import UNDETERMINED as VINTAGE_UNDETERMINED
+from services.ingest.vintage import label_for as vintage_label
 
 
 # --------------------------------------------------------------------------------- envelope
@@ -639,6 +641,17 @@ def serialize_source(source: Source) -> dict[str, Any]:
         "lag_overrides": source.lag_overrides or {},
         "implemented": source.implemented,
         "last_success_at": iso(source.last_success_at),
+        # The release the SOURCE states, which is not the date we fetched it. `last_success_at`
+        # above and `retrieved_at` on every link row are ours; this one is theirs, and the two
+        # were conflated until migration 0018 (`services/ingest/vintage.py`). `basis` is
+        # `undetermined` when no load has resolved it and `not_stated` when the source publishes
+        # no release label -- never a fetch date standing in for one.
+        "vintage": {
+            "value": source.vintage,
+            "label": vintage_label(source.vintage),
+            "basis": source.vintage_basis or VINTAGE_UNDETERMINED,
+            "stated": source.vintage is not None,
+        },
         "provenance": {
             "manifest_version": source.manifest_version or "",
             "manifest_hash": source.manifest_hash or ("0" * 64),

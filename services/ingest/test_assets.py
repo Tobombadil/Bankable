@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from sqlalchemy.orm import Session
 
-from services.db.models import Asset
+from services.db.models import Asset, Source
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ingest.assets import UnsupportedAssetTypeError, load_assets, load_assets_parquet
 
@@ -138,6 +138,10 @@ def test_load_gas_pipeline_round_trips_line_geometry_and_typed_attributes(sessio
     assert "diameter_in" in row.attributes and row.attributes["diameter_in"] is None
     assert row.source_id == "us.eia.atlas.gas_pipelines"
     assert row.licence_id.startswith("us.eia.atlas.gas_pipelines#")
+    # The same token, promoted to a first-class fact about the source: this layer is 2020 data,
+    # whatever date we fetched it (`services/ingest/vintage.py`, migration 0018).
+    source = session.query(Source).filter_by(id="us.eia.atlas.gas_pipelines").one()
+    assert (source.vintage, source.vintage_basis) == ("2020-01", "shapefile_member")
 
 
 def test_load_gas_pipeline_parquet_round_trip_keeps_line_and_attributes(session, tmp_path):

@@ -6,6 +6,7 @@
 <div class="page-header">
   <h1>Attribution</h1>
   <p>Every source this platform draws on, its operator and licence, plus the basemap and context layers rendered underneath the proposal and opportunity data on the map.</p>
+  <p>The release column is the source&rsquo;s own, which is not the date we fetched it &mdash; cite the release. <a href="/methodology#vintage">Coverage and methodology</a> sets the two side by side per source, and states what this register does not contain.</p>
 </div>
 
 <section id="sources">
@@ -18,6 +19,7 @@
         <th scope="col">Operator</th>
         <th scope="col">Licence</th>
         <th scope="col">Reuse class</th>
+        <th scope="col">Source&rsquo;s stated release</th>
         <th scope="col">Attribution</th>
       </tr>
     </thead>
@@ -28,6 +30,9 @@
         <td data-label="Operator">{{ s.operator or '—' }}</td>
         <td data-label="Licence">{% if s.licence.url %}<a href="{{ s.licence.url }}" rel="noopener nofollow">{{ s.licence.name }}</a>{% else %}{{ s.licence.name }}{% endif %}</td>
         <td data-label="Reuse class"><span class="reuse-badge">{{ s.licence.reuse_class }}</span></td>
+        {#- A citation names a release, not the day the citer downloaded it. Where the source
+            states none we say so rather than printing our fetch date in its place. -#}
+        <td data-label="Source&rsquo;s stated release" class="tnum">{% if s.vintage and s.vintage.label %}{{ s.vintage.label }}{% elif s.vintage and s.vintage.basis == 'not_stated' %}<span class="reuse-badge">states none</span>{% else %}<span class="reuse-badge">not determined</span>{% endif %}</td>
         <td data-label="Attribution">{{ s.attribution_text or s.licence.attribution_text or '—' }}</td>
       </tr>
       {% endfor %}

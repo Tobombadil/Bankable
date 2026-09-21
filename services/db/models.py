@@ -37,6 +37,11 @@ from services.db.types import GUID, GeographyLine, GeographyPoint, JSONVariant, 
 # ---------------------------------------------------------------------------------------------
 REUSE_CLASSES = ("open", "attribution", "restricted", "unknown")
 SOURCE_PUBLISH_STATES = ("ingest_only", "api_only", "public")
+#: How `source.vintage` was determined (`services/ingest/vintage.py`). NULL on the column means a
+#: fourth state the vocabulary deliberately does not name: no load has examined this source yet.
+#: `not_stated` is the source having been examined and shown to publish no release label — which
+#: is an answer, not a gap, and never silently becomes the fetch date.
+SOURCE_VINTAGE_BASES = ("artefact_filename", "shapefile_member", "not_stated")
 RECORD_PUBLISH_STATES = ("pending_review", "ingest_only", "api_only", "public", "unpublished")
 LIFECYCLE_STATES = (
     "unknown",
@@ -248,11 +253,22 @@ class Source(Base, TimestampMixin):
     attribution_text: Mapped[str | None] = mapped_column(sa.Text)
     manifest_version: Mapped[str | None] = mapped_column(sa.Text)
     manifest_hash: Mapped[str | None] = mapped_column(sa.Text)
+    #: The release the source itself states for the data last loaded from it, normalised to
+    #: `YYYY-MM` or `YYYY` (migration 0018, `services/ingest/vintage.py`). NULL means no release
+    #: is known — read `vintage_basis` to tell "the source states none" from "not determined yet".
+    #: Never a fetch date: `last_success_at` and the link tables' `retrieved_at` are that, and
+    #: conflating the two is the bug this column exists to end.
+    vintage: Mapped[str | None] = mapped_column(sa.Text)
+    vintage_basis: Mapped[str | None] = mapped_column(sa.Text)
 
     licence: Mapped[Licence] = relationship(lazy="joined")
 
     __table_args__ = (
         sa.CheckConstraint(f"publish_state IN {SOURCE_PUBLISH_STATES!r}", name="publish_state_vocab"),
+        sa.CheckConstraint(
+            f"vintage_basis IS NULL OR vintage_basis IN {SOURCE_VINTAGE_BASES!r}",
+            name="vintage_basis_vocab",
+        ),
         sa.Index("ix_source_publish_state", "publish_state"),
     )
 

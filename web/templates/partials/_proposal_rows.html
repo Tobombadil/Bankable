@@ -34,6 +34,12 @@
 {% else %}
 <div class="empty-state">
   <p>No proposals match these filters.</p>
+  {#- An empty result is where an absence gets read as a fact about the world. These lines are
+      measured, not written, and appear only here (web/viewmodels.py::absence_note). -#}
+  {% if absence %}
+  {% for line in absence.lines %}<p class="filter-notice filter-notice--all">{{ line }}</p>{% endfor %}
+  <p><a href="{{ absence.href }}">What this register does and does not cover</a></p>
+  {% endif %}
   <p><a href="/proposals">Clear all filters</a></p>
 </div>
 {% endif %}
