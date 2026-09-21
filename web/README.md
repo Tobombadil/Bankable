@@ -1,10 +1,33 @@
-# Public site — reading `services/api`
+# `web/` — the server-rendered front end over `services/api`
 
-**Scope:** public delayed tier only — no auth, no Pro, no admin. Built to `docs/30-design-ia.md`
-and `docs/31-design-system.md` against `docs/04-standards.md`. This sprint's task: stop reading
-`web/build_data.py`'s static JSON and read `services/api` instead, and fix three product defects
-visible in the previous sprint's screenshots. See `docs/00-PLAN.md`'s decisions log (2026-09-13,
-frontend-developer) for the one-paragraph summary and `docs/CHANGELOG.md` for the changelog line.
+**Scope** (rewritten 2026-09-21; the line here had said "public delayed tier only — no auth, no
+Pro, no admin" since Sprint 2 and every clause of it had stopped being true). `web/` is the whole
+server-rendered front end, and it serves four things:
+
+- **The public site** — map, proposals and opportunities lists and detail pages, assets,
+  organisations, search, `/methodology`, `/about`, `/attribution`, `/privacy`, `/unsubscribe`,
+  `robots.txt` and the sitemaps, plus the same-origin `/api/*` proxies the map's JS calls. No
+  account needed, and **nothing on it is time-delayed**: records since 2026-09-19 and change
+  events since 2026-09-21 (owner; `services/ingest/lag.py`, and "Tier visibility" below).
+- **Accounts** — `/login`, `/register`, `/logout`, `/verify`, `/account` (`web/auth.py`, Sprint 3).
+  Session cookies only; the API owns the session.
+- **Pricing and the billing hand-off** — `/pricing`, `/pricing/checkout`, `/pricing/portal`
+  (`web/pricing.py`). The site collects no card details; checkout is hosted by the processor.
+- **The admin panel** — `/admin/*` behind an operator guard (`web/admin/`, its own README):
+  source health, records and publish state, tasks and intake, the social review queue, users and
+  customers, costs and audit, engagement.
+
+**"No Pro" is the one clause still worth keeping, narrowly:** a signed-in Pro seat gets no extra
+*product* surface here — saved searches and alerts exist only in `services/api/pro.py` and
+`services/alerts/`, with no page in front of them. What the site does know about entitlement is
+what `/account` prints and what `/pricing` sells.
+
+Built to `docs/30-design-ia.md` and `docs/31-design-system.md` against `docs/04-standards.md`.
+~~This sprint's task: stop reading `web/build_data.py`'s static JSON and read `services/api`
+instead, and fix three product defects visible in the previous sprint's screenshots.~~ **Done and
+spent** — `web/store.py` is gone, no route reads the static JSON (see "Architecture" below), and
+"Data-layer corrections" records that none remain. See `docs/00-PLAN.md`'s decisions log
+(2026-09-13, frontend-developer) for that sprint's summary and `docs/CHANGELOG.md` for the line.
 
 ## Architecture
 
@@ -94,19 +117,23 @@ rendered verbatim (`data/sources.yaml`'s free-text `license` clause, exposed by
 `services/README.md`'s "Sprint 2 fixes" #5) rather than a paraphrase composed from boolean
 permission flags — see "Data-layer corrections" and "Full-data run" below.
 
-## Delayed tier, for real
+## Tier visibility — and there is no delay left to preview
 
 `--no-lag` is gone. `public_at` from the API governs what's visible everywhere; nothing in `web/`
-filters further. Because `services/ingest/loader.py` computes `public_at = published_at +
-lag_days` at *ingestion* time, freshly-loaded rows (whose `retrieved_at`/`published_at` is "now")
-are correctly invisible for 14 (proposals) or 7 (opportunities) days — exactly the real behaviour.
-For previewing what a fresh connector run looks like without waiting: `web/dev_up.py --preview`
-(or `WEB_DEV_PREVIEW=1` for a manually-started `uvicorn`) pulls `public_at` back to "now" for rows
-still in the future (`web/data_loading.py::apply_preview_lag_override`) and the site shows a
-distinct, clearly-labelled banner wherever the delayed-tier notice renders: *"Preview: the publish
-delay is bypassed for this data so today's rows are visible now (dev only). The notice above still
-states the real configured lag."* The delayed-tier notice itself is unaffected by preview mode —
-it always states the real configured lag from `/v1/health`.
+filters further. ~~Because `services/ingest/loader.py` computes `public_at = published_at +
+lag_days` at ingestion time, freshly-loaded rows are correctly invisible for 14 (proposals) or 7
+(opportunities) days.~~ **Not since 2026-09-19 for records and 2026-09-21 for change events**
+(owner; `services/ingest/lag.py`, migration `0019`): the loader writes `public_at = published_at`
+on every row, there is no per-source lag to compute it from, and a freshly-loaded row is visible
+to an anonymous reader immediately.
+
+`web/dev_up.py --preview` (or `WEB_DEV_PREVIEW=1`) and
+`web/data_loading.py::apply_preview_lag_override` still exist and still pull a future `public_at`
+back to "now", but they now have nothing to find: the override is a no-op against data this loader
+writes, and it is kept only for a store that still holds rows written before those decisions. The
+tier notice is unaffected by preview mode and still states the number `/v1/health` reports, which
+is `0` (`docs/04` D-3/D-28) — it reads the API rather than hard-coding "live" precisely so that it
+could not disagree with the predicate if a delay were ever reintroduced.
 
 ## Data-layer corrections (`web/data_loading.py`) — none remain
 

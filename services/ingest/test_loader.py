@@ -1,4 +1,4 @@
-"""Loader tests: idempotent upsert, gate refusal, public_at lag computation."""
+"""Loader tests: idempotent upsert, gate refusal, `public_at == published_at` on every row."""
 
 from __future__ import annotations
 
@@ -162,9 +162,9 @@ def test_load_dataframe_creates_proposal_public_immediately(session: Session) ->
     assert prop.public_at is not None
     assert prop.published_at is not None
     lag = prop.public_at - prop.published_at
-    # No record carries a publication delay any more: the paywall is by shape, not by time
-    # (owner, 2026-09-19; `services/ingest/lag.py`). `tests/test_iso_change_event_lag.py` covers
-    # the one delay that survives -- change events from an ISO queue register.
+    # Nothing carries a publication delay: the paywall is by shape, not by time (owner,
+    # 2026-09-19 for records and 2026-09-21 for change events; `services/ingest/lag.py`).
+    # `tests/test_publication_is_never_time_delayed.py` pins the whole statement.
     assert lag == dt.timedelta(0)
     assert prop.sponsor is not None
     assert prop.sponsor.name_canonical == "Acme Power LLC"

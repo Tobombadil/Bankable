@@ -196,7 +196,7 @@ counted.
 
 ### 2.3 Three-year obtainable revenue
 
-Assumptions (explicit): solo founder plus contractors (open question 2); launch of public delayed tier and Pro
+Assumptions (explicit): solo founder plus contractors (open question 2); launch of the public tier (delayed as first modelled; undelayed since 2026-09-21) and Pro
 alerts within six months; no paid marketing beyond Bluesky/LinkedIn/email; PJM licensed by month 12; annual
 churn 20% Pro, 10% Team; ACV Pro $1,500 (single seat), Team $9,000, API $14,000 (Team + API).
 
@@ -216,20 +216,22 @@ feeds (`01-feasibility.md` §5), which this document does not size.
 
 | Tier | Price | Includes | Rationale |
 |---|---|---|---|
-| Free (~~delayed~~ every record, undelayed since 2026-09-19) | $0 | Public pages, derived records, attribution, RSS/Bluesky/LinkedIn feed; ~~lag per table below~~ only ISO change events delayed; search and map; no export, no alerts | SEO and audience engine (Cleanview's newsletter and Interconnection.fyi prove the model); PJM/MISO rows absent until licensed |
+| Free (~~delayed~~ everything undelayed since 2026-09-21) | $0 | Public pages, derived records, attribution, RSS/Bluesky/LinkedIn feed; ~~lag per table below~~ ~~only ISO change events delayed~~ nothing is delayed; search and map; no export, no alerts | SEO and audience engine (Cleanview's newsletter and Interconnection.fyi prove the model); PJM/MISO rows absent until licensed |
 | Pro | $149/mo or $1,490/yr per seat | Live data, saved searches, daily change-feed email/Slack alerts, CSV export (capped), opportunity deadlines calendar | Sits between Energy Adepto Starter ($120–150/mo) and Professional ($320–400/mo) with strictly more data (supply + demand + funding + tenders). `01-feasibility.md` §6 pre-sale test is $150–250/mo; start at the bottom of that band to win the first ten logos |
 | Team | $9,000/yr, 5 seats | Everything in Pro, shared watchlists, unlimited export, entity-resolution links to dockets/EIA/permits, proposal-to-opportunity matching | Price-matches Cleanview exactly so procurement cannot say "more expensive than Cleanview"; the buyer compares breadth |
 | API / Data | +$5,000/yr on Team (Team+API $14,000), or $25,000/yr standalone enterprise with bulk/Snowflake | Change-event webhooks, bulk pulls, licence pass-through for restricted sources | Matches Cleanview's +$5k add-on; the $25k enterprise point is below any WoodMac/Enverus/NPM line ($40–80k) and above Halcyon's data-subscription level |
 
-> **Flagged 2026-09-20 — this section's pricing logic rests on an assumption the owner has since reversed.**
-> On 2026-09-19 the owner moved the paywall from time to shape: "alerts, exports, API and watchlists are paid;
-> free users see every record; the delay is kept only on ISO change events" (`docs/00-PLAN.md`). The table below
-> and the conversion estimate under it were both reasoned from a free tier that shows *stale* data — "14 days
-> costs free users little and makes Pro's change feed the reason to pay", "the freshness premium the
-> delayed/live model needs". That premium no longer exists for records. What this invalidates, precisely:
+> **Flagged 2026-09-20, and closed 2026-09-21 — this section's pricing logic rests on an assumption the owner
+> has since reversed, twice.** On 2026-09-19 the owner moved the paywall from time to shape: "alerts, exports,
+> API and watchlists are paid; free users see every record; the delay is kept only on ISO change events"
+> (`docs/00-PLAN.md`). On 2026-09-21, on the measurement that the surviving ISO delay was recoverable from two
+> public reads, the owner dropped that too — and its per-source knob with it. **Nothing is time-delayed on any
+> tier.** The table below and the conversion estimate under it were both reasoned from a free tier that shows
+> *stale* data — "14 days costs free users little and makes Pro's change feed the reason to pay", "the freshness
+> premium the delayed/live model needs". That premium does not exist at all. What this invalidates, precisely:
 >
-> * the **delay schedule** below is superseded by the implemented rule (records live; ISO change events at 14
->   days; everything else live) — it is kept here as the record of what was decided before, not as guidance;
+> * the **delay schedule** below is superseded outright: there is no free-tier lag, for any source cadence, for
+>   records or for change events — it is kept here as the record of what was decided before, not as guidance;
 > * the **1–2% free-to-Pro conversion estimate** under it, which was moderate-confidence and unmeasured even
 >   under the old model, now rests on a mechanism (freshness) the product no longer sells. It has **not** been
 >   re-derived, and nothing in this document should be read as evidence for conversion under the shape model;
@@ -238,8 +240,8 @@ feeds (`01-feasibility.md` §5), which this document does not size.
 >
 > The **prices** themselves were set by competitor positioning, not by the delay, and are unaffected.
 
-Delayed-tier lag by source cadence — **superseded 2026-09-19, see the flag above** (the premium exists only
-where updates are at least weekly, per `01-feasibility.md` §7):
+Delayed-tier lag by source cadence — **superseded in full; every figure in this table is history**
+(2026-09-19 for records, 2026-09-21 for change events; see the flag above):
 
 | Source cadence | Examples | Free-tier lag | Why |
 |---|---|---|---|

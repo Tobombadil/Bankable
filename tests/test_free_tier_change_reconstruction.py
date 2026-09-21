@@ -1,27 +1,33 @@
-"""Measurement: can a free reader reconstruct a withheld ISO change event from what it can see?
+"""Why the ISO change-event delay was dropped — the measurement, kept as a regression test.
 
-The owner's decision keeps a 14-day delay on ISO change events while publishing every record
-live. The decision is implemented as given; this file measures what it actually buys, so the
-answer is a number in the repository rather than an opinion in a report.
+Written on 2026-09-20 while a 14-day delay on ISO change events was still in force, to measure
+what it actually bought. The answer was: nothing a free reader could not have anyway. The owner
+read it and dropped the delay on 2026-09-21 (`docs/00-PLAN.md` decisions log), so the assertions
+below now run against a product that withholds nothing — and that is exactly why the file stays.
+It is the evidence for the decision, and it fails if the reasoning behind it stops holding.
 
-The method is the one a free reader would use: read the public API, let a run land, read it again,
-diff the two responses, and compare the diff with the event the API is withholding.
+The method is the one a free reader would have used: read the public API, let a run land, read it
+again, diff the two responses, and compare the diff with the event.
 
-Three facts this file establishes, each as an assertion:
+Four facts this file establishes, each as an assertion:
 
 1. **Every field `pipeline/diff.py` emits an event for is a public record field.** The diff fires
    on `lifecycle_state`, `capacity_mw` and `proposed_cod` and on presence/absence; all three are
-   in `serialize_proposal`'s output on the public tier.
-2. **The record moves the moment the event is withheld.** After the second run the public detail
-   response already carries the new value, and `last_changed` already carries the date -- while
-   `GET /v1/events` on the public tier returns nothing.
-3. **The diff of two public reads equals the withheld event.** `(field, before, after)` recovered
-   from two consecutive public responses is identical to the event's own payload.
+   in `serialize_proposal`'s output on the public tier. This is what made the delay defeatable:
+   withholding the event never withheld the information.
+2. **The record moves in the same transaction as the event.** After the second run the public
+   detail response already carries the new value and `last_changed` already carries the date.
+3. **The diff of two public reads equals the event.** `(field, before, after)` recovered from two
+   consecutive public responses is identical to the event's own payload.
+4. **And now the event itself is public too**, at the same instant as the record
+   (`tests/test_publication_is_never_time_delayed.py` pins the rule; here it is asserted on the
+   shape that used to be withheld, so the two reads and the event agree rather than the reads
+   merely catching up with it).
 
-The cost of doing this over the whole register is stated in
+The cost of running (2) and (3) over the whole register is stated in
 `test_polling_cost_for_a_full_public_sweep` in requests per day, from the real page cap and the
-real public rate limit, so the "is this defeatable in practice" question is answered with the
-product's own numbers rather than an assumption about the reader.
+real public rate limit: 53 requests a sweep against an allowance of 1,440. That number is what
+"the delay is theatre" meant, and it is kept so the argument is reproducible rather than recalled.
 """
 
 from __future__ import annotations
@@ -36,10 +42,9 @@ from sqlalchemy import select
 from services.api.pagination import MAX_LIMIT
 from services.api.ratelimit import TIER_LIMITS, WINDOW_SECONDS
 from services.db.models import Event, Proposal
-from services.ingest.lag import ISO_CHANGE_EVENT_LAG_DAYS
 from services.ingest.loader import load_dataframe, upsert_licence_and_source
 from services.ingest.test_loader import sample_proposal_row
-from tests.test_iso_change_event_lag import iso_source_entry
+from tests.test_publication_is_never_time_delayed import iso_source_entry
 
 #: `pipeline/diff.py` emits `event_type` in {new, removed, withdrawn, status_change,
 #: capacity_change, cod_change}; the `field` it names is one of these three.
@@ -75,10 +80,9 @@ def _diff_event(source_id: str, record_id: str, field: str, before: Any, after: 
 
 @pytest.fixture()
 def iso_store(db, client):
-    """An ISO queue source loaded through the real loader, with its change-event lag in force."""
+    """An ISO queue source loaded through the real loader — the register that used to be delayed."""
     entry = iso_source_entry()
     src = upsert_licence_and_source(db, entry, "2026-09-18")
-    assert src.lag_days == ISO_CHANGE_EVENT_LAG_DAYS
     load_dataframe(db, src, "proposal", pd.DataFrame([_row(entry.id, "Q1")]), None)
     db.commit()
     return entry, src
@@ -140,12 +144,14 @@ def test_two_public_reads_reconstruct_the_withheld_change(
     )
     db.commit()
 
-    # The event exists and is withheld from the free tier for a fortnight.
+    # The event is public the moment it is published (owner, 2026-09-21). Until that decision it
+    # waited 14 days here -- and the two reads below recovered it anyway, which is why it does not.
     event = db.scalars(select(Event)).one()
-    assert event.public_at - event.published_at == dt.timedelta(days=ISO_CHANGE_EVENT_LAG_DAYS)
-    assert client.get("/v1/events").json()["data"] == [], "withheld, as the owner's decision says"
+    assert event.public_at == event.published_at
+    assert len(client.get("/v1/events").json()["data"]) == 1, "no longer withheld from anyone"
 
-    # ... and the reader has it anyway, from two reads of a page that was never delayed.
+    # The same change, recovered from two reads of the record page, as it was while the event was
+    # withheld: the reconstruction still works, and now it is redundant rather than a loophole.
     after_read = _public_detail(client, proposal.public_id)
     public_key = DIFF_FIELDS_TO_PUBLIC_KEYS[field]
     reconstructed = {

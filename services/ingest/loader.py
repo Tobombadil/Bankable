@@ -127,7 +127,7 @@ from services.db.models import (
 )
 from services.ids import public_id, slugify
 from services.ingest.geocode import CountyGazetteer, default_gazetteer, geocode
-from services.ingest.lag import change_event_public_at, record_public_at
+from services.ingest.lag import record_public_at
 from services.ingest.vintage import NOT_STATED_VINTAGE, Vintage, from_source_urls
 
 #: Default rows-per-flush for `load_dataframe`'s bulk-insert pass (Sprint 3, services/README.md
@@ -330,14 +330,6 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
             # branch is written to fail closed (`ingest_only`) rather than assume that continues
             # to hold.
             publish_state="public" if entry.reuse in ("open", "attribution") else "ingest_only",
-            # The change-event delay, declared per source in the manifest (owner, 2026-09-19,
-            # paywall by shape). `source.lag_days` no longer delays the *record* -- nothing
-            # reads it for a proposal or an opportunity any more -- it is the number of days a
-            # change event from this source waits before the public tier sees it
-            # (`services/ingest/lag.py`). Seeded on create only: once the row exists, an
-            # operator's audited `PATCH /admin/v1/sources/{id}` is the authority, so a manifest
-            # re-sync never silently reverts a deliberate runtime change.
-            lag_days=entry.change_event_lag_days,
             host=entry.host or None,
             max_rps=entry.max_rps,
             manifest_version=manifest_version,
@@ -1114,9 +1106,9 @@ def load_dataframe(
             else:
                 published_at = now
                 # Paywall by shape, not by time (owner, 2026-09-19): a record is visible to a
-                # free reader the moment it is published. `public_at == published_at` here; the
-                # only surviving delay is on change events from an ISO queue register, applied
-                # in the event loop below (`services/ingest/lag.py`).
+                # free reader the moment it is published. `public_at == published_at` here, and
+                # since 2026-09-21 the event loop below says exactly the same thing -- there is
+                # no delayed shape left at all (`services/ingest/lag.py`).
                 public_at = record_public_at(published_at)
                 entity_id = new_uuid()
                 entity_public_id = public_id("prop" if kind == "proposal" else "opp", entity_id)
@@ -1245,16 +1237,12 @@ def load_dataframe(
                 continue
 
             published_at = now
-            # The one surviving time lever: a change event waits `source.lag_days` days on the
-            # public tier when the source declares a change-event lag (the eight `us.iso.*`
-            # queue registers today, seeded from `data/sources.yaml change_event_lag_days`), and
-            # publishes live otherwise. `source.lag_overrides[event_type]` still wins per type.
-            public_at = change_event_public_at(
-                published_at,
-                source_change_event_lag_days=source.lag_days,
-                lag_overrides=source.lag_overrides,
-                event_type=event_type,
-            )
+            # A change event is public the moment it is published, like the record it belongs to
+            # (owner, 2026-09-21: the ISO change-event delay is dropped, and its per-source knob
+            # with it -- `services/ingest/lag.py` argues why the knob went too). `public_at` stays
+            # a stored column because `services/api/visibility.py` reads it; it is now always
+            # `published_at`.
+            public_at = record_public_at(published_at)
             event = Event(
                 subject_type=kind,
                 subject_id=subject_id,

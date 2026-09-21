@@ -11,7 +11,7 @@ No undisclosed AI personas. Company- and role-level information only; no persona
 A continuously updated graph of energy and infrastructure proposals (supply) fused with RFPs, funding and tenders
 (demand), with a change feed. The buyer pays for *timeliness on changes that affect a deal they are working*: a
 competitor's queue position changing, an RFP opening in a footprint they can serve, a funding award being cancelled
-or reinstated, a large-load request landing in a service territory. Free delayed tier for reach; Pro for the
+or reinstated, a large-load request landing in a service territory. Free tier (undelayed since 2026-09-21) for reach; Pro for the
 individual originator; Team/API for the desk that needs it in their own tools. Downstream, the same events feed
 a possible later deal workflow (`01-feasibility.md` §5; the owner has since made that a later consideration, not a foundation). The TAM is narrow (on the order of 1,000–2,000 US
 organisations that develop, finance, build or advise on utility-scale projects, §3.4), so this is an account-based
@@ -240,7 +240,7 @@ if a call summary is sent afterwards, it carries the email footer.
 {technology/COD}. Useful, or noise? A one-word reply helps me calibrate."
 
 **Email 3 (day 10)** — Subject: `Closing the loop` · body: "I'll stop here. If a weekly, cited list of changes on
-{State}/{ISO} projects would help, the free delayed feed is at {link}; Pro (live, alerts) is {price}. Either way,
+{State}/{ISO} projects would help, the free feed is at {link}; Pro (alerts, saved searches, API) is {price}. Either way,
 thanks for reading." {Footer}
 
 **LinkedIn (connection note, ≤300 chars, sent manually):** "{First name} — I track {ISO} queue and RFP changes for
@@ -484,7 +484,7 @@ data of any kind, exclusivity in the first 12 months, or white-label removal of 
 
 | Tier | Price | What it is for | How to say it |
 |---|---|---|---|
-| **Free, delayed** | $0; 7–30 day lag; attribution; RSS/email digest; social feed | Reach, SEO, issuer listings, trust | "Everything is public data and we show our sources. The free tier is the same graph, a few weeks behind." |
+| **Free** | $0; ~~7–30 day lag~~ nothing is delayed (owner, 2026-09-19 and 2026-09-21); attribution; RSS/email digest; social feed | Reach, SEO, issuer listings, trust | "Everything is public data and we show our sources. The free tier is the same graph, live. What you pay for is not having to look." |
 | **Pro** | $150–250/month per seat (pre-sale $150; list $200–250); live; saved-search alerts; filters; CSV export; 1 seat | The individual originator, analyst, BD manager | "Less than a day of an analyst's time per month, and it is the part of the job nobody wants to do by hand." Anchor: Halcyon's individual tier is $99/month for filings only; Cleanview is $9,000/yr for 5 seats of the tracker. |
 | **Team + API** | $5–15k/yr: 5–10 seats, API, webhooks, Snowflake/CSV delivery, SSO later | Desks, G&Ts, law-firm BD, data-centre energy teams | "Cleanview's platform plus API is $14,000/yr; Enterprise incumbents are multiples of that. We sit in the same band with the fused supply/demand view they do not have." |
 | **Issuer listing** | Free for utilities/co-ops/CCAs/agencies to list RFPs | Demand-side supply for the marketplace | "It costs you nothing and puts your RFP in front of every subscriber who could bid." |

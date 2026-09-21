@@ -45,11 +45,11 @@ D6. **No idempotency-key replay is implemented** for the `Idempotency-Key` heade
     here, matching every other write endpoint in this codebase today (`services/api/pro.py` accepts
     the same header on `api/openapi.yaml` operations without implementing replay either) — recorded
     as an existing, pre-sprint gap rather than one introduced here.
-D7. **No `relag` job is enqueued** when `PATCH .../sources/{id}` changes `lag_days`/`lag_overrides`
-    (docs/21 §5.4 describes one recomputing `public_at` on historical rows asynchronously); no such
-    job exists anywhere in this repo yet (`infra/scheduler` only defines `run_connector`/tick
-    tasks). The runtime columns are updated immediately; historical `public_at` recomputation is
-    deferred to whichever sprint adds the job, and is out of this module's read/write scope.
+D7. **There is no lag to edit, and no `relag` job to enqueue.** `PATCH .../sources/{id}` carried
+    `lag_days`/`lag_overrides` until 2026-09-21, when the owner dropped the ISO change-event delay
+    and its knob with it (`services/ingest/lag.py`, migration `0019`): nothing is time-delayed on
+    any tier, so an operator has no delay to set and the `relag` job docs/21 §5.4 once described
+    has nothing to recompute. The field list below is the whole runtime surface that remains.
 D8. **`AdminSource.host`/`schedule_cron`** are required, non-nullable strings in the spec, but
     `Source.host`/`schedule_cron` are nullable manifest/runtime columns that the loader (out of
     scope here) may not yet have populated for every row. Serialization falls back to `""` rather
@@ -582,10 +582,11 @@ def admin_get_source(
 
 
 # ============================================================================= PATCH /sources/{id}
+#: No `lag_days`/`lag_overrides`: the columns are gone (migration `0019`) because a per-source
+#: delay an operator could switch back on is the defeatable promise the owner removed on
+#: 2026-09-21, not a runtime setting (D7, `services/ingest/lag.py`).
 _UPDATABLE_SOURCE_FIELDS = (
     "schedule_cron",
-    "lag_days",
-    "lag_overrides",
     "paused",
     "enrichment_enabled",
     "model_budget_usd_daily",
@@ -610,9 +611,6 @@ def admin_update_source(
     changed = [k for k in _UPDATABLE_SOURCE_FIELDS if k in body]
     if not changed:
         raise validation_error("reason", "at least one updatable field is required", path)
-    if "lag_days" in body and body["lag_days"] is not None and not (0 <= int(body["lag_days"]) <= 30):
-        raise validation_error("lag_days", "must be between 0 and 30", path)
-
     before = {k: _current_value(source, k) for k in changed}
     for key in changed:
         setattr(source, key, body[key])

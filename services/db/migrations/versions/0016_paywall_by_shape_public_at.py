@@ -62,10 +62,11 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-#: The interconnection-queue registers whose change events keep the delay (owner, 2026-09-19:
-#: "the delay is kept only on ISO change events"). Frozen at the 2026-09-20 manifest; the live
-#: list is `data/sources.yaml change_event_lag_days` and is pinned by
-#: `tests/test_iso_change_event_lag.py`.
+#: The interconnection-queue registers whose change events kept the delay (owner, 2026-09-19:
+#: "the delay is kept only on ISO change events"). Frozen at the 2026-09-20 manifest, and history
+#: since 2026-09-21: migration `0019` removed the delay, the manifest field and both columns this
+#: revision writes. The ids stay written out here because a migration has to keep meaning what it
+#: meant when it ran; `tests/test_publication_is_never_time_delayed.py` pins what is true now.
 ISO_QUEUE_SOURCE_IDS: tuple[str, ...] = (
     "us.iso.caiso.gen_queue",
     "us.iso.ercot.gen_queue",

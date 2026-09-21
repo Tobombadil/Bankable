@@ -313,7 +313,7 @@ async def resume_source(
     return _rerender_source_detail(request, ctx, source_id, result)
 
 
-# ------------------------------------------------------------------------------ edit cadence/lag
+# ---------------------------------------------------------------------------------- edit cadence
 @router.post("/admin/sources/{source_id}/edit", response_class=HTMLResponse)
 async def edit_source(
     source_id: str, request: Request, ctx: Annotated[AdminContext, Depends(require_operator)]
@@ -326,12 +326,8 @@ async def edit_source(
     schedule_cron = str(form.get("schedule_cron", "")).strip()
     if schedule_cron:
         body["schedule_cron"] = schedule_cron
-    lag_days = str(form.get("lag_days", "")).strip()
-    if lag_days:
-        try:
-            body["lag_days"] = int(lag_days)
-        except ValueError:
-            body["lag_days"] = lag_days  # let the API reject it with a real validation message
+    # No lag field: nothing is time-delayed on any tier and there is no per-source delay to set
+    # (owner, 2026-09-21; `services/ingest/lag.py`, migration 0019). The API would reject one.
     result = ctx.api.patch(f"/admin/v1/sources/{source_id}", json=body)
     if result.status_code == 200:
         return _redirect_to_source(source_id, "Cadence+updated")

@@ -90,13 +90,15 @@ A `SourceRunner` Protocol (`enqueue(db, source, *, trigger, requested_by) -> Sou
    operations without implementing replay either (`grep -n "Idempotency-Key\|idempotency"
    services/api/pro.py services/api/app.py` returns nothing) — this is an existing, pre-sprint gap
    across the codebase, not one introduced by this module.
-7. **No `relag` job is enqueued** when `PATCH .../sources/{id}` changes `lag_days`/`lag_overrides`
-   (docs/21 §5.4 describes one recomputing `public_at` on historical rows asynchronously). No such
-   job exists anywhere in this repo yet — `infra/scheduler` only defines `run_connector` and the
-   periodic bucket-tick tasks. The runtime columns are updated immediately; historical `public_at`
-   recomputation is deferred to whichever sprint adds the job, and building it is out of this
-   module's read/write scope (it would touch `infra/scheduler`, which the task brief restricts to
-   "only for the 'run now' design").
+7. **There is no lag to edit, and no `relag` job to enqueue** (amended 2026-09-21). `PATCH
+   .../sources/{id}` accepted `lag_days` and `lag_overrides` until the owner dropped the ISO
+   change-event delay together with its knob (`docs/00-PLAN.md` decisions log 2026-09-21;
+   `services/ingest/lag.py`; migration `0019` drops both columns). Nothing is time-delayed on any
+   tier now, so there is no per-source delay for an operator to set — deliberately, because a
+   dormant lag one audited `PATCH` could switch back on re-creates the promise that was removed —
+   and the `relag` job docs/21 §5.4 once described has nothing left to recompute. The updatable
+   field list is `schedule_cron`, `paused`, `enrichment_enabled`, `model_budget_usd_daily`,
+   `egress`, `attribution_text`.
 8. **`AdminSource.host`/`schedule_cron` are required, non-nullable strings** in the spec, but
    `Source.host`/`schedule_cron` are nullable manifest/runtime columns the loader (out of scope
    here) may not yet have populated for every row (e.g. a source seeded directly by a test or an
@@ -131,8 +133,6 @@ A `SourceRunner` Protocol (`enqueue(db, source, *, trigger, requested_by) -> Sou
 
 - **Idempotency-key replay** (decision 6) — a pre-existing, codebase-wide gap; a follow-up task,
   not specific to this module.
-- **`relag` job** (decision 7) — no such job exists in `infra/scheduler` yet; adding one is outside
-  this module's file scope.
 - **Pre-signed snapshot download URLs** — `Snapshot.download_url` is always `null`; object-storage
   pre-signing is not wired this sprint (no bucket/adapter exists to sign against yet).
 - **`SubjectType` gap for `licence`** (decision 3) and **`AnyPublicIdValue` gap for

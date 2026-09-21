@@ -8,21 +8,6 @@
   <p class="coverage-line">{{ coverage_line }} <a href="/about#sources">Sources and licences</a>.</p>
 </div>
 
-{#- The one surviving delay, stated once, from `GET /v1/health`'s `lag_days_default
-    .iso_change_events` (`services/ingest/lag.py`, `data/sources.yaml`). If the owner drops it
-    (docs/00-PLAN.md, 2026-09-20 open question), the field goes to zero and this block and the
-    free tier's line below both disappear with no copy edit anywhere. The wording follows docs/41's
-    caution: the *event* is held; the record and the date it last changed are public immediately,
-    so this must never read as "free readers cannot see that something changed". -#}
-{%- if iso_change_event_lag_days %}
-<p class="delayed-notice" role="status">
-  <span class="stamp-label">One delay</span> Every record is public the moment it is ingested, on every plan.
-  The only thing held back is a <em>change event</em> from an ISO interconnection queue, which reaches the free
-  plan <span class="tnum">{{ iso_change_event_lag_days }}</span> days after it happens. The record itself, and
-  the date it last changed, are public straight away.
-</p>
-{%- endif %}
-
 {%- if notice %}
 <div class="notice notice--error" role="alert">
   <p class="notice__title">{{ notice.title }}</p>
@@ -66,12 +51,6 @@
       {%- for item in tier.includes %}
       <li>{{ item }}</li>
       {%- endfor %}
-      {#- The other half of the delay copy, guarded by the same value as the notice above, so the
-          two sentences about the ISO change-event delay live next to each other and go together
-          if the owner drops it. -#}
-      {%- if tier.shows_live_iso_events and iso_change_event_lag_days %}
-      <li>ISO queue change events as they happen, instead of <span class="tnum">{{ iso_change_event_lag_days }}</span> days later</li>
-      {%- endif %}
     </ul>
 
     {%- if selected_plan == tier.id %}

@@ -9,6 +9,14 @@ proposals, `+ 7` for opportunities) must come out of `upgrade` with every record
 Run here on SQLite; the PostGIS half (`upgrade head / downgrade -1 / upgrade head` against a real
 PostGIS instance) is exercised by the `migrations` CI job and was run by hand on 2026-09-20 before
 this landed.
+
+**Amended 2026-09-21.** Migration `0019` drops `source.lag_days` and `source.lag_overrides` — the
+owner dropped the ISO change-event delay and its knob — so the ORM no longer declares the two
+columns and `Base.metadata.create_all` no longer creates them. A store standing at 0015, which is
+what this test needs, *did* have them, so `_add_pre_0019_lag_columns` puts them back with raw DDL
+before seeding. 0016 itself is unchanged and still means what it meant: it is history, and history
+has to keep running. What 0019 then does to these same rows is
+`tests/test_migration_0019.py`.
 """
 
 from __future__ import annotations
@@ -54,10 +62,23 @@ def sqlite_url(tmp_path: pathlib.Path) -> str:
     return f"sqlite+pysqlite:///{tmp_path / 'migration_0016.db'}"
 
 
+def _add_pre_0019_lag_columns(engine: sa.Engine) -> None:
+    """Re-create the two `source` columns as the schema carried them from 0001 until 0019.
+
+    `Base.metadata.create_all` builds the *current* ORM, which has neither, so without this the
+    0016 statements that read and seed them would be skipped by their own `_present` guards and
+    this test would assert on a migration that did nothing.
+    """
+    with engine.begin() as conn:
+        conn.execute(sa.text("ALTER TABLE source ADD COLUMN lag_days INTEGER"))
+        conn.execute(sa.text("ALTER TABLE source ADD COLUMN lag_overrides TEXT DEFAULT '{}'"))
+
+
 def _seed_pre_0016(engine: sa.Engine) -> None:
     """A store as the pre-2026-09-20 loader left it: the blanket lag on every row."""
     from sqlalchemy.orm import Session
 
+    _add_pre_0019_lag_columns(engine)
     with Session(engine) as s:
         lic = Licence(id="lic", name="Terms", reuse_class="attribution")
         s.add(lic)
@@ -73,7 +94,6 @@ def _seed_pre_0016(engine: sa.Engine) -> None:
                     cadence="weekly",
                     licence_id=lic.id,
                     publish_state="public",
-                    lag_days=None,
                 )
             )
         s.flush()

@@ -83,12 +83,14 @@ only in a footer. *Why:* provenance discipline is the differentiation (`docs/10`
 
 **D-3 Delayed means visibly delayed — and live means visibly live.** Every public-tier surface carries the
 `data_as_of` / `lag_days` line from the API envelope (`docs/23` §10) in a fixed position (page header on lists
-and map; record header on detail; top of digest) with the "live in Pro" link (US-604, US-201 AC4). Since the
-paywall became a matter of shape rather than time (owner, 2026-09-19) `lag_days` is `0` on every record surface,
-so the same component states that the record is live and names the one thing that is not — ISO change events.
-*Why:* the original reason was that the delay was the paid tier's value; it no longer is, and a banner claiming
-a delay the product does not apply is a false statement on a public page. The rule survives inverted: the tier
-line is always on screen and always true.
+and map; record header on detail; top of digest) with the link to what a paid plan adds (US-604, US-201 AC4).
+Since the paywall became a matter of shape rather than time (owner, 2026-09-19) and the surviving ISO
+change-event delay was dropped (owner, 2026-09-21), `lag_days` is `0` on every surface, so the component states
+that the page is live and points at alerts and the API. It keeps reading the number from the envelope rather
+than hard-coding "live", so it could not disagree with the predicate if a delay ever returned. *Why:* the
+original reason was that the delay was the paid tier's value; it no longer is, and a banner claiming a delay
+the product does not apply is a false statement on a public page. The rule survives inverted: the tier line is
+always on screen and always true.
 
 **D-4 One mental model across search, map and feed.** Same filter set, same URL parameters, same tier rules,
 same result count; switching list ↔ map ↔ feed keeps filter state (US-102 AC2, US-104 AC2). *Why:* the owner
@@ -140,7 +142,7 @@ carry the provenance quartet like any record. *Why:* S3 job (a) — "which propo
 
 **D-12 Detail drawer with provenance.** Selecting a marker, cluster item or polygon opens a drawer (not a page)
 showing canonical fields, lifecycle chip, `Sources` list (name, retrieved date, licence badge, link out; gated
-sources omitted per `docs/21` §8 item 3), the last three events, the delayed-tier line (D-3) and a link to the
+sources omitted per `docs/21` §8 item 3), the last three events, the tier line (D-3) and a link to the
 full record. The drawer is `role="dialog"` with focus trap; closing returns focus to the marker. *Why:* US-201
 AC1 without leaving the map.
 
@@ -234,8 +236,8 @@ vocabulary.
 
 **D-26 Timelines.** Newest first; each item shows type, `observed_at`, source with licence badge, `before →
 after` for status changes; merge/unmerge labelled and linked to the absorbed record (US-202 AC1–AC2); public
-tier hides items newer than the lag and shows the D-3 banner in their place — which since 2026-09-19 means
-events from an ISO queue register only, every other event being live. *Why:* US-202.
+tier hides nothing — since 2026-09-21 every event is public when it is published, so the timeline is the same
+on every tier and the D-3 line says so. *Why:* US-202.
 
 **D-27 Provenance panel.** Lists every visible `proposal_source` / `opportunity_source` with source name,
 `source_record_id` where allowed, `retrieved_at`, licence badge, link out (US-201 AC1); gated sources omitted,
@@ -243,12 +245,13 @@ not greyed (`docs/21` §8 item 3); Pro+ detail pages expose `field_provenance` (
 `licence_summary.attribution_line` renders in the footer of every list, detail, map and feed view (US-105
 AC1). *Why:* the API supplies it, the page prints it; omission is launch-blocking (`docs/21` §8).
 
-**D-28 Tier notices** use one component and wording across banner, drawer, RSS item, CSV header and post. Where
-a delay applies — an ISO change event — it reads "Public data is {lag_days} days delayed (as of {data_as_of}).
-Live in Pro." Where none applies, which since 2026-09-19 is every record surface, the same component reads
-"Every record is published as soon as it is ingested; ISO queue change events are held {iso_change_event_lag_days}
-days on the free tier. Alerts and API in Pro." (US-604, `docs/32` §3.2 item 5). *Why:* one sentence the market
-learns to recognise — and it has to be the true one.
+**D-28 Tier notices** use one component and wording across banner, drawer, RSS item, CSV header and post.
+Since 2026-09-21 no delay applies anywhere, so it reads "Every record and every change event is published as
+soon as it is ingested. Alerts and API in Pro." The delayed wording — "Public data is {lag_days} days delayed
+(as of {data_as_of})" — stays in the component, keyed on `lag_days` from the envelope, and renders only if a
+delay is ever reintroduced; a post carries a lag clause on the same condition and therefore never does today
+(US-604, `docs/32` §3.2 item 5). *Why:* one sentence the market learns to recognise — and it has to be the
+true one.
 
 **D-29 Empty, loading and error states are specified per screen** in `docs/31`: empty states say which filter
 removed the last result or offer "clear all" (US-102 AC4); loading uses skeletons of the final layout (no
@@ -285,7 +288,7 @@ row each carry or link to their source; aggregates say "computed over visible so
 excluded (`docs/21` §8 item 4). *Why:* the guardrail is per record; aggregation must not launder provenance.
 
 **D-35 Microcopy is versioned strings**, not inline literals: disclosure text (`docs/32` §2.2, `docs/33` §8),
-the delayed notice (D-28), attribution formats and error titles live in one strings file with a version; the
+the tier notice (D-28), attribution formats and error titles live in one strings file with a version; the
 review queue cannot edit attribution or disclosure strings (`docs/32` §3.4). *Why:* legal wording changes in
 one place with an audit trail.
 
@@ -379,7 +382,7 @@ Two enumeration rules, learned the hard way on 2026-09-20 and pinned by
 one of them is proven right. *Why:* `docs/23` §12 — contract and API cannot drift.
 
 **E-9 Integration fixtures for tier and gate.** The seeded database holds ≥ 1 record per `publish_state` and
-per `reuse_class`, one at lag−1 day and one at lag+1 day, one mixed-provenance proposal (ERCOT + PJM), one
+per `reuse_class` (the lag−1/lag+1 pair is retired with the delay, 2026-09-21), one mixed-provenance proposal (ERCOT + PJM), one
 merged pair; tests assert visibility on web, RSS, API, export, webhook and post-draft paths (US-601 AC1, US-906
 AC1, `docs/21` §8). *Why:* M-11 = 0 is proved here, not in review.
 
@@ -454,7 +457,7 @@ services without an ADR), ≥ 1 year of releases or a stated reason, and a one-l
 pinned by digest and scanned (`docs/20` §11). *Why:* the least-watched attack surface for a solo operator.
 
 **E-21 Feature flags and tier gates.** Tier and licence behaviour is *data* — `source.publish_state`, `licence`
-flags, lag configuration (`docs/21` §3.19, §5.4) — never a code flag. Code flags (`settings.features.*`,
+flags (`docs/21` §3.19, §5.4; there is no lag configuration any more) — never a code flag. Code flags (`settings.features.*`,
 env-driven, boolean, default off) may hide an unfinished surface or narrow what a tier sees, never widen
 visibility or bypass the predicate (a test asserts the predicate applies regardless of flag state); each flag
 has an owner, purpose and removal date ≤ 2 sprints after rollout; no third-party flag service. *Why:* a flag
@@ -774,7 +777,7 @@ them defensible.
 same gate.
 
 **G-6 Pricing and packaging change control.** The ladder is `docs/11` §3 (Free / Pro USD 149 / Team USD 9,000 /
-API +5,000 or 25,000) with its delay schedule; `docs/33` §6 and billing configuration must match it. A change
+API +5,000 or 25,000) with what each tier includes; `docs/33` §6 and billing configuration must match it. A change
 needs an owner decision in `docs/00-PLAN.md`, edits to `docs/11` §3 and `docs/33` §6 in one PR, the billing plan
 change through `BillingPort` config, a `docs/CHANGELOG.md` line, and notice to affected customers. No agent
 commits a price or discount; pilot terms stay within `docs/33` §6.3. *Why:* two documents and a billing console
@@ -804,7 +807,7 @@ on the example. *Why:* a missing credit line in a template replicates a thousand
 **G-11 Metrics review cadence.** Weekly: social report Monday 08:00 ET (`docs/32` §6.2) and pipeline report
 Monday (`docs/33` §7.3), agent-drafted, owner-read. Sprint end: M-1…M-13 against targets and kill signals
 (`docs/10` §5) in the owner review of `docs/00-PLAN.md` (`docs/03` §5), plus cost ceilings (O-8). Monthly:
-lead-scoring weights (`docs/33` §8). Quarterly: ICP priority, pricing ladder, delay schedule. A metric with no
+lead-scoring weights (`docs/33` §8). Quarterly: ICP priority, pricing ladder. A metric with no
 number is reported as "not measured" with the blocker, never omitted. *Why:* kill signals only work if read on
 schedule.
 
@@ -820,7 +823,7 @@ reviewer (R-2) records the check in the PR or the doc's status line.
 | **Doc** (`docs/*.md`) | Status line (P-10); one topic; sections numbered and stable; every number sourced or tagged as assumption (P-7, P-8); references by section, not restatement; decisions in `docs/00-PLAN.md`; `docs/CHANGELOG.md` line; British spelling in prose; no model identifiers; the `docs/03` §2 reviewer has read it |
 | **Connector** | DA-14 steps 1–8 artefacts present; `docs/20` §3.1 protocol; stable `source_record_id` documented; fixtures per E-6 with no personal or gated data; `status_map.yaml` per DA-5; DQ thresholds set; egress class and host limits configured; three baseline runs logged; `mypy --strict` and `ruff` clean; CHANGELOG line |
 | **API endpoint** | In `docs/23` (updated first if new); generated OpenAPI matches (E-8); envelope and provenance (API-5); visibility predicate applied and E-9 fixtures pass; RFC 9457 errors with table codes; rate-limit headers; cursor pagination; contract test and example; p95 within E-16; request logging; `x-tier`/`x-stories` set; no internal ids |
-| **UI screen** | Derived from `docs/30-design-references.md` (D-6), no banned pattern (D-7); tokens only (D-19); contrast recorded (D-20); WCAG 2.2 AA checks and `axe` clean, keyboard pass done (D-30); 400 px verified (D-32); CWV and JS budgets on preview (D-31); provenance on every data element and attribution line in footer (D-2, D-27, D-34); delayed notice (D-3, D-28); empty/loading/error states (D-29); filters in URL (D-17); motion and reduced-motion (D-15); component tests + smoke path (E-10); qa-engineer and product-designer review |
+| **UI screen** | Derived from `docs/30-design-references.md` (D-6), no banned pattern (D-7); tokens only (D-19); contrast recorded (D-20); WCAG 2.2 AA checks and `axe` clean, keyboard pass done (D-30); 400 px verified (D-32); CWV and JS budgets on preview (D-31); provenance on every data element and attribution line in footer (D-2, D-27, D-34); tier notice (D-3, D-28); empty/loading/error states (D-29); filters in URL (D-17); motion and reduced-motion (D-15); component tests + smoke path (E-10); qa-engineer and product-designer review |
 | **Post template** | Matches `docs/32` §3.2 anatomy and the §3.3 template for its event type; attribution and disclosure from the versioned strings (D-35); rendered example per channel within limits; `docs/32` §4.3 gates pass on the example; lag notice when and only when the event carries a delay (amended 2026-09-19); no banned words; UTM per §3.2; content-social and product-designer review |
 | **Outreach sequence** | Segment named (G-1); every touch has a graph fact with `source_url` and a public company fact (`docs/33` §3.1); three touches max; compliance footer and disclosure line (G-3); opt-out route; personalisation tokens only from the `docs/33` §3.1 list; `draft_by = agent`, sent-by empty; EU/UK gated on the legal checklist; legal-compliance review where flagged; the owner is the sender |
 
@@ -872,7 +875,7 @@ items (`docs/21` §8) or the human-sends rule.
 
 | # | Where | Conflict | Pick | Why |
 |---|---|---|---|---|
-| 1 | `docs/20` §5 and A-8 (7 days) vs `docs/10` A-7 / `docs/21` D-1 (14 days) vs `docs/11` §3 (7 opportunities, 14 supply, 30 weekly, none quarterly) | Default public lag | ~~The `docs/11` §3 schedule: 7 opportunities / 14 supply by default, per source class~~ **Superseded 2026-09-19 by owner decision: there is no default public lag. Records carry none; a 14-day delay survives only on change events from an ISO interconnection queue** (`docs/21` §5.4, `services/ingest/lag.py`) | The conflict is moot: the owner moved the paywall from time to shape — "alerts, exports, API and watchlists are paid; free users see every record; the delay is kept only on ISO change events". US-101 AC3's lag±1 fixture now applies to an ISO change event, not to a record |
+| 1 | `docs/20` §5 and A-8 (7 days) vs `docs/10` A-7 / `docs/21` D-1 (14 days) vs `docs/11` §3 (7 opportunities, 14 supply, 30 weekly, none quarterly) | Default public lag | ~~The `docs/11` §3 schedule: 7 opportunities / 14 supply by default, per source class~~ **Superseded 2026-09-19 and closed 2026-09-21 by owner decision: there is no lag at all — not on records, not on change events — and no per-source configuration for one** (`docs/21` §5.4, `services/ingest/lag.py`, migration `0019`) | The conflict is moot: the owner moved the paywall from time to shape, then removed the last delay when it was measured to be recoverable from two public reads. US-101 AC3's lag±1 fixture is retired with it; what is pinned instead is that a record and a change event ingested seconds ago are both public |
 | 2 | `docs/20` §5 (PJM derived aggregates to Pro/API) vs `docs/10` §3.2–3.3, `docs/21` D-2/C-3, `docs/23` P-4 | Restricted/unknown sources on Pro/API | Nothing on any non-admin surface | `docs/00-PLAN.md` working default takes the safer reading; `CLAUDE.md` says PJM is not public until a licence exists and the terms question is open (`docs/13` §7 item 1); reversible in configuration when counsel answers |
 | 3 | `docs/02` §1 / `docs/10` §4 / `docs/21` §7.1 (eight states + `unknown`) vs `pipeline/status_map.yaml` v2 (adds `under_construction`) | Lifecycle vocabulary | Adopt `under_construction` between `contracted` and `built`; solutions-architect updates `docs/21` §7.1 and the `vocabulary` table | The status map's note is right: EIA-860M distinguishes it and it is the most useful signal for S4; vocabularies are `text + CHECK`, so the addition is cheap; API-7 requires the 30-day announcement before it appears in `v1` |
 | 4 | `docs/32` §3.1 event names (`proposal.new`, `proposal.status_changed`, `opportunity.rfp_opened`…) vs `docs/21` §7.3 (`created`, `status_change`, `opened`…) | Event-type vocabulary | `docs/21` §7.3 is the vocabulary; the publisher maps `docs/21` types to `docs/32` template names in `config/social.yaml` | `docs/33` §9 already defers final names to the architect; the store cannot carry two vocabularies |

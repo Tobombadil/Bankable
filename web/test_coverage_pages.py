@@ -23,7 +23,7 @@ HEALTH: dict[str, Any] = {
     "status": "ok",
     "data_as_of": "2026-09-21",
     "live_as_of": "2026-09-21T00:00:00Z",
-    "lag_days_default": {"supply": 0, "opportunities": 0, "iso_change_events": 14},
+    "lag_days_default": {"supply": 0, "opportunities": 0},
     "build": {"commit": "abc123def456", "dirty": False},
     "source_data_as_of": "2026-09-13T20:25:39Z",
     "source_vintage": {

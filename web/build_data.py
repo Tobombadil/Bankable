@@ -752,8 +752,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-lag",
         action="store_true",
-        help="Show records regardless of retrieved_at age (prototype only -- the delayed-tier "
-        "notice still renders using the configured lag_days, docs/04 D-3).",
+        help="Show records regardless of retrieved_at age. A no-op since the last delay was "
+        "dropped (owner, 2026-09-21): LAG_DAYS_PROPOSAL and LAG_DAYS_OPPORTUNITY are both 0, so "
+        "the cutoff is already `now` and the banner already reads Live.",
     )
     return parser.parse_args(argv)
 

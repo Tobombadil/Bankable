@@ -1007,14 +1007,28 @@ def test_create_source_unknown_issuer_org_is_400(client, db):
 
 
 # ------------------------------------------------------------------ extra coverage: update source
-def test_update_source_rejects_bad_lag_days(client, db):
+def test_update_source_refuses_to_set_a_lag(client, db):
+    """There is no lag to set, and an operator must not be able to reintroduce one through the
+    admin API: the columns and the field went together on 2026-09-21 (owner; migration 0019,
+    `services/ingest/lag.py`). A `PATCH` naming only `lag_days` names no updatable field at all,
+    so it is refused rather than silently ignored — the same rule as any unknown field here."""
     lic = make_open_licence(db)
     src = _make_source(db, lic)
     operator = _operator(db)
     db.commit()
     login(client, db, operator)
-    resp = client.patch(f"/admin/v1/sources/{src.id}", json={"lag_days": 99, "reason": "bad lag"})
+    resp = client.patch(f"/admin/v1/sources/{src.id}", json={"lag_days": 14, "reason": "put it back"})
     assert resp.status_code == 400
+    assert not hasattr(src, "lag_days")
+
+    # And a valid edit alongside it does not smuggle the lag in.
+    resp = client.patch(
+        f"/admin/v1/sources/{src.id}",
+        json={"paused": True, "lag_days": 14, "reason": "pause, and try to set a lag"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"].get("lag_days") is None
+    assert "lag_days" not in resp.json()["data"]
 
 
 # ------------------------------------------------------------------ extra coverage: run source

@@ -262,13 +262,12 @@ def test_vocabularies_and_health(client, db):
 
     resp2 = client.get("/v1/health")
     assert resp2.json()["status"] == "ok"
-    # Records are undelayed on every tier and only ISO change events are held back (owner,
-    # 2026-09-19, paywall by shape); `/v1/health` is where `web/` reads both numbers from.
-    assert resp2.json()["lag_days_default"] == {
-        "supply": 0,
-        "opportunities": 0,
-        "iso_change_events": 14,
-    }
+    # Nothing is delayed on any tier: records since 2026-09-19 and change events since
+    # 2026-09-21, when the ISO change-event delay went along with its per-source knob (owner).
+    # `/v1/health` is where `web/` reads the number from, and the `iso_change_events` key is
+    # gone rather than zeroed -- a key named after a delay that no longer exists would invite a
+    # page to print one.
+    assert resp2.json()["lag_days_default"] == {"supply": 0, "opportunities": 0}
 
 
 def test_rss_and_json_feed(client, db):
