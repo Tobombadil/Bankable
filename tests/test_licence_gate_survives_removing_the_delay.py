@@ -1,6 +1,7 @@
 """Removing the time delay must not make one restricted row visible.
 
-The 2026-09-19 owner decision ("free users see every record") changed *when* `public_at` falls,
+The 2026-09-19 owner decision ("free users see every record") and the 2026-09-21 one that dropped
+the last delay -- on ISO change events -- and its per-source knob changed *when* `public_at` falls,
 nothing else. `services/api/visibility.py`'s docstring is explicit that `licence_permits` is
 unchanged across tiers and that `restricted`/`unknown` sources stay invisible on every non-admin
 surface; `CLAUDE.md` makes PJM specifically non-public until a licence exists. This file is the
@@ -13,9 +14,9 @@ proof, written so that it fails if the licence clause is ever loosened -- at thr
    which the *time* gate is wide open -- are absent from `GET /v1/proposals` on the public, Pro
    and API tiers, and so are their events and the feeds. An open-licence row in the same store is
    present, so an empty result cannot pass this test by accident.
-3. **Named.** The same, for a source id of `us.iso.pjm.gen_queue`: PJM now carries a change-event
-   lag flag in the manifest like every other ISO queue, and that must not be mistaken anywhere for
-   permission to publish it.
+3. **Named.** The same, for a source id of `us.iso.pjm.gen_queue`. PJM carried a change-event lag
+   flag in the manifest until 2026-09-21; removing it removed a *timing* rule and nothing else,
+   and must not be mistaken anywhere for permission to publish PJM.
 """
 
 from __future__ import annotations
@@ -170,10 +171,11 @@ def test_gated_records_never_reach_the_public_feeds(client, db) -> None:
 
 
 # ------------------------------------------------------------------------ 3. named: PJM
-def test_pjm_is_not_public_even_though_it_now_carries_a_change_event_lag(client, db) -> None:
-    """`data/sources.yaml` gives `us.iso.pjm.gen_queue` a `change_event_lag_days` like every other
-    ISO queue. That field says *how long its change events would wait if it were publishable*; it
-    is not, and nothing about narrowing the lag changes that (`CLAUDE.md`)."""
+def test_pjm_is_not_public_now_that_no_source_carries_a_change_event_lag(client, db) -> None:
+    """`data/sources.yaml` gave `us.iso.pjm.gen_queue` a `change_event_lag_days` like every other
+    ISO queue until 2026-09-21. That field only ever said *how long its change events would wait
+    if it were publishable*; it is not, and removing the field changes nothing about that
+    (`CLAUDE.md`). PJM is invisible because of its licence, not because of a clock."""
     _seed(db)
     stored = db.scalars(select(Proposal).join(Source, Source.id == "us.iso.pjm.gen_queue")).all()
     assert stored, "the PJM row is in the store -- it is the API that must withhold it"

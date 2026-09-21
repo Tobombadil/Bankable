@@ -637,8 +637,6 @@ def serialize_source(source: Source) -> dict[str, Any]:
         "licence": serialize_licence_embedded(licence),
         "attribution_text": source.attribution_text or licence.attribution_text,
         "publish_state": source.publish_state,
-        "lag_days": source.lag_days,
-        "lag_overrides": source.lag_overrides or {},
         "implemented": source.implemented,
         "last_success_at": iso(source.last_success_at),
         # The release the SOURCE states, which is not the date we fetched it. `last_success_at`

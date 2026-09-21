@@ -25,8 +25,8 @@ info:
 
     | Tier | Credential | What it sees |
     |---|---|---|
-    | `public` | none (or a `read:public` key / free session) | records and events whose `public_at <= now()` — which since 2026-09-19 is **every** record, undelayed; only change events from an ISO queue register still wait. Derived fields only; attribution rendered in every response |
-    | `pro` | session or key with `read:live` | the same shapes with `lag_days = 0` on the event surfaces too, plus `field_provenance`, saved searches, alerts. Exports and watchlists are plan shapes that do not exist as routes yet |
+    | `public` | none (or a `read:public` key / free session) | records and events whose `public_at <= now()` — which since 2026-09-21 is **everything**, records and change events alike, undelayed. Derived fields only; attribution rendered in every response |
+    | `pro` | session or key with `read:live` | the same shapes and the same freshness (`lag_days = 0` everywhere), plus `field_provenance`, saved searches, alerts. Exports and watchlists are plan shapes that do not exist as routes yet |
     | `api` | key with `read:live` + `read:bulk` / `write:webhooks` | as Pro, plus NDJSON bulk streams, webhooks and higher limits |
     | `admin` | operator/owner session on the `admin.` host | everything, including unpublished, gated and dead-lettered records |
 
@@ -129,34 +129,31 @@ tags:
 
 x-tier-definitions:
   description: |
-    `x-tier` on an operation is the **minimum** entitlement. A higher tier sees the same shape with `meta.lag_days = 0`
-    and more fields. Tier is a property of the reader, not a copy of the data (docs/20 §5). Licence gating is
-    orthogonal and stricter: it decides whether a field may leave at all (docs/21 §8); tier decides how old it must be.
-    Since 2026-09-19 (owner: the paywall is by shape, not by time) "how old" applies to one shape only — a change
-    event from a source that declares a change-event lag. Records are the same age on every tier.
+    `x-tier` on an operation is the **minimum** entitlement. A higher tier sees more fields — never fresher data.
+    Tier is a property of the reader, not a copy of the data (docs/20 §5). Licence gating is orthogonal and
+    stricter: it decides whether a field may leave at all (docs/21 §8). Since 2026-09-21 (owner: the paywall is
+    by shape, and the surviving ISO change-event delay is dropped) tier decides nothing about age at all:
+    `meta.lag_days` is `0` on every operation and every tier, for records and for change events alike. What a
+    paid tier buys is shape — alerts, exports, the API and watchlists.
   public_at_semantics: |
-    Every entity and event carries `published_at` (when it became visible to the live tier) and `public_at`
-    (materialised `published_at + lag(source_id, event_type)`). The public predicate reads `public_at` only:
-    `public_at IS NOT NULL AND public_at <= now()`. Pro/API/admin read `published_at <= now()`. A lag change is a
-    configuration change that enqueues a `relag` job to recompute `public_at`; it is not instantaneous across
-    historical rows and the admin UI says so (docs/21 §5.4).
+    Every entity and event carries `published_at` (when it became visible) and `public_at`. The public predicate
+    reads `public_at` only: `public_at IS NOT NULL AND public_at <= now()`. Pro/API/admin read
+    `published_at <= now()`. Both columns stay; **since 2026-09-21 they are always equal**, on records and on
+    change events alike, so the two predicates select the same rows and differ only in the fields they return.
 
-    What `lag()` returns changed on 2026-09-19 (owner: the paywall is by shape, not by time — "free users see
-    every record; the delay is kept only on ISO change events"). For a `proposal` or an `opportunity` it is
-    **0 on every tier**, so `public_at == published_at` and a public detail response renders the record's current
-    fields, not a `now − lag` view. For an `event` it is `source.lag_overrides[event_type]` if set, else
-    `source.lag_days`, which the loader seeds from `data/sources.yaml change_event_lag_days` — today the eight
-    `us.iso.*` interconnection-queue registers at 14 days, and nothing else. `meta.lag_days` on an event
-    response is that event's own delay; on a list of events it is the feed's completeness, i.e. the ISO
-    change-event lag, because a withheld ISO event from yesterday exists whether or not it is on the page.
-    The licence clauses of the predicate are unchanged by any of this: `restricted`/`unknown` sources remain
-    invisible on every non-admin tier (docs/21 §8).
+    How that came about: on 2026-09-19 the owner moved the paywall from time to shape ("free users see every
+    record; the delay is kept only on ISO change events"), and on 2026-09-21, on the measurement that the
+    surviving delay was recoverable from two public reads of an undelayed record page, dropped that too — along
+    with the per-source `lag_days`/`lag_overrides` knob, so nothing can turn a delay back on without a code
+    change (`services/ingest/lag.py`, migration `0019`). There is no `relag` job and no `lag()` function left:
+    `meta.lag_days` is `0` everywhere. The licence clauses of the predicate are unchanged by any of this:
+    `restricted`/`unknown` sources remain invisible on every non-admin tier (docs/21 §8).
   tiers:
     public:
       credential: none, or an API key with only `read:public`, or a free-account session
       predicate: public_at <= now(); publish_state = public; source and licence permit the public tier
       fields: derived and identifying classes only; `raw`, `status_raw`, `raw_place`, exact coordinates from attribution-with-restriction sources and everything from restricted/unknown sources withheld
-      lag_days: 0 on records; `source.lag_days` (per-event-type override first) on change events
+      lag_days: 0 — on records and on change events (owner, 2026-09-21)
     pro:
       credential: session with account.entitlement in {pro, api, admin}, or key with `read:live`
       predicate: published_at <= now(); same licence gating as public
@@ -433,7 +430,7 @@ paths:
         For attribution-with-restriction sources (CAISO) the raw row is not returned; derived fields plus a
         "view at source" link are (US-201 AC2). A merged record answers `301` with `Location` set to the surviving
         public id (US-201 AC3); an unpublished or taken-down record answers `410`. On the public tier the record is
-        rendered as of `now − lag` and `meta.data_as_of` states the cut (US-201 AC4). Pro+ adds `field_provenance`.
+        rendered as it stands now — no delay on any tier — and `meta.data_as_of` states the cut (US-201 AC4). Pro+ adds `field_provenance`.
         `include=events,matches,sources` expands the related collections inline.
       x-tier: public
       x-status: planned
@@ -1060,7 +1057,7 @@ paths:
       summary: Source registry
       description: |
         Public view of the registry mirrored from `data/sources.yaml` (docs/21 §4.1): name, operator, jurisdiction,
-        category, cadence, licence summary, `attribution_text`, `publish_state`, `lag_days`, `implemented`. This is
+        category, cadence, licence summary, `attribution_text`, `publish_state`, `implemented`. This is
         where the credit line on every list page comes from (US-105 AC1). Curated RFP issuers are rows here with
         `category = procurement` (US-303 AC1). Sources with an unmet gate are listed (their existence is public in
         `data/sources.yaml`) with `publish_state = ingest_only`; their rows are not.
@@ -1095,7 +1092,7 @@ paths:
       operationId: getSource
       tags: [Sources & licences]
       summary: Source detail
-      description: One registry row with its licence, attribution text, publish state, lag and last successful run time (US-704).
+      description: One registry row with its licence, attribution text, publish state and last successful run time (US-704).
       x-tier: public
       x-status: planned
       x-sprint: 1
@@ -3267,13 +3264,13 @@ paths:
     patch:
       operationId: adminUpdateSource
       tags: [Admin — sources]
-      summary: Edit cadence, lag, pause, enrichment, egress class
+      summary: Edit cadence, pause, enrichment, egress class
       description: |
-        Runtime fields only (docs/21 §4.1 *runtime*): `schedule_cron`, `lag_days`, `lag_overrides`, `paused`,
-        `enrichment_enabled`, `model_budget_usd_daily`, `egress`, `attribution_text` (US-904 AC2, US-601 AC2).
-        Manifest fields are read-only here and change through `data/sources.yaml`. A lag change enqueues a `relag`
-        job; `public_at` on historical rows is recomputed asynchronously (docs/21 §5.4). Every change is an audited
-        `source` event with the mandatory `reason`.
+        Runtime fields only (docs/21 §4.1 *runtime*): `schedule_cron`, `paused`, `enrichment_enabled`,
+        `model_budget_usd_daily`, `egress`, `attribution_text` (US-904 AC2). There is no lag to set: the ISO
+        change-event delay and its `lag_days`/`lag_overrides` columns were removed on 2026-09-21 (owner), so no
+        `relag` job is enqueued and `public_at` is always `published_at`. Manifest fields are read-only here and
+        change through `data/sources.yaml`. Every change is an audited `source` event with the mandatory `reason`.
       x-tier: admin
       x-status: live
       x-sprint: 2
@@ -5036,7 +5033,7 @@ paths:
       summary: Proposal feed (RSS 2.0 or JSON Feed 1.1)
       description: |
         Feed twin of `GET /v1/proposals` with the same query string (US-503 AC1). Items are the published events on
-        matching proposals at the public lag, never earlier; each item carries the source credit line and the
+        matching proposals as they are published; each item carries the source credit line and the
         `data_as_of` date (US-503 AC3). A filter that returns only gated sources yields an empty feed, not `404`.
         The feed `<title>` states "Public feed, ISO change events N days delayed — live in Pro" (US-604) — since
         2026-09-19 an ISO queue change event is the only thing the public feed withholds. RSS: `atom:link rel="self"`,
@@ -7370,7 +7367,7 @@ components:
       enum: [wrong_merge, wrong_status, wrong_sponsor, other]
     RedactionReason:
       type: string
-      description: '`licence` (raw/identifying field withheld), `licence_precision` (exact geometry replaced by a centroid), `tier` (newer than the public lag), `personal_data` (redacted), `publish_state` (source or record unpublished).'
+      description: '`licence` (raw/identifying field withheld), `licence_precision` (exact geometry replaced by a centroid), `tier` (kept for compatibility; nothing is withheld by age since 2026-09-21), `personal_data` (redacted), `publish_state` (source or record unpublished).'
       enum: [licence, licence_precision, tier, personal_data, publish_state]
 
     # ---------- Attribution and licence envelope (docs/23 §10) ----------
@@ -7384,11 +7381,11 @@ components:
         lag_days:
           type: integer
           minimum: 0
-          description: 'Effective lag applied to this response, in days; `0` on Pro and above, and `0` on every record response on every tier since 2026-09-19 (the paywall is by shape, not by time). Non-zero only for change events from a source that declares a change-event lag: on a single event it is that event''s own delay, on the events list and the feeds it is the feed''s completeness (the ISO change-event lag), because a withheld event from yesterday exists whether or not it is on the page.'
+          description: 'Effective lag applied to this response, in days. Always `0`: records carry no delay on any tier since 2026-09-19 (the paywall is by shape, not by time) and change events carry none since 2026-09-21, when the ISO change-event delay was removed together with its per-source knob. The field is kept so a client reading it keeps working and so the number a public page prints still comes from the API rather than from a constant in the page.'
         data_as_of:
           type: string
           format: date-time
-          description: Instant the data is current to. On the public tier `now − lag` of the materialised view; live tiers report the last commit time.
+          description: Instant the data is current to. The same instant on every tier since 2026-09-21 — there is no lag to subtract.
         generated_at:
           type: string
           format: date-time
@@ -8578,8 +8575,8 @@ components:
               type: [string, 'null']
     Source:
       type: object
-      description: Public registry view (docs/21 §4.1 manifest fields plus publish state and lag).
-      required: [source_id, name, category, url, access, cadence, tier, licence, publish_state, lag_days, lag_overrides, implemented, provenance]
+      description: Public registry view (docs/21 §4.1 manifest fields plus publish state). No lag fields — nothing is time-delayed on any tier (owner, 2026-09-21).
+      required: [source_id, name, category, url, access, cadence, tier, licence, publish_state, implemented, provenance]
       properties:
         source_id:
           $ref: '#/components/schemas/SourceIdValue'
@@ -8610,15 +8607,6 @@ components:
           description: Effective credit string (source override, else licence default).
         publish_state:
           $ref: '#/components/schemas/SourcePublishState'
-        lag_days:
-          type: [integer, 'null']
-          description: 'Days a **change event** from this source waits before the public tier sees it; null or 0 = publish live. Seeded from the manifest''s `change_event_lag_days`. Since 2026-09-19 it does not delay the record itself.'
-        lag_overrides:
-          type: object
-          description: 'Per-event-type change-event lag, e.g. `{"withdrawn": 0}`.'
-          additionalProperties:
-            type: integer
-            minimum: 0
         implemented:
           type: boolean
         last_success_at:
@@ -9665,7 +9653,7 @@ components:
           description: >-
             The newest `retrieved_at` across loaded source records — how recently the platform
             fetched from a source, which moves independently of `data_as_of` above (that one is
-            the publish lag). Null when nothing is loaded.
+            publication time, which no longer lags anything). Null when nothing is loaded.
         source_vintage:
           type: object
           description: >-
@@ -9690,13 +9678,11 @@ components:
               type: integer
         lag_days_default:
           type: object
-          description: 'Lag defaults in force. `supply` and `opportunities` are the record lag, `0` on every tier since 2026-09-19 (the paywall is by shape, not by time); `iso_change_events` is the one delay that survives.'
+          description: 'Lag defaults in force, and they are zeros: `0` on records since 2026-09-19 (the paywall is by shape, not by time) and `0` on change events since 2026-09-21, when the ISO change-event delay and its per-source knob were removed. The object survives so a client reading it keeps working; there is no third key any more.'
           properties:
             supply:
               type: integer
             opportunities:
-              type: integer
-            iso_change_events:
               type: integer
         checks:
           type: object
@@ -11364,16 +11350,6 @@ components:
       properties:
         schedule_cron:
           type: string
-        lag_days:
-          type: [integer, 'null']
-          minimum: 0
-          maximum: 30
-        lag_overrides:
-          type: object
-          additionalProperties:
-            type: integer
-            minimum: 0
-            maximum: 30
         paused:
           type: boolean
         enrichment_enabled:
@@ -13001,7 +12977,7 @@ components:
             source_id: us.iso.caiso.gen_queue
             note: county centroid returned
     ProposalDetailPublic:
-      summary: Public detail rendered as of now − lag
+      summary: Public detail, current (no tier carries a delay)
       value:
         data:
           public_id: prop_01JBQ7Z8KD
@@ -13124,10 +13100,6 @@ components:
             reason: licence_precision
             source_id: us.iso.caiso.gen_queue
             note: county centroid returned
-          - public_id: prop_01JBQ7Z8KD
-            field: events[0..1]
-            reason: tier
-            note: 2 events newer than the 14-day lag are visible on the live tier
     OpportunityListPublic:
       summary: Open opportunities sorted by due date
       value:
@@ -13227,7 +13199,7 @@ components:
             headline: 'Entered study phase: Gemini Solar + Storage'
             observed_at: '2026-08-27T00:00:00Z'
             recorded_at: '2026-08-28T05:04:12Z'
-            public_at: '2026-09-11T05:04:12Z'
+            public_at: '2026-08-28T05:04:12Z'
             before:
               lifecycle_state: filed
             after:
@@ -13250,8 +13222,8 @@ components:
           has_more: true
         meta:
           tier: public
-          lag_days: 14
-          data_as_of: '2026-08-29T05:00:00Z'
+          lag_days: 0
+          data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1d
           terms_url: https://infraque.com/legal/api-licence

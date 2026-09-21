@@ -30,7 +30,7 @@
 </p>
 {%- else %}
 <p class="delayed-notice" role="status">
-  <span class="stamp-label">Live</span> Every record is published as soon as it is ingested{% if delayed.iso_change_event_lag_days %}; ISO queue <em>change events</em> are held <span class="tnum">{{ delayed.iso_change_event_lag_days }}</span> days on the free tier{% endif %}. <a href="/about#tiers">Alerts and API in Pro &rarr;</a>
+  <span class="stamp-label">Live</span> Every record and every change event is published as soon as it is ingested. <a href="/about#tiers">Alerts and API in Pro &rarr;</a>
 </p>
 {%- endif %}
 {%- if delayed.preview_active %}

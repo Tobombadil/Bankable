@@ -25,20 +25,15 @@ rule applied to the rest of the tier lists):
   and `services/api/` implements neither, so the claim is not published. Webhooks, by contrast,
   are `x-status: live` and implemented in `services/api/pro.py`, so they are.
 
-**The one delay.** Records carry no lag on any tier (`services/ingest/lag.py`: `RECORD_LAG_DAYS`
-is 0 and there is no per-source knob). The only thing held back is a change event from an ISO
-interconnection queue register — `data/sources.yaml`'s `change_event_lag_days`, carried today by
-the eight `us.iso.*` registers. This page never hard-codes that number: it reads
-`lag_days_default.iso_change_events` from `GET /v1/health` (the same field the masthead, the
-footer and `/about#tiers` read) and renders it through **one** template variable,
-`iso_change_event_lag_days`, in **one** block, so the owner's open question about dropping the
-delay altogether (`docs/00-PLAN.md`, 2026-09-20 row) is a one-line change here, not a hunt. When
-the lag is zero or absent, that block renders nothing at all and the free tier simply reads as
-undelayed.
-
-The free-tier wording follows `docs/41`'s explicit caution: a free reader can already see today's
-record and its `last_changed` date, so the copy says the *event* is held, never that a free
-reader cannot see that something changed.
+**No delay, anywhere, and nothing on this page says otherwise.** Records carried no lag from
+2026-09-19; the ISO change-event delay — the last one — was dropped on 2026-09-21 (owner,
+`docs/00-PLAN.md`), together with its per-source knob (`services/ingest/lag.py`, migration
+`0019`). The two sentences that stated that delay have gone with it, along with the
+`iso_change_event_lag_days` variable that fed them and the `shows_live_iso_events` flag on the
+paid tiers: a page that advertises "live events, unlike the free plan" when both are live is a
+false claim about the product, and a dormant `{% if %}` around it would be a claim waiting to be
+switched back on. `web/test_pricing.py` fails if any delay wording returns. What the paid plans
+sell here is shape — saved searches, alerts, the API — exactly as the owner's decision says.
 
 **The upgrade path.** Checkout is hosted by the payment processor: this site collects no card
 details anywhere (that is the entire point of the redirect). A signed-in visitor's POST reaches
@@ -113,12 +108,6 @@ class Tier:
     plan: str | None
     #: Seats sent with the checkout: `docs/41` Team is "5 seats"; Pro is per seat.
     seats: int
-    #: Whether this tier's list carries the "ISO change events as they happen" line. It is a flag
-    #: rather than a string in `includes` because the line only makes sense while the free plan's
-    #: ISO change-event delay exists: the template renders it from the same
-    #: `iso_change_event_lag_days` value the delay notice uses, so if the owner drops the delay
-    #: (`docs/00-PLAN.md`, 2026-09-20 open question) every sentence about it disappears together.
-    shows_live_iso_events: bool = False
 
 
 #: Order is the order they render in. Prices: `docs/41` §Free ("$0"), §Pro ("$149/mo or $1,490/yr
@@ -153,7 +142,6 @@ TIERS: tuple[Tier, ...] = (
         ),
         plan="pro",
         seats=1,
-        shows_live_iso_events=True,
     ),
     Tier(
         id="team",
@@ -273,18 +261,6 @@ def _me(request: Request) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def _iso_change_event_lag_days(request: Request) -> int:
-    """The one surviving delay, read from the API rather than restated here (see the module
-    docstring). A health call that fails must not take the pricing page down with it: an unknown
-    lag renders as no delay sentence, which is the state the owner's open question would make
-    permanent anyway."""
-    try:
-        return int(get_lag_days(request).get("iso_change_events", 0))
-    except Exception:
-        # Any client or transport failure degrades to "say nothing", never to a broken page.
-        return 0
-
-
 def _billing_configured(request: Request) -> bool:
     """Whether a real payment processor is wired, read from `GET /v1/health`'s
     `checks.billing_configured`. The web host is a separate deployable from the API and cannot
@@ -358,7 +334,6 @@ def _context(
     return {
         "tiers": TIERS,
         "coverage_line": COVERAGE_LINE,
-        "iso_change_event_lag_days": _iso_change_event_lag_days(request),
         # Say payments are off before the button rather than after it (`_billing_configured`).
         "billing_configured": _billing_configured(request),
         "signed_in": me is not None,

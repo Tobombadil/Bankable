@@ -55,7 +55,7 @@ legal-compliance ──▶      │                      │                  ba
 3. **Normalise** to the canonical schema; harmonise status vocabulary.
 4. **Resolve** records to proposals/opportunities/organisations; record merges as events.
 5. **Enrich** with extraction from linked documents and news (model-assisted, with confidence and citation).
-6. **Publish** to the store; the live tier and API see it immediately; the delayed tier after the configured lag.
+6. **Publish** to the store; every tier sees it immediately — records since 2026-09-19 and change events since 2026-09-21, when the last delay and its per-source configuration were removed (`docs/21` §5.4, `services/ingest/lag.py`).
 7. **Draft posts** per editorial rules; queue for review (or auto-publish where the owner has enabled it).
 8. **Alert** subscribers whose saved searches match; write digests.
 9. **Score leads** for sales-bd from events (sponsor activity, RFP openings); write to CRM.

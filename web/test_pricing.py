@@ -32,7 +32,6 @@ from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
 from services.billing.fake import InMemoryBilling
 from services.db.session import get_engine, get_sessionmaker, init_db
-from services.ingest.lag import ISO_CHANGE_EVENT_LAG_DAYS
 from services.sor.ports import CheckoutRequest, CheckoutSession, PortalSession
 from services.sor.wiring import get_billing_port
 from tests.conftest import make_account, make_user
@@ -232,33 +231,42 @@ def test_unbuilt_shapes_are_not_advertised_to_a_signed_in_visitor(
     assert "watchlist" not in signed_in
 
 
-# ----------------------------------------------------------------------------- the one delay
-def test_the_free_tier_states_the_iso_change_event_delay_from_the_api(web_client: TestClient) -> None:
-    """Records carry no delay on any tier; the one thing held back is a change event from an ISO
-    queue register (`services/ingest/lag.py`, `data/sources.yaml`). The page reads the number from
-    `GET /v1/health`'s `lag_days_default.iso_change_events` rather than restating it, and must not
-    imply a free reader cannot see that a record changed (docs/41's own caution)."""
+# --------------------------------------------------------------------------- no delay, anywhere
+def test_the_page_claims_no_delay_on_any_plan(web_client: TestClient) -> None:
+    """The ISO change-event delay was dropped on 2026-09-21 (owner, `docs/00-PLAN.md`) and every
+    sentence about it went with it. A page that still sold "live events" as a paid upgrade would
+    be advertising a difference the product no longer has, so the words are gone rather than
+    hidden behind a condition that could be switched back on."""
     body = web_client.get("/pricing").text
 
-    assert f'<span class="tnum">{ISO_CHANGE_EVENT_LAG_DAYS}</span> days after it happens' in body
-    assert "Every record is public the moment it is ingested, on every plan." in body
-    assert "the date it last changed, are public straight away" in body
+    for phrase in (
+        "days after it happens",
+        "days later",
+        "delayed-notice",
+        "One delay",
+        "ISO queue change events",
+        "held back",
+    ):
+        assert phrase not in body, phrase
+    # The footer's "every proposal, opportunity and change event is public as soon as it is
+    # ingested" is the opposite claim and is meant to be there, so "change event" alone is not
+    # a forbidden string -- only the sentences that assert a delay are.
+    assert ">Pro</h2>" in body, "the rest of the page is untouched"
+    assert "Saved searches" in body, "what the paid plans actually sell is shape"
 
 
-def test_dropping_the_delay_is_one_field_not_a_copy_edit(web_client: TestClient) -> None:
-    """The owner's open question is whether to drop the ISO delay entirely (`docs/00-PLAN.md`,
-    2026-09-20). If the API reports no lag, the sentence disappears on its own — it lives in one
-    block keyed on one value, not scattered through the tier copy."""
-    web_app.state.lag_days_default = {"supply": 0, "opportunities": 0, "iso_change_events": 0}
+def test_no_health_lag_field_can_put_the_delay_copy_back(web_client: TestClient) -> None:
+    """Even if a `/v1/health` payload carried the old field, the page has nothing to render from
+    it: the template variable and the tier flag are gone, not merely unset."""
+    web_app.state.lag_days_default = {"supply": 0, "opportunities": 0, "iso_change_events": 14}
     try:
         body = web_client.get("/pricing").text
     finally:
         web_app.state.lag_days_default = None
 
+    assert "14" not in body.split("<footer")[0] or "days after it happens" not in body
     assert "days after it happens" not in body
-    assert "delayed-notice" not in body
-    assert "days later" not in body  # the Pro tier's "as they happen" line goes with it
-    assert ">Pro</h2>" in body  # the rest of the page is untouched
+    assert "days later" not in body
 
 
 # -------------------------------------------------------------------------- signed-in, free

@@ -124,8 +124,9 @@ def test_freshly_retrieved_rows_are_visible_without_no_lag(tmp_path: Path) -> No
     This test used to assert the opposite -- that the whole build came out empty because every
     fixture was younger than the 14/7-day blanket lag. That lag is gone, and with it the only
     thing the `--no-lag` flag was for: it now changes nothing, which is what the second half
-    asserts. `tests/test_iso_change_event_lag.py` covers the delay that survives (change events
-    from an ISO queue register); this static prototype builder does not build the event feed.
+    asserts. Since 2026-09-21 no delay survives at all -- the ISO change-event one went with its
+    knob (`tests/test_publication_is_never_time_delayed.py`); this static prototype builder does
+    not build the event feed anyway.
     """
     out_dir = tmp_path / "data"
     kwargs = {

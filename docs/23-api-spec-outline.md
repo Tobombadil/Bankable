@@ -21,7 +21,7 @@ that generation must produce; where the two disagree, the generated document is 
 | Idempotency | All mutating endpoints accept `Idempotency-Key`; replays return the original response for 24 h. |
 | Request id | Every response carries `X-Request-Id`; it appears in error bodies and in support requests. |
 | Compression | `gzip` and `br`. Bulk endpoints stream NDJSON. |
-| Caching | Public GETs carry `Cache-Control: public, max-age=300` and an `ETag`; the delayed feed is served from an hourly materialised view (`docs/20` §5). Pro/API responses are `private, no-store`. |
+| Caching | Public GETs carry `Cache-Control: public, max-age=300` and an `ETag`. Pro/API responses are `private, no-store`. (There is no separate delayed view to cache: nothing is time-delayed since 2026-09-21.) |
 
 ## 2. Resources
 
@@ -30,7 +30,7 @@ that generation must produce; where the two disagree, the generated document is 
 | Proposal | `/proposals` | `proposal`, `proposal_source` | public · pro · api · admin |
 | Opportunity | `/opportunities` | `opportunity`, `opportunity_source` | public · pro · api · admin |
 | Organisation | `/organizations` | `organization`, `organization_alias` | public · pro · api · admin |
-| Event | `/events` | `event` | public (delayed) · pro · api · admin |
+| Event | `/events` | `event` | public · pro · api · admin |
 | Match | `/matches` | `match`, `match_dismissal` | public (read-only on a detail page) · pro · api · admin |
 | Document | `/documents` | `document` | metadata only, all tiers; bytes via pre-signed URL where the licence allows |
 | Source | `/sources` | `source`, `licence` | public (registry + attribution) · admin (health, control) |
@@ -48,16 +48,15 @@ that generation must produce; where the two disagree, the generated document is 
 ## 3. Public, Pro and API endpoints
 
 Every endpoint in §3 and §4 returns the envelope of §10 and enforces the visibility predicate of `docs/21` §5.4. "Tier"
-is the minimum entitlement; a higher tier sees the same shape with `lag = 0` and more fields.
+is the minimum entitlement; a higher tier sees more fields — never fresher data.
 
-### 3.1 Public — no key required, no record delay
+### 3.1 Public — no key required, no delay of any kind
 
-> **Amended 2026-09-19 (owner: the paywall is by shape, not by time).** "Free users see every record; the delay
-> is kept only on ISO change events." Every "delayed"/"at the public lag" below now means: records are not
-> delayed on any tier, and an event waits only where its source declares a change-event lag
-> (`data/sources.yaml change_event_lag_days` → `source.lag_days`), which today is the eight `us.iso.*`
-> interconnection-queue registers at 14 days. `docs/21` §5.4 carries the full statement. Licence gating is
-> untouched and still stricter: `restricted`/`unknown` sources return nothing on any non-admin tier.
+> **Amended 2026-09-19, closed 2026-09-21 (owner).** First "free users see every record; the delay is kept only
+> on ISO change events", then that delay was dropped too, along with the per-source field and columns that
+> configured it. Every "delayed"/"at the public lag" below is historical wording: nothing waits, for any shape,
+> from any source. `docs/21` §5.4 carries the full statement. Licence gating is untouched and still stricter:
+> `restricted`/`unknown` sources return nothing on any non-admin tier.
 
 | Method & path | Purpose | Stories |
 |---|---|---|
@@ -71,7 +70,7 @@ is the minimum entitlement; a higher tier sees the same shape with `lag = 0` and
 | `GET /v1/organizations` · `/{public_id}` · `/{public_id}/proposals` · `/{public_id}/opportunities` | Sponsor and issuer pages | US-203 AC1, US-303 |
 | `GET /v1/events` | Global change feed, `since` cursor, filterable by subject and type | US-703 AC1 |
 | `GET /v1/documents/{id}` | Document metadata and a link; bytes only where `storage_policy = stored` and the licence allows | US-302 AC1 |
-| `GET /v1/sources` · `/{source_id}` | Source registry: name, operator, cadence, licence, attribution text, publish state, lag | US-105 AC1, US-704 |
+| `GET /v1/sources` · `/{source_id}` | Source registry: name, operator, cadence, licence, attribution text, publish state | US-105 AC1, US-704 |
 | `GET /v1/licences` · `/{licence_id}` | Licence register with reuse class and permissions | US-105, US-704 AC2 |
 | `GET /v1/meta/vocabularies` | Enum vocabularies (kinds, technologies, lifecycle states, event types) so integrators can build filters | US-102, US-703 |
 | `POST /v1/intake/proposals` · `/v1/intake/opportunities` | Submit-a-project / submit-an-RFP; creates a pending record and an admin task; rate-limited and captcha-gated | US-1001, US-1003 |
@@ -89,12 +88,13 @@ is the minimum entitlement; a higher tier sees the same shape with `lag = 0` and
 Public tier behaviour is fixed by `docs/21` §5.4 and §8: records and events only where `public_at <= now()`;
 nothing from a gated, restricted or unknown-terms source; derived fields only where the licence withholds raw;
 county centroids instead of exact coordinates for restricted geo; attribution rendered in every response.
-`GET /v1/context/plants/geo` and `POST /v1/ui-events` are the two exceptions to "delayed": `built_plant` and
-`ui_event` are not proposals or opportunities, so neither the lag nor the tier/licence-gating rules apply to them.
+`GET /v1/context/plants/geo` and `POST /v1/ui-events` were the two exceptions to "delayed": `built_plant` and
+`ui_event` are not proposals or opportunities, so the tier/licence-gating rules do not apply to them. Since
+2026-09-21 the lag half of that sentence is moot for everything else too.
 
-### 3.2 Pro and API — live, key or session required
+### 3.2 Pro and API — key or session required
 
-Everything in §3.1 with `lag = 0`, plus:
+Everything in §3.1, at the same freshness, plus:
 
 | Method & path | Purpose | Tier | Stories |
 |---|---|---|---|
@@ -114,7 +114,7 @@ Everything in §3.1 with `lag = 0`, plus:
 
 | Method & path | Purpose | Stories |
 |---|---|---|
-| `GET /admin/v1/sources` · `/{id}` · `PATCH /{id}` | Health, cadence, lag, egress class, enrichment toggle, pause/resume | US-904 |
+| `GET /admin/v1/sources` · `/{id}` · `PATCH /{id}` | Health, cadence, egress class, enrichment toggle, pause/resume (no lag: removed 2026-09-21) | US-904 |
 | `POST /admin/v1/sources/{id}/run` | Run now | US-904 AC2 |
 | `PUT /admin/v1/sources/{id}/publish-state` | `ingest_only \| api_only \| public`; refused while the licence gate is unmet | US-905 AC1 |
 | `GET /admin/v1/source-runs` · `/{id}` · `GET /admin/v1/snapshots/{id}` | Run history, DQ warnings, raw snapshot links | US-904 AC1 |
@@ -149,8 +149,8 @@ Scopes on a key (`docs/20` §7):
 
 | Scope | Grants |
 |---|---|
-| `read:public` | Delayed tier only — the default for a free key |
-| `read:live` | Zero-lag reads across proposals, opportunities, events, matches, organisations |
+| `read:public` | The public read surface — the default for a free key. It is not a *delayed* tier: nothing has been time-delayed on any tier since 2026-09-21, so this scope differs from `read:live` in the fields and shapes it unlocks, not in freshness |
+| `read:live` | Reads across proposals, opportunities, events, matches, organisations (the same rows a public reader sees; the scope name predates the removal of the delay) |
 | `read:bulk` | `/v1/bulk/*` NDJSON streams and CSV export endpoints |
 | `write:webhooks` | Manage webhook endpoints and replay deliveries |
 | `admin:*` | Admin API; never issued to a customer key; operator sessions only |
@@ -294,7 +294,7 @@ One endpoint per subscription, up to 10 per account, each with a filter of the s
 - The payload is tier-filtered and licence-gated exactly like a `GET` on the same key: a webhook cannot deliver
   what the key could not read (`docs/21` §5.4).
 
-### 9.2 RSS and JSON Feed (public, delayed)
+### 9.2 RSS and JSON Feed (public, live)
 
 Every public list URL has a feed twin (US-503 AC1): append `.rss` or `.json`, or use `/feeds/<resource>` with
 the same query string. Pro users get private live feeds at `/feeds/saved/<rss_token>` (`docs/21` §3.15).
@@ -303,11 +303,12 @@ the same query string. Pro users get private live feeds at `/feeds/saved/<rss_to
 |---|---|---|
 | `/feeds/proposals.rss?…` · `/feeds/opportunities.rss?…` · `/feeds/events.rss?…` | RSS 2.0 with `atom:link rel="self"`, `dc:creator` = source credit, `pubDate` = `public_at` | Title = event headline (`Permit issued: Gemini Solar + Storage`), link = detail page, description = derived fields + the credit line (US-503 AC3), `guid` = `evt_…`, `category` = event type and kind |
 | Same paths with `.json` | JSON Feed 1.1 | `id`, `url`, `title`, `content_text`, `date_published` (= `public_at`), `tags`, `_bankable` extension with `event_type`, `subject`, `provenance`, `licence_summary` |
-| `/sitemap.xml`, `/sitemaps/proposals-{n}.xml` | Sitemap protocol | Detail pages visible on the public tier only; regenerated hourly with the delayed view |
+| `/sitemap.xml`, `/sitemaps/proposals-{n}.xml` | Sitemap protocol | Detail pages visible on the public tier only; regenerated hourly |
 
-Feed rules: items appear at the public lag, never earlier — since 2026-09-19 that is a delay only for a source that declares one; every item carries the source credit line and the
-`data_as_of` date; feeds for a filter that returns only gated sources are empty, not `404`; the feed `<title>`
-states "Public feed, N days delayed — live in Pro" (US-604). Social posts link to the detail page, which offers
+Feed rules: items appear as soon as they are published — nothing is held back since 2026-09-21; every item
+carries the source credit line and the `data_as_of` date; feeds for a filter that returns only gated sources
+are empty, not `404`; the feed `<title>` states "Public feed, live — alerts and API in Pro", which is what
+US-604's disclosure rule requires now that there is no delay to disclose. Social posts link to the detail page, which offers
 the feed and the alert sign-up (US-503 AC2).
 
 ## 10. Attribution and licence fields on every response
@@ -321,8 +322,8 @@ attribution is not a client concern; the API states it and the web app, RSS, CSV
   "page": { "next_cursor": "…", "prev_cursor": null, "has_more": true },
   "meta": {
     "tier": "public",
-    "lag_days": 14,
-    "data_as_of": "2026-08-29T05:00:00Z",
+    "lag_days": 0,
+    "data_as_of": "2026-09-12T09:00:00Z",
     "generated_at": "2026-09-12T09:00:00Z",
     "request_id": "req_9f2c1a",
     "terms_url": "https://bankablehq.com/legal/api-licence",
@@ -354,7 +355,7 @@ Per-record fields, always present:
 | `field_provenance` | detail responses on Pro+ | Which source and snapshot each canonical field came from (`docs/21` §3.1) |
 | `licence_summary` | every envelope | As above; the list of distinct sources present in the payload, so a list page renders one credit line per source (US-105 AC1) |
 | `redactions[]` | every envelope | What was withheld and why — the record exists, the field does not travel (`docs/21` §8) |
-| `data_as_of`, `lag_days`, `tier` | every envelope | Public messaging and the "live in Pro" banner (US-604, US-201 AC4) |
+| `data_as_of`, `lag_days`, `tier` | every envelope | Public messaging (US-604, US-201 AC4). `lag_days` is always `0` since 2026-09-21; it stays in the envelope so the page states the number the API reports rather than one of its own |
 
 CSV exports carry `source_id`, `source_url`, `retrieved_at`, `licence` as columns on every row and a leading
 `#` comment block with the licence summary and the attribution line (US-105 AC2, US-603 AC2).
@@ -399,7 +400,7 @@ documentation; key creation links to the API licence version it requires (US-704
 | Id | Assumption | Depends on |
 |---|---|---|
 | P-1 | Rate-limit defaults as in §6, from `docs/10` A-8 | Phase 1 pricing; configuration only |
-| P-2 | Public lag shown as 14 days in examples (`docs/21` D-1) | Owner decision on `docs/20` A-8 vs `docs/10` A-7 |
+| P-2 | ~~Public lag shown as 14 days in examples (`docs/21` D-1)~~ **Retired 2026-09-21: every example shows `lag_days: 0`, because nothing is delayed** | Owner decisions of 2026-09-19 and 2026-09-21 |
 | P-3 | Hostnames `api.` and `admin.` under bankablehq.com; the Lovable app consumes `/v1` read-only | **[A-1]** |
 | P-4 | Restricted and unknown-terms sources return nothing on Pro/API, not derived aggregates (`docs/21` C-3) | Owner and legal-compliance |
 | P-5 | Intake endpoints are public but captcha-gated and rate-limited at 5/hour per IP | product-designer flow |

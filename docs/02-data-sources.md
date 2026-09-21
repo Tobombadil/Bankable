@@ -112,7 +112,7 @@ sponsor + county + capacity ± 10% + technology; fuzzy name. Every merge is reco
 1. gridstatus-backed ISO queues (5 live) + EIA-860M + LBNL history → one table, one status vocabulary.
 2. FERC eLibrary ER/CP docket poller (0.5 rps) + Permitting Dashboard → stage events.
 3. grants.gov + DOE eXCHANGE + curated RFP issuers + TED + FTS + World Bank → opportunities table.
-4. Change detection and the public delayed feed; Bluesky + LinkedIn syndication; RSS/email alerts.
+4. Change detection and the public change feed (written as "delayed feed" in 2026-09-12; nothing is time-delayed since 2026-09-21); Bluesky + LinkedIn syndication; RSS/email alerts.
 5. PJM (after licence), MISO (after terms + egress), NESO/GEM international spine.
 6. Non-ISO OASIS queues, state siting boards, BLM/BOEM/USACE, large-load dockets.
 7. Gas/LNG/nuclear/CCS document pipelines; remaining international feeds.

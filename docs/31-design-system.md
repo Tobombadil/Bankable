@@ -211,13 +211,17 @@ US-105 AC1) — not optional, not a footnote link.
 payload with zero sources cannot exist per DA-2.
 **Rule satisfied:** D-27, D-34, API-5.
 
-### 5.4 Delayed notice
+### 5.4 Tier notice
 
-**Anatomy:** one component, one wording (D-28, versioned string, D-35): `"Public data is {lag_days} days
-delayed (as of {data_as_of}). Live in Pro."` + link. Fixed position: page header on lists/map, record header on
-detail, top of digest email, RSS `<title>`, CSV header block.
-**States:** public tier (shown, non-dismissible); Pro/API tier (not rendered — `lag_days=0`); record-specific
-variant on detail pages reads "Updated N days ago on the live tier" (US-201 AC4) using the same token pair.
+**Anatomy:** one component, one wording (D-28, versioned string, D-35). Since 2026-09-21 nothing is delayed on
+any tier, so the rendered string is `"Every record and every change event is published as soon as it is
+ingested. Alerts and API in Pro."` + link. The delayed wording — `"Public data is {lag_days} days delayed (as
+of {data_as_of}). Live in Pro."` — stays in the component keyed on `lag_days` from the API envelope, so the
+page states what the predicate does rather than a constant, and would tell the truth if a delay ever returned.
+Fixed position: page header on lists/map, record header on detail, top of digest email, RSS `<title>`, CSV
+header block.
+**States:** public tier (shown, non-dismissible, live wording); Pro/API tier (not rendered); the
+record-specific "Updated N days ago on the live tier" variant (US-201 AC4) is retired with the delay.
 **Rule satisfied:** D-3, D-28, US-604 AC1.
 
 ### 5.5 Table with sticky header and density toggle
@@ -236,9 +240,9 @@ area); populated; at-cap (bulk/export row-cap reached — banner states the cap 
 **Anatomy:** vertical list, newest first, each item: type icon, `observed_at` (absolute), source name + licence
 badge, `before → after` chips for status changes (using §1.2 chip component). Merge/unmerge items are visually
 distinct (dashed connector) and link to the absorbed/absorbing record.
-**States:** populated; delayed-tier truncation — items newer than the lag are replaced by the D-3 banner in
-their place, not hidden with no explanation (D-3, D-26); empty (a `created` event always exists, so this state
-is theoretical — documented for completeness per D-29).
+**States:** populated; ~~delayed-tier truncation~~ retired 2026-09-21 — no item is ever withheld by age, so
+every tier sees the whole timeline (D-3, D-26); empty (a `created` event always exists, so this state is
+theoretical — documented for completeness per D-29).
 **Rule satisfied:** D-26, US-202.
 
 ### 5.7 Map marker and cluster
@@ -296,7 +300,7 @@ families), provider message id (Plex Mono, admin/debug view only).
 
 **Anatomy:** source name, status icon (✓/⚠/✗ mapped to Success/Progress/Danger families, never colour alone —
 icon shape differs per state), `last_success_at`, rows changed, events emitted, `$/record`, `publish_state`
-badge (`ingest_only`/`api_only`/`public`/**GATED**), action row (run now, pause, resume, edit cadence, edit lag).
+badge (`ingest_only`/`api_only`/`public`/**GATED**), action row (run now, pause, resume, edit cadence).
 **States:** healthy; degraded (⚠, DA-6 warning threshold crossed); failing (✗, 3 consecutive failures, US-904
 AC3); gated (publish_state badge reads "GATED", distinguishable from "public" — never a blank cell, D-29).
 **Rule satisfied:** US-904, D-25, D-29.
@@ -384,7 +388,7 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
 |---|---|
 | D-1 Density over decoration | §3 grid (40–48px rows, no card grid), §5.5 table |
 | D-2 Evidence visible in ≤1 click | §5.2 provenance panel on row/chip/marker/field |
-| D-3 Delayed means visibly delayed | §5.4 delayed notice, fixed position |
+| D-3 Delayed means visibly delayed | §5.4 tier notice, fixed position (states live; nothing is delayed) |
 | D-4 One mental model across search/map/feed | §5.9 filter bar bound to shared URL grammar |
 | D-5 Never colour alone | §5.1, §5.7, §5.11, §5.12 — icon/label with every colour use |
 | D-6 Reference study precedes screens | `docs/30-design-references.md`, cited throughout |

@@ -257,7 +257,7 @@ def _install_offline_routes(page: Any, *, serve_pmtiles_scripts: bool = False) -
 def _ensure_db_loaded(db_path: Path) -> str:
     """Load the real per-source `data/normalized/*` connector output -- the full ~11,400-row set
     across all nine sources, unsampled -- through `services/ingest/loader.py` into a fresh
-    file-backed SQLite database, with the dev-only preview override (web/README.md "Delayed tier")
+    file-backed SQLite database, with the dev-only preview override (web/README.md "Tier visibility")
     so today's rows are visible without waiting out the real 14/7-day lag. Returns the
     `DATABASE_URL` the app subprocess should use.
 
@@ -368,12 +368,13 @@ def _check_desktop_and_narrow(browser: object) -> None:
         " window.__map.queryRenderedFeatures({layers:['region-fill']}).length > 0)",
         timeout=15000,
     )
-    # docs/04 D-3/D-28: the tier line is always on screen and always true. Since the paywall
-    # became a matter of shape rather than time (owner, 2026-09-19) that means the live wording
-    # on a record surface, naming the one delay that survives rather than claiming a record one.
+    # docs/04 D-3/D-28: the tier line is always on screen and always true. Since the ISO
+    # change-event delay was dropped (owner, 2026-09-21) there is no delay left to name, so the
+    # line states what the page is -- live -- and what a paid plan adds.
     tier_line = page.locator(".delayed-notice").inner_text()
     assert "published as soon as it is ingested" in tier_line
-    assert "ISO queue change events are held 14 days" in tier_line
+    assert "days" not in tier_line, "no surface may claim a delay the product does not apply"
+    assert "Alerts and API in Pro" in tier_line
     # The pmtiles CDN scripts are aborted above (see _install_offline_routes) -- this proves the
     # same-origin fallback outline layer is what keeps the map from rendering blank.
     fallback_rendered = page.evaluate(

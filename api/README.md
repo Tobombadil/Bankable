@@ -208,10 +208,10 @@ carries one entry per distinct source in the payload plus a ready-to-print `attr
 (`docs/21` §8 item 3).
 
 **Tier behaviour** is a reusable `x-tier` on every operation plus the `x-tier-definitions` extension at the root,
-which states the predicate, field classes and `lag_days` per tier and the `public_at` semantics in full: `public_at`
-is materialised `published_at + lag(source_id, event_type)` and is the only column the public predicate reads;
-Pro/API/admin read `published_at`; a lag change enqueues a `relag` job and is not instantaneous over history.
-`meta.tier`, `meta.lag_days` and `meta.data_as_of` carry it into every response for the "live in Pro" banner.
+which states the predicate and the field classes per tier and the `public_at` semantics in full: `public_at` is
+the only column the public predicate reads, Pro/API/admin read `published_at`, and since 2026-09-21 the two are
+always equal — nothing is time-delayed, there is no `lag()` and no `relag` job (owner; `services/ingest/lag.py`,
+migration `0019`). `meta.tier`, `meta.lag_days` (always `0`) and `meta.data_as_of` carry it into every response.
 
 **Map** (`GET /v1/proposals/geo`, `GET /v1/opportunities/geo`) takes `bbox` + `zoom` plus the full list filter set
 and returns a GeoJSON `FeatureCollection`. Cluster features carry `count`, `lifecycle_state_counts`,
@@ -325,11 +325,11 @@ clear a licence gate, but `user.role` in `docs/21` §3.12 is `viewer | member | 
 document is currently ahead of the schema. Either add `legal` to the `user.role` vocabulary, or model it as a
 separate grant (a `permissions[]` column, or an `account`-level flag). **This blocks implementing US-905 AC1.**
 
-**5. Default lag: class-split, not a single number.** `docs/23` §10 and P-2 show 14 days; `docs/04` §10 pick 1
-(the working default) is 7 days for opportunities and 14 for supply, per source class. This file follows `docs/04`:
-`x-tier-definitions` and `HealthResponse.lag_days_default` carry both, the proposal examples show `lag_days: 14`
-and the opportunity example `lag_days: 7`. `docs/23` §10's single number should be updated to match, or `docs/04`
-overturned.
+**5. ~~Default lag: class-split, not a single number.~~ Closed 2026-09-21: there is no lag.** This note recorded
+a 7-vs-14 disagreement between `docs/23` §10/P-2 and `docs/04` §10 pick 1, resolved in this file by carrying both.
+The owner removed the record delay on 2026-09-19 and the ISO change-event delay on 2026-09-21, together with the
+manifest field and the `source` columns that configured it, so `lag_days` is `0` in every example,
+`HealthResponse.lag_days_default` is zeros and the disagreement has no subject.
 
 **6. An opportunities map endpoint that `docs/23` does not list.** §3.1 has only `GET /v1/proposals/geo`, but
 `docs/04` D-11 requires opportunity service territories on the map and D-4 requires one filter grammar across list,

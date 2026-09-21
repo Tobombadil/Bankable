@@ -234,8 +234,11 @@ class Source(Base, TimestampMixin):
     licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
 
     publish_state: Mapped[str] = mapped_column(sa.Text, nullable=False, default="ingest_only")
-    lag_days: Mapped[int | None] = mapped_column(sa.Integer)
-    lag_overrides: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    # No `lag_days` / `lag_overrides`: nothing this store holds is time-delayed on any tier, and
+    # there is no per-source knob to turn one back on (owner, 2026-09-21; migration 0019 drops the
+    # two columns; `services/ingest/lag.py` carries the argument). `public_at` on proposal,
+    # opportunity and event stays, always equal to `published_at`, because the public visibility
+    # predicate reads it.
     schedule_cron: Mapped[str | None] = mapped_column(sa.Text)
     next_run_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     paused: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)

@@ -9,13 +9,13 @@ map model, motion, banned patterns) are the design inputs this doc builds screen
 
 ## 1. Three surfaces, one grammar
 
-D-16 fixes the shape: Public (`infraque.com`, delayed, no key), Pro (same host, entitlement-gated routes, live),
+D-16 fixes the shape: Public (`infraque.com`, no key), Pro (same host, entitlement-gated routes),
 Admin (`admin.` host, role `operator`/`owner`). D-4 and D-17 fix the rule governing every screen below: one filter
 vocabulary, one URL grammar (`docs/23` §7), shared across list, map and feed, on every tier — a tier changes what
 a query returns, never its shape. Primary nav is identical across public and Pro: **Proposals · Opportunities ·
 Map · Feed · Alerts · API**. Depth ≤ 3 clicks to any record (D-16); breadcrumbs on every record page.
 
-### 1.1 Public (delayed) sitemap
+### 1.1 Public sitemap
 
 ```mermaid
 flowchart TD
@@ -51,7 +51,7 @@ Every node is reachable from `/` in ≤ 3 clicks; `/map` is the landing surface 
 
 ### 1.2 Pro (live) sitemap
 
-Adds an entitlement-gated layer over the same routes (`lag=0`, more fields, `docs/23` §3.2):
+Adds an entitlement-gated layer over the same routes (more fields and more shapes — not fresher data, `docs/23` §3.2):
 
 ```mermaid
 flowchart TD
@@ -62,7 +62,7 @@ flowchart TD
   ACC --> EXP["export from any list/map (US-603)"]
   SS --> SSN["/alerts/new — save from current filter (US-501)"]
   SS --> SSD["/alerts/{id} — history, pause, edit (US-502,504)"]
-  M2["/map, /proposals, /opportunities (live, lag=0)"] --> DR2["drawer (live fields, no delayed banner)"]
+  M2["/map, /proposals, /opportunities (Pro fields)"] --> DR2["drawer (adds field_provenance)"]
   M2 --> SSN
   DOCS2["/docs/api"] --> KEYS
 ```
@@ -129,8 +129,8 @@ announces "N proposals, M opportunities in view" debounced 500ms; above 500, the
 | Page | Surface | Purpose | PRD stories | API reads | Tier-gated elements |
 |---|---|---|---|---|---|
 | `/map` (home) | Public/Pro | Map-first browse, filters, in-view list | US-104, US-101, US-102 | `GET /v1/proposals/geo`, `/v1/opportunities` (polygon) | D-3 delay banner (public); exact points withheld for restricted sources (D-9) at any tier |
-| `/proposals` | Public/Pro | Filtered, sorted list | US-101, US-102, US-103 | `GET /v1/proposals` | Rows past the lag hidden on public (US-101 AC3); gated-source rows never present (AC4) |
-| `/proposals/{slug}` | Public/Pro | Canonical record, provenance, timeline | US-201, US-202, US-203, US-204 | `GET /v1/proposals/{id}`, `/events`, `/sources`, `/matches` | US-201 AC4 "as of now−lag" banner; Sources panel omits gated rows (D-27); `field_provenance` Pro+ only |
+| `/proposals` | Public/Pro | Filtered, sorted list | US-101, US-102, US-103 | `GET /v1/proposals` | No age test on any tier since 2026-09-21 (US-101 AC3); gated-source rows never present (AC4) |
+| `/proposals/{slug}` | Public/Pro | Canonical record, provenance, timeline | US-201, US-202, US-203, US-204 | `GET /v1/proposals/{id}`, `/events`, `/sources`, `/matches` | US-201 AC4 banner states the page is live (no delay on any tier); Sources panel omits gated rows (D-27); `field_provenance` Pro+ only |
 | `/opportunities` | Public/Pro | Filtered, sorted opportunity list | US-301 | `GET /v1/opportunities` | Same tier rules as US-101 AC3–4 |
 | `/opportunities/{slug}` | Public/Pro | Record, provenance, status timeline, matches | US-302, US-402 | `GET /v1/opportunities/{id}`, `/events`, `/sources` | Linked documents = title+link only (no article bodies, `docs/02` §4) |
 | `/assets` | Public/Pro | Asset index: by-type counts, filters (type, state, name/operator), sort, paged rows | US-104, US-203 | `GET /v1/assets`, `GET /v1/assets/geo` (by-type totals only) | None; no lag |
@@ -141,7 +141,7 @@ announces "N proposals, M opportunities in view" debounced 500ms; above 500, the
 | `/alerts` | Pro | Saved searches, delivery mode, history | US-501, US-502, US-504 | `GET/POST/PATCH/DELETE /v1/saved-searches`, `/v1/alerts` | Pro-only route; entitlement check (US-602) |
 | `/account` | Pro | Seats, subscription, keys, export log | US-602, US-603, US-701 | `GET /v1/me`, `/v1/keys` | Pro/API scopes; billing read-through CRM adapter |
 | `/docs/api` | Public/Pro | Generated API reference | US-704 | `api/openapi.yaml` (Redoc) | Licence-acceptance gate before key creation |
-| `/feeds/*` | Public | RSS/JSON Feed twins of every list | US-503 | Same list endpoints, `.rss`/`.json` | Feed title states "N days delayed" (D-28) |
+| `/feeds/*` | Public | RSS/JSON Feed twins of every list | US-503 | Same list endpoints, `.rss`/`.json` | Feed title states "Public feed, live" (D-28) |
 | `admin/sources` | Admin | Source health, cadence, gate | US-904, US-905 | `GET/PATCH /admin/v1/sources`, `/source-runs` | `legal` role required to clear a gate flag |
 | `admin/records` | Admin | Edit, merge/unmerge with reason | US-201–202 (admin actions), US-905 AC3 | `PATCH /admin/v1/proposals`, `POST …/merge` | Audit-logged; mandatory reason field |
 | `admin/tasks` | Admin | Reports, intake review, deletions | US-907, US-204, US-1002, US-910 | `GET/PATCH /admin/v1/tasks`, `POST …/approve-intake` | — |
@@ -273,7 +273,7 @@ flowchart TD
 flowchart TD
   A["Arrive from list, map drawer, search or feed link"] --> B["/proposals/{slug} (US-201 AC1)"]
   B --> C{"Tier"}
-  C -->|"Public"| D["Record as of now−lag; fields/events newer\nthan lag hidden; banner: Updated N days ago,\nlive in Pro (US-201 AC4, D-3)"]
+  C -->|"Public"| D["Record as it stands, full timeline;\nbanner: published as soon as ingested,\nalerts and API in Pro (US-201 AC4, D-3)"]
   C -->|"Pro"| E["Live record, field_provenance exposed (D-27)"]
   D --> F["Sources panel: name, retrieved_at, licence badge,\nlink out; gated sources omitted not greyed (D-27, US-201 AC1)"]
   E --> F
@@ -376,7 +376,7 @@ Grid and breakpoints per `docs/30` §5 (400/720/1080/1440px, D-32).
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
 │ Infraque        Proposals · Opportunities · Map · Feed · Alerts      │ nav, identical all tiers
-│ D-3 banner: "Public data is 14 days delayed (as of 29 Aug). Live Pro"  │ fixed, public tier only
+│ D-3 banner: "Every record and change event live. Alerts and API in Pro" │ fixed, public tier only
 │ Filter bar: kind▾ technology▾ lifecycle▾ jurisdiction▾ capacity– –     │ D-19 tokens, URL-bound (D-17)
 │ View: [Map] List Feed              1,834 in view                       │
 │ ┌─────────────────────────────────────┬─────────────────────────────┐│
@@ -423,7 +423,7 @@ Full page (server-rendered, D-18):                    Drawer (from a map marker)
 └───────────────────────────────────────────────┘
 ```
 States: loading — skeleton of the key/value grid and timeline rows. Error — RFC 9457 title, no stack trace; a
-gated record renders identically to not-found (D-21/API-4). Delayed — fields/events newer than lag are absent,
+gated record renders identically to not-found (D-21/API-4). Delayed — n/a since 2026-09-21; nothing is absent by age,
 not shown-then-blurred. Restricted-precision — "view at source" language, not a map label. Unplaced — n/a (no
 map here); location falls back to text ("Clark County, NV — centroid").
 
@@ -443,7 +443,7 @@ map here); location falls back to text ("Clark County, NV — centroid").
 ```
 States: empty — "No open opportunities match these filters" + which facet + Clear all. Loading — skeleton rows
 at final row height (no CLS). Error — RFC 9457 banner above table, table area empty. Delayed — D-3 banner;
-status changes newer than lag not reflected (record shows state at `now−lag`). Restricted-precision — n/a here.
+delayed — n/a since 2026-09-21 (the record shows its current state and its full timeline). Restricted-precision — n/a here.
 Unplaced — opportunities without a territory show jurisdiction as text only.
 
 ### 5.4 Pro alerts (`/alerts`)
@@ -460,7 +460,7 @@ Unplaced — opportunities without a territory show jurisdiction as text only.
 ```
 States: empty — "No saved searches yet. Save a filter from any list or map to get alerted," linked to `/map`.
 Loading — skeleton cards. Error — RFC 9457 banner; existing cards keep last-known state, staleness noted.
-Delayed-tier — n/a (Pro-only, lag=0). Restricted-precision, unplaced — n/a. At-quota — "New" disabled with
+Delayed-tier — n/a (nothing is delayed). Restricted-precision, unplaced — n/a. At-quota — "New" disabled with
 quota text, not silently hidden.
 
 ### 5.5 Admin source health (`admin/sources`)
@@ -473,7 +473,7 @@ quota text, not silently hidden.
 │ ⚠ │ PJM interconn.  │ —       │ —    │ —    │ —     │ GATED (visible) │
 │ ✗ │ MISO queue      │ 3 fails │ —    │ —    │ —     │ unknown         │
 │ Row detail: cadence, licence class, legal evidence link,               │
-│ [run now] [pause] [resume] [edit cadence] [edit lag]                   │
+│ [run now] [pause] [resume] [edit cadence]                              │
 │ Gate clearance (legal role only): evidence URL + date + classification │
 └───────────────────────────────────────────────────────────────────────┘
 ```
@@ -489,7 +489,7 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 | Empty | every list/map/feed | Names the filter that emptied results, offers Clear all (D-29, US-102 AC4) |
 | Loading | every screen | Skeleton of final layout, never a spinner over a table (D-29, CLS) |
 | Error | every screen | RFC 9457 `title` + `request_id`; never a stack trace; gated record = not-found, indistinguishable (D-29, API-4) |
-| Delayed-tier notice | every public list/map/detail/feed | Fixed-position D-3 line: "Public data is N days delayed (as of {date}). Live in Pro." (D-3, D-28) |
+| Tier notice | every public list/map/detail/feed | Fixed-position D-3 line: "Every record and every change event is published as soon as it is ingested. Alerts and API in Pro." (D-3, D-28) |
 | Restricted-precision notice | map markers, detail location field | "location shown at county level (source licence)" wherever the geometry renders (D-9) |
 | Unplaced-record fallback | map side panel only | "Unplaced (N)" collapsible, never silently dropped (D-8) |
 

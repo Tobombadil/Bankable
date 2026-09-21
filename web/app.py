@@ -1221,11 +1221,10 @@ def delayed_notice(request: Request, kind: str) -> dict[str, Any]:
     just the honest label for that, not a second filter.
 
     Since the paywall became a matter of shape rather than time (owner, 2026-09-19) `lag_days` is
-    `0` for both kinds and the banner's job changes with it: it has to stop claiming a delay that
-    no longer exists and instead name the one that does -- change events from an ISO queue
-    register, `iso_change_event_lag_days`, still withheld from the free tier. Both numbers keep
-    coming from `/v1/health`, not from a constant in this file, so the page can never disagree
-    with the predicate that actually governs visibility."""
+    `0` for both kinds, and since 2026-09-21 -- when the ISO change-event delay was dropped along
+    with its per-source knob -- there is no delay left for the banner to name at all. It still
+    reads the number from `/v1/health` rather than from a constant here, so if a delay were ever
+    reintroduced the page could not disagree with the predicate that governs visibility."""
     lag_key = "supply" if kind == "proposal" else "opportunities"
     lag = get_lag_days(request)
     lag_days = lag[lag_key]
@@ -1233,7 +1232,6 @@ def delayed_notice(request: Request, kind: str) -> dict[str, Any]:
     data_as_of = (now - dt.timedelta(days=lag_days)).strftime("%Y-%m-%d")
     return {
         "lag_days": lag_days,
-        "iso_change_event_lag_days": lag.get("iso_change_events", 0),
         "data_as_of": data_as_of,
         "preview_active": is_preview_active(request),
     }

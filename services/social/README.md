@@ -117,7 +117,8 @@ directly, which removes the need for any alias table.
   "no size field at all never posts"), canonical-transition gating, RFP-closing's 14/3-day
   windows, awarded requiring a named awardee, restricted/unknown source denial, and the
   never-posted default-deny for made-up or field-level event types.
-- Attribution and disclosure present on every draft; the lag notice present on proposal events and
+- Attribution and disclosure present on every draft; the lag notice (retired 2026-09-21 with the
+  delay; the gate is `lag_days > 0` and is now never true) present on proposal events and
   absent on live (opportunity/funding) ones; null fields omitted, never rendered as `"None"`;
   withdrawal reason quoted verbatim when present.
 - Deterministic overflow handling: optional clauses drop before the mandatory fact/URL/attribution
@@ -375,7 +376,11 @@ current schema/tests did not fully settle it on their own):
    fields it does read from `Event`/`Source`/`Licence` cover everything the brief named. If a source
    ever sets a per-source override, this worker's posts will carry the *class* default lag notice
    text until someone decides `db_events.py` should call `lag_days_for` instead — noted here rather
-   than silently guessed at.
+   than silently guessed at. **Moot since 2026-09-21:** `LAG_DAYS_BY_KIND`, the per-source override
+   and the delay itself are all gone (owner; `services/ingest/lag.py`, migration `0019`).
+   `db_events.py` reads `lag_days` back from the event's own `public_at - published_at`, which is
+   now always zero, so no draft carries a lag clause at all — which is the only honest state, since
+   there is no delay to disclose.
 
 **Fields not carried yet.** `voltage_kv`, `load_mw`, `capex_usd`, `docket_id` (proposals) and
 `solicitation_id` have no column on `Proposal`/`Opportunity` (`services/db/models.py`, out of this
@@ -471,8 +476,8 @@ it).
   cancelled`, `funding.reinstated`) drafts nothing today, per decision 3 — needs `awardee_org`/
   `award_usd`/`funding_program` fields somewhere in `services/db/models.py` or `Event.after`
   before any post can be drafted for these three event types.
-- `lag_days_for`'s per-source override (decision 9) is not read; every post uses the flat 14/7
-  class default.
+- `lag_days_for`'s per-source override (decision 9) is not read — and since 2026-09-21 there is
+  nothing to read: no post carries a lag clause because no event is delayed.
 - `db_events.py` does not read `Source.lag_overrides`/`Source.lag_days` at all, nor does it
   consult `data/sources.yaml` directly (unlike `queue.py`'s CLI path) — every provenance field it
   needs is read from the `event`/`source`/`licence` rows the database already carries.

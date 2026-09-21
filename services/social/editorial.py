@@ -272,6 +272,18 @@ class SocialEvent:
     retrieved_at: dt.datetime
     reuse_class: str
     page_url: str
+    #: Days this event's public release trails its publication, or `None` for "no delay to
+    #: disclose". **Always `None` since 2026-09-21**, when the owner dropped the last delay (the
+    #: ISO change-event one) and its per-source knob: `services/social/db_events.py` derives it
+    #: from the event's own `public_at - published_at`, which the loader now always writes as
+    #: zero. Every `if event.lag_days` below is therefore dormant, and that is deliberate — do
+    #: not tidy them away. They are *descriptive* ("this feed runs N days behind"), keyed on a
+    #: runtime value rather than a constant, so while the value is zero they say nothing and if a
+    #: delay ever returned they would state the true number instead of being reconstructed from
+    #: memory. `docs/04` D-28 makes the same argument for the site's tier banner. The one clause
+    #: that was *removed* rather than left dormant was the pricing page's "ISO change events as
+    #: they happen, unlike Free" tier flag, because that is a *comparative* claim which is
+    #: unconditionally false now and would be a false advertisement the moment it rendered.
     lag_days: int | None = None
 
     proposal_name: str | None = None

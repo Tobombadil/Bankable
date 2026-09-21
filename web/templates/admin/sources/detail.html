@@ -32,7 +32,6 @@
         <tr><th scope="row">Egress class</th><td>{{ source.egress }}</td></tr>
         <tr><th scope="row">Schedule cron</th><td class="mono">{{ source.schedule_cron or "&mdash;" }}</td></tr>
         <tr><th scope="row">Next run at</th><td>{{ source.next_run_at or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Change-event lag (days)</th><td>{{ source.lag_days if source.lag_days is not none else "none — change events publish live" }}</td></tr>
         <tr><th scope="row">Consecutive failures</th><td>{{ source.consecutive_failures }}</td></tr>
         <tr><th scope="row">Last error</th><td>{{ source.last_error or "&mdash;" }}{% if source.last_error_at %} ({{ source.last_error_at }}){% endif %}</td></tr>
         <tr><th scope="row">Max rps / concurrency</th><td>{{ source.max_rps }} / {{ source.max_concurrency }}</td></tr>
@@ -107,9 +106,8 @@
   {% endif %}
 
   <form class="admin-form" method="post" action="/admin/sources/{{ source.source_id }}/edit">
-    <h3>Edit cadence / change-event lag</h3>
+    <h3>Edit cadence</h3>
     <div class="field"><label for="schedule_cron">Schedule cron</label><input id="schedule_cron" name="schedule_cron" value="{{ source.schedule_cron or '' }}"></div>
-    <div class="field"><label for="lag_days">Change-event lag, days (0-30)</label><input id="lag_days" name="lag_days" type="number" min="0" max="30" value="{{ source.lag_days if source.lag_days is not none else '' }}"><p class="field-hint">Days a change event from this source waits before the public tier sees it. Records are never delayed (owner, 2026-09-19). Blank or 0 publishes change events live. Existing rows keep the <code>public_at</code> they were written with.</p></div>
     <div class="field"><label for="edit-reason">Reason</label><input id="edit-reason" name="reason" required></div>
     <button class="admin-button" type="submit">Save</button>
   </form>

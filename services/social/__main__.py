@@ -47,9 +47,8 @@ _DIFF_COLUMNS = {"event_type", "record_id", "source_id", "field", "before", "aft
 
 
 def _load_source_meta() -> dict[str, dict[str, Any]]:
-    """Read-only lookup into `data/sources.yaml` for provenance (name, url, reuse class) and the
-    source's declared change-event lag. This package never writes that file -- CLAUDE.md/task
-    scope reserve it to the ingest side."""
+    """Read-only lookup into `data/sources.yaml` for provenance (name, url, reuse class). This
+    package never writes that file -- CLAUDE.md/task scope reserve it to the ingest side."""
     if not SOURCES_YAML.exists():
         return {}
     data = yaml.safe_load(SOURCES_YAML.read_text())
@@ -58,7 +57,6 @@ def _load_source_meta() -> dict[str, dict[str, Any]]:
             "name": s.get("name", s["id"]),
             "url": s.get("url", ""),
             "reuse_class": s.get("reuse", "unknown"),
-            "change_event_lag_days": s.get("change_event_lag_days"),
         }
         for s in data.get("sources", [])
     }
@@ -73,15 +71,17 @@ def _page_url_for(row: dict[str, Any]) -> str:
 
 
 def _lag_days_for(row: dict[str, Any]) -> int | None:
-    """The "public feed runs N days behind" clause a draft may carry, or `None` for no clause.
+    """The "public feed runs N days behind" clause a draft may carry — always `None` now.
 
-    Since the paywall became a matter of shape rather than time (owner, 2026-09-19) there is no
-    per-kind lag to print: records publish live, and the only delayed shape is a change event from
-    a source that declares `change_event_lag_days` in `data/sources.yaml`. A row whose `source_id`
-    is not a manifest id — `pipeline/diff.py`'s eval frames use short names like `ercot` — yields
-    `None`, so a draft never claims a delay this module could not verify."""
-    lag = _load_source_meta().get(str(row["source_id"]), {}).get("change_event_lag_days")
-    return int(lag) if lag else None
+    Records stopped being delayed on 2026-09-19 and change events on 2026-09-21, when the owner
+    dropped the ISO change-event delay together with its per-source manifest field
+    (`services/ingest/lag.py`). Nothing in the manifest can declare a delay any more, so no draft
+    may claim one: `docs/32` §4.3 gate 4 carries the lag notice only when `lag_days > 0`, and a
+    post asserting a delay the product does not apply would be a false statement on a public
+    channel. The hook stays wired so the clause comes back with the delay if one ever returns,
+    rather than being reconstructed from memory."""
+    del row
+    return None
 
 
 def _str_keyed(row: pd.Series[Any]) -> dict[str, Any]:
