@@ -9,8 +9,10 @@ pipeline operator over its own operating companies and not enough for what the o
 from them and those they may be interested in" — a chain walked in both directions, with each
 level's assets, sponsored proposals and nearby proposals. (The company is **Blackstone**:
 Blackstone Infrastructure Partners took control of Tallgrass in 2019 and bought a further ~30%
-from Enagás in 2024. Nothing in this repo names BlackRock, and no Blackstone edge is invented
-either — it is not in the data, so Tallgrass renders as the root it currently is.)
+from Enagás in 2024. Nothing in this repo names BlackRock.) That edge now exists: a curated
+rule in `data/vendored/organizations/parents.yaml`, quoted from Tallgrass's own 8-K and dated
+to the 2019-03-11 closing. It is recorded because a source states it, not to make this module
+look better against a demo -- nothing here invents an edge.
 
 Three properties this module exists to guarantee, none of which a one-level walk had to worry
 about:
