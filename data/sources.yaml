@@ -570,23 +570,63 @@ sources:
   notes: Section 404/10 notices reveal projects months before other sources. Notices are PDFs — needs extraction.
 
 - id: us.epa.class_vi
-  name: EPA UIC Class VI (CO2 storage) permit tracker & data repository
+  name: EPA UIC Class VI (CO2 geologic sequestration) permit tracker
   jurisdiction: US
   category: permit
-  operator: US EPA
+  operator: US EPA (Office of Water, UIC programme)
   url: https://www.epa.gov/uic/current-class-vi-projects-under-review-epa
-  access: html
-  auth: none
-  format: html/pdf (monthly tracker PDF), udr.epa.gov dashboard
-  cadence: monthly
+  access: api
+  auth: none (the Qlik Sense engine answers anonymously; mustAuthenticate=false)
+  format: Qlik Sense Engine JSON API over websocket (wss://awsedap.epa.gov/public/app/<appid>); the page also
+    offers an OCR'd Gantt PDF, which is not the data route
+  cadence: biweekly-ish (no published schedule; the page says "updated periodically")
   license: public domain
   reuse: open
   publication: raw_ok
   tier: 3
   effort: M
+  rate_limit_rps: 0.5
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok}
-  notes: 175+ applications under review. Add state primacy trackers (ND, WY, LA, WV, TX) if CCS is in scope.
+  verified:
+    date: 2026-09-22
+    result: ok
+    note: >-
+      Landing page 200, 57,652 bytes, sha256 846eb99b92e40bce2612a142396a81362cc6cedf9bd10ea1860d48374cdd08cf,
+      footer "Last updated on May 26, 2026"; www.epa.gov/robots.txt (200, 2,035 bytes) disallows nothing under
+      /uic. The embedded dashboard is a Qlik Sense app (appid 8c074297-7f9e-4217-82f0-fb05f54f28e7) on EPA's
+      EDAP at awsedap.epa.gov; its /public/ virtual proxy answers anonymously, so OpenDoc +
+      GetTablesAndKeys + one session hypercube read the app's own table "External" (243 rows x 143 fields)
+      with no credential and no challenge. Connector snapshot 2026-09-22: 528,803 bytes, sha256
+      f0dfa1b6d3b7ce7ddd71907be9087da4cf5f51f21504afff03a4219530d92151, 243 hypercube rows -> 68 project rows
+      (Technical Review 36, Application Withdrawn 13, Final Permit Decisions Issued 11, Completeness Review 5,
+      Public Comment Period 2, Prepare Draft Permit 1), 235 permit applications across those 68 projects, 7
+      requests. The app's own "Last Updated" field reads 2026-09-11 on every row - fresher than the web page's
+      May 26 footer, so the footer is not the data date. awsedap.epa.gov serves no robots.txt (HTTP 400 Qlik
+      error page), and the engine is a JSON-RPC API rather than a crawled document tree.
+  notes: >-
+    One row per PROJECT, not per well: each Class VI well needs its own application and permit, and the
+    tracker's "# of Permit Applications for Project" carries the well count (235 applications over 68 projects
+    on 2026-09-22 - that count, not a project count, is where the old "175+ applications" note came from).
+    Carries company, project, county/parish/tribe, state, EPA region, application received date, the full
+    NOD (<=4) and RAI (<=11) round ladders with sent/received dates, milestone estimated+actual dates for each
+    review phase, phase, EPA's free-text current-status note, on-hold status and days, GSDT project id (47 of
+    68 rows) and a per-project udr.epa.gov UIC Data Repository link (all 68 rows).
+    The "UIC Class VI Permit Tracker (pdf)" download
+    (https://www.epa.gov/system/files/documents/2026-05/permit-tracker_5-22-26.pdf, 353,074 bytes, sha256
+    b969e5bb0f2b466e2067ffaaa1ed9943faa05f30b9eaa8c2f0fda659ee7b8f3d) is NOT a data route and is deliberately
+    not parsed: one page, no tables, produced by "Adobe Acrobat Paper Capture Plug-in" (OCR of a chart image),
+    project labels truncated mid-word ("Carbon Storage Solutions, LLC: Front Range Storage .. ."), OCR errors
+    ("CTV Ill" for CTV III), and no per-project dates - only a shared date axis. It is recorded as evidence in
+    every snapshot's meta.
+    EXCLUSION, the important one: applications in the SIX states granted Class VI primacy - Arizona,
+    Louisiana, North Dakota, Texas, West Virginia and Wyoming - are transferred to the state and are
+    explicitly "not tracked here". The prior note listed five and omitted Arizona. Each state is registered
+    separately below (us.az.adeq.class_vi, us.la.dce.class_vi, us.nd.dmr.class_vi, us.tx.rrc.class_vi,
+    us.wv.dep.class_vi, us.wy.deq.class_vi); national CCS coverage is EPA plus all six, never EPA alone.
+    Personal data: the app carries a "Primary Permit Writer" field (named EPA staff, 21 distinct values). It
+    is outside the connector's FIELDS list, so it is never requested, never snapshotted and never stored.
+    Two rows are on tribal land and EPA's "State" column reads "Osage Nation" / "All Other Indian Tribes";
+    those normalise to a null state rather than a guessed one.
 
 - id: us.nrc.adams
   name: NRC ADAMS Public Search API
@@ -700,6 +740,219 @@ sources:
   tier: 3
   effort: L
   notes: Buy alerts rather than scrape; or connect to state portals directly (e.g. Cal eProcure, NY Contract Reporter, Texas ESBD).
+
+# --- Class VI primacy states (applications EPA transfers out of us.epa.class_vi) --------------
+# EPA's Class VI tracker explicitly excludes applications in the six states below. All six were
+# probed on 2026-09-22 with a browser-like UA identifying Bankable and a contact URL; robots.txt
+# was fetched for each host first and is quoted per entry. NONE of these is a US federal work:
+# 17 U.S.C. section 105 does not reach state agencies, so every one is `reuse: unknown` /
+# `publication: none` until a human reads and records that state's terms. They are registered so
+# the coverage gap is visible, not because any of them is ready to ingest.
+
+- id: us.az.adeq.class_vi
+  name: Arizona DEQ — UIC / Class VI programme
+  jurisdiction: US-AZ
+  category: permit
+  operator: Arizona Department of Environmental Quality
+  url: https://azdeq.gov/UIC
+  access: html
+  auth: none
+  format: unknown (page not retrievable)
+  cadence: unknown
+  license: state agency site; terms not retrieved (site blocks non-browser clients)
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: L
+  egress: browser
+  probe: {method: GET}
+  verified:
+    date: 2026-09-22
+    result: blocked_challenge
+    note: >-
+      Both https://azdeq.gov/UIC and https://azdeq.gov/robots.txt answered HTTP 403 with a Cloudflare
+      managed-challenge interstitial ("Just a moment... Enable JavaScript and cookies to continue", 5,814 and
+      5,835 bytes). Reported as a block, not retried, not worked around - no UA spoofing, no challenge bypass
+      (CLAUDE.md; docs/02 section 7). robots.txt could not be read, so no robots permission can be claimed either.
+  notes: >-
+    The state EPA's page omitted from the previous manifest note. Nothing is known about Arizona's Class VI
+    inventory from this probe: the page is not retrievable headlessly. Needs the browser-worker egress path
+    (docs/40 section 0) or a human read before anything else can be said. Do not ingest.
+
+- id: us.la.dce.class_vi
+  name: Louisiana Dept of Conservation & Energy — Class VI permits and applications
+  jurisdiction: US-LA
+  category: permit
+  operator: Louisiana Department of Conservation and Energy (until 2025-10-01, DENR; before that DNR)
+  url: https://www.dce.louisiana.gov/page/class-vi-permits-and-applications
+  access: js_app
+  auth: none
+  format: Oracle APEX (SONRIS) interactive report, rows loaded by XHR; plus per-application PDFs and a
+    PDF/PNG project-location map on the DCE page
+  cadence: unknown
+  license: state agency site; terms not retrieved
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: L
+  egress: browser
+  probe: {method: GET}
+  verified:
+    date: 2026-09-22
+    result: partial_blocked_robots
+    note: >-
+      EPA's own link (https://www.dnr.louisiana.gov/index.cfm/page/1694) is STALE: dnr.louisiana.gov 301s to
+      https://www.dce.louisiana.gov/ (the department was renamed on 2025-10-01). The live page is
+      /page/class-vi-permits-and-applications (200, 13,788 bytes); www.dce.louisiana.gov/robots.txt (200)
+      disallows only /admin. The actual application list is NOT on that page - it links out to
+      https://sonlite.dnr.state.la.us/ords/r/sonris_pub/ucm_customsearches/class-vi-applications, and
+      sonlite.dnr.state.la.us/robots.txt reads "User-agent: * / Disallow: /" (allowing only `siteimprove`).
+      SONRIS is therefore off-limits to this platform's fetchers. One GET reached that URL during this probe
+      before its robots.txt was read (200, 16,799 bytes, an APEX shell containing no rows); no further request
+      was made and none will be.
+  notes: >-
+    DO NOT FETCH sonlite.dnr.state.la.us - its robots.txt disallows every agent but `siteimprove`, and the
+    connector layer honours robots (pipeline/connectors/http.py). Louisiana is the single largest Class VI
+    primacy state by application count, so this is a real coverage hole, not a rounding error. Routes worth
+    asking about, in order: a data-sharing request to DCE; the department's own open-data or bulk export, if
+    one exists; the static assets already on the DCE page (Class V and VI online map PDF, project-locations
+    PNG), which robots does allow but which are pictures, not rows. Do not ingest until a route is both
+    robots-permitted and terms-cleared.
+
+- id: us.nd.dmr.class_vi
+  name: North Dakota DMR — Class VI geologic sequestration wells
+  jurisdiction: US-ND
+  category: permit
+  operator: North Dakota Industrial Commission, Department of Mineral Resources (Oil & Gas Division)
+  url: https://www.dmr.nd.gov/dmr/oilgas/ClassVI
+  access: html
+  auth: none
+  format: HTML page of per-project PDF document folders (orders, certificates, permits, CO2 volume reports)
+  cadence: unknown (updated per case)
+  license: state agency site; terms not retrieved
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified:
+    date: 2026-09-22
+    result: ok
+    note: >-
+      200, 186,730 bytes (https://www.dmr.nd.gov/dmr/oilgas/classvi redirects to .../ClassVI);
+      www.dmr.nd.gov/robots.txt answers 404, which the standard interpretation treats as permissive. 67
+      Class VI document links across seven named storage-facility folders - BlueFlint, DCCEast-Minnkota,
+      DCCWest, DGC, RedTrail and Summit SCS1/SCS2/SCS3 - plus a CO2Reporting folder of per-facility injected
+      volume PDFs and a Forms folder (Form 26 "Carbon Dioxide Storage Report", Form 26A "Carbon Dioxide Source
+      Report", both xlsx). No table, no CSV, no API on the page.
+  notes: >-
+    Structured as a document library, not a register: the project list is the set of folder names, and each
+    project's state is only readable from its orders and permit PDFs (NDIC case and order numbers are in the
+    link text, e.g. "Case 30122", "Order 32806"). A connector here is a document-ingest job feeding
+    docs/21 `document` rows, closer to us.ferc.elibrary than to a queue parser. ND also publishes injected-CO2
+    volumes per facility, which no other state in this set does. Terms unread; do not ingest yet.
+
+- id: us.tx.rrc.class_vi
+  name: Texas RRC — geologic storage of CO2 (Class VI) application list
+  jurisdiction: US-TX
+  category: permit
+  operator: Railroad Commission of Texas
+  url: https://www.rrc.texas.gov/oil-and-gas/applications-and-permits/injection-storage-permits/co2-storage/
+  access: pdf
+  auth: none
+  format: dated "Class VI application list" PDF linked from the page; a real vector table (Acrobat PDFMaker
+    for Excel), not a scan
+  cadence: unknown (file name carries its date; 2026-03-11 build seen on 2026-09-22)
+  license: state agency site; terms not retrieved
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified:
+    date: 2026-09-22
+    result: ok
+    note: >-
+      Page 200, 66,533 bytes; www.rrc.texas.gov/robots.txt is 200 and zero bytes (no rule, permissive). The
+      page states "RRC receives Class VI Primacy from EPA effective December 15, 2025". The list PDF
+      https://www.rrc.texas.gov/media/sutpod2t/class-vi-application-list-31126.pdf is 143,679 bytes, sha256
+      004f62bbb6be16dfef8c975b79ade64b7cfe22a1baa0e90789053094b3628f82, one page, and pdfplumber extracts a
+      single 14-column table cleanly: 18 application rows over 16 operators, columns RRC Tracking #, Operator
+      Name, Project Name, County, District, Formation, No. of Inj. Well, Inj. Interval (TVD), Submittal Date,
+      Application Status, Protested, Referred to Hearing Date, Docket #, Approval Date. Statuses seen: Pending
+      RAD Response 5, On Hold by Operator 5, Under Review 4, Approved 1, Withdrawn 1, Hearing 1, Comment
+      Period for Draft Permit 1.
+  notes: >-
+    The best of the six by a distance: a genuine machine-readable table, an operator-level status vocabulary,
+    a well count and an injection interval per application. The PDF's URL is dated and the page must be
+    scraped for the current one (same pattern as us.eia.860m). Blocked only on terms - Texas is a state
+    agency, not a federal one, so `reuse: unknown` until the RRC site terms are read and recorded in
+    docs/13. Build this second, after the terms question is answered.
+
+- id: us.wv.dep.class_vi
+  name: West Virginia DEP — UIC programme (Class VI)
+  jurisdiction: US-WV
+  category: permit
+  operator: West Virginia Department of Environmental Protection, Division of Water and Waste Management
+  url: https://dep.wv.gov/WWE/PERMIT/UIC/Pages/default.aspx
+  access: html
+  auth: none
+  format: HTML; no Class VI project list found on the linked page
+  cadence: unknown
+  license: state agency site; terms not retrieved
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: L
+  probe: {method: GET}
+  verified:
+    date: 2026-09-22
+    result: ok_no_data
+    note: >-
+      200, 118,559 bytes; dep.wv.gov/robots.txt answers 404 (permissive by the standard interpretation). The
+      page EPA links to is the general non-mining UIC page and its body text describes Class V wells; the only
+      Class VI artefact on it is a blank application form ("UIC Class 6 Well Application",
+      apps.dep.wv.gov/Documents/DWWM/Permit/WVDEP%20Class%20VI%20UIC%20Permit%20Application%20(Rev%204-25).pdf).
+      No project table, no case list, no docket search was found from this page.
+  notes: >-
+    Registered as a known gap, not as a feed. WV has Class VI primacy but publishes no project list at the URL
+    EPA points to; the inventory is probably in a permit-search application elsewhere on dep.wv.gov or in
+    public-notice postings. Next step is a targeted search of dep.wv.gov's permit search and public notice
+    systems, then terms. Do not ingest.
+
+- id: us.wy.deq.class_vi
+  name: Wyoming DEQ — UIC Class VI
+  jurisdiction: US-WY
+  category: permit
+  operator: Wyoming Department of Environmental Quality, Water Quality Division
+  url: https://deq.wyoming.gov/water-quality/groundwater/uic/class-vi/
+  access: js_app
+  auth: none
+  format: HTML page whose "Permit and Applications" list is behind a JavaScript popup; plus a govdelivery
+    Class VI listserv
+  cadence: unknown
+  license: state agency site; terms not retrieved
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: L
+  egress: browser
+  probe: {method: GET}
+  verified:
+    date: 2026-09-22
+    result: ok_intermittent
+    note: >-
+      Served on two of three attempts (200, 54,799 and 54,783 bytes); the middle attempt answered 307 with a
+      "You are being redirected... Javascript is required" interstitial, so the host runs intermittent bot
+      mitigation. deq.wyoming.gov/robots.txt is 200, 24 bytes, "User-Agent: * / Disallow:" - everything
+      allowed. The served page carries no table: the permit and application list is an Elementor popup
+      (anchor #eae-pupup-item-235152391) rendered client-side. The page links Wyoming's primacy grant
+      (Federal Register 2020-10-09, 85 FR 64258 family) and a Class VI listserv sign-up.
+  notes: >-
+    Needs the browser-worker egress (docs/40 section 0) to see the list at all, and the intermittent 307
+    means any fetcher must treat a redirect-to-interstitial as a soft block and back off rather than retry
+    hard. The listserv is a cheap human-subscribed early-warning channel in the meantime (owner action,
+    not an agent one - it takes an email address). Terms unread; do not ingest.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # E. US FEDERAL FUNDING & AWARDS
@@ -1284,6 +1537,44 @@ sources:
   tier: 3
   effort: S
 
+- id: global.carbonstorage_io
+  name: CarbonStorage (carbonstorage.io) — private CCUS project tracker
+  jurisdiction: global
+  category: aggregator
+  operator: CarbonStorage, LLC (private, founded 2024)
+  url: https://carbonstorage.io/
+  access: html
+  auth: login required for project data; two "Custom"-priced tiers (Corporate, Enterprise)
+  format: web app (map, project pages, news); API access is an Enterprise-tier feature
+  cadence: continuous
+  license: no licence, terms-of-use or data-source statement published anywhere on the site
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: n/a
+  probe: {method: GET}
+  verified:
+    date: 2026-09-22
+    result: ok
+    note: >-
+      carbonstorage.io/robots.txt is 200, 87 bytes, "User-Agent: * / Allow: / / Disallow: /admin" - robots
+      permits crawling. That is NOT permission to ingest, and this entry exists to say so. Pricing page 200,
+      21,331 bytes, read once for competitive research (docs/11 section 1.3): two tiers, both priced
+      "Custom", Enterprise gated at "Designed for teams of 8 or more" with "API access for seamless data
+      integration"; feature list names "In-depth project pages with FOIA results, news coverage, permits, and
+      downloadable files", "Coverage of planned CO2 storage sites with global stratigraphic wells" and a
+      "Global dataset of point source emissions and emitting facilities". No /about, /data or /methodology
+      page exists (all 404) and no data source is named anywhere on the public site.
+  notes: >-
+    DO NOT INGEST, DO NOT SCRAPE. Same class as Cleanview and Energy Adepto: a private paid aggregator with
+    no stated licence. They are not on CLAUDE.md's named prohibited list only because they are newer than it;
+    treat them as if they were. Their robots.txt allowing crawlers changes nothing - robots is not a licence,
+    and an unlicensed compilation is protected by contract and (in the EU) database right whatever robots
+    says. Permitted: reading their public marketing pages for competitive research, as recorded above.
+    Not permitted: fetching, storing or deriving from their project pages, map layers or API under any
+    circumstance. Their underlying public sources are the things to build - EPA Class VI (us.epa.class_vi),
+    the six primacy states, GHGRP (us.epa.ghgrp), FOIA-obtained documents - none of which they own.
+
 # ─────────────────────────────────────────────────────────────────────────────
 # I. NEWS & ANNOUNCEMENT DISCOVERY (finds proposals before they hit a register)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1744,6 +2035,47 @@ sources:
     web/static/data/basemap_fallback.geojson as a prior version of this note assumed -- that file was read only
     for its geometry shape while building pipeline/context/regions.py, and is a separate basemap fallback with
     no region_id property, not a region-polygon source. Served by GET /v1/geo/regions.
+
+- id: us.epa.ghgrp
+  name: EPA Greenhouse Gas Reporting Program — facility-level emissions (FLIGHT / Envirofacts)
+  jurisdiction: US
+  category: registry
+  operator: US EPA (Office of Atmospheric Protection)
+  url: https://www.epa.gov/ghgreporting/data-sets
+  access: api
+  auth: none
+  format: Envirofacts REST (https://data.epa.gov/efservice/<table>/rows/<n>:<m>/JSON) plus annual bulk
+    xlsx/zip data sets on epa.gov; FLIGHT (ghgdata.epa.gov) is the map front end over the same data
+  cadence: annual (reporting year), with revisions
+  license: public domain
+  reuse: open
+  publication: raw_ok
+  tier: 3
+  effort: M
+  rate_limit_rps: 0.5
+  probe: {method: GET}
+  verified:
+    date: 2026-09-22
+    result: ok
+    note: >-
+      Envirofacts REST answered 200 on data.epa.gov: pub_dim_facility/count/JSON = 136,005 facility-year rows
+      in total and 11,281 for reporting year 2023; a two-row sample returned facility_id, facility_name,
+      latitude/longitude, city/county/county_fips/state, naics_code, year, parent_company (with ownership
+      percentages), reported_subparts, facility_types, frs_id, co2_captured and rr_mrv_plan_url. Bulk route
+      confirmed by HEAD on the 2023 Data Summary Spreadsheets zip
+      (https://www.epa.gov/system/files/other-files/2024-10/2023_data_summary_spreadsheets.zip): 200,
+      content-length 28,389,973, last-modified 2024-10-15. Pagination is row-window based (rows/0:9999), so a
+      full pull is ~14 requests per table at 0.5 rps.
+  notes: >-
+    The point-source side of the CCS join: an emitting facility here is the counterparty to a Class VI
+    storage project, and `rr_mrv_plan_url` (Subpart RR, geologic sequestration MRV plans) plus `co2_captured`
+    are EPA's own link between an emitter and sequestration. `frs_id` joins to EPA's Facility Registry
+    Service and `parent_company` is a free-text ownership string worth feeding the organisation resolver.
+    This is a CONTEXT layer (existing facilities), not a proposal feed - same posture as us.eia.860m's
+    operating plants (docs/02 section 9): no lifecycle, no events. Registered here because carbonstorage.io's
+    pricing page names a "global dataset of point source emissions and emitting facilities" as a paid
+    feature and this is the US half of it, free and public domain. Note the scope limit before anyone calls
+    it global: GHGRP covers US facilities over the reporting threshold only.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # J. SOCIAL DISTRIBUTION CHANNELS (outbound, not data sources — recorded for cost/feasibility)

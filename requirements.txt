@@ -8,6 +8,9 @@ openpyxl>=3.1
 rapidfuzz>=3.9
 pytest>=8
 pyshp>=2.3               # pipeline/context/regions.py: Census/Natural Earth shapefiles, pure-Python (no geopandas, ADR 0008)
+websocket-client>=1.8    # pipeline/connectors/us_epa_class_vi: EPA's Class VI tracker is a public
+                         # Qlik Sense app whose only machine route is the Engine JSON API over a
+                         # websocket. Imported lazily inside fetch(); parser tests need it not.
 
 # services/db, services/ingest, services/api (Sprint 2 backend)
 sqlalchemy>=2.0,<2.1

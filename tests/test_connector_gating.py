@@ -60,6 +60,25 @@ def test_private_aggregators_fail_to_register(registry: Registry) -> None:
         registry.connector_class("us.gridtracker.interconnection_fyi")
 
 
+def test_carbonstorage_is_excluded_by_id_not_by_prose(registry: Registry) -> None:
+    """The id must carry the exclusion, so editing the note cannot lift it.
+
+    `SourceEntry.never_ingest` also substring-matches `NEVER_INGEST_NAMES` against
+    `name + url + notes`. `global.carbonstorage_io` first read as excluded only because its own
+    note mentions Cleanview as a comparison -- prose, one tidy-up away from silently removing a
+    CLAUDE.md guardrail. This asserts the id-based rule holds on its own by rebuilding the entry
+    with every prohibited name scrubbed from its text.
+    """
+    from dataclasses import replace
+
+    entry = registry.get("global.carbonstorage_io")
+    assert entry.never_ingest
+    scrubbed = replace(entry, name="A tracker", url="https://example.invalid/", notes="")
+    assert scrubbed.never_ingest, "exclusion depends on note text, not on the id"
+    with pytest.raises(RegistrationError):
+        registry.connector_class("global.carbonstorage_io")
+
+
 def test_registry_status_labels_every_source(registry: Registry) -> None:
     states = {row["id"]: row["state"] for row in registry.status()}
     assert states["us.iso.ercot.gen_queue"] == "implemented"
