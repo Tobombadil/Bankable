@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from web.api_client import ApiClient
 from web.app import app as web_app
-from web.viewmodels import absence_note
+from web.viewmodels import absence_note, asset_count_note
 
 HEALTH: dict[str, Any] = {
     "status": "ok",
@@ -125,13 +125,68 @@ COVERAGE: dict[str, Any] = {
             "without_recorded_parent": 7114,
             "parent_source_ids": ["global.gleif.lei"],
         },
+        # The dev load as measured 2026-09-22 (docs/24): ethanol is two overlapping sources, RNG
+        # is two disjoint ones, power plants are one.
+        "assets": {
+            "resolution": {"exists": False, "mechanism": "asset_source"},
+            "by_type": {
+                "power_plant": {
+                    "rows": 14659,
+                    "located": 14659,
+                    "sources": {"us.eia.860m": {"rows": 14659, "located": 14659}},
+                    "source_count": 1,
+                    "resolved": False,
+                },
+                "ethanol_plant": {
+                    "rows": 388,
+                    "located": 197,
+                    "sources": {
+                        "us.eia.atlas.ethanol_plants": {"rows": 197, "located": 197},
+                        "us.eia.ethanol_capacity": {"rows": 191, "located": 0},
+                    },
+                    "source_count": 2,
+                    "resolved": False,
+                },
+                "rng_project": {
+                    "rows": 1851,
+                    "located": 1339,
+                    "sources": {
+                        "us.epa.agstar": {"rows": 498, "located": 0},
+                        "us.epa.lmop": {"rows": 1353, "located": 1339},
+                    },
+                    "source_count": 2,
+                    "resolved": False,
+                },
+            },
+            "unresolved_multi_source": ["ethanol_plant", "rng_project"],
+        },
         "notes": [
             {
                 "id": "no_large_load",
                 "headline": "No large-load or data-centre proposals.",
                 "body": "No loaded source publishes large-load interconnection requests as data.",
                 "written": "2026-09-20",
-            }
+                "applies_to": {"absent_technology": "load"},
+                "figures": {},
+            },
+            {
+                "id": "ethanol_two_sources",
+                "headline": (
+                    "Ethanol plants: 388 rows from two EIA sources, not yet resolved to one record per plant."
+                ),
+                "body": "About 201 distinct plants (measured 2026-09-22, docs/24).",
+                "written": "2026-09-25",
+                "applies_to": {"unresolved_asset_type": "ethanol_plant"},
+                "figures": {"measured": "2026-09-22", "distinct_estimate": 201, "redundant_share": 0.482},
+            },
+            {
+                "id": "rng_two_sources",
+                "headline": "RNG projects: two EPA sources, covering different populations.",
+                "body": "No project was found in both (0 cross-source links, measured 2026-09-22, docs/24).",
+                "written": "2026-09-25",
+                "applies_to": {"unresolved_asset_type": "rng_project"},
+                "figures": {"measured": "2026-09-22", "cross_source_links": 0},
+            },
         ],
     }
 }
@@ -249,6 +304,9 @@ def _reset_caches() -> None:
     file off the private attribute."""
     web_app.state.build_info = None
     web_app.state.coverage_facts = None
+    # `asset_type_counts()` keeps its cache in `__dict__` directly (web/app.py), so this one
+    # does pop.
+    web_app.state.__dict__.pop("asset_type_counts_cache", None)
 
 
 def _install(transport: FakeTransport) -> None:
@@ -602,3 +660,213 @@ def test_the_attribution_page_carries_the_release_to_cite(web_client: TestClient
     # The credit lines themselves are untouched.
     assert "Source: US EIA" in body
     assert "Source: California ISO" in body
+
+
+# ------------------------------------------------- sources per asset type, on /methodology
+def test_the_page_states_sources_and_rows_per_asset_type_with_resolution(web_client: TestClient) -> None:
+    """Derived: rows per source, located rows, and whether anything resolves two sources."""
+    _install(_transport())
+    section = web_client.get("/methodology").text.split('id="asset-sources"')[1].split("</table>")[0]
+    assert "No such resolution layer exists today" in section.split("<table")[0]
+    ethanol = section.split('id="asset-sources-ethanol_plant"')[1].split("</tr>")[0]
+    assert "388" in ethanol
+    assert "197" in ethanol and "with a location" in ethanol
+    assert "us.eia.atlas.ethanol_plants" in ethanol and "us.eia.ethanol_capacity" in ethanol
+    assert "191" in ethanol
+    assert "<strong>Not yet</strong>" in ethanol
+    assert 'href="#note-ethanol_two_sources">measured</a>' in ethanol
+    power = section.split('id="asset-sources-power_plant"')[1].split("</tr>")[0]
+    assert "One source, so nothing to resolve" in power
+    assert "with a location" not in power, "every power plant is located; no badge to print"
+
+
+def test_the_ethanol_note_prints_the_estimate_beside_the_derived_count(web_client: TestClient) -> None:
+    """Both numbers: the measured 201 in the written note, the derived 388 and 197 beside it,
+    so a reader can see whether the two still agree."""
+    _install(_transport())
+    block = web_client.get("/methodology").text.split('id="note-ethanol_two_sources"')[1].split("</div>")[0]
+    assert "not yet resolved to one record per plant" in block
+    assert "About 201 distinct plants" in block
+    assert 'On this load: <span class="tnum">388</span> rows from 2 sources' in block
+    assert '<span class="tnum">197</span> with a location' in block
+    assert "withdrawn automatically" in block
+    assert 'Written <span class="tnum">2026-09-25</span>' in block
+
+
+def test_a_note_without_an_asset_fact_gets_no_derived_line(web_client: TestClient) -> None:
+    _install(_transport())
+    block = web_client.get("/methodology").text.split('id="note-no_large_load"')[1].split("</div>")[0]
+    assert "On this load:" not in block
+
+
+def test_the_page_survives_a_coverage_body_with_no_asset_fact(web_client: TestClient) -> None:
+    """An API a release behind this template must cost the table, not the page."""
+    data = {k: v for k, v in COVERAGE["data"].items() if k != "assets"}
+    data["notes"] = [n for n in data["notes"] if "unresolved_asset_type" not in n.get("applies_to", {})]
+    _install(_transport(**{"/v1/coverage": (200, {"data": data})}))
+    resp = web_client.get("/methodology")
+    assert resp.status_code == 200
+    assert 'id="asset-sources"' not in resp.text
+
+
+# --------------------------------------- the corrected count, only where the count is wrong
+def _notes_without(note_id: str) -> list[dict[str, Any]]:
+    return [n for n in COVERAGE["data"]["notes"] if n["id"] != note_id]
+
+
+def test_asset_count_note_gives_both_numbers_for_an_unresolved_type_with_an_estimate() -> None:
+    note = asset_count_note(COVERAGE["data"], {"ethanol_plant"})
+    assert note == {
+        "rows": 388,
+        "located": 197,
+        "source_count": 2,
+        "estimate": 201,
+        "measured": "2026-09-22",
+        "href": "/methodology#note-ethanol_two_sources",
+    }
+
+
+def test_asset_count_note_is_silent_for_two_sources_that_do_not_overlap() -> None:
+    """RNG has the derived fact (two sources, no resolution) and a note, but no estimate,
+    because its sources are disjoint and its row count is right. A line there would be the
+    disclaimer the proposals rule forbids."""
+    assert asset_count_note(COVERAGE["data"], {"rng_project"}) is None
+
+
+def test_asset_count_note_is_silent_for_a_single_source_type_and_for_mixed_views() -> None:
+    assert asset_count_note(COVERAGE["data"], {"power_plant"}) is None
+    assert asset_count_note(COVERAGE["data"], set()) is None, "the unfiltered index mixes seven types"
+    assert asset_count_note(COVERAGE["data"], {"ethanol_plant", "rng_project"}) is None
+
+
+def test_asset_count_note_retires_with_the_fact_or_the_note() -> None:
+    """The web side follows the API's retirement: a resolved fact, or a note the API stopped
+    returning, and the line is gone."""
+    resolved = {
+        **COVERAGE["data"],
+        "assets": {
+            **COVERAGE["data"]["assets"],
+            "by_type": {
+                **COVERAGE["data"]["assets"]["by_type"],
+                "ethanol_plant": {**COVERAGE["data"]["assets"]["by_type"]["ethanol_plant"], "resolved": True},
+            },
+        },
+    }
+    assert asset_count_note(resolved, {"ethanol_plant"}) is None
+    without_note = {**COVERAGE["data"], "notes": _notes_without("ethanol_two_sources")}
+    assert asset_count_note(without_note, {"ethanol_plant"}) is None
+
+
+def test_asset_count_note_degrades_to_silence_when_coverage_is_unavailable() -> None:
+    assert asset_count_note({}, {"ethanol_plant"}) is None
+
+
+ASSET_VOCAB: dict[str, Any] = {
+    "data": {
+        "technology": [{"value": "solar"}],
+        "proposal_kind": [],
+        "opportunity_kind": [],
+        "opportunity_status": [],
+        "slip_bucket": [],
+    }
+}
+
+
+def _asset_row(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "public_id": "asset_01FAIRMONT",
+        "slug": "poet-fairmont-ne",
+        "name": "Poet Biorefining-Fairmont",
+        "asset_type": "ethanol_plant",
+        "status": "operating",
+        "operator_name": "Poet",
+        "technology": None,
+        "capacity_mw": None,
+        "state_code": "US-NE",
+        "county_name": None,
+        "country": "US",
+        "attributes": {},
+        "provenance": [
+            {
+                "source_id": "us.eia.atlas.ethanol_plants",
+                "source_name": "EIA Energy Atlas",
+                "source_url": "https://atlas.eia.gov/",
+                "retrieved_at": "2026-09-19T00:00:00Z",
+                "reuse_class": "open",
+                "source_record_id": "NE-poet-fairmont",
+            }
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+def _asset_transport(rows: list[dict[str, Any]], counts: dict[str, int]) -> FakeTransport:
+    return _transport(
+        **{
+            "/v1/meta/vocabularies": (200, ASSET_VOCAB),
+            "/v1/assets": (200, {"data": rows, "page": {"has_more": False, "next_cursor": None}, "meta": {}}),
+            "/v1/assets/geo": (
+                200,
+                {
+                    "data": {
+                        "type": "FeatureCollection",
+                        "features": [],
+                        "totals": {"records": sum(counts.values()), "asset_type_counts": counts},
+                    },
+                    "meta": {},
+                },
+            ),
+        }
+    )
+
+
+ASSET_COUNTS = {"power_plant": 14659, "ethanol_plant": 197, "rng_project": 1339}
+
+
+def test_the_ethanol_list_prints_the_row_count_and_the_measured_plant_count(web_client: TestClient) -> None:
+    """The one populated list that carries a coverage line, because its count is the thing that
+    is wrong: both numbers, the fusion-state wording, the date, and the link to the method."""
+    _install(_asset_transport([_asset_row()], ASSET_COUNTS))
+    body = web_client.get("/assets", params={"asset_type": "ethanol_plant"}).text
+    line = body.split('id="count-note"')[1].split("</p>")[0]
+    assert "388 rows" in line
+    assert 'about <strong class="tnum">201</strong> ethanol plants' in line
+    assert "Two sources, not yet resolved to one record per asset" in line
+    assert "2026-09-22" in line
+    assert "The count above is of the 197 rows with a location." in line
+    assert 'href="/methodology#note-ethanol_two_sources"' in line
+    assert "duplicate" not in line.lower() and "bug" not in line.lower()
+    # The chips and the per-page count are unchanged: the line is added beside them, not in place of them.
+    assert "1 asset on this page" in body
+    assert 'href="/assets?asset_type=ethanol_plant"' in body
+
+
+def test_the_unfiltered_index_and_a_single_source_type_carry_no_count_line(web_client: TestClient) -> None:
+    _install(_asset_transport([_asset_row()], ASSET_COUNTS))
+    assert 'id="count-note"' not in web_client.get("/assets").text
+    assert 'id="count-note"' not in web_client.get("/assets", params={"asset_type": "power_plant"}).text
+
+
+def test_the_rng_list_carries_no_count_line_because_its_count_is_right(web_client: TestClient) -> None:
+    _install(_asset_transport([_asset_row(asset_type="rng_project")], ASSET_COUNTS))
+    assert 'id="count-note"' not in web_client.get("/assets", params={"asset_type": "rng_project"}).text
+
+
+def test_the_ethanol_list_line_disappears_when_the_note_retires(web_client: TestClient) -> None:
+    """Simulated at the API boundary: `/v1/coverage` no longer returns the note (the type has
+    one source, or a resolution exists) and the page prints nothing, with no edit here."""
+    data = {**COVERAGE["data"], "notes": _notes_without("ethanol_two_sources")}
+    transport = _asset_transport([_asset_row()], ASSET_COUNTS)
+    transport.responses["/v1/coverage"] = (200, {"data": data})
+    _install(transport)
+    assert 'id="count-note"' not in web_client.get("/assets", params={"asset_type": "ethanol_plant"}).text
+
+
+def test_the_asset_list_renders_when_coverage_is_unavailable(web_client: TestClient) -> None:
+    transport = _asset_transport([_asset_row()], ASSET_COUNTS)
+    transport.responses["/v1/coverage"] = (500, {"title": "boom"})
+    _install(transport)
+    resp = web_client.get("/assets", params={"asset_type": "ethanol_plant"})
+    assert resp.status_code == 200
+    assert 'id="count-note"' not in resp.text

@@ -116,6 +116,42 @@
     ({{ '{:,}'.format(coverage.ownership.with_recorded_parent) }} do). A company page showing no parent is a company we have no parent <em>record</em> for.
   </p>
 
+  {% if asset_sources %}
+  <h3 id="asset-sources">Existing assets: sources per type</h3>
+  {#- Derived on every load: rows and located rows per source, and whether the store can resolve
+      two sources' rows to one asset (`services/api/coverage.py::asset_sources`). A type with two
+      sources and no resolution *can* hold one asset twice; whether it does is a measurement, so
+      that is a dated note, keyed to this fact and dropped the day the fact stops holding. -#}
+  <p>
+    Each asset type is loaded from the registers below, one row per source record. Where a type has more than one source and nothing yet resolves them to one record per asset, a count over its rows can exceed the number of assets; the notes beneath say by how much, where that has been measured.
+    {%- if not coverage.assets.resolution.exists %} No such resolution layer exists today for any type.{% endif %}
+  </p>
+  <div class="table-scroll">
+  <table class="record-table source-table">
+    <thead>
+      <tr><th scope="col">Asset type</th><th scope="col">Rows</th><th scope="col">Sources</th><th scope="col">Resolved to one record per asset</th></tr>
+    </thead>
+    <tbody>
+      {% for asset_type, entry in asset_sources %}
+      <tr id="asset-sources-{{ asset_type }}">
+        <td data-label="Asset type"><a href="/assets?asset_type={{ asset_type }}">{{ asset_type_labels.get(asset_type, asset_type | replace('_', ' ')) }}</a></td>
+        <td data-label="Rows" class="tnum">{{ '{:,}'.format(entry.rows) }}{% if entry.located != entry.rows %} <span class="reuse-badge">{{ '{:,}'.format(entry.located) }} with a location</span>{% endif %}</td>
+        <td data-label="Sources">
+          {%- for source_id, per in entry.sources.items() %}<span class="mono reuse-badge">{{ source_id }}</span> <span class="tnum">{{ '{:,}'.format(per.rows) }}</span>{% if not loop.last %}<br>{% endif %}{% endfor -%}
+        </td>
+        <td data-label="Resolved to one record per asset">
+          {%- if entry.source_count < 2 %}One source, so nothing to resolve
+          {%- elif entry.resolved %}Yes
+          {%- else %}<strong>Not yet</strong>{% if asset_notes.get(asset_type) %} &mdash; <a href="#note-{{ asset_notes[asset_type].id }}">measured</a>{% endif %}
+          {%- endif -%}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
   {% if coverage.states.lifecycle_absent or coverage.states.opportunity_status_absent %}
   <h3 id="absent-states">Status values no source currently produces</h3>
   <p>These words are in the vocabulary and no loaded source maps into them, so no record carries them today.</p>
@@ -129,6 +165,13 @@
   <div class="coverage-note">
     <h3 id="note-{{ note.id }}">{{ note.headline }}</h3>
     <p>{{ note.body }}</p>
+    {%- set noted_type = (note.applies_to or {}).get('unresolved_asset_type') %}
+    {%- set noted = coverage.assets.by_type.get(noted_type) if noted_type else none %}
+    {%- if noted %}
+    {#- The derived half, printed beside the written one so a reader can see whether they still
+        agree: the row and source counts move with every load, the estimate does not. -#}
+    <p class="attribution-line">On this load: <span class="tnum">{{ '{:,}'.format(noted.rows) }}</span> rows from {{ noted.source_count }} sources, <span class="tnum">{{ '{:,}'.format(noted.located) }}</span> with a location. This note is withdrawn automatically when the type has one source or a resolution exists.</p>
+    {%- endif %}
     <p class="attribution-line">Written <span class="tnum">{{ note.written }}</span>. The numbers above it are measured on every page load; this paragraph is not.</p>
   </div>
   {% endfor %}

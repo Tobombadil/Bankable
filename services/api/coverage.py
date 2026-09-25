@@ -21,6 +21,9 @@ Every number here is a query or a read of `data/sources.yaml` at render time:
   ones with rows. `load` is on that list today; nothing had to know in advance that it would be.
 * Absent states are the code vocabularies minus the ones with rows.
 * Ownership depth is a count of `organization.parent_org_id`.
+* Sources per asset type, and rows per source, are a GROUP BY over `asset`; whether a resolution
+  layer exists is read from the schema (the `asset_source` link table of docs/24 §5(a)), so the
+  day that table lands the fact flips and every note hanging off it retires by itself.
 
 Only the *why* is prose, and it lives in `data/vocabulary/coverage_notes.yaml` with the date it
 was written, which the surfaces print. A note whose derived fact has stopped being true is
@@ -40,6 +43,7 @@ import functools
 import pathlib
 from typing import Any
 
+import sqlalchemy as sa
 import yaml
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -231,6 +235,65 @@ def _withheld(registry: Registry) -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: (not r["supply"], str(r["source_id"])))
 
 
+#: The link table that will carry per-source records for one asset (docs/24 §5(a), built to the
+#: `proposal_source` pattern). Its presence in the schema is the whole test for "a resolution
+#: exists": the asset layer has no other mechanism by which two registry rows become one record.
+ASSET_RESOLUTION_TABLE = "asset_source"
+
+
+def asset_resolution_exists(db: Session) -> bool:
+    """Whether the store has a layer that can resolve several source rows to one asset.
+
+    Read from the schema through the inspector rather than from a constant, so the statement is
+    about the database this process is actually serving. Today every deployment answers False:
+    `asset` is one row per `(source_id, source_asset_id)` and nothing links two of them (docs/24
+    §4). The day migration (a) lands, this returns True with no edit here."""
+    return bool(sa.inspect(db.get_bind()).has_table(ASSET_RESOLUTION_TABLE))
+
+
+def asset_sources(db: Session) -> dict[str, Any]:
+    """Per asset type: rows, the sources contributing them, rows and located rows per source, and
+    whether anything resolves two sources' rows to one asset.
+
+    The measured problem (docs/24, 2026-09-22) is that a type with two sources and no resolution
+    can hold the same plant once per source, and every count over it is then a count of source
+    rows, not of assets. That is a fact about the store's shape, so it is derived: `source_count`
+    and `resolved` are what a note about a specific type's duplication hangs off, and the note is
+    dropped the moment either changes (`_applicable_notes`). Whether two sources' populations
+    overlap at all -- ethanol's do, RNG's do not -- is *not* derivable without a matcher, so it
+    stays prose, dated, in the notes file.
+
+    `located` is the rows with a point geometry, per source, because the asset index counts
+    those and nothing else (`services/api/assets.py::_get_asset_index`): where one source has
+    coordinates and the other has none, the figure on the list header and the figure here differ
+    by exactly the unlocated source, and the page can say so instead of leaving two numbers that
+    disagree."""
+    resolved = asset_resolution_exists(db)
+    by_type: dict[str, dict[str, Any]] = {}
+    rows = db.execute(
+        select(Asset.asset_type, Asset.source_id, func.count(), func.count(Asset.geom))
+        .group_by(Asset.asset_type, Asset.source_id)
+        .order_by(Asset.asset_type, Asset.source_id)
+    ).all()
+    for asset_type, source_id, count, located in rows:
+        entry = by_type.setdefault(
+            str(asset_type), {"rows": 0, "located": 0, "sources": {}, "source_count": 0, "resolved": resolved}
+        )
+        entry["rows"] += int(count)
+        entry["located"] += int(located)
+        entry["sources"][str(source_id)] = {"rows": int(count), "located": int(located)}
+        entry["source_count"] = len(entry["sources"])
+    return {
+        "resolution": {"exists": resolved, "mechanism": ASSET_RESOLUTION_TABLE},
+        "by_type": by_type,
+        # The types on which a row count can over-state the asset count: more than one source
+        # and nothing to fold them. Whether it *does* over-state is the notes' business.
+        "unresolved_multi_source": sorted(
+            t for t, e in by_type.items() if e["source_count"] > 1 and not e["resolved"]
+        ),
+    }
+
+
 def coverage(db: Session, registry: Registry | None = None) -> dict[str, Any]:
     """The whole statement. One call, because every surface that renders part of it should be
     rendering the same numbers."""
@@ -292,6 +355,7 @@ def coverage(db: Session, registry: Registry | None = None) -> dict[str, Any]:
             "without_recorded_parent": organizations - with_parent,
             "parent_source_ids": parent_sources,
         },
+        "assets": asset_sources(db),
     }
     facts["notes"] = _applicable_notes(facts)
     return facts
@@ -312,12 +376,26 @@ def _applicable_notes(facts: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         if applies.get("ownership") and facts["ownership"]["without_recorded_parent"] == 0:
             continue
+        if "unresolved_asset_type" in applies:
+            # Holds while the type draws on more than one source and nothing resolves them. A
+            # second source retiring, or the link table landing, retires the note with it.
+            entry = facts["assets"]["by_type"].get(applies["unresolved_asset_type"]) or {}
+            if entry.get("source_count", 0) < 2 or entry.get("resolved"):
+                continue
         out.append(
             {
                 "id": note.get("id"),
                 "headline": (note.get("headline") or "").strip(),
                 "body": (note.get("body") or "").strip(),
                 "written": str(note.get("written") or ""),
+                # Echoed so a surface can find the note for the fact it is rendering, and the
+                # note's own measured figures (an entity-count estimate that no query can
+                # produce) can print beside the derived count they qualify.
+                "applies_to": dict(applies),
+                "figures": {
+                    str(k): (v if isinstance(v, int | float) and not isinstance(v, bool) else str(v))
+                    for k, v in (note.get("figures") or {}).items()
+                },
             }
         )
     return out

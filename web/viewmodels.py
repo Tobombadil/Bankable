@@ -451,6 +451,53 @@ def absence_note(facts: Mapping[str, Any], filters: Mapping[str, Any]) -> dict[s
     return {"lines": lines, "href": "/methodology#absences"}
 
 
+def asset_count_note(facts: Mapping[str, Any], selected_types: set[str]) -> dict[str, Any] | None:
+    """The one case where a caveat belongs beside a populated list: when the number of rows is
+    itself the wrong number.
+
+    `absence_note` deliberately says nothing next to rows, because a caveat beside five thousand
+    correct records is a disclaimer. An asset type drawn from two sources with no resolution
+    layer is a different case (docs/24 §6.1): a plant present in both sources is two rows, and
+    the row count over-states the asset count by a measured amount. There the line is not a
+    disclaimer, it is the corrected figure, and it belongs where the wrong one is read.
+
+    It fires only when *both* halves are present: the derived fact (more than one source, not
+    resolved -- `coverage.assets.by_type`) and a note that measured the over-statement
+    (`figures.distinct_estimate`). Two sources with disjoint populations (RNG) have the fact and
+    no estimate, and a count over their rows is right, so nothing is printed. When the link
+    table lands the fact flips, the note retires, and this returns `None` with no edit.
+    `None` for anything but a single selected type, because the sentence is about one type's
+    rows and the unfiltered index mixes seven."""
+    if len(selected_types) != 1 or not facts:
+        return None
+    asset_type = next(iter(selected_types))
+    entry = ((facts.get("assets") or {}).get("by_type") or {}).get(asset_type) or {}
+    if entry.get("source_count", 0) < 2 or entry.get("resolved"):
+        return None
+    note = next(
+        (
+            n
+            for n in facts.get("notes") or []
+            if (n.get("applies_to") or {}).get("unresolved_asset_type") == asset_type
+        ),
+        None,
+    )
+    if note is None:
+        return None
+    figures = note.get("figures") or {}
+    estimate = figures.get("distinct_estimate")
+    if not isinstance(estimate, int | float):
+        return None
+    return {
+        "rows": int(entry.get("rows") or 0),
+        "located": int(entry.get("located") or 0),
+        "source_count": int(entry.get("source_count") or 0),
+        "estimate": int(estimate),
+        "measured": str(figures.get("measured") or note.get("written") or ""),
+        "href": f"/methodology#note-{note.get('id')}",
+    }
+
+
 def coverage_facts(request: Any, api: Any) -> dict[str, Any]:
     """The measured coverage numbers, for the in-place notes that appear where an absence bites.
 

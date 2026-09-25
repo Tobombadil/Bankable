@@ -10220,7 +10220,7 @@ components:
       description: >-
         Measured coverage and known absences. Every field but `notes` is computed from the store and
         `data/sources.yaml` at request time.
-      required: [sources, vintage, records, technologies, states, ownership, notes]
+      required: [sources, vintage, records, technologies, states, ownership, assets, notes]
       properties:
         sources:
           type: object
@@ -10389,6 +10389,58 @@ components:
               type: array
               items:
                 type: string
+        assets:
+          type: object
+          description: >-
+            Which sources each asset type draws on, and whether anything resolves two sources' rows to one
+            asset. A type with more than one source and no resolution can hold the same real-world asset
+            once per source, so a row count over it is a count of source rows. `resolution.exists` is read
+            from the schema (the `asset_source` link table) at request time, not asserted; today it is
+            false everywhere. Whether two sources' populations actually overlap is not derivable and is
+            stated, with its measurement, in `notes` (`applies_to.unresolved_asset_type`).
+          required: [resolution, by_type, unresolved_multi_source]
+          properties:
+            resolution:
+              type: object
+              required: [exists, mechanism]
+              properties:
+                exists:
+                  type: boolean
+                mechanism:
+                  type: string
+                  description: The table whose presence in the schema is the test.
+            by_type:
+              type: object
+              additionalProperties:
+                type: object
+                required: [rows, located, sources, source_count, resolved]
+                properties:
+                  rows:
+                    type: integer
+                  located:
+                    type: integer
+                    description: >-
+                      Rows with a point geometry -- the subset the map and the list-header counts are
+                      taken over.
+                  sources:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      required: [rows, located]
+                      properties:
+                        rows:
+                          type: integer
+                        located:
+                          type: integer
+                  source_count:
+                    type: integer
+                  resolved:
+                    type: boolean
+            unresolved_multi_source:
+              type: array
+              description: Asset types with more than one source and no resolution layer, sorted.
+              items:
+                type: string
         notes:
           type: array
           description: >-
@@ -10407,6 +10459,21 @@ components:
               written:
                 type: string
                 format: date
+              applies_to:
+                type: object
+                description: >-
+                  The derived fact the note hangs off, as written in `data/vocabulary/coverage_notes.yaml`
+                  (`absent_technology`, `withheld_sources`, `ownership`, `unresolved_asset_type`,
+                  `always`). A surface rendering that fact finds its note here.
+                additionalProperties: true
+              figures:
+                type: object
+                description: >-
+                  Measured numbers the note carries that no query can produce -- an entity-count estimate
+                  from a matcher and a hand adjudication, with the date and document they come from.
+                  Printed beside the derived count they qualify, never in place of it.
+                additionalProperties:
+                  type: [number, string]
 
     LifecycleStatesResponse:
       allOf:
