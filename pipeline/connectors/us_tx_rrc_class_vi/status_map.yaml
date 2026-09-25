@@ -1,0 +1,75 @@
+# us.tx.rrc.class_vi: the list's "Application Status" column -> proposal lifecycle (docs/21 §7.1).
+# `field: Status` is the only literal pipeline.normalize.harmonise_status recognises, so the
+# connector puts the cleaned "Application Status" value under ctx["status_raw"] before calling it
+# (same convention as us.epa.class_vi, us.permits_dashboard, gb.neso.tec_register). Footnote
+# markers the spreadsheet glues onto a status ("Draft Doc6", "Pending RAD Response**") are
+# stripped by the connector before lookup; the verbatim text travels in raw.application_status_raw.
+version: 1
+updated: 2026-09-25
+canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
+sources:
+  tx_rrc_class_vi:
+    field: Status
+    map:
+      Under Review: studied
+      Pending RAD Response: studied
+      On Hold by Operator: studied
+      Draft Permit: studied
+      Draft Doc: studied
+      Comment Period for Draft Pemit: studied
+      Comment Period for Draft Permit: studied
+      Hearing: studied
+      Approved: permitted
+      Withdrawn: withdrawn
+    caveats:
+      - >-
+        Observed vocabulary, three releases of the list. 2026-03-11 (18 rows): Pending RAD Response 5,
+        On Hold by Operator 5, Under Review 4, Approved 1, Withdrawn 1, Hearing 1, "Comment Period for
+        Draft Pemit" 1 (sic - the RRC's own spelling, kept verbatim as a key; the corrected spelling is
+        mapped too so a fix at the source is not a vocabulary-drift hold). 2026-05-12 (19 rows): Under
+        Review 5, On Hold by Operator 5, Pending RAD Response 5, Hearing 2, Approved 1, Withdrawn 1.
+        2026-09-22 (20 rows): Under Review 4, On Hold by Operator 4, Pending RAD Response 4, Approved 2,
+        Withdrawn 2, Hearing 2, Draft Permit 1, Draft Doc 1 (printed "Draft Doc6", the 6 a footnote marker). Anything else maps to unknown via
+        `tx_rrc_class_vi.unmapped` and surfaces as status-vocabulary drift.
+      - >-
+        The RRC's own definitions, from the legend printed under the table (2026-09-22 build): "Draft
+        Permit: Drafting Permit & Notice Documents for Public Comment Period / Pending RAD Response:
+        Pending Request for Additional Documents (RAD) response from operator / Draft Doc: Drafting
+        Hearing Packet for Hearings Division / Hearing: Application is currently with Hearings Division".
+        The 2026-05-12 build's notes read "* Protest received, drafting hearing packet ** Pending Request
+        for Additional Documents (RAD) response from operator".
+      - >-
+        Under Review is `studied`, not `filed`: the RRC lists an application only once it has been
+        submitted and taken up (every row carries a Submittal Date), and `studied` is "an agency review
+        that is under way". This source never observes `announced` or `filed` - a Texas Class VI
+        project before submittal is invisible here and must come from news or a DOE/FECM award.
+      - >-
+        Pending RAD Response is `studied`: the agency has reviewed far enough to ask for more documents
+        and the application stays open in its process. Waiting on the applicant is still inside the
+        review; the vocabulary has no applicant-turn state, and inventing one would be false precision.
+      - >-
+        On Hold by Operator is `studied`, the honest coarser state. The hold is the operator's request
+        (the legend calls it "by Operator"), the application is neither withdrawn nor decided, and on
+        every row that carried it the review had already started (57802 and 58440 moved On Hold ->
+        Under Review / Withdrawn between builds). The alternative, `filed`, would assert that review
+        has not started, which the earlier builds show is false; `unknown` would hide a status the
+        RRC states plainly. Same call us.epa.class_vi makes for its On Hold Status field, which it keeps
+        out of the lifecycle entirely. The cost is that On Hold <-> Under Review moves do not emit a
+        status_change event (events key on lifecycle_state); the raw value still diffs in `raw`.
+      - >-
+        Hearing and Draft Doc are `studied`, not `permitted` and not `withdrawn`. A protested application
+        goes to the Hearings Division (Docket # and Referred to Hearing Date fill in) and the outcome
+        is open: 57099 South Midland went Comment Period (March) -> Hearing (May, September). The
+        vocabulary has no contested state; `studied` says the regulator's process is under way, which is
+        exactly what "currently with Hearings Division" means. Draft Doc ("Drafting Hearing Packet") is
+        the step before Hearing and gets the same state.
+      - >-
+        Draft Permit and Comment Period for Draft Permit are `studied`, as us.epa.class_vi maps Prepare
+        Draft Permit and Public Comment Period: a draft permit is not a decision, and promoting it to
+        `permitted` would assert an approval the RRC has not issued. The finer position is readable
+        from status_raw.
+      - >-
+        Approved is `permitted`, not `built`: the RRC's approval authorises the storage facility and its
+        injection wells; it does not report construction or injection. A denial has not been observed
+        and has no key here - if "Denied" appears it maps to unknown and surfaces as drift, which is
+        the right first response to a decision class we have never seen.
