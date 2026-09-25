@@ -860,34 +860,63 @@ sources:
   url: https://www.rrc.texas.gov/oil-and-gas/applications-and-permits/injection-storage-permits/co2-storage/
   access: pdf
   auth: none
-  format: dated "Class VI application list" PDF linked from the page; a real vector table (Acrobat PDFMaker
-    for Excel), not a scan
-  cadence: unknown (file name carries its date; 2026-03-11 build seen on 2026-09-22)
-  license: state agency site; terms not retrieved
+  format: >-
+    dated "Class VI Application List" PDF discovered from the landing page at run time (the path and file
+    name change with every release); one page, Acrobat PDFMaker for Excel, a real 14-column vector table
+    (RRC Tracking #, Operator Name, Project Name, County, District, Formation, No. of Inj. Wells, Inj.
+    Interval (TVD), Submittal Date, Application Status, Protested, Referred to Hearing Date, Docket #,
+    Approval Date) read with pdfplumber; not a scan
+  cadence: weekly poll; the RRC rebuilt the list 2026-03-11, 2026-05-12 and 2026-09-22 (irregular, months apart)
+  rate_limit_rps: 0.5
+  license: >-
+    Site Policies, https://www.rrc.texas.gov/site-policies/ (read 2026-09-25, NOT classified): "Unless
+    otherwise noted on an individual document, file, web page, or other website item, RRC grants permission
+    to copy and distribute the information on its website for noncommercial use, as long as the content
+    remains unaltered and is not presented in a misleading way. The RRC has no restrictions on linking to our
+    website as long as a fee is not charged to access our material. However, we would appreciate
+    acknowledgment of any items you use and request that you link to us in the proper context". The same
+    page links the Public Information Act pages (/general-counsel/open-records/) and DIR's state website
+    linking and privacy policy.
   reuse: unknown
   publication: none
   tier: 3
   effort: M
   probe: {method: GET}
   verified:
-    date: 2026-09-22
+    date: 2026-09-25
     result: ok
     note: >-
-      Page 200, 66,533 bytes; www.rrc.texas.gov/robots.txt is 200 and zero bytes (no rule, permissive). The
-      page states "RRC receives Class VI Primacy from EPA effective December 15, 2025". The list PDF
-      https://www.rrc.texas.gov/media/sutpod2t/class-vi-application-list-31126.pdf is 143,679 bytes, sha256
-      004f62bbb6be16dfef8c975b79ade64b7cfe22a1baa0e90789053094b3628f82, one page, and pdfplumber extracts a
-      single 14-column table cleanly: 18 application rows over 16 operators, columns RRC Tracking #, Operator
-      Name, Project Name, County, District, Formation, No. of Inj. Well, Inj. Interval (TVD), Submittal Date,
-      Application Status, Protested, Referred to Hearing Date, Docket #, Approval Date. Statuses seen: Pending
-      RAD Response 5, On Hold by Operator 5, Under Review 4, Approved 1, Withdrawn 1, Hearing 1, Comment
-      Period for Draft Permit 1.
+      Page 200, 66,533 bytes, sha256 62d8c53c91380b17e604293492ecdc94c6a2824141bc79d145476543280ec9a5;
+      www.rrc.texas.gov/robots.txt 200, zero bytes (no rule). The page carries THREE application-list anchors,
+      two with empty link text: /media/3ivkqhtb/class_vi_application-09222026.pdf (title "Class VI Application
+      09.22.2026", the visible link; 131,163 bytes, sha256
+      f4ee42dd18ddc14b930b96b87681caeedd7e972d34ee8f241392e76a9a8ad9b2, "Last Updated: 09/22/2026", 20
+      application rows over 16 operators; Application Status: Under Review 4, On Hold by Operator 4, Pending
+      RAD Response 4, Approved 2, Withdrawn 2, Hearing 2, Draft Permit 1, Draft Doc 1),
+      /media/r2ndw5md/class_vi_application-5122026.pdf (178,010 bytes, sha256
+      17e510aeee32c54fcd78ece653e83c962959655dc15e9f85df367f80a676055a, 19 rows, 2026-05-12) and
+      /media/sutpod2t/class-vi-application-list-31126.pdf (143,679 bytes, sha256
+      004f62bbb6be16dfef8c975b79ade64b7cfe22a1baa0e90789053094b3628f82, 18 rows, 2026-03-11 - the file the
+      2026-09-22 probe recorded as current). All three parse with the connector (pipeline/connectors/
+      us_tx_rrc_class_vi); every row keyed by RRC Tracking # and every status mapped. The RRC took Class VI
+      primacy 2025-12-15.
   notes: >-
-    The best of the six by a distance: a genuine machine-readable table, an operator-level status vocabulary,
-    a well count and an injection interval per application. The PDF's URL is dated and the page must be
-    scraped for the current one (same pattern as us.eia.860m). Blocked only on terms - Texas is a state
-    agency, not a federal one, so `reuse: unknown` until the RRC site terms are read and recorded in
-    docs/13. Build this second, after the terms question is answered.
+    2026-09-25, owner decision (docs/00-PLAN.md decisions log, superseding the same-day "table the
+    commercial use" wording): "Let's move forward as a noncommercial platform for now for maximum and best
+    data access. Then decide how to proceed once we're done." The RRC's Site Policies grant quoted under
+    `license` - copy and distribute for noncommercial use, content unaltered and not presented in a
+    misleading way, acknowledgment and a link appreciated - is COMPATIBLE with that posture. `reuse` stays
+    `unknown` and the connector (pipeline/connectors/us_tx_rrc_class_vi, built 2026-09-25) stays gated ONLY
+    UNTIL the vocabulary gains a `noncommercial` class, which another lane is adding together with a
+    platform-posture setting; Texas is the first source that class will be applied to. Until then the
+    registry refuses the connector without allow_restricted=True and a flagged run writes only to
+    quarantine. No RRC document is kept in the repository by choice, not by prohibition: the sha256s in
+    `verified` are the evidence of what was measured, the parser is pinned on synthetic cell arrays, and a
+    developer-local copy under the gitignored tests/fixtures/local/ drives the one end-to-end test.
+    Identity is the RRC's own tracking number (stable across the three releases, survived an operator
+    rename). The PDF's document metadata names its RRC author; the connector never reads metadata. The
+    best of the six primacy states by a distance: a genuine machine-readable table, an application-level
+    status vocabulary with the RRC's own legend, a well count and an injection interval per application.
 
 - id: us.wv.dep.class_vi
   name: West Virginia DEP — UIC programme (Class VI)

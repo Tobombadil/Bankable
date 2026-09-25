@@ -26,4 +26,7 @@ personal data, no rows from a `restricted`/`unknown` source). `parse()` runs aga
 | `epa_class_vi_tracker.json` | `us.epa.class_vi` | the connector's own snapshot of EPA's public Qlik Sense app (`wss://awsedap.epa.gov/public/app/8c074297-7f9e-4217-82f0-fb05f54f28e7`, reached from `https://www.epa.gov/uic/current-class-vi-projects-under-review-epa`), recorded **2026-09-22** rather than 2026-09-12 | 11 of 68 project rows plus 3 of the 175 blank spreadsheet padding rows, covering all six Phase values, both identity paths (GSDT project id and the content hash), the two tribal-land rows whose `State` is not a state, a multi-county row, the longest RAI ladder and the longest `Current Status` note. No value edited. EPA's `Primary Permit Writer` field (staff names) is outside the connector's `FIELDS` and was never fetched |
 
 No fixture contains a row from a `restricted` or `unknown` source: SPP, ISO-NE, PJM and MISO have no
-connector this sprint, and the gate tests use a stub rather than their data.
+connector this sprint, and the gate tests use a stub rather than their data. `us.tx.rrc.class_vi` has a
+connector but no fixture here: it is `reuse: unknown` (owner decision 2026-09-25, `docs/00-PLAN.md`), so its
+parser is pinned on synthetic cell arrays in its own test file, and the one end-to-end test over a real RRC PDF
+reads a gitignored local path (`tests/fixtures/local/`) and skips when the file is absent.

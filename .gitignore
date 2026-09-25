@@ -23,3 +23,7 @@ infra/sops/keys/*.txt
 
 # Harness-managed isolated worktrees for review agents (never repository content)
 .claude/worktrees/
+
+# Developer-local fixtures that must never be committed: documents from a `reuse: unknown` source
+# (e.g. the RRC Class VI list PDFs read by pipeline/connectors/us_tx_rrc_class_vi's skipif test).
+tests/fixtures/local/

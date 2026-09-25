@@ -11,6 +11,7 @@ pyshp>=2.3               # pipeline/context/regions.py: Census/Natural Earth sha
 websocket-client>=1.8    # pipeline/connectors/us_epa_class_vi: EPA's Class VI tracker is a public
                          # Qlik Sense app whose only machine route is the Engine JSON API over a
                          # websocket. Imported lazily inside fetch(); parser tests need it not.
+pdfplumber>=0.11         # pipeline/connectors/us_tx_rrc_class_vi: the RRC's Class VI list is a vector-table PDF (ADR 0002, docs/20 §15)
 
 # services/db, services/ingest, services/api (Sprint 2 backend)
 sqlalchemy>=2.0,<2.1
