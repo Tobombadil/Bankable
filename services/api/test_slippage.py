@@ -36,6 +36,22 @@ from services.db.models import Proposal
 ON = dt.date(2026, 9, 21)
 
 
+@pytest.fixture(autouse=True)
+def _clock_pinned_to_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test in this module runs on `ON`, including the ones that go through the API.
+
+    `slip_fixtures` anchors its target dates to the literal `ON`, but the list endpoint filters
+    on the real clock (`services/api/app.py` imports `today` as `slip_today`), so the `at_grace`
+    row -- exactly `SLIP_GRACE_DAYS` late on `ON` -- crossed the grace line the day after the
+    file was written. CI was green on 2026-09-21 by coincidence of date and red from
+    2026-09-22 on `main` itself. Two patch targets because `app.py` binds the name at import:
+    patching only `services.api.slippage.today` would fix `proposal_slip` and leave the filter
+    on the wall clock.
+    """
+    monkeypatch.setattr("services.api.slippage.today", lambda: ON)
+    monkeypatch.setattr("services.api.app.slip_today", lambda: ON)
+
+
 def _now() -> dt.date:
     """Today's real date: the `serialize_proposal` tests exercise the production default clock."""
     return dt.datetime.now(dt.UTC).date()
