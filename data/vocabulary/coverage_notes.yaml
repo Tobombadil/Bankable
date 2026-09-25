@@ -61,3 +61,49 @@ notes:
       notices. There is no coverage of US state or local permitting, no non-GB European
       interconnection queue, and no Canadian, Australian or Asian supply source. Absence of a
       country here means we have not built it, never that nothing is happening there.
+
+  # ---------------------------------------------------------------- asset types with two sources
+  # `applies_to: {unresolved_asset_type: X}` holds while X draws rows from more than one source and
+  # the store has no resolution layer (`services/api/coverage.py::asset_resolution_exists`, the
+  # `asset_source` table of docs/24 §5(a)). Either change retires the note. `figures` are the
+  # measured numbers no query can produce -- an entity-count estimate needs a matcher and a hand
+  # adjudication -- so they are typed here, dated, and printed beside the derived row count.
+  - id: ethanol_two_sources
+    applies_to: {unresolved_asset_type: ethanol_plant}
+    written: 2026-09-25
+    figures:
+      measured: 2026-09-22
+      reference: docs/24-asset-identity-and-provenance.md
+      rows_measured: 388
+      distinct_estimate: 201
+      distinct_estimate_upper: 207
+      redundant_share: 0.482
+      redundant_share_floor: 0.466
+      matcher_precision: 183/187
+      matcher_recall: 183/187
+    headline: "Ethanol plants: 388 rows from two EIA sources, not yet resolved to one record per plant."
+    body: >-
+      About 201 distinct plants (measured 2026-09-22, docs/24). The Energy Atlas layer and the
+      annual capacity report each list the fleet, and the register holds both lists side by side,
+      so a plant present in both appears twice and a count over these rows over-states the fleet
+      by roughly half. The estimate comes from a scored match on state, company, city and
+      nameplate, adjudicated by hand: 183 of 187 links confirmed, 4 missed (precision and recall
+      each 183/187); if every judgement call in it were wrong the count would be 207 plants, so
+      the over-statement is at least 46%. Where the two sources disagree on the operator (22% of
+      matched pairs), the Energy Atlas name is the older one. Only the Atlas rows carry
+      coordinates, which is why the map and the count above it show fewer rows than the list.
+
+  - id: rng_two_sources
+    applies_to: {unresolved_asset_type: rng_project}
+    written: 2026-09-25
+    figures:
+      measured: 2026-09-22
+      reference: docs/24-asset-identity-and-provenance.md
+      cross_source_links: 0
+    headline: "RNG projects: two EPA sources, covering different populations."
+    body: >-
+      The two sources are not resolved to one record per project either, but they do not need
+      to be: LMOP lists landfill-gas projects and AgSTAR lists farm digesters, and no project was
+      found in both (0 cross-source links, measured 2026-09-22, docs/24). A count over these rows
+      is a count of projects. It is listed here because the table above cannot tell an overlap
+      from a disjoint pair, and a reader should not have to guess which this is.

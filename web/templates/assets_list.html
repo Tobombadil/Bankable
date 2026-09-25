@@ -34,6 +34,29 @@
 <p class="attribution-line">Counts are of assets with a published location. An asset whose source licence withholds coordinates still has a row and a page here, and is not counted above.</p>
 {% endif %}
 
+{#- Placement decision (docs/24 §6.1; the coverage lane's rule from the proposals lists).
+    The proposals rule is: a populated list gets no coverage line, because a caveat beside five
+    thousand correct rows is a disclaimer and gets skimmed. It holds here for every view but one.
+    On a single-type view whose rows come from two unresolved sources, the populated count *is*
+    the wrong number -- each plant in both sources is two rows -- and the line below is not a
+    caveat about the rows, it is the corrected figure, printed where the wrong one is read. That
+    is the one case the rule did not cover, and it is confined to it: `count_note` is `None`
+    unless exactly one type is selected, that type has more than one source and no resolution
+    layer, *and* a dated note carries a measured estimate of the distinct count (RNG has two
+    sources and no estimate, because its sources do not overlap, so it gets nothing). Both
+    numbers are shown, the derived row count and the measured estimate, never the estimate
+    alone. The proposals lists are untouched: this is an asset-layer statement.
+    Wording: "two sources, not yet resolved" describes the data-fusion state; nothing here says
+    duplicate or bug. -#}
+{% if count_note %}
+<p class="attribution-line" id="count-note">
+  This list holds <strong class="tnum">{{ '{:,}'.format(count_note.rows) }} rows</strong> (about <strong class="tnum">{{ '{:,}'.format(count_note.estimate) }}</strong> {{ count_note.label }}).
+  Two sources, not yet resolved to one record per asset, so an asset listed by both appears twice; measured <span class="tnum">{{ count_note.measured }}</span>.
+  {%- if count_note.located != count_note.rows %} The count above is of the {{ '{:,}'.format(count_note.located) }} rows with a location.{% endif %}
+  <a href="{{ count_note.href }}">How this was measured</a>.
+</p>
+{% endif %}
+
 <form id="filters" class="filter-bar" method="get" action="/assets" hx-get="/assets" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
   <div class="filter-field">
     <label for="f-asset-type">Type</label>

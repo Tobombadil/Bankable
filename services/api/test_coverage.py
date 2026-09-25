@@ -215,3 +215,132 @@ def test_lifecycle_states_covers_both_vocabularies(client: TestClient) -> None:
     data = client.get("/v1/lifecycle-states").json()["data"]
     assert [s["state"] for s in data["lifecycle_states"]] == list(LIFECYCLE_STATES)
     assert [s["state"] for s in data["opportunity_statuses"]] == list(OPPORTUNITY_STATUSES)
+
+
+# ------------------------------------------------------------ sources per asset type (docs/24)
+def _seed_ethanol(db: Session, *, second_source: bool = True) -> None:
+    """The measured shape in miniature: an Atlas row with coordinates and a capacity-report row
+    without, for the same plant, kept apart by `(source_id, source_asset_id)`."""
+    from services.api.conftest import make_asset
+
+    lic = make_open_licence(db)
+    atlas = make_public_source(db, lic, id_="us.eia.atlas.ethanol_plants")
+    make_asset(db, atlas, lic, source_asset_id="NE-poet-fairmont", asset_type="ethanol_plant", name="Poet")
+    if second_source:
+        report = make_public_source(db, lic, id_="us.eia.ethanol_capacity")
+        make_asset(
+            db,
+            report,
+            lic,
+            source_asset_id="NE-flint-hills-fairmont",
+            asset_type="ethanol_plant",
+            name="Flint Hills Fairmont",
+            geom=None,
+        )
+    db.commit()
+
+
+def test_coverage_states_sources_and_rows_per_asset_type(client: TestClient, db: Session) -> None:
+    _seed_ethanol(db)
+    assets = client.get("/v1/coverage").json()["data"]["assets"]
+    ethanol = assets["by_type"]["ethanol_plant"]
+    assert ethanol["rows"] == 2
+    assert ethanol["located"] == 1, "only the Atlas row carries coordinates; the page must be able to say so"
+    assert ethanol["source_count"] == 2
+    assert ethanol["sources"] == {
+        "us.eia.atlas.ethanol_plants": {"rows": 1, "located": 1},
+        "us.eia.ethanol_capacity": {"rows": 1, "located": 0},
+    }
+    assert ethanol["resolved"] is False
+    assert assets["unresolved_multi_source"] == ["ethanol_plant"]
+
+
+def test_no_resolution_layer_is_read_from_the_schema_not_asserted(client: TestClient, db: Session) -> None:
+    """`resolution.exists` is the inspector's answer, so it flips the day the `asset_source`
+    link table (docs/24 §5(a)) lands, with no edit to the statement."""
+    _seed_ethanol(db)
+    resolution = client.get("/v1/coverage").json()["data"]["assets"]["resolution"]
+    assert resolution == {"exists": False, "mechanism": "asset_source"}
+
+
+def test_the_ethanol_note_is_returned_while_two_sources_are_unresolved(
+    client: TestClient, db: Session
+) -> None:
+    _seed_ethanol(db)
+    notes = {n["id"]: n for n in client.get("/v1/coverage").json()["data"]["notes"]}
+    note = notes["ethanol_two_sources"]
+    assert note["applies_to"] == {"unresolved_asset_type": "ethanol_plant"}
+    # The measured estimate and its provenance travel with the note, typed for JSON.
+    assert note["figures"]["distinct_estimate"] == 201
+    assert note["figures"]["measured"] == "2026-09-22"
+    assert note["figures"]["reference"] == "docs/24-asset-identity-and-provenance.md"
+    assert note["figures"]["matcher_precision"] == "183/187"
+    assert note["figures"]["redundant_share_floor"] == 0.466
+    assert "not yet resolved" in note["headline"]
+    assert "Energy Atlas name is the older one" in note["body"]
+
+
+def test_the_public_text_describes_a_fusion_state_and_never_calls_it_a_bug(
+    client: TestClient, db: Session
+) -> None:
+    _seed_ethanol(db)
+    notes = client.get("/v1/coverage").json()["data"]["notes"]
+    for note in notes:
+        if (note["applies_to"] or {}).get("unresolved_asset_type"):
+            text = f"{note['headline']} {note['body']}".lower()
+            assert "duplicate" not in text and "bug" not in text, note["id"]
+
+
+def test_the_ethanol_note_retires_when_the_type_has_one_source(client: TestClient, db: Session) -> None:
+    """Retirement condition one: the second source goes away (or never loaded). The type is
+    then one source, the row count is the asset count, and the note would contradict it."""
+    _seed_ethanol(db, second_source=False)
+    data = client.get("/v1/coverage").json()["data"]
+    assert data["assets"]["by_type"]["ethanol_plant"]["source_count"] == 1
+    assert data["assets"]["unresolved_multi_source"] == []
+    assert not any(n["id"] == "ethanol_two_sources" for n in data["notes"])
+
+
+def test_the_ethanol_note_retires_when_a_resolution_layer_exists(client: TestClient, db: Session) -> None:
+    """Retirement condition two: the link table lands. Simulated by creating the table the
+    inspector looks for; both sources are still loaded, so only the schema changed."""
+    import sqlalchemy as sa
+
+    _seed_ethanol(db)
+    before = client.get("/v1/coverage").json()["data"]
+    assert any(n["id"] == "ethanol_two_sources" for n in before["notes"]), "precondition: the note applies"
+
+    db.execute(sa.text("CREATE TABLE asset_source (id INTEGER PRIMARY KEY, asset_id TEXT, source_id TEXT)"))
+    db.commit()
+
+    after = client.get("/v1/coverage").json()["data"]
+    assert after["assets"]["resolution"]["exists"] is True
+    assert after["assets"]["by_type"]["ethanol_plant"]["source_count"] == 2, "the sources did not change"
+    assert after["assets"]["by_type"]["ethanol_plant"]["resolved"] is True
+    assert after["assets"]["unresolved_multi_source"] == []
+    assert not any(n["id"] == "ethanol_two_sources" for n in after["notes"])
+
+
+def test_a_single_source_type_is_stated_as_resolvable_by_construction(
+    client: TestClient, db: Session
+) -> None:
+    """Five of the seven live types have one source (docs/24 §0): cross-source over-counting is
+    impossible there, and the statement says one source rather than implying a problem."""
+    from services.api.conftest import make_asset
+
+    lic = make_open_licence(db)
+    source = make_public_source(db, lic, id_="us.eia.860m")
+    make_asset(db, source, lic, source_asset_id="1", asset_type="power_plant")
+    make_asset(db, source, lic, source_asset_id="2", asset_type="power_plant", name="Other")
+    db.commit()
+    assets = client.get("/v1/coverage").json()["data"]["assets"]
+    assert assets["by_type"]["power_plant"]["source_count"] == 1
+    assert assets["by_type"]["power_plant"]["rows"] == 2
+    assert "power_plant" not in assets["unresolved_multi_source"]
+
+
+def test_an_empty_store_states_no_asset_types(client: TestClient, db: Session) -> None:
+    assets = client.get("/v1/coverage").json()["data"]["assets"]
+    assert assets["by_type"] == {}
+    assert assets["unresolved_multi_source"] == []
+    assert assets["resolution"]["exists"] is False

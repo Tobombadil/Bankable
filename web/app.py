@@ -61,6 +61,7 @@ from web.viewmodels import (
     WITHDRAWN_PROPOSAL_STATES,
     WORLD_BBOX,
     absence_note,
+    asset_count_note,
     coverage_facts,
     flatten_asset,
     flatten_opportunity,
@@ -1718,10 +1719,16 @@ def assets_list(request: Request) -> HTMLResponse:
     # whole corpus, so quoting it beside a filtered list would be a number the page does not show.
     filtered = any(qp.get(name) for name in ASSET_INDEX_FILTERS)
     corpus_total = (sum(counts.values()) or None) if not filtered else None
+    count_note = asset_count_note(coverage_facts(request, api), selected_types)
+    if count_note:
+        count_note["label"] = _sentence_label(next(iter(selected_types)), plural=True)
     context = {
         "records": records,
         "type_counts": type_counts,
         "counts_total": sum(counts.values()) or None,
+        # The corrected count for a type whose rows out-number its assets (docs/24); `None` for
+        # every other view, argued in `web/viewmodels.py::asset_count_note` and the template.
+        "count_note": count_note,
         "sorts": ASSET_INDEX_SORTS,
         "sort": sort,
         "sort_caption": next(label.lower() for token, label in ASSET_INDEX_SORTS if token == sort),
@@ -2290,6 +2297,17 @@ def methodology(request: Request) -> HTMLResponse:
             "coverage": data,
             "vintage": data["vintage"],
             "withheld_supply": [s for s in data["sources"]["withheld"] if s.get("supply")],
+            # Sources per asset type, rows sorted descending, with the note (if any) that measured
+            # what the second source does to the count -- looked up by the fact it hangs off.
+            "asset_sources": sorted(
+                (data.get("assets") or {}).get("by_type", {}).items(), key=lambda kv: -int(kv[1]["rows"])
+            ),
+            "asset_notes": {
+                n["applies_to"]["unresolved_asset_type"]: n
+                for n in data.get("notes") or []
+                if (n.get("applies_to") or {}).get("unresolved_asset_type")
+            },
+            "asset_type_labels": {t: _type_label(t, plural=True) for t in ASSET_TYPE_LABELS},
             "vocabulary": vocabulary_env["data"],
             "basis_labels": VINTAGE_BASIS_LABELS,
         },
