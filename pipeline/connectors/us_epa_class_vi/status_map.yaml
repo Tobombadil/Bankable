@@ -1,0 +1,29 @@
+# us.epa.class_vi: the tracker's "Phase" field -> proposal lifecycle (docs/21 §7.1).
+# `field: Status` is the only literal pipeline.normalize.harmonise_status recognises (its
+# field_key lookup is `{"Status": "status_raw", "Status (Original)": "status_original"}`), so the
+# connector puts the raw "Phase" value under ctx["status_raw"] before calling it — the same
+# convention us.permits_dashboard and gb.neso.tec_register use for their own status fields.
+version: 1
+updated: 2026-09-22
+canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
+sources:
+  epa_class_vi:
+    field: Status
+    map:
+      Completeness Review: filed
+      Technical Review: studied
+      Prepare Draft Permit: studied
+      Public Comment Period: studied
+      Final Permit Decisions Issued: permitted
+      Application Withdrawn: withdrawn
+    caveats:
+      - >-
+        The six values above are the whole observed vocabulary on 2026-09-22 (68 project rows, Phase counts: Technical Review 36, Application Withdrawn 13, Final Permit Decisions Issued 11, Completeness Review 5, Public Comment Period 2, Prepare Draft Permit 1). Anything else maps to unknown via `epa_class_vi.unmapped` and surfaces as status-vocabulary drift.
+      - >-
+        Completeness Review is `filed`, not `announced`: EPA already has the application. The tracker starts at the application, so this source never observes `announced` - a Class VI project announced but not yet filed is invisible here and must come from news or a DOE/FECM award.
+      - >-
+        Technical Review, Prepare Draft Permit and Public Comment Period all map to `studied`. The canonical vocabulary has no state between under-review and permitted, and promoting a draft permit to `permitted` would assert a decision EPA has not made. The per-milestone dates in `raw` (draft permit actual, public comment complete actual) carry the finer position.
+      - >-
+        Final Permit Decisions Issued is `permitted`, not `built`: a Class VI permit authorises construction of the injection well, it does not report it. EPA's field name says decisions issued, which in principle covers a denial as well as an issue; no denial has been observed, and if one appears it will read `permitted` until the tracker distinguishes them (`Current Status` free text would be the evidence).
+      - >-
+        `On Hold Status` (Never / Previously / Currently On Hold) is deliberately not folded into the lifecycle state: an application on applicant-requested hold is still under review, and the canonical vocabulary has no paused state. It travels in `raw`, with the tracker's own `Days on Applicant Requested Hold`.

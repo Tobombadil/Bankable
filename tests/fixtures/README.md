@@ -1,6 +1,6 @@
 # Recorded connector fixtures
 
-Every file here is a **real** response, fetched on **2026-09-12** by the connector that parses it and
+Every file here is a **real** response, fetched on **2026-09-12** (except `epa_class_vi_tracker.json`, 2026-09-22 — the row says so) by the connector that parses it and
 then trimmed to a few dozen rows (docs/04 E-6: ≤ 1 MB, one fixture per format and layout variant, no
 personal data, no rows from a `restricted`/`unknown` source). `parse()` runs against these in CI;
 `fetch()` never does. Re-record by running the connector and trimming its snapshot the same way.
@@ -23,6 +23,7 @@ personal data, no rows from a `restricted`/`unknown` source). `parse()` runs aga
 | `ferc_elibrary_search.json` | `us.ferc.elibrary` | `POST https://elibrary.ferc.gov/eLibrarywebapi/api/Search/AdvancedSearch` | 5 pages (ER26/CP26 docket-number search plus 3 description-term searches), 23 unique accessions before the window/docket-class filter, 17 survive it |
 | `ferc_elibrary_search_error.json` | `us.ferc.elibrary` | same endpoint, `sortBy: "filed_date"` | a real captured `success: false` response (the docs/02 §7 "HTTP 200 with an error body" case) — this exact `sortBy` value 500s server-side, which is why the connector always sends `sortBy: ""` |
 | `permits_dashboard_projects.csv` | `us.permits_dashboard` | `https://data.permits.performance.gov/api/views/mcm3-xbid/rows.csv?accessType=DOWNLOAD` | 224 milestone rows across 12 projects (10 in the six energy/transmission sectors the connector keeps, 2 out of scope — Aviation and Surface Transportation — to exercise the sector filter) |
+| `epa_class_vi_tracker.json` | `us.epa.class_vi` | the connector's own snapshot of EPA's public Qlik Sense app (`wss://awsedap.epa.gov/public/app/8c074297-7f9e-4217-82f0-fb05f54f28e7`, reached from `https://www.epa.gov/uic/current-class-vi-projects-under-review-epa`), recorded **2026-09-22** rather than 2026-09-12 | 11 of 68 project rows plus 3 of the 175 blank spreadsheet padding rows, covering all six Phase values, both identity paths (GSDT project id and the content hash), the two tribal-land rows whose `State` is not a state, a multi-county row, the longest RAI ladder and the longest `Current Status` note. No value edited. EPA's `Primary Permit Writer` field (staff names) is outside the connector's `FIELDS` and was never fetched |
 
 No fixture contains a row from a `restricted` or `unknown` source: SPP, ISO-NE, PJM and MISO have no
 connector this sprint, and the gate tests use a stub rather than their data.

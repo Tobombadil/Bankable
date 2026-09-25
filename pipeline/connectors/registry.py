@@ -35,7 +35,11 @@ CONNECTORS_DIR = pathlib.Path(__file__).resolve().parent
 
 PUBLISHABLE_REUSE = frozenset({"open", "attribution"})
 GATED_REUSE = frozenset({"restricted", "unknown"})
-NEVER_INGEST = frozenset({"us.gridtracker.interconnection_fyi"})
+#: Ids that may never be ingested, whatever their manifest text says. Id-based, because the
+#: `NEVER_INGEST_NAMES` substring rule below matches prose: `global.carbonstorage_io` was marked
+#: never-ingest 2026-09-22 only because its own note *mentions* Cleanview as a comparison, so
+#: editing that sentence would have silently removed the protection (CLAUDE.md guardrail 1).
+NEVER_INGEST = frozenset({"us.gridtracker.interconnection_fyi", "global.carbonstorage_io"})
 NEVER_INGEST_NAMES = ("interconnection.fyi", "cleanview", "energy adepto", "bidnet", "halcyon", "enverus")
 
 # docs/02 §7 host limits (requests per second). Everything else defaults to 1 rps.
