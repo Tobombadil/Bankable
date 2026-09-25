@@ -339,3 +339,278 @@ could not be recorded (token block) and is exercised in-test with a synthetic tw
    CLIs took `--manifest` pointing at the committed copy).
 4. Browser task (docs/40 §0): confirm whether EIA now requires a login on the Atlas feature services or has moved
    them; until then the `map_data` zips are the route for every Atlas point layer.
+
+## 11. CCS and CO₂ infrastructure — source map by data type (2026-09-25)
+
+**Question (owner, 2026-09-25):** carbonstorage.io's data is visible but its sources are not; what does it hold, by
+type, and where does each type come from for our own use? **Method:** carbonstorage.io was not fetched (it is
+`NEVER_INGEST`, id-pinned); its nine asset classes and five feature types are as the coordinator recorded them from
+its public navigation. Every primary source below was probed on 2026-09-25 through the repo's own
+`PoliteSession` (robots.txt first per host, no retries, challenge pages reported as blocks); every probe's URL,
+HTTP status, bytes and, for files, sha256 are in the `verified` block of its `data/sources.yaml` entry, and the
+raw log sits in the lane's scratchpad. **Markers:** **M** = measured today; **I** = inferred (not fetched, or
+fetched but the claim goes beyond what the bytes show). "Reg." = registered in the manifest; "Built" = a connector
+exists. Terms are quoted verbatim where a clause was readable; `reuse: unknown` means no clause was read.
+**Posture** (added 2026-09-25 under the owner's noncommercial decision, §11.6): `open` = federal §105, NLOD, CC BY and
+similar; `usable-NC` = the grant is noncommercial-only, usable under the posture once the `noncommercial` reuse class
+exists; `restricted-or-silent` = the terms restrict, or none were found; `blocked` = robots-disallowed, challenge page
+or 403. Filled from the terms column and the manifest entries, nothing re-probed; where a row spans sources with
+different postures they are listed; "—" where the row is not a source.
+
+### 11.1 The nine asset classes
+
+**Class VI (permits and applications)**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| UIC Class VI permit tracker (68 projects, 235 applications; excludes the six primacy states) — M | US EPA | Qlik engine JSON over websocket, anonymous — M | 17 U.S.C. §105 — M (`docs/13` §2.12 hedge) | `open` | app "Last Updated" 2026-09-11 — M | `us.epa.class_vi` | yes | high |
+| Class VI application list PDF (18 rows, 14 columns) — M | Texas RRC | dated PDF table, page scraped for the URL — M | **read 2026-09-25**: "RRC grants permission to copy and distribute the information on its website for noncommercial use, as long as the content remains unaltered" — M; manifest `reuse: unknown` until the `noncommercial` class exists (see 11.4, 11.6) | `usable-NC` | file dated 2026-03-11 — M | `us.tx.rrc.class_vi` | no | mod |
+| Class VI document folders, 7 storage facilities, per-facility injected-CO₂ PDFs — M | ND DMR | HTML document library — M | unread — `unknown` | `restricted-or-silent` | per case — I | `us.nd.dmr.class_vi` | no | mod |
+| SONRIS Class VI applications — I (not fetched) | Louisiana DCE | Oracle APEX; **robots `Disallow: /`** — M (2026-09-22) | unread — `unknown` | `blocked` | unknown | `us.la.dce.class_vi` | no (never fetch) | n/a |
+| Class VI lists at AZ (Cloudflare challenge), WV (no list published), WY (JS popup, intermittent interstitial) — M (2026-09-22) | state DEQs | browser only | unread — `unknown` | `blocked` (AZ challenge, WY interstitial) / `restricted-or-silent` (WV) | unknown | `us.az/wv/wy.*.class_vi` | no | low |
+| Primacy grants (ND 2018, WY 2020, LA 2024, WV 2025-02, AZ 2025-09, TX 2025-11; **Colorado proposed 2026-03-19**) — M | Federal Register | JSON API — M | §105 — M | `open` | daily — M | `us.federalregister.api` | no | high |
+
+The 127-vs-68 gap the coordinator measured is the primacy states (Texas alone has 50 Class VI wells in EPA's
+FY2024 inventory, Illinois 22 — the latter already in the EPA tracker). Colorado will be a seventh primacy
+state; the Federal Register feed is how the primacy set stays current — I.
+
+**Operational storage**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GHGRP Subpart RR — sheet "Geologic Sequestration of CO2": **20 facilities RY2023** with total mass sequestered (Hobbs Field 5.20 Mt, Seminole SAU 3.93 Mt, Wasson 3.67 Mt, ADM Decatur 0.54 Mt, Shute Creek 0.44 Mt, Red Trail 0.16 Mt, Blue Flint 0.03 Mt …) — M | US EPA | annual zip (28,389,973 B, sha256 `895349c8…bf8345`); Envirofacts `pub_dim_facility` filter `reported_subparts CONTAINING RR` (63 facility-years, 20 in 2023, 15 with `rr_mrv_plan_url`) — M | §105 — M | `open` | RY2023; **no RY2024 file published as of 2026-09-25** — M | `us.epa.ghgrp.subpart_rr` | no | high |
+| Subpart RR Annual Monitoring Reports page: 19 facilities, one PDF per facility-year 2016–2023 — M | US EPA | HTML table → PDFs — M | §105 — M | `open` | page updated 2026-02-19 — M | same id | no | high |
+| Per-facility injected volumes (ND CO2Reporting folder) — M | ND DMR | PDFs — M | unread | `restricted-or-silent` | per report — I | `us.nd.dmr.class_vi` | no | mod |
+
+Twelve of the twenty RR reporters are CO₂-EOR fields (Occidental, CapturePoint, Core Energy, Petra Nova); the
+dedicated/saline set is ADM, Red Trail, Blue Flint, Barnett RDC, SPG Bowie, Great Plains — M. "Operational
+storage" in the US is that short. No Tallgrass / Eastern Wyoming row exists through RY2023 — M.
+
+**Planned storage**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Class VI applications (rows above) — M | EPA + primacy states | as above | as above | as above: `open` (EPA) / `usable-NC` (TX) / `restricted-or-silent` (ND, WV) / `blocked` (LA, AZ, WY) | as above | as above | partly | high |
+| CarbonSAFE / storage-hub awards: `DEFE0032442` Four Corners Phase III $42.7M, `DEFE0032444` Polk $55.8M, `DEFE0032340` Illinois Basin West $20.5M, `DEFE0032449` Paradise KY $9.0M, `DEFE0032625` Meriden Carbon WY $2.25M … — M | US Treasury (USAspending) | JSON POST, slow (45 s timeouts; one 502) — M | §105 — M | `open` | daily — M | `us.usaspending` | no | high |
+| CO₂ storage exploration/exploitation licences, complete history (first exploitation licence 2019, first exploration licence 2022) — M | Norwegian Offshore Directorate | FactPages HTML (list page timed out ×2, index read) — M | "may be used in accordance with Norwegian Licence for Open Government Data (NLOD)" — M; NLOD text unread | `open` | daily sync — M | `no.sodir.factpages_co2_storage` | no | mod |
+| Carbon storage licence areas (2023 round) — I | NSTA (GB) | ArcGIS Hub, client-rendered; no licence clause located — M | unread — `unknown` | `restricted-or-silent` | per round — I | `gb.nsta.carbon_storage_licences` | no | low |
+| NETL carbon-storage portfolio / CarbonSAFE pages — **unpublished** (Drupal "You are not authorized to access this page", 403 ×3; `/project-information` 200 but empty) — M | NETL | n/a | §105 | `blocked` (403; §105 if republished) | n/a | `us.doe.netl.carbon_storage_portfolio` | no | high (that it is gone) |
+
+**Capture**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GHGRP Subpart PP — suppliers of CO₂ (capture/separation): **138 facilities RY2023**, 1,771 facility-years; "Suppliers" sheet column "GHG Quantity Associated with CO2 Supply" — M | US EPA | same zip; Envirofacts `pp_subpart_level_information` — M | §105 — M | `open` | RY2023 — M | `us.epa.ghgrp.subpart_uu_pp` | no | high |
+| Facility-level `co2_captured` flag and parent-company shares (136,005 facility-years) — M (2026-09-22) | US EPA | Envirofacts REST — M | §105 | `open` | RY2023 | `us.epa.ghgrp` | no | high |
+| OCED Carbon Capture Demonstration / Large-Scale Pilot selections — page lists funding announcements only, no selections; portfolio is client-rendered — M | DOE OCED (now `energy.gov/cmei/oced`) | browser task | §105 | `open` | volatile (2025-10-01: 321 awards terminated, list not published) — M | `us.doe.oced.portfolio` | no | mod |
+| Planned capture at ethanol plants (Gevo, REX 8-Ks) — M | SEC EDGAR full-text search (48 hits/12 mo for "Class VI" "carbon dioxide") | JSON, declared UA, ≤10 rps — M | "Anyone can access and download this information for free" — M; derived-only | `open` | realtime — M | `us.sec.edgar_fts` | no | high |
+
+**EOR (CO₂ enhanced oil recovery)**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GHGRP Subpart UU — "CO2 Injection" sheet: **81 facilities RY2023** (TX 34, WY 14, NM 9, MS 8, ND 3, MI 3, MT 3, LA 2, CO 2, OK 2, AR 1) with lat/lon and quantity received for injection; 1,207 facility-years — M | US EPA | same zip; Envirofacts filter — M | §105 — M | `open` | RY2023 — M | `us.epa.ghgrp.subpart_uu_pp` | no | high |
+| UIC well inventory FY2024: Class II recovery wells by state (national 106,656; TX 36,852, CA 23,923, KS 11,336, IL 6,656, OK 6,251, WY 4,292) — M | US EPA | xlsx (16,905 B, sha256 `bd6ff9d9…6d66`) — M | §105 — M | `open` | annual, posted 2026-02-05 — M | `us.epa.uic.well_inventory` | no | high |
+| Per-well Class II: RRC UIC database (monthly EBCDIC/ASCII dumps) — M | Texas RRC | bulk fixed-width — M | noncommercial-only clause (quoted above) — M | `usable-NC` | monthly — M | `us.tx.rrc.datasets` | no | mod |
+| Per-well UIC injection volumes 2011–2025 (xlsx) + RBDMS wells zip — M | Oklahoma OCC | bulk xlsx/zip — M | no reuse clause; site notice is a vendor DMCA procedure — M | `restricted-or-silent` | annual — M | `us.ok.occ.well_data` | no | mod |
+| OCD FTP data sets — M (page) | New Mexico OCD | FTP bulk — M | unread | `restricted-or-silent` | unknown | `us.nm.ocd.data` | no | low |
+| ks_wells.zip master list — M (page) | Kansas Geological Survey | bulk — M | unread (university) | `restricted-or-silent` | monthly — M | `us.ks.kgs.wells` | no | low |
+| WOGCC DataExplorer (offline on probe day); legacy `pipeline.wyo.gov` **robots `Disallow: /`** — M | Wyoming OGCC | JS app / blocked | unread | `blocked` (legacy host robots; DataExplorer offline, terms unread) | unknown | `us.wy.ogcc.data` | no | low |
+| NDIC well search, hearing dockets — M (page) | ND DMR | HTML | unread | `restricted-or-silent` | daily — M | `us.nd.dmr.oilgas` | no | low |
+| Louisiana Class II — not fetched (SONRIS robots) | Louisiana DCE | n/a | unread | `blocked` | n/a | (see `us.la.dce.class_vi`) | no | n/a |
+
+**Carbon removal (DAC)**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Regional DAC Hubs page — FOAs only (DE-FOA-0002735 $3.5B Dec 2022; $1.8B NOFO Dec 2024), no selections listed — M | DOE OCED | HTML | §105 | `open` | stale — M | `us.doe.oced.portfolio` | no | mod |
+| DAC awards by keyword ("direct air capture": `DEFE0032375` Illinois Basin Regional DAC Hub $2.9M seen in the CarbonSAFE query; the dedicated query timed out) — M/I | USAspending | JSON POST — M | §105 | `open` | daily | `us.usaspending` | no | mod |
+| Class VI applications by DAC sponsors (the storage half of a DAC project) — I | EPA / states | as above | as above | as above (mixed) | as above | as above | partly | mod |
+| "Carbon Negative Shot" — a DOE goal, not a dataset; its page 404s after the reorganisation — M | DOE | n/a | n/a | — | n/a | not registered (nothing to register) | — | high |
+
+Private DAC registries (cdr.fyi, Puro, Isometric) were not probed: aggregators or registries with their own terms,
+same class as `global.carbonstorage_io` until read — I.
+
+**CO₂ pipelines**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Hazardous liquid annual reports, Part D mileage by commodity ("Carbon Dioxide") by operator, state, diameter — **tabular, no geometry** — I (file not yet fetched) | PHMSA | zip; origin 403 (AkamaiGHost) honoured; one archive attempt 2026-09-25 → connection reset, not retried — M | §105; `docs/13` §2.16 route reasoning — M | `open` (origin 403 honoured; archive route) | annual (due March 15) — I | `us.phmsa.hazardous_liquid_annual` | no | high (data) / low (route) |
+| NPMS / PIMMA geometry — **closed**: "The general public and private companies may not access PIMMA" — M (coordinator, 2026-09-25) | PHMSA | never | n/a | `restricted-or-silent` | n/a | not registered (never a route) | — | high |
+| Hydrocarbon and Carbon Dioxide Pipeline Dockets: **HP22-001 SCS Carbon Transport filed 02/07/22 closed 10/13/23; HP22-002 Navigator Heartland Greenway filed 09/27/22 closed 10/26/23**; 2024 folder present — M | South Dakota PUC | static HTML index per year — M | unread (footer "Disclaimer" not read) | `restricted-or-silent` | per filing — M | `us.sd.puc.co2_pipeline_dockets` | no | high |
+| Case search + case-detail pages (full filing ladder with filer, type, pages, date) — M | North Dakota PSC | HTML — M | unread | `restricted-or-silent` | per filing | `us.nd.psc.case_search` | no | mod |
+| EFS dockets HLP-2021-0001 (Summit), Navigator, Wolf — **robots `User-agent: * / Disallow: / / Allow: /$`**, nothing fetched — M | Iowa Utilities Commission (renamed from IUB; `iub.iowa.gov` → `iuc.iowa.gov`) | blocked | unread | `blocked` | n/a | `us.ia.iuc.efs` | no (never fetch) | n/a |
+| e-Docket (SAFE CCS Act certificates) — SPA, served HTML empty; guessed API path 500 — M | Illinois Commerce Commission | browser only | unread | `restricted-or-silent` | per filing | `us.il.icc.edocket` | no | low |
+| eDockets (Summit Otter Tail–Wilkin) — **bare 403** — M | Minnesota PUC | blocked | unread | `blocked` | n/a | `us.mn.puc.edockets` | no | n/a |
+| Who regulates: PHMSA safety (49 U.S.C. ch. 601); **STB** common-carrier rates, 49 U.S.C. §15301(a) "transportation by pipeline … when transporting a commodity other than water, gas, or oil" — M (uscode.house.gov, in force 2026-09-24); siting = states; **FERC: no role** (neither NGA nor ICA reaches CO₂) — M/I | — | — | — | — | — | `us.federalregister.api` (PHMSA rulemaking docket, 270 docs) | — | high |
+
+**e-Fuels (and hydrogen)**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Regional Clean Hydrogen Hubs page (programme text; selections not listed on the page) — M | DOE OCED | HTML | §105 | `open` | volatile | `us.doe.oced.portfolio` | no | mod |
+| Global hydrogen tracker (CC BY 4.0; TZ rows dropped) — recorded 2026-09-12/20 | Global Energy Monitor | xlsx | CC BY 4.0 — `docs/13` §2.2 | `open` / `usable-NC` (TZ-ID rows, CC BY-NC 4.0) | quarterly | `global.gem.trackers` | partly | high |
+| RFS Part 80 registrations (fuel producers incl. e-fuel pathways) — recorded 2026-09-19 | US EPA | xlsx | §105 | `open` | continuous | `us.epa.rfs_public_data` | no | mod |
+| 8-K/10-K announcements (Gevo etc.) — M | SEC EDGAR | as above | as above | `open` | realtime | `us.sec.edgar_fts` | no | high |
+| Grants.gov / DOE eXCHANGE FOAs — recorded | DOE | JSON/HTML | §105 | `open` | daily | `us.grants_gov.search2`, `us.doe.exchange_portals` | no | high |
+
+There is no e-fuels register anywhere; the class is announcements plus funding plus RFS registration — I.
+
+**Stratigraphic wells**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| State oil-and-gas well permits (a stratigraphic test well for a storage site is an ordinary state-permitted well: NDIC well search; RRC drilling-permit master with lat/long; OCC RBDMS; KGS master list; WOGCC) — M (pages) / I (that the strat wells are findable by type) | state commissions | bulk / HTML per state | unread or noncommercial (TX) | `restricted-or-silent` (ND, OK, KS) / `usable-NC` (TX) / `blocked` (WY legacy host) | monthly–daily | `us.nd.dmr.oilgas`, `us.tx.rrc.datasets`, `us.ok.occ.well_data`, `us.ks.kgs.wells`, `us.wy.ogcc.data` | no | mod |
+| Class VI applications' well counts and injection intervals (EPA tracker "# of Permit Applications"; RRC list "No. of Inj. Well", "Inj. Interval (TVD)") — M | EPA / RRC | as above | as above | `open` (EPA) / `usable-NC` (RRC) | as above | as above | partly | high |
+| CarbonSAFE site-characterisation awards (each Phase II/III award drilled or drills a strat well) — M (awards) / I (well link) | USAspending | as above | §105 | `open` | daily | `us.usaspending` | no | mod |
+| CO₂ storage wellbores (FactPages shortcut "CO2 storage wellbores") — M (link) | Norwegian Offshore Directorate | FactPages | NLOD — M | `open` | daily | `no.sodir.factpages_co2_storage` | no | mod |
+| Louisiana strat wells — not fetched (SONRIS) | Louisiana DCE | n/a | unread | `blocked` | n/a | — | no | n/a |
+
+"Global stratigraphic wells" as a single dataset does not exist publicly; it is a per-jurisdiction join of well
+registers, and outside ND/TX/OK/KS/NO the terms are unread — I.
+
+### 11.2 The five feature types (and DOE funding)
+
+**FOIA results**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| EPA FOIA Reading Room (records already released, searchable by office "file cabinet"; Office of Water holds UIC) — M (room reached, search not run) | US EPA | ASP.NET app (`securefoia.epa.gov`) — M | §105 for EPA-authored; **applicant-authored documents keep their copyright** → derived-only — I | `open` | continuous | `us.epa.foia.reading_room` | no | mod |
+| EPA FOIA logs FY2009–FY2026 Q3 — quarterly **PDFs** (2.4–16 MB), requester names inside — M | US EPA | PDF extraction — M | §105; requester names are personal data (`docs/13` §5.4) | `open` | quarterly — M | same id | no | high |
+| DOE FOIA responses page — 2021-era items, **no CCS entry** — M | DOE | HTML | §105 | `open` | irregular | `us.doe.foia.reading_room` | no | high |
+| FOIA.gov — annual-report data and an agency API, no request logs — M | DOJ OIP | JSON (key) | §105 | `open` | annual | not registered (nothing project-level) | — | high |
+| A FOIA request of our own — an owner action with a fee and a queue, **not a feed** | — | — | — | — | months | — | — | — |
+
+**News coverage**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SEC EDGAR full-text search: 48 hits/12 months for "Class VI" "carbon dioxide" (Gevo, REX American …) — M | SEC | JSON; declared UA; ≤10 rps ("The SEC does not allow botnets or automated tools to crawl the site … outside of the acceptable policy") — M | free access; registrant-authored → derived-only — M | `open` | realtime | `us.sec.edgar_fts` | no | high |
+| Federal Register: 63 "Class VI" "carbon dioxide" documents, 270 PHMSA CO₂-pipeline documents — M | OFR/GPO | JSON API | §105 | `open` | daily | `us.federalregister.api` | no | high |
+| GDELT DOC (1 request / 5 s) — recorded 2026-09-12 | GDELT | JSON | attribution; derived-only | `open` | 15-min | `news.gdelt.doc` | no | high |
+| OCED news listing (RSS at `/rss/cmei-oced/4820508`, newest item 2026-08-21) — M | DOE | HTML/RSS | §105 | `open` | irregular | `us.doe.oced.portfolio` | no | mod |
+| EPA news-release search RSS — **robots `Disallow: /newsreleases/search/`** (also `/publicnotices/notices-search/`) — M | US EPA | blocked path | §105 | `blocked` | — | not registered | — | high |
+| Google News RSS, wires, trade press — recorded | various | RSS | restricted / DSM Art. 4 | `restricted-or-silent` | realtime | `news.google_rss`, `news.wires`, `news.trade_press` | no | — |
+
+The lawful CCS news feed is therefore: EDGAR + Federal Register (both public domain, structured, realtime) for
+the listed and the regulated, GDELT headlines for everyone else, and never article bodies — I.
+
+**Permits**
+
+Covered by the Class VI, EOR (Class II) and CO₂-pipeline tables above; the one addition is the Subpart RR MRV-plan
+approval (`rr_mrv_plan_url`, 15 of 20 RY2023 facilities), which is EPA's permit-like decision for storage
+accounting — M.
+
+**Downloadable files**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Class VI permit and application PDFs (ND folders, 67 links; EPA per-project `udr.epa.gov` links; RRC per-application PDFs) — M | ND DMR / EPA / RRC | HTML → PDF | ND unread; EPA §105; TX noncommercial-only | `restricted-or-silent` (ND) / `open` (EPA) / `usable-NC` (TX) | per case | `us.nd.dmr.class_vi`, `us.epa.class_vi`, `us.tx.rrc.class_vi` | partly | mod |
+| Subpart RR annual monitoring reports (one PDF per facility-year) and MRV plans — M | US EPA | HTML → PDF | §105 | `open` | annual | `us.epa.ghgrp.subpart_rr` | no | high |
+| State docket filings (SD, ND) — M | state PUCs | HTML → PDF | unread | `restricted-or-silent` | per filing | `us.sd.puc.*`, `us.nd.psc.*` | no | mod |
+
+**Global dataset of point-source emissions and emitting facilities**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GHGRP facilities: 136,005 facility-years, 11,281 for RY2023, lat/lon, NAICS, parent company with shares, `co2_captured`, `rr_mrv_plan_url` — M (2026-09-22) | US EPA | Envirofacts REST + annual zip — M | §105 | `open` | RY2023; RY2024 not yet published — M | `us.epa.ghgrp` | no | high |
+| Non-US point sources (EU ETS registry, Climate TRACE, national inventories) — not probed | various | — | unread | `restricted-or-silent` (not probed) | — | not registered | — | n/a |
+
+The "global" claim is not checkable from outside; the US half is free and public domain, and it is the half where
+storage and capture actually join (RR/UU/PP rows are GHGRP facility ids) — I.
+
+**DOE funding**
+
+| Primary source | Publisher | Retrieval | Terms | Posture | Freshness | Reg. | Built | Conf. |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| USAspending award search (keyword "CarbonSAFE": 10+ awards with recipient, amount, dates, place of performance, description) — M; "Class VI" query 502 | US Treasury | JSON POST, ≥120 s timeout advised — M | §105 | `open` | daily | `us.usaspending` | no | high |
+| Grants.gov Search2 / DOE eXCHANGE (FOAs) — recorded | DOE / HHS | JSON / HTML | §105 | `open` | daily | `us.grants_gov.search2`, `us.doe.exchange_portals` | no | high |
+| OCED portfolio and map — client-rendered; programme pages list FOAs, not selections — M | DOE OCED | browser task | §105 | `open` | volatile | `us.doe.oced.portfolio` | no | mod |
+| NETL carbon-storage portfolio — unpublished (403 "not authorized") — M | NETL | n/a | §105 | `blocked` (403; §105 if republished) | n/a | `us.doe.netl.carbon_storage_portfolio` | no | high |
+| **DOE reorganisation (M):** `energy.gov/oced/*` → `/cmei/oced/*` (Office of Critical Minerals and Energy Innovation); `energy.gov/fecm/*` → `/hgeo/*` (Hydrocarbons and Geothermal Energy Office), whose focus areas are Coal, Oil & Gas, Geothermal, SPR, Natural Gas Regulation — **no carbon-management programme page survives** | DOE | — | — | — | — | — | — | high |
+
+**45Q (asked in the brief).** No per-project public record exists — M/I. Verified by absence at the IRS: the 45Q
+credit page URLs 404; the Form 8933 page is live and describes Schedules A/B/C (owner, disposal-operator and EOR-
+operator *certifications*) — tax-return attachments, never published. The public proxy is Subpart RR: Treas. Reg.
+§1.45Q-3 makes an RR MRV plan (or CSA/ISO 27916) the secure-storage test, so the RR facility list is the set of
+sites that *can* claim 45Q for geologic storage — I. Aggregate claim totals exist only in SOI tables and oversight
+reports (not fetched) — I.
+
+### 11.3 What has no public primary source
+
+The honest list of what carbonstorage.io's FOIA requests and hand-curation produce that no feed does — I unless marked:
+
+1. **Lateral geometry and named laterals.** PHMSA Part D gives operator/state/diameter mileage totals; the Trailblazer
+   breakdown (mainline 349.1 mi + ADM Columbus 83.1 + SIRE 130.0 + smaller laterals = 734.0) comes from operator
+   statements, FERC abandonment/conversion filings and project pages, stitched by hand. NPMS geometry is closed — M.
+2. **Contracted-plant lists** (which ethanol plants are signed to which pipeline or hub). Sponsor press releases,
+   8-Ks for the listed minority, and state docket exhibits; no register.
+3. **Hub detail** (sponsor consortia, capture-source rosters, phase capacities, "Permitted" status for a state-primacy
+   site such as Eastern Wyoming Sequestration Hub). Wyoming's list is behind a JS popup — M; the rest is announcements.
+4. **Pre-application and withdrawn intent** (projects announced but never filed). News only.
+5. **Application documents in primacy states with closed systems** — Louisiana (SONRIS robots-disallowed — M),
+   Arizona (challenge — M), Minnesota and Iowa dockets (403 / robots — M). FOIA or state public-records requests are
+   the only route, and they are owner actions.
+6. **Per-project 45Q claims** — M/I (above).
+7. **Non-US "global" coverage beyond Norway (open) and GB (terms unread)** — everything else is announcements or
+   restricted compilations (IEA challenge-blocked — M; GCCSI CO2RE and private DAC registries not probed).
+
+### 11.4 Build order (rows unlocked per unit of effort)
+
+| # | Source(s) | Rows unlocked (M unless marked) | Effort | Blocker / owner action |
+|---|---|---|---|---|
+| 1 | `us.epa.ghgrp.subpart_rr` + `us.epa.ghgrp.subpart_uu_pp` (one connector, one zip already hashed) | 20 storage + 81 injection + 138 supplier facilities with coordinates and quantities; the emitter↔storage join | S | none — public domain, file fetched today |
+| 2 | `us.federalregister.api` | primacy-state map (7th state pending) + PHMSA rulemaking events | S | none |
+| 3 | `us.sec.edgar_fts` | ~50 CCS filings/yr from listed companies, realtime | S | none (declared UA, ≤1 rps) |
+| 4 | `us.usaspending` CCS queries (CarbonSAFE, DAC, capture demos) | tens of awards with amounts, dates, places; status changes after the 2025 terminations | S | none; slow endpoint, long timeout |
+| 5 | `us.tx.rrc.class_vi` (+ `us.tx.rrc.datasets` later) | 18 Class VI applications now; 36,852 Class II recovery wells and every drilling permit with lat/long later | M | **unblocked** by the owner's 2026-09-25 noncommercial posture (`docs/00-PLAN.md` decisions log; §11.6); waits only on the `noncommercial` reuse class another lane is adding — the connector stays gated to quarantine until then |
+| 6 | `us.epa.uic.well_inventory` | 58 state rows sizing Class II/VI per state | S | none |
+| 7 | `us.sd.puc.co2_pipeline_dockets` + `us.nd.psc.case_search` | a handful of CO₂ pipeline dockets with lifecycle dates | S–M | state terms read (SD "Disclaimer", ND) |
+| 8 | `us.nd.dmr.class_vi` document ingest (+ `us.nd.dmr.oilgas`) | 7 facilities' orders/permits + injected volumes | M | ND terms read |
+| 9 | `us.ok.occ.well_data` | per-well UIC injection volumes 2011–2025 | M | OK terms (none found — owner/counsel) |
+| 10 | `us.phmsa.hazardous_liquid_annual` | CO₂ mileage by operator/state | M | archive route retry (features lane) |
+| 11 | `no.sodir.factpages_co2_storage` | Norwegian CO₂ storage licences with history | M | NLOD text read and credit line fixed |
+| 12 | `us.epa.foia.reading_room` | already-released UIC records + FOIA-log subjects | M | derived-only rule; requester names never stored |
+| 13 | Louisiana | the largest primacy-state Class VI set | — | **owner: data-sharing request to DCE** (SONRIS is robots-disallowed; nothing else exists) |
+| 14 | AZ / WY / IL ICC / MN / OCED portfolio / NSTA | small lists each | L | browser worker (`docs/40` §0) + terms |
+| 15 | Class VI in Colorado (proposed primacy) | future | — | watch `us.federalregister.api` |
+
+### 11.5 Measured differences from the 2026-09-25 brief
+
+- Envirofacts has **no** `rr_`/`uu_subpart_level_information` tables (404); RR/UU come from the `pub_dim_facility`
+  `reported_subparts` filter or the annual zip's sheets; `pp_subpart_level_information` exists — M.
+- Subpart RR is not "operational storage" in the saline sense: 12 of 20 reporters are EOR fields — M.
+- NETL's project portfolio and CarbonSAFE pages are **unpublished** (403 "not authorized"), not merely unregistered; DOE's
+  FECM no longer exists as a web presence (→ HGEO, no carbon-management area) — M.
+- The Texas RRC terms *were* readable headlessly and are quoted: noncommercial-only — M (the brief had them
+  "noncommercial-only, parked" as a claim; now evidenced).
+- Colorado Class VI primacy is proposed (2026-03-19): the primacy set is seven-in-waiting, not six — M.
+- The Iowa siting authority is the Iowa Utilities *Commission* and its docket system is robots-disallowed; SD's docket
+  index is a plain HTML list — M.
+- FERC's non-role is confirmed by statute rather than by a FERC page (ferc.gov and CRS were not reachable: CRS answered a
+  challenge) — M/I.
+
+### 11.6 Unlocked by the noncommercial posture (2026-09-25)
+
+Owner, 2026-09-25, verbatim: "Let's move forward as a noncommercial platform for now for maximum and best data
+access. Then decide how to proceed once we're done." Under it a source whose only obstacle is a noncommercial grant is
+usable, not dead. Nothing is reclassified here — the vocabulary has no `noncommercial` reuse class yet (another lane is
+adding one with a platform-posture setting); the posture column above marks the map so that reclassification is
+mechanical. Measured over the 106 probes of this lane:
+
+- `us.tx.rrc.class_vi` — 18–20 Class VI applications now (the committed connector reads the 2026-09-22 release: 20
+  rows); `us.tx.rrc.datasets` — 36,852 Class II recovery wells (EPA FY2024 inventory) via the monthly UIC database
+  dumps, plus every drilling permit with lat/long (stratigraphic test wells included). Obstacle was solely the RRC
+  "noncommercial use" grant. Both manifest entries carry the marker `noncommercial (pending class)` in `notes`.
+- `global.gem.trackers` TZ-ID rows — CC BY-NC 4.0 (`docs/13` §2.2, §6 row: "drop TZ rows at ingest"); the register
+  carries no row count for the dropped set, so the count is unmeasured here.
+- gem.wiki prose — CC BY-NC-SA (`docs/13` §2.2), never ingested; usable for derived facts under the posture, still
+  share-alike on any republished text.
+- Nothing else in the 106 probes was blocked only by a noncommercial grant: every other non-federal source is either
+  silent on terms (`unknown`), robots-disallowed (SONRIS, `efs.iowa.gov`, `pipeline.wyo.gov`), challenge/403-blocked
+  (AZ DEQ, IEA, CRS, MN eDockets), or open (federal §105, Sodir NLOD, SEC).
+
+The posture is true only if three preconditions the coordinator has put to the owner hold — the pricing surfaces
+suspended or marked inactive; counsel's confirmation that a pre-revenue LLC feeding a commercial deal workflow can
+hold noncommercial status; and a firewall keeping noncommercial rows out of any downstream commercial use — which the
+posture lane is writing up in `docs/26`.
