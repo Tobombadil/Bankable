@@ -7624,6 +7624,28 @@ components:
               type: [string, 'null']
               format: date-time
               description: Set when the row disappeared from the register — a signal, never a delete.
+    AssetProvenanceRow:
+      allOf:
+        - $ref: '#/components/schemas/ProvenanceQuartet'
+        - type: object
+          description: >-
+            One source record behind this asset (`provenance[]`). Usually one row; several only
+            when a resolution pass has fused two registries' rows into one asset -- `ethanol_plant`
+            only today (docs/24 §5(a), the `asset_source` link table).
+          required: [is_primary, match_method]
+          properties:
+            is_primary:
+              type: boolean
+              description: True for the source that sets the asset's own identity (`source_id`/`source_asset_id`).
+            match_method:
+              type: string
+              enum: [deterministic_key, rule, model, user]
+              description: '`deterministic_key` for the primary source; `rule` for a source fused in by a scored match.'
+            match_score:
+              type: [number, 'null']
+              minimum: 0
+              maximum: 1
+              description: Null for the primary source; the match score for a fused secondary source.
     FieldProvenance:
       type: object
       description: 'Per canonical field: which source and snapshot the value came from (docs/21 §3.1). Pro+ detail responses only.'
@@ -9309,7 +9331,7 @@ components:
         provenance:
           type: array
           items:
-            $ref: '#/components/schemas/ProvenanceQuartet'
+            $ref: '#/components/schemas/AssetProvenanceRow'
         owners:
           type: array
           items:

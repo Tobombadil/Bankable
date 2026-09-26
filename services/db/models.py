@@ -1391,6 +1391,20 @@ class Asset(Base):
     source: Mapped[Source] = relationship(lazy="joined")
     licence: Mapped[Licence] = relationship(lazy="joined")
     owners: Mapped[list[AssetOwner]] = relationship(back_populates="asset", cascade="all, delete-orphan")
+    #: Every contributing source record (docs/24 §5(a)); empty for every asset type this table has
+    #: not been backfilled for yet (all but `ethanol_plant` today) -- callers fall back to the
+    #: asset's own provenance quartet in that case (`services/api/serialize.py::serialize_asset`).
+    sources: Mapped[list[AssetSource]] = relationship(
+        back_populates="asset",
+        cascade="all, delete-orphan",
+        order_by="desc(AssetSource.is_primary)",
+        # `selectin`, not the default lazy `select`: a list response serialises every row's
+        # provenance unconditionally (`services/api/serialize.py::asset_provenance_rows`), and a
+        # per-row lazy load here would reintroduce exactly the N+1 the `proposal_source` index
+        # comment on that class already paid for once (14-75s per list page, `services/README.md`
+        # "Sprint 2 fixes"). One batched query for the whole page instead.
+        lazy="selectin",
+    )
 
     __table_args__ = (
         sa.CheckConstraint(f"asset_type IN {ASSET_TYPES!r}", name="asset_type_vocab"),
@@ -1435,6 +1449,54 @@ class AssetOwner(Base):
     __table_args__ = (
         sa.CheckConstraint(f"role IN {ASSET_OWNER_ROLES!r}", name="role_vocab"),
         sa.UniqueConstraint("asset_id", "organization_id", "role", "source_id", name="uq_asset_owner_edge"),
+    )
+
+
+# ============================================================= asset_source (docs/21 §3.22a, docs/24 §5(a))
+class AssetSource(Base):
+    """One source record's contribution to an `asset` row (option (a) of docs/24 §5, built to the
+    `ProposalSource` pattern the doc names as already proven: several of these may point at the
+    same asset once a resolution pass has matched two registries' rows to one real-world asset.
+    `asset.source_id`/`source_asset_id` keep their pre-existing meaning unmodified -- the primary
+    source's identity -- and predate this table (docs/24 §4); this table adds the provenance quartet
+    for *every* contributing source, primary included, so an asset's page can list every register
+    that named it rather than only the one `asset` itself is keyed on.
+
+    Landed for `ethanol_plant` first (`pipeline/context/ethanol_match.py`,
+    `services/ingest/assets.py::load_ethanol_plants`): every other asset type still loads exactly as
+    before ADR 0008 and writes no row here, so `services/api/coverage.py::asset_sources` reads
+    "resolved" per type from whether that type actually has any row here, not from the table's mere
+    existence."""
+
+    __tablename__ = "asset_source"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    asset_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("asset.id"), nullable=False)
+    source_id: Mapped[str] = mapped_column(sa.ForeignKey("source.id"), nullable=False)
+    source_record_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    source_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    retrieved_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
+    #: True for the one row that sets `asset.source_id`/`source_asset_id` (the source with
+    #: coordinates when the asset has one -- docs/24 §5(a): "the primary source"). Exactly one
+    #: primary row per asset; enforced by the loader, not a database constraint (a partial unique
+    #: index needs `WHERE is_primary`, which SQLite batch mode does not carry across a downgrade
+    #: cleanly for a brand-new table -- the same trade-off `proposal_source.active` documents).
+    is_primary: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    match_method: Mapped[str] = mapped_column(sa.Text, nullable=False, default="deterministic_key")
+    match_score: Mapped[float | None] = mapped_column(sa.Numeric(4, 3))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    asset: Mapped[Asset] = relationship(back_populates="sources")
+    source: Mapped[Source] = relationship(lazy="joined")
+    licence: Mapped[Licence] = relationship(lazy="joined")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"match_method IN {LINK_METHODS!r}", name="match_method_vocab"),
+        sa.UniqueConstraint("source_id", "source_record_id", name="uq_asset_source_source_record"),
+        sa.Index("ix_asset_source_asset_id", "asset_id"),
     )
 
 

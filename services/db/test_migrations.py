@@ -234,3 +234,51 @@ def test_0009_to_0011_upgrade_downgrade_upgrade(sqlite_url: str) -> None:
         ).one()
         assert row.asset_type == "power_plant"
         assert row.source_asset_id == "P1"
+
+
+def test_0021_asset_source_upgrade_downgrade_upgrade(sqlite_url: str) -> None:
+    """`asset_source` (docs/24 §5(a)) is a fresh, additive table with no prior columns to alter and
+    no data to carry across, unlike 0009-0011's table rename -- so unlike
+    `test_0009_to_0011_upgrade_downgrade_upgrade` above, the baseline here is built with
+    `Base.metadata.create_all` (every table's dialect-neutral column types, as
+    `services/db/test_models.py` already relies on) rather than hand-written DDL: there is nothing
+    migration 0020 produces that this table's own migration needs to know about, so the risk that
+    hand-written DDL drifts from the ORM does not apply the way it would for a table 0021 alters in
+    place. The table is dropped and the revision stamped at 0020 to reproduce "the schema
+    immediately before this migration"."""
+    from services.db.models import Base
+
+    engine = sa.create_engine(sqlite_url, future=True)
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(sa.text("DROP TABLE IF EXISTS asset_source"))
+
+    cfg = _alembic_config(sqlite_url)
+    command.stamp(cfg, "0020")
+
+    command.upgrade(cfg, "head")
+    insp = inspect(engine)
+    assert insp.has_table("asset_source")
+    columns = {c["name"] for c in insp.get_columns("asset_source")}
+    assert {
+        "id",
+        "asset_id",
+        "source_id",
+        "source_record_id",
+        "source_url",
+        "retrieved_at",
+        "licence_id",
+        "is_primary",
+        "match_method",
+        "match_score",
+        "created_at",
+    } <= columns
+    assert {ix["column_names"][0] for ix in insp.get_indexes("asset_source")} >= {"asset_id"}
+
+    command.downgrade(cfg, "0020")
+    insp = inspect(engine)
+    assert not insp.has_table("asset_source")
+
+    command.upgrade(cfg, "head")
+    insp = inspect(engine)
+    assert insp.has_table("asset_source")

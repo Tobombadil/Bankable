@@ -118,6 +118,66 @@ def test_get_asset_detail_includes_owners_and_attributes(client, db, spec):
     assert data["owners"][0]["share_pct"] == 75.0
 
 
+def test_get_asset_detail_lists_every_source_once_resolved(client, db, spec):
+    """docs/24 §5(a): once `asset_source` links exist, a detail response lists every one, primary
+    first, not just the primary's own quartet (`services/api/serialize.py::asset_provenance_rows`)."""
+    from services.api.conftest import make_asset_source
+
+    lic = make_open_licence(db)
+    atlas = make_public_source(db, lic, id_="us.eia.atlas.ethanol_plants")
+    report = make_public_source(db, lic, id_="us.eia.ethanol_capacity")
+    asset = make_asset(
+        db, atlas, lic, source_asset_id="NE-poet-fairmont", asset_type="ethanol_plant", name="Poet Fairmont"
+    )
+    make_asset_source(db, asset, atlas, lic, is_primary=True, match_method="deterministic_key")
+    make_asset_source(
+        db,
+        asset,
+        report,
+        lic,
+        source_record_id="NE-flint-hills-fairmont",
+        is_primary=False,
+        match_method="rule",
+        match_score=0.767,
+    )
+    db.commit()
+
+    resp = client.get(f"/v1/assets/{asset.public_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert_valid(spec, "AssetDetailResponse", body)
+    provenance = body["data"]["provenance"]
+    assert len(provenance) == 2
+    assert provenance[0]["source_id"] == "us.eia.atlas.ethanol_plants"
+    assert provenance[0]["is_primary"] is True
+    assert provenance[0]["match_method"] == "deterministic_key"
+    assert provenance[0]["match_score"] is None
+    assert provenance[1]["source_id"] == "us.eia.ethanol_capacity"
+    assert provenance[1]["is_primary"] is False
+    assert provenance[1]["match_method"] == "rule"
+    assert provenance[1]["match_score"] == pytest.approx(0.767)
+
+
+def test_get_asset_detail_falls_back_to_its_own_quartet_with_no_links_yet(client, db, spec):
+    """Every asset type but `ethanol_plant` has no `asset_source` rows yet -- the detail response
+    must still show exactly the one source the asset itself carries, unchanged from before this
+    table existed."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    asset = make_asset(db, src, lic, source_asset_id="1", name="Roscoe Wind Farm")
+    db.commit()
+
+    resp = client.get(f"/v1/assets/{asset.public_id}")
+    body = resp.json()
+    assert_valid(spec, "AssetDetailResponse", body)
+    provenance = body["data"]["provenance"]
+    assert len(provenance) == 1
+    assert provenance[0]["source_id"] == src.id
+    assert provenance[0]["is_primary"] is True
+    assert provenance[0]["match_method"] == "deterministic_key"
+    assert provenance[0]["match_score"] is None
+
+
 def test_get_asset_404_for_unknown_public_id(client, db):
     resp = client.get("/v1/assets/asset_doesnotexist")
     assert resp.status_code == 404

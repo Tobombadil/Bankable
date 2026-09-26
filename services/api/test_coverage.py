@@ -255,12 +255,16 @@ def test_coverage_states_sources_and_rows_per_asset_type(client: TestClient, db:
     assert assets["unresolved_multi_source"] == ["ethanol_plant"]
 
 
-def test_no_resolution_layer_is_read_from_the_schema_not_asserted(client: TestClient, db: Session) -> None:
-    """`resolution.exists` is the inspector's answer, so it flips the day the `asset_source`
-    link table (docs/24 §5(a)) lands, with no edit to the statement."""
+def test_the_resolution_mechanism_is_read_from_the_schema_not_asserted(
+    client: TestClient, db: Session
+) -> None:
+    """`resolution.exists` is the inspector's answer: the `asset_source` link table (docs/24 §5(a))
+    has landed, so every store now answers True here -- but that is a statement about the
+    *mechanism*, not about any particular type being resolved with it (`resolved_asset_types`
+    is the honest per-type answer, covered by the tests below)."""
     _seed_ethanol(db)
     resolution = client.get("/v1/coverage").json()["data"]["assets"]["resolution"]
-    assert resolution == {"exists": False, "mechanism": "asset_source"}
+    assert resolution == {"exists": True, "mechanism": "asset_source"}
 
 
 def test_the_ethanol_note_is_returned_while_two_sources_are_unresolved(
@@ -302,23 +306,75 @@ def test_the_ethanol_note_retires_when_the_type_has_one_source(client: TestClien
 
 
 def test_the_ethanol_note_retires_when_a_resolution_layer_exists(client: TestClient, db: Session) -> None:
-    """Retirement condition two: the link table lands. Simulated by creating the table the
-    inspector looks for; both sources are still loaded, so only the schema changed."""
-    import sqlalchemy as sa
+    """Retirement condition two: something actually writes `asset_source` rows for this type. The
+    `asset_source` table now exists in every store's schema (docs/24 §5(a) landed), so this
+    exercises the honest half of the claim: the note stays up until a row names this *type*, not
+    merely until the table exists (`services/api/coverage.py::resolved_asset_types`)."""
+    from services.api.conftest import make_asset, make_asset_source
 
-    _seed_ethanol(db)
+    lic = make_open_licence(db)
+    atlas = make_public_source(db, lic, id_="us.eia.atlas.ethanol_plants")
+    report = make_public_source(db, lic, id_="us.eia.ethanol_capacity")
+    plant = make_asset(
+        db, atlas, lic, source_asset_id="NE-poet-fairmont", asset_type="ethanol_plant", name="Poet"
+    )
+    plant2 = make_asset(
+        db,
+        report,
+        lic,
+        source_asset_id="NE-flint-hills-fairmont",
+        asset_type="ethanol_plant",
+        name="Flint Hills Fairmont",
+        geom=None,
+    )
+    db.commit()
+
     before = client.get("/v1/coverage").json()["data"]
+    assert before["assets"]["resolution"]["exists"] is True, "the mechanism already exists"
+    assert before["assets"]["by_type"]["ethanol_plant"]["source_count"] == 2
+    assert before["assets"]["by_type"]["ethanol_plant"]["resolved"] is False, "nothing has linked it yet"
     assert any(n["id"] == "ethanol_two_sources" for n in before["notes"]), "precondition: the note applies"
 
-    db.execute(sa.text("CREATE TABLE asset_source (id INTEGER PRIMARY KEY, asset_id TEXT, source_id TEXT)"))
+    # Simulate the resolution pass having run: both raw rows are still here (this test is not
+    # exercising the merge itself, `services/ingest/assets.py::load_ethanol_plants` does that), but
+    # `asset_source` now names both sources for this type, which is the honest thing
+    # `resolved_asset_types` checks for.
+    make_asset_source(db, plant, atlas, lic, is_primary=True, match_method="deterministic_key")
+    make_asset_source(db, plant2, report, lic, is_primary=False, match_method="rule", match_score=0.767)
     db.commit()
 
     after = client.get("/v1/coverage").json()["data"]
-    assert after["assets"]["resolution"]["exists"] is True
     assert after["assets"]["by_type"]["ethanol_plant"]["source_count"] == 2, "the sources did not change"
     assert after["assets"]["by_type"]["ethanol_plant"]["resolved"] is True
     assert after["assets"]["unresolved_multi_source"] == []
     assert not any(n["id"] == "ethanol_two_sources" for n in after["notes"])
+
+
+def test_a_second_multi_source_type_stays_unresolved_until_it_too_has_links(
+    client: TestClient, db: Session
+) -> None:
+    """The mechanism existing for `ethanol_plant` must not silently mark `rng_project` (or any
+    other multi-source type) resolved -- `resolved_asset_types` is per type, not a single flag off
+    the table's existence (this is the "honestly" requirement docs/24 §5(a) names)."""
+    from services.api.conftest import make_asset, make_asset_source
+
+    lic = make_open_licence(db)
+    atlas = make_public_source(db, lic, id_="us.eia.atlas.ethanol_plants")
+    report = make_public_source(db, lic, id_="us.eia.ethanol_capacity")
+    plant = make_asset(db, atlas, lic, source_asset_id="NE-poet-fairmont", asset_type="ethanol_plant")
+    make_asset_source(db, plant, atlas, lic, is_primary=True)
+    make_asset_source(db, plant, report, lic, source_record_id="NE-flint-hills-fairmont", is_primary=False)
+
+    lmop = make_public_source(db, lic, id_="us.epa.lmop")
+    agstar = make_public_source(db, lic, id_="us.epa.agstar")
+    make_asset(db, lmop, lic, source_asset_id="lf-1", asset_type="rng_project", name="Landfill 1")
+    make_asset(db, agstar, lic, source_asset_id="ag-1", asset_type="rng_project", name="Digester 1")
+    db.commit()
+
+    assets = client.get("/v1/coverage").json()["data"]["assets"]
+    assert assets["by_type"]["ethanol_plant"]["resolved"] is True
+    assert assets["by_type"]["rng_project"]["resolved"] is False
+    assert assets["unresolved_multi_source"] == ["rng_project"]
 
 
 def test_a_single_source_type_is_stated_as_resolvable_by_construction(
@@ -343,4 +399,5 @@ def test_an_empty_store_states_no_asset_types(client: TestClient, db: Session) -
     assets = client.get("/v1/coverage").json()["data"]["assets"]
     assert assets["by_type"] == {}
     assert assets["unresolved_multi_source"] == []
-    assert assets["resolution"]["exists"] is False
+    # The mechanism exists in the schema (docs/24 §5(a) landed) even with no rows to resolve.
+    assert assets["resolution"]["exists"] is True

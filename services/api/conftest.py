@@ -16,6 +16,7 @@ from services.api.ratelimit import default_limiter
 from services.db.models import (
     Asset,
     AssetOwner,
+    AssetSource,
     Event,
     Licence,
     Location,
@@ -229,6 +230,36 @@ def make_asset_owner(
     session.add(edge)
     session.flush()
     return edge
+
+
+def make_asset_source(
+    session: Session,
+    asset: Asset,
+    source: Source,
+    licence: Licence,
+    *,
+    source_record_id: str | None = None,
+    is_primary: bool = True,
+    match_method: str = "deterministic_key",
+    match_score: float | None = None,
+) -> AssetSource:
+    """One `asset_source` link row (docs/24 §5(a)) -- what actually makes `asset_sources`'s
+    per-type `resolved` flag honest (`services/api/coverage.py::resolved_asset_types`): a type is
+    resolved only once something has written a row here, never merely because the table exists."""
+    link = AssetSource(
+        asset_id=asset.id,
+        source_id=source.id,
+        source_record_id=source_record_id or asset.source_asset_id,
+        source_url=source.url,
+        retrieved_at=dt.datetime(2026, 9, 1, tzinfo=UTC),
+        licence_id=licence.id,
+        is_primary=is_primary,
+        match_method=match_method,
+        match_score=match_score,
+    )
+    session.add(link)
+    session.flush()
+    return link
 
 
 def make_location(
