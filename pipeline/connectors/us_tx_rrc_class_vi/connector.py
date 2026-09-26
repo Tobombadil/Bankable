@@ -4,13 +4,20 @@ Texas holds Class VI primacy since 2025-12-15, so its applications are transferr
 `us.epa.class_vi` and appear only here. This connector is the sibling of that one: same `kind`,
 same technology constant, same `classify_tech` bypass, same null-over-guess rules.
 
-**Gated.** The RRC is a state agency, so 17 U.S.C. §105 does not apply, and its site-policies
-page grants copying "for noncommercial use" (quoted in `data/sources.yaml`); the manifest keeps
-`reuse: unknown` / `publication: none` until an owner or counsel reads and classifies those
-terms. The registry therefore refuses to instantiate this connector without
-`allow_restricted=True`, and a run that passes the flag is routed to the quarantine store, which
-cannot write a publishable path (`pipeline/connectors/registry.py`, `tests/test_connector_gating.py`).
-Nothing this module produces reaches a public surface until the manifest entry changes.
+**Published under the noncommercial posture.** The RRC is a state agency, so 17 U.S.C. §105 does not
+apply; its site-policies page grants copying "for noncommercial use, as long as the content remains
+unaltered and is not presented in a misleading way" (quoted in `data/sources.yaml`), which is exactly
+the register's `noncommercial` class (`docs/13-legal-data-rights.md` §0/§6.2, `docs/26-platform-posture.md`).
+As of 2026-09-26 the manifest reads `reuse: noncommercial` / `publication: raw_ok` — this module's own code
+is unchanged; only the register moved. That reclassification alone does not publish anything: under the
+platform's default posture (`commercial`, `services/posture.py`, fail-closed) `noncommercial` is still in
+`GATED_REUSE`, so the registry refuses to instantiate this connector without `allow_restricted=True`, and a
+run that passes the flag is still routed to the quarantine store, which cannot write a publishable path
+(`pipeline/connectors/registry.py`, `tests/test_connector_gating.py`). Only once a deployment sets
+`PLATFORM_POSTURE=noncommercial` and restarts does this source stop being gated; even then, whether a
+reader ever sees a raw row depends on a connector run actually landing one — see `docs/26` §3(ii) for an
+open question this module does not resolve about whether that flip is itself sound. Nothing this module
+produces reaches a public surface under the code's default posture.
 
 Fetch: two GETs through the polite session, robots honoured (`www.rrc.texas.gov/robots.txt` is
 200 and empty, measured 2026-09-22 and 2026-09-25).

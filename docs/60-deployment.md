@@ -161,6 +161,26 @@ file lands in all five app services.
 instead of signing cookies with a public string (`tests/test_session_secret.py`). Generate one per
 environment with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
+### 5.1 Platform posture (data-licensing configuration, not a secret)
+
+`PLATFORM_POSTURE` (`commercial` | `noncommercial`; `services/posture.py`, `docs/26-platform-posture.md`)
+reaches every container the same way any other non-secret variable does — it lives in
+`infra/compose/.env.example`, which `deploy.sh` (via the operator, not automatically) copies to a real
+environment's `.env` alongside the SOPS-decrypted secrets §5 describes; it is not itself SOPS-encrypted and
+carries no credential. **Editing `.env.example` changes only the template.** A running environment's own
+`.env` (or its `infra/sops/secrets.<env>.enc.yaml`, if the value is ever moved there) keeps whatever it was
+last set to until an operator copies the template again or edits that environment's file directly.
+
+**Changing it is a three-service restart, together, not a rolling one.** `api`, the ingest runner and every
+`worker` each read `PLATFORM_POSTURE` once per process at import (`docs/26` §1), so a deploy that restarts
+`api`/`web` first and workers later runs briefly with one posture answering `GET /v1/health` while ingested
+writes still gate under the other. Restart all three in the same step, not across a rolling deploy window:
+`docker compose up -d --no-deps api web scheduler worker browser-worker` on every host after the `.env`
+change, mirroring §10.1's ordering rather than the incremental per-service restarts that step otherwise
+allows. Before flipping any real environment's value, read `docs/26` §3's three preconditions and §6's
+record of what this repository can and cannot confirm about them as of 2026-09-26 — (ii), specifically, was
+not found resolved in the decisions log by the lane that last touched this setting.
+
 ## 6. Scheduling per source cadence
 
 `infra/scheduler/` (Procrastinate, ADR 0004) reads `data/sources.yaml`'s `cadence` field for every source

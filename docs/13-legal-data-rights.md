@@ -1657,7 +1657,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.epa.ghgrp` | public-domain | raw-ok | 17 U.S.C. §105; §2.12 (EPA hedge) applies as it does to LMOP/AgSTAR; added 2026-09-22, Envirofacts REST and the bulk data-set zip both answered 200 | high |
 | `us.az.adeq.class_vi`, `us.la.dce.class_vi`, `us.nd.dmr.class_vi`, `us.wv.dep.class_vi`, `us.wy.deq.class_vi` | **unknown** | do not ingest; gated until each state's terms are read | 17 U.S.C. §105 does **not** reach state agencies, so the federal public-domain rule that covers `us.epa.class_vi` stops at the primacy boundary. Added 2026-09-22 with per-state retrieval evidence in `data/sources.yaml`; Louisiana additionally carries a robots `Disallow: /` on `sonlite.dnr.state.la.us` and Arizona a Cloudflare challenge that hid even its robots.txt | n/a |
 | `global.carbonstorage_io` | restricted | do not ingest at all | Private paid aggregator (CarbonStorage, LLC), no licence, terms-of-use or source statement published anywhere on the site; its permissive robots.txt is not a licence. Same class as Cleanview/Energy Adepto under `CLAUDE.md`. Public marketing pages may be read for competitive research (`docs/11` §1.3); project pages, map layers and API may not be fetched, stored or derived from. Added 2026-09-22 | high |
-| `us.tx.rrc.class_vi`, `us.tx.rrc.datasets` | unknown | none (pending `noncommercial` class; owner posture 2026-09-25) | Terms READ 2026-09-25 (CCS source-map lane), RRC site policies: "Unless otherwise noted on an individual document, file, web page, or other website item, RRC grants permission to copy and distribute the information on its website for noncommercial use, as long as the content remains unaltered and is not presented in a misleading way." A noncommercial-only grant from a state agency (17 U.S.C. §105 does not apply). Whether a browsewrap permission notice restricts a commercial product's use of public-information facts (Tex. Gov't Code ch. 552) is the §3.2 question — counsel/owner decision; split out of the six-state `unknown` row above on 2026-09-25 | mod |
+| `us.tx.rrc.class_vi`, `us.tx.rrc.datasets` | **noncommercial** | raw-ok only while the platform posture is noncommercial; attribution + link back (docs/26-platform-posture.md) | RRC Site Policies, https://www.rrc.texas.gov/site-policies/ (READ 2026-09-25, CCS source-map lane): "Unless otherwise noted on an individual document, file, web page, or other website item, RRC grants permission to copy and distribute the information on its website for noncommercial use, as long as the content remains unaltered and is not presented in a misleading way." A noncommercial-only grant from a state agency (17 U.S.C. §105 does not apply); reclassified from `unknown` to `noncommercial` 2026-09-26 (§6.2) once that register class and `PLATFORM_POSTURE` existed. Whether a browsewrap permission notice restricts a commercial product's use of public-information facts (Tex. Gov't Code ch. 552) remains the §3.2 question and is open counsel item 15 (§7) — **not settled by this reclassification** | mod |
 | `us.epa.ghgrp.subpart_rr`, `us.epa.ghgrp.subpart_uu_pp`, `us.epa.uic.well_inventory` | public-domain | raw-ok | 17 U.S.C. §105; §2.12 (EPA hedge) as for `us.epa.ghgrp` — same annual data-summary zip (sha256 `895349c8…bf8345`, fetched 2026-09-25) and the FY2024 UIC inventory workbook; added 2026-09-25 | high |
 | `us.federalregister.api` | public-domain | raw-ok | 17 U.S.C. §105 (Office of the Federal Register / GPO publication); API answered 200 on 2026-09-25; added 2026-09-25 | high |
 | `us.epa.foia.reading_room`, `us.doe.foia.reading_room` | public-domain | derived-only | EPA/DOE-authored records are §105 works; documents released under FOIA that were authored by applicants, awardees or consultants (permit applications, MRV plans, correspondence) keep their authors' copyright, so only facts, dates and links are published, never the documents; FOIA logs carry requester names — subject and office only, no requester (§5.4). Added 2026-09-25 | mod-high |
@@ -1735,6 +1735,66 @@ premium is unaffected for those three. SPP and ISO-NE contribute change-event al
 which is still saleable — the alert says "SPP queue position GEN-2026-xxx changed status; see SPP" — because
 the *event* is our observation, not SPP's content. **Confidence: moderate** that the event-without-content
 alert survives SPP's clause; it is item 6 in §7.
+
+### 6.2 Reclassification under the noncommercial posture, 2026-09-26
+
+The owner's 2026-09-25 decision (`docs/00-PLAN.md` decisions log: "Let's move forward as a noncommercial
+platform for now for maximum and best data access") and the machinery it commissioned — the `noncommercial`
+register class (§0) and `PLATFORM_POSTURE` (`docs/26-platform-posture.md`) — made a `noncommercial`
+classification available for the first time. This lane read the manifest and register text already on
+record and applied the class where, and only where, the quoted terms support it and nothing more permissive.
+
+**`us.tx.rrc.class_vi`, `us.tx.rrc.datasets` → `noncommercial`.** Quote, in full, from `data/sources.yaml`'s
+`license` field (RRC Site Policies, https://www.rrc.texas.gov/site-policies/, read 2026-09-25):
+
+> Unless otherwise noted on an individual document, file, web page, or other website item, RRC grants
+> permission to copy and distribute the information on its website for noncommercial use, as long as the
+> content remains unaltered and is not presented in a misleading way.
+
+This grants noncommercial reuse and states no broader permission, so `noncommercial` is the ceiling — not
+`attribution` (the grant is not general-purpose reuse; it is conditioned on noncommercial use) and not
+`open`. The grant's own condition — content unaltered, not presented misleadingly — is met by how this
+platform's publication rule works, not by a new promise made here: derived/normalised fields carry a
+citation back to the RRC and are never edited to read as the RRC's own words, and the raw application row is
+not mirrored on a public page at all — the record links out to the RRC's own PDF, so the only "content" ever
+shown as RRC content is the RRC's unaltered document at the RRC's own URL (§6, "Publication rules": `raw-ok`
+here does not license inventing a table; it licenses citing and linking, per the manifest's `publication`
+semantics in docs/21 §8).
+
+**`global.gem.trackers` stays `open-attribution`; not split.** The tracker as a whole is CC BY 4.0 (§2.2).
+The only CC BY-NC 4.0 material is the TZ-ID row subset, which the manifest already drops at ingest (never
+stored, never published) rather than publishing under any class. A `noncommercial`-class sub-source for the
+TZ-ID rows — floated as a candidate in `docs/02-data-sources.md` §11.6 — was considered and not created:
+this platform holds no such rows in any form the posture could publish, so assigning the class would record
+a right that is not exercised. If the drop-at-ingest rule is ever relaxed, the TZ-ID rows would need their
+own `noncommercial` source id at that time, not a reclassification of this one.
+
+**`global.gem.ownership_tracker` is unchanged and is not a noncommercial case.** Its page states no licence
+at all; the only grant on record is CC BY 4.0 named by the download gate (§2.18), which is why it is
+`attribution-restricted`, not `noncommercial` — the defect in this source's terms is that the grant is
+unclear and self-limiting, not that it is conditioned on noncommercial use. Register class and manifest
+`reuse`/`publication` are untouched.
+
+**What this reclassification does and does not settle.** `data/sources.yaml`'s `reuse`/`publication` fields
+record what the quoted terms allow; whether a `noncommercial`-class row is ever actually served to a reader
+is a separate, run-time question decided by `PLATFORM_POSTURE` (`services/posture.py`, code default
+`commercial`, fail-closed by design — unchanged by this lane). **Precondition (ii) is withdrawn by the
+owner, not resolved on the merits.** `docs/26-platform-posture.md` §3 records three preconditions the
+coordinator put to the owner before the posture is "true" and not merely a label, of which (ii) was
+counsel's confirmation that a pre-revenue LLC whose stated purpose is to feed a commercial deal workflow can
+hold noncommercial status at all — under CC BY-NC's "not primarily intended for or directed towards
+commercial advantage or monetary compensation" and under undefined state-site grants such as the RRC's.
+`docs/00-PLAN.md` decisions log, row dated 2026-09-26, "Seven owner decisions, taken as direct answers to the
+coordinator's questions", decision (2): "no legal consult before the flip; the owner flips on their own
+reading" of the two clauses; "the coordinator's precondition (ii) in `docs/26` §3 is withdrawn by the
+owner", with `docs/26` §5's switch-back runbook named as the backstop. (This lane initially could not find
+that row at its worktree's base commit and flagged the gap rather than assume the withdrawal; the row was
+confirmed afterward, committed as `53465a9` on `origin/claude/sprint-3-attio-adapter-5t0517`, ahead of this
+worktree's base.) This is the owner's decision to proceed without a legal reading, not agreement that the
+reading is correct — the underlying question stays open as a recommendation, §7 item 15, which now also
+covers the same self-read-and-proceed pattern for PJM (item 1), MISO (item 2) and SPP/ISO-NE (item 6).
+Precondition (i) (paid-tier surfaces suspended or marked inactive) and (iii) (the firewall) are addressed in
+`docs/26-platform-posture.md` §3/§6, not here.
 
 ---
 
@@ -1816,6 +1876,30 @@ Numbered, in the order they block work.
     reach the **S&P Capital IQ** identifier column at all (CC BY §1 limits the grant to rights the Licensor
     "has authority to license"; our reading is that it cannot, hence the drop-at-ingest rule), and whether
     **Refinitiv/LSEG PermID** carries any redistribution term of its own.
+
+15. **Can this entity hold noncommercial status at all? — open recommendation, not a blocker.**
+    (`docs/26-platform-posture.md` §3, originally the coordinator's precondition (ii), added 2026-09-25/26.)
+    The owner's 2026-09-25 decision moved the platform to a `noncommercial` posture "for maximum and best
+    data access" and this lane reclassified `us.tx.rrc.class_vi` and `us.tx.rrc.datasets` to the register's
+    `noncommercial` class on that basis (§6.2). The underlying legal question is unresolved: whether a
+    pre-revenue LLC (Compass International Trading Group LLC, `docs/00-PLAN.md` 2026-09-18) whose stated
+    purpose is to feed a commercial deal workflow can hold noncommercial status under CC BY-NC 4.0's
+    definition ("not primarily intended for or directed towards commercial advantage or monetary
+    compensation") and under undefined state-site grants like the RRC's, which name neither the qualifying
+    purpose nor the qualifying user — the same browsewrap question as §3.2 applied specifically to the
+    noncommercial-use clause. **Status, 2026-09-26: the owner has withdrawn the precondition rather than
+    resolved it.** `docs/00-PLAN.md` decisions log, row dated 2026-09-26, "Seven owner decisions, taken as
+    direct answers to the coordinator's questions", decision (2): "no legal consult before the flip; the
+    owner flips on their own reading" of the two clauses; the coordinator's precondition (ii) "is withdrawn
+    by the owner", with `docs/26` §5's switch-back runbook as the named backstop if that reading turns out
+    wrong. Counsel's view therefore remains **advisable, not required**, and this item stays open as a
+    standing recommendation rather than a launch blocker: it covers the same self-read-and-proceed pattern
+    wherever this register carries it, including the still-unresolved PJM Redistribution Licence question
+    (item 1), MISO's unread terms (item 2), and SPP's and ISO-NE's restrictive clauses the platform is
+    already reading itself around for change-event alerts (item 6, §1.4/§1.6). Blocks nothing already
+    public (no `noncommercial`-class source is live on any surface — `PLATFORM_POSTURE` defaults to
+    `commercial`, fail-closed); the owner has accepted the residual risk of a wrong reading in exchange for
+    the runbook's backstop rather than closing the question.
 
 ## 8. What changed in the repo as a result
 
