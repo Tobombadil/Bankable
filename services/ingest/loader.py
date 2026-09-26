@@ -966,6 +966,421 @@ def _short_hash(value: Any) -> str:
     ).hexdigest()[:12]
 
 
+@dataclass(frozen=True)
+class _LoadContext:
+    """The per-load constants and shared state every step takes, in place of its own copy of
+    `source`/`kind`/`run`/`cache`/etc; the mutable fields still mutate in place as before this
+    extraction. `record_id_to_internal` is how `_upsert_records` hands `_load_events` each row's
+    subject."""
+
+    now: dt.datetime
+    result: LoadResult
+    entity_cls: type[Any]
+    link_cls: type[Any]
+    fk_name: str
+    cache: _LoadCache
+    record_id_to_internal: dict[str, _uuid.UUID]
+    source: Source
+    kind: Kind
+    run: SourceRun | None
+
+
+def _prepare_load_context(
+    session: Session,
+    source: Source,
+    kind: Kind,
+    records_df: pd.DataFrame,
+    run: SourceRun | None,
+) -> _LoadContext:
+    """`load_dataframe`'s setup step (module phase map blocks 01-10)."""
+    now = utcnow()
+    result = LoadResult(source_run_id=run.id if run else _uuid.UUID(int=0))
+    record_id_to_internal: dict[str, _uuid.UUID] = {}
+
+    entity_cls: type[Any] = Proposal if kind == "proposal" else Opportunity
+    link_cls: type[Any] = ProposalSource if kind == "proposal" else OpportunitySource
+    fk_name = "proposal_id" if kind == "proposal" else "opportunity_id"
+
+    # The release this run's artefact states, beside the fetch date the link rows already carry
+    # (`services/ingest/vintage.py`). Resolved from the URLs the connector wrote onto the frame,
+    # so it is the source's own statement rather than anything inferred from when we ran.
+    set_source_vintage(
+        source,
+        from_source_urls(records_df["source_url"])
+        if "source_url" in records_df.columns
+        else NOT_STATED_VINTAGE,
+    )
+    cache = _build_load_cache(session, source, entity_cls, link_cls, fk_name)
+    return _LoadContext(
+        now=now,
+        result=result,
+        entity_cls=entity_cls,
+        link_cls=link_cls,
+        fk_name=fk_name,
+        cache=cache,
+        record_id_to_internal=record_id_to_internal,
+        source=source,
+        kind=kind,
+        run=run,
+    )
+
+
+def _index_records(records_df: pd.DataFrame) -> tuple[list[dict[str, Any]], set[str]]:
+    """Module phase map blocks 11-16: the frame as plain dicts, plus every `source_record_id`
+    more than one `record_id` claims this call (module docstring, "Intra-run id reuse")."""
+    records = records_df.to_dict("records") if len(records_df) else []
+    distinct_record_ids: dict[str, set[str]] = {}
+    for row in records:
+        distinct_record_ids.setdefault(str(_row_get(row, "source_record_id")), set()).add(
+            str(_row_get(row, "record_id"))
+        )
+    dup_naturals = {key for key, ids in distinct_record_ids.items() if len(ids) > 1}
+    return records, dup_naturals
+
+
+@dataclass
+class _UpsertState:
+    """One `_upsert_records` pass's mutable state, threaded into `_claim_source_record_key` and
+    `_create_entity_and_link` instead of four separate mutable-container parameters each."""
+
+    key_by_record_id: dict[str, str] = field(default_factory=dict)
+    claimed: dict[str, str] = field(default_factory=dict)
+    warned_reuse: set[str] = field(default_factory=set)
+    #: New `ProposalSource`/`OpportunitySource` rows, held back from `session.add` until the next
+    #: `_flush_pending` call so their entity is guaranteed already flushed first (see that
+    #: function's docstring for why order matters here).
+    pending_links: list[Any] = field(default_factory=list)
+
+
+def _row_fields(ctx: _LoadContext, row: Mapping[str, Any]) -> dict[str, Any]:
+    """The row's `proposal`/`opportunity` fields -- a pure function of `row` and `ctx.source`, so
+    each per-row step calls it off `row` instead of taking the dict as its own parameter."""
+    if ctx.kind == "proposal":
+        return _proposal_fields_from_row(row, ctx.source)
+    return _opportunity_fields_from_row(row)
+
+
+def _claim_source_record_key(
+    ctx: _LoadContext,
+    state: _UpsertState,
+    row: Mapping[str, Any],
+    record_id: str,
+    dup_naturals: set[str],
+) -> tuple[str, Any | None, dict[str, Any]]:
+    """One row's stored `source_record_id`, its link if any, and its fields -- `fields` is
+    computed exactly once per row here, on every path, and handed to the caller instead of being
+    recomputed in the update/create branch below (module docstring, "Intra-run id reuse"); warns
+    once per natural key on true intra-run reuse."""
+    fields = _row_fields(ctx, row)
+    raw_source_record_id = str(_row_get(row, "source_record_id"))
+    if record_id in state.key_by_record_id:
+        source_record_id = state.key_by_record_id[record_id]
+        existing_link = ctx.cache.links.get(source_record_id)
+    else:
+        in_dup_group = raw_source_record_id in dup_naturals
+        wanted = _wanted_key(ctx.source, raw_source_record_id, record_id, row, in_dup_group=in_dup_group)
+        wanted = _unclaimed_key(wanted, raw_source_record_id, str(_row_get(row, "raw") or ""), state.claimed)
+        existing_link = _match_link(ctx.cache, wanted, raw_source_record_id, fields, ctx.kind, state.claimed)
+        source_record_id = str(existing_link.source_record_id) if existing_link is not None else wanted
+        state.key_by_record_id[record_id] = source_record_id
+        state.claimed[source_record_id] = record_id
+        if in_dup_group and raw_source_record_id in state.warned_reuse:
+            # A different connector `record_id` sharing this natural key inside the same
+            # run/dataframe -- never merged with its sibling(s); every member is stored
+            # under its content key (module docstring, docs/22 §5/§7.1).
+            warning = (
+                f"{ctx.source.id}: source_record_id {raw_source_record_id!r} reused by a "
+                f"distinct record ({record_id!r}) within this run; stored as "
+                f"{source_record_id!r} rather than merged into its sibling "
+                "(docs/22 §5, §7.1)"
+            )
+            ctx.result.warnings.append(warning)
+            _record_dq_warning(
+                ctx.run,
+                check="duplicate_source_record_id_same_run",
+                detail=warning,
+                data={
+                    "source_record_id": raw_source_record_id,
+                    "record_id": record_id,
+                    "stored_as": source_record_id,
+                },
+            )
+        state.warned_reuse.add(raw_source_record_id)
+    return source_record_id, existing_link, fields
+
+
+def _update_existing_entity(
+    ctx: _LoadContext, existing_link: Any, row: Mapping[str, Any], fields: dict[str, Any]
+) -> None:
+    """The already-stored-link branch: re-stamp field provenance per changed field (module
+    docstring, "Field provenance"), refresh the link, clear `gone_at`."""
+    raw_payload = _parse_raw(_row_get(row, "raw"))
+    retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or ctx.now
+    entity = ctx.cache.entities.get(getattr(existing_link, ctx.fk_name))
+    if entity is None:
+        raise RuntimeError(
+            f"proposal_source/opportunity_source row {existing_link.id} points at a "
+            "missing entity — this is a store consistency bug, not a data error"
+        )
+    provenance = dict(entity.field_provenance or {})
+    for k, v in fields.items():
+        if v is not None and (k not in provenance or getattr(entity, k, None) != v):
+            provenance[k] = {
+                "source_id": ctx.source.id,
+                "licence_id": ctx.source.licence_id,
+                "retrieved_at": retrieved_at.isoformat(),
+            }
+        setattr(entity, k, v)
+    entity.field_provenance = provenance  # reassigned so the JSON column is marked dirty
+    entity.last_changed = ctx.now
+    existing_link.raw = raw_payload
+    existing_link.normalised = _jsonable({k: v for k, v in fields.items() if not isinstance(v, dict)})
+    existing_link.status_raw = fields.get("status_raw")
+    existing_link.last_seen = retrieved_at
+    existing_link.retrieved_at = retrieved_at
+    existing_link.gone_at = None  # seen again: no longer gone from the register
+    if ctx.kind == "proposal":
+        ctx.result.proposals_updated += 1
+    else:
+        ctx.result.opportunities_updated += 1
+
+
+def _create_entity_and_link(
+    session: Session,
+    ctx: _LoadContext,
+    state: _UpsertState,
+    row: Mapping[str, Any],
+    source_record_id: str,
+    fields: dict[str, Any],
+) -> Any:
+    """The no-stored-link branch: a brand-new entity (with sponsor/location, for a `proposal`)
+    and its link, held in `state.pending_links`. Returns the new link."""
+    raw_payload = _parse_raw(_row_get(row, "raw"))
+    retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or ctx.now
+    source, kind, cache, result = ctx.source, ctx.kind, ctx.cache, ctx.result
+
+    published_at = ctx.now
+    # Paywall by shape, not by time (owner, 2026-09-19): a record is visible to a
+    # free reader the moment it is published. `public_at == published_at` here, and
+    # since 2026-09-21 the event loop below says exactly the same thing -- there is
+    # no delayed shape left at all (`services/ingest/lag.py`).
+    public_at = record_public_at(published_at)
+    entity_id = new_uuid()
+    entity_public_id = public_id("prop" if kind == "proposal" else "opp", entity_id)
+    title = fields.get("name_canonical") or fields.get("title") or "record"
+    entity = ctx.entity_cls(
+        id=entity_id,
+        public_id=entity_public_id,
+        slug=f"{slugify(title)}-{entity_public_id[-6:].lower()}",
+        publish_state="public",
+        published_at=published_at,
+        public_at=public_at,
+        min_reuse_class=source.licence.reuse_class,
+        source_count=1,
+        **fields,
+    )
+    if isinstance(entity, Proposal):
+        sponsor, sponsor_created = _get_or_create_organization(
+            cache,
+            session,
+            _row_get(row, "sponsor_name"),
+            source=source,
+            source_url=str(_row_get(row, "source_url") or source.url),
+            retrieved_at=retrieved_at,
+        )
+        if sponsor is not None:
+            entity.sponsor_org_id = sponsor.id
+            if sponsor_created:
+                result.organizations_created += 1
+        loc = _get_or_create_location(
+            session,
+            state=_row_get(row, "state"),
+            county=_row_get(row, "county"),
+            source=source,
+            retrieved_at=retrieved_at,
+            derived_only=not source.licence.allows_raw_publication,
+            raw_payload=raw_payload,
+            gaz=cache.gaz,
+        )
+        if loc is not None:
+            entity.location_id = loc.id
+            result.locations_created += 1
+            if loc.precision == "exact":
+                result.locations_exact_promoted += 1
+    entity.field_provenance = {
+        k: {
+            "source_id": source.id,
+            "licence_id": source.licence_id,
+            "retrieved_at": retrieved_at.isoformat(),
+        }
+        for k in fields
+        if fields[k] is not None
+    }
+    session.add(entity)
+    cache.entities[entity.id] = entity
+    existing_link = ctx.link_cls(
+        **{ctx.fk_name: entity.id},
+        source_id=source.id,
+        source_record_id=source_record_id,
+        source_url=str(_row_get(row, "source_url") or source.url),
+        retrieved_at=retrieved_at,
+        licence_id=source.licence_id,
+        raw=raw_payload,
+        normalised=_jsonable({k: v for k, v in fields.items() if not isinstance(v, dict)}),
+        status_raw=fields.get("status_raw"),
+        first_seen=retrieved_at,
+        last_seen=retrieved_at,
+        link_method="deterministic_key",
+        link_confidence=1.0,
+    )
+    state.pending_links.append(existing_link)
+    cache.links[source_record_id] = existing_link
+    cache.siblings.setdefault(split_key(source_record_id)[0], []).append(existing_link)
+    cache.links_by_entity[entity.id] = existing_link
+    if kind == "proposal":
+        result.proposals_created += 1
+    else:
+        result.opportunities_created += 1
+    return existing_link
+
+
+def _upsert_records(
+    session: Session,
+    ctx: _LoadContext,
+    records: list[dict[str, Any]],
+    dup_naturals: set[str],
+    batch_size: int,
+) -> None:
+    """`load_dataframe`'s upsert step (module phase map block 17): claim each row's key, update or
+    create its entity/link, flushing `state.pending_links` every `batch_size` rows and once more
+    after the loop (`_flush_pending`'s docstring has the ordering reason)."""
+    state = _UpsertState()
+
+    with session.no_autoflush:
+        for i, row in enumerate(records):
+            record_id = str(_row_get(row, "record_id"))
+
+            source_record_id, existing_link, fields = _claim_source_record_key(
+                ctx, state, row, record_id, dup_naturals
+            )
+
+            if existing_link is not None:
+                _update_existing_entity(ctx, existing_link, row, fields)
+            else:
+                existing_link = _create_entity_and_link(session, ctx, state, row, source_record_id, fields)
+
+            ctx.record_id_to_internal[record_id] = getattr(existing_link, ctx.fk_name)
+
+            if (i + 1) % batch_size == 0:
+                _flush_pending(session, state.pending_links)
+
+    _flush_pending(session, state.pending_links)
+
+
+def _load_one_event(
+    session: Session,
+    ctx: _LoadContext,
+    ev: Mapping[str, Any],
+    existing_event_keys: set[str],
+) -> None:
+    """One row of the events step: resolve the event's subject (via `ctx.record_id_to_internal`,
+    or the stored link for a `removed` record), then write it unless already recorded (module
+    docstring, "Change-event identity")."""
+    source, kind, run = ctx.source, ctx.kind, ctx.run
+    diff_type = str(ev["event_type"])
+    record_id = str(ev["record_id"])
+    subject_id = ctx.record_id_to_internal.get(record_id)
+    if subject_id is None:
+        # A `removed` record is, by definition, not in this frame: find it by its link.
+        link = _link_for_event_record_id(ctx.cache, source, record_id)
+        subject_id = getattr(link, ctx.fk_name) if link is not None else None
+    if subject_id is None:
+        ctx.result.warnings.append(f"event for unknown record_id {record_id!r} skipped")
+        return
+    event_type = DIFF_EVENT_TYPE_MAP.get(diff_type, "field_changed")
+    observed_at = _to_datetime(ev.get("observed_at")) or ctx.now
+    field_name = ev.get("field") or "lifecycle_state"
+    before_val = ev.get("before")
+    after_val = ev.get("after")
+    if isinstance(before_val, float) and pd.isna(before_val):
+        before_val = None
+    if isinstance(after_val, float) and pd.isna(after_val):
+        after_val = None
+    observed_token = observed_at.astimezone(dt.UTC).isoformat(timespec="seconds")
+    # Before-state and observation time are part of the identity (module docstring):
+    # A->B->A is two events, a second removal after a re-sighting is a second event, and
+    # re-loading one snapshot (same observation time) stays a no-op.
+    idempotency_key = (
+        f"{source.id}:{record_id}:{event_type}:{field_name}:"
+        f"{_short_hash(before_val)}:{_short_hash(after_val)}:{observed_token}"
+    )
+
+    if idempotency_key in existing_event_keys:
+        ctx.result.events_skipped_idempotent += 1
+        return
+
+    published_at = ctx.now
+    # A change event is public the moment it is published, like the record it belongs to
+    # (owner, 2026-09-21: the ISO change-event delay is dropped, and its per-source knob
+    # with it -- `services/ingest/lag.py` argues why the knob went too). `public_at` stays
+    # a stored column because `services/api/visibility.py` reads it; it is now always
+    # `published_at`.
+    public_at = record_public_at(published_at)
+    event = Event(
+        subject_type=kind,
+        subject_id=subject_id,
+        event_type=event_type,
+        observed_at=observed_at,
+        published_at=published_at,
+        public_at=public_at,
+        source_id=source.id,
+        source_url=source.url,
+        retrieved_at=observed_at,
+        licence_id=source.licence_id,
+        before=({field_name: before_val} if before_val is not None else None),
+        after=({field_name: after_val} if after_val is not None else None),
+        changed_keys=[str(field_name)],
+        actor_type="pipeline",
+        run_id=run.id if run else None,
+        idempotency_key=idempotency_key,
+    )
+    session.add(event)
+    # `Event.seq`'s `before_insert` listener computes `MAX(seq) + 1` from the database at
+    # insert time (services/db/models.py); flushing more than one new event together would
+    # let two rows compute the same `MAX(seq)` and collide on the `seq` unique constraint
+    # (documented on that listener). Deliberately not batched by `batch_size` — the
+    # bulk-insert pass optimises the record loop above, not this one.
+    session.flush()
+    existing_event_keys.add(idempotency_key)
+    ctx.result.events_created += 1
+
+    if diff_type == "removed":
+        link = ctx.cache.links_by_entity.get(subject_id)
+        if link is not None:
+            link.gone_at = observed_at
+
+
+def _load_events(
+    session: Session,
+    ctx: _LoadContext,
+    events_df: pd.DataFrame | None,
+) -> None:
+    """`load_dataframe`'s events step (module phase map block 19): preload existing idempotency
+    keys once, then write each event that isn't already recorded (`_load_one_event`)."""
+    if events_df is None or not len(events_df):
+        return
+    #: Preloaded once (Sprint 3 bulk-insert pass) instead of one `SELECT` per event; a key
+    #: added below as each event is created keeps a later duplicate in the same call correctly
+    #: idempotent without a re-query. `Event.source_id` is always this call's `source.id` for
+    #: every key this loader writes (set explicitly below), so filtering on it is exact, not
+    #: an approximation.
+    existing_event_keys: set[str] = set(
+        session.scalars(select(Event.idempotency_key).where(Event.source_id == ctx.source.id))
+    )
+    for ev in events_df.to_dict("records"):
+        _load_one_event(session, ctx, ev, existing_event_keys)
+
+
 def load_dataframe(
     session: Session,
     source: Source,
@@ -994,303 +1409,15 @@ def load_dataframe(
     is unaffected — `Event.seq`'s `before_insert` listener (`services/db/models.py`) computes
     `MAX(seq)+1` per row and collides if two new events are flushed together, so events are still
     flushed one at a time regardless of this setting, exactly as before.
+
+    An orchestrator over four steps (module phase map, docs/42 §5): `_prepare_load_context`,
+    `_index_records`, `_upsert_records`, `_load_events` -- the last two sharing `_LoadContext`.
     """
-    now = utcnow()
-    result = LoadResult(source_run_id=run.id if run else _uuid.UUID(int=0))
-    record_id_to_internal: dict[str, _uuid.UUID] = {}
-    #: connector `record_id` -> the stored key resolved for it in this call. A dataframe covering
-    #: more than one historical pull for the same source (as `services/resolve/report.py`'s
-    #: evaluation snapshot does) legitimately repeats the *same* `record_id` many times for one
-    #: natural key -- each repeat is an ordinary sequential update and must keep using the same
-    #: stored key. Only a *different* `record_id` sharing that natural key is true intra-run id
-    #: reuse (docs/22 §5/§7.1), and every member of such a group is keyed by content (module
-    #: docstring) — never by its position in the frame.
-    key_by_record_id: dict[str, str] = {}
-    #: stored key -> the `record_id` that claimed it in this call: a second, different
-    #: `record_id` can never be merged into the same link.
-    claimed: dict[str, str] = {}
-
-    entity_cls: type[Any] = Proposal if kind == "proposal" else Opportunity
-    link_cls: type[Any] = ProposalSource if kind == "proposal" else OpportunitySource
-    fk_name = "proposal_id" if kind == "proposal" else "opportunity_id"
-
-    # The release this run's artefact states, beside the fetch date the link rows already carry
-    # (`services/ingest/vintage.py`). Resolved from the URLs the connector wrote onto the frame,
-    # so it is the source's own statement rather than anything inferred from when we ran.
-    set_source_vintage(
-        source,
-        from_source_urls(records_df["source_url"])
-        if "source_url" in records_df.columns
-        else NOT_STATED_VINTAGE,
-    )
-    cache = _build_load_cache(session, source, entity_cls, link_cls, fk_name)
-    records = records_df.to_dict("records") if len(records_df) else []
-    distinct_record_ids: dict[str, set[str]] = {}
-    for row in records:
-        distinct_record_ids.setdefault(str(_row_get(row, "source_record_id")), set()).add(
-            str(_row_get(row, "record_id"))
-        )
-    dup_naturals = {key for key, ids in distinct_record_ids.items() if len(ids) > 1}
-    warned_reuse: set[str] = set()
-    #: New `ProposalSource`/`OpportunitySource` rows, held back from `session.add` until the next
-    #: `_flush_pending` call so their entity is guaranteed already flushed first (see that
-    #: function's docstring for why order matters here).
-    pending_links: list[Any] = []
-
-    with session.no_autoflush:
-        for i, row in enumerate(records):
-            raw_source_record_id = str(_row_get(row, "source_record_id"))
-            record_id = str(_row_get(row, "record_id"))
-            retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or now
-            raw_payload = _parse_raw(_row_get(row, "raw"))
-
-            if kind == "proposal":
-                fields = _proposal_fields_from_row(row, source)
-            else:
-                fields = _opportunity_fields_from_row(row)
-
-            if record_id in key_by_record_id:
-                source_record_id = key_by_record_id[record_id]
-                existing_link = cache.links.get(source_record_id)
-            else:
-                in_dup_group = raw_source_record_id in dup_naturals
-                wanted = _wanted_key(source, raw_source_record_id, record_id, row, in_dup_group=in_dup_group)
-                wanted = _unclaimed_key(
-                    wanted, raw_source_record_id, str(_row_get(row, "raw") or ""), claimed
-                )
-                existing_link = _match_link(cache, wanted, raw_source_record_id, fields, kind, claimed)
-                source_record_id = (
-                    str(existing_link.source_record_id) if existing_link is not None else wanted
-                )
-                key_by_record_id[record_id] = source_record_id
-                claimed[source_record_id] = record_id
-                if in_dup_group and raw_source_record_id in warned_reuse:
-                    # A different connector `record_id` sharing this natural key inside the same
-                    # run/dataframe -- never merged with its sibling(s); every member is stored
-                    # under its content key (module docstring, docs/22 §5/§7.1).
-                    warning = (
-                        f"{source.id}: source_record_id {raw_source_record_id!r} reused by a "
-                        f"distinct record ({record_id!r}) within this run; stored as "
-                        f"{source_record_id!r} rather than merged into its sibling "
-                        "(docs/22 §5, §7.1)"
-                    )
-                    result.warnings.append(warning)
-                    _record_dq_warning(
-                        run,
-                        check="duplicate_source_record_id_same_run",
-                        detail=warning,
-                        data={
-                            "source_record_id": raw_source_record_id,
-                            "record_id": record_id,
-                            "stored_as": source_record_id,
-                        },
-                    )
-                warned_reuse.add(raw_source_record_id)
-
-            if existing_link is not None:
-                entity = cache.entities.get(getattr(existing_link, fk_name))
-                if entity is None:
-                    raise RuntimeError(
-                        f"proposal_source/opportunity_source row {existing_link.id} points at a "
-                        "missing entity — this is a store consistency bug, not a data error"
-                    )
-                provenance = dict(entity.field_provenance or {})
-                for k, v in fields.items():
-                    if v is not None and (k not in provenance or getattr(entity, k, None) != v):
-                        provenance[k] = {
-                            "source_id": source.id,
-                            "licence_id": source.licence_id,
-                            "retrieved_at": retrieved_at.isoformat(),
-                        }
-                    setattr(entity, k, v)
-                entity.field_provenance = provenance  # reassigned so the JSON column is marked dirty
-                entity.last_changed = now
-                existing_link.raw = raw_payload
-                existing_link.normalised = _jsonable(
-                    {k: v for k, v in fields.items() if not isinstance(v, dict)}
-                )
-                existing_link.status_raw = fields.get("status_raw")
-                existing_link.last_seen = retrieved_at
-                existing_link.retrieved_at = retrieved_at
-                existing_link.gone_at = None  # seen again: no longer gone from the register
-                if kind == "proposal":
-                    result.proposals_updated += 1
-                else:
-                    result.opportunities_updated += 1
-            else:
-                published_at = now
-                # Paywall by shape, not by time (owner, 2026-09-19): a record is visible to a
-                # free reader the moment it is published. `public_at == published_at` here, and
-                # since 2026-09-21 the event loop below says exactly the same thing -- there is
-                # no delayed shape left at all (`services/ingest/lag.py`).
-                public_at = record_public_at(published_at)
-                entity_id = new_uuid()
-                entity_public_id = public_id("prop" if kind == "proposal" else "opp", entity_id)
-                title = fields.get("name_canonical") or fields.get("title") or "record"
-                entity = entity_cls(
-                    id=entity_id,
-                    public_id=entity_public_id,
-                    slug=f"{slugify(title)}-{entity_public_id[-6:].lower()}",
-                    publish_state="public",
-                    published_at=published_at,
-                    public_at=public_at,
-                    min_reuse_class=source.licence.reuse_class,
-                    source_count=1,
-                    **fields,
-                )
-                if isinstance(entity, Proposal):
-                    sponsor, sponsor_created = _get_or_create_organization(
-                        cache,
-                        session,
-                        _row_get(row, "sponsor_name"),
-                        source=source,
-                        source_url=str(_row_get(row, "source_url") or source.url),
-                        retrieved_at=retrieved_at,
-                    )
-                    if sponsor is not None:
-                        entity.sponsor_org_id = sponsor.id
-                        if sponsor_created:
-                            result.organizations_created += 1
-                    loc = _get_or_create_location(
-                        session,
-                        state=_row_get(row, "state"),
-                        county=_row_get(row, "county"),
-                        source=source,
-                        retrieved_at=retrieved_at,
-                        derived_only=not source.licence.allows_raw_publication,
-                        raw_payload=raw_payload,
-                        gaz=cache.gaz,
-                    )
-                    if loc is not None:
-                        entity.location_id = loc.id
-                        result.locations_created += 1
-                        if loc.precision == "exact":
-                            result.locations_exact_promoted += 1
-                entity.field_provenance = {
-                    k: {
-                        "source_id": source.id,
-                        "licence_id": source.licence_id,
-                        "retrieved_at": retrieved_at.isoformat(),
-                    }
-                    for k in fields
-                    if fields[k] is not None
-                }
-                session.add(entity)
-                cache.entities[entity.id] = entity
-                existing_link = link_cls(
-                    **{fk_name: entity.id},
-                    source_id=source.id,
-                    source_record_id=source_record_id,
-                    source_url=str(_row_get(row, "source_url") or source.url),
-                    retrieved_at=retrieved_at,
-                    licence_id=source.licence_id,
-                    raw=raw_payload,
-                    normalised=_jsonable({k: v for k, v in fields.items() if not isinstance(v, dict)}),
-                    status_raw=fields.get("status_raw"),
-                    first_seen=retrieved_at,
-                    last_seen=retrieved_at,
-                    link_method="deterministic_key",
-                    link_confidence=1.0,
-                )
-                pending_links.append(existing_link)
-                cache.links[source_record_id] = existing_link
-                cache.siblings.setdefault(split_key(source_record_id)[0], []).append(existing_link)
-                cache.links_by_entity[entity.id] = existing_link
-                if kind == "proposal":
-                    result.proposals_created += 1
-                else:
-                    result.opportunities_created += 1
-
-            record_id_to_internal[record_id] = getattr(existing_link, fk_name)
-
-            if (i + 1) % batch_size == 0:
-                _flush_pending(session, pending_links)
-
-    _flush_pending(session, pending_links)
-
-    if events_df is not None and len(events_df):
-        #: Preloaded once (Sprint 3 bulk-insert pass) instead of one `SELECT` per event; a key
-        #: added below as each event is created keeps a later duplicate in the same call correctly
-        #: idempotent without a re-query. `Event.source_id` is always this call's `source.id` for
-        #: every key this loader writes (set explicitly below), so filtering on it is exact, not
-        #: an approximation.
-        existing_event_keys: set[str] = set(
-            session.scalars(select(Event.idempotency_key).where(Event.source_id == source.id))
-        )
-        for ev in events_df.to_dict("records"):
-            diff_type = str(ev["event_type"])
-            record_id = str(ev["record_id"])
-            subject_id = record_id_to_internal.get(record_id)
-            if subject_id is None:
-                # A `removed` record is, by definition, not in this frame: find it by its link.
-                link = _link_for_event_record_id(cache, source, record_id)
-                subject_id = getattr(link, fk_name) if link is not None else None
-            if subject_id is None:
-                result.warnings.append(f"event for unknown record_id {record_id!r} skipped")
-                continue
-            event_type = DIFF_EVENT_TYPE_MAP.get(diff_type, "field_changed")
-            observed_at = _to_datetime(ev.get("observed_at")) or now
-            field_name = ev.get("field") or "lifecycle_state"
-            before_val = ev.get("before")
-            after_val = ev.get("after")
-            if isinstance(before_val, float) and pd.isna(before_val):
-                before_val = None
-            if isinstance(after_val, float) and pd.isna(after_val):
-                after_val = None
-            observed_token = observed_at.astimezone(dt.UTC).isoformat(timespec="seconds")
-            # Before-state and observation time are part of the identity (module docstring):
-            # A->B->A is two events, a second removal after a re-sighting is a second event, and
-            # re-loading one snapshot (same observation time) stays a no-op.
-            idempotency_key = (
-                f"{source.id}:{record_id}:{event_type}:{field_name}:"
-                f"{_short_hash(before_val)}:{_short_hash(after_val)}:{observed_token}"
-            )
-
-            if idempotency_key in existing_event_keys:
-                result.events_skipped_idempotent += 1
-                continue
-
-            published_at = now
-            # A change event is public the moment it is published, like the record it belongs to
-            # (owner, 2026-09-21: the ISO change-event delay is dropped, and its per-source knob
-            # with it -- `services/ingest/lag.py` argues why the knob went too). `public_at` stays
-            # a stored column because `services/api/visibility.py` reads it; it is now always
-            # `published_at`.
-            public_at = record_public_at(published_at)
-            event = Event(
-                subject_type=kind,
-                subject_id=subject_id,
-                event_type=event_type,
-                observed_at=observed_at,
-                published_at=published_at,
-                public_at=public_at,
-                source_id=source.id,
-                source_url=source.url,
-                retrieved_at=observed_at,
-                licence_id=source.licence_id,
-                before=({field_name: before_val} if before_val is not None else None),
-                after=({field_name: after_val} if after_val is not None else None),
-                changed_keys=[str(field_name)],
-                actor_type="pipeline",
-                run_id=run.id if run else None,
-                idempotency_key=idempotency_key,
-            )
-            session.add(event)
-            # `Event.seq`'s `before_insert` listener computes `MAX(seq) + 1` from the database at
-            # insert time (services/db/models.py); flushing more than one new event together would
-            # let two rows compute the same `MAX(seq)` and collide on the `seq` unique constraint
-            # (documented on that listener). Deliberately not batched by `batch_size` — the
-            # bulk-insert pass optimises the record loop above, not this one.
-            session.flush()
-            existing_event_keys.add(idempotency_key)
-            result.events_created += 1
-
-            if diff_type == "removed":
-                link = cache.links_by_entity.get(subject_id)
-                if link is not None:
-                    link.gone_at = observed_at
-
-    return result
+    ctx = _prepare_load_context(session, source, kind, records_df, run)
+    records, dup_naturals = _index_records(records_df)
+    _upsert_records(session, ctx, records, dup_naturals, batch_size)
+    _load_events(session, ctx, events_df)
+    return ctx.result
 
 
 def load_from_files(
