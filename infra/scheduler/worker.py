@@ -6,7 +6,7 @@ tolerated, because Procrastinate dedupes ticks at the database level.
 
     # worker-plain (docs/20 §4.1):
     python -m infra.scheduler.worker \
-        --queues fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook
+        --queues fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook,audit
     # worker-browser:
     python -m infra.scheduler.worker --queues fetch_browser
 """

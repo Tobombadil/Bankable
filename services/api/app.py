@@ -132,6 +132,11 @@ app.include_router(admin_intake_router)
 from services.api.admin_records import router as admin_records_router  # noqa: E402
 
 app.include_router(admin_records_router)
+# The nightly M-11 visibility audit's read side (docs/04 R-4; docs/40 §4 row 11): the persisted
+# audit events, latest first. The job itself is `services/visibility_audit/run.py`.
+from services.api.admin_audit_routes import router as admin_audit_router  # noqa: E402
+
+app.include_router(admin_audit_router)
 
 # Its identifier-free interaction measurement (docs/00-PLAN.md decision 2026-09-14; docs/21 §3.21).
 from services.api.ui_events import router as ui_events_router  # noqa: E402

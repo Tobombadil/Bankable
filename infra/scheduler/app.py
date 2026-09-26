@@ -70,6 +70,7 @@ from infra.scheduler.jobs import (
     TransientConnectorFailure,
     alert_tick_job,
     post_draft_tick_job,
+    visibility_audit_tick_job,
 )
 
 logger = logging.getLogger("infra.scheduler")
@@ -234,6 +235,10 @@ for _bucket_name, _cron in CRON_BY_BUCKET.items():
 
 ALERT_TICK_TIMEOUT_S = 600  # docs/20 §4.2's 10-minute fetch-job ceiling, reused for consistency
 POST_DRAFT_TICK_TIMEOUT_S = 600
+# The audit scans every public surface of the store plus a sample of live requests: 5.5 s on the
+# 2026-09-26 dev store (10.4k proposals, 17.9k assets, SQLite); 30 minutes leaves two orders of
+# magnitude for Postgres round trips and a store that has grown.
+VISIBILITY_AUDIT_TIMEOUT_S = 1800
 
 
 def _run_with_timeout(fn: Callable[[], dict[str, Any]], *, timeout_s: int) -> dict[str, Any]:
@@ -286,6 +291,25 @@ def _tick_post_draft(timestamp: int) -> None:  # jitter offset (cadence.py's CRO
         post_draft_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous post_draft_tick still queued or running")
+
+
+@app.task(name="visibility_audit_tick", queue="audit", retry=0, queueing_lock="visibility_audit_tick")
+def visibility_audit_tick() -> dict[str, Any]:
+    """The nightly M-11 visibility audit (docs/10 §5 M-11; docs/04 R-4 and S-9; docs/40 §4 row 11):
+    recompute every public surface from the store, check each shown row against the publication
+    invariants, probe a sample through the real app anonymously, persist one audit event. Body in
+    `infra/scheduler/jobs.py`; `retry=0` because tomorrow's tick is the retry and a breach must not
+    be retried into silence — the job fails loudly (`VisibilityAuditBreach`) after persisting."""
+    return _run_with_timeout(visibility_audit_tick_job, timeout_s=VISIBILITY_AUDIT_TIMEOUT_S)
+
+
+@app.periodic(cron="52 4 * * *", periodic_id="tick:visibility_audit")  # the hour after the daily
+@app.task(name="tick_visibility_audit", queue=SCHEDULER_ONLY_QUEUE)  # fetch bucket (03:07) and its
+def _tick_visibility_audit(timestamp: int) -> None:  # load chain; after the 04:37 resolve tick
+    try:
+        visibility_audit_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous visibility_audit_tick still queued or running")
 
 
 # The rest of the loop (module docstring). Queues are ones the compose `worker` service already
