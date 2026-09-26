@@ -25,8 +25,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from web.api_client import ApiClient
-from web.app import SITEMAP_STATIC_PATHS
 from web.app import app as web_app
+from web.sitemaps import SITEMAP_STATIC_PATHS
 
 #: A name carrying every character that could break an HTML attribute or close a `<script>` block
 #: early. Task item 7 asks for exactly this to be pushed through the meta tags and the JSON-LD.
