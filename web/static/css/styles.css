@@ -531,6 +531,17 @@ h3 { font-size: var(--text-4); }
 .record-table a.row-link { color: var(--text); text-decoration: none; font-weight: 600; }
 .record-table a.row-link:hover { color: var(--link); text-decoration: underline; }
 .table-scroll { overflow-x: auto; }
+/* Nested attribute values (_macros.html attribute_value): a mapping inside the asset attributes
+   bag renders as a small key/value grid inside the value cell -- left-aligned, muted keys, one
+   block per list item -- instead of a Python repr. */
+.record-table td.record-table__nested { text-align: left; vertical-align: top; }
+.attr-nested {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-1) var(--space-3);
+  margin: 0; font-size: var(--text-1); font-variant-numeric: tabular-nums;
+}
+.attr-nested dt { color: var(--text-muted); margin: 0; }
+.attr-nested dd { margin: 0; overflow-wrap: anywhere; }
+.attr-nested__item + .attr-nested__item { margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); }
 
 @media (max-width: 719px) {
   .record-table thead { display: none; }
@@ -539,6 +550,10 @@ h3 { font-size: var(--text-4); }
   .record-table td { border: none; display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) var(--space-2); }
   .record-table td.num { text-align: right; }
   .record-table td::before { content: attr(data-label); color: var(--text-muted); font-size: var(--text-1); }
+  .record-table td.record-table__nested { flex-direction: column; align-items: stretch; }
+  .attr-nested { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .attr-nested dt { margin-top: var(--space-1); }
+  .attr-nested dd { padding-left: var(--space-3); }
 }
 
 .pager { display: flex; justify-content: space-between; padding: var(--space-4) 0; font-size: var(--text-2); }
