@@ -40,6 +40,7 @@ ignore = ["RUF001", "RUF002", "RUF003", "N818"]
 "services/api/conftest.py" = ["S101"]
 "services/db/migrations/env.py" = ["E402"]   # sys.path must be set before the services import
 "services/api/app.py" = ["B008"]             # FastAPI's `Depends(...)` default-argument idiom
+"services/api/records.py" = ["B008"]         # FastAPI's `Depends(...)` default-argument idiom
 "services/social/__main__.py" = ["T20"]      # CLI reporting (draft/review/dry-run/report output), same convention as pipeline/diff.py
 
 [tool.mypy]

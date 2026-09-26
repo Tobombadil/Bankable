@@ -41,15 +41,16 @@ def _clock_pinned_to_on(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test in this module runs on `ON`, including the ones that go through the API.
 
     `slip_fixtures` anchors its target dates to the literal `ON`, but the list endpoint filters
-    on the real clock (`services/api/app.py` imports `today` as `slip_today`), so the `at_grace`
-    row -- exactly `SLIP_GRACE_DAYS` late on `ON` -- crossed the grace line the day after the
-    file was written. CI was green on 2026-09-21 by coincidence of date and red from
-    2026-09-22 on `main` itself. Two patch targets because `app.py` binds the name at import:
-    patching only `services.api.slippage.today` would fix `proposal_slip` and leave the filter
-    on the wall clock.
+    on the real clock (`services/api/records.py` imports `today` as `slip_today` -- moved there
+    from `services/api/app.py` by docs/42-backend-review-2026-09-26.md lane L5, along with
+    `_apply_slip_filter`, the only caller), so the `at_grace` row -- exactly `SLIP_GRACE_DAYS` late
+    on `ON` -- crossed the grace line the day after the file was written. CI was green on
+    2026-09-21 by coincidence of date and red from 2026-09-22 on `main` itself. Two patch targets
+    because the importing module binds the name at import: patching only
+    `services.api.slippage.today` would fix `proposal_slip` and leave the filter on the wall clock.
     """
     monkeypatch.setattr("services.api.slippage.today", lambda: ON)
-    monkeypatch.setattr("services.api.app.slip_today", lambda: ON)
+    monkeypatch.setattr("services.api.records.slip_today", lambda: ON)
 
 
 def _now() -> dt.date:
