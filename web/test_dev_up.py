@@ -94,16 +94,39 @@ def test_load_ownership_calls_the_lane_loader_with_the_parquet_path(
     assert calls == [parquet]
 
 
+def test_load_ghgrp_missing_parquet_is_one_log_line(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
+    with caplog.at_level(logging.INFO, logger=dev_up.log.name):
+        dev_up._load_ghgrp(object(), tmp_path)  # type: ignore[arg-type]
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("ghgrp ownership:")]
+    assert len(lines) == 1
+    assert "not found" in lines[0]
+
+
+def test_load_ghgrp_calls_the_lane_loader_with_the_parquet_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import services.ingest.ghgrp as ghgrp
+
+    parquet = tmp_path / "normalized" / "context" / "us.epa.ghgrp.parquet"
+    parquet.parent.mkdir(parents=True)
+    parquet.write_bytes(b"")
+    calls: list[Path] = []
+    monkeypatch.setattr(ghgrp, "load_ghgrp_parquet", lambda session, path: (calls.append(path), None))
+    dev_up._load_ghgrp(object(), tmp_path)  # type: ignore[arg-type]
+    assert calls == [parquet]
+
+
 def test_context_layers_run_owner_shares_then_features_after_the_asset_files(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """With no midstream parquet present the file loop does nothing and `load_parents` is not
-    reached, but the three post-loop steps still run, in this order: the owner-share load, the
-    single features call, then the organisation graph (GLEIF parents and curated aliases,
-    docs/22 §17). Ownership edges must exist before features derived from them are computed, and
-    the organisation graph reads what all of them created."""
+    reached, but the four post-loop steps still run, in this order: the owner-share load, the
+    GHGRP share load, the single features call, then the organisation graph (GLEIF parents and
+    curated aliases, docs/22 §17). Ownership edges must exist before features derived from them
+    are computed, and the organisation graph reads what all of them created."""
     order: list[str] = []
     monkeypatch.setattr(dev_up, "_load_ownership", lambda session, data_dir: order.append("ownership"))
+    monkeypatch.setattr(dev_up, "_load_ghgrp", lambda session, data_dir: order.append("ghgrp"))
     monkeypatch.setattr(
         dev_up, "_apply_context_features", lambda session, data_root: order.append("features")
     )
@@ -113,7 +136,7 @@ def test_context_layers_run_owner_shares_then_features_after_the_asset_files(
     (tmp_path / "normalized" / "context").mkdir(parents=True)
     with caplog.at_level(logging.INFO, logger=dev_up.log.name):
         dev_up._load_context_asset_layers(object(), tmp_path)  # type: ignore[arg-type]
-    assert order == ["ownership", "features", "org_graph"]
+    assert order == ["ownership", "ghgrp", "features", "org_graph"]
     assert any("no midstream/fuels parquet" in r.getMessage() for r in caplog.records)
 
 
