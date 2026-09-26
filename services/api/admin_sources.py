@@ -106,6 +106,7 @@ from services.api.serialize import (
     serialize_licence_embedded,
     serialize_source,
 )
+from services.api.visibility import PUBLISHABLE_REUSE_CLASSES
 from services.db.models import (
     REUSE_CLASSES,
     SOURCE_PUBLISH_STATES,
@@ -747,8 +748,11 @@ def _licence_gate_missing(licence: Licence) -> list[str]:
     """US-905 AC1 / invariant L1 (`Licence.gate_clear`), decomposed so `gate_unmet` can name each
     unmet condition (restricted reuse class, open gate flag, missing evidence) separately."""
     missing = []
-    if licence.reuse_class not in ("open", "attribution"):
-        missing.append(f"reuse_class (is {licence.reuse_class!r}, needs open or attribution)")
+    if licence.reuse_class not in PUBLISHABLE_REUSE_CLASSES:
+        missing.append(
+            f"reuse_class (is {licence.reuse_class!r}, needs one of {PUBLISHABLE_REUSE_CLASSES} "
+            "under the current platform posture)"
+        )
     if licence.gate_flag:
         missing.append(f"gate_flag (gate {licence.gate_name or 'unnamed'} is still open)")
     if licence.evidence_url is None or licence.evidence_retrieved_at is None or licence.classified_by is None:
@@ -958,7 +962,10 @@ def _reclassify_licence(db: Session, licence: Licence, reuse_class: str) -> Lice
         allows_raw_publication=licence.allows_raw_publication,
         allows_api_redistribution=licence.allows_api_redistribution,
         allows_bulk_export=licence.allows_bulk_export,
-        allows_commercial_use=licence.allows_commercial_use,
+        # The class and the boolean must agree (`noncommercial_no_commercial_use` CHECK on
+        # `licence`, migration 0020): reclassifying *to* `noncommercial` clears the flag rather
+        # than tripping the constraint; reclassifying away from it keeps whatever was recorded.
+        allows_commercial_use=licence.allows_commercial_use and reuse_class != "noncommercial",
         share_alike=licence.share_alike,
         gate_name=licence.gate_name,
         evidence_url=licence.evidence_url,

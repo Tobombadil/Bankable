@@ -12,6 +12,11 @@
 <section id="tiers">
   {{ m.section_heading("1.", "Tiers") }}
   <p>The free tier shows every record, undelayed: a proposal or an opportunity is public the moment it is ingested. What the paid tier buys is shape, not freshness: alerts, the API and &mdash; once built &mdash; exports and watchlists. The Pro surfaces are live in the API; this public site does not expose them yet.</p>
+  {%- if posture %}
+  {#- The sentence is the API's (`GET /v1/health` `posture_statement`), derived from the
+      PLATFORM_POSTURE setting; nothing about the posture is typed into this template. -#}
+  <p class="platform-posture" data-posture="{{ posture.value }}">{{ posture.statement }}</p>
+  {%- endif %}
 </section>
 
 <section id="sources">

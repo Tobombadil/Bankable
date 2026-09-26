@@ -63,14 +63,17 @@ from services.db.models import (
     Source,
 )
 from services.ingest.vintage import UNDETERMINED, label_for
+from services.posture import gated_reuse_classes, platform_posture
 
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
 NOTES_PATH = _ROOT / "data" / "vocabulary" / "coverage_notes.yaml"
 
 #: Reuse classes whose rows the ingestion gate refuses (`pipeline.connectors.registry.GATED_REUSE`
-#: and `services/ingest/loader.py::_assert_not_gated`). Named again here rather than imported so
-#: that a change to the gate is a deliberate change to this statement too.
-WITHHELD_REUSE = ("restricted", "unknown")
+#: and `services/ingest/loader.py::_assert_not_gated`). Derived from the platform posture
+#: (`services/posture.py`, docs/26) rather than named again here, because since 2026-09-25 the
+#: gate itself is posture-dependent and a coverage statement that listed `restricted`/`unknown`
+#: only would omit every `noncommercial` source the `commercial` posture withholds.
+WITHHELD_REUSE = gated_reuse_classes(platform_posture())
 
 
 @functools.lru_cache(maxsize=1)

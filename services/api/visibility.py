@@ -24,6 +24,14 @@ admin reads bypass this predicate entirely per docs/21 §5.4's fourth row) and d
   stricter reading of docs/21 D-2 and `CLAUDE.md`, not loosened by this sprint. Licence gating is
   orthogonal to tier and stricter by design (docs/20 §5): tier answers "how old", licence answers
   "at all".
+- `licence_permits` **is posture-dependent** (owner, 2026-09-25; `docs/26-platform-posture.md`;
+  `services/posture.py`): `PUBLISHABLE_REUSE_CLASSES` is computed once, at import, from
+  `PLATFORM_POSTURE` — `("open", "attribution")` under `commercial` (the default, and what every
+  deployment gets when the variable is unset or unrecognised) and additionally `"noncommercial"`
+  under `noncommercial`. It is the same tuple on every tier, so the clause is still byte-identical
+  across `public`/`pro`/`api` under either posture. Flipping the posture back to `commercial` and
+  restarting makes every `noncommercial` row invisible on every non-admin surface at once, with no
+  other change; `tests/test_visibility_predicate.py` executes this module under both values.
 - `r.publish_state == 'public'` at the record level is unconditional on tier, matching the
   pseudocode above exactly (not "unless admin", which the module does not implement).
 
@@ -51,6 +59,7 @@ from services.db.models import (
     ProposalSource,
     Source,
 )
+from services.posture import platform_posture, publishable_reuse_classes
 
 #: The three non-admin entitlements this predicate distinguishes. Typed as plain `str` at every
 #: function boundary below (not a `Literal["public","pro","api"]`) because the real caller-facing
@@ -61,7 +70,10 @@ from services.db.models import (
 #: an unrecognised entitlement never accidentally widens visibility.
 Entitlement = str
 
-PUBLISHABLE_REUSE_CLASSES = ("open", "attribution")
+#: One read of the posture, at import, through the helper `pipeline/connectors/registry.py` also
+#: uses (`services/posture.py`); no filter below branches on it. `tests/test_platform_posture.py`
+#: pins that this tuple and the registry's `PUBLISHABLE_REUSE` are the same set.
+PUBLISHABLE_REUSE_CLASSES = publishable_reuse_classes(platform_posture())
 # Drift guard against `services.db.models.REUSE_CLASSES`. Both arcs are covered by
 # `tests/test_visibility_predicate.py` (ordinary import; a re-import under a patched vocabulary),
 # so this module carries no coverage exclusion and docs/04 E-7's 100% gate measures all of it.

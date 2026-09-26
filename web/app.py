@@ -1013,6 +1013,21 @@ def get_lag_days(request: Request) -> dict[str, int]:
     return cached
 
 
+def get_platform_posture(request: Request) -> dict[str, str] | None:
+    """The platform posture as `GET /v1/health` reports it (`posture`, `posture_statement`;
+    docs/26): the setting lives on the API host, and the sentence the two public pages print is
+    the API's, so a page can never claim a posture the gate is not applying. Not cached on
+    `app.state` like `lag_days_default`: it is read on exactly two low-traffic pages, and a
+    per-process cache is one more thing a posture flip would need restarting. `None` when the
+    API predates the field, in which case the pages print nothing rather than a guess."""
+    health = get_api(request).get("/v1/health")
+    posture = health.get("posture")
+    statement = health.get("posture_statement")
+    if not isinstance(posture, str) or not isinstance(statement, str):
+        return None
+    return {"value": posture, "statement": statement}
+
+
 def is_htmx(request: Request) -> bool:
     return request.headers.get("hx-request") == "true"
 
@@ -2261,7 +2276,11 @@ def about(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "about.html",
-        {"sources": sources, "lag_days": get_lag_days(request)},
+        {
+            "sources": sources,
+            "lag_days": get_lag_days(request),
+            "posture": get_platform_posture(request),
+        },
     )
 
 
@@ -2310,6 +2329,7 @@ def methodology(request: Request) -> HTMLResponse:
             "asset_type_labels": {t: _type_label(t, plural=True) for t in ASSET_TYPE_LABELS},
             "vocabulary": vocabulary_env["data"],
             "basis_labels": VINTAGE_BASIS_LABELS,
+            "posture": get_platform_posture(request),
         },
     )
 

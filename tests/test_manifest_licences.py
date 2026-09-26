@@ -105,6 +105,7 @@ _REGISTER = textwrap.dedent(
     | `t.public` | public-domain | raw-ok | §105 | high |
     | `t.restricted` | restricted | **link-out-only** | quoted | high |
     | `t.mixed` | restricted (DM2) / attribution-restricted | link-out-only now; derived-only later | q | m |
+    | `t.noncommercial` | noncommercial | raw-ok while the posture is noncommercial; credit + link | q | m |
 
     ## 7. Counsel
     """
@@ -224,3 +225,54 @@ def test_bad_vocabulary_is_reported(tmp_path: pathlib.Path) -> None:
     problems = check(manifest, register)
     assert any("reuse='free'" in p for p in problems)
     assert any("publication='sometimes'" in p for p in problems)
+
+
+# ------------------------------------------------------------------ the noncommercial class (docs/26)
+def test_noncommercial_register_class_admits_noncommercial_reuse_raw_ok(tmp_path: pathlib.Path) -> None:
+    """The vocabulary row docs/13 §0 gained on 2026-09-25: a `noncommercial` register class supports
+    manifest `reuse: noncommercial` with `publication: raw_ok` (the posture, not this check, decides
+    whether the class publishes at all)."""
+    manifest, register = _write(
+        tmp_path,
+        """\
+        - id: t.noncommercial
+          reuse: noncommercial
+          publication: raw_ok
+        """,
+    )
+    assert check(manifest, register) == []
+    rows = parse_register(register)
+    assert rows["t.noncommercial"].strictest_class == "noncommercial"
+    assert rows["t.noncommercial"].strictest_rule == "raw_ok"
+
+
+def test_noncommercial_register_class_refuses_attribution_in_the_manifest(tmp_path: pathlib.Path) -> None:
+    """`attribution` ranks above `noncommercial`: recording a CC BY-NC source as `attribution` is the
+    drift this check exists for."""
+    manifest, register = _write(
+        tmp_path,
+        """\
+        - id: t.noncommercial
+          reuse: attribution
+          publication: raw_ok
+        - id: t.unknown
+          reuse: noncommercial
+          publication: raw_ok
+        """,
+    )
+    problems = check(manifest, register)
+    assert any("t.noncommercial" in p and "(R2)" in p for p in problems), problems
+    # ...and an `unknown` register row does not support `noncommercial` either: the terms must be
+    # read and the class written into the register before the manifest may claim it.
+    assert any("t.unknown" in p and "(R2)" in p for p in problems), problems
+
+
+def test_noncommercial_defaults_to_raw_ok_publication() -> None:
+    assert default_publication("noncommercial") == "raw_ok"
+
+
+def test_no_committed_source_is_noncommercial_yet() -> None:
+    """Measured 2026-09-25: the class exists in the vocabulary but no manifest entry carries it —
+    reclassification is per-source work with the terms in front of the reviewer (docs/26 §2). The
+    day one does, replace this with the named list, as the fourteen-source test above does."""
+    assert [e["id"] for e in load_manifest(MANIFEST) if e.get("reuse") == "noncommercial"] == []

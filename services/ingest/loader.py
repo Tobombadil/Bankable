@@ -110,7 +110,7 @@ from pipeline.connectors.dedupe import (
     raw_disambiguator,
     split_key,
 )
-from pipeline.connectors.registry import GATED_REUSE, Registry, SourceEntry
+from pipeline.connectors.registry import GATED_REUSE, PUBLISHABLE_REUSE, Registry, SourceEntry
 from services.db.models import (
     Event,
     Licence,
@@ -259,8 +259,9 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
     if entry.publication == "none":
         raise GateRefused(f"{entry.id}: publication=none publishes nothing (docs/21 §8)")
     licence_id = entry.licence_id
-    is_open_or_attribution = entry.reuse in ("open", "attribution")
-    if not is_open_or_attribution:
+    # Affirmative membership in the posture's publishable set (`services/posture.py`), not
+    # mere absence from the gated set: an unrecognised value fails closed here.
+    if entry.reuse not in PUBLISHABLE_REUSE:
         raise GateRefused(f"{entry.id}: reuse={entry.reuse!r} is not publishable")
 
     licence = session.get(Licence, licence_id)
@@ -271,19 +272,30 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
             id=licence_id,
             name=f"{entry.name} terms of use",
             reuse_class=entry.reuse,
-            attribution_required=entry.reuse == "attribution",
+            # `noncommercial` (docs/26): attribution and a link back are required, exactly as for
+            # `attribution` — CC BY-NC's own terms — and the row is publishable only while the
+            # posture admits the class, which is the registry gate above, not this row.
+            attribution_required=entry.reuse in ("attribution", "noncommercial"),
             attribution_text=(
-                f"Source: {entry.operator or entry.name}" if entry.reuse == "attribution" else None
+                f"Source: {entry.operator or entry.name}"
+                if entry.reuse in ("attribution", "noncommercial")
+                else None
             ),
-            requires_link_back=entry.reuse == "attribution",
+            requires_link_back=entry.reuse in ("attribution", "noncommercial"),
             allows_derived_publication=True,
             # docs/21 §8: `open` is always raw-ok; `attribution` is raw-ok too unless this
             # source's own terms are recorded as a derived-only override (module docstring above)
             # -- never hardcoded True regardless of reuse class (was services/README.md open
             # decision #11).
             allows_raw_publication=not derived_only,
-            allows_api_redistribution=True,
-            allows_bulk_export=True,
+            # A noncommercial grant never leaves over the API or in a bulk export: both are the
+            # paid shapes (docs/26 precondition iii), so the flags are written false at load and
+            # `allows_commercial_use` is false by the class's definition (the
+            # `noncommercial_no_commercial_use` CHECK on `licence` refuses otherwise). For
+            # `attribution` the commercial flag stays false as before: the manifest class covers
+            # `attribution-restricted` register rows too, so "not verified" is the honest value.
+            allows_api_redistribution=entry.reuse != "noncommercial",
+            allows_bulk_export=entry.reuse != "noncommercial",
             allows_commercial_use=entry.reuse == "open",
             share_alike=False,
             gate_flag=False,
@@ -328,8 +340,10 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
             # loads straight to public, matching what an admin publish action would do (the same
             # call the workaround made explicit); `restricted`/`unknown` never reach here, but the
             # branch is written to fail closed (`ingest_only`) rather than assume that continues
-            # to hold.
-            publish_state="public" if entry.reuse in ("open", "attribution") else "ingest_only",
+            # to hold. Since 2026-09-25 the set is the posture's (`services/posture.py`), which
+            # is what lets a `noncommercial` source load straight to public under the
+            # `noncommercial` posture and never under `commercial`.
+            publish_state="public" if entry.reuse in PUBLISHABLE_REUSE else "ingest_only",
             host=entry.host or None,
             max_rps=entry.max_rps,
             manifest_version=manifest_version,

@@ -30,12 +30,19 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from services.db.base import Base
 from services.db.types import GUID, GeographyLine, GeographyPoint, JSONVariant, TextArray, uuid7
+from services.posture import platform_posture, publishable_reuse_classes
 
 # ---------------------------------------------------------------------------------------------
 # Vocabularies enforced as CHECK constraints (docs/21 §1, §7). Kept here so the DB layer, the API
 # layer (services/api/schemas.py) and services/CHANGELOG entries have one place to cross-check.
 # ---------------------------------------------------------------------------------------------
-REUSE_CLASSES = ("open", "attribution", "restricted", "unknown")
+#: `noncommercial` (migration 0020, owner decision 2026-09-25, `docs/26-platform-posture.md`): the
+#: source's terms permit reuse but not for commercial advantage (CC BY-NC and the like). It is
+#: publishable only while `PLATFORM_POSTURE=noncommercial` (`services/posture.py`); under the
+#: default `commercial` posture it is gated exactly like `restricted`/`unknown`. A licence in this
+#: class must carry `allows_commercial_use = false` — the `noncommercial_no_commercial_use` CHECK
+#: on `licence` below refuses the contradiction.
+REUSE_CLASSES = ("open", "attribution", "noncommercial", "restricted", "unknown")
 SOURCE_PUBLISH_STATES = ("ingest_only", "api_only", "public")
 #: How `source.vintage` was determined (`services/ingest/vintage.py`). NULL on the column means a
 #: fourth state the vocabulary deliberately does not name: no load has examined this source yet.
@@ -191,12 +198,26 @@ class Licence(Base, TimestampMixin):
     #: composed paraphrase (web/README.md "Missing from the API" item 3).
     quote_text: Mapped[str | None] = mapped_column(sa.Text)
 
-    __table_args__ = (sa.CheckConstraint(f"reuse_class IN {REUSE_CLASSES!r}", name="reuse_class_vocab"),)
+    __table_args__ = (
+        sa.CheckConstraint(f"reuse_class IN {REUSE_CLASSES!r}", name="reuse_class_vocab"),
+        # A `noncommercial` grant is, by definition, a licence that does not allow commercial use:
+        # the class and the boolean say the same thing and this refuses a row where they do not
+        # (migration 0020). The converse is deliberately *not* constrained: the loader writes
+        # `allows_commercial_use = false` for every `attribution` licence because the manifest's
+        # `attribution` covers both `open-attribution` and `attribution-restricted` register
+        # classes (docs/13 §0), so `false` there means "not verified", not "forbidden".
+        sa.CheckConstraint(
+            "reuse_class <> 'noncommercial' OR NOT allows_commercial_use",
+            name="noncommercial_no_commercial_use",
+        ),
+    )
 
     @property
     def is_publishable_class(self) -> bool:
-        """Invariant L1's reuse-class half: `open`/`attribution` may leave the building at all."""
-        return self.reuse_class in ("open", "attribution")
+        """Invariant L1's reuse-class half: may this class leave the building at all? Posture-
+        dependent since 2026-09-25 (`services/posture.py`): `open`/`attribution` always,
+        `noncommercial` only while the platform posture is `noncommercial`."""
+        return self.reuse_class in publishable_reuse_classes(platform_posture())
 
     @property
     def gate_clear(self) -> bool:
@@ -277,8 +298,9 @@ class Source(Base, TimestampMixin):
 
     @property
     def gated(self) -> bool:
-        """Mirrors `pipeline.connectors.registry.SourceEntry.gated` (both gates must hold)."""
-        return self.licence.reuse_class in ("restricted", "unknown")
+        """Mirrors `pipeline.connectors.registry.SourceEntry.gated` (both gates must hold): the
+        complement of the posture's publishable classes, so an off-vocabulary value is gated."""
+        return self.licence.reuse_class not in publishable_reuse_classes(platform_posture())
 
 
 # ============================================================================= source_run (§4.2)

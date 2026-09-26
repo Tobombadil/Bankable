@@ -129,9 +129,13 @@ def test_the_licence_clause_is_identical_on_every_tier() -> None:
 
 
 def test_only_open_and_attribution_are_publishable() -> None:
+    """Under the default (`commercial`) posture, which is what this suite runs under: the
+    `noncommercial` class added 2026-09-25 is gated here like `restricted`/`unknown`
+    (`tests/test_visibility_predicate.py` covers the other posture)."""
     assert set(PUBLISHABLE_REUSE_CLASSES) == {"open", "attribution"}
     assert set(GATED_CLASSES) <= set(REUSE_CLASSES)
     assert set(PUBLISHABLE_REUSE_CLASSES).isdisjoint(GATED_CLASSES)
+    assert "noncommercial" in REUSE_CLASSES and "noncommercial" not in PUBLISHABLE_REUSE_CLASSES
 
 
 # ------------------------------------------------------------------------ 2. behavioural

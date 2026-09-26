@@ -22,6 +22,7 @@ succeeded on retry). Raw captures are in the session scratchpad, not committed; 
 | `open-attribution` | Named open licence (CC BY, OGL, NESO Open Data, EU reuse) permitting commercial reuse with credit. |
 | `permissive` | Not a named open licence, but the operative clause expressly permits redistribution of the data. |
 | `attribution-restricted` | Reuse permitted with credit, but the same document also reserves rights or restricts republication; residual risk. |
+| `noncommercial` | Reuse expressly permitted **for noncommercial purposes only** (CC BY-NC; a state site's "for noncommercial use" grant such as the RRC's, `docs/00-PLAN.md` 2026-09-25). Publishable only while the platform posture is `noncommercial` (`docs/26-platform-posture.md`); under `commercial` it is gated exactly like `restricted`. Manifest `reuse: noncommercial`; the licence row carries `allows_commercial_use = false` by constraint. Added 2026-09-25; no source carries it yet — assigning it is per-source work with the terms in front of the reviewer. |
 | `restricted` | Redistribution or commercial use prohibited, or permitted only under a separate licence. |
 | `unknown` | Operative terms could not be retrieved. |
 
@@ -34,6 +35,10 @@ succeeded on retry). Raw captures are in the session scratchpad, not committed; 
   on public pages.
 - `link-out-only` — store internally for resolution and alerting; publish nothing but headline/title, a
   one-line factual summary, and the source link.
+- `raw-ok only while the platform posture is noncommercial` — the rule for a `noncommercial`-class row: `raw-ok`
+  with attribution and a link back while `PLATFORM_POSTURE=noncommercial`, and **nothing** the moment the
+  posture is `commercial` (`docs/26` §5 runbook). `scripts/check_manifest_licences.py` reads the `raw-ok` in
+  this phrase as the ceiling and the posture setting, not the manifest, decides whether it applies.
 
 ---
 
@@ -1668,6 +1673,16 @@ under the pytest job) parses every row above whose first cell is one or more bac
 strictest class named in the Class cell and the strictest rule named in the Publication rule cell, and fails
 when `data/sources.yaml`'s `reuse` or `publication` is more permissive. Keep the vocabulary of §0 in these two
 cells; prose belongs after it, as in the PJM and GEM rows.
+
+**`noncommercial` rows (2026-09-25, `docs/26-platform-posture.md`).** When a source's terms are read and found
+to grant reuse for noncommercial purposes only, its row here takes Class `noncommercial` and Publication rule
+`raw-ok only while the platform posture is noncommercial; attribution + link`, and the manifest may then carry
+`reuse: noncommercial` / `publication: raw_ok` (or `derived_only` where the terms withhold raw). The check
+ranks `noncommercial` below `attribution` and above `restricted`/`unknown`: an `unknown` row does not license
+the manifest to say `noncommercial`, and a `noncommercial` row does not license `attribution`. **No row carries
+the class yet.** The first candidate is `us.tx.rrc.class_vi` (RRC Site Policies, `docs/00-PLAN.md`
+2026-09-25); its row stays `unknown` until the reviewer moves it with the quoted clause in §2 — a per-source
+step, not part of the vocabulary change.
 
 ### 6.1 Manifest reconciliation, 2026-09-18
 
