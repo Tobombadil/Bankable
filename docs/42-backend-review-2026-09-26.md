@@ -165,12 +165,13 @@ Phase map from the AST (top-level blocks of the function body):
 | 01–08 | 11 | clocks, result, id maps, entity/link classes by `kind` | `now`, `result`, `record_id_to_internal`, `key_by_record_id`, `claimed`, `entity_cls`, `link_cls`, `fk_name` |
 | 09–10 | 7 | `set_source_vintage`, `_build_load_cache` | `cache` |
 | 11–16 | 8 | rows → dicts, distinct record ids per key, `dup_naturals`, `warned_reuse`, `pending_links` | `records`, `dup_naturals`, `warned_reuse`, `pending_links` |
-| 17 | **168** | `with session.no_autoflush:` upsert loop — claim keys, resolve links, provenance, publish state, per-row `public_at` / `published_at` | 15 loop locals; `public_at`, `published_at`, `record_id` leak to block 19 |
+| 17 | **168** | `with session.no_autoflush:` upsert loop — claim keys, resolve links, provenance, publish state, per-row `public_at` / `published_at` | 15 loop locals; `record_id_to_internal` (filled here) is read by block 19. *Corrected 2026-09-26 by lane L1:* `public_at` and `published_at` do **not** cross — block 19 assigns both afresh (`published_at = now`; `public_at = record_public_at(published_at)`); the phase script flagged name reuse, not a data flow. |
 | 18 | 1 | `_flush_pending` | — |
 | 19 | **81** | events: idempotency keys, before/after values, observed tokens | — |
 | 20 | 1 | `return result` | — |
 
-18 locals cross a block boundary; the upsert loop and the events block are each already a function in
+16 locals cross a block boundary (18 by name; two of them, `public_at` and `published_at`, are reassigned rather
+than read — see the table); the upsert loop and the events block are each already a function in
 everything but name. The extraction (§7 L1) is three named steps with the phase's inputs as parameters
 and a small frozen context for the eight values every step reads — three call sites, so it clears the
 "no new abstraction without two call sites" rule. Behaviour oracle: `services/ingest/test_loader.py`,
@@ -209,6 +210,8 @@ abstraction without two call sites; each lane reports its delta with `scripts/ba
 | L5 | Public record routes out of `services/api/app.py` | new `services/api/records.py` (proposals, opportunities, their events/sources/geo + the shared filter stack); `app.py` keeps app wiring, middleware, health/meta/coverage, organisations, events, feeds | `app.py` 1,896 → ≈ 1,000; §2 item 4 becomes one `_list_subject_events` with two routes | — | `tests/test_spec_operation_inventory.py`, `tests/test_api_contract.py`, `tests/test_paid_shapes_are_gated.py`, `tests/test_api_geo_performance.py`, `tests/test_platform_posture.py` | after L4 |
 | L6 | Lock the layering in | `infra/importlinter.ini` only | contracts: `web` ↛ `services.ingest/resolve/db` except `web.dev_up`, `web.data_loading`, `web.admin.records`; `services.ingest`, `services.resolve` ↛ `services.api` (0 edges today) | the two contracts themselves | `lint-imports` in CI | last, after L2–L5 so the exception list is measured on the final tree |
 | L7 | Customers/subscriptions and the deletion flow out of `admin_people.py` | new `services/api/admin_customers.py`; `admin_people.py` | `admin_people.py` ≈ 1,100 → ≈ 700 | — | `tests/test_api_admin_people.py` | optional; after L4, only if L4's delta and suite time justify a second pass on the same file |
+
+**L1 outcome (2026-09-26).** `load_dataframe` 325 → 37 lines; module nesting 6 → 3; functions ≥ 80 lines 2 → 3 (`upsert_licence_and_source` 109 pre-existing, `_create_entity_and_link` 97, `_load_one_event` 81); every new function ≤ 6 parameters; module 1,356 → 1,480 lines (+124: twelve new definitions with short docstrings; the +80 target was missed by 44 and accepted). Two small objects, each with three call sites: a frozen `_LoadContext` for the per-load constants and a mutable `_UpsertState` for the loop's four containers. Three passes were needed: the first threaded the context's contents by hand (15-, 13- and 10-parameter helpers); the second folded them in; the third removed a duplicated per-row `fields` computation. **Throughput, measured with `services/ingest/bench_loader.py`, interleaved before/after on the same filesystem with a `/tmp` control worktree: 1,332–1,378 rows/s before, 1,282–1,310 after, ≈ 3.5 % slower.** `cProfile` shows +28k calls in 18.7 M and no new hot spot (SQLAlchemy attribute machinery dominates both); the cause was not isolated after three benchmark rounds and the delta is accepted for a batch path (≈ 0.25 s per 9,563 rows). Full suite on the final tree: core exit 0, 88 %, `visibility.py` 100 %, `loader.py` 89 % branch, web exit 0. One correction to §5 came out of the lane (see the table note).
 
 Estimated diff sizes (moved lines count twice): L1 ≈ 400, L2 ≈ 1,200, L3 ≈ 1,400, L4 ≈ 1,000,
 L5 ≈ 1,900, L6 ≈ 30, L7 ≈ 700. Each lane is one PR, merged on green.
