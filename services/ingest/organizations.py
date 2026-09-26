@@ -1,7 +1,9 @@
-"""Organisation-level loaders: GLEIF Level 2 parent links and the curated alias file
-(docs/21 §3.5, §3.6, §3.23; docs/22 §17) -> `organization.parent_org_id` / `organization_alias`.
+"""Organisation-level loaders: GLEIF Level 2 parent links, the curated alias file and the curated
+merge file (docs/21 §3.5, §3.6, §3.23; docs/22 §17, §20.5) -> `organization.parent_org_id` /
+`organization_alias` / reversible `merged` events.
 
-Two loaders, both idempotent, both one pass over the tables they touch.
+Three loaders, all idempotent, all one pass over the tables they touch. `load_merges` is described
+at its definition; the other two follow.
 
 **`load_gleif_parents(session, df)`** applies the parquet `pipeline/context/gleif.py` writes
 (`global.gleif.lei`, CC0) and sets, for every organisation it can match, `parent_org_id`,
@@ -75,6 +77,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
+import sqlalchemy as sa
 import yaml
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -94,12 +97,14 @@ from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id as make_public_id
 from services.ids import slugify
 from services.ingest.loader import upsert_licence_and_source
+from services.resolve.merge import merge_organization
 
 log = logging.getLogger(__name__)
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = pathlib.Path("web/.data/dev.db")
 DEFAULT_ALIASES_PATH = ROOT / "data" / "vendored" / "organizations" / "aliases.yaml"
+DEFAULT_MERGES_PATH = ROOT / "data" / "vendored" / "organizations" / "merges.yaml"
 DEFAULT_GLEIF_PARQUET = ROOT / "data" / "normalized" / "context" / "global.gleif.lei.parents.parquet"
 
 GLEIF_SOURCE_ID = "global.gleif.lei"
@@ -533,6 +538,121 @@ def load_aliases(
     return result
 
 
+# ------------------------------------------------------------------------------- curated merges
+@dataclass
+class MergeRule:
+    absorb: str
+    into: str
+    rationale: str
+    source_url: str
+    retrieved_at: str
+
+
+@dataclass
+class MergesLoadResult:
+    rules: int = 0
+    merged: list[str] = field(default_factory=list)
+    already_merged: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
+    conflicts: list[str] = field(default_factory=list)
+
+    def as_report(self) -> dict[str, object]:
+        return {
+            "rules": self.rules,
+            "merged": list(self.merged),
+            "already_merged": list(self.already_merged),
+            "missing": list(self.missing),
+            "conflicts": list(self.conflicts),
+        }
+
+
+def read_merge_rules(path: pathlib.Path = DEFAULT_MERGES_PATH) -> list[MergeRule]:
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    rows = payload.get("merges") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise ValueError(f"{path}: expected a top-level `merges:` list")
+    rules: list[MergeRule] = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"{path}: row {i} is not a mapping")
+        missing = [k for k in ("absorb", "into", "rationale", "source_url", "retrieved_at") if not row.get(k)]
+        if missing:
+            raise ValueError(f"{path}: row {i} lacks {missing}")
+        rules.append(
+            MergeRule(
+                absorb=str(row["absorb"]).strip(),
+                into=str(row["into"]).strip(),
+                rationale=" ".join(str(row["rationale"]).split()),
+                source_url=str(row["source_url"]),
+                retrieved_at=str(row["retrieved_at"]),
+            )
+        )
+    return rules
+
+
+def _orgs_named(session: Session, name: str) -> list[Organization]:
+    """Organisations whose `name_canonical` is `name` exactly, else case-insensitively. Merged rows
+    included: the caller has to see a row that is already a redirect to report it correctly."""
+    exact = list(session.scalars(select(Organization).where(Organization.name_canonical == name)))
+    if exact:
+        return exact
+    return list(
+        session.scalars(
+            select(Organization).where(sa.func.lower(Organization.name_canonical) == name.lower())
+        )
+    )
+
+
+def load_merges(session: Session, path: pathlib.Path = DEFAULT_MERGES_PATH) -> MergesLoadResult:
+    """Apply the curated merge file (`data/vendored/organizations/merges.yaml`, docs/22 §20.5): one
+    `services.resolve.merge.merge_organization` call per rule, idempotent, never creating an
+    organisation. A rule is `missing` when either side is not loaded, `already_merged` when the
+    absorbed row already redirects to the survivor, and a `conflict` -- reported, not applied --
+    when a name matches more than one row, the absorbed row already redirects elsewhere, the
+    survivor is itself a redirect, or the two names are one row.
+
+    The event carries the rule's `source_url` and `retrieved_at`, and its rationale in `reason`.
+    It carries no `source_id`: a new `source` row needs a `data/sources.yaml` entry and a docs/13 §6
+    register row (R1) first, which this lane does not own (docs/22 §20.5)."""
+    rules = read_merge_rules(path)
+    result = MergesLoadResult(rules=len(rules))
+    for rule in rules:
+        label = f"{rule.absorb} -> {rule.into}"
+        absorbed_rows = _orgs_named(session, rule.absorb)
+        survivor_rows = _orgs_named(session, rule.into)
+        if not absorbed_rows or not survivor_rows:
+            result.missing.append(label)
+            continue
+        if len(absorbed_rows) > 1 or len(survivor_rows) > 1:
+            result.conflicts.append(f"{label}: a name matches more than one organisation row")
+            continue
+        absorbed, survivor = absorbed_rows[0], survivor_rows[0]
+        if absorbed.id == survivor.id:
+            result.conflicts.append(f"{label}: both names are one organisation row")
+            continue
+        if absorbed.merged_into_id == survivor.id:
+            result.already_merged.append(label)
+            continue
+        if absorbed.merged_into_id is not None:
+            result.conflicts.append(f"{label}: {rule.absorb!r} is already merged into another organisation")
+            continue
+        if survivor.merged_into_id is not None:
+            result.conflicts.append(f"{label}: {rule.into!r} is itself merged into another organisation")
+            continue
+        merge_organization(
+            session,
+            canonical=survivor,
+            absorbed=absorbed,
+            rationale=f"curated merge (data/vendored/organizations/merges.yaml): {rule.rationale}",
+            actor_type="user",
+            source_url=rule.source_url,
+            retrieved_at=pd.Timestamp(rule.retrieved_at).to_pydatetime(),
+        )
+        result.merged.append(label)
+    session.commit()
+    return result
+
+
 # ---------------------------------------------------------------------------------------- CLI
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -541,7 +661,9 @@ def main(argv: list[str] | None = None) -> None:
     parents.add_argument("--parquet", type=pathlib.Path, default=DEFAULT_GLEIF_PARQUET)
     aliases = sub.add_parser("aliases", help="organization_alias rows from the curated YAML")
     aliases.add_argument("--path", type=pathlib.Path, default=DEFAULT_ALIASES_PATH)
-    for p in (parents, aliases):
+    merges = sub.add_parser("merges", help="reversible organisation merges from the curated YAML")
+    merges.add_argument("--path", type=pathlib.Path, default=DEFAULT_MERGES_PATH)
+    for p in (parents, aliases, merges):
         p.add_argument("--db", type=pathlib.Path, default=DEFAULT_DB_PATH)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -559,8 +681,10 @@ def main(argv: list[str] | None = None) -> None:
         report: dict[str, object]
         if args.command == "parents":
             report = load_gleif_parents_parquet(session, args.parquet).as_report()
-        else:
+        elif args.command == "aliases":
             report = load_aliases(session, args.path).as_report()
+        else:
+            report = load_merges(session, args.path).as_report()
     finally:
         session.close()
     report["elapsed_s"] = round(time.monotonic() - t0, 2)

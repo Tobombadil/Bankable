@@ -1628,6 +1628,173 @@ DATABASE_URL="sqlite+pysqlite:///$SCRATCH/e5.db" .venv/bin/python -m services.in
   with the entity; the width alone (36, 32, 40) is evidence about the source, not about identity. The seven LMOP
   annotation-suffix pairs in §19.2 are one entity each on LMOP's own row, but are a source convention to fold, not
   seven citations, and are deliberately not in `aliases.yaml`.
-- **A-22-21 (found, not fixed — `services/resolve/merge.py` is another lane's file):** `merge_organization` does
+- **A-22-21 (found here; fixed the same day in §20 — merges now carry edges, children and aliases):** `merge_organization` does
   not re-point `asset_owner` edges or record them for unmerge. No organisation merge should be run against an
   organisation holding edges until it does; the three truncation merges in §19.4 wait on it.
+
+## 20. Organisation merges carry the whole graph, and become part of the build (2026-09-26)
+
+Numbered 20 because the entity-identity lane's section on the same day (which records this defect as §19.4
+and assumption A-22-21) takes 19 on the branch; renumber on merge if that lands differently.
+
+### 20.1 The defect, measured
+
+`services/resolve/merge.py::merge_organization` re-pointed `proposal.sponsor_org_id` and nothing else, and its
+`before` payload listed `sponsored_proposal_ids` only. Three consequences, each reproduced on a copy of the dev
+store (`web/.data/dev.db`, 2026-09-26) by applying the three merges below with the pre-fix code:
+
+- **Ownership edges stranded on a redirect.** `asset_owner.organization_id` stayed on the absorbed row, which
+  `services/api/orgtree.py::_children_of` excludes ("a merged row is not a company, it is a redirect"). Tallgrass
+  Energy's page at `scope=all` went from **10 organisations / 11 edges / 10 assets** to **9 / 10 / 9**: the
+  Huntsman storage field, operated by `TALLGRASS INTERSTATE GAS TRANSMISSIO`, vanished from the group, and it was
+  not on the survivor either (survivor `api_self_assets` stayed 1). MarkWest Liberty's survivor stayed at 5
+  assets (the Mobley plant lost), Green Knight's at 1 (the EIA-860 power plant lost).
+- **Unmerge could not restore them**, because the event never listed them. Invariant M1 (docs/21 §6.3) held for
+  proposals only.
+- **No alias for an edge-only organisation.** The alias for the absorbed spelling took its provenance from the
+  absorbed row's first active `proposal_source`; all three absorbed rows sponsor nothing, so none got one, and
+  their own alias rows stayed on the redirect, where `org_key_multimap` (live rows only) no longer reads them.
+
+Two further gaps on the same principle, found while fixing it: the absorbed row's **children**
+(`organization.parent_org_id = absorbed`) were left hanging off the redirect, so a merged-away parent's
+subsidiaries dropped out of every descent; and `restore_row` did not convert `parent_as_of` (date) or
+`parent_org_id` (UUID) back from JSON, so unmerging any organisation carrying a dated parent link failed at
+flush on SQLite ("SQLite Date type only accepts Python date objects", reproduced) and left a string where a
+UUID belongs until the row was re-read.
+
+### 20.2 What a merge now moves, and what the event records
+
+Everything that points at the absorbed row by foreign key moves to the survivor, and `before.absorbed` lists each
+moved row's id, so `unmerge_organization` moves exactly those rows back without reading any other row (M1):
+
+| Row | Column moved | `before.absorbed` key |
+|---|---|---|
+| `proposal` | `sponsor_org_id` | `sponsored_proposal_ids` (unchanged) |
+| `asset_owner` | `organization_id` | `asset_owner_ids` (+ `asset_owner_collisions`) |
+| `organization` (children) | `parent_org_id` | `child_organization_ids` |
+| `organization_alias` (the absorbed row's own) | `organization_id` | `organization_alias_ids` (+ `organization_alias_collisions`) |
+
+A child's `parent_source_id` / `parent_as_of` / `parent_share_pct` are not rewritten: the claim still comes from
+the same source; only its target, now one row instead of two, changes.
+
+**Parent link.** If the survivor has no parent and the absorbed row has one, the survivor takes all four parent
+columns (the claim was made about the same legal entity); `before.surviving.parent` keeps the survivor's prior
+(empty) link. If the survivor's parent *is* the absorbed row, the link would be a self-loop: the survivor takes
+the absorbed row's own parent (the next link up the same chain) or none, same record. If both have different parents the survivor's stands and the absorbed row's remains in its snapshot.
+
+**The spelling alias** is written only when the survivor carries no alias with that normalised spelling after the
+moves — usually the absorbed row's own alias has just moved and already records the spelling with its original
+provenance, which is better than a derived one. Otherwise its provenance is the first active `proposal_source` of
+a sponsored proposal, else **the first ownership edge** (the record the spelling was read from); its id goes in
+`after.written_alias_id`. On unmerge it stays on the survivor, as before (a spelling recorded once is still a
+spelling that organisation is known by — `tests/test_resolve_store_unmerge.py` pins that).
+
+**Backward compatibility.** Events already written carry only `sponsored_proposal_ids`; unmerge reads every new
+key with an empty default, so an old event reverses exactly what the old merge moved and leaves the stranded
+edges where they are (`test_an_old_shape_event_still_unmerges`). The event shape only gains keys.
+
+### 20.3 The collision rule: keep both rows, never collapse
+
+A collision is an absorbed-row edge to an asset and role the survivor already holds.
+
+- **Same asset, same role, different source** is not a conflict: the edge moves and the survivor carries both
+  rows, one per source. That is what several `asset_owner` rows for one fact are for (provenance per source), and
+  `organization_asset_totals` counts distinct asset ids, so nothing is double-counted
+  (`test_collision_keeps_both_rows_and_unmerge_is_exact` asserts 2 assets, not 3).
+- **Same asset, same role, same source** cannot move: `uq_asset_owner_edge` is unique on
+  `(asset_id, organization_id, role, source_id)`. The row stays on the absorbed organisation, untouched, and is
+  listed in `asset_owner_collisions` with the survivor row it duplicates. It is **kept, not collapsed**, for two
+  reasons: collapsing means deleting a row, which this module never does (docs/21 §6.1, §6.3); and the two rows
+  can differ in `share_pct`, `as_of` and `owner_name_raw`, which the kept row and the event still show. Unmerge is
+  exact because a collided row never moved.
+- Aliases follow the same rule under `one_alias_per_org` (`organization_alias_collisions`).
+
+The cost, stated: where one source lists the same company twice under two spellings with split shares (e.g.
+EIA-860 Schedule 4 at 60 % and 40 %), the survivor's page shows the survivor row's share only. Summing them would
+assert a number no source states. None of the three merges below collides, so the case is pinned by a test, not
+observed in data.
+
+### 20.4 Tests
+
+`tests/test_resolve_org_merge_graph.py` (14 tests): the edge-only round trip with the org tree asserted
+(`org_scope(..., "all")` and `organization_asset_totals` see the edge on the survivor after merge and on the
+absorbed row after unmerge, row snapshot identical); the spelling alias taking the edge's provenance; children
+re-pointed and restored; parent inheritance and both self-loop cases, each restored; the collision case with the full
+`asset_owner` table compared before and after the round trip; an old-shape event unmerging cleanly; and the
+curated-merge loader below. Run against the pre-fix `merge.py`, 8 of the 14 fail; the six that pass on both are
+the old-shape event, the loader's conflict and file-parsing tests, which is as it should be.
+
+### 20.5 Making merges part of the reproducible build
+
+The coordinator rebuilds the dev store from scratch with `web/dev_up.py`, so a merge applied to one store is lost
+at the next build. The mechanism: **`data/vendored/organizations/merges.yaml`**, one rule per merge
+(`absorb`, `into`, `rationale`, `source_url`, `retrieved_at`), applied by
+`services/ingest/organizations.py::load_merges` (CLI: `python -m services.ingest.organizations merges`), which
+`web/dev_up.py::_load_organization_graph` runs after the alias loader — last, because it reads the rows every
+earlier loader created. Each rule is one `merge_organization` call with `actor_type="user"` (a human decision,
+docs/21 §6.4), the rationale in `reason`, and the cited document's `source_url` / `retrieved_at` on the event.
+Idempotent; it reports `merged`, `already_merged`, `missing` (either name not loaded: inert, the `aliases.yaml`
+contract) and `conflicts` (a name matching several rows, an absorbed row already redirecting elsewhere, a survivor
+that is itself a redirect, both names one row) and never creates an organisation.
+
+Why a separate file and not a flag in `aliases.yaml`: an alias rule and a merge rule do different things (one
+attaches a spelling to an existing organisation; the other retires a second organisation row), the alias loader
+already reports exactly these cases as conflicts it must not resolve, and keeping the two apart keeps
+`read_alias_rules` and its tests unchanged.
+
+Why the event carries no `source_id`: a new `source` row needs a `data/sources.yaml` entry, and every entry needs
+a docs/13 §6 register row (`tests/test_manifest_licences.py`, rule R1). Neither is this lane's file. Borrowing
+`curated.organization_aliases` would point the event's provenance at the wrong file, and its register row says
+every rule cites `data.sec.gov`, which `gkedc.org` does not. The event therefore carries `source_url` and
+`retrieved_at` of the cited document and a NULL `source_id` until a `curated.organization_merges` entry and
+register row exist (A-22-23). The alias rows that move keep their own full provenance quartet.
+
+The three rules, each read on 2026-09-26 and quoted in the file:
+
+| Absorbed (truncated source spelling) | Survivor | Document | What ties the absorbed row's asset to the entity |
+|---|---|---|---|
+| `TALLGRASS INTERSTATE GAS TRANSMISSIO` (36 chars, EIA Atlas storage operator) | `Tallgrass Interstate Gas Transmission` | [Tallgrass Energy LP 10-K 2018](https://www.sec.gov/Archives/edgar/data/1633651/000163365119000009/tge2018123110k.htm) | "The TIGT System includes the Huntsman natural gas storage facility located in Cheyenne County, Nebraska" |
+| `Markwest Liberty Midstream & Res` (EIA Atlas processing owner) | `MarkWest Liberty Midstream & Resources` | [MarkWest Energy Partners 10-K 2014](https://www.sec.gov/Archives/edgar/data/1166036/000104746915001157/a2223168z10-k.htm) | names "MarkWest Liberty Midstream & Resources, L.L.C." and the Mobley Complex, Wetzel County, WV |
+| `Green Knight Economic Development Corpor` (40 chars, EIA-860 Schedule 4 owner) | `Green Knight Economic Development Corporation` | [gkedc.org/energy-center](https://gkedc.org/energy-center/) | "the Green Knight Economic Development Corporation (GKEDC) gas-to-energy facility", fuelled from Grand Central Sanitary Landfill |
+
+### 20.6 Measured before and after, on a copy of the dev store
+
+Copy of `web/.data/dev.db` taken 2026-09-26; merges applied with `DATABASE_URL` pointed at the copy through the
+CLI above; page numbers read through `TestClient` on `GET /v1/organizations/{id}/assets`.
+
+| Measure | Before | Old code | Fixed code |
+|---|---|---|---|
+| Tallgrass Energy `scope=all`: organisations | 10 | 9 | 9 |
+| Tallgrass Energy `scope=all`: `asset_owner` edges (raw / API rows) | 11 / 11 | 10 / 10 | **11 / 11** |
+| Tallgrass Energy `scope=all`: `totals.assets` (operator / owner) | 10 (9 / 2) | 9 (8 / 2) | **10 (9 / 2)** |
+| TIGT survivor: edges / page assets / aliases | 1 / 1 / 1 | 1 / 1 / 1 | **2 / 2 / 2** |
+| MarkWest Liberty survivor: edges / page assets / aliases | 10 / 5 / 2 | 10 / 5 / 2 | **11 / 6 / 3** |
+| Green Knight survivor: edges / page assets / aliases | 1 / 1 / 1 | 1 / 1 / 1 | **2 / 2 / 2** |
+| Edges left on the three absorbed rows | 3 | 3 (invisible) | 0 |
+
+Each of the three events moved one edge and one alias; no sponsored proposals, children, collisions or written
+alias. A second run of the loader reported all three `already_merged` and wrote nothing. Unmerging all three
+events on the same copy (inside a rolled-back transaction) returned Tallgrass Energy to 10 organisations and
+11 edges. Tallgrass Energy's `by_organization` now lists `Tallgrass Interstate Gas Transmission` with 2 assets
+instead of the full and truncated spellings with 1 each.
+
+### 20.7 Open, not in this lane's files
+
+- **Loader re-runs write onto redirects.** `services/ingest/ownership.py::_build_norm_org_index` indexes every
+  organisation, merged or not, and never follows `merged_into_id`. Measured on the merged copy: all three absorbed
+  spellings resolve to the merged row, not the survivor. `dev_up` rebuilds and runs merges last, so it is
+  unaffected; a scheduled re-run of the ownership, midstream, GHGRP or ethanol loaders against a merged store would
+  write new edges and aliases onto the redirect, where the tree cannot see them — and an unmerge could then hit
+  `uq_asset_owner_edge` moving a row back. Fix: resolve each index entry to its live terminal
+  (`merged_into_id` chain) in that function.
+- **docs/21 §6.3** shows the proposal payload only; the organisation payload keys in §20.2 belong there.
+- **Registration** of `curated.organization_merges` in `data/sources.yaml` plus a docs/13 §6 row (A-22-23).
+
+### 20.8 Assumptions recorded
+
+- **A-22-22:** where the survivor and the absorbed row hold the same asset in the same role from the same source,
+  the survivor's row is the one the page shows and the absorbed row's is kept on the redirect (§20.3). This is
+  right when the two rows are one statement spelled twice; it under-reports a split stake listed under two
+  spellings. Revisit if a collision is ever observed with differing `share_pct`.
+- **A-22-23:** a curated merge event without a `source_id` is acceptable provenance for now because it carries
+  the document URL, the read time and the rationale; it becomes a full quartet when the source is registered.

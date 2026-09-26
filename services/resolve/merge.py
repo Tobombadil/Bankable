@@ -51,17 +51,26 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeline.normalize import org_key
-from services.db.models import Event, Organization, OrganizationAlias, Proposal, ProposalSource
+from services.db.models import (
+    AssetOwner,
+    Event,
+    Organization,
+    OrganizationAlias,
+    Proposal,
+    ProposalSource,
+)
 from services.resolve.models import ResolutionDecision
 
 #: docs/22 §6's chosen threshold (precision 0.927 / recall 0.950 sample; 0.915/0.946 weighted; n=85).
 MERGE_SCORE_THRESHOLD = 75.0
 
-_UUID_COLUMNS = frozenset({"id", "sponsor_org_id", "location_id", "merged_into_id", "issuer_org_id"})
+_UUID_COLUMNS = frozenset(
+    {"id", "sponsor_org_id", "location_id", "merged_into_id", "issuer_org_id", "parent_org_id"}
+)
 _DATETIME_COLUMNS = frozenset(
     {"first_seen", "last_changed", "published_at", "public_at", "created_at", "updated_at"}
 )
-_DATE_COLUMNS = frozenset({"proposed_online_date"})
+_DATE_COLUMNS = frozenset({"proposed_online_date", "parent_as_of"})
 
 
 # ------------------------------------------------------------------------------- (de)serialisation
@@ -410,6 +419,19 @@ def _propose_decision(
 
 
 # ----------------------------------------------------------------------------------- organization merge
+#: The parent-link columns of `organization`, moved and restored as one fact (the claim and its
+#: provenance travel together; `services/api/orgtree.py`'s `OwnershipEdge` reads all four).
+_PARENT_FIELDS: tuple[str, ...] = ("parent_org_id", "parent_source_id", "parent_as_of", "parent_share_pct")
+
+
+def _parent_snapshot(org: Organization) -> dict[str, Any]:
+    return {key: _json_safe(getattr(org, key)) for key in _PARENT_FIELDS}
+
+
+def _restore_parent(org: Organization, data: dict[str, Any]) -> None:
+    restore_row(org, {key: data.get(key) for key in _PARENT_FIELDS})
+
+
 def merge_organization(
     session: Session,
     *,
@@ -417,10 +439,53 @@ def merge_organization(
     absorbed: Organization,
     rationale: str,
     actor_type: str = "pipeline",
+    source_url: str | None = None,
+    retrieved_at: dt.datetime | None = None,
 ) -> Event:
-    """Merge `absorbed` organization into `canonical`, writing an `alias_added` row for the
-    absorbed spelling and one `merged` event (mirrors `merge_proposal`; docs/21 §6.3, applied to
-    `organization` per its own `merged_into_id` column, docs/21 §3.5)."""
+    """Merge `absorbed` organization into `canonical` and write one `merged` event (mirrors
+    `merge_proposal`; docs/21 §6.3, applied to `organization` per its own `merged_into_id` column,
+    docs/21 §3.5). Idempotent on the pair.
+
+    A merged row is a redirect, not a company (`services/api/orgtree.py::_children_of`), so every
+    fact that hangs off the absorbed row by foreign key moves to the survivor, and the event lists
+    each moved row's id so `unmerge_organization` can move exactly those rows back (invariant M1):
+
+    * `proposal.sponsor_org_id` -> `before.absorbed.sponsored_proposal_ids`;
+    * `asset_owner.organization_id` -> `asset_owner_ids` (docs/22 §20: before 2026-09-26 these were
+      left on the redirect, so an edge-only organisation's assets vanished from every company page);
+    * `organization.parent_org_id` of the absorbed row's children -> `child_organization_ids`
+      (otherwise the children hang off a redirect the tree walk never enters);
+    * `organization_alias.organization_id` -> `organization_alias_ids` (otherwise the spellings the
+      absorbed row carried stop resolving: `org_key_multimap` reads aliases of live rows only).
+
+    **Collisions.** An `asset_owner` row whose `(asset_id, role, source_id)` the survivor already
+    holds cannot move: `uq_asset_owner_edge` allows one such row per organisation, and the survivor's
+    row already states the same fact from the same source. It stays on the absorbed row, untouched,
+    listed in `asset_owner_collisions` with the survivor row it duplicates -- kept, not collapsed,
+    because collapsing means deleting a row (this module never deletes) and because the two rows can
+    differ in `share_pct`/`as_of`/`owner_name_raw`, which the event then still shows. An edge to the
+    same asset and role from a *different* source is not a collision: it moves, and the survivor
+    carries both sources' rows (the company page counts distinct assets, so nothing double-counts).
+    An alias whose normalised spelling the survivor already carries (`one_alias_per_org`) is
+    handled the same way (`organization_alias_collisions`). Unmerge is exact either way, since a
+    collided row never moved.
+
+    **Parent links.** If the survivor has no parent and the absorbed row has one, the survivor
+    takes it (the claim was made about the same legal entity), and `before.surviving.parent` keeps
+    the survivor's previous (empty) link for unmerge. If the survivor's parent *is* the absorbed row,
+    the link would become a self-loop: the survivor takes the absorbed row's own parent instead, or
+    none, recorded the same way. When both have different parents the survivor's stands; the
+    absorbed row's is still in its snapshot.
+
+    **The alias for the absorbed spelling** is written only when the survivor carries no alias with
+    that normalised spelling after the moves above (usually the absorbed row's own alias has just
+    moved and already records it, with its original provenance). Its provenance is the first active
+    `proposal_source` of a proposal the absorbed row sponsored, else the absorbed row's first
+    ownership edge -- the record the spelling was read from; with neither, no alias is written.
+
+    `source_url`/`retrieved_at` stamp the event with the document a curated merge cites
+    (`services/ingest/organizations.py::load_merges`); the resolver's key-based merges pass none.
+    """
     if absorbed.id == canonical.id:
         raise ValueError("cannot merge an organization into itself")
     idem = f"merge:organization:{canonical.id}:{absorbed.id}"
@@ -432,63 +497,137 @@ def merge_organization(
             f"{absorbed.id} is already merged into {absorbed.merged_into_id}, not {canonical.id}"
         )
 
-    sponsored = session.scalars(select(Proposal).where(Proposal.sponsor_org_id == absorbed.id)).all()
-    absorbed_source_id: str | None = None
-    absorbed_source_url = ""
-    absorbed_retrieved_at = utcnow()
-    absorbed_licence_id: str | None = None
-    if sponsored:
-        link = session.scalar(
-            select(ProposalSource).where(
-                ProposalSource.proposal_id == sponsored[0].id, ProposalSource.active.is_(True)
-            )
+    sponsored = session.scalars(
+        select(Proposal).where(Proposal.sponsor_org_id == absorbed.id).order_by(Proposal.id)
+    ).all()
+    edges = session.scalars(
+        select(AssetOwner).where(AssetOwner.organization_id == absorbed.id).order_by(AssetOwner.id)
+    ).all()
+    children = session.scalars(
+        select(Organization)
+        .where(Organization.parent_org_id == absorbed.id, Organization.id != canonical.id)
+        .order_by(Organization.id)
+    ).all()
+    own_aliases = session.scalars(
+        select(OrganizationAlias)
+        .where(OrganizationAlias.organization_id == absorbed.id)
+        .order_by(OrganizationAlias.id)
+    ).all()
+
+    survivor_edges = {
+        (e.asset_id, e.role, e.source_id): e.id
+        for e in session.scalars(select(AssetOwner).where(AssetOwner.organization_id == canonical.id))
+    }
+    moved_edges: list[AssetOwner] = []
+    edge_collisions: list[dict[str, str]] = []
+    for e in edges:
+        clash = survivor_edges.get((e.asset_id, e.role, e.source_id))
+        if clash is None:
+            moved_edges.append(e)
+        else:
+            edge_collisions.append({"id": str(e.id), "survivor_edge_id": str(clash)})
+
+    survivor_alias_keys = {
+        a.alias_normalised: a.id
+        for a in session.scalars(
+            select(OrganizationAlias).where(OrganizationAlias.organization_id == canonical.id)
         )
-        if link is not None:
-            absorbed_source_id = link.source_id
-            absorbed_source_url = link.source_url
-            absorbed_retrieved_at = link.retrieved_at
-            absorbed_licence_id = link.licence_id
+    }
+    moved_aliases: list[OrganizationAlias] = []
+    alias_collisions: list[dict[str, str]] = []
+    for a in own_aliases:
+        clash_alias = survivor_alias_keys.get(a.alias_normalised)
+        if clash_alias is None:
+            moved_aliases.append(a)
+            survivor_alias_keys[a.alias_normalised] = a.id
+        else:
+            alias_collisions.append({"id": str(a.id), "survivor_alias_id": str(clash_alias)})
+
+    surviving_before: dict[str, Any] = {"last_changed": _json_safe(canonical.last_changed)}
+    changed_keys = ["last_changed"]
+    absorbed_parent_usable = absorbed.parent_org_id is not None and absorbed.parent_org_id != canonical.id
+    new_parent: dict[str, Any] | None = None
+    if canonical.parent_org_id == absorbed.id:
+        # A self-loop once the two rows are one: the survivor takes the absorbed row's own parent
+        # (the next link up the same chain), or none.
+        new_parent = (
+            {key: getattr(absorbed, key) for key in _PARENT_FIELDS}
+            if absorbed_parent_usable
+            else dict.fromkeys(_PARENT_FIELDS)
+        )
+    elif canonical.parent_org_id is None and absorbed_parent_usable:
+        new_parent = {key: getattr(absorbed, key) for key in _PARENT_FIELDS}
+    if new_parent is not None:
+        surviving_before["parent"] = _parent_snapshot(canonical)
+        changed_keys.append("parent_org_id")
 
     before_payload = {
-        "surviving": {"last_changed": _json_safe(canonical.last_changed)},
+        "surviving": surviving_before,
         "absorbed": {
             "id": str(absorbed.id),
             "public_id": absorbed.public_id,
             "slug": absorbed.slug,
             "entity": serialize_row(absorbed),
             "sponsored_proposal_ids": [str(p.id) for p in sponsored],
+            "asset_owner_ids": [str(e.id) for e in moved_edges],
+            "asset_owner_collisions": edge_collisions,
+            "child_organization_ids": [str(c.id) for c in children],
+            "organization_alias_ids": [str(a.id) for a in moved_aliases],
+            "organization_alias_collisions": alias_collisions,
         },
     }
 
+    alias_provenance = _absorbed_spelling_provenance(session, sponsored, edges)
+
     for p in sponsored:
         p.sponsor_org_id = canonical.id
+    for e in moved_edges:
+        e.organization_id = canonical.id
+    for c in children:
+        c.parent_org_id = canonical.id
+    for a in moved_aliases:
+        a.organization_id = canonical.id
+    if new_parent is not None:
+        for key, value in new_parent.items():
+            setattr(canonical, key, value)
 
-    if absorbed_source_id and absorbed_licence_id:
-        alias = OrganizationAlias(
+    written_alias: OrganizationAlias | None = None
+    if alias_provenance is not None and absorbed.name_normalised not in survivor_alias_keys:
+        src_id, src_url, src_retrieved, licence_id = alias_provenance
+        written_alias = OrganizationAlias(
             organization_id=canonical.id,
             alias=absorbed.name_canonical,
             alias_normalised=absorbed.name_normalised,
             kind="filing_spelling",
-            source_id=absorbed_source_id,
-            source_url=absorbed_source_url,
-            retrieved_at=absorbed_retrieved_at,
-            licence_id=absorbed_licence_id,
+            source_id=src_id,
+            source_url=src_url,
+            retrieved_at=src_retrieved,
+            licence_id=licence_id,
             confidence=1.0,
             created_by="pipeline",
         )
-        session.add(alias)
+        session.add(written_alias)
+        session.flush()
 
     canonical.last_changed = utcnow()
     absorbed.merged_into_id = canonical.id
+
+    after_payload: dict[str, Any] = {"surviving": {"last_changed": _json_safe(canonical.last_changed)}}
+    if new_parent is not None:
+        after_payload["surviving"]["parent"] = _parent_snapshot(canonical)
+    if written_alias is not None:
+        after_payload["written_alias_id"] = str(written_alias.id)
 
     event = Event(
         subject_type="organization",
         subject_id=canonical.id,
         event_type="merged",
         observed_at=utcnow(),
+        source_url=source_url,
+        retrieved_at=retrieved_at,
         before=before_payload,
-        after={"surviving": {"last_changed": _json_safe(canonical.last_changed)}},
-        changed_keys=["last_changed"],
+        after=after_payload,
+        changed_keys=changed_keys,
         actor_type=actor_type,
         confidence=1.0,
         reason=rationale,
@@ -499,8 +638,33 @@ def merge_organization(
     return event
 
 
+def _absorbed_spelling_provenance(
+    session: Session, sponsored: Sequence[Proposal], edges: Sequence[AssetOwner]
+) -> tuple[str, str, dt.datetime, str] | None:
+    """(source_id, source_url, retrieved_at, licence_id) of the record the absorbed spelling was
+    read from: a sponsored proposal's first active source link, else the first ownership edge."""
+    if sponsored:
+        link = session.scalar(
+            select(ProposalSource).where(
+                ProposalSource.proposal_id == sponsored[0].id, ProposalSource.active.is_(True)
+            )
+        )
+        if link is not None:
+            return link.source_id, link.source_url, link.retrieved_at, link.licence_id
+    if edges:
+        edge = edges[0]
+        return edge.source_id, edge.source_url, edge.retrieved_at, edge.licence_id
+    return None
+
+
 def unmerge_organization(session: Session, merge_event_id: _uuid.UUID, *, reason: str = "unmerge") -> Event:
-    """Organization counterpart of `unmerge_proposal`, same exact-restore contract."""
+    """Organization counterpart of `unmerge_proposal`, same exact-restore contract, read from the
+    merge event alone. Events written before 2026-09-26 carry only `sponsored_proposal_ids`; every
+    newer key is read with a default, so those events still unmerge exactly what they moved.
+
+    The alias written for the absorbed spelling (`after.written_alias_id`) stays on the survivor,
+    as it always has: a spelling recorded once is still a spelling that organisation is known by
+    (tests/test_resolve_store_unmerge.py). The absorbed row's *own* aliases move back."""
     merge_event = session.get(Event, merge_event_id)
     if (
         merge_event is None
@@ -525,14 +689,30 @@ def unmerge_organization(session: Session, merge_event_id: _uuid.UUID, *, reason
             f"cannot unmerge {merge_event.id}: canonical or absorbed organization row is missing"
         )
 
-    restore_row(absorbed, before["absorbed"]["entity"])
+    absorbed_payload = before["absorbed"]
+    restore_row(absorbed, absorbed_payload["entity"])
 
-    for proposal_id_str in before["absorbed"]["sponsored_proposal_ids"]:
+    for proposal_id_str in absorbed_payload.get("sponsored_proposal_ids", []):
         p = session.get(Proposal, _uuid.UUID(proposal_id_str))
         if p is not None:
             p.sponsor_org_id = absorbed.id
+    for edge_id_str in absorbed_payload.get("asset_owner_ids", []):
+        edge = session.get(AssetOwner, _uuid.UUID(edge_id_str))
+        if edge is not None:
+            edge.organization_id = absorbed.id
+    for child_id_str in absorbed_payload.get("child_organization_ids", []):
+        child = session.get(Organization, _uuid.UUID(child_id_str))
+        if child is not None:
+            child.parent_org_id = absorbed.id
+    for alias_id_str in absorbed_payload.get("organization_alias_ids", []):
+        alias = session.get(OrganizationAlias, _uuid.UUID(alias_id_str))
+        if alias is not None:
+            alias.organization_id = absorbed.id
 
-    canonical.last_changed = dt.datetime.fromisoformat(before["surviving"]["last_changed"])
+    surviving = before["surviving"]
+    if "parent" in surviving:
+        _restore_parent(canonical, surviving["parent"])
+    canonical.last_changed = dt.datetime.fromisoformat(surviving["last_changed"])
 
     event = Event(
         subject_type="organization",

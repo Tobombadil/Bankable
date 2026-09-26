@@ -1,0 +1,58 @@
+# Curated organisation merges (docs/22 §20.5). Companion to `aliases.yaml`, stronger in one respect: an
+# alias rule attaches a spelling that is not yet its own organisation; a merge rule is for a spelling that
+# the loaders have *already* created as a second organisation row, so the two rows must become one. That is
+# the case `services/ingest/organizations.py::load_aliases` reports as a conflict and leaves alone
+# ("merging two live organisations is a services/resolve/merge.py decision with a reversible event behind
+# it"). This file is where that decision is written down, so it survives a rebuild of the store.
+#
+# Loaded by `services/ingest/organizations.py::load_merges` (`python -m services.ingest.organizations
+# merges`; `web/dev_up.py` runs it after the alias loader). Each rule becomes one
+# `services.resolve.merge.merge_organization` call, which writes one reversible `merged` event carrying
+# the rule's rationale, source_url and retrieved_at, and moves the absorbed row's sponsored proposals,
+# ownership edges, child organisations and aliases onto the survivor. Idempotent: a rule whose merge
+# already happened is reported `already_merged`; a rule whose organisations are not loaded is reported
+# `missing` and does nothing (inert, not an error -- the same contract as `aliases.yaml`).
+#
+# Nothing here is inferred from a name alone. Every rule cites a document that names the legal entity in
+# full and ties it to the asset the truncated spelling holds in our data, because a shared prefix is not
+# identity (docs/22 §16.2: a key loose enough to merge by prefix re-merges 46.3 % distinct entities).
+#
+# Schema, one row per rule:
+#   absorb        : the organisation row to retire, as `organization.name_canonical` (exact, then
+#                   case-insensitive)
+#   into          : the surviving organisation, same matching
+#   rationale     : what the cited document says that makes the two one legal entity
+#   source_url    : the document
+#   retrieved_at  : when it was read (ISO 8601, UTC)
+
+merges:
+  - absorb: TALLGRASS INTERSTATE GAS TRANSMISSIO
+    into: Tallgrass Interstate Gas Transmission
+    rationale: >-
+      Tallgrass Energy, LP Form 10-K for 2018: "We own a 100% membership interest in Tallgrass
+      Interstate Gas Transmission, LLC ("TIGT")" and "The TIGT System includes the Huntsman natural gas
+      storage facility located in Cheyenne County, Nebraska." The absorbed spelling is EIA Atlas
+      underground-storage's operator field truncated at 36 characters, and it operates exactly the
+      Huntsman storage field; the survivor is the same company's full name on the EIA Atlas pipeline layer.
+    source_url: https://www.sec.gov/Archives/edgar/data/1633651/000163365119000009/tge2018123110k.htm
+    retrieved_at: '2026-09-26T23:12:45Z'
+  - absorb: Markwest Liberty Midstream & Res
+    into: MarkWest Liberty Midstream & Resources
+    rationale: >-
+      MarkWest Energy Partners, L.P. Form 10-K for 2014 names the entity "MarkWest Liberty Midstream &
+      Resources, L.L.C." and lists the Mobley Complex (Wetzel County, West Virginia) among its Marcellus
+      processing complexes alongside Majorsville, Sherwood, Houston and Keystone. The absorbed spelling is
+      the EIA Atlas gas-processing layer's truncated owner field on the Mobley plant; the survivor owns or
+      operates the other five plants under the full name in the same layer.
+    source_url: https://www.sec.gov/Archives/edgar/data/1166036/000104746915001157/a2223168z10-k.htm
+    retrieved_at: '2026-09-26T23:12:45Z'
+  - absorb: Green Knight Economic Development Corpor
+    into: Green Knight Economic Development Corporation
+    rationale: >-
+      Green Knight Economic Development Corporation's own Energy Center page: "the Green Knight Economic
+      Development Corporation (GKEDC) gas-to-energy facility" at the Green Knight Energy Center, fuelled by
+      landfill gas from Grand Central Sanitary Landfill in Plainfield Township. The absorbed spelling is
+      EIA-860 Schedule 4's owner field (truncated at 40 characters) on the Green Knight Energy Center; the
+      survivor is EPA LMOP's operator of the Grand Central landfill-gas project -- one corporation, one plant.
+    source_url: https://gkedc.org/energy-center/
+    retrieved_at: '2026-09-26T23:12:45Z'
