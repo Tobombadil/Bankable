@@ -14,15 +14,10 @@ from __future__ import annotations
 
 import datetime as dt
 import os
-import re
-import time
-from collections.abc import Mapping
-from html import escape
 from typing import Any
 
-import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import QueryParams
 
@@ -31,25 +26,15 @@ from web.auth import router as auth_router
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
     ASSET_TYPE_LABELS,
-    LINE_ASSET_TYPES,
     WEB_ROOT,
-    _asset_feature,
-    _attr,
+    _asset_extras,
     _basemap_attribution,
-    _geometry_of,
-    _line_class,
-    _mini_map,
-    _number,
-    _proposal_feature,
-    _sentence_label,
-    _states_crossed,
     _tile_mode,
     _type_label,
     breadcrumb_jsonld,
     canonical_query,
     get_api,
     get_lag_days,
-    group_nearby_proposals,
     is_htmx,
     is_preview_active,
     item_list_jsonld,
@@ -60,11 +45,9 @@ from web.page import (
 from web.regions import Region, regions_with_data
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
-    ALL_PROPOSAL_LIFECYCLE_STATES,
     WITHDRAWN_PROPOSAL_STATES,
     WORLD_BBOX,
     absence_note,
-    asset_count_note,
     coverage_facts,
     flatten_asset,
     flatten_opportunity,
@@ -77,7 +60,6 @@ from web.viewmodels import (
     resolve_proposal_lifecycle_param,
 )
 
-ALL_PROPOSAL_LIFECYCLE_STATES_CSV = ",".join(ALL_PROPOSAL_LIFECYCLE_STATES)
 _PROPOSAL_SOURCE_IDS = {
     "us.iso.ercot.gen_queue",
     "us.iso.caiso.gen_queue",
@@ -107,267 +89,6 @@ HOME_MAP_ASSET_TYPES: list[tuple[str, str, bool]] = [
     ("ethanol_plant", "Ethanol", True),
     ("rng_project", "RNG", True),
 ]
-#: Fuel-side asset types whose promoted rows replace the plant-shaped Technology / Capacity /
-#: Commissioned rows on the asset page (`_fuel_fields`).
-FUEL_ASSET_TYPES = {"ethanol_plant", "rng_project"}
-#: `asset.technology` values the RNG loaders emit (us.epa.lmop `lfg_electricity|rng|lfg_direct_use`,
-#: us.epa.agstar `farm_digester`) -> the words the page, drawer and search row show.
-RNG_TECHNOLOGY_LABELS: dict[str, str] = {
-    "lfg_electricity": "Landfill gas to electricity",
-    "lfg_direct_use": "Landfill gas direct use",
-    "rng": "Renewable natural gas",
-    "farm_digester": "Farm digester",
-}
-#: AgSTAR livestock head counts in `attributes` (one column per animal type); a non-zero count
-#: is the digester's feedstock when the source carries no feedstock text.
-AGSTAR_HERD_KEYS = ("dairy", "swine", "cattle", "poultry")
-#: Words for the capacity units the fuel loaders emit; anything else renders as the source wrote it.
-CAPACITY_UNIT_LABELS = {"mmgal/yr": "MMgal/yr", "mmscfd": "MMscf/d", "cu-ft/day": "cu ft/day"}
-#: `attributes` keys the asset page promotes to a named field (operator, class, diameter, states,
-#: length); the generic Attributes table omits them so a value is never shown twice.
-PROMOTED_ATTRIBUTE_KEYS = (
-    "operator",
-    "line_class",
-    "interstate",
-    "pipeline_type",
-    "type_of_pipeline",
-    "system_type",
-    "diameter_in",
-    "diameter_inches",
-    "diameter",
-    "diameter_mix",
-    "states",
-    "states_crossed",
-    "state_codes",
-    "length_miles",
-    "miles",
-)
-
-
-def _diameter_text(entity: Mapping[str, Any]) -> str | None:
-    raw = _attr(entity, "diameter_in", "diameter_inches", "diameter", "diameter_mix")
-    if raw is None:
-        return None
-    number = _number(raw)
-    if number is not None:
-        return f"{number:,.1f} in".replace(".0 in", " in")
-    return str(raw)
-
-
-def _quantity(value: Any, unit: str | None, *, digits: int = 1) -> str | None:
-    """`55 MMgal/yr`, `1.725 MMscf/d`, `1,814,400 cu ft/day`: thousands separators, at most
-    `digits` decimals, a trailing `.0` dropped -- the page's number style, the source's unit word."""
-    number = _number(value)
-    if number is None:
-        return None
-    text = f"{number:,.{digits}f}"
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    label = CAPACITY_UNIT_LABELS.get(str(unit or "").lower(), unit)
-    return f"{text} {label}" if label else text
-
-
-def _year(value: Any) -> str | None:
-    number = _number(value)
-    return str(int(number)) if number is not None and number > 0 else None
-
-
-def _padd(value: Any) -> str | None:
-    text = str(value).strip() if value is not None else ""
-    if not text:
-        return None
-    return text if text.upper().startswith("PADD") else f"PADD {text}"
-
-
-_LMOP_PROJECT_NAME = re.compile(r"^Project\s+#\d+\s+-\s+(?P<landfill>.+)$")
-
-
-def _host_landfill(entity: Mapping[str, Any]) -> str | None:
-    """The landfill an LMOP project sits on: the source's own column when the record carries it,
-    else read back out of the loader's `Project #N - <Landfill name>` naming (services/ingest,
-    us.epa.lmop) -- a presentation rule over a name the data lane composed, not new data."""
-    named = _attr(entity, "landfill_name", "host_landfill")
-    if named:
-        return str(named)
-    match = _LMOP_PROJECT_NAME.match(str(entity.get("name") or ""))
-    return match.group("landfill").strip() if match else None
-
-
-def _feedstock(entity: Mapping[str, Any]) -> str | None:
-    named = _attr(entity, "feedstock", "animal_farm_types", "feedstock_raw")
-    if named:
-        return str(named)
-    herds: list[str] = []
-    for key in AGSTAR_HERD_KEYS:
-        head = _number(_attr(entity, key))
-        if head and head > 0:
-            herds.append(f"{key.capitalize()} ({head:,.0f} head)")
-    return "; ".join(herds) if herds else None
-
-
-def _fuel_fields(entity: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
-    """The promoted rows for an ethanol plant or RNG project (task brief, second midstream slice):
-    `(rows, consumed_attribute_keys)`. A row exists only where the record carries the value (the
-    "None" gate); the consumed keys are dropped from the generic Attributes table so nothing shows
-    twice. Ethanol: nameplate capacity with its unit, feedstock, PADD, the capacity's as-of year.
-    RNG: project type, technology family, rated MW and/or LFG flow (or a digester's biogas
-    estimate), biogas end use, host landfill or digester type, feedstock, start and shutdown year.
-    Text attributes the API does not serialise yet (PADD, data period, end use, landfill name) are
-    read by key so they render the day the API sends them, and are simply absent until then."""
-    asset_type = entity.get("asset_type")
-    unit = str(entity.get("capacity_unit") or "").lower()
-    rows: list[dict[str, Any]] = []
-    consumed: list[str] = []
-
-    def add(label: str, value: str | None, *keys: str, tnum: bool = False) -> None:
-        consumed.extend(keys)
-        if value:
-            rows.append({"label": label, "value": value, "tnum": tnum})
-
-    if asset_type == "ethanol_plant":
-        nameplate = _attr(entity, "nameplate_capacity_mmgal_yr")
-        if nameplate is None and unit == "mmgal/yr":
-            nameplate = entity.get("capacity_value")
-        add("Nameplate capacity", _quantity(nameplate, "MMgal/yr"), "nameplate_capacity_mmgal_yr", tnum=True)
-        add("Feedstock", _feedstock(entity), "feedstock", "feedstock_raw")
-        add("PADD", _padd(_attr(entity, "padd")), "padd")
-        as_of = _year(_attr(entity, "as_of_year")) or (
-            str(_attr(entity, "data_period")) if _attr(entity, "data_period") else None
-        )
-        add("Capacity as of", as_of, "as_of_year", "data_period", tnum=True)
-        return rows, consumed
-
-    if asset_type == "rng_project":
-        technology = str(entity.get("technology") or "")
-        digester = technology == "farm_digester"
-        project_type = _attr(entity, "lfg_energy_project_type", "project_type") or (
-            None if digester else entity.get("technology_raw")
-        )
-        add(
-            "Project type",
-            str(project_type) if project_type else None,
-            "lfg_energy_project_type",
-            "project_type",
-        )
-        add("Technology", RNG_TECHNOLOGY_LABELS.get(technology) or (technology.replace("_", " ") or None))
-        add(
-            "Rated capacity", _quantity(_attr(entity, "rated_mw", "capacity_mw"), "MW"), "rated_mw", tnum=True
-        )
-        lfg_flow = _attr(entity, "lfg_flow_to_project_mmscfd")
-        if lfg_flow is None and unit == "mmscfd":
-            lfg_flow = entity.get("capacity_value")
-        add(
-            "LFG flow to project",
-            _quantity(lfg_flow, "MMscf/d", digits=3),
-            "lfg_flow_to_project_mmscfd",
-            tnum=True,
-        )
-        biogas = _attr(entity, "biogas_generation_estimate_cuft_day")
-        if biogas is None and unit == "cu-ft/day":
-            biogas = entity.get("capacity_value")
-        add(
-            "Biogas generation (est.)",
-            _quantity(biogas, "cu ft/day", digits=0),
-            "biogas_generation_estimate_cuft_day",
-            tnum=True,
-        )
-        end_use = _attr(entity, "biogas_end_uses", "lfg_use_details", "project_type_category")
-        add(
-            "Biogas end use",
-            str(end_use) if end_use else None,
-            "biogas_end_uses",
-            "lfg_use_details",
-            "project_type_category",
-        )
-        if digester:
-            digester_type = _attr(entity, "digester_type") or entity.get("technology_raw")
-            add("Digester type", str(digester_type) if digester_type else None, "digester_type")
-        else:
-            add("Host landfill", _host_landfill(entity), "landfill_name", "host_landfill")
-        add("Feedstock", _feedstock(entity), "feedstock", "animal_farm_types", *AGSTAR_HERD_KEYS)
-        start = _year(_attr(entity, "project_start_year", "year_operational", "commissioned_year"))
-        add("Start year", start, "project_start_year", "year_operational", tnum=True)
-        add("Shutdown year", _year(_attr(entity, "year_shutdown")), "year_shutdown", tnum=True)
-        return rows, consumed
-
-    return rows, consumed
-
-
-def _normalise_owners(entity: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """`owners[]` as `serialize_asset_owner` actually emits it embeds the organisation under
-    `organization` (public_id, slug, name_canonical); `flatten_asset` reads the flat spelling
-    docs/23's table row describes. Accept both, so the owners table and the operator link never
-    render a blank organisation for a real row."""
-    out: list[dict[str, Any]] = []
-    for raw in entity.get("owners") or []:
-        org_raw = raw.get("organization")
-        org: Mapping[str, Any] = org_raw if isinstance(org_raw, Mapping) else {}
-        source_raw = raw.get("provenance")
-        source: Mapping[str, Any] = source_raw if isinstance(source_raw, Mapping) else {}
-        out.append(
-            {
-                "public_id": (
-                    org.get("public_id") or raw.get("public_id") or raw.get("organization_public_id")
-                ),
-                "slug": org.get("slug") or raw.get("slug"),
-                "name": (
-                    org.get("name_canonical")
-                    or org.get("name")
-                    or raw.get("name")
-                    or raw.get("name_canonical")
-                ),
-                "role": raw.get("role"),
-                "share_pct": raw.get("share_pct"),
-                "as_of": raw.get("as_of"),
-                "source_name": source.get("source_name") or raw.get("source_name") or raw.get("source"),
-            }
-        )
-    return out
-
-
-def _asset_extras(entity: Mapping[str, Any]) -> dict[str, Any]:
-    """The midstream fields `asset_detail.html` renders beyond `flatten_asset`'s plant shape.
-    Every value may be absent; the template drops the row rather than printing "None"."""
-    owners = _normalise_owners(entity)
-    operator_edge = next((o for o in owners if o.get("role") == "operator" and o.get("name")), None)
-    operator_name = entity.get("operator_name") or _attr(entity, "operator")
-    if operator_edge is None and operator_name:
-        wanted = str(operator_name).strip().lower()
-        operator_edge = next((o for o in owners if (o.get("name") or "").strip().lower() == wanted), None)
-    operator = {
-        "name": (operator_edge or {}).get("name") or operator_name,
-        "public_id": (operator_edge or {}).get("public_id"),
-        "slug": (operator_edge or {}).get("slug"),
-    }
-    asset_type = entity.get("asset_type")
-    geometry = _geometry_of(entity)
-    line_geometry = bool(geometry and str(geometry.get("type", "")).endswith("LineString"))
-    is_line = asset_type in LINE_ASSET_TYPES or line_geometry
-    attributes = entity.get("attributes")
-    bag: Mapping[str, Any] = attributes if isinstance(attributes, Mapping) else {}
-    promoted = [
-        k for k in PROMOTED_ATTRIBUTE_KEYS if k in bag and (is_line or k in ("length_miles", "operator"))
-    ]
-    fuel_rows, fuel_keys = _fuel_fields(entity)
-    promoted += [k for k in fuel_keys if k in bag and k not in promoted]
-    technology = str(entity.get("technology") or "")
-    return {
-        "promoted_attributes": promoted,
-        "type_label": _type_label(asset_type),
-        # RNG: the family word ("Landfill gas to electricity") wherever a one-liner names the
-        # technology (header badge, search row, mini-map subtitle); other types keep the class.
-        "technology_label": RNG_TECHNOLOGY_LABELS.get(technology) if asset_type == "rng_project" else None,
-        "fuel_fields": fuel_rows,
-        "is_fuel": asset_type in FUEL_ASSET_TYPES,
-        "is_line": is_line,
-        "line_class": _line_class(entity) if is_line else None,
-        "length_miles": _number(_attr(entity, "length_miles", "miles")),
-        "diameter": _diameter_text(entity) if is_line else None,
-        "states": _states_crossed(entity),
-        "operator": operator,
-        "owners": owners,
-        "geometry": geometry,
-    }
 
 
 app = FastAPI(title="Infraque -- public site")
@@ -391,6 +112,23 @@ app.include_router(pricing_router)
 from web.organizations import router as organizations_router  # noqa: E402
 
 app.include_router(organizations_router)
+
+# docs/42-backend-review-2026-09-26.md lane L3: `/assets`, `/assets/{slug}` and
+# `/assets/by-id/{public_id}`, moved out of this module the same way. `/api/assets/{public_id}`
+# (`asset_detail_proxy`) stayed below with the other same-origin geo proxies rather than moving
+# here: it shares their call shape, not this router's, and including it in this early slot would
+# register it *before* `/api/assets/geo` is defined further down this module, which would make the
+# parametrised route swallow that literal one (measured; see `web/assets_pages.py`'s docstring).
+from web.assets_pages import router as assets_pages_router  # noqa: E402
+
+app.include_router(assets_pages_router)
+
+# docs/42-backend-review-2026-09-26.md lane L3: the sitemap/robots cluster -- a closed set of
+# helpers and routes (§4.1) reached by nothing else in this module, so it moves as a whole with no
+# path-overlap risk against any route defined above or below it.
+from web.sitemaps import router as sitemaps_router  # noqa: E402
+
+app.include_router(sitemaps_router)
 
 # Sprint 3 item 3: the admin panel shell (operator guard, chrome) — page routers for each nav
 # group are mounted below it as they land.
@@ -814,254 +552,6 @@ def opportunity_detail(request: Request, slug: str) -> HTMLResponse:
     )
 
 
-# ---- /assets index (docs/00-PLAN.md 2026-09-19 item 4; docs/30 §1.1) ----------------------------
-#: The filters `/assets` forwards, named exactly as `GET /v1/assets` names them (D-17: one filter
-#: vocabulary and one URL grammar across list, map and feed). `technology` is deliberately not
-#: exposed as a control -- its vocabulary is plant-shaped and means nothing for a pipeline -- but
-#: it is forwarded when present so a link from the map keeps working.
-ASSET_INDEX_FILTERS = ("asset_type", "state", "q", "technology")
-#: `sort=` tokens `services/api/assets.py::ASSET_SORT_ALLOWLIST` accepts, with the words the
-#: control shows. Capacity descending is the default: the biggest thing is the most interesting
-#: row on an index of infrastructure. Length is *not* an API sort field, so a pipeline's mileage
-#: shows in its row but never orders the list; name ascending is the tiebreak a reader can reach.
-ASSET_INDEX_SORTS = (
-    ("-capacity_mw", "Capacity, largest first"),
-    ("name", "Name, A to Z"),
-    ("-last_changed", "Recently changed"),
-)
-ASSET_INDEX_DEFAULT_SORT = "-capacity_mw"
-#: A line asset carries no `capacity_mw`, so a capacity sort over a pipeline-only view orders it
-#: by nothing at all. `length_miles` is not in the API's sort allowlist, so the honest default for
-#: such a view is the one key that does order it: name.
-ASSET_INDEX_LINE_DEFAULT_SORT = "name"
-ASSET_TYPE_COUNTS_CACHE_SECONDS = 900
-
-
-def _asset_index_default_sort(selected_types: set[str]) -> str:
-    if selected_types and selected_types <= LINE_ASSET_TYPES:
-        return ASSET_INDEX_LINE_DEFAULT_SORT
-    return ASSET_INDEX_DEFAULT_SORT
-
-
-#: The subject of `/assets`' description when no type is selected.
-ASSET_INDEX_SUBJECT = (
-    "Power plants, gas pipelines, gas processing and storage sites, LNG terminals, ethanol "
-    "plants and RNG projects"
-)
-
-
-def _asset_index_description(selected_types: set[str], counts: Mapping[str, int], params: QueryParams) -> str:
-    """The page's `<meta name="description">`, built from the filters actually in force.
-
-    A filtered index that repeated the unfiltered page's sentence would hand a crawler one
-    description for many URLs, and would claim a corpus total beside a list that does not show
-    it. The count is quoted only for a view whose size `asset_type_counts()` actually knows: the
-    whole corpus, or one type of it, with no other filter narrowing the rows."""
-    only = next(iter(selected_types)) if len(selected_types) == 1 else None
-    subject = _type_label(only, plural=True) if only else ASSET_INDEX_SUBJECT
-    where = f" in {params['state']}" if params.get("state") else ""
-    total = counts.get(only) if only else (sum(counts.values()) or None)
-    counted = f" -- {total:,} of them" if total and not where and not params.get("q") else ""
-    return (
-        f"{subject}{where} from US public registers{counted}, each with its owner, operator, "
-        "location and the register it came from."
-    )
-
-
-def asset_type_counts(request: Request) -> dict[str, int]:
-    """`{asset_type: n}` for the counts above `/assets`, read from `GET /v1/assets/geo`'s
-    `totals.asset_type_counts` over the whole world in one call.
-
-    `GET /v1/assets` has no `include=count` (`services/api/assets.py::list_assets`'s allowlist),
-    and one counting call per type would be twelve round trips per page render, so the map
-    endpoint -- which already counts by type for the legend -- is the cheaper honest source. Its
-    denominator is assets with a published location, which is *not* the same set as the list
-    below (an asset whose licence forbids raw publication keeps its row and page but is off the
-    map, `docs/23` `/v1/assets/geo`), so the template says so rather than implying the two agree.
-    The counts change once per data load, so they are cached per app process like the sitemap; a
-    failed call returns `{}` and the page simply renders no counts.
-    """
-    cache: dict[str, tuple[float, dict[str, int]]] = request.app.state.__dict__.setdefault(
-        "asset_type_counts_cache", {}
-    )
-    cached = cache.get("world")
-    if cached and time.monotonic() - cached[0] < ASSET_TYPE_COUNTS_CACHE_SECONDS:
-        return cached[1]
-    counts: dict[str, int] = {}
-    try:
-        envelope = get_api(request).get("/v1/assets/geo", params={"bbox": WORLD_BBOX, "zoom": "3"})
-        data = envelope.get("data")
-        totals = data.get("totals") if isinstance(data, Mapping) else None
-        raw = totals.get("asset_type_counts") if isinstance(totals, Mapping) else None
-        if isinstance(raw, Mapping):
-            counts = {str(k): int(v) for k, v in raw.items() if isinstance(v, int | float) and v > 0}
-    except (ApiError, httpx.HTTPError):
-        return {}
-    cache["world"] = (time.monotonic(), counts)
-    return counts
-
-
-@app.get("/assets", response_class=HTMLResponse)
-def assets_list(request: Request) -> HTMLResponse:
-    """The crawlable index of every registry asset (docs/50 §4.4: the asset pages are the
-    acquisition surface, so they need a path in from a page a crawler can reach). Same markup,
-    pagination and empty state as `/proposals` -- `partials/_asset_rows.html` mirrors
-    `partials/_proposal_rows.html` rather than inventing a second list idiom."""
-    api = get_api(request)
-    qp = request.query_params
-    selected_types = set((qp.get("asset_type") or "").split(",")) - {""}
-    sort = qp.get("sort") or _asset_index_default_sort(selected_types)
-    if sort not in {token for token, _label in ASSET_INDEX_SORTS}:
-        sort = _asset_index_default_sort(selected_types)
-    params: dict[str, str | None] = {name: qp[name] for name in ASSET_INDEX_FILTERS if qp.get(name)}
-    params["sort"] = sort
-    params["cursor"] = qp.get("cursor")
-    envelope = api.get("/v1/assets", params=params)
-    records: list[dict[str, Any]] = []
-    for entity in envelope["data"]:
-        record = flatten_asset(entity)
-        record.update(_asset_extras(entity))
-        records.append(record)
-    counts = asset_type_counts(request)
-    type_counts = [
-        {
-            "value": asset_type,
-            "label": _type_label(asset_type, plural=True),
-            "count": counts[asset_type],
-            "selected": asset_type in selected_types,
-        }
-        for asset_type in sorted(counts, key=lambda k: (-counts[k], _type_label(k, plural=True)))
-    ]
-    page = envelope["page"]
-    canonical_path = "/assets" + canonical_query(qp, (*ASSET_INDEX_FILTERS, "sort", "cursor"))
-    # `numberOfItems` only when the page is the unfiltered index: `asset_type_counts()` counts the
-    # whole corpus, so quoting it beside a filtered list would be a number the page does not show.
-    filtered = any(qp.get(name) for name in ASSET_INDEX_FILTERS)
-    corpus_total = (sum(counts.values()) or None) if not filtered else None
-    count_note = asset_count_note(coverage_facts(request, api), selected_types)
-    if count_note:
-        count_note["label"] = _sentence_label(next(iter(selected_types)), plural=True)
-    context = {
-        "records": records,
-        "type_counts": type_counts,
-        "counts_total": sum(counts.values()) or None,
-        # The corrected count for a type whose rows out-number its assets (docs/24); `None` for
-        # every other view, argued in `web/viewmodels.py::asset_count_note` and the template.
-        "count_note": count_note,
-        "sorts": ASSET_INDEX_SORTS,
-        "sort": sort,
-        "sort_caption": next(label.lower() for token, label in ASSET_INDEX_SORTS if token == sort),
-        "description": _asset_index_description(selected_types, counts, qp),
-        "has_more": page["has_more"],
-        "next_cursor": page["next_cursor"],
-        "prev_cursor": page.get("prev_cursor"),
-        "querystring": querystring_without(qp, "cursor"),
-        "filters": dict(qp),
-        "canonical_path": canonical_path,
-        "jsonld": [
-            item_list_jsonld(
-                request,
-                name="Assets",
-                description=_asset_index_description(selected_types, counts, qp),
-                path=canonical_path,
-                rows=[(r["name"], f"/assets/{r['slug']}") for r in records if r.get("slug")],
-                total=corpus_total,
-            )
-        ],
-    }
-    if is_htmx(request):
-        return templates.TemplateResponse(request, "partials/_asset_rows.html", context)
-    return templates.TemplateResponse(request, "assets_list.html", context)
-
-
-def _resolve_asset_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | None:
-    """Same slug-filter lookup as `_resolve_proposal_by_slug` (ADR 0008: `asset` carries a
-    `slug`, `docs/21` §3.22)."""
-    envelope = api.get("/v1/assets", params={"slug": slug, "limit": 1})
-    entities: list[dict[str, Any]] = envelope["data"]
-    return entities[0] if entities else None
-
-
-@app.get("/assets/{slug}", response_class=HTMLResponse)
-def asset_detail(request: Request, slug: str) -> HTMLResponse:
-    """ADR 0008 asset page: identity, attributes, owners and nearby exact-grade proposals."""
-    api = get_api(request)
-    entity = _resolve_asset_by_slug(api, slug)
-    if entity is None:
-        return not_found_response(request, "asset")
-    # The list row resolves the slug but omits `owners` and `geometry` (API lane 2026-09-19: list
-    # rows never embed geometry); the detail envelope carries both, so the page reads it and
-    # falls back to the list row only when the detail call fails (found on the first Tallgrass
-    # screenshots: "No ownership records" beside 1,126 operator edges).
-    try:
-        entity = api.get(f"/v1/assets/{entity['public_id']}")["data"]
-    except ApiError:
-        pass
-    record = flatten_asset(entity)
-    record.update(_asset_extras(entity))
-    nearby: list[dict[str, Any]] = []
-    features: list[dict[str, Any]] = []
-    if record["geometry"] is not None:
-        features.append(_asset_feature(record, record["geometry"]))
-    try:
-        nearby_env = api.get(f"/v1/assets/{record['public_id']}/nearby-proposals")
-        for e in nearby_env["data"]:
-            flat = flatten_proposal(e)
-            # `distance_km` (line-aware for pipelines, API lane 2026-09-19) rides on the row.
-            flat["distance_km"] = _number(e.get("distance_km"))
-            nearby.append(flat)
-            geometry = _geometry_of(e)
-            if geometry is not None:
-                features.append(_proposal_feature(flat, geometry))
-    except ApiError:
-        nearby = []
-    # One list row per project, not per EIA-860M generator unit; the map keeps every unit's dot.
-    nearby = group_nearby_proposals(nearby)
-    tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
-    tile_mode = _tile_mode(tile_url)
-    placed = sum(1 for f in features if f["properties"]["kind"] == "proposal")
-    where = "route" if record["is_line"] else "location"
-    caption = (
-        f"{record['name']}: {where}"
-        + (f" and {placed} exact-grade proposal{'s' if placed != 1 else ''} within 25 km" if placed else "")
-        + ". "
-        + _basemap_attribution(tile_mode, tile_url)
-    )
-    mini_map = _mini_map(features, label=f"Map of {record['name']}", caption=caption)
-    path = f"/assets/{record['slug']}"
-    return templates.TemplateResponse(
-        request,
-        "asset_detail.html",
-        {
-            "record": record,
-            "nearby_proposals": nearby,
-            "provenance_rows": provenance_panel_rows(api, record["provenance"]),
-            "mini_map": mini_map,
-            "tile_url": tile_url,
-            "tile_mode": tile_mode,
-            "canonical_path": path,
-            "jsonld": [
-                breadcrumb_jsonld(request, [("Home", "/"), ("Assets", "/assets"), (record["name"], path)])
-            ],
-        },
-    )
-
-
-@app.get("/assets/by-id/{public_id}")
-def asset_by_public_id(request: Request, public_id: str) -> Response:
-    """Map features (`/v1/assets/geo`) carry an asset's `public_id` but not its slug; the drawer's
-    "Open asset page" link comes here and is redirected to the canonical slug URL."""
-    api = get_api(request)
-    try:
-        entity = api.get(f"/v1/assets/{public_id}")["data"]
-    except ApiNotFound:
-        return not_found_response(request, "asset")
-    slug = entity.get("slug")
-    if not slug:
-        return not_found_response(request, "asset")
-    return RedirectResponse(url=f"/assets/{slug}", status_code=302)
-
-
 @app.get("/api/assets/{public_id}")
 def asset_detail_proxy(request: Request, public_id: str) -> JSONResponse:
     """Same-origin relay for `GET /v1/assets/{public_id}` (no params, no cookies): the map drawer
@@ -1213,184 +703,6 @@ def attribution(request: Request) -> HTMLResponse:
         "attribution.html",
         {"sources": sources_env["data"]},
     )
-
-
-#: docs/23 §3.1 "Detail pages visible on the public tier only; regenerated hourly with the
-#: delayed view" -- "regenerated hourly" describes a would-be cache in front of this route, not
-#: this route's own logic: every call here reads the live API, which already applies the delay
-#: and tier gating itself (the same visibility predicate every other page in this module reads
-#: through), so the sitemap is honest on every request with no separate cache of its own.
-#: "capped at a sensible page count" (task brief): 25 pages of 200 rows is 5,000 URLs per
-#: resource, generous for this data set's actual size (docs/adr/0008 ~7,700 active proposals) while
-#: bounding one request's worst case to 100 upstream calls total across the four resources.
-#: Raised from 25 on 2026-09-19 (task item 6): 25 pages capped a resource at 5,000 URLs, which
-#: silently truncated assets (17.4k visible on today's dev load) and organisations (5.5k). 150
-#: pages of 200 (`services/api/pagination.py::MAX_LIMIT`) is 30,000 URLs per resource, which
-#: covers every resource with headroom and bounds one cold build at 600 upstream calls.
-SITEMAP_MAX_PAGES_PER_RESOURCE = 150
-SITEMAP_PAGE_SIZE = 200
-SITEMAP_CACHE_SECONDS = 3600
-#: The sitemaps protocol caps one file at 50,000 URLs and 50 MB uncompressed. 25,000 URLs is half
-#: that count and, at roughly 80 bytes per `<url>`, about 2 MB -- so neither limit can be reached
-#: even if a URL grows. Above one chunk, `/sitemap.xml` becomes a `<sitemapindex>` pointing at
-#: `/sitemaps/{n}.xml`; at or below it, it stays the single `<urlset>` it has always been.
-SITEMAP_URLS_PER_FILE = 25_000
-#: Static public pages, listed first so they are in the first chunk whatever the record counts do.
-SITEMAP_STATIC_PATHS = (
-    "/",
-    "/proposals",
-    "/opportunities",
-    "/assets",
-    "/organizations",
-    "/search",
-    "/about",
-    "/methodology",
-    "/attribution",
-    "/pricing",
-)
-
-
-def _sitemap_paths_for(
-    api: ApiClient, path: str, url_prefix: str, *, extra_params: dict[str, str] | None = None
-) -> list[str]:
-    paths: list[str] = []
-    cursor: str | None = None
-    for _ in range(SITEMAP_MAX_PAGES_PER_RESOURCE):
-        params: dict[str, str | None] = {"limit": str(SITEMAP_PAGE_SIZE), "cursor": cursor}
-        params.update(extra_params or {})
-        envelope = api.get(path, params=params)
-        for row in envelope["data"]:
-            slug = row.get("slug")
-            if slug:
-                paths.append(f"{url_prefix}/{slug}")
-        page = envelope.get("page") or {}
-        if not page.get("has_more"):
-            break
-        cursor = page.get("next_cursor")
-        if cursor is None:
-            break
-    return paths
-
-
-def _render_sitemap_xml(base_url: str, paths: list[str]) -> str:
-    urls = "".join(f"<url><loc>{escape(base_url + p)}</loc></url>" for p in paths)
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls + "</urlset>"
-    )
-
-
-def _render_sitemap_index_xml(base_url: str, paths: list[str]) -> str:
-    entries = "".join(f"<sitemap><loc>{escape(base_url + p)}</loc></sitemap>" for p in paths)
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + entries + "</sitemapindex>"
-    )
-
-
-def _build_sitemap_documents(api: ApiClient, base: str) -> dict[str, str]:
-    """Every sitemap document this site serves, keyed by path, from one walk of every resource.
-
-    Proposals, opportunities, assets and organisations, cursor-paginated per resource and capped
-    (`SITEMAP_MAX_PAGES_PER_RESOURCE`). A resource whose list call errors is skipped rather than
-    blanking the whole sitemap. When the URLs fit one file, `/sitemap.xml` is that `<urlset>`;
-    above that it becomes a `<sitemapindex>` over `/sitemaps/{n}.xml` (`docs/23` §3.1's
-    split-by-file shape), so the protocol's 50,000-URL and 50 MB limits stay out of reach.
-    """
-    paths: list[str] = list(SITEMAP_STATIC_PATHS)
-    resources: list[tuple[str, str, dict[str, str]]] = [
-        ("/v1/proposals", "/proposals", {"lifecycle_state": ALL_PROPOSAL_LIFECYCLE_STATES_CSV}),
-        ("/v1/opportunities", "/opportunities", {"status": ALL_OPPORTUNITY_STATUSES_CSV}),
-        ("/v1/assets", "/assets", {}),
-        ("/v1/organizations", "/organizations", {}),
-    ]
-    for api_path, prefix, extra in resources:
-        try:
-            paths += _sitemap_paths_for(api, api_path, prefix, extra_params=extra)
-        except (ApiError, httpx.HTTPError):
-            continue  # one resource's list call failing must not blank the whole sitemap
-    if len(paths) <= SITEMAP_URLS_PER_FILE:
-        return {"/sitemap.xml": _render_sitemap_xml(base, paths)}
-    documents: dict[str, str] = {}
-    children: list[str] = []
-    for number, start in enumerate(range(0, len(paths), SITEMAP_URLS_PER_FILE), start=1):
-        child = f"/sitemaps/{number}.xml"
-        documents[child] = _render_sitemap_xml(base, paths[start : start + SITEMAP_URLS_PER_FILE])
-        children.append(child)
-    documents["/sitemap.xml"] = _render_sitemap_index_xml(base, children)
-    return documents
-
-
-def _sitemap_documents(request: Request) -> dict[str, str]:
-    """The cached `{path: xml}` for this base URL, built on a miss.
-
-    Building costs up to 600 sequential upstream list calls (web audit 2026-09-18: an uncached
-    amplifier on a public route, and a connection reset mid-way 500ed the whole response), so the
-    rendered documents are cached per base URL for an hour -- the sitemap changes daily at most.
-    The cache now holds every document from one walk rather than one file's XML, so a crawler
-    fetching the index and then twenty child sitemaps still costs one walk, not twenty-one."""
-    base = str(request.base_url).rstrip("/")
-    cache: dict[str, tuple[float, dict[str, str]]] = request.app.state.__dict__.setdefault(
-        "sitemap_cache", {}
-    )
-    cached = cache.get(base)
-    if cached and time.monotonic() - cached[0] < SITEMAP_CACHE_SECONDS:
-        return cached[1]
-    documents = _build_sitemap_documents(get_api(request), base)
-    cache[base] = (time.monotonic(), documents)
-    return documents
-
-
-@app.get("/sitemap.xml")
-def sitemap(request: Request) -> Response:
-    return Response(content=_sitemap_documents(request)["/sitemap.xml"], media_type="application/xml")
-
-
-@app.get("/sitemaps/{number}.xml")
-def sitemap_chunk(request: Request, number: str) -> Response:
-    """One chunk of a split sitemap. Only reachable from `/sitemap.xml`'s index; a number that is
-    not in the current build is a 404, never an empty `<urlset>`, which a crawler would read as
-    "these URLs were removed"."""
-    xml = _sitemap_documents(request).get(f"/sitemaps/{number}.xml")
-    if xml is None:
-        return Response(content="No such sitemap.\n", media_type="text/plain", status_code=404)
-    return Response(content=xml, media_type="application/xml")
-
-
-# ---- robots.txt (task item 5; none existed before 2026-09-19) ----------------------------------
-#: Everything public is crawlable; these are the paths that are not. `/admin` is operator-only
-#: (D-16 puts it on its own host in production, but it is mounted here in dev and a stray link
-#: must never be followed), `/api/` is this site's own same-origin relay for its JavaScript rather
-#: than a public API (`/v1` on the API host is the documented one), and the rest are session
-#: routes: a crawler that follows them gets a form or a 401, never content. `/search?` blocks the
-#: query-string form only, so the empty `/search` page in the sitemap stays crawlable while a
-#: crawler cannot wander an unbounded space of result pages.
-ROBOTS_DISALLOW = (
-    "/admin",
-    "/api/",
-    "/login",
-    "/register",
-    "/logout",
-    "/verify",
-    "/account",
-    "/privacy/request",
-    "/unsubscribe",
-    "/health",
-    "/search?",
-)
-
-
-@app.get("/robots.txt")
-def robots(request: Request) -> Response:
-    """`Allow: /` first, then the disallowed prefixes: the sitemaps protocol and every major
-    crawler resolve the most specific matching rule, so the order is documentation, not logic.
-    The `Sitemap:` line must be absolute, so it is built from this request's own base URL and the
-    file is not a static asset."""
-    base = str(request.base_url).rstrip("/")
-    lines = ["User-agent: *", "Allow: /"]
-    lines += [f"Disallow: {path}" for path in ROBOTS_DISALLOW]
-    lines += ["", f"Sitemap: {base}/sitemap.xml", ""]
-    return Response(content="\n".join(lines), media_type="text/plain")
 
 
 @app.get("/health")

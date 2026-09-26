@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from collections.abc import Iterable, Mapping
 from html import escape
 from pathlib import Path
@@ -552,3 +553,273 @@ def group_nearby_proposals(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, 
                 if row.get(field) is not None:
                     group[field] = row[field]
     return [groups[key] for key in order]
+
+
+# ------------------------------------------------------------------ existing assets (ADR 0008;
+# midstream slice, docs/00-PLAN.md 2026-09-19 option (a)). Asset-detail presenters
+# (docs/42-backend-review-2026-09-26.md lane L3): `_asset_extras` is reached by `web/app.py`'s
+# `search` route as well as by the asset pages in `web/assets_pages.py`, so the whole cluster it
+# calls into is shared page plumbing, not asset-page-only -- moved here rather than to
+# `web/assets_pages.py` (measured, not the review's first guess in §4.1).
+
+#: Fuel-side asset types whose promoted rows replace the plant-shaped Technology / Capacity /
+#: Commissioned rows on the asset page (`_fuel_fields`).
+FUEL_ASSET_TYPES = {"ethanol_plant", "rng_project"}
+#: `asset.technology` values the RNG loaders emit (us.epa.lmop `lfg_electricity|rng|lfg_direct_use`,
+#: us.epa.agstar `farm_digester`) -> the words the page, drawer and search row show.
+RNG_TECHNOLOGY_LABELS: dict[str, str] = {
+    "lfg_electricity": "Landfill gas to electricity",
+    "lfg_direct_use": "Landfill gas direct use",
+    "rng": "Renewable natural gas",
+    "farm_digester": "Farm digester",
+}
+#: AgSTAR livestock head counts in `attributes` (one column per animal type); a non-zero count
+#: is the digester's feedstock when the source carries no feedstock text.
+AGSTAR_HERD_KEYS = ("dairy", "swine", "cattle", "poultry")
+#: Words for the capacity units the fuel loaders emit; anything else renders as the source wrote it.
+CAPACITY_UNIT_LABELS = {"mmgal/yr": "MMgal/yr", "mmscfd": "MMscf/d", "cu-ft/day": "cu ft/day"}
+#: `attributes` keys the asset page promotes to a named field (operator, class, diameter, states,
+#: length); the generic Attributes table omits them so a value is never shown twice.
+PROMOTED_ATTRIBUTE_KEYS = (
+    "operator",
+    "line_class",
+    "interstate",
+    "pipeline_type",
+    "type_of_pipeline",
+    "system_type",
+    "diameter_in",
+    "diameter_inches",
+    "diameter",
+    "diameter_mix",
+    "states",
+    "states_crossed",
+    "state_codes",
+    "length_miles",
+    "miles",
+)
+
+
+def _diameter_text(entity: Mapping[str, Any]) -> str | None:
+    raw = _attr(entity, "diameter_in", "diameter_inches", "diameter", "diameter_mix")
+    if raw is None:
+        return None
+    number = _number(raw)
+    if number is not None:
+        return f"{number:,.1f} in".replace(".0 in", " in")
+    return str(raw)
+
+
+def _quantity(value: Any, unit: str | None, *, digits: int = 1) -> str | None:
+    """`55 MMgal/yr`, `1.725 MMscf/d`, `1,814,400 cu ft/day`: thousands separators, at most
+    `digits` decimals, a trailing `.0` dropped -- the page's number style, the source's unit word."""
+    number = _number(value)
+    if number is None:
+        return None
+    text = f"{number:,.{digits}f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    label = CAPACITY_UNIT_LABELS.get(str(unit or "").lower(), unit)
+    return f"{text} {label}" if label else text
+
+
+def _year(value: Any) -> str | None:
+    number = _number(value)
+    return str(int(number)) if number is not None and number > 0 else None
+
+
+def _padd(value: Any) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return None
+    return text if text.upper().startswith("PADD") else f"PADD {text}"
+
+
+_LMOP_PROJECT_NAME = re.compile(r"^Project\s+#\d+\s+-\s+(?P<landfill>.+)$")
+
+
+def _host_landfill(entity: Mapping[str, Any]) -> str | None:
+    """The landfill an LMOP project sits on: the source's own column when the record carries it,
+    else read back out of the loader's `Project #N - <Landfill name>` naming (services/ingest,
+    us.epa.lmop) -- a presentation rule over a name the data lane composed, not new data."""
+    named = _attr(entity, "landfill_name", "host_landfill")
+    if named:
+        return str(named)
+    match = _LMOP_PROJECT_NAME.match(str(entity.get("name") or ""))
+    return match.group("landfill").strip() if match else None
+
+
+def _feedstock(entity: Mapping[str, Any]) -> str | None:
+    named = _attr(entity, "feedstock", "animal_farm_types", "feedstock_raw")
+    if named:
+        return str(named)
+    herds: list[str] = []
+    for key in AGSTAR_HERD_KEYS:
+        head = _number(_attr(entity, key))
+        if head and head > 0:
+            herds.append(f"{key.capitalize()} ({head:,.0f} head)")
+    return "; ".join(herds) if herds else None
+
+
+def _fuel_fields(entity: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """The promoted rows for an ethanol plant or RNG project (task brief, second midstream slice):
+    `(rows, consumed_attribute_keys)`. A row exists only where the record carries the value (the
+    "None" gate); the consumed keys are dropped from the generic Attributes table so nothing shows
+    twice. Ethanol: nameplate capacity with its unit, feedstock, PADD, the capacity's as-of year.
+    RNG: project type, technology family, rated MW and/or LFG flow (or a digester's biogas
+    estimate), biogas end use, host landfill or digester type, feedstock, start and shutdown year.
+    Text attributes the API does not serialise yet (PADD, data period, end use, landfill name) are
+    read by key so they render the day the API sends them, and are simply absent until then."""
+    asset_type = entity.get("asset_type")
+    unit = str(entity.get("capacity_unit") or "").lower()
+    rows: list[dict[str, Any]] = []
+    consumed: list[str] = []
+
+    def add(label: str, value: str | None, *keys: str, tnum: bool = False) -> None:
+        consumed.extend(keys)
+        if value:
+            rows.append({"label": label, "value": value, "tnum": tnum})
+
+    if asset_type == "ethanol_plant":
+        nameplate = _attr(entity, "nameplate_capacity_mmgal_yr")
+        if nameplate is None and unit == "mmgal/yr":
+            nameplate = entity.get("capacity_value")
+        add("Nameplate capacity", _quantity(nameplate, "MMgal/yr"), "nameplate_capacity_mmgal_yr", tnum=True)
+        add("Feedstock", _feedstock(entity), "feedstock", "feedstock_raw")
+        add("PADD", _padd(_attr(entity, "padd")), "padd")
+        as_of = _year(_attr(entity, "as_of_year")) or (
+            str(_attr(entity, "data_period")) if _attr(entity, "data_period") else None
+        )
+        add("Capacity as of", as_of, "as_of_year", "data_period", tnum=True)
+        return rows, consumed
+
+    if asset_type == "rng_project":
+        technology = str(entity.get("technology") or "")
+        digester = technology == "farm_digester"
+        project_type = _attr(entity, "lfg_energy_project_type", "project_type") or (
+            None if digester else entity.get("technology_raw")
+        )
+        add(
+            "Project type",
+            str(project_type) if project_type else None,
+            "lfg_energy_project_type",
+            "project_type",
+        )
+        add("Technology", RNG_TECHNOLOGY_LABELS.get(technology) or (technology.replace("_", " ") or None))
+        add(
+            "Rated capacity", _quantity(_attr(entity, "rated_mw", "capacity_mw"), "MW"), "rated_mw", tnum=True
+        )
+        lfg_flow = _attr(entity, "lfg_flow_to_project_mmscfd")
+        if lfg_flow is None and unit == "mmscfd":
+            lfg_flow = entity.get("capacity_value")
+        add(
+            "LFG flow to project",
+            _quantity(lfg_flow, "MMscf/d", digits=3),
+            "lfg_flow_to_project_mmscfd",
+            tnum=True,
+        )
+        biogas = _attr(entity, "biogas_generation_estimate_cuft_day")
+        if biogas is None and unit == "cu-ft/day":
+            biogas = entity.get("capacity_value")
+        add(
+            "Biogas generation (est.)",
+            _quantity(biogas, "cu ft/day", digits=0),
+            "biogas_generation_estimate_cuft_day",
+            tnum=True,
+        )
+        end_use = _attr(entity, "biogas_end_uses", "lfg_use_details", "project_type_category")
+        add(
+            "Biogas end use",
+            str(end_use) if end_use else None,
+            "biogas_end_uses",
+            "lfg_use_details",
+            "project_type_category",
+        )
+        if digester:
+            digester_type = _attr(entity, "digester_type") or entity.get("technology_raw")
+            add("Digester type", str(digester_type) if digester_type else None, "digester_type")
+        else:
+            add("Host landfill", _host_landfill(entity), "landfill_name", "host_landfill")
+        add("Feedstock", _feedstock(entity), "feedstock", "animal_farm_types", *AGSTAR_HERD_KEYS)
+        start = _year(_attr(entity, "project_start_year", "year_operational", "commissioned_year"))
+        add("Start year", start, "project_start_year", "year_operational", tnum=True)
+        add("Shutdown year", _year(_attr(entity, "year_shutdown")), "year_shutdown", tnum=True)
+        return rows, consumed
+
+    return rows, consumed
+
+
+def _normalise_owners(entity: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """`owners[]` as `serialize_asset_owner` actually emits it embeds the organisation under
+    `organization` (public_id, slug, name_canonical); `flatten_asset` reads the flat spelling
+    docs/23's table row describes. Accept both, so the owners table and the operator link never
+    render a blank organisation for a real row."""
+    out: list[dict[str, Any]] = []
+    for raw in entity.get("owners") or []:
+        org_raw = raw.get("organization")
+        org: Mapping[str, Any] = org_raw if isinstance(org_raw, Mapping) else {}
+        source_raw = raw.get("provenance")
+        source: Mapping[str, Any] = source_raw if isinstance(source_raw, Mapping) else {}
+        out.append(
+            {
+                "public_id": (
+                    org.get("public_id") or raw.get("public_id") or raw.get("organization_public_id")
+                ),
+                "slug": org.get("slug") or raw.get("slug"),
+                "name": (
+                    org.get("name_canonical")
+                    or org.get("name")
+                    or raw.get("name")
+                    or raw.get("name_canonical")
+                ),
+                "role": raw.get("role"),
+                "share_pct": raw.get("share_pct"),
+                "as_of": raw.get("as_of"),
+                "source_name": source.get("source_name") or raw.get("source_name") or raw.get("source"),
+            }
+        )
+    return out
+
+
+def _asset_extras(entity: Mapping[str, Any]) -> dict[str, Any]:
+    """The midstream fields `asset_detail.html` renders beyond `flatten_asset`'s plant shape.
+    Every value may be absent; the template drops the row rather than printing "None"."""
+    owners = _normalise_owners(entity)
+    operator_edge = next((o for o in owners if o.get("role") == "operator" and o.get("name")), None)
+    operator_name = entity.get("operator_name") or _attr(entity, "operator")
+    if operator_edge is None and operator_name:
+        wanted = str(operator_name).strip().lower()
+        operator_edge = next((o for o in owners if (o.get("name") or "").strip().lower() == wanted), None)
+    operator = {
+        "name": (operator_edge or {}).get("name") or operator_name,
+        "public_id": (operator_edge or {}).get("public_id"),
+        "slug": (operator_edge or {}).get("slug"),
+    }
+    asset_type = entity.get("asset_type")
+    geometry = _geometry_of(entity)
+    line_geometry = bool(geometry and str(geometry.get("type", "")).endswith("LineString"))
+    is_line = asset_type in LINE_ASSET_TYPES or line_geometry
+    attributes = entity.get("attributes")
+    bag: Mapping[str, Any] = attributes if isinstance(attributes, Mapping) else {}
+    promoted = [
+        k for k in PROMOTED_ATTRIBUTE_KEYS if k in bag and (is_line or k in ("length_miles", "operator"))
+    ]
+    fuel_rows, fuel_keys = _fuel_fields(entity)
+    promoted += [k for k in fuel_keys if k in bag and k not in promoted]
+    technology = str(entity.get("technology") or "")
+    return {
+        "promoted_attributes": promoted,
+        "type_label": _type_label(asset_type),
+        # RNG: the family word ("Landfill gas to electricity") wherever a one-liner names the
+        # technology (header badge, search row, mini-map subtitle); other types keep the class.
+        "technology_label": RNG_TECHNOLOGY_LABELS.get(technology) if asset_type == "rng_project" else None,
+        "fuel_fields": fuel_rows,
+        "is_fuel": asset_type in FUEL_ASSET_TYPES,
+        "is_line": is_line,
+        "line_class": _line_class(entity) if is_line else None,
+        "length_miles": _number(_attr(entity, "length_miles", "miles")),
+        "diameter": _diameter_text(entity) if is_line else None,
+        "states": _states_crossed(entity),
+        "operator": operator,
+        "owners": owners,
+        "geometry": geometry,
+    }
