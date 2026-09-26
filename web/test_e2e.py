@@ -301,7 +301,10 @@ def _wait_for_server(url: str, timeout_s: float = 20.0) -> None:
         try:
             urllib.request.urlopen(url, timeout=1.0)  # noqa: S310 -- localhost only
             return
-        except (urllib.error.URLError, ConnectionError) as e:
+        # TimeoutError too: under load a server that has bound its port can take longer than the 1 s
+        # read timeout to answer its first /health, which is "not ready yet", not a failure (seen
+        # 2026-09-26 with six test suites running on one machine).
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
             last_error = e
             time.sleep(0.3)
     raise RuntimeError(f"server did not start in time: {last_error}")
