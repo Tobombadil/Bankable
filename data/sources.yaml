@@ -2929,45 +2929,62 @@ sources:
     no region_id property, not a region-polygon source. Served by GET /v1/geo/regions.
 
 - id: us.epa.ghgrp
-  name: EPA Greenhouse Gas Reporting Program — facility-level emissions (FLIGHT / Envirofacts)
+  name: EPA Greenhouse Gas Reporting Program — facility register with parent-company shares (Envirofacts pub_dim_facility; FLIGHT)
   jurisdiction: US
   category: registry
   operator: US EPA (Office of Atmospheric Protection)
   url: https://www.epa.gov/ghgreporting/data-sets
   access: api
   auth: none
-  format: Envirofacts REST (https://data.epa.gov/efservice/<table>/rows/<n>:<m>/JSON) plus annual bulk
-    xlsx/zip data sets on epa.gov; FLIGHT (ghgdata.epa.gov) is the map front end over the same data
-  cadence: annual (reporting year), with revisions
+  format: Envirofacts REST, CSV output, 10,000-row windows (https://data.epa.gov/efservice/pub_dim_facility/year/<y>/rows/<a>:<b>/CSV;
+    count probe at .../year/<y>/count/JSON) for the facility register; the annual Data Summary Spreadsheets zip
+    (one ghgp_data_<year>.xlsx per reporting year) only for the Subpart RR / UU quantity sheets; FLIGHT
+    (ghgdata.epa.gov) is the map front end over the same data
+  cadence: annual (reporting year, published the following October), with revisions
   license: public domain
   reuse: open
   publication: raw_ok
   tier: 3
   effort: M
   rate_limit_rps: 0.5
-  probe: {method: GET}
+  probe: {method: GET, url: "https://data.epa.gov/efservice/pub_dim_facility/year/2023/count/JSON"}
   verified:
-    date: 2026-09-22
+    date: 2026-09-25
     result: ok
     note: >-
-      Envirofacts REST answered 200 on data.epa.gov: pub_dim_facility/count/JSON = 136,005 facility-year rows
-      in total and 11,281 for reporting year 2023; a two-row sample returned facility_id, facility_name,
-      latitude/longitude, city/county/county_fips/state, naics_code, year, parent_company (with ownership
-      percentages), reported_subparts, facility_types, frs_id, co2_captured and rr_mrv_plan_url. Bulk route
-      confirmed by HEAD on the 2023 Data Summary Spreadsheets zip
-      (https://www.epa.gov/system/files/other-files/2024-10/2023_data_summary_spreadsheets.zip): 200,
-      content-length 28,389,973, last-modified 2024-10-15. Pagination is row-window based (rows/0:9999), so a
-      full pull is ~14 requests per table at 0.5 rps.
+      Connector built (pipeline/connectors/us_epa_ghgrp, pipeline/context/ghgrp.py, services/ingest/ghgrp.py).
+      Newest reporting year is RY2023: pub_dim_facility/year/2024/count = 0 and the data-sets page still links
+      only the 2024-10 RY2023 zip (2023_data_summary_spreadsheets.zip, 28,389,973 bytes, sha256
+      895349c8008b7962dba68659c8187cec6b340d68be84ccb3f0e7fb6037bf8345, last-modified 2024-10-15). RY2023 =
+      11,281 facility rows, 11,281 distinct facility_id, 9,543 distinct frs_id, every row with a coordinate;
+      136,005 facility-years 2010-2023 in total. Fetched as two CSV windows (rows/0:9999 = 3,094,060 bytes,
+      rows/10000:19999 ~400 KB; the JSON output of the same rows is 12.3 MB) - cheaper than the 28 MB zip,
+      which carries NO parent_company, co2_captured, rr_mrv_plan_url or year column (its Direct Point
+      Emitters sheet holds 6,470 of the 11,281 facilities). parent_company: 11,151 rows state every share
+      (11,118 sum to 100 +-0.5, 33 do not), 93 carry an empty share (`US GOVERNMENT (%)`), 36 empty, 1 mixed;
+      longest string 119 parents. Tallgrass: 129 facility-years over 22 distinct facilities (not 23), 22 in
+      RY2023 (18 x NAICS 486210 compressor stations, 4 x 211130 gas plants), none under Subpart RR, none with
+      an MRV plan. Subpart membership from reported_subparts (spelled `RR (RPT)`): RR 20, UU 81, PP 138 in
+      RY2023; rr_mrv_plan_url on 15 rows, co2_captured=Y on 43. The zip's Subpart UU quantity is the literal
+      `confidential` on 80 of 81 rows; its RR mass is numeric on 19 of 20. data.epa.gov/robots.txt answers 200
+      with a welcome string, not a robots file (API endpoint, honour_robots=False). Personal data: all 37
+      columns enumerated; address1/address2/comments stripped before the snapshot is stored.
   notes: >-
     The point-source side of the CCS join: an emitting facility here is the counterparty to a Class VI
     storage project, and `rr_mrv_plan_url` (Subpart RR, geologic sequestration MRV plans) plus `co2_captured`
-    are EPA's own link between an emitter and sequestration. `frs_id` joins to EPA's Facility Registry
-    Service and `parent_company` is a free-text ownership string worth feeding the organisation resolver.
+    are EPA's own link between an emitter and sequestration. Subpart RR is NOT "operational storage" on its
+    own: of the 20 RY2023 RR reporters, 8 are dedicated geologic sequestration and 12 are EOR fields under MRV
+    plans, so RR/UU/PP membership rides as attributes and never decides an asset type. `frs_id` joins to EPA's
+    Facility Registry Service and `parent_company` is a `NAME (pct%); NAME (pct%)` ownership string, parsed
+    into asset_owner edges with share_pct as stated and as_of = 31 December of the reporting year.
     This is a CONTEXT layer (existing facilities), not a proposal feed - same posture as us.eia.860m's
-    operating plants (docs/02 section 9): no lifecycle, no events. Registered here because carbonstorage.io's
-    pricing page names a "global dataset of point source emissions and emitting facilities" as a paid
-    feature and this is the US half of it, free and public domain. Note the scope limit before anyone calls
-    it global: GHGRP covers US facilities over the reporting threshold only.
+    operating plants (docs/02 section 9): no lifecycle, no events. Its facilities are the same real-world
+    assets EIA-860M, the EIA Atlas layers and EPA LMOP already hold, so (docs/24) no GHGRP row is ever written
+    to `asset`: facilities are matched to existing assets (EPA's GHGRP-ORIS crosswalk first, then state +
+    <=1 km + name + NAICS at score >= 0.55) and unmatched ones stay in the parquet. Registered because
+    carbonstorage.io's pricing page names a "global dataset of point source emissions and emitting
+    facilities" as a paid feature and this is the US half of it, free and public domain. Scope limit before
+    anyone calls it global: GHGRP covers US facilities over the reporting threshold only. See docs/02 section 12.
     2026-09-25 (CCS source-map lane): the CCS-specific sheets of the same annual zip are registered
     separately as us.epa.ghgrp.subpart_rr (geologic sequestration, 20 facilities RY2023) and
     us.epa.ghgrp.subpart_uu_pp (CO2 injection 81 facilities, CO2 suppliers 138 facilities RY2023).
