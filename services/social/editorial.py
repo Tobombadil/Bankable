@@ -24,6 +24,7 @@ import re
 from typing import Any, Literal
 
 from services.api.common import DOMAIN, WEB_HOST
+from services.posture import platform_posture, publishable_reuse_classes
 from services.social.models import PostDraft, ValidationResult
 from services.social.textgate import BareNoneError, contains_bare_none, reject_bare_none
 
@@ -68,8 +69,10 @@ PROPOSAL_CANONICAL_TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
 #: agreement, construction or operation".
 LINKEDIN_STATUS_TARGETS: frozenset[str] = frozenset({"contracted", "under_construction", "built"})
 
-#: Reuse classes allowed to leave the building at all (docs/21 §8, CLAUDE.md guardrails).
-PUBLISHABLE_REUSE_CLASSES: frozenset[str] = frozenset({"open", "attribution"})
+#: Reuse classes allowed to leave the building at all (docs/21 §8, CLAUDE.md guardrails), from the
+#: platform posture (`services/posture.py`, docs/26) so a post can never be drafted for a class the
+#: API predicate would not show.
+PUBLISHABLE_REUSE_CLASSES: frozenset[str] = frozenset(publishable_reuse_classes(platform_posture()))
 
 #: docs/32 §3.4 banned words (facts-only style guide).
 BANNED_WORDS: tuple[str, ...] = (

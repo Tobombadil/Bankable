@@ -105,6 +105,7 @@ from services.api.serialize import (
     serialize_organization,
     serialize_proposal,
 )
+from services.api.visibility import PUBLISHABLE_REUSE_CLASSES
 from services.db.models import (
     EXTRACTION_STATUSES,
     LIFECYCLE_STATES,
@@ -765,7 +766,7 @@ def admin_set_record_publish_state(
         raise validation_error("publish_state", f"must be one of {RECORD_PUBLISH_STATES}", request.url.path)
     if not reason:
         raise validation_error("reason", "reason is required", request.url.path)
-    if new_state in ("public", "api_only") and record.min_reuse_class in ("restricted", "unknown"):
+    if new_state in ("public", "api_only") and record.min_reuse_class not in PUBLISHABLE_REUSE_CLASSES:
         raise ProblemError(
             "gate_unmet",
             "Publication gate unmet",

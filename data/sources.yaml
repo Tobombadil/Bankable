@@ -6,6 +6,9 @@
 #              registry | planning | news | aggregator | social_channel
 #   access   : api | bulk_file | html | js_app | pdf | rss | email | wsdl
 #   reuse    : open (public domain / open licence) | attribution (open with credit) |
+#              noncommercial (reuse granted for noncommercial purposes only — CC BY-NC, a state site's
+#              "for noncommercial use" clause; publishable only while PLATFORM_POSTURE=noncommercial,
+#              docs/26-platform-posture.md; the docs/13 §6 row must say `noncommercial` first) |
 #              restricted (redistribution needs licence or consent) | unknown (terms not retrievable)
 #   publication : raw_ok (rows render in full on public pages and in exports) |
 #              derived_only (normalised fields, events and county/state placement only; raw row,

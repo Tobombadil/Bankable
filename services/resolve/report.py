@@ -31,7 +31,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from pipeline import resolve as resolve_module
-from pipeline.connectors.registry import Registry
+from pipeline.connectors.registry import PUBLISHABLE_REUSE, Registry
 from pipeline.normalize import org_key
 from services.db.models import Organization, Proposal, ProposalSource
 from services.db.session import get_engine, get_sessionmaker, init_db
@@ -104,14 +104,14 @@ def build_store(session: Session, normalized_path: pathlib.Path) -> dict[str, st
     registry = Registry()
     df = pd.read_parquet(normalized_path)
     loadable_shorts = {
-        short for short, rid in REGISTRY_ID.items() if registry.get(rid).reuse in ("open", "attribution")
+        short for short, rid in REGISTRY_ID.items() if registry.get(rid).reuse in PUBLISHABLE_REUSE
     }
     preseeded = preseed_organizations(session, df, loadable_shorts)
     _report(f"  pre-seeded {preseeded:,} organizations (collision-proof slugs; see docstring)")
     loaded: dict[str, str] = {}
     for short, registry_id in REGISTRY_ID.items():
         entry = registry.get(registry_id)
-        if entry.reuse not in ("open", "attribution"):
+        if entry.reuse not in PUBLISHABLE_REUSE:
             try:
                 upsert_licence_and_source(session, entry, registry.version)
             except GateRefused as exc:

@@ -12,11 +12,11 @@ What it parses
     under the `## 6.` heading (a `###` subsection ends the matrix) whose first cell is one or more
     backticked `source_id`s. The Class cell is scanned for the register's own
     vocabulary (`public-domain`, `open`, `open-attribution`, `permissive`, `attribution-restricted`,
-    `restricted`, `unknown`); when a cell names several (PJM: "restricted (DM2) /
+    `noncommercial`, `restricted`, `unknown`); when a cell names several (PJM: "restricted (DM2) /
     attribution-restricted (planning pages)") the strictest wins. The Publication-rule cell is
     scanned the same way for `raw-ok`, `derived-only`, `link-out-only`, `paid-api-only` and the
     "do not ingest/store/publish" phrasings; the strictest wins there too.
-  * data/sources.yaml: `reuse` (open | attribution | restricted | unknown) and `publication`
+  * data/sources.yaml: `reuse` (open | attribution | noncommercial | restricted | unknown) and `publication`
     (raw_ok | derived_only | none), the explicit per-source field that replaces the loader's
     free-text "derived-only" regex (docs/21 §8). `publication` defaults per reuse class when
     absent (`default_publication`), and the check requires it to be written out anyway.
@@ -25,8 +25,10 @@ Rules (each violation is one line of output; exit 1 if any)
   R1  every manifest source that carries `reuse` must have a row in the register;
   R2  manifest `reuse` may not rank above what the register class allows
       (public-domain/open/permissive -> open; open-attribution/attribution-restricted ->
-      attribution; restricted -> restricted; unknown -> unknown; `restricted` and `unknown` rank
-      equal because the loader and the API gate both the same way);
+      attribution; noncommercial -> noncommercial; restricted -> restricted; unknown -> unknown;
+      `restricted` and `unknown` rank equal because the loader and the API gate both the same
+      way; `noncommercial` ranks below `attribution` and above both, because it is publishable
+      only while `PLATFORM_POSTURE=noncommercial` -- docs/26 -- and gated otherwise);
   R3  `publication` must be in vocabulary, and may not rank above the register's rule
       (raw-ok > derived-only > link-out-only/do-not-ingest = none);
   R4  a `restricted`/`unknown` source must be `publication: none`; an `attribution-restricted`
@@ -50,13 +52,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "data" / "sources.yaml"
 REGISTER = ROOT / "docs" / "13-legal-data-rights.md"
 
-REUSE_VOCAB = ("open", "attribution", "restricted", "unknown")
+REUSE_VOCAB = ("open", "attribution", "noncommercial", "restricted", "unknown")
 PUBLICATION_VOCAB = ("raw_ok", "derived_only", "none")
 
 #: Manifest `reuse` rank: higher is more permissive. `restricted` and `unknown` are the same gate
 #: (services/ingest/loader.py `GATED_REUSE`; services/api/visibility.py
-#: `PUBLISHABLE_REUSE_CLASSES`), so neither is "more permissive" than the other.
-_REUSE_RANK = {"open": 3, "attribution": 2, "restricted": 1, "unknown": 1}
+#: `PUBLISHABLE_REUSE_CLASSES`), so neither is "more permissive" than the other. `noncommercial`
+#: sits between: publishable under one posture only (`services/posture.py`, docs/26).
+_REUSE_RANK = {"open": 4, "attribution": 3, "noncommercial": 2, "restricted": 1, "unknown": 1}
 #: Register class -> the most permissive manifest `reuse` it supports.
 _REGISTER_CLASS_MAX_REUSE = {
     "public-domain": "open",
@@ -64,6 +67,7 @@ _REGISTER_CLASS_MAX_REUSE = {
     "permissive": "open",
     "open-attribution": "attribution",
     "attribution-restricted": "attribution",
+    "noncommercial": "noncommercial",
     "restricted": "restricted",
     "unknown": "unknown",
 }
@@ -71,14 +75,15 @@ _REGISTER_CLASS_MAX_REUSE = {
 _REGISTER_CLASS_ORDER = {
     "unknown": 0,
     "restricted": 1,
-    "attribution-restricted": 2,
-    "open-attribution": 3,
-    "permissive": 4,
-    "public-domain": 5,
-    "open": 5,
+    "noncommercial": 2,
+    "attribution-restricted": 3,
+    "open-attribution": 4,
+    "permissive": 5,
+    "public-domain": 6,
+    "open": 6,
 }
 _CLASS_RE = re.compile(
-    r"\b(public-domain|open-attribution|attribution-restricted|permissive|restricted|unknown|open)\b"
+    r"\b(public-domain|open-attribution|attribution-restricted|noncommercial|permissive|restricted|unknown|open)\b"
 )
 
 _PUBLICATION_RANK = {"raw_ok": 2, "derived_only": 1, "none": 0}
@@ -95,9 +100,10 @@ _ROW_ID_RE = re.compile(r"`([^`]+)`")
 
 def default_publication(reuse: str | None) -> str:
     """The `publication` a source gets when the manifest does not say (docs/21 §8's rows:
-    `open`/`attribution` are raw-ok unless the source's own terms withhold raw; `restricted`/
-    `unknown` publish nothing)."""
-    return "raw_ok" if reuse in ("open", "attribution") else "none"
+    `open`/`attribution` are raw-ok unless the source's own terms withhold raw; `noncommercial`
+    is raw-ok *while the posture admits it* -- the field describes what the terms allow, the
+    posture decides whether the class publishes at all; `restricted`/`unknown` publish nothing)."""
+    return "raw_ok" if reuse in ("open", "attribution", "noncommercial") else "none"
 
 
 @dataclass(frozen=True)

@@ -31,11 +31,15 @@ D4. **Health icon mapping is 1:1 with `SourceHealth`'s five values**, not the th
     enum): `ok`->✓ success, `degraded`->⚠ progress, `failing`/`blocked`->✗ danger, `paused`->⏸
     neutral. Icon and text label are both always rendered (D-5 "never colour alone", docs/31 §7 SC
     1.4.1) — the label is the health string itself, never the icon alone.
-D5. **The "GATED" chip (`chip--gated`, docs/31 §5.12) reads off the *licence*** (`reuse_class in
-    (restricted, unknown)` or `gate_flag` still open) rather than a boolean the API returns
+D5. **The "GATED" chip (`chip--gated`, docs/31 §5.12) reads off the *licence*** (`reuse_class` in
+    the posture's gated set, or `gate_flag` still open) rather than a boolean the API returns
     directly — `AdminSource` carries the licence's `reuse_class`/`gate_flag` embedded but no single
     `gated` field, so this module derives it the same way `_licence_gate_missing` on the API side
-    does, kept as one small `_is_gated` helper so the list and detail pages agree.
+    does, kept as one small `_is_gated` helper so the list and detail pages agree. Since 2026-09-25
+    the gated set is the platform posture's (`services/posture.py`, docs/26): `(noncommercial,
+    restricted, unknown)` under `commercial`, `(restricted, unknown)` under `noncommercial`. The web
+    container reads the same `PLATFORM_POSTURE` as the api (one `env_file` anchor in
+    `infra/compose`), and `tests/test_platform_posture.py` pins this constant to the registry's.
 """
 
 from __future__ import annotations
@@ -45,6 +49,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
+from services.posture import gated_reuse_classes, platform_posture
 from web.admin.shell import (
     AdminContext,
     problem_notice,
@@ -86,11 +91,16 @@ def _health_chip(health: str) -> tuple[str, str]:
     return _HEALTH_CHIP.get(health, (health, "chip--neutral"))
 
 
+#: D5: the reuse classes the chip calls gated — the posture's complement of the publishable set,
+#: read once at import like `services/api/visibility.py::PUBLISHABLE_REUSE_CLASSES`.
+GATED_REUSE_CLASSES: tuple[str, ...] = gated_reuse_classes(platform_posture())
+
+
 def _is_gated(source: dict[str, Any]) -> bool:
     """D5: reads the embedded licence summary, the same two conditions
     `services/api/admin_sources.py::_licence_gate_missing` checks for reuse class and gate flag."""
     licence = source.get("licence") or {}
-    return licence.get("reuse_class") in ("restricted", "unknown") or bool(licence.get("gate_flag"))
+    return licence.get("reuse_class") in GATED_REUSE_CLASSES or bool(licence.get("gate_flag"))
 
 
 templates.env.globals["source_health_chip"] = _health_chip

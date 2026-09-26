@@ -683,7 +683,7 @@ observation row so that a later licence change cannot retroactively rewrite what
 | `id` | text | No | Stable key | `pjm-data-miner-restricted` |
 | `name` | text | No | Display name | `PJM Data Miner 2 Terms of Use` |
 | `url` | text | Yes | Canonical terms URL | `https://dataminer2.pjm.com/terms` |
-| `reuse_class` | text | No | `open \| attribution \| restricted \| unknown` (`sources.yaml` field guide) | `restricted` |
+| `reuse_class` | text | No | `open \| attribution \| noncommercial \| restricted \| unknown` (`sources.yaml` field guide; `noncommercial` added 2026-09-25 by migration 0020, `docs/26`) | `restricted` |
 | `attribution_required` | boolean | No | Whether a credit line must render | `true` |
 | `attribution_text` | text | Yes | Exact credit string the product renders (`docs/02` §4) | `Source: PJM Interconnection LLC` |
 | `requires_link_back` | boolean | No | Whether a link to the source page is mandatory | `true` |
@@ -691,7 +691,7 @@ observation row so that a later licence change cannot retroactively rewrite what
 | `allows_raw_publication` | boolean | No | May the raw row be rendered | `false` |
 | `allows_api_redistribution` | boolean | No | May the data leave over the API | `false` |
 | `allows_bulk_export` | boolean | No | May it appear in CSV/bulk exports | `false` |
-| `allows_commercial_use` | boolean | No | Commercial reuse permitted | `false` |
+| `allows_commercial_use` | boolean | No | Commercial reuse permitted. Must be `false` when `reuse_class = 'noncommercial'` (`ck_licence_noncommercial_no_commercial_use`, migration 0020); `false` on an `attribution` row means "not verified", because the manifest's `attribution` spans `open-attribution` and `attribution-restricted` register classes | `false` |
 | `share_alike` | boolean | No | Copyleft obligation on derived datasets | `false` |
 | `gate_flag` | boolean | No | An unmet gate (G-PJM, G-MISO, G-SPP, G-NYISO, G-ISONE; PRD §3.3) | `true` |
 | `gate_name` | text | Yes | Which gate | `G-PJM` |
@@ -707,6 +707,9 @@ observation row so that a later licence change cannot retroactively rewrite what
 **Invariant L1:** a `source` may not move to `publish_state` `public` or `api_only` unless its licence has
 `reuse_class IN ('open','attribution')`, `gate_flag = false`, and non-null `evidence_url`,
 `evidence_retrieved_at`, `classified_by` (US-905 AC1). Enforced by a `CHECK` plus a trigger, not by the UI.
+*Amended 2026-09-25 (`docs/26`):* the class list is the platform posture's — `('open','attribution')` under
+`commercial`, plus `'noncommercial'` under `noncommercial` — computed by `services/posture.py` and read once at
+process start by every gate (`Licence.is_publishable_class`, the loader, the registry, the API predicate).
 
 **Invariant L2:** `licence_id` on an observation row is immutable. Re-classifying a source writes a new `licence`
 row and future observations point at it; historical rows keep the licence that applied when they were fetched.
@@ -1297,6 +1300,7 @@ Behaviour by `licence.reuse_class`, for a source whose gate is clear:
 | `open` | ERCOT, all US federal, EIA, grants.gov | everything, live — records and change events alike | everything | everything | everything |
 | `attribution` | LBNL, GEM, NESO, TED, World Bank, curated issuers | everything, live, with the credit line rendered | everything + credit | everything + licence header row | credit line in every item and post |
 | `attribution`, raw withheld | **CAISO** (`allows_raw_publication = false`) | derived + identifying; **no raw**, no `status_raw`, no exact coordinates — county centroid only; "view at source" link | same as public but live | derived columns only | derived only, credit CAISO, link out |
+| `noncommercial` (added 2026-09-25, `docs/26`) | none yet; first candidate `us.tx.rrc.class_vi` | **while `PLATFORM_POSTURE=noncommercial`**: as `attribution` (everything, live, credit line + link rendered); **under `commercial`**: nothing, as `restricted` | same rule; paid tiers are to be suspended while the posture is noncommercial (`docs/26` precondition i) | **nothing**: `allows_bulk_export` and `allows_api_redistribution` are written `false` at load | as `attribution` while the posture admits it; nothing otherwise |
 | `restricted` | **PJM** until a Redistribution License exists | **nothing** — no record, no event, no aggregate, no count | **nothing** (see §10, correction C-3) | nothing | nothing |
 | `unknown` | **MISO, SPP, NYISO, ISO-NE** until terms are read and recorded | treated exactly as `restricted` (`CLAUDE.md`) | treated as `restricted` | nothing | nothing |
 

@@ -81,6 +81,7 @@ from services.api.visibility import (
     proposal_visibility_filter,
 )
 from services.db.models import (
+    REUSE_CLASSES,
     Event,
     Licence,
     Location,
@@ -93,6 +94,7 @@ from services.db.models import (
 )
 from services.ids import public_id
 from services.ingest.lag import RECORD_LAG_DAYS
+from services.posture import platform_posture, posture_statement
 from services.sor.ports import BillingPort
 from services.sor.wiring import get_billing_port
 
@@ -1599,7 +1601,7 @@ ORGANIZATION_TYPE_VALUES = [
     "offtaker",
     "other",
 ]
-REUSE_CLASS_VALUES = ["open", "attribution", "restricted", "unknown"]
+REUSE_CLASS_VALUES = list(REUSE_CLASSES)
 PUBLISH_STATE_VALUES = ["pending_review", "ingest_only", "api_only", "public", "unpublished"]
 
 
@@ -1668,6 +1670,10 @@ def get_vocabularies(db: Session = Depends(get_db)) -> Any:
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary([]))
 
 
+#: One read, at import, alongside the visibility predicate's own (`services/api/visibility.py`).
+PLATFORM_POSTURE = platform_posture()
+
+
 def _health_vintage(db: Session) -> dict[str, Any]:
     """The release bound, small enough for a health probe: one indexed read of `source`."""
     summary = source_vintages(db)
@@ -1733,6 +1739,14 @@ def get_health(
         # `oldest` is the bound, and `sources_stating_none` says how many sources cannot be
         # bounded that way at all rather than letting the fetch date pretend to (migration 0018).
         "source_vintage": _health_vintage(db),
+        # The platform posture (owner, 2026-09-25; docs/26; `services/posture.py`), read-only:
+        # which reuse classes the gates are admitting, and the one sentence the public pages
+        # print about it. Read once at import (`PLATFORM_POSTURE` below), the same moment
+        # `services/api/visibility.py` read it, so this reports the posture the predicate is
+        # actually applying rather than whatever the environment says now. Configuration, never
+        # a secret.
+        "posture": PLATFORM_POSTURE,
+        "posture_statement": posture_statement(PLATFORM_POSTURE),
     }
     return data
 

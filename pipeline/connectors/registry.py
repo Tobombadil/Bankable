@@ -3,6 +3,7 @@
 - The manifest is the single source of truth. A source with no connector module is a manifest
   entry only and lists as `unimplemented`.
 - Publication gating is code, not convention: a source whose `reuse` is `restricted` or `unknown`
+  — or `noncommercial` while the platform posture is `commercial` (`services/posture.py`) —
   is refused unless `allow_restricted=True`, and even then its outputs are quarantined (see
   `pipeline.connectors.store`). Private aggregators (`category: aggregator` + `reuse: restricted`,
   and the names in `CLAUDE.md`) fail to register under any flag.
@@ -26,6 +27,8 @@ from urllib.parse import urlsplit
 
 import yaml
 
+from services.posture import gated_reuse_classes, platform_posture, publishable_reuse_classes
+
 if TYPE_CHECKING:
     from pipeline.connectors.base import Connector
 
@@ -33,8 +36,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SOURCES_YAML = ROOT / "data" / "sources.yaml"
 CONNECTORS_DIR = pathlib.Path(__file__).resolve().parent
 
-PUBLISHABLE_REUSE = frozenset({"open", "attribution"})
-GATED_REUSE = frozenset({"restricted", "unknown"})
+#: The connector gate's half of the platform posture (`services/posture.py`, docs/26): computed
+#: once at import from `PLATFORM_POSTURE`, from the same helper `services/api/visibility.py`
+#: uses, so the ingestion gate and the API gate cannot disagree about which classes leave the
+#: building (`tests/test_platform_posture.py` pins it). Under the default `commercial` posture
+#: this is `{open, attribution}` / `{noncommercial, restricted, unknown}`, exactly as before
+#: 2026-09-25; under `noncommercial`, `noncommercial` moves from the second set to the first.
+PUBLISHABLE_REUSE = frozenset(publishable_reuse_classes(platform_posture()))
+GATED_REUSE = frozenset(gated_reuse_classes(platform_posture()))
 #: Ids that may never be ingested, whatever their manifest text says. Id-based, because the
 #: `NEVER_INGEST_NAMES` substring rule below matches prose: `global.carbonstorage_io` was marked
 #: never-ingest 2026-09-22 only because its own note *mentions* Cleanview as a comparison, so

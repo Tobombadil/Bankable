@@ -7269,7 +7269,12 @@ components:
       enum: [pipeline, user, import, rule, model]
     ReuseClass:
       type: string
-      enum: [open, attribution, restricted, unknown]
+      description: >-
+        `noncommercial` (2026-09-25, docs/26-platform-posture.md): the terms permit reuse but not for
+        commercial advantage. Publishable only while the platform posture reported by `GET /v1/health`
+        is `noncommercial`; gated exactly like `restricted`/`unknown` under `commercial`. A licence in
+        this class always carries `allows_commercial_use: false`.
+      enum: [open, attribution, noncommercial, restricted, unknown]
     RecordPublishState:
       type: string
       enum: [pending_review, ingest_only, api_only, public, unpublished]
@@ -9709,6 +9714,20 @@ components:
         generated_at:
           type: string
           format: date-time
+        posture:
+          type: string
+          enum: [commercial, noncommercial]
+          description: >-
+            The platform posture in force (owner decision 2026-09-25; docs/26-platform-posture.md),
+            from `PLATFORM_POSTURE`, read once at process start alongside the visibility predicate
+            so this reports what the gates are applying. `commercial` is the default and admits the
+            `open` and `attribution` reuse classes; `noncommercial` additionally admits
+            `noncommercial`. Read-only: there is no endpoint that changes it.
+        posture_statement:
+          type: string
+          description: >-
+            The one sentence the public site prints about the posture (`/about#tiers`,
+            `/methodology`), derived from `posture`; the pages carry no prose of their own.
     IntakeContact:
       type: object
       description: Submitted personal data — stored on the task and in the CRM, never on `organization`; deletable (docs/21 C-7).
@@ -10259,7 +10278,10 @@ components:
                     type: string
                   reuse:
                     type: string
-                    enum: [restricted, unknown]
+                    description: >-
+                      `noncommercial` appears here only while the platform posture is `commercial`
+                      (docs/26): under `noncommercial` those sources publish and are not withheld.
+                    enum: [noncommercial, restricted, unknown]
                   publication:
                     type: [string, 'null']
                   url:
