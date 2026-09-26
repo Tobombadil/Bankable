@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pipeline.normalize import org_key
 from services.db.models import Organization, OrganizationAlias, Proposal
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ingest.assets import load_assets
@@ -298,7 +299,31 @@ def test_the_repo_alias_file_parses_and_carries_the_three_sec_rules():
     assert ("Vistra Energy", "Vistra Corp") in pairs
     assert ("Enable Midstream", "Enable Midstream Partners") in pairs
     assert ("Noble Environmental", "Noble Environmental Power, LLC") in pairs
-    assert all(r.source_url.startswith("https://data.sec.gov/") for r in rules)
+    # every rule cites a document; the first seven cite EDGAR, the truncation rules (below) cite the
+    # 10-K or company page that places the asset with the entity, so the check is https, not a host
+    assert all(r.source_url.startswith("https://") and r.note for r in rules)
+
+
+def test_the_repo_alias_file_carries_the_three_truncation_rules_the_key_cannot_reach():
+    """docs/22 §19.3: a registry that cuts a name at a fixed width leaves a string no legal-form
+    key equates with the full one. These three are the ones a public document decides; the
+    assertion on `org_key` is what makes them alias work rather than key work."""
+    rules = {r.alias: r for r in read_alias_rules()}
+    truncations = {
+        "TALLGRASS INTERSTATE GAS TRANSMISSIO": "Tallgrass Interstate Gas Transmission",
+        "Markwest Liberty Midstream & Res": "MarkWest Liberty Midstream & Resources",
+        "Green Knight Economic Development Corpor": "Green Knight Economic Development Corporation",
+    }
+    for alias, canonical in truncations.items():
+        assert rules[alias].canonical == canonical
+        assert org_key(alias) != org_key(canonical), alias
+        assert org_key(canonical).startswith(org_key(alias).rsplit(" ", 1)[0]), alias
+    # and the two the scan surfaced that are *not* this file's business: a same-key pair is the
+    # §13 resolver's, and a different-entity pair is nobody's
+    assert org_key("Kerrville Public Utility Board Public Facility Corp") == org_key(
+        "Kerrville Public Utility Board Public Facility Corporation"
+    )
+    assert "Generate NY Community Solar Lessor II" not in rules
 
 
 def test_alias_rule_attaches_to_the_canonical_organisation(session: Session, tmp_path):
@@ -360,3 +385,59 @@ def test_an_alias_that_already_names_another_organisation_is_reported_not_merged
     assert result.aliases_written == 0
     assert len(result.conflicts) == 1
     assert "services/resolve" in result.conflicts[0]
+    assert "0 asset_owner edge(s) and 1 proposal(s)" in result.conflicts[0]
+
+
+def test_a_truncated_spelling_that_is_already_an_organisation_reports_the_edges_a_merge_would_move(
+    session: Session, tmp_path
+):
+    """The dev-store case (docs/22 §19.3): the storage layer made an organisation out of the
+    36-character EIA-191 string before the alias loader ran. The rule cannot attach — the alias
+    keys to a live organisation — and the conflict line says how much hangs off it, because
+    `merge_organization` re-points proposals but not `asset_owner` edges."""
+    _seed_org(session, "Tallgrass Interstate Gas Transmission")
+    frame = pd.DataFrame(
+        [
+            {
+                "source_asset_id": "340291_3",
+                "name": "Huntsman",
+                "operator_name": "TALLGRASS INTERSTATE GAS TRANSMISSIO",
+                "lon": -102.9,
+                "lat": 41.2,
+                "state_code": "US-NE",
+                "country": "US",
+                "source_url": "https://www.eia.gov/maps/map_data/NaturalGas_UndergroundStorage_US_EIA.zip",
+                "retrieved_at": "2026-09-19T15:00:00Z",
+            }
+        ]
+    )
+    load_assets(session, frame, "gas_storage")
+    edges = load_operator_edges(session, frame, "gas_storage")
+    assert edges.edges_written == 1
+    rules = tmp_path / "aliases.yaml"
+    rules.write_text(
+        "aliases:\n"
+        "  - alias: TALLGRASS INTERSTATE GAS TRANSMISSIO\n"
+        "    canonical: Tallgrass Interstate Gas Transmission\n"
+        "    source_url: https://www.sec.gov/Archives/edgar/data/1633651/000163365119000009/tge2018123110k.htm\n"
+        "    retrieved_at: '2026-09-26T18:05:00Z'\n",
+        encoding="utf-8",
+    )
+    result = load_aliases(session, rules)
+    assert result.aliases_written == 0
+    assert result.rules_without_organization == []
+    assert len(result.conflicts) == 1
+    assert (
+        "'TALLGRASS INTERSTATE GAS TRANSMISSIO', a live organisation holding 1 asset_owner edge(s)"
+        in (result.conflicts[0])
+    )
+    # nothing moved: the truncated organisation still holds its edge and has no alias on the full one
+    assert (
+        session.scalar(
+            select(OrganizationAlias).where(
+                OrganizationAlias.alias == "TALLGRASS INTERSTATE GAS TRANSMISSIO",
+                OrganizationAlias.source_id == ALIASES_SOURCE_ID,
+            )
+        )
+        is None
+    )

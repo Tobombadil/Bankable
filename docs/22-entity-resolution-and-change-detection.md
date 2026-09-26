@@ -1455,3 +1455,179 @@ command that shows it rather than a paragraph nobody can re-run.
   `first_seen` values on one day. That signal is not a competitor to this one and should not be traded
   against it: a disappearance is evidence about the *register*, a missed date is evidence about the
   *project*. Build it when a second pull exists; nothing in this section blocks it.
+
+---
+
+## 19. Tallgrass Development, and the organisations a registry truncated (2026-09-26)
+
+Prompted by the Tallgrass company page under-reporting. Measured on a copy of the coordinator's `web/.data/dev.db`
+(8,374 organisations, 9,346 `asset_owner` edges, 0 merge events), five organisations carry "tallgrass": three
+under `Tallgrass Energy` through the curated file, `Tallgrass Energy` itself under Blackstone Infrastructure
+Partners, and `TALLGRASS DEVELOPMENT LP` — one GHGRP owner edge (Douglas Plant, Converse County WY, 100 %) and no
+parent. Two questions, answered separately because they have different mechanisms.
+
+### 19.1 (a) `TALLGRASS DEVELOPMENT LP` sits under Tallgrass Energy — on the registrant's own account, dated 2018-02-07
+
+**The primary source is Tallgrass Energy, LP's Form 10-K for 2018** (CIK 1633651, filed 2019-02-08,
+<https://www.sec.gov/Archives/edgar/data/1633651/000163365119000009/tge2018123110k.htm>; the 10-K for 2019 repeats
+it verbatim). It says three things the rule needs, quoted in `parents.yaml`:
+
+1. *Identity.* "References to 'Tallgrass Development' or 'TD' refer to Tallgrass Development, LP."
+2. *The edge, and its date.* "On February 7, 2018, Tallgrass Development merged into Tallgrass Development
+   Holdings, LLC, a wholly-owned subsidiary of Tallgrass Equity", where Tallgrass Equity, LLC is the subsidiary
+   "through" which TGE's operations are conducted, TGE holding "an approximate 55.79% membership interest as of
+   December 31, 2018" and being its managing member.
+3. *The asset.* "We own a 100% membership interest in Tallgrass Midstream, LLC ('TMID') ... TMID also owns and
+   operates natural gas processing plants in Casper and Douglas, Wyoming" — the plant GHGRP files under the string.
+
+So the answer is yes, with one qualification that the rule carries as `as_of`: **before 2018-02-07 the answer was
+no.** Tallgrass Development, LP was the *sponsor* above TEP — "Prior to the February 2018 merger discussed below,
+Tallgrass Energy Holdings was the general partner of Tallgrass Development", and "Historically, TEP acquired a
+number of its assets from Tallgrass Development" (TIGT and TMID at the 2013 IPO, Trailblazer 2014, Pony Express,
+REX interests, Terminals). An undated rule would have described 2012–2018 backwards. This is the second dated rule in
+the file, and the first whose child is a legal entity that no longer exists: GHGRP's 2023 `parent_company` field
+names a partnership that merged away five reporting years earlier, which is why the registry string and the filing
+disagree, and why the pattern requires the LP suffix (`^tallgrass development,? ?l\.?p\.?$`).
+
+What was checked and does **not** support it, recorded so nobody re-checks: GLEIF (api.gleif.org, 2026-09-26)
+holds no LEI for Tallgrass Development, LP; its fulltext search returns 17 "tallgrass" entities of which the only
+similar name, `TALLGRASS DEVELOPMENT, INC.` (5493004S0XNITWHOGX17, Lincoln NE, alongside Tallgrass Senior/Family
+Housing LPs), is a different company that the anchored pattern does not match. EDGAR's entity index has no
+registrant of the name. Tallgrass's own natural-gas page names systems, not holding entities. The hop is one, to
+`Tallgrass Energy`, by the file's existing convention; the two intermediate entities (Tallgrass Development
+Holdings, LLC; Tallgrass Equity, LLC) own nothing on the platform and are not created. No share: the filing's
+100 % is TGE's interest in TMID and the successor's status under Tallgrass Equity, TGE's own interest in Tallgrass
+Equity was 55.79 %, and no source states one number for this string. `parent_share_pct` stays NULL.
+
+### 19.2 (b) The 25 prefix pairs, classified
+
+Reproduced the scan (names ≥ 30 characters, case-insensitive prefix, merged rows excluded): 25 pairs, the same 25.
+They fall into five classes, and only one of them is alias work:
+
+| Class | Pairs | What they are | Where they belong |
+|---|---|---|---|
+| **Fixed-width truncation of one legal entity** | `TALLGRASS INTERSTATE GAS TRANSMISSIO` (36) / `…Transmission`; `Markwest Liberty Midstream & Res` (32) / `MarkWest Liberty Midstream & Resources`; `Green Knight Economic Development Corpor` (40) / `…Corporation` | A registry cut the string; the remainder is not a legal form, so no key reaches it | **`aliases.yaml`**, three rules written (§19.3) |
+| Same key already | `Kerrville Public Utility Board Public Facility Corp` / `…Corporation`; `Black Mountain Energy Storage II` / `… II LLC`; `Greenalia Solar Power Ratcliff` / `…, LLC`; `Momentum Energy Storage Partners` / `…,LLC`; `NextEra Energy Interconnection Holdings` / `…, LLC`; `North Bergen Liberty Generating` / `…, LLC` | `org_key` is already equal (Corp/Corporation and the LLC suffix are legal forms); two rows exist because the proposal loaders insert on the punctuation key and §13 `resolve_organizations` has not run on this store (0 events) | §13 resolver, not this file — an alias rule would itself be reported as a conflict |
+| Different entities | `Generate NY Community Solar Lessor II` / `III`; `NY Power Authority & LS Power Grid NY Corporation I` / `II` | Numbered vehicles | Nothing; must never merge |
+| Joint filings | `Anbaric Development Partners, LLC` / `…, NY OceanGrid, LLC`; `Braintree Electric Light Department` / `…; International Finance Corporation (IFC)`; `Integrys Energy Services, Inc.` / `…; LGS Development, L.P.`; `Northeast Maryland Waste Disposal Authority` / `…, MD; SCS Engineers`; `Siemens Building Technologies, Inc.` / `…; Sustainable Energy Solutions LLC` | LMOP's "X; Y" owner strings are two parties, a split problem in the LMOP loader | The LMOP connector, not this file |
+| Annotation suffixes | `Cape May County MUA` / `…, NJ`; `Florida Municipal Power Agency` / `… (FL)`; `Golden Triangle …` / `… (GTR Solid Waste), MS`; `Los Angeles Department of Water & Power` / `… (LADWP)`; `Milwaukee Metropolitan Sewerage District` / `…, WI`; `Southern Minnesota Municipal Power Agency` / `… (SMMPA)`; `Ventura Regional Sanitation District` / `…, CA`; `Graphic Packaging International` / `… - WACO`; `Prologis Logistics Services Incorporated` / `… BESS` | LMOP appends a state or an acronym to a name; the last two append a *site*, which is not the same entity | The first seven are one entity each and decidable from LMOP's own row, but they are a fold of a source convention (strip a trailing `, ST` / `(ACRONYM)`), not seven citations — left for a normaliser rule, recorded here, not written |
+
+Where the truncations come from, measured rather than assumed. The Atlas underground-storage layer's operator
+field is exactly 36 characters on **43 of 412** rows and never longer, while the shapefile's own DBF field width is
+254, so the cut is upstream, in EIA-191's company field; TIGT is the only one of those 43 the platform also
+carries in full. The processing-plant layer's owner field runs to 54 characters, so the 32-character MarkWest
+string is a one-row cut (the same field spells the owner in full on five sister plants). EIA-860M entity names
+pile up at exactly 40 characters (**199 rows**, against 115 at 39 and 13 at 41); the Schedule 4 owner names the
+Green Knight string sits in do not (31 at 40, 40 at 41), so that width is EIA's somewhere upstream but the field
+that applied it is not established. The identity in each case is established by a document, not by the width.
+
+### 19.3 The three alias rules, and what the loader does with them on a real store
+
+Each rule cites the document that names the legal entity **and places the truncated string's asset with it**,
+which is the §16.5 bar: TIGT — the 2018 10-K, "The TIGT System includes the Huntsman natural gas storage facility
+located in Cheyenne County, Nebraska", the exact EIA-191 field (340291) carrying the 36-character string, plus GLEIF
+`5493001PPWSDLETMIS87`; MarkWest — MarkWest Energy Partners' 10-K for 2014 listing "the Mobley Complex located in
+Wetzel County, West Virginia" among the Marcellus complexes of "MarkWest Liberty Midstream & Resources, L.L.C.",
+plus GLEIF `549300E43NX2PKICX492` (the only entity with that prefix; EDGAR's only other "MarkWest Liberty" registrant
+is MarkWest Liberty Gas Gathering, L.L.C., which the prefix excludes); Green Knight — the corporation's own pages
+(<https://gkedc.org/energy-center/>, <https://gkedc.org/about/>), which give the full name, the 501(c)(3) form,
+the March 2001 opening and "Waste Management is currently contracted to operate and maintain the facility" — the
+arrangement EIA-860 records as owner `Green Knight Economic Development Corpor` / 860M operator `Waste Management
+Inc` on plant 55765.
+
+**Measured, `python -m services.ingest.organizations aliases` on the copy** (`DATABASE_URL` pointed at it; the
+live file untouched):
+
+| | Before (7 rules) | After (10 rules) |
+|---|---|---|
+| `aliases_written` | 0 | **0** |
+| `aliases_unchanged` | 3 | 3 |
+| `rules_without_organization` | 0 | **0** |
+| `rules_already_one_organization` | 3 | 3 |
+| `conflicts` | 4 | **7** (+ the three truncations) |
+| `organization_alias` rows | 8,702 | 8,702 |
+
+Every one of the three is reported as a conflict: *the alias already keys to a live organisation* — the truncated
+string itself, which the storage / processing / ownership loader turned into an `organization` before the alias
+loader ran. That is not a defect in the rules; it is the alias loader's contract (§17.5: a rule whose alias is a
+live organisation is never merged silently), and on a `web/dev_up.py` store it is the **normal** case, because the
+edge loaders run first. The four pre-existing conflicts (`Westar Energy Inc`, `Vistra Energy`, `Enable Midstream`,
+`Noble Environmental`) are the same shape: §17.5 measured them as written on 2026-09-20 against a store where the
+short spellings were not yet organisations; today's store has them as organisations with 1–2 edges each, and the
+rules have gone from applied to conflicting with no change to the file. The conflict line now says what a merge
+would move (`… a live organisation holding 1 asset_owner edge(s) and 0 proposal(s)`); before, it named the
+organisation only.
+
+The rules stay in the file for three reasons: they carry the citation a merge needs; the loader re-applies them the
+moment the absorbed row is merged away (a merged organisation leaves `org_key_multimap`, so the alias then attaches
+to the canonical and the *next* rebuild resolves the string at edge-insert time); and the conflict list is the
+queue of merges to make, with sizes.
+
+### 19.4 What would make the truncated organisations resolve, and why it is not done here
+
+The mechanism is `services/resolve/merge.py::merge_organization` (docs/21 §6.3, §6.5): one `merged` event carrying
+the absorbed row in `before`, `merged_into_id` set, reversible by `unmerge_organization`. Three merges, each with a
+`rationale` citing the alias rule's document:
+
+| Absorb | Into | Moves |
+|---|---|---|
+| `TALLGRASS INTERSTATE GAS TRANSMISSIO` | `Tallgrass Interstate Gas Transmission` | 1 edge (Huntsman, `gas_storage`) |
+| `Markwest Liberty Midstream & Res` | `MarkWest Liberty Midstream & Resources` | 1 edge (Mobley Plant, `gas_processing_plant`) |
+| `Green Knight Economic Development Corpor` | `Green Knight Economic Development Corporation` | 1 edge (Green Knight Energy Center, `power_plant`, owner 100 %) |
+
+**It is not run in this lane, and should not be run by anyone yet, for a reason found while checking:
+`merge_organization` re-points `proposal.sponsor_org_id` and does not touch `asset_owner.organization_id`**, and its
+`before` payload records `sponsored_proposal_ids` only. On these three organisations, which sponsor nothing and own
+one edge each, a merge today would move nothing forward and would move something *backward*: `services/api/orgtree.py`
+excludes merged rows from the descent (`_children_of`: "a merged row is not a company, it is a redirect"), so the
+absorbed organisation's edge would drop out of the Tallgrass page's `scope=all` rather than join it, and an unmerge
+could not know to put it back because the event never recorded it. The alias it writes on the survivor also depends
+on the absorbed row sponsoring a proposal (it takes the source quartet from the first active `proposal_source`), so
+for an edge-only organisation no alias would be written either. `services/resolve/merge.py` is outside this lane's
+files; the fix it needs is stated, not made: carry `asset_owner_ids` in `before.absorbed`, re-point them to the
+survivor, restore them on unmerge (invariant M1: enough state to reverse without reading another row), and take the
+alias's provenance from the edge's source when there is no proposal. Until that lands, the three rules do their job
+as a documented, cited queue, and the parent link keeps both spellings on the Tallgrass page.
+
+### 19.5 Measured before and after on the Tallgrass page
+
+`cp web/.data/dev.db …/e5.db`, then `python -m services.ingest.midstream parents` and `… organizations aliases`,
+each run twice:
+
+| | Before | After |
+|---|---|---|
+| Organisations under `Tallgrass Energy` (direct = all, one level) | 9 | **10** (`TALLGRASS DEVELOPMENT LP`, `parent_as_of` 2018-02-07) |
+| `asset_owner` edges reachable from the page, `scope=all` | 11 | **12** |
+| Distinct assets reachable | 10 | 10 (Douglas Plant was already reached through `Tallgrass Energy Midstream LLC`'s operator and owner edges; the GHGRP 100 % owner edge now joins them) |
+| Under Blackstone Infrastructure Partners, `scope=all` | 10 organisations, 11 edges | 11, 12 |
+| Organisations with a parent (store-wide) | 318 | 319 |
+| `parents` report | 7 rules, 10 unchanged | 8 rules, 1 linked, 1 dated, 11 unchanged on re-run, 0 `rules_without_match`, 0 deferred to GLEIF |
+| `aliases` report | §19.3 | §19.3; second run identical |
+
+So the page gains the entity and the edge the coordinator saw missing, and gains nothing spurious. The two
+spellings of TIGT remain two children of one parent, which is what §15.1 said the file would do until a merge
+event with edge support exists.
+
+### 19.6 Commands
+
+```
+cp /home/user/Bankable/web/.data/dev.db $SCRATCH/e5.db
+DATABASE_URL="sqlite+pysqlite:///$SCRATCH/e5.db" .venv/bin/python -m services.ingest.midstream parents
+DATABASE_URL="sqlite+pysqlite:///$SCRATCH/e5.db" .venv/bin/python -m services.ingest.organizations aliases
+.venv/bin/python -m pytest services/ingest/test_organizations.py -q
+```
+
+### 19.7 Assumptions recorded
+
+- **A-22-19:** a parent rule may name a child that no longer exists as a legal entity when a registry still files
+  under that name, provided the rule is dated to the event that put the successor under the parent and the note
+  says the entity merged away. The alternative — leaving GHGRP's stale string unparented — under-reports a fact
+  the registrant states. If GHGRP later corrects the string to the successor, the rule becomes inert
+  (`rules_without_match`) and is deleted then, not now.
+- **A-22-20:** a fixed-width truncation is alias work only when a document places the truncated string's *asset*
+  with the entity; the width alone (36, 32, 40) is evidence about the source, not about identity. The seven LMOP
+  annotation-suffix pairs in §19.2 are one entity each on LMOP's own row, but are a source convention to fold, not
+  seven citations, and are deliberately not in `aliases.yaml`.
+- **A-22-21 (found, not fixed — `services/resolve/merge.py` is another lane's file):** `merge_organization` does
+  not re-point `asset_owner` edges or record them for unmerge. No organisation merge should be run against an
+  organisation holding edges until it does; the three truncation merges in §19.4 wait on it.

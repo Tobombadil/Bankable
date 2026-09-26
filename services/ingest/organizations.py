@@ -51,7 +51,14 @@ is **inert, not an error** — it is reported and re-applies the moment such a r
 is the whole point of writing the rule down before the data arrives. A rule whose alias already
 resolves, under `org_key`, to an organisation *other* than its canonical one is reported as a
 conflict and skipped: merging two live organisations is a `services/resolve/merge.py` decision with
-a reversible event behind it, never something an alias loader does silently.
+a reversible event behind it, never something an alias loader does silently. The conflict line
+names that organisation and counts the `asset_owner` edges and proposals hanging off it — the
+footprint a merge event would have to move — because on a store built by `web/dev_up.py` this is
+the *normal* outcome, not the exception: the edge and sponsor loaders run first and have already
+made an organisation out of the very spelling the rule names (docs/22 §19.3 measures 7 of 10 rules
+in that state on the 2026-09-26 dev store). The rule is still worth writing: it carries the
+citation a merge needs, it re-applies the moment the absorbed row is merged away, and the report
+is the queue of merges to make.
 """
 
 from __future__ import annotations
@@ -69,7 +76,7 @@ from typing import Any
 
 import pandas as pd
 import yaml
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from pipeline.connectors.registry import Registry
@@ -424,6 +431,19 @@ class AliasesLoadResult:
         }
 
 
+def _footprint(session: Session, org_id: Any) -> tuple[int, int]:
+    """(`asset_owner` edges, sponsored proposals) on one organisation: what a merge that absorbed
+    it would have to re-point. `services/resolve/merge.py::merge_organization` moves the proposals
+    today and not the edges — the count is reported so nobody has to discover that after the fact."""
+    edges = session.scalar(
+        select(func.count()).select_from(AssetOwner).where(AssetOwner.organization_id == org_id)
+    )
+    proposals = session.scalar(
+        select(func.count()).select_from(Proposal).where(Proposal.sponsor_org_id == org_id)
+    )
+    return int(edges or 0), int(proposals or 0)
+
+
 def read_alias_rules(path: pathlib.Path = DEFAULT_ALIASES_PATH) -> list[AliasRule]:
     payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     rows = payload.get("aliases") if isinstance(payload, dict) else payload
@@ -469,9 +489,12 @@ def load_aliases(
         alias_orgs = index.get(org_key(rule.alias)) or []
         other = [o for o in alias_orgs if o.id != org.id]
         if other:
+            edges, proposals = _footprint(session, other[0].id)
             result.conflicts.append(
                 f"{rule.alias} -> {rule.canonical}: the alias already keys to "
-                f"{other[0].name_canonical!r}; left alone (a merge is a services/resolve decision)"
+                f"{other[0].name_canonical!r}, a live organisation holding {edges} asset_owner "
+                f"edge(s) and {proposals} proposal(s); left alone (a merge is a services/resolve "
+                "decision, and that is what it would move)"
             )
             continue
         if alias_orgs and not other:

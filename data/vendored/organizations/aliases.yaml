@@ -102,3 +102,65 @@ aliases:
       SEC EDGAR CIK 0001381415, conformed name "NOBLE ENVIRONMENTAL POWER LLC", no former names.
       EIA-860 Schedule 4 carries both the short and the full spelling; "Power" is a content word,
       so the corrected key splits them.
+
+  # Truncated registry spellings (2026-09-26, docs/22 §19). A registry that cuts a name at a fixed width
+  # produces a string the key cannot equate with the full one ("TRANSMISSIO" is not a legal form). Where a
+  # public document names the one legal entity the prefix belongs to, and places the asset carrying the
+  # truncated string with that entity, the truncation is a spelling of that entity and belongs here. Where
+  # a prefix pair is two entities ("... Corporation I" / "... II", "... Lessor II" / "... III", "X; Y" joint
+  # filers) or a site suffix ("... - WACO", "... BESS"), it does not, and no rule is written. On a store
+  # where the truncated string has already become its own organisation -- every store built by
+  # `web/dev_up.py`, because the edge loaders run before this one -- the loader reports the rule as a
+  # conflict, with the edges and proposals a merge would move, and writes nothing: moving them is a
+  # `services/resolve/merge.py` merge event with a reversible `before` payload, never an alias.
+  - alias: TALLGRASS INTERSTATE GAS TRANSMISSIO
+    canonical: Tallgrass Interstate Gas Transmission
+    source_url: https://www.sec.gov/Archives/edgar/data/1633651/000163365119000009/tge2018123110k.htm
+    retrieved_at: '2026-09-26T18:05:00Z'
+    note: >-
+      Tallgrass Energy, LP Form 10-K for 2018, Item 1: "Tallgrass Interstate Gas Transmission, LLC
+      ('TIGT'), which owns the Tallgrass Interstate Gas Transmission system ... The TIGT System includes
+      the Huntsman natural gas storage facility located in Cheyenne County, Nebraska." The truncated
+      string is the EIA-191 company field on exactly that field (Atlas underground storage layer, 202012
+      vintage, field code 340291 "Huntsman", Cheyenne County NE); the full spelling is the Atlas pipeline
+      layer's operator string. GLEIF LEI 5493001PPWSDLETMIS87 is "TALLGRASS INTERSTATE GAS TRANSMISSION,
+      LLC" (previous legal name "Kinder Morgan Interstate Gas Transmission LLC"), the only entity of the
+      name. The cut is upstream of the Atlas: 43 of the storage layer's 412 operator strings are exactly
+      36 characters and none is longer, while the shapefile's own field width is 254, so EIA-191's company
+      field is what truncates.
+  - alias: Markwest Liberty Midstream & Res
+    canonical: MarkWest Liberty Midstream & Resources
+    source_url: https://www.sec.gov/Archives/edgar/data/1166036/000104746915001157/a2223168z10-k.htm
+    retrieved_at: '2026-09-26T18:05:00Z'
+    note: >-
+      MarkWest Energy Partners, L.P. Form 10-K for 2014, Item 1: "We currently operate five processing
+      complexes in our Marcellus segment, including: the Houston Complex ...; the Majorsville Complex ...;
+      the Mobley Complex located in Wetzel County, West Virginia (the 'Mobley Complex'); the Sherwood
+      Complex ...; and the Keystone Complex", the Marcellus entity being "MarkWest Liberty Midstream &
+      Resources, L.L.C. ('MarkWest Liberty Midstream')" in the same filing and, in MPLX LP's 10-K for 2018
+      (.../data/1552000/000155200019000006/mplx-20181231x10k.htm), one of the "entities that operate in
+      the Marcellus region". The truncated string is the owner field of the Atlas processing plant layer
+      (2017_v2) on the Mobley Plant, Wetzel County WV, alone; the same field spells the same owner in full
+      on Houston, Majorsville, Sherwood, Keystone and Cadiz. GLEIF holds one entity with this prefix,
+      549300E43NX2PKICX492 "MarkWest Liberty Midstream & Resources, L.L.C." (registration LAPSED; the
+      legal name is what is read, not the registration), and EDGAR's only other "MarkWest Liberty ..."
+      registrant, MarkWest Liberty Gas Gathering, L.L.C., is excluded by the prefix. The 32-character cut
+      is this row's alone: the field's longest value in the layer is 54 characters.
+  - alias: Green Knight Economic Development Corpor
+    canonical: Green Knight Economic Development Corporation
+    source_url: https://gkedc.org/energy-center/
+    retrieved_at: '2026-09-26T18:05:00Z'
+    note: >-
+      The corporation's own pages: "Green Knight Economic Development Corporation (GKEDC)" ... "The
+      facility opened in March 2001" ... "Waste Management is currently contracted to operate and maintain
+      the facility under the guidance of the GKEDC Board of Directors" (energy-center), and "a non-profit
+      501(c)(3) corporation ... formed in March 1999" which "generates revenues to implement its mission by
+      operating the Green Knight Energy Center in Plainfield Township, PA" at Grand Central Sanitary
+      Landfill (https://gkedc.org/about/). The truncated string is EIA-860 Schedule 4's owner (100%) of
+      plant 55765 "Green Knight Energy Center", Northampton County PA, whose EIA-860M operator is "Waste
+      Management Inc" -- the arrangement the page describes; the full spelling is EPA LMOP's operator and
+      owner of "Project #1 - Grand Central SLF", Northampton County PA. The cut is at 40 characters. EIA's
+      860M entity names pile up at exactly 40 (199 rows, against 115 at 39 and 13 at 41); the Schedule 4
+      owner names this string sits in do not (31 at 40, 40 at 41), so the width is EIA's somewhere
+      upstream but which field cut it is not established. The identity is. No LEI exists for the
+      corporation.

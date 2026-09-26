@@ -125,3 +125,41 @@ parents:
       CONSORTIUM: this single-parent edge records the controlling interest only. GIC, NPS and USS remain
       co-investors on the evidence above; the schema has one parent per organisation, so the rest of the
       consortium is recorded here and nowhere else.
+
+  # A string naming an entity that stopped existing. EPA GHGRP still files Douglas Gas Plant (facility
+  # 1002377, Converse County, WY) under "TALLGRASS DEVELOPMENT LP (100%)" in reporting year 2023; the
+  # registrant's own 10-K says that partnership merged away in 2018. The rule maps the string to where its
+  # successor sits, on that account, dated to the merger (docs/22 §19.1).
+  - child_pattern: '^tallgrass development,? ?l\.?p\.?$'
+    parent: Tallgrass Energy
+    as_of: 2018-02-07
+    source_url: https://www.sec.gov/Archives/edgar/data/1633651/000163365119000009/tge2018123110k.htm
+    retrieved_at: '2026-09-26T18:05:00Z'
+    note: >-
+      Tallgrass Energy, LP (SEC CIK 1633651) Form 10-K for 2018, filed 2019-02-08, Item 1: "References to
+      'Tallgrass Development' or 'TD' refer to Tallgrass Development, LP" ... "On February 7, 2018,
+      Tallgrass Development merged into Tallgrass Development Holdings, LLC, a wholly-owned subsidiary of
+      Tallgrass Equity" ... "Our operations are conducted through, and our operating assets are owned by,
+      our direct and indirect subsidiaries, including Tallgrass Equity, LLC ('Tallgrass Equity'), in which
+      we directly own an approximate 55.79% membership interest as of December 31, 2018", the 2015 IPO
+      recital adding that the Tallgrass Equity LLC agreement was amended to "provide that TGE is the
+      managing member of Tallgrass Equity". The same filing places the plant GHGRP files under this
+      string: "We own a 100% membership interest in Tallgrass Midstream, LLC ('TMID') ... TMID also owns
+      and operates natural gas processing plants in Casper and Douglas, Wyoming".
+      DATE: as_of is the merger date. Before it Tallgrass Development, LP was the sponsor above TEP, not a
+      subsidiary of the registrant ("Prior to the February 2018 merger discussed below, Tallgrass Energy
+      Holdings was the general partner of Tallgrass Development"; "Historically, TEP acquired a number of
+      its assets from Tallgrass Development"), so an undated rule would have been wrong for 2012-2018.
+      HOP: the direct successor is Tallgrass Development Holdings, LLC, under Tallgrass Equity, LLC, under
+      TGE. The file's convention (every Tallgrass rule above) is one hop to the group parent whose
+      statement is read; the intermediate entities hold no asset on the platform and are not created here.
+      MATCH: GHGRP `parent_company` on facility 1002377 (Douglas Gas Plant, reporting year 2023,
+      https://data.epa.gov/efservice/pub_dim_facility/facility_id/1002377/year/2023/JSON):
+      "TALLGRASS DEVELOPMENT LP (100%)" -- a name five reporting years stale against the filing, which is
+      why the registry and the 10-K disagree and why the pattern requires the LP suffix. GLEIF
+      (api.gleif.org, read 2026-09-26) has no LEI for Tallgrass Development, LP; the one similar record,
+      TALLGRASS DEVELOPMENT, INC. (5493004S0XNITWHOGX17, Lincoln NE), is a different company and the
+      anchored pattern does not match it. EDGAR lists no registrant of the name.
+      SHARE: none. The 100% in the filing is TGE's interest in TMID and the successor's wholly-owned
+      status under Tallgrass Equity; TGE's own interest in Tallgrass Equity was 55.79%; no source states
+      one percentage for this string. parent_share_pct stays NULL.
