@@ -65,6 +65,8 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile
       target: api
+      args:
+        GIT_SHA: ${GIT_SHA:-} # footer/`/v1/health` commit (services/api/build_info.py); `GIT_SHA=$(git rev-parse HEAD) docker compose build`
     restart: unless-stopped
     env_file: *env-file
     environment:
@@ -88,6 +90,8 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile
       target: web
+      args:
+        GIT_SHA: ${GIT_SHA:-} # see `api`
     restart: unless-stopped
     env_file: *env-file
     environment:
@@ -114,6 +118,8 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile
       target: worker
+      args:
+        GIT_SHA: ${GIT_SHA:-} # see `api`
     restart: unless-stopped
     command: ["python", "-m", "infra.entrypoint", "scheduler"]
     env_file: *env-file
@@ -131,6 +137,8 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile
       target: worker
+      args:
+        GIT_SHA: ${GIT_SHA:-} # see `api`
     restart: unless-stopped
     # `alert`/`post_draft`/`publish_post` cover the alert cycle and social draft/publish jobs
     # (infra/scheduler/app.py's `alert_tick`/`post_draft_tick`); there is no separate `social`

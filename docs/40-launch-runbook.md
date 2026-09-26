@@ -292,9 +292,22 @@ which only makes sense once 1–6 exist.
    check rolls back to the previously deployed tag automatically. It appends a row to
    `infra/deploy-log.md`. The nightly backup timer (`docs/60` §8) starts working after this first deploy
    ships `backup.sh` and the secrets file to the app VM.
-   **Verify:** `curl https://infraque.com/health` and `curl https://infraque.com/v1/health` return 200; the E-10
-   Playwright smoke suite passes (not yet run against any real environment — flagged in §6 below); the new
-   `infra/deploy-log.md` row looks right.
+   **First deploy only, straight after the command above** (`docs/60` §11 item 9, measured 2026-09-26):
+   nothing in the repo creates Procrastinate's job-queue schema, so `worker`, `scheduler` and
+   `browser-worker` crash-loop after the first deploy. Apply the schema once on the app VM. `deploy.sh` has
+   already copied the compose files and secrets it needs:
+   `cd /opt/infraque/compose && IMAGE_TAG=sha-<short sha> docker compose -f docker-compose.yml -f
+   compose.prod.yml --env-file /opt/infraque/secrets/.env run --rm --no-deps -T scheduler python -m
+   procrastinate --app=infra.scheduler.app.app schema --apply`. Then run the same `docker compose ... up -d
+   --no-build` for `scheduler` on the app VM, `worker` on each worker VM and `browser-worker` on its VM. Run
+   the schema command once only: a second run exits 1. Before deploying, confirm `API_INTERNAL_TOKEN` is in the
+   secrets file, because without it pages start returning 500 after a few views.
+   **Verify:** `curl https://infraque.com/health` and `curl https://infraque.com/v1/health` return 200, and
+   `/v1/health`'s `build.commit` and the page footer show the deployed commit, not "unknown". On each worker host,
+   `docker compose ps` shows `worker`/`browser-worker`/`scheduler` up with no restarts; `deploy.sh` does not
+   check them, because they have no healthcheck. The E-10 Playwright smoke suite passes: it passed 19/19 on
+   2026-09-26 against a local Compose stack of these images (`docs/60` §11 item 9), but has not yet run against
+   staging or production. The new `infra/deploy-log.md` row looks right.
    **If migrations fail:** do not proceed to the restart step; fix forward or roll back the migration per its
    own reversibility docstring; page the owner if a production deploy has been mid-rollout more than 15
    minutes (`docs/60` §10.1).
@@ -311,20 +324,20 @@ AC1. Each row needs an actual pass, not an assertion; "sign-off" is the qa-engin
 | 1 | Tier test (US-601) | `pytest tests/test_api_pro_tier.py -q` | Passing per Sprint 3 wave (`services/api/pro.py` tier split) | |
 | 2 | Gate test (US-906) | `pytest tests/test_api_admin_records.py -k gate_unmet -q` | Passing (`422 gate_unmet` enforced, "Admin backend landed") | |
 | 3 | E-9 integration fixtures (tier + gate across web/RSS/API/export/webhook/post-draft) | `pytest -k "publish_state or visibility" -q` across `tests/` | Not confirmed as one named suite this sprint; verify before sign-off | |
-| 4 | Attribution renders on all surfaces | Manual check: web page footer, RSS item, API envelope `licence_summary`, exported CSV row all carry `source_id`/`source_url`/`retrieved_at`/`licence` | Attribution renders automatically per `CLAUDE.md`; not independently re-verified this sprint | |
-| 5 | Privacy notice live | A `/privacy` page exists on the public site | Built 2026-09-13: `web/legal.py` serves `/privacy` (footer link on every public page); `web/test_legal.py` proves it renders | **NOT MET** |
-| 6 | Deletion route live | A self-service or admin-triggered path that redacts personal data and requests CRM deletion | Admin-triggered deletion exists and is tested (`pytest tests/test_api_admin_people.py -k deletion_task -q`; also `services/crm/test_attio.py::test_request_personal_data_deletion_opens_a_task_with_a_30_day_deadline`) — this is an **admin** action (US-901 AC1's "delete" user action), not a self-service route a member can use on their own account | Partially met — flag the gap explicitly at sign-off |
+| 4 | Attribution renders on all surfaces | Manual check: web page footer, RSS item, API envelope `licence_summary`, exported CSV row all carry `source_id`/`source_url`/`retrieved_at`/`licence` | Measured 2026-09-26 on a local Compose stack of the release images (`docs/60` §11 item 9). **Web:** the detail page shows `.provenance-panel` and `.attribution-line` at 1440 and 400 px (E-10 smoke). **API:** list and detail rows carry `provenance[]` with `source_id`, `source_url`, `retrieved_at`, `licence_id` and `attribution_text`, plus envelope `licence_summary`. **RSS:** `/feeds/proposals.rss` items carry only the source name (`dc:creator`) and a link to the record page, not `source_url`/`retrieved_at`/licence per item. **CSV:** no export route exists (`docs/41` dropped export) | Gap: RSS items; decide whether the linked page's attribution suffices |
+| 5 | Privacy notice live | A `/privacy` page exists on the public site | Built: `web/legal.py` serves `/privacy`, linked from the footer of every public page. `pytest web/test_legal.py` 7 passed (2026-09-26), and `GET /privacy` returned 200 from the containerised `web` image | |
+| 6 | Deletion route live | A self-service or admin-triggered path that redacts personal data and requests CRM deletion | **Public request route:** `POST /v1/privacy/requests` (`services/api/privacy_routes.py`) and its form at `/privacy/request` (`web/legal.py`) feed the admin queue `/admin/v1/privacy-requests`. `pytest tests/test_api_privacy_requests.py tests/test_web_privacy_request.py` 20 passed; the containerised API answered a request with 202. **Admin deletion:** `pytest tests/test_api_admin_people.py -k deletion_task` 6 passed; `services/crm/test_attio.py::test_request_personal_data_deletion_opens_a_task_with_a_30_day_deadline` passed (all 2026-09-26). **Gap:** an account holder cannot delete their own account in-app. The request is self-service; carrying it out is an operator action | Partially met — flag the gap explicitly at sign-off |
 | 7 | Automated-account labels set | Bios/disclosure text from `docs/32` §2.2 live on each channel profile; `services/social/editorial.py` enforces the disclosure label on post templates (`pytest -k disclosure -q` covers `test_admin_update_post_rejects_removing_disclosure_label` in `tests/test_api_admin_posts.py`) | Code enforces it; the actual profile bios depend on §2's account checklist being done first | |
 | 8 | Rate limits active | `pytest tests/test_api_pro_ratelimit.py -q`; confirm `TIER_LIMITS` in `services/api/ratelimit.py` matches `docs/23` §6 | Implemented (in-memory token bucket); `test_tier_limits_match_docs_23_defaults` is the exact check | |
-| 9 | Alert unsubscribe works | Click the unsubscribe link in a delivered alert email and confirm no further alerts send | Built 2026-09-13: `POST|GET /v1/alerts/unsubscribe` and `/unsubscribe`; `tests/test_api_unsubscribe.py` proves the next alert cycle sends nothing for that search | **NOT MET** |
-| 10 | Backups verified | `infra/scripts/restore_drill.sh`, then row-count sanity checks against `proposal`/`opportunity`/`organization`/`event` | Script exists; never run against a real environment (`docs/60` §10.3 "Last executed: not yet") | |
+| 9 | Alert unsubscribe works | Click the unsubscribe link in a delivered alert email and confirm no further alerts send | Built: `GET\|POST /v1/alerts/unsubscribe` (`services/api/unsubscribe_routes.py`) and `/unsubscribe` (`web/legal.py`). `pytest tests/test_api_unsubscribe.py` 9 passed (2026-09-26), including the next alert cycle sending nothing for that search. Live on the containerised stack: `/unsubscribe` 200; an unknown token gets a 404 problem response. Not yet proven with a delivered email (needs the Resend key, §2.4) | |
+| 10 | Backups verified | `infra/scripts/restore_drill.sh`, then row-count sanity checks against `proposal`/`opportunity`/`organization`/`event` | Run 2026-09-26 with an `aws` shim serving a `pg_dump` of the local stack (R2 not reached). The committed script failed 2 of 2 runs at the restore step; it is fixed (`docs/60` §11 item 9) and now exits 0 in 16 s with counts equal to the source (`proposal` 10,409, `opportunity` 707, `organization` 8,374, `event` 0). Never run against R2 or a real environment (`docs/60` §10.3 "Last executed: not yet") | |
 | 11 | M-11 = 0 in the nightly audit | `python -m services.visibility_audit.run` (exit 1 when M-11 > 0), or read the last nightly `visibility_audit_tick` run at `GET /admin/v1/visibility-audits/latest`; tests: `pytest tests/test_visibility_audit.py -q` | Job exists (2026-09-26): nightly at 04:52 UTC on the `audit` queue (`docs/60` §6.1). Measured on a copy of the 2026-09-26 dev store (SQLite, commercial posture), 3.2 s wall: **M-11 = 0** — shown 10,409 proposals, 707 opportunities, 0 events, 8,374 organisations, 17,871 assets, 11,504 source links, 0 breaches on each; 52 sources gated by the register, none of them present in that store; served pass probed 0 rows because the store holds no taken-down, pending or gated-source rows to probe. That proves the job runs and the store is clean; it does not yet prove the served pass against production-shaped data (R-4 "E-9/E-10 green on production-shaped data") — re-run against the production database before sign-off | |
 | 12 | ADRs match the running system | Manual review of `docs/adr/000*.md` against what is actually deployed | Not checked this sprint | |
 | 13 | No expired exception (`docs/04` §9.4) | `docs/04-standards.md` §9.4 register | Empty register today — nothing to expire | |
 
-**Two items are hard blockers, not soft findings:** row 5 (no privacy notice page) and row 9 (no working
-unsubscribe route) are both named explicitly in US-908 AC1 and both fail on inspection of the current code.
-Release should not be signed off against US-908 with these unresolved; they are also listed in §6.
+**Rows 5 and 9 were hard blockers in the 2026-09-13 pass; both are now built and their tests pass
+(2026-09-26).** US-908 AC1 still asks for row 9 to be proven with a delivered alert email, and row 6's
+account self-delete gap must be stated at sign-off.
 
 ---
 
@@ -380,12 +393,24 @@ softened.
    before an organisation-level takedown can be actioned through the admin panel ("Admin backend landed").
 3. **`opportunity.awarded` and `funding.*` posts never draft.** No award or funding-programme field exists in
    the store or any connector's event payload yet — this is a schema gap, not a worker bug ("Workers landed").
-4. **Playwright/axe checks have not been run.** Neither the E-10 end-to-end smoke suite nor the 400px/axe
-   accessibility checks (`docs/04` D-30–D-32) have executed against a real preview or production environment
-   this sprint ("Admin panel UI landed": "Not verified here").
-5. **No self-service privacy notice or deletion route** for an end user (§4 rows 5–6). Deletion exists only as
-   an admin action.
-6. **No alert unsubscribe endpoint** (§4 row 9). The token exists in the database; nothing consumes it.
+4. **Playwright/axe run once, against a local stack, not a real environment** (2026-09-26, `docs/60` §11
+   item 9). Against the containerised `web` on :8001: the E-10 smoke passed 19/19 checks (map → list → detail
+   with attribution at 1440 and 400 px; pricing from the nav at 400 px). `npx axe` (axe-core 4.13.0, the
+   `a11y-and-performance` job's command) found 0 violations on `/`, `/proposals` and `/about`. The sandbox
+   needed a chromedriver matched to its Chromium (141), and `--no-sandbox` because it runs as root. A
+   Playwright-driven axe pass, with the map actually rendered and a detail, an asset and `/pricing` added,
+   found 1 moderate violation. On `/assets/<slug>`, `landmark-unique` fires on `section[aria-label="Map"]`
+   (`web/templates/asset_detail.html`), probably colliding with the region MapLibre adds. The CI job's step
+   says "map, list, detail" but scans `/about`, not a detail page. Lighthouse was not run. Still open: all of
+   it against staging or production.
+5. **Privacy notice and deletion request route: built** (§4 rows 5–6). `/privacy` and the request form
+   `/privacy/request` are served by `web/legal.py`; `POST /v1/privacy/requests` and the admin queue are in
+   `services/api/privacy_routes.py`. Tests: `web/test_legal.py` 7 passed, `tests/test_api_privacy_requests.py` +
+   `tests/test_web_privacy_request.py` 20 passed (2026-09-26). Remaining gap: an account holder cannot delete
+   their own account in-app. Carrying out any deletion is an operator action.
+6. **Alert unsubscribe: built** (§4 row 9). `GET|POST /v1/alerts/unsubscribe` is in
+   `services/api/unsubscribe_routes.py`, and the `/unsubscribe` page in `web/legal.py`.
+   `tests/test_api_unsubscribe.py` 9 passed (2026-09-26). Not yet proven with a delivered email.
 7. **`services/modelgw` does not exist.** The `worker-model` pool has no code to run against
    `MODEL_PROVIDER_API_KEY` (`docs/60` §11 item 5).
 8. **No R2 lifecycle rule.** Backups accumulate unbounded in object storage until one is added
@@ -398,6 +423,14 @@ softened.
     `Dockerfile.browser-worker` still install it a second time as the §3 step 2 stopgap; removing that duplicate
     `pip install` argument is the devops lane's follow-up (`docs/60` §11 item 4). No test in this repo exercises
     the driver — every suite runs on SQLite (`services/README.md`).
+12. **Nothing applies Procrastinate's job-queue schema** (`docs/60` §11 item 9). Without it every worker
+    process crash-loops. §3 step 7 has the one-off command for the first deploy. The durable fix, an Alembic
+    revision or a guarded `deploy.sh` step, is open. `/v1/health`'s `queue` check is hard-coded `true`.
+13. **Scheduled connector runs cannot write their output in a container** (`docs/60` §11 item 9). The
+    pipeline writes under `/app/data`, which the images leave root-owned and unmounted, so every run ends in
+    `PermissionError`. Worker hosts also share no filesystem between a fetch and its load. Until this is
+    decided (a per-host volume or object storage), the scheduled loop cannot refresh data. The only load
+    measured end to end is the host-side loader run on 2026-09-26.
 
 ---
 
