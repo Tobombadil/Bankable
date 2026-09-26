@@ -156,6 +156,10 @@ def test_load_organization_graph_without_a_gleif_parquet_still_applies_aliases(
     messages = [r.getMessage() for r in caplog.records]
     assert any("gleif" in m.lower() and "not found" in m.lower() for m in messages), messages
     assert any("alias" in m.lower() for m in messages), messages
+    # The curated merge file runs after the aliases; on an empty store every rule is inert.
+    merges = [m for m in messages if "curated merges applied" in m]
+    assert len(merges) == 1, messages
+    assert "'merged': []" in merges[0] and "'missing': [" in merges[0]
 
 
 # ------------------------------------------------- a stale dev database is rebuilt, not reused

@@ -126,16 +126,18 @@ def _load_ownership(session: Session, data_dir: Path) -> None:
 def _load_organization_graph(session: Session, data_dir: Path) -> None:
     """The ownership graph's organisation layer (docs/22 §17), after every asset, edge, owner-share
     and curated-parent load because it reads what they created: GLEIF Level 2 parent links from
-    `data/normalized/context/global.gleif.lei.parents.parquet`, then the curated alias file. Same
-    rule as `_load_ownership` above -- this script never invents a load path, both the parquet and
-    the loader module are optional, and a missing module, a missing file or an unreadable YAML is
-    one log line each, never a failure of the rest of `dev_up`. GLEIF runs after the curated
-    parents and wins where it has a record; `services/ingest/midstream.py::load_parents` defers to
-    it on a later re-run, so the order here is a preference, not a correctness requirement."""
+    `data/normalized/context/global.gleif.lei.parents.parquet`, then the curated alias file, then the
+    curated merge file. Same rule as `_load_ownership` above -- this script never invents a load
+    path, both the parquet and the loader module are optional, and a missing module, a missing file
+    or an unreadable YAML is one log line each, never a failure of the rest of `dev_up`. GLEIF runs
+    after the curated parents and wins where it has a record; `services/ingest/midstream.py::
+    load_parents` defers to it on a later re-run, so the order here is a preference, not a
+    correctness requirement."""
     try:
         from services.ingest.organizations import (  # type: ignore[import-not-found]
             load_aliases,
             load_gleif_parents_parquet,
+            load_merges,
         )
     except ImportError as exc:
         log.info("organisation graph: services.ingest.organizations not available yet (%s), skipping", exc)
@@ -152,6 +154,14 @@ def _load_organization_graph(session: Session, data_dir: Path) -> None:
         log.info("organisation graph: curated alias file unusable (%s), skipping", exc)
     else:
         log.info("organisation graph: curated aliases applied (%s)", aliases.as_report())
+    # Curated merges run last: they read the rows every loader above created, and a merge is the
+    # decision the alias loader refuses to make (its `conflicts`). docs/22 §20.5.
+    try:
+        merges = load_merges(session)
+    except (FileNotFoundError, ValueError) as exc:
+        log.info("organisation graph: curated merge file unusable (%s), skipping", exc)
+    else:
+        log.info("organisation graph: curated merges applied (%s)", merges.as_report())
 
 
 #: `data/normalized/context/<file>` -> `asset_type` for the midstream and fuels context layers
