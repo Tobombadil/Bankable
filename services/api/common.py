@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import secrets
+from urllib.parse import urlparse
 
 DOMAIN = "infraque.com"
 API_HOST = f"https://api.{DOMAIN}"
@@ -44,3 +45,23 @@ def iso(value: dt.datetime | dt.date | None) -> str | None:
             value = value.replace(tzinfo=dt.UTC)
         return value.astimezone(dt.UTC).isoformat().replace("+00:00", "Z")
     return value.isoformat()
+
+
+def normalise_domain(website: str | None) -> str | None:
+    """Strip scheme, `www.`, path and port; lowercase; `None` if unusable (docs/34 §5 "upsert by
+    primary domain"). Shared by `services/crm/router.py` and `services/api/admin_people.py` /
+    `services/api/admin_intake.py`, which previously each carried their own identical copy
+    (docs/42-backend-review-2026-09-26.md §2 item 3)."""
+    if not website:
+        return None
+    candidate = website.strip()
+    if not candidate:
+        return None
+    if "://" not in candidate:
+        candidate = f"//{candidate}"
+    host = urlparse(candidate).netloc
+    host = host.rsplit("@", 1)[-1]
+    host = host.split(":", 1)[0].lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host or None
