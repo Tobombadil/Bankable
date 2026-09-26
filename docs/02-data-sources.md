@@ -614,3 +614,132 @@ The posture is true only if three preconditions the coordinator has put to the o
 suspended or marked inactive; counsel's confirmation that a pre-revenue LLC feeding a commercial deal workflow can
 hold noncommercial status; and a firewall keeping noncommercial rows out of any downstream commercial use — which the
 posture lane is writing up in `docs/26`.
+
+## 12. EPA GHGRP — emitters, capture, ownership shares
+
+Owner decision 2026-09-25: build the EPA Greenhouse Gas Reporting Program connector. It is a **context** source (existing
+emitters; no lifecycle, no events, `classify_tech` never called) whose facilities are the same real-world assets EIA-860M,
+the EIA Atlas layers and EPA LMOP already hold — so, per `docs/24`, **no GHGRP row is ever written to `asset`**. What it
+produces: the facility parquet (all facilities, matched or not), `asset_owner` edges with `share_pct` and `as_of` for
+facilities matched to an existing asset at high confidence, and `asset.attributes["ghgrp"]` on those rows. Code:
+`pipeline/connectors/us_epa_ghgrp/connector.py` (fetch/parse, `Connector(BaseConnector)`, `kind: document` as `us.eia.860`),
+`pipeline/context/ghgrp.py` (facility frame, matcher, summary-zip join, CLI), `services/ingest/ghgrp.py` (edges and
+attributes), `data/vendored/ghgrp/oris_crosswalk.csv`, `data/eval/ghgrp_match_labels.csv`.
+
+### 12.1 Route, measured 2026-09-25 (sandbox proxy)
+
+- **The bulk zip does not carry the fields the connector exists for.** `2023_data_summary_spreadsheets.zip`
+  (28,389,973 bytes, sha256 `895349c8008b7962dba68659c8187cec6b340d68be84ccb3f0e7fb6037bf8345`, last-modified
+  2024-10-15) holds one `ghgp_data_<year>.xlsx` per reporting year 2010–2023 plus `ghgp_data_by_year_2023.xlsx`. Every
+  sheet's columns were enumerated: the "Direct Point Emitters" sheet (6,470 facilities for RY2023, 67 columns) is
+  emissions by gas and by process; no sheet carries `parent_company`, `co2_captured`, `rr_mrv_plan_url` or a `year`
+  column. The parent strings live in a separate `ghgp_data_parent_company.xlsb` and in Envirofacts.
+- **Route chosen: Envirofacts `pub_dim_facility`, CSV output, 10,000-row windows.** RY2023 is 11,281 rows =
+  11,281 distinct `facility_id` (9,543 distinct `frs_id`, 1,738 rows without one), every row with a coordinate, in two
+  windows (`rows/0:9999/CSV` 3,094,060 bytes; `rows/10000:19999/CSV` ~400 KB) — cheaper than the zip, not dearer. JSON
+  output of the same rows is 12.3 MB; CSV fidelity against JSON was checked column by column (numeric formatting only).
+  The newest year is found by probing `year/<y>/count/JSON` downwards: **RY2024 answered 0 rows** and the data-sets
+  page links only the 2024-10 RY2023 zip, so RY2023 is the newest (136,005 facility-years 2010–2023 in total; 11,160 for
+  RY2022, 10,958 for RY2021, 6,873 for RY2010). `data.epa.gov/robots.txt` answers HTTP 200 with the string
+  `"Welcome to data.epa.gov!"`, not a robots file; the connector is an API client (`honour_robots = False`) at 0.5 rps.
+- **Subpart quantities come from the zip, by join, not from Envirofacts** (source-map lane: the `rr_*`/`uu_*` tables
+  404). `pipeline/context/ghgrp.py --summary-zip` reads two sheets of `ghgp_data_2023.xlsx`: "Geologic Sequestration of
+  CO2" (Subpart RR, 20 facilities, `Total Mass of CO2 Sequestered` numeric on 19, one blank; Hobbs Field 5.20 Mt,
+  Seminole San Andres 3.93 Mt, Wasson 3.67 Mt, ADM Decatur 0.54 Mt, Shute Creek 0.44 Mt) and "CO2 Injection" (Subpart
+  UU, 81 facilities — **80 print the literal `confidential`**, so `uu_co2_received_t` is almost never usable and a
+  `*_confidential` flag says so). Subpart membership itself comes from `reported_subparts` (spelled `RR (RPT)`):
+  RR 20, UU 81, PP 138 facilities in RY2023. **RR is not "operational storage"**: 8 of the 20 are dedicated
+  sequestration, 12 are EOR fields under MRV plans (coordinator, 2026-09-25); membership rides as attributes and never
+  decides an asset type.
+- Personal data (docs/13 §5): all 37 `pub_dim_facility` columns enumerated in `PUB_DIM_FACILITY_COLUMNS`; none is a
+  representative or contact field. `address1` (18 of 10,269 non-empty values carry an `Attn:`/`c/o` line — every one a
+  department or a company on 2026-09-25), `address2` and `comments` (both empty in RY2023) are the free-text columns
+  where a person could appear; they are stripped by `redact()` before the snapshot is stored and excluded from
+  `parse()`, with a test. `parent_company` is kept: it is the ownership fact, and it occasionally names a natural person
+  as an owner (one RY2023 row at 7.89 %), as EIA-860 Schedule 4 does.
+
+### 12.2 Parent strings, shares as stated
+
+Grammar on the 11,281 RY2023 rows: `NAME (pct%); NAME (pct%)…` with every share stated on 11,151 rows (11,118 sum to
+100 ± 0.5; **33 do not** — 75.7, 97.7, 98.88, 99.2 …), a parent with an empty share (`US GOVERNMENT (%)`) on 93, empty on
+36, one mixed row (`Garland Power & Light; City of Garland (100%);`), longest string 119 parents. `share_flag` records
+`ok | not_100 | partial | unstated | none`; nothing is rescaled. **Tallgrass**: 129 facility-years over **22** distinct
+facilities (the brief said 23), all 22 present in RY2023 — 18 × NAICS 486210 compressor stations and the Rockies Express
+row at `TALLGRASS DEVELOPMENT LP (75%); PHILLIPS 66 (25%)`, 4 × 211130 gas plants at `(100%)`; none under Subpart RR,
+none with an MRV plan, `facility_name CONTAINING EASTERN WYOMING` → 0, confirmed.
+
+### 12.3 Matching to existing assets (the `docs/24` constraint)
+
+Measured on a copy of `web/.data/dev.db` (18,055 assets, 17,352 with a point; the copy predates migration 0018 and still
+carries the removed `source.lag_overrides` column — the scratch copy's `source` table was rebuilt to the current model
+for the run, `dev.db` itself untouched). Two paths, in order:
+
+1. **`oris_crosswalk`** — EPA's own GHGRP↔ORIS power-plant crosswalk (`ghgrp_oris_power_plant_crosswalk_12_13_21.xlsx`,
+   272,305 bytes, sha256 `f4ec8ff0…526d`; 2,150 rows, 2,131 facilities, 2,166 distinct pairs, 29 facilities with more
+   than one ORIS code). An ORIS code is the EIA plant code in `asset.source_asset_id`, so this is a publisher-stated
+   key: 1,620 pairs land on `power_plant` rows (1,603 RY2023 facilities). It is dated December 2021, so plants that
+   began reporting after RY2020 fall to path 2. 125 of the 1,620 pairs are more than 1 km apart, 51 more than 5 km,
+   20 more than 20 km — EPA's statement is kept, the distance is recorded on the match row.
+2. **`geo_name`** — blocked on state and ≤ 1 km (0.02° grid cells; a 0.01° cell is only 0.8 km of longitude at 42° N,
+   which the synthetic test caught), scored 0.45 × distance band (≤ 0.25 km 1.0 / ≤ 0.5 km 0.7 / ≤ 1 km 0.4) + 0.35 ×
+   name-token overlap (max of Jaccard and containment after legal forms and industry generics are dropped) + 0.20 ×
+   NAICS/asset-type compatibility; globally greedy (best pair first, each facility and each asset consumed once).
+   `power_plant` rows whose `technology` is solar, wind, hydro, storage, nuclear or geothermal are never candidates: an
+   emitter is a combustion or process source, and the hand-check's failures were exactly a retired gas station's name on
+   the BESS that replaced it and a chemical plant's name on its solar array.
+
+**Threshold 0.55, chosen on two measurements.** (a) Path 2 run blind on the 1,623 crosswalk pairs (gold =
+EPA's statement) against `power_plant` assets only: precision 98.9 % / recall 87.3 % at 0.45, **99.0 % / 82.8 % at
+0.55**, 99.0 % / 75.2 % at 0.70 — flat precision, recall falling past 0.6. (b) A hand-checked, stratified sample
+(`data/eval/ghgrp_match_labels.csv`, 93 pairs, adjudicated from the names, distance, NAICS and public knowledge):
+non-power types **41/41 correct at ≥ 0.55** (10 of the 22 pairs below 0.55 are wrong — a salt refinery beside a cavern
+store, a PLA plant on Cargill's Blair campus, pipeline compressor stations beside gas plants); newer power plants **16/18
+at ≥ 0.55** (the two misses: a third-party fuel cell at a naval base, an AT&T generator matched from a distribution
+utility's SF6 report). The band 0.50–0.55 is where a town-name-only, NAICS-incompatible pair 0.5–1 km away scores
+(0.53); it is excluded. Combined hand-checked precision at ≥ 0.55: 57/59 = **96.6 %**; the two failures are both
+"same site, different asset". Of the 201 accepted geo-name power pairs, 157 are NAICS-incompatible industrial or
+institutional emitters whose EIA counterpart is a cogeneration unit — correct in the sample, but the riskiest subset.
+
+**Overlap, RY2023 → dev assets (loader run, `threshold 0.55`):**
+
+| `asset_type` | rows | with point | matched | crosswalk | geo+name | % of rows | % of pointed |
+|---|---|---|---|---|---|---|---|
+| `power_plant` | 14,659 | 14,659 | 1,813 | 1,620 | 201 | 12.4 | 12.4 |
+| `gas_processing_plant` | 478 | 478 | 264 | 0 | 264 | 55.2 | 55.2 |
+| `ethanol_plant` | 388 | 197 | 126 | 0 | 126 | 32.5 | 64.0 |
+| `gas_storage` | 412 | 412 | 63 | 0 | 63 | 15.3 | 15.3 |
+| `lng_terminal` | 8 | 8 | 4 | 0 | 4 | 50.0 | 50.0 |
+| `rng_project` | 1,851 | 1,339 | 401 | 0 | 401 | 21.7 | 29.9 |
+| `gas_pipeline` | 259 | 259 (lines) | 0 | 0 | 0 | 0 | 0 |
+
+2,679 accepted matches for 2,662 facilities on 2,671 assets (15 crosswalk facilities map to more than one EIA plant;
+8 assets take two facilities). **Held**: 321 facilities with a candidate below 0.55 and 8,298 with none — 8,619 of
+11,281 stay in the parquet only. The unmatched are dominated by types the asset layer does not hold: NAICS 211
+onshore production and gathering (2,271), 486 pipelines and compressor stations (1,048 — including 21 of the 22
+Tallgrass facilities; only Douglas Gas Plant matches, at 0.6 m), 562 landfills without an LMOP energy project (898),
+325 chemicals (646), 327 minerals (406), 311 food (355), 331 metals (329); 524 NAICS-2211 power facilities have no
+operating EIA-860M counterpart within reach (mostly retired or below the 860M threshold). 3,026 + 148 RY2023 rows are
+flagged `STOPPED_REPORTING_*` by EPA.
+
+### 12.4 What was written (scratch copy of dev.db; the coordinator loads the real one)
+
+- **3,010 `asset_owner` edges**, `role = owner`, `source_id = us.epa.ghgrp`, on 2,668 assets to 1,196 organisations
+  (945 created, 251 matched through the `org_key` alias index `services/ingest/ownership.py` uses); **2,986 with
+  `share_pct`** (24 `unstated`), **all 3,010 with `as_of = 2023-12-31`** — the first source in this schema stating both
+  shares and a date (docs/24 §7.1); 13 accepted facilities' shares do not sum to 100 and are written as stated; 6
+  facilities list one organisation under two spellings, summed. Before this load `as_of` was populated on 3,119 of
+  6,336 edges; after it, 6,129 of 9,346.
+- **2,671 `asset.attributes["ghgrp"]`** blocks: facility and FRS ids, reporting year, NAICS, `co2_captured`,
+  `rr_mrv_plan_url`, subpart membership, RR/UU quantities and their confidential flags, `share_flag`, match method and
+  score, and the provenance quartet inline (the row's own quartet still cites the asset's registry — `asset` has no
+  per-field provenance, docs/24 §4). Other attribute keys untouched; nothing inserted into `asset`.
+- 34.9 s end to end on SQLite. Re-run is idempotent (edges upserted on `(asset, organisation, role, source)`).
+
+### 12.5 Tests and fixtures
+
+`pipeline/connectors/us_epa_ghgrp/test_connector.py` (30), `pipeline/context/test_ghgrp.py` (14),
+`services/ingest/test_ghgrp.py` (4); no network. Fixtures (`tests/fixtures/README.md`): `epa_ghgrp_pub_dim_facility_2023.csv`
+(36 real RY2023 rows incl. all 22 Tallgrass facilities, the MRV rows, every parent-string variant, PSE Ferndale for the
+crosswalk path) and `epa_ghgrp_2023_summary_sample.zip` (the RR sheet in full, 12 UU rows, re-zipped as EPA ships it).
+Open: the `geo_name` power-plant residue (201) would be tighter with EIA-860M's `technology` on the facility side too —
+GHGRP has no unit-level technology in `pub_dim_facility`; the "CO2 Injection" quantities are CBI and will stay so.
