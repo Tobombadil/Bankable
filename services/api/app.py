@@ -149,6 +149,9 @@ app.include_router(admin_posts_router)
 from services.api.admin_people import router as admin_people_router  # noqa: E402
 
 app.include_router(admin_people_router)
+from services.api.admin_intake import router as admin_intake_router  # noqa: E402
+
+app.include_router(admin_intake_router)
 from services.api.admin_records import router as admin_records_router  # noqa: E402
 
 app.include_router(admin_records_router)

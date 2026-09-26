@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from services.api.admin_intake import router as admin_intake_router
 from services.api.admin_people import router
 from services.api.audit import hash_identifier
 from services.api.auth import create_session, hash_password
@@ -138,9 +139,14 @@ class _FlakyCrm(InMemoryCrm):
 
 
 def _build_app() -> FastAPI:
+    """`router` (`services/api/admin_people.py`) plus `admin_intake_router`
+    (`services/api/admin_intake.py`, docs/42-backend-review-2026-09-26.md §7 lane L4): the
+    approve-intake tests below exercise a route that moved out of `admin_people.py` into its own
+    module, mounted here the same way `services/api/app.py` mounts both."""
     app = FastAPI()
     app.add_exception_handler(ProblemError, problem_exception_handler)
     app.include_router(router)
+    app.include_router(admin_intake_router)
     return app
 
 
@@ -1055,7 +1061,7 @@ def test_decode_public_id_round_trips_and_rejects_junk() -> None:
 
 
 def test_parse_iso_datetime_and_date_reject_non_strings_and_bad_values() -> None:
-    from services.api.admin_people import _parse_iso_date, _parse_iso_datetime
+    from services.api.admin_intake import _parse_iso_date, _parse_iso_datetime
 
     assert _parse_iso_datetime(None) is None
     assert _parse_iso_datetime(12345) is None
@@ -1067,12 +1073,13 @@ def test_parse_iso_datetime_and_date_reject_non_strings_and_bad_values() -> None
 
 
 def test_normalise_domain_and_domain_from_email_edge_cases() -> None:
-    from services.api.admin_people import _domain_from_email, _normalise_domain
+    from services.api.admin_people import _domain_from_email
+    from services.api.common import normalise_domain
 
-    assert _normalise_domain(None) is None
-    assert _normalise_domain("   ") is None
-    assert _normalise_domain("https://www.Example.com/path") == "example.com"
-    assert _normalise_domain("example.org:8443") == "example.org"
+    assert normalise_domain(None) is None
+    assert normalise_domain("   ") is None
+    assert normalise_domain("https://www.Example.com/path") == "example.com"
+    assert normalise_domain("example.org:8443") == "example.org"
     assert _domain_from_email("not-an-email") is None
     assert _domain_from_email("person@gmail.com") is None  # free-mail, decision in module docstring
     assert _domain_from_email("person@realcompany.example") == "realcompany.example"

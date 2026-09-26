@@ -14,7 +14,6 @@ import logging
 import re
 import uuid as _uuid
 from typing import Annotated, Any
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
@@ -22,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from services.api.audit import record_audit_event
 from services.api.auth import AuthContext, require_admin
-from services.api.common import WEB_HOST, iso, utcnow
+from services.api.common import WEB_HOST, iso, normalise_domain, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.serialize import build_envelope, build_licence_summary, build_meta
@@ -62,23 +61,6 @@ def _find_match_by_public_id(db: Session, value: str) -> Match | None:
     except (ValueError, OverflowError):
         return None
     return db.get(Match, candidate)
-
-
-def _normalise_domain(website: str | None) -> str | None:
-    """Strip scheme, `www.`, path and port; lowercase; `None` if unusable (task spec)."""
-    if not website:
-        return None
-    candidate = website.strip()
-    if not candidate:
-        return None
-    if "://" not in candidate:
-        candidate = f"//{candidate}"
-    host = urlparse(candidate).netloc
-    host = host.rsplit("@", 1)[-1]  # drop userinfo, if any
-    host = host.split(":", 1)[0].lower()
-    if host.startswith("www."):
-        host = host[4:]
-    return host or None
 
 
 def _first_sentence(text: str) -> str:
@@ -181,7 +163,7 @@ def admin_create_lead(
             raise not_found(request.url.path)
 
     org = proposal.sponsor
-    domain = _normalise_domain(org.website) if org is not None else None
+    domain = normalise_domain(org.website) if org is not None else None
     platform_org_id = org.public_id if org is not None else None
 
     subject_name = f"{proposal.name_canonical} ↔ {opportunity.title}"
