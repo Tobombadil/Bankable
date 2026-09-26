@@ -172,6 +172,28 @@ _CONTEXT_ASSET_FILES: tuple[tuple[str, str], ...] = (
 )
 
 
+def _load_ghgrp(session: Session, data_dir: Path) -> None:
+    """docs/02 §12: EPA GHGRP parent-company shares as `asset_owner` edges (`as_of` = 31 December
+    of the reporting year) and `asset.attributes["ghgrp"]` on assets the other loaders already
+    created -- through the GHGRP lane's own `load_ghgrp_parquet(session, path)`, which never
+    inserts an `asset` row (docs/24). Same rule as `_load_ownership` above: the parquet and the
+    module are both optional and either kind of "not ready" is one log line. Runs after the
+    EIA-860 owner shares (both write owner edges; GHGRP's are the dated ones) and before the
+    features pass, so anything derived from ownership sees these edges too."""
+    parquet_path = data_dir / "normalized" / "context" / "us.epa.ghgrp.parquet"
+    if not parquet_path.exists():
+        log.info("ghgrp ownership: %s not found, skipping", parquet_path)
+        return
+    try:
+        from services.ingest.ghgrp import load_ghgrp_parquet
+    except ImportError as exc:
+        log.info("ghgrp ownership: services.ingest.ghgrp not available yet (%s), skipping", exc)
+        return
+    result, _matches = load_ghgrp_parquet(session, parquet_path)
+    summary = result.as_report() if hasattr(result, "as_report") else result
+    log.info("ghgrp ownership: loaded from %s (%s)", parquet_path, summary)
+
+
 def _apply_context_features(session: Session, data_root: Path) -> None:
     """The enrichment lane's `services.ingest.enrich.apply_context_features(session, data_root)`
     (derived asset features such as nearby-asset and ownership context), called exactly once, after
@@ -200,6 +222,7 @@ def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
     `asset_owner` operator edges); once every file is done, `_load_ownership` writes the EIA-860
     Schedule 4 owner shares (they join onto the `power_plant` rows `_load_plants_context_layer`
     loaded first, so this runs after the plants and after every other asset and edge load), then
+    `_load_ghgrp` writes the GHGRP parent-company shares onto matched assets (docs/02 §12), then
     `_apply_context_features` runs the enrichment lane once, and last `services.ingest.midstream.
     load_parents(session)` applies the curated parent links (`data/vendored/organizations/
     parents.yaml`) over every organisation the loads above created. Any file or module that is
@@ -235,6 +258,7 @@ def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
             edges = load_operator_edges_parquet(session, parquet_path, asset_type)
             log.info("context asset layers: operator edges from %s (%s)", file_name, edges)
     _load_ownership(session, data_dir)
+    _load_ghgrp(session, data_dir)
     _apply_context_features(session, data_dir)
     if loaded and load_parents is not None:
         try:
