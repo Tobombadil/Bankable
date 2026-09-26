@@ -32,11 +32,16 @@ Decisions (numbered; see `services/api/admin_posts.md` for the full rationale an
    scope here). This matches `services/db/models.py`'s `Task` docstring ("`pending_record` holds
    the submission until approved") even though it is not yet shaped like `AdminProposal`
    /`AdminOpportunity` — the intake-review step normalises it.
-7. Captcha is accepted as an opaque required string (`captcha_token`) and never verified — no
-   captcha provider is wired up this sprint (see the .md "deferred"). A `website` honeypot field
-   (any non-empty value rejects the submission) and a shared `intake:<ip>` bucket on
-   `services.api.ratelimit.default_limiter` (5/hour) stand in for the abuse controls the spec
-   otherwise assigns to captcha.
+7. Captcha: `captcha_token` is a required string, and when `TURNSTILE_SECRET_KEY` is set it is
+   verified server-side against Cloudflare Turnstile (`services/api/captcha.py`, docs/40 §6 gap 1,
+   closed 2026-09-26): a token Cloudflare rejects, or a siteverify transport error, is a `400
+   validation_error` on `captcha_token` (fail closed). With the key unset the token stays an opaque
+   accepted string, as before, and `captcha.warn_if_disabled()` logs one warning per process. The
+   client IP goes to siteverify's `remoteip` field only — never stored or logged. Verification runs
+   after the idempotency lookup, so a replay of an already-accepted body (same key, same body,
+   hence the same single-use token) is served from the stored task instead of failing Turnstile's
+   duplicate check. A `website` honeypot field (any non-empty value rejects the submission) and a
+   shared `intake:<ip>` bucket on `services.api.ratelimit.default_limiter` (5/hour) remain in place.
 8. Channel body-length checks (US-32 §4.3 item 1) count Python string length (Unicode code
    points), not extended grapheme clusters — no grapheme-clustering library is in
    `requirements.txt`. Documented as a follow-up, not a silent gap.
@@ -53,6 +58,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from services.api import captcha
 from services.api.audit import record_audit_event
 from services.api.auth import AuthContext, generate_api_key, require_admin
 from services.api.common import WEB_HOST, ensure_aware, iso, new_request_id, utcnow
@@ -179,6 +185,16 @@ def _enforce_intake_rate_limit(request: Request, instance: str) -> None:
 def _reject_honeypot(body: dict[str, Any], instance: str) -> None:
     if body.get("website"):
         raise validation_error("website", "spam check failed", instance)
+
+
+def _verify_captcha(request: Request, body: dict[str, Any], instance: str) -> None:
+    """Decision 7. Runs after `_validate_intake_*` (which already made the token a required
+    string), so the only outcome here is pass or `400 validation_error` on `captcha_token`."""
+    if not captcha.enabled():
+        captcha.warn_if_disabled()
+        return
+    if not captcha.verify(str(body["captcha_token"]), _client_ip(request)):
+        raise validation_error("captcha_token", "captcha verification failed", instance)
 
 
 def _validate_contact(contact: Any, instance: str) -> dict[str, str]:
@@ -938,6 +954,7 @@ def submit_intake_proposal(
                 "conflict", "Idempotency key reused with a different request", instance=instance
             )
         return _intake_accepted_response(existing)
+    _verify_captcha(request, body, instance)
 
     task = Task(
         public_id="",
@@ -973,6 +990,7 @@ def submit_intake_opportunity(
                 "conflict", "Idempotency key reused with a different request", instance=instance
             )
         return _intake_accepted_response(existing)
+    _verify_captcha(request, body, instance)
 
     task = Task(
         public_id="",

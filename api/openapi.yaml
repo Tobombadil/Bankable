@@ -9879,6 +9879,7 @@ components:
           type: string
         captcha_token:
           type: string
+          description: Cloudflare Turnstile response token. Verified server-side against `siteverify` when the deployment sets `TURNSTILE_SECRET_KEY` (a rejected or unverifiable token is a 400 `validation_error` on this field); accepted unverified when it is unset.
     IntakeOpportunityRequest:
       type: object
       description: US-1003 AC1 fields.
@@ -9930,6 +9931,7 @@ components:
           type: string
         captcha_token:
           type: string
+          description: Cloudflare Turnstile response token; same verification rule as `IntakeProposalRequest.captcha_token`.
     IntakeAcceptedResponse:
       type: object
       required: [task_id, status, status_url, privacy_notice_url]
