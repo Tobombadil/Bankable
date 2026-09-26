@@ -7,7 +7,7 @@ from typing import overload
 
 from fastapi import Request
 
-from services.api.errors import unknown_parameter
+from services.api.errors import unknown_parameter, validation_error
 
 
 def check_allowed(request: Request, allowed: set[str]) -> None:
@@ -27,3 +27,26 @@ def csv_param(value: str | None) -> list[str] | None:
     if value is None:
         return None
     return [v.strip() for v in value.split(",") if v.strip()]
+
+
+#: The list-endpoint query parameters every resource accepts, regardless of its own filters
+#: (`services/api/app.py`'s `list_organizations`/`list_events`, `services/api/records.py`'s
+#: `list_proposals`/`list_opportunities`, …).
+LIST_COMMON = {"limit", "cursor", "include", "sort", "q"}
+
+
+def int_param(request: Request, name: str) -> int | None:
+    v = request.query_params.get(name)
+    return int(v) if v is not None else None
+
+
+def sort_spec(request: Request, allowlist: set[str], default: str) -> tuple[str, bool]:
+    raw = request.query_params.get("sort", default)
+    token = raw.split(",")[0]
+    ascending = not token.startswith("-")
+    field = token[1:] if not ascending else token
+    if field not in allowlist:
+        raise validation_error(
+            "sort", f"sort field {field!r} is not allowlisted for this resource", request.url.path
+        )
+    return field, ascending

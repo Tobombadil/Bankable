@@ -70,7 +70,7 @@ from services.api.lines import (
 )
 from services.api.orgtree import OwnershipEdge, org_ancestors, org_scope, scope_from_request, scope_ids
 from services.api.pagination import clamp_limit, paginate
-from services.api.params import check_allowed, csv_param
+from services.api.params import check_allowed, csv_param, int_param
 from services.api.serialize import (
     asset_geometry,
     asset_geometry_redactions,
@@ -164,11 +164,6 @@ def stated_length_miles(attributes: dict[str, Any] | None) -> float | None:
 #: Most assets `GET /v1/organizations/{id}/nearby-proposals` measures from, in `asset_owner.id`
 #: order; `totals.assets_considered` reports the number actually used.
 ORG_NEARBY_ASSET_CAP = 200
-
-
-def _int_param(request: Request, name: str) -> int | None:
-    v = request.query_params.get(name)
-    return int(v) if v is not None else None
 
 
 ASSET_SORT_ALLOWLIST = {"last_changed", "first_seen", "name", "capacity_mw"}
@@ -961,7 +956,7 @@ def list_assets(request: Request, db: Annotated[Session, Depends(get_db)]) -> An
         request,
         {"limit", "cursor", "sort", "q", "asset_type", "technology", "state", "organization", "slug"},
     )
-    limit = clamp_limit(_int_param(request, "limit"))
+    limit = clamp_limit(int_param(request, "limit"))
     field, ascending = _asset_sort_spec(request)
     stmt = _asset_query_with_filters(request)
     rows, next_cursor, has_more = paginate(
@@ -1180,7 +1175,7 @@ def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Sessio
     if asset is None:
         raise not_found(request.url.path)
     radius_km = _radius_km_param(request)
-    limit = clamp_limit(_int_param(request, "limit"))
+    limit = clamp_limit(int_param(request, "limit"))
     meta = build_meta("proposal", tier="public")
 
     parts = _asset_measure_parts(asset, _line_parts_for(db, asset)) if asset_geometry_visible(asset) else None
@@ -1390,7 +1385,7 @@ def list_organization_assets(
     if org is None:
         raise not_found(request.url.path)
 
-    limit = clamp_limit(_int_param(request, "limit"))
+    limit = clamp_limit(int_param(request, "limit"))
     roles = _role_filter_values(request)
     asset_types = _asset_type_filter_values(request)
     scope = scope_from_request(request)
@@ -1472,7 +1467,7 @@ def list_organization_nearby_proposals(
     if org is None:
         raise not_found(request.url.path)
     radius_km = _radius_km_param(request)
-    limit = clamp_limit(_int_param(request, "limit"))
+    limit = clamp_limit(int_param(request, "limit"))
     roles = _role_filter_values(request)
     asset_types = _asset_type_filter_values(request)
     technologies = _technology_filter_values(request)

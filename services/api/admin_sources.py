@@ -96,7 +96,7 @@ from services.api.common import utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.pagination import clamp_limit, paginate
-from services.api.params import check_allowed, csv_param
+from services.api.params import check_allowed, csv_param, int_param
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -419,7 +419,7 @@ def admin_list_sources(
     check_allowed(
         request, {"limit", "cursor", "category", "health", "publish_state", "reuse_class", "implemented"}
     )
-    limit = clamp_limit(_int_param(request, "limit"))
+    limit = clamp_limit(int_param(request, "limit"))
     qp = request.query_params
     stmt = select(Source)
     if v := qp.get("category"):
@@ -454,11 +454,6 @@ def admin_list_sources(
         licence_summary=build_licence_summary([]),
         page=build_page(next_cursor, None, has_more),
     )
-
-
-def _int_param(request: Request, name: str) -> int | None:
-    v = request.query_params.get(name)
-    return int(v) if v is not None else None
 
 
 def _last_runs_for(db: Session, source_ids: list[str]) -> dict[str, SourceRun]:
@@ -769,7 +764,7 @@ def admin_list_source_runs(
 ) -> Any:
     check_allowed(request, {"limit", "cursor", "source_id", "status", "started_at[from]", "started_at[to]"})
     qp = request.query_params
-    limit = clamp_limit(_int_param(request, "limit"))
+    limit = clamp_limit(int_param(request, "limit"))
     stmt = select(SourceRun)
     if v := qp.get("source_id"):
         stmt = stmt.where(SourceRun.source_id.in_(csv_param(v)))
@@ -1184,7 +1179,7 @@ def admin_list_audit(
         {"limit", "cursor", "since", "actor_user_id", "subject_type", "subject_id", "event_type"},
     )
     qp = request.query_params
-    limit = clamp_limit(_int_param(request, "limit"))
+    limit = clamp_limit(int_param(request, "limit"))
     stmt = select(Event).where(Event.actor_type == "user")
     if v := qp.get("since"):
         try:

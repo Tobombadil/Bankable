@@ -11,9 +11,9 @@ import re
 import pytest
 import yaml
 
-from services.api.app import PLACEMENT_REGION_PRECISIONS
 from services.api.conftest import make_location, make_open_licence, make_public_source, make_visible_proposal
 from services.api.geo import REGION_PRECISIONS
+from services.api.records import PLACEMENT_REGION_PRECISIONS
 from tests.test_api_contract import assert_valid
 
 _OPENAPI_PATH = pathlib.Path(__file__).resolve().parents[2] / "api" / "openapi.yaml"
