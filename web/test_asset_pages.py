@@ -1549,7 +1549,7 @@ def test_group_nearby_proposals_collapses_generator_units() -> None:
     per unit with its own capacity and distance. One list row, "× n units", summed capacity,
     nearest distance and that unit's link; unrelated rows and same-named rows in another county
     stay separate; order (nearest first, as the API returns it) is kept."""
-    from web.app import group_nearby_proposals
+    from web.page import group_nearby_proposals
 
     rows = [
         {
@@ -1614,7 +1614,7 @@ def test_group_nearby_proposals_collapses_generator_units() -> None:
 
 
 def test_group_nearby_proposals_keeps_nearest_units_nearest_asset() -> None:
-    from web.app import group_nearby_proposals
+    from web.page import group_nearby_proposals
 
     rows = [
         {
@@ -1701,7 +1701,7 @@ def test_asset_detail_nearby_list_shows_units_and_summed_capacity(web_client: Te
 
 
 def test_org_descriptor_from_holdings() -> None:
-    from web.app import org_descriptor
+    from web.organizations import org_descriptor
 
     assert org_descriptor("other", {"ethanol_plant": 1}) == "Ethanol producer"
     assert org_descriptor("other", {"rng_project": 4}) == "RNG developer"
