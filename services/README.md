@@ -1495,3 +1495,57 @@ dozens of portfolio companies, "1,400 assets" is not a page and "Tallgrass Energ
 Express 49, …" is.
 
 `services/api/visibility.py` has zero changes; the licence gate is untouched on every path here.
+
+## Nightly M-11 visibility audit (2026-09-26)
+
+`services/visibility_audit/run.py` computes the metric `docs/10` §5 M-11 defines ("gated or
+restricted records visible on any non-admin surface", target 0) and `docs/04` R-4 signs off on;
+before this, nothing did (`docs/40` §4 row 11). A breach is an S1 incident (`docs/04` S-9).
+
+**Two passes.** The *store pass* recomputes each anonymous surface (proposals, opportunities,
+events, organisations, assets, and the source links the record pages serve) by **calling**
+`services/api/visibility.py` (never re-stating it; the module is not edited), then checks every
+shown row against invariants written independently of the predicate: record `publish_state =
+public` and past `public_at`; `min_reuse_class` publishable under the posture in force
+(`services/posture.py`); every active link on a source whose licence class is publishable, whose
+own `publish_state` is `public`, and which `data/sources.yaml` does not mark `publication: none` /
+a gated `reuse` (PJM, MISO, SPP, ISO-NE and the rest of the 52 register-gated ids). A shown record
+with no clean link is `only_gated_evidence`; a rightly public record carrying an active gated link
+is a `source_links` breach (`docs/21` §8 item 3). Events check their own source, licence and
+subject; assets their own source and licence and their `asset_source` links; an organisation is a
+breach when its only edges are gated. The *served pass* then issues unauthenticated requests
+through `TestClient` against the real app for up to `--sample` (25) store-pass breaches (recording
+`served_status`/`served_leak`) and 25 must-be-hidden rows (taken-down, pending, gated-only records,
+gated-source assets); a 200 on one of those is a `served_hidden` breach. A status that is neither
+200 nor 404 (a 429 from the public tier's 60/h budget) is counted `inconclusive`, never clean.
+
+**Result and persistence.** `{run_id, run_at, posture, counts{surface: {shown, breaches}},
+breaches (capped at 200; breach_total and m11 are not), served{checked, leaks, inconclusive,
+checks}, gated_sources, m11}`. Stored as **one `event` row per run**, no new table:
+`subject_type = source` (existing vocabulary), a fixed uuid5 subject, `event_type =
+visibility_audit`, `actor_type = system`, the result in `after`, `public_at`/`published_at` null.
+**Deviation from the brief, stated:** `services/api/audit.py::record_audit_event` was the named
+writer, but it requires a human `actor: User`, hard-codes `actor_type = "user"` and stamps
+`public_at = now`; the nightly job has no operator and `docs/21` §3.10 gives `system` for this
+case, so `persist_result` writes the same row shape directly. The payload itself fits (`after` is
+JSON; the capped list keeps it bounded). `event_visibility_filter` admits only
+proposal/opportunity subjects, and a test pins that the row never reaches `/v1/events`.
+
+**Surfaces.** CLI `python -m services.visibility_audit.run [--posture auto|commercial|
+noncommercial] [--no-persist] [--sample N] [--json]`, exit 1 when m11 > 0. Scheduled as
+`visibility_audit_tick` (`infra/scheduler/app.py`, `52 4 * * *`, queue `audit`, `retry=0`,
+`queueing_lock`, 30-minute timeout; body `infra/scheduler/jobs.py::visibility_audit_tick_job`, which
+raises `VisibilityAuditBreach` after persisting so the queue shows the failure). Read side
+`GET /admin/v1/visibility-audits` (summaries, newest first, cursor) and `/latest` (full, 404 before
+the first run) in `services/api/admin_audit_routes.py`, tagged US-906/US-908.
+
+**Measured** on a copy of the 2026-09-26 dev store: M-11 = 0, 3.2 s wall; shown 10,409 proposals,
+707 opportunities, 0 events, 8,374 organisations, 17,871 assets, 11,504 links; no gated source is
+in that store, so the served pass had nothing to probe.
+
+**Found while building it, not fixed here (outside this lane):** `GET /v1/proposals/{id}/sources`
+and the `provenance` array on record detail serve *every* active link, including one to a gated
+source on a mixed-provenance record, which `docs/21` §8 item 3 forbids. No such row exists in the
+dev store today, and the audit catches it when one appears
+(`tests/test_visibility_audit.py::test_a_pjm_or_miso_row_on_the_public_surface_is_found_whatever_the_store_says`),
+but the serving path itself still needs the filter.

@@ -210,24 +210,25 @@ decides *when* to enqueue.
 
 ### 6.1 Alert cycle and social draft generation (Sprint 3 item 4)
 
-Two more periodic jobs follow the same tick-defers-a-job split as the bucket ticks above, each a single
+Three more periodic jobs follow the same tick-defers-a-job split as the bucket ticks above, each a single
 unit of work per firing rather than a per-source fan-out:
 
 | Job | Cron | Queue | `queueing_lock` | Timeout | Calls |
 |---|---|---|---|---|---|
 | `alert_tick` | `*/15 * * * *` (US-502 AC1: alerts fire within 15 minutes) | `alert` | `alert_tick` | 10 min | `services.alerts.worker.run_alert_tick` |
 | `post_draft_tick` | `7 * * * *` (hourly, off the hour so it never collides with a fetch bucket's top-of-hour jitter offset, `infra/scheduler/cadence.py`'s `CRON_BY_BUCKET`) | `post_draft` | `post_draft_tick` | 10 min | `services.social.worker.draft_posts_tick` |
+| `visibility_audit_tick` | `52 4 * * *` (nightly, after the daily fetch bucket at 03:07 and the 04:37 resolve tick that follows its loads) | `audit` | `visibility_audit_tick` | 30 min (`VISIBILITY_AUDIT_TIMEOUT_S`; 3.2 s measured on the 2026-09-26 dev store) | `services.visibility_audit.run.run_audit` — the M-11 audit (`docs/04` R-4, S-9); persists one `event` row per run, read at `GET /admin/v1/visibility-audits`; the job fails (`VisibilityAuditBreach`) when M-11 > 0, after persisting |
 
-Both carry `retry=0`: the next periodic tick is the retry, so a Procrastinate-managed retry would only race
+All three carry `retry=0`: the next periodic tick is the retry, so a Procrastinate-managed retry would only race
 it. `queueing_lock` guarantees an overlapping tick is refused (`AlreadyEnqueued`, logged and dropped) rather
 than double-run, the same guarantee `queueing_lock_for` gives each source's `fetch` job above. The
-10-minute timeout is enforced in `infra/scheduler/app.py`'s `_run_with_timeout` — the same discipline as
+timeout (10 minutes; 30 for the audit) is enforced in `infra/scheduler/app.py`'s `_run_with_timeout` — the same discipline as
 `run_connector`'s `subprocess.run(timeout=...)`, but implemented with a bounded `Future.result()` instead,
-because these two jobs call an in-process Python function rather than shelling out (there is no subprocess
+because these jobs call an in-process Python function rather than shelling out (there is no subprocess
 for the OS to kill on timeout; a thread-based Python timeout abandons a hung call rather than interrupting
 it, which is a known limitation but still lets the job fail promptly so the next tick can retry).
 
-The tick itself (`tick_alert`/`tick_post_draft`) runs on `SCHEDULER_ONLY_QUEUE` like every bucket tick,
+The tick itself (`tick_alert`/`tick_post_draft`/`tick_visibility_audit`) runs on `SCHEDULER_ONLY_QUEUE` like every bucket tick,
 so it only ever executes inside the `scheduler` service; the deferred job (`alert_tick`/`post_draft_tick`)
 runs on the `alert`/`post_draft` queue, which the `worker` service already consumes
 (`infra/compose/docker-compose.yml`'s `worker` command). Both job bodies live in `infra/scheduler/jobs.py`,
@@ -239,7 +240,10 @@ To run either job by hand (bypassing the scheduler, e.g. to backfill or debug):
 ```
 python -m services.alerts.worker
 python -m services.social.worker
+python -m services.visibility_audit.run   # exit 1 when M-11 > 0; --no-persist, --json, --posture, --sample
 ```
+
+The `audit` queue is consumed by the `worker` service (`infra/compose/docker-compose.yml`), added to its `--queues` list with this job.
 
 ## 7. Observability
 

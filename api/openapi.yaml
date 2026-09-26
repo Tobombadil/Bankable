@@ -5029,6 +5029,79 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         <<: *common_errors
 
+  /admin/v1/visibility-audits:
+    servers: *admin_servers
+    get:
+      operationId: adminListVisibilityAudits
+      tags: [Admin — operations]
+      summary: Nightly M-11 visibility audits
+      description: |
+        The persisted results of the nightly M-11 visibility audit (`docs/10` §5 M-11 "publish-gate breaches:
+        gated or restricted records visible on any non-admin surface", target 0; `docs/04` R-4 "M-11 = 0 in the
+        nightly audit"), newest first. Each run recomputes every public surface from the store through the one
+        visibility predicate, checks each shown row against the publication invariants independently (record
+        state, posture-publishable licence class, source `publish_state`, the register's `publication`/`reuse`
+        verdict — the PJM/MISO rows — event subject and asset source, organisation evidence, served source links),
+        then probes a sample through the real app with no credentials. One `event` row per run
+        (`event_type = visibility_audit`, `actor_type = system`); this list returns the summaries without the row
+        lists. `m11 > 0` is an S1 incident (`docs/04` S-9) and blocks release (US-908).
+      x-tier: admin
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-906, US-908]
+      security: *sec_admin
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Audit runs, newest first.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisibilityAuditListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        <<: *common_errors
+
+  /admin/v1/visibility-audits/latest:
+    servers: *admin_servers
+    get:
+      operationId: adminGetLatestVisibilityAudit
+      tags: [Admin — operations]
+      summary: The most recent M-11 visibility audit, in full
+      description: |
+        The latest run with its capped breach list (`surface`, record `public_id`, `source_id`, `reason`, and the
+        served pass's status for the sampled rows), the served-pass checks and the gated-source map. `404` until
+        the first run has been persisted — a release sign-off (US-908) needs a run, not an empty list.
+      x-tier: admin
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-906, US-908]
+      security: *sec_admin
+      responses:
+        '200':
+          description: The latest audit run.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisibilityAuditResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
   /admin/v1/ui-events/summary:
     servers: *admin_servers
     get:
@@ -11572,6 +11645,182 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminSource'
+    VisibilityAuditCounts:
+      type: object
+      description: Rows the public (anonymous) surface shows, and how many of them are breaches, per surface.
+      required: [shown, breaches]
+      properties:
+        shown:
+          type: integer
+          minimum: 0
+        breaches:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+    VisibilityAuditBreach:
+      type: object
+      description: One shown row that fails a publication invariant, or one must-be-hidden row the app served.
+      required: [surface, public_id, source_id, reason, served_status, served_leak]
+      properties:
+        surface:
+          type: string
+          enum: [proposals, opportunities, events, organizations, assets, source_links]
+        public_id:
+          type: string
+          description: The record's public id (`prop_…`, `opp_…`, `evt_…`, `org_…`, `asset_…`).
+        source_id:
+          type: [string, 'null']
+          description: The offending source where the breach is about a source or a link; null for a record-state breach.
+        reason:
+          type: string
+          description: Machine-readable `<check>:<detail>`, e.g. `source_link_gated:register:publication=none`, `record_not_public:unpublished`, `served_hidden:publish_state=unpublished`.
+        served_status:
+          type: [integer, 'null']
+          description: HTTP status an anonymous request for the row received in the served pass; null when the row was outside the sample.
+        served_leak:
+          type: [boolean, 'null']
+          description: Whether that response actually carried the row or link.
+      additionalProperties: false
+    VisibilityAuditServedCheck:
+      type: object
+      required: [kind, surface, public_id, path, status, leak]
+      properties:
+        kind:
+          type: string
+          enum: [breach, must_be_hidden]
+        surface:
+          type: string
+        public_id:
+          type: string
+        path:
+          type: string
+        status:
+          type: integer
+        leak:
+          type: boolean
+        why:
+          type: string
+      additionalProperties: false
+    VisibilityAuditServed:
+      type: object
+      required: [checked, leaks, inconclusive]
+      properties:
+        checked:
+          type: integer
+          minimum: 0
+        leaks:
+          type: integer
+          minimum: 0
+        inconclusive:
+          type: integer
+          minimum: 0
+          description: Requests answered with neither 200 nor 404 (a 429, a 5xx), which prove nothing either way.
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/VisibilityAuditServedCheck'
+      additionalProperties: false
+    VisibilityAuditSummary:
+      type: object
+      description: One nightly M-11 run without its row lists (the list shape; the job's log line carries the same fields).
+      required: [id, seq, recorded_at, run_id, run_at, posture, posture_source, publishable_reuse_classes, register_gated_sources, counts, breach_total, breach_cap, breaches_truncated, served, m11]
+      properties:
+        id:
+          $ref: '#/components/schemas/EventPublicId'
+        seq:
+          type: integer
+        recorded_at:
+          type: string
+          format: date-time
+        run_id:
+          type: string
+          format: uuid
+        run_at:
+          type: string
+          format: date-time
+        posture:
+          type: string
+          enum: [commercial, noncommercial]
+        posture_source:
+          type: string
+          enum: [platform, override]
+          description: '`platform` when the run used `PLATFORM_POSTURE`; `override` when `--posture` named the other one.'
+        publishable_reuse_classes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReuseClass'
+        register_path:
+          type: string
+        register_gated_sources:
+          type: integer
+          minimum: 0
+          description: 'Sources `data/sources.yaml` marks unpublishable under the posture (`publication: none` or a gated `reuse`).'
+        counts:
+          type: object
+          required: [proposals, opportunities, events, organizations, assets, source_links]
+          properties:
+            proposals:
+              $ref: '#/components/schemas/VisibilityAuditCounts'
+            opportunities:
+              $ref: '#/components/schemas/VisibilityAuditCounts'
+            events:
+              $ref: '#/components/schemas/VisibilityAuditCounts'
+            organizations:
+              $ref: '#/components/schemas/VisibilityAuditCounts'
+            assets:
+              $ref: '#/components/schemas/VisibilityAuditCounts'
+            source_links:
+              $ref: '#/components/schemas/VisibilityAuditCounts'
+          additionalProperties: false
+        breach_total:
+          type: integer
+          minimum: 0
+        breach_cap:
+          type: integer
+          minimum: 1
+        breaches_truncated:
+          type: boolean
+        served:
+          $ref: '#/components/schemas/VisibilityAuditServed'
+        m11:
+          type: integer
+          minimum: 0
+          description: The metric. 0 is the only passing value (`docs/10` §5).
+        event_id:
+          $ref: '#/components/schemas/EventPublicId'
+      additionalProperties: true
+    VisibilityAudit:
+      allOf:
+        - $ref: '#/components/schemas/VisibilityAuditSummary'
+        - type: object
+          required: [breaches, gated_sources]
+          properties:
+            breaches:
+              type: array
+              maxItems: 200
+              items:
+                $ref: '#/components/schemas/VisibilityAuditBreach'
+            gated_sources:
+              type: object
+              description: '`source_id` → reason, for every source row that may not stand behind a public row under the posture.'
+              additionalProperties:
+                type: string
+    VisibilityAuditListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/VisibilityAuditSummary'
+    VisibilityAuditResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/VisibilityAudit'
     SourceRun:
       type: object
       description: docs/21 §4.2.

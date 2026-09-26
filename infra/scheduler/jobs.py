@@ -1,5 +1,5 @@
-"""Job bodies for the `alert_tick` and `post_draft_tick` periodic jobs (docs/00-PLAN.md Sprint 3
-item 4; ADR 0004).
+"""Job bodies for the `alert_tick`, `post_draft_tick` and `visibility_audit_tick` periodic jobs
+(docs/00-PLAN.md Sprint 3 item 4; docs/04 R-4; ADR 0004).
 
 Importable without Postgres and without `services.alerts`/`services.social` existing yet: the two
 worker modules are lazily imported inside each `*_job` function, and `build_session_factory` only
@@ -107,6 +107,44 @@ def post_draft_tick_job(_run: Callable[..., Any] | None = None) -> dict[str, Any
     report = run(build_session_factory())
     data = _report_to_dict(report)
     _log_report("post_draft_tick", data)
+    return data
+
+
+class VisibilityAuditBreach(RuntimeError):
+    """The nightly audit found M-11 > 0: gated or restricted rows reachable on a non-admin
+    surface — an S1 incident (docs/04 S-9). Raised *after* the result is persisted and logged, so
+    the job shows as failed in the queue (the operator-visible signal) without losing the evidence
+    (`GET /admin/v1/visibility-audits/latest`). The message carries the count only, never ids."""
+
+
+#: The result keys the one log line carries; the row lists (`breaches`, `served.checks`,
+#: `gated_sources`) stay in the persisted event and the job result, not in the log.
+_VISIBILITY_AUDIT_LOG_KEYS = ("run_id", "posture", "m11", "breach_total", "breaches_truncated")
+
+
+def visibility_audit_tick_job(_run: Callable[..., Any] | None = None) -> dict[str, Any]:
+    """Body of the `visibility_audit_tick` Procrastinate task (docs/04 R-4 "M-11 = 0 in the nightly
+    audit"; docs/40 §4 row 11): `services.visibility_audit.run.run_audit` against the shared
+    session factory, one summary log line, the full result as the job result, and
+    `VisibilityAuditBreach` when `m11 > 0`. Same `_run` seam as `alert_tick_job`."""
+    run = _run if _run is not None else _load_fn("services.visibility_audit.run", "run_audit")
+    data = _report_to_dict(run(build_session_factory()))
+    summary: dict[str, Any] = {key: data.get(key) for key in _VISIBILITY_AUDIT_LOG_KEYS}
+    for surface, counts in (data.get("counts") or {}).items():
+        if isinstance(counts, Mapping):
+            summary[f"{surface}_shown"] = counts.get("shown")
+            summary[f"{surface}_breaches"] = counts.get("breaches")
+    served = data.get("served") or {}
+    if isinstance(served, Mapping):
+        summary["served_checked"] = served.get("checked")
+        summary["served_leaks"] = served.get("leaks")
+        summary["served_inconclusive"] = served.get("inconclusive")
+    _log_report("visibility_audit_tick", summary)
+    m11 = int(data.get("m11") or 0)
+    if m11 > 0:
+        raise VisibilityAuditBreach(
+            f"M-11 = {m11}: gated or restricted rows reachable on a non-admin surface (S1)"
+        )
     return data
 
 

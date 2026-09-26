@@ -1,5 +1,6 @@
-"""Unit tests for `infra/scheduler/jobs.py` and the `alert_tick`/`post_draft_tick` registrations
-in `infra/scheduler/app.py` (docs/00-PLAN.md Sprint 3 item 4).
+"""Unit tests for `infra/scheduler/jobs.py` and the `alert_tick`/`post_draft_tick`/
+`visibility_audit_tick` registrations in `infra/scheduler/app.py` (docs/00-PLAN.md Sprint 3 item 4;
+docs/04 R-4 for the nightly M-11 audit).
 
 No Postgres and no `services.alerts`/`services.social` import: those two modules are being written
 concurrently by other agents and may not exist yet, so every job test injects a fake `_run` that
@@ -206,6 +207,137 @@ def test_compose_files_parse_and_name_the_expected_queues() -> None:
         raise AssertionError("compose.prod.yml still overrides a removed `social` service")
 
     worker_command = " ".join(base["services"]["worker"]["command"])
-    for queue in ("alert", "post_draft", "publish_post"):
+    for queue in ("alert", "post_draft", "publish_post", "audit"):
         if queue not in worker_command:
             raise AssertionError(f"{queue!r} missing from the worker service command: {worker_command!r}")
+
+
+# ------------------------------------------------------------------ nightly M-11 visibility audit
+def _audit_result(m11: int) -> dict[str, Any]:
+    return {
+        "run_id": "run-1",
+        "posture": "commercial",
+        "m11": m11,
+        "breach_total": m11,
+        "breaches_truncated": False,
+        "counts": {"proposals": {"shown": 4, "breaches": m11}, "events": {"shown": 1, "breaches": 0}},
+        "served": {"checked": 2, "leaks": m11, "inconclusive": 0, "checks": [{"public_id": "prop_x"}]},
+        "breaches": [{"surface": "proposals", "public_id": "prop_secret", "source_id": "s", "reason": "r"}]
+        if m11
+        else [],
+    }
+
+
+def test_visibility_audit_tick_job_logs_one_summary_line_and_returns_the_result(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO", logger="infra.scheduler.jobs")
+    result = jobs.visibility_audit_tick_job(_run=lambda session_factory: _audit_result(0))
+
+    if result != _audit_result(0):
+        raise AssertionError(result)
+    lines = [record.getMessage() for record in caplog.records]
+    if len(lines) != 1:
+        raise AssertionError(lines)
+    for expected in ("visibility_audit_tick", "m11=0", "proposals_shown=4", "served_checked=2"):
+        if expected not in lines[0]:
+            raise AssertionError(f"{expected!r} missing from log line: {lines[0]!r}")
+
+
+def test_visibility_audit_tick_job_fails_loudly_after_logging_when_m11_is_positive(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO", logger="infra.scheduler.jobs")
+    with pytest.raises(jobs.VisibilityAuditBreach, match="M-11 = 1"):
+        jobs.visibility_audit_tick_job(_run=lambda session_factory: _audit_result(1))
+    lines = [record.getMessage() for record in caplog.records]
+    if len(lines) != 1 or "m11=1" not in lines[0]:
+        raise AssertionError(lines)
+    # Row ids stay in the persisted event; the log line and the exception carry counts only.
+    if "prop_secret" in lines[0]:
+        raise AssertionError(lines[0])
+
+
+def test_visibility_audit_tick_job_defaults_to_the_real_audit(monkeypatch: pytest.MonkeyPatch) -> None:
+    import services.visibility_audit.run as audit_run
+
+    seen: list[Any] = []
+
+    def fake_run_audit(session_factory: Any) -> dict[str, Any]:
+        seen.append(session_factory)
+        return _audit_result(0)
+
+    monkeypatch.setattr(audit_run, "run_audit", fake_run_audit)
+    jobs.visibility_audit_tick_job()
+    if seen != [jobs.build_session_factory()]:
+        raise AssertionError(seen)
+
+
+def test_visibility_audit_tick_is_registered_nightly_on_the_audit_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    periodic = scheduler_app.app.periodic_registry.periodic_tasks.get(
+        ("tick_visibility_audit", "tick:visibility_audit")
+    )
+    if periodic is None:
+        raise AssertionError("tick_visibility_audit periodic registration missing")
+    # After the daily fetch bucket (03:07) and the resolve tick (04:37) that follows its loads.
+    if periodic.cron != "52 4 * * *":
+        raise AssertionError(periodic.cron)
+    from infra.scheduler.cadence import CRON_BY_BUCKET
+
+    if CRON_BY_BUCKET["daily"] != "7 3 * * *":
+        raise AssertionError(CRON_BY_BUCKET["daily"])
+    if periodic.task.queue != scheduler_app.SCHEDULER_ONLY_QUEUE:
+        raise AssertionError(periodic.task.queue)
+
+    task = scheduler_app.app.tasks["visibility_audit_tick"]
+    if task.queue != "audit" or task.queueing_lock != "visibility_audit_tick":
+        raise AssertionError((task.queue, task.queueing_lock))
+    if task.retry_strategy is not None:
+        raise AssertionError(task.retry_strategy)
+    if scheduler_app.VISIBILITY_AUDIT_TIMEOUT_S != 1800:
+        raise AssertionError(scheduler_app.VISIBILITY_AUDIT_TIMEOUT_S)
+
+
+def test_the_visibility_audit_tick_defers_once_and_tolerates_an_overlap(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import procrastinate
+
+    import infra.scheduler.app as scheduler_app
+
+    calls: list[str] = []
+
+    class _Deferrer:
+        def __init__(self, fail: bool) -> None:
+            self.fail = fail
+
+        def defer(self) -> None:
+            calls.append("defer")
+            if self.fail:
+                raise procrastinate.exceptions.AlreadyEnqueued("locked")
+
+    monkeypatch.setattr(scheduler_app, "visibility_audit_tick", _Deferrer(fail=False))
+    scheduler_app._tick_visibility_audit(0)
+    monkeypatch.setattr(scheduler_app, "visibility_audit_tick", _Deferrer(fail=True))
+    caplog.set_level("INFO", logger="infra.scheduler")
+    scheduler_app._tick_visibility_audit(0)
+    if calls != ["defer", "defer"]:
+        raise AssertionError(calls)
+    if not any("visibility_audit_tick still queued" in r.getMessage() for r in caplog.records):
+        raise AssertionError([r.getMessage() for r in caplog.records])
+
+
+def test_the_visibility_audit_task_runs_the_job_under_the_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    monkeypatch.setattr(scheduler_app, "visibility_audit_tick_job", lambda: _audit_result(0))
+    result = scheduler_app.app.tasks["visibility_audit_tick"]()
+    if result["m11"] != 0:
+        raise AssertionError(result)

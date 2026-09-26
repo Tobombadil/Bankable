@@ -138,7 +138,7 @@ services:
     # the placeholder `social` service (Sprint 2's `while true ... report` loop) is folded in here
     # rather than replaced — see infra.scheduler.app.py's module docstring for why this is safe
     # even before the `alert`/`post_draft` queues had any task deferred onto them.
-    command: ["python", "-m", "infra.entrypoint", "worker", "--queues", "fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook"]
+    command: ["python", "-m", "infra.entrypoint", "worker", "--queues", "fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook,audit"]
     env_file: *env-file
     environment:
       <<: *app-env
