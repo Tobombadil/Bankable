@@ -9,6 +9,7 @@ mounts it once every Sprint 3 agent's module lands); this file mounts it once at
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import pathlib
 
 import jsonschema
@@ -1123,6 +1124,107 @@ def test_submit_intake_opportunity_idempotency_conflict_on_different_body(client
     different = {**_VALID_OPPORTUNITY_BODY, "title": "A Different RFP"}
     resp = client.post("/v1/intake/opportunities", json=different, headers={"Idempotency-Key": "idem-opp-1"})
     assert resp.status_code == 409
+
+
+# ------------------------------------------------------------- intake captcha (Turnstile, decision 7)
+def _turnstile(monkeypatch, reply, *, secret: str | None = "sk-test"):
+    """Points `services.api.captcha` at a fake siteverify: `reply` is the JSON body, or an exception
+    the transport raises. Returns the list of requests the fake saw. `secret=None` leaves the key
+    unset (verification disabled)."""
+    import httpx
+
+    from services.api import captcha
+
+    monkeypatch.setattr(captcha, "_disabled_warned", False)
+    if secret is None:
+        monkeypatch.delenv(captcha.SECRET_ENV, raising=False)
+    else:
+        monkeypatch.setenv(captcha.SECRET_ENV, secret)
+    seen: list[httpx.Request] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if isinstance(reply, Exception):
+            raise reply
+        return httpx.Response(200, json=reply)
+
+    monkeypatch.setattr(
+        captcha, "client_factory", lambda: httpx.Client(transport=httpx.MockTransport(_handler))
+    )
+    return seen
+
+
+def test_intake_captcha_verified_ok_is_accepted_and_ip_is_only_sent_to_siteverify(client, db, monkeypatch):
+    from urllib.parse import parse_qs
+
+    seen = _turnstile(monkeypatch, {"success": True})
+    resp = client.post("/v1/intake/proposals", json=_VALID_PROPOSAL_BODY)
+    assert resp.status_code == 202, resp.json()
+    assert_valid("IntakeAcceptedResponse", resp.json())
+    assert len(seen) == 1
+    form = {k: v[0] for k, v in parse_qs(seen[0].content.decode()).items()}
+    assert form["secret"] == "sk-test"
+    assert form["response"] == "test-token"
+    assert form["remoteip"] == "testclient"  # Starlette's TestClient peer; forwarded, not stored
+    task = db.query(Task).filter_by(type="intake_proposal").one()
+    assert "testclient" not in str(task.pending_record) and "testclient" not in str(task.contact)
+
+    opp = client.post("/v1/intake/opportunities", json=_VALID_OPPORTUNITY_BODY)
+    assert opp.status_code == 202, opp.json()
+    assert len(seen) == 2
+
+
+def test_intake_captcha_verified_fail_is_a_400_problem_on_captcha_token(client, db, monkeypatch):
+    _turnstile(monkeypatch, {"success": False, "error-codes": ["invalid-input-response"]})
+    for path, body in (
+        ("/v1/intake/proposals", _VALID_PROPOSAL_BODY),
+        ("/v1/intake/opportunities", _VALID_OPPORTUNITY_BODY),
+    ):
+        resp = client.post(path, json=body)
+        assert resp.status_code == 400, path
+        problem = resp.json()
+        assert_valid("Problem", problem)
+        assert problem["code"] == "validation_error"
+        assert problem["instance"] == path
+        assert problem["errors"] == [{"field": "captcha_token", "message": "captcha verification failed"}]
+    assert db.query(Task).count() == 0
+
+
+def test_intake_captcha_siteverify_network_error_is_rejected_and_logged(client, db, monkeypatch, caplog):
+    import httpx
+
+    _turnstile(monkeypatch, httpx.ConnectError("no route to cloudflare"))
+    with caplog.at_level(logging.WARNING, logger="services.api.captcha"):
+        resp = client.post("/v1/intake/proposals", json=_VALID_PROPOSAL_BODY)
+    assert resp.status_code == 400
+    assert resp.json()["errors"][0]["field"] == "captcha_token"
+    assert "captcha_siteverify_unreachable" in caplog.text
+    assert db.query(Task).count() == 0
+
+
+def test_intake_captcha_secret_unset_accepts_the_opaque_token_and_warns_once(client, db, monkeypatch, caplog):
+    seen = _turnstile(monkeypatch, {"success": False}, secret=None)
+    with caplog.at_level(logging.WARNING, logger="services.api.captcha"):
+        first = client.post("/v1/intake/proposals", json=_VALID_PROPOSAL_BODY)
+        second = client.post("/v1/intake/opportunities", json=_VALID_OPPORTUNITY_BODY)
+    assert first.status_code == 202 and second.status_code == 202
+    assert seen == []  # no siteverify call without a key
+    assert caplog.text.count("captcha_verification_disabled") == 1
+    # The pre-existing contract is unchanged: the token is still required as a non-empty string.
+    assert (
+        client.post("/v1/intake/proposals", json={**_VALID_PROPOSAL_BODY, "captcha_token": ""}).status_code
+        == 400
+    )
+
+
+def test_intake_captcha_is_not_re_verified_on_an_idempotent_replay(client, db, monkeypatch):
+    seen = _turnstile(monkeypatch, {"success": True})
+    headers = {"Idempotency-Key": "idem-captcha-1"}
+    first = client.post("/v1/intake/proposals", json=_VALID_PROPOSAL_BODY, headers=headers)
+    replay = client.post("/v1/intake/proposals", json=_VALID_PROPOSAL_BODY, headers=headers)
+    assert first.status_code == 202 and replay.status_code == 202
+    assert replay.json()["task_id"] == first.json()["task_id"]
+    assert len(seen) == 1  # Turnstile tokens are single-use; the stored task answers the replay
 
 
 def test_create_report_happy_path(client, db):

@@ -368,8 +368,14 @@ cost log (model-call cost per source per day, US-909).
 Taken from the Sprint 3 decisions-log rows and this runbook's own verification pass. Stated plainly, not
 softened.
 
-1. **Intake captcha is accepted but not verified.** A honeypot field and a per-IP 5/hour bucket stand in
-   ("Admin backend landed"). A determined submitter can automate intake past both.
+1. **Intake captcha is verified only when `TURNSTILE_SECRET_KEY` is set** (closed on the API side 2026-09-26:
+   `services/api/captcha.py` checks every `captcha_token` against Cloudflare Turnstile's `siteverify`, fails
+   closed on a rejected token or an unreachable Cloudflare, sends the client IP only as `remoteip` and stores
+   none of it; `infra/compose/.env.example`, `docs/60` §5). With the key unset — every environment today — the
+   token is still accepted unverified and the api logs one warning per process; the honeypot and the per-IP
+   5/hour bucket remain the only controls. Two pieces are still missing: the owner's Turnstile site and secret
+   keys, and a public `/submit` form — `docs/30` §4.5 designs it, but no route or template under `web/` renders
+   it yet, so `TURNSTILE_SITE_KEY` has no consumer until that page exists.
 2. **Organisation takedown is a 400.** `organization` has no `publish_state` column; a migration is needed
    before an organisation-level takedown can be actioned through the admin panel ("Admin backend landed").
 3. **`opportunity.awarded` and `funding.*` posts never draft.** No award or funding-programme field exists in
@@ -387,8 +393,11 @@ softened.
 9. **Preview-per-PR is stubbed, not wired** (`docs/60` §11 item 6) — not a launch blocker, a development-loop
    gap.
 10. **Four ISO queues (PJM, MISO, SPP, ISO-NE) show nothing** until the legal items in §1/§2.1 clear.
-11. **`requirements.txt` has no Postgres driver at the root lockfile**; the Docker image installs it as a
-    stopgap (§3 step 2).
+11. **`requirements.txt` now lists the Postgres driver** (`psycopg[binary]>=3.1,<4`, added 2026-09-26; resolves
+    to psycopg 3.3.6 and passes `pip-audit` with CI's ignore list). `infra/docker/Dockerfile` and
+    `Dockerfile.browser-worker` still install it a second time as the §3 step 2 stopgap; removing that duplicate
+    `pip install` argument is the devops lane's follow-up (`docs/60` §11 item 4). No test in this repo exercises
+    the driver — every suite runs on SQLite (`services/README.md`).
 
 ---
 

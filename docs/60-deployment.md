@@ -161,6 +161,14 @@ file lands in all five app services.
 instead of signing cookies with a public string (`tests/test_session_secret.py`). Generate one per
 environment with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
+**`TURNSTILE_SECRET_KEY` / `TURNSTILE_SITE_KEY`** (added 2026-09-26; docs/40 §6 item 1). The secret key
+belongs in `secrets.<env>.enc.yaml` and reaches the `api` container like any other key in §5; when it is set,
+`services/api/captcha.py` verifies every intake `captcha_token` against Cloudflare Turnstile and rejects on
+failure or on an unreachable Cloudflare (fail closed). Unset — the state of every environment today — intake
+accepts the token unverified and the api logs one warning per process. The site key is public, not a secret,
+and has no consumer until a `/submit` page renders the widget (`docs/30` §4.5 designs it; nothing under `web/`
+does yet). Both are commented placeholders in `infra/compose/.env.example`.
+
 ### 5.1 Platform posture (data-licensing configuration, not a secret)
 
 `PLATFORM_POSTURE` (`commercial` | `noncommercial`; `services/posture.py`, `docs/26-platform-posture.md`)
