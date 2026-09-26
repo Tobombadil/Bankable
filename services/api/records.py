@@ -696,8 +696,11 @@ def get_opportunities_geo(
     zoom_param = request.query_params.get("zoom")
     if not bbox_param or zoom_param is None:
         raise validation_error("bbox", "bbox and zoom are required", request.url.path)
-    bbox = _parse_bbox(bbox_param, request.url.path)
-    zoom = int(zoom_param)
+    try:
+        bbox = _parse_bbox(bbox_param, request.url.path)
+        zoom = int(zoom_param)
+    except ValueError as exc:
+        raise validation_error("bbox", "bbox/zoom malformed", request.url.path) from exc
     stmt = _opportunity_query_with_filters(request, db, ctx.entitlement)
     items = list(db.scalars(stmt).all())
     # `services/ingest/loader.py` never geocodes opportunities (no state/county columns in

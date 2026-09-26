@@ -91,7 +91,7 @@ from services.api.common import WEB_HOST, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.pagination import clamp_limit, paginate
-from services.api.params import check_allowed, csv_param
+from services.api.params import check_allowed, csv_param, int_param
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -236,16 +236,6 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, dt.date):
         return value.isoformat()
     return value
-
-
-def _int_param(request: Request, name: str) -> int | None:
-    raw = request.query_params.get(name)
-    if raw is None:
-        return None
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise validation_error(name, f"{name} must be an integer", request.url.path) from exc
 
 
 def _decode_crockford(prefix: str, value: str) -> _uuid.UUID | None:
@@ -1109,7 +1099,7 @@ def admin_list_resolution_candidates(
     else:
         stmt = stmt.where(ResolutionDecision.status.in_(("confirmed", "rejected")))
 
-    limit = clamp_limit(_int_param(request, "limit"))
+    limit = clamp_limit(int_param(request, "limit"))
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
@@ -1283,7 +1273,7 @@ def admin_list_extractions(
     if v := qp.get("source_id"):
         stmt = stmt.where(Extraction.source_id.in_(csv_param(v)))
 
-    limit = clamp_limit(_int_param(request, "limit"))
+    limit = clamp_limit(int_param(request, "limit"))
     rows, next_cursor, has_more = paginate(
         db,
         stmt,

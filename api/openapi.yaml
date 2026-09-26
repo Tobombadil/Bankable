@@ -481,6 +481,8 @@ paths:
         - $ref: '#/components/parameters/EventType'
         - $ref: '#/components/parameters/SortEvents'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: A page of events for the subject.
           headers: *std_headers
@@ -554,6 +556,8 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/MatchStatus'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: A page of matches.
           headers: *std_headers
@@ -723,6 +727,8 @@ paths:
         - $ref: '#/components/parameters/EventType'
         - $ref: '#/components/parameters/SortEvents'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: A page of events for the subject.
           headers: *std_headers
@@ -785,6 +791,8 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/MatchStatus'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: A page of matches.
           headers: *std_headers
@@ -922,6 +930,8 @@ paths:
         - $ref: '#/components/parameters/OpportunityStatus'
         - $ref: '#/components/parameters/Technologies'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: A page of opportunities.
           headers: *std_headers
@@ -1201,6 +1211,8 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/ReuseClass'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: A page of licences.
           headers: *std_headers
@@ -2233,6 +2245,8 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: The caller's saved searches.
           headers: *std_headers
@@ -2499,6 +2513,8 @@ paths:
         - $ref: '#/components/parameters/SentAtFrom'
         - $ref: '#/components/parameters/SentAtTo'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: The caller's alert deliveries.
           headers: *std_headers
@@ -2553,6 +2569,8 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Export jobs, newest first.
           headers: *std_headers
@@ -3142,6 +3160,8 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/DeliveryStatus'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Deliveries, newest first.
           headers: *std_headers
@@ -3182,6 +3202,8 @@ paths:
         - $ref: '#/components/parameters/ReuseClass'
         - $ref: '#/components/parameters/Implemented'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Sources with runtime state.
           headers: *std_headers
@@ -3404,6 +3426,8 @@ paths:
         - $ref: '#/components/parameters/StartedAtFrom'
         - $ref: '#/components/parameters/StartedAtTo'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Runs, newest first.
           headers: *std_headers
@@ -3835,6 +3859,8 @@ paths:
         - $ref: '#/components/parameters/CandidateStatus'
         - $ref: '#/components/parameters/SubjectType'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Candidates, highest score first.
           headers: *std_headers
@@ -3905,6 +3931,8 @@ paths:
         - $ref: '#/components/parameters/SubjectType'
         - $ref: '#/components/parameters/SourceIdFilter'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Extractions, lowest confidence first.
           headers: *std_headers
@@ -4022,6 +4050,8 @@ paths:
         - $ref: '#/components/parameters/EventType'
         - $ref: '#/components/parameters/SubjectType'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Posts, oldest draft first.
           headers: *std_headers
@@ -4302,6 +4332,8 @@ paths:
         - $ref: '#/components/parameters/SubjectType'
         - $ref: '#/components/parameters/SubjectId'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Tasks, oldest open first.
           headers: *std_headers
@@ -4444,6 +4476,8 @@ paths:
         - $ref: '#/components/parameters/UserStatus'
         - $ref: '#/components/parameters/AccountIdFilter'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Users.
           headers: *std_headers
@@ -4575,6 +4609,8 @@ paths:
         - $ref: '#/components/parameters/Entitlement'
         - $ref: '#/components/parameters/AccountStatus'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Customers (accounts with their system-of-record view).
           headers: *std_headers
@@ -4727,6 +4763,8 @@ paths:
         - $ref: '#/components/parameters/PlanTier'
         - $ref: '#/components/parameters/SubscriptionStatus'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Subscriptions.
           headers: *std_headers
@@ -4839,6 +4877,8 @@ paths:
         - $ref: '#/components/parameters/AccountIdFilter'
         - $ref: '#/components/parameters/KeyRevoked'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Keys (never secrets).
           headers: *std_headers
@@ -5390,6 +5430,8 @@ paths:
           in: query
           schema: {type: string, enum: [erasure, correction]}
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '200':
           description: Oldest first.
           headers: *std_headers
