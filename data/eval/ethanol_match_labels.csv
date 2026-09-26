@@ -1,0 +1,66 @@
+name_a,city_a,capacity_a,name_b,city_b,capacity_b,state,label,note
+Corn Lp,Goldfield,73,Corn LP,Goldfield,80,US-IA,true,identical name and city; capitalisation only
+Absolute Energy LLC,St Ansgar,125,Absolute Energy,St Ansgar,130,US-IA,true,identical city; legal-form suffix dropped
+Poet Biorefining Corning LLC,Corning,91,Poet Biorefining-Corning LLC,Corning,90,US-IA,true,punctuation-only name difference
+Adm Decatur Il,Decatur,375,ADM,Decatur,375,US-IL,true,abbreviated vs full company name; exact city and capacity
+Didion Ethanol LLC,Johnson Creek,50,Didion Ethanol LLC,Johnson Creek,54,US-WI,true,identical name and city
+White Energy Hereford LLC,White Energy Hereford LLC,130,White Energy Hereford LLC,Hereford,130,US-TX,true,identical name; Atlas city field repeats the company name
+Plainview Bioenergy LLC,Plainview Bioenergy LLC,130,Plainview Bioenergy LLC,Plainview,130,US-TX,true,identical name and capacity
+Redfield Energy LLC,Redfield,65,Redfield Energy LLC,Redfield,65,US-SD,true,identical on every field
+Guardian Energy LLC,Janesville,150,Guardian Energy LLC,Janesville,164,US-MN,true,identical name and city
+Green Plains Otter Tail LLC,Fergus Falls,60,Green Plains Otter Tail LLC,Fergus Falls,66.6,US-MN,true,identical name and city
+Mid-Missouri Energy LLC,Malta Bend,60,Mid-Missouri Energy LLC,Malta Bend,66,US-MO,true,identical name and city
+Valero Renewable Fuels LLC,Mt Vernon,100,Valero Renewable Fuels LLC,Mt Vernon,100,US-IN,true,identical on every field
+Poet Biorefining - Mitchell LLC,Mitchell,86,Poet Biorefining- Mitchell LLC,Mitchell,86,US-SD,true,spacing-only name difference
+Poet Biorefining - Shelbyville,Poet Biorefining - Shelbyville,90,Poet Biorefining-Shelbyville,Shelbyville,94,US-IN,true,near-identical name; Atlas city field repeats the company name
+Granite Falls Energy LLC,Granite Falls,63,Granite Falls Energy LLC,Granite Falls,63,US-MN,true,identical on every field
+Illinois River Energy LLC,Chs Rochelle,138,Illinois River Energy LLC,Rochelle,138,US-IL,true,identical name and capacity; city has an extra operator-prefix token
+Valero Renewable Fuels,Aurora,140,Valero Renewable Fuels LLC,Aurora,150,US-SD,true,legal-form suffix only; identical city
+Sterling Ethanol LLC,Sterling,50,Sterling Ethanol LLC,Sterling,60,US-CO,true,identical name and city
+Yuma Ethanol LLC,Yuma,50,Yuma Ethanol LLC,Yuma,60,US-CO,true,identical name and city
+Bonanza Bioenergy LLC,Garden City,55,Bonanza Bioenergy LLC,Garden City,73.5,US-KS,true,identical name and city
+East Kansas Agri-Energy LLC,Garnett,48,East Kansas Agri-Energy LLC,Garnett,48,US-KS,true,identical on every field
+E Energy Adams LLC,Adams,101,E Energy Adams LLC,Adams,101,US-NE,true,identical on every field
+Husker Ag LLC,Plainview,90,Husker Ag LLC,Plainview,109,US-NE,true,identical name and city
+Green Plains Wood River LLC,Wood River,110,Green Plains Wood River LLC,Wood River,123.9,US-NE,true,identical name and city
+Green Plains Central City LLC,Central City,100,Green Plains Central City LLC,Central City,135,US-NE,true,identical name and city
+Trenton Agri Products LLC,Trenton Agri Products LLC,55,Trenton Agri Products LLC,Trenton,55,US-NE,true,identical name and capacity
+Cargill Inc,Blair,210,Cargill Inc.,Blair,210,US-NE,true,punctuation-only name difference
+Chief Ethanol Fuels Inc,Hastings,70,Chief Ethanol Fuels Inc.,Hastings,70,US-NE,true,identical on every field but a full stop
+Chief Ethanol Fuels Inc,Lexington,52,Chief Ethanol Fuels Inc.,Lexington,52,US-NE,true,same operator's other NE plant; identical city
+Siouxland Ethanol LLC,Jackson,95,Siouxland Ethanol  LLC,Jackson,100,US-NE,true,double-space typo only
+Mid America Agri Products LLC,Madrid,50,Mid America Agri Products LLC,Madrid,50,US-NE,true,identical on every field
+Midwest Renewable Energy LLC,Sutherland,28,Midwest Renewable Energy LLC,Sutherland,28,US-NE,true,identical on every field
+Adm Columbus Ne Wet Mill,Columbus Wet Mill,100,ADM Columbus Wet Mill,Columbus,100,US-NE,true,identical name and capacity; city drops the mill suffix
+Bridgeport Ethanol LLC,Bridgeport,54,Bridgeport Ethanol LLC,Bridgeport,60,US-NE,true,identical name and city
+Kansas Ethanol LLC,Kansas Ethanol LLC,80,Kansas Ethanol LLC,Lyons,80,US-KS,true,identical name and capacity; Atlas city field repeats the company name
+Flint Hills Resources Fairmont LLC,Fairmont,127,Poet Biorefining-Fairmont,Fairmont,128,US-NE,true,ownership changed (Flint Hills to Poet); confirmed docs/24
+Pacific Ethanol Aurora West LLC,Aurora,110,Kaapa Partners Aurora LLC,Aurora,109.5,US-NE,true,ownership changed (Pacific Ethanol to Kaapa Partners); confirmed docs/24
+Green Plains Atkinson,Green Plains Atkinson,47,Sandhills Renewable Energy LLC,Atkinson,52.5,US-NE,true,ownership changed (Green Plains to Sandhills); confirmed docs/24
+Adm Columbus Ne Dry Mill,Columbus Dry Mill,313,VCP Corn Processing,Columbus,313,US-NE,true,ownership changed (ADM to VCP); confirmed docs/24; exact capacity match carries it
+Green Plains Ord LLC,Ord,57,Green America Biofuels Ord LLC,Ord,68,US-NE,true,ownership changed (Green Plains to Green America Biofuels); confirmed docs/24
+Elite Octane LLC,Elite Octane LLC,150,Elite Octane LLC,Atlantic,175,US-IA,true,identical name; only IA Elite Octane candidate on either side
+Illinois Corn Processing LLC,Pekin,82,Alto ICP LLC,Pekin,82,US-IL,true,ownership changed (renamed to Alto ICP); exact city and capacity
+Northeast Missouri Grain LLC,Macon,51,Poet Biorefining-Macon LLC,Macon,55,US-MO,true,ownership changed (acquired by Poet); exact city
+Agra Resources Coop,Albert Lea,45,Poet Biorefining--Glenville LLC,Albert Lea,48,US-MN,true,ownership changed; both registries cite Albert Lea as the city despite the Poet plant name citing Glenville
+Adm Peoria Il,Peoria,61,Biourja Renewables LLC,Peoria,61,US-IL,true,ownership changed (ADM sold the Peoria plant to Biourja); exact city and capacity
+Northern Lights Ethanol LLC,Big Stone,101,Poet Biorefining- Big Stone LLC,Big Stone,105,US-SD,true,ownership changed (acquired by Poet); exact city
+James Valley Ethanol LLC,Groton,63,Poet Biorefining- Groton LLC,Groton,68,US-SD,true,ownership changed (acquired by Poet); exact city
+Pro Corn LLC,Preston Mn,56,Poet Biorefining--Preston LLC,Preston,55,US-MN,true,ownership changed; judgment call flagged in docs/24 as resting on industry knowledge
+Element LLC,Colwich,70,Cardinal Colwich LLC,Colwich,70,US-KS,true,ownership changed (Element to Cardinal); exact city and capacity
+Pacific Ethanol Magic Valley LLC,Magic Valley,60,Alto Magic Valley Ethanol,Burley,60,US-ID,true,ownership changed; only ID candidate on either side; exact capacity
+Green Plains Ord LLC,Ord,57,Green Plains York LLC,York,60,US-NE,false,same owner's two different NE plants; York has no Atlas coordinate or twin (known case; docs/24)
+Elkhorn Valley Ethanol,Elkhorn,52,Sandhills Renewable Energy LLC,Atkinson,52.5,US-NE,false,different plants; capacity coincidence only; no name or city overlap
+Pacific Ethanol Aurora East LLC,Aurora,45,CIE Norfolk GNS LLC,Norfolk,60,US-NE,false,different plants; Aurora East has no capacity-report twin this year
+Ingredion Inc,Ingredion,45,Verbio North America LLC,Nevada,60,US-IA,false,Ingredion is Atlas-only and Verbio Nevada is capacity-report-only; unrelated plants
+Pacific Ethanol Aurora East LLC,Aurora,45,Green Plains York LLC,York,60,US-NE,false,two unrelated unmatched rows left over in the same state
+Prairie Horizon Agri Enrgy LLC,Prairie,40,Amber Wave,Phillipsburg,50,US-KS,false,unrelated companies; coincidental same-state capacity only
+Valero Renewable Fuels LLC,Charles City,140,Valero Renewable Fuels LLC,Hartley,140,US-IA,false,same operator's two different IA plants
+Valero Renewable Fuels LLC,Fort Dodge,140,Valero Renewable Fuels LLC,Albert City,140,US-IA,false,same operator's two different IA plants
+Glacial Lakes Energy LLC,Mina,162,Glacial Lakes Energy,Watertown,148,US-SD,false,same operator's two different SD plants
+Chief Ethanol Fuels Inc,Hastings,70,Chief Ethanol Fuels Inc.,Lexington,52,US-NE,false,same operator's two different NE plants
+Bushmills Ethanol Inc,Atwater,90,Al-Corn Clean Fuel,Claremont,130,US-MN,false,unrelated companies; same state
+Reeve Agri Energy Inc,Reeve Agri Energy Inc,20,Purefield Ingredients LLC,Russell,55,US-KS,false,unrelated companies; same state
+Huron Energy LLC,Huron,38,Redfield Energy LLC,Redfield,65,US-SD,false,unrelated companies; no name or city overlap
+Ace Ethanol LLC,Stanley,52,Badger State Ethanol LLC,Monroe,97,US-WI,false,unrelated companies; same state
+Golden Grain Energy LLC,Mason City,120,Green Plains Superior,Superior,68.5,US-IA,false,unrelated companies; no name or city overlap

@@ -160,16 +160,84 @@ def _load_organization_graph(session: Session, data_dir: Path) -> None:
 #: RNG from EPA LMOP and AgSTAR); the `*.proposals.parquet` siblings of the EPA files hold planned
 #: rows that are proposals, not assets, and are not listed here. A file that is not there is one
 #: log line, never a failure.
+#: `ethanol_plant` is loaded separately (`_load_ethanol_plants`, docs/24 §5(a)): its two files are
+#: resolved to one asset per plant, not one row per file, so it does not go through this generic
+#: per-file loop at all.
 _CONTEXT_ASSET_FILES: tuple[tuple[str, str], ...] = (
     ("us.eia.atlas.gas_pipelines.parquet", "gas_pipeline"),
     ("us.eia.atlas.gas_processing_plants.parquet", "gas_processing_plant"),
     ("us.eia.atlas.gas_storage.parquet", "gas_storage"),
     ("us.eia.atlas.lng_terminals.parquet", "lng_terminal"),
-    ("us.eia.ethanol_capacity.parquet", "ethanol_plant"),
-    ("us.eia.atlas.ethanol_plants.parquet", "ethanol_plant"),
     ("us.epa.lmop.parquet", "rng_project"),
     ("us.epa.agstar.parquet", "rng_project"),
 )
+
+_ETHANOL_ATLAS_FILE = "us.eia.atlas.ethanol_plants.parquet"
+_ETHANOL_CAPACITY_FILE = "us.eia.ethanol_capacity.parquet"
+
+
+def _load_ethanol_plants(session: Session, data_dir: Path) -> bool:
+    """`ethanol_plant`: one asset per real plant, not one row per registry (docs/24 §5(a), measured
+    48.2% cross-source duplication with no resolution). Both files are read together through
+    `services.ingest.assets.load_ethanol_plants`; either file missing is one log line, same rule as
+    the rest of this module.
+
+    **Operator edges** (coordinator correction, 2026-09-26, docs/24 §7): `load_ethanol_plants`
+    itself now writes the `operator` edge for every merged asset, from the capacity report's
+    current name where it states one (docs/24 §7.1 -- a merged asset's operator must be current,
+    not stale by construction because Atlas happens to be the primary source). The generic
+    per-file loader (`services.ingest.midstream.load_operator_edges`) is still the right tool for
+    the two remaining cases -- the Atlas-only and capacity-only singles -- so it still runs, but:
+
+    - against the **full** Atlas file, because every merged asset also keeps the Atlas source's own
+      `(source_id, source_asset_id)` identity (docs/24 §5(a): Atlas is primary), so the Atlas edge
+      the generic loader writes for a merged row is a second, correctly-attributed source view
+      alongside the capacity-derived one `load_ethanol_plants` wrote -- not a duplicate of it (they
+      differ on `source_id`, and often on the organisation too, exactly docs/24 §7.1's stale-owner
+      finding made visible as two edges rather than hidden as one).
+    - against the capacity file **with the 184 merged rows filtered out** first. Measured before
+      this filter (`services/ingest/test_assets.py::
+      test_capacity_operator_edges_are_not_requested_for_merged_rows_after_the_fix` and this
+      module's own docstring history): calling the generic loader on the *unfiltered* capacity file
+      after a merge does not corrupt anything -- `load_operator_edges`'s own `Asset.source_id ==
+      source.id` filter already can't find a merged row under the capacity source, so those 184
+      ids just come back in `unmatched_asset_ids` every run, wasted but harmless. Filtering removes
+      that reliance on an incidental property of a module outside this lane's file area, rather
+      than leaving it as a load-bearing accident."""
+    context_dir = data_dir / "normalized" / "context"
+    atlas_path, capacity_path = context_dir / _ETHANOL_ATLAS_FILE, context_dir / _ETHANOL_CAPACITY_FILE
+    if not atlas_path.exists() or not capacity_path.exists():
+        log.info(
+            "context asset layers: ethanol_plant needs both %s and %s, skipping", atlas_path, capacity_path
+        )
+        return False
+    import pandas as pd
+
+    from services.ingest.assets import load_ethanol_plants
+
+    atlas_df = pd.read_parquet(atlas_path)
+    capacity_df = pd.read_parquet(capacity_path)
+    report = load_ethanol_plants(session, atlas_df, capacity_df)
+    log.info(
+        "context asset layers: loaded ethanol_plant from %s + %s (%s)", atlas_path, capacity_path, report
+    )
+    try:
+        from services.ingest.midstream import load_operator_edges
+    except ImportError as exc:
+        log.info("context asset layers: services.ingest.midstream not available yet (%s); rows only", exc)
+        return True
+    atlas_edges = load_operator_edges(session, atlas_df, "ethanol_plant")
+    log.info("context asset layers: operator edges from %s (%s)", atlas_path, atlas_edges)
+    merged = set(report.merged_capacity_source_asset_ids)
+    capacity_singles_df = capacity_df[~capacity_df["source_asset_id"].astype(str).isin(merged)]
+    capacity_edges = load_operator_edges(session, capacity_singles_df, "ethanol_plant")
+    log.info(
+        "context asset layers: operator edges from %s, %d merged rows excluded (%s)",
+        capacity_path,
+        len(merged),
+        capacity_edges,
+    )
+    return True
 
 
 def _load_ghgrp(session: Session, data_dir: Path) -> None:
@@ -257,6 +325,8 @@ def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
         if load_operator_edges_parquet is not None:
             edges = load_operator_edges_parquet(session, parquet_path, asset_type)
             log.info("context asset layers: operator edges from %s (%s)", file_name, edges)
+    if _load_ethanol_plants(session, data_dir):
+        loaded += 1
     _load_ownership(session, data_dir)
     _load_ghgrp(session, data_dir)
     _apply_context_features(session, data_dir)

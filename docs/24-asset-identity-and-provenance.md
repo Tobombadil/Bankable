@@ -544,3 +544,200 @@ The coordinator asked to be told what is wrong. In order of how much it matters:
   (0/498 at county + name-Jaccard ≥ 0.5, with 220 of the 498 in a county that does contain an LMOP row) plus the
   two programmes' stated scopes. A digester that both reports would be missed by a name-based test if both
   spellings were unrecognisable; the county blocking makes that unlikely but not impossible.
+
+---
+
+## 11. Option (a) landed for `ethanol_plant` (2026-09-26, data-scientist lane)
+
+Migration `0021_asset_source.py` adds `asset_source`, built to the `proposal_source` pattern §5(a) named:
+`asset_id`, `source_id`, `source_record_id`, `source_url`, `retrieved_at`, `licence_id` (the provenance
+quartet CLAUDE.md requires, now on the link row rather than only on `asset`), `is_primary`, `match_method`
+(`deterministic_key` for the row that sets the asset's own identity, `rule` for a fused secondary source —
+reuses `proposal_source.link_method`'s vocabulary rather than inventing a parallel one), `match_score`
+(nullable — null for the primary row, the scored value for a fused one), `created_at`. Unique on
+`(source_id, source_record_id)`; indexed on `asset_id`. Downgrade drops it (refused by nothing — the table
+carries no data the vocabulary migrations' downgrade-refusal pattern would need to protect).
+
+**Table is generic; adoption is one type at a time, honestly.** `services/api/coverage.py::asset_sources`
+no longer reads "resolved" from the table's mere existence (§5(a)'s own text said it would, and that would
+have been dishonest the moment the table landed for one type only — `rng_project` also has two sources and
+would have silently read as resolved with no work done on it). `resolved_asset_types(db)` derives the set of
+asset types that actually have a row in `asset_source` from the table's own contents — `SELECT DISTINCT
+asset_type FROM asset JOIN asset_source`. Landing a second type's resolution later needs no edit here: the
+day its loader starts writing links, this set gains it and the note retires by itself, exactly as promised —
+just per type rather than globally. Measured with a seeded test (`services/api/test_coverage.py::
+test_a_second_multi_source_type_stays_unresolved_until_it_too_has_links`): with only `ethanol_plant` linked,
+`rng_project` — also two sources, also `unresolved_multi_source` today — correctly still reads `resolved:
+false`.
+
+### 11.1 The matcher: state + name + city, capacity as a tie-break, global greedy
+
+`pipeline/context/ethanol_match.py`. No deterministic key exists between the two registries (§2.2's
+colliding slugs are a coincidence, not a key), so this is a single scored rule, blocked on `state_code`:
+
+- **Name** (0.35): `pipeline.context.ghgrp.name_score` reused unchanged — legal-form-and-generic-word-stripped
+  token Jaccard/containment on `operator_name`.
+- **City** (0.35): the trap that inflated the coordinator's original attempt (§2.1) recurs here in a new
+  shape and was caught by construction, not by luck. Two different Iowa towns, "Charles City" and "Albert
+  City", share the literal word "city"; a naive token-containment score, or `difflib`'s raw character ratio
+  (which puts "Hartley" against "Charles City" at 0.63), both manufacture a match between five distinct
+  same-operator Iowa plants ("Valero Renewable Fuels LLC" appears at Charles City, Fort Dodge, Hartley,
+  Albert City and Lakota). `city_score` drops a small set of place-generic suffix words ("city", "town",
+  "plant", "mill", …) and bare digits from counting as a shared token on their own, and caps the
+  character-similarity fallback at 0.5 so it can never carry a match alone. `pipeline/context/
+  test_ethanol_match.py::test_match_ethanol_resolves_same_name_plants_by_city_not_by_name` pins the Iowa
+  case exactly: all five Valero plants resolve to their real partner by city, none cross-assigns.
+- **Capacity** (0.30): nameplate MMgal/yr, binned on the ratio (≥0.90 → 1.0, ≥0.75 → 0.7, ≥0.60 → 0.4, else
+  0.0) rather than continuous — §7.2's own finding that the two registries disagree on nameplate more than
+  they disagree on owner even on confirmed pairs.
+- **No distance term.** Only the Atlas side has a coordinate (§2.4); a distance score would be structurally
+  zero on every pair. Name and city carry the location signal here, which is why city gets the same weight as
+  name rather than a smaller supporting one.
+- **Assignment: global greedy**, highest-scoring candidate pair first, each row on each side consumed at
+  most once — §2.3's own lesson, reproduced and this time resolved correctly: "Green Plains Ord LLC" truly
+  matches "Green America Biofuels Ord LLC" (score 0.79) rather than "Green Plains York LLC" (the same owner's
+  unrelated other plant, score 0.73 in isolation) because global assignment processes the true, higher-scoring
+  pair first and consumes "Ord" before the wrong pair is ever considered.
+  `test_match_ethanol_does_not_pair_an_ownership_changed_name_with_the_wrong_sibling_plant` pins this.
+
+### 11.2 Evaluation and the chosen threshold
+
+`data/eval/ethanol_match_labels.csv`: 65 hand-adjudicated pairs on real 2026-09-19 registry rows — 50 true
+matches (35 clear, name-and-city-identical pairs across sixteen states; 15 near-miss ownership-change pairs
+with weak or zero name overlap, including the six §2.3 flagged as judgment calls resting on industry
+knowledge) and 15 non-matches (the Green Plains Ord/York case this task named explicitly, plus every wrong
+candidate the earlier scorer or a naive one would produce: Elkhorn Valley/Sandhills, Aurora East/CIE Norfolk
+GNS, Ingredion/Verbio, two unrelated leftover rows, three same-operator different-plant Iowa/SD/NE pairs, and
+four pairs of unrelated same-state companies).
+
+Precision/recall measured by running the real matcher (state blocking, global greedy assignment — not the
+scoring function on isolated pairs, which is a strictly harder and less representative test: several of the
+labelled non-matches score above any usable threshold in isolation and are correctly rejected only because
+their true partner consumes the shared row first) over the two full real registries, then checking whether
+each labelled pair's rows appear in the accepted set:
+
+| Threshold | Precision | Recall |
+|---|---|---|
+| 0.23 (−0.10) | 47/50 correct **94.3%** (3 false positives: Ingredion/Verbio, Aurora East/Green Plains York, Prairie Horizon/Amber Wave — all genuine leftover rows with no real partner) | 100% |
+| **0.33 (chosen)** | **100%** (50/50) | **100%** |
+| 0.43 (+0.10) | 100% (50/50) | 100% |
+
+0.33 clears the ≥95% precision bar with margin on both sides (0.23 already fails it; 0.43 changes nothing),
+so `DEFAULT_THRESHOLD = 0.33` in `pipeline/context/ethanol_match.py`. Recall is 100% on this labelled set;
+it is not 100% on the full population — the module docstring and §2.3 both name "Elkhorn Valley Ethanol ↔
+CIE Norfolk GNS LLC" (Elkhorn Valley's plant is in fact at Norfolk, NE) as a real link neither this scorer nor
+the original one recovers, because it has near-zero name overlap and disjoint city strings; it is not in the
+labelled set's *false-negative* column because the pair is never proposed as a candidate above zero score
+in the first place; it is not lost silently either, and it is the visible edge of the same class of case
+docs/24 §2.3 already named a "genuine limitation."
+
+### 11.3 Rebuild counts, measured on a scratch SQLite copy of the real 2026-09-19 registry parquets
+
+Never against `web/.data/dev.db` itself — a fresh in-memory SQLite store built through `services.db.session.
+init_db`, loaded from `data/normalized/context/us.eia.atlas.ethanol_plants.parquet` (197 rows) and
+`us.eia.ethanol_capacity.parquet` (191 rows), the same files §2's original count used.
+
+| | Before (`load_assets`, one call per source — the path every other multi-source type still uses) | After (`load_ethanol_plants`) |
+|---|---|---|
+| `asset` rows, `ethanol_plant` | **388** | **204** |
+| `asset_source` rows | 0 (table did not carry ethanol rows) | **388** (one per source record, none dropped) |
+| Matched pairs (one asset, two links) | — | **184** |
+| Atlas-only singles (one asset, one link) | — | **13** |
+| Capacity-only singles (one asset, one link) | — | **7** |
+| Rows collapsed | — | 184 (**47.4%** of 388) |
+
+204 distinct plants against §2.3's independently hand-adjudicated 201 (floor 207 under the most pessimistic
+reading of that adjudication's six judgment calls) — close enough on a different, independently-built scorer
+to corroborate both, not close enough to claim identity: this run's global-greedy assignment resolves
+"Green Plains Ord ↔ Green America Biofuels Ord" and "Green Plains Atkinson ↔ Sandhills" correctly by
+construction (§11.1) where the original scorer needed hand correction for both; it does not fuse Pekin's
+1:2 cardinality (§2.4) — `Alto Pekin LLC Wet Mill` matches the Atlas row, `Alto Pekin LLC Dry Mill` loads as
+its own capacity-only asset — because this loader's assignment is strictly 1:1 (§11.5 names this as a
+deliberate simplification, not an oversight).
+
+`asset.attributes["sources"]` on every matched asset: `{"capacity_value": "us.eia.ethanol_capacity",
+"location": "us.eia.atlas.ethanol_plants", "name": "us.eia.atlas.ethanol_plants", "operator_name":
+"us.eia.atlas.ethanol_plants"}` — capacity from the annual report (§7.2), identity/location/name from the
+Atlas layer (docs/24 §5(a): "the primary source... the one with coordinates when present"). `operator_name`
+still carries the Atlas spelling on a matched asset (§7.1's stale-owner finding is unaffected by this change
+— the current owner is separately available through `asset_owner` edges, not by rewriting this column).
+
+### 11.4 The coverage statement and the note, before → after
+
+`services/api/coverage.py::asset_sources` and `data/vocabulary/coverage_notes.yaml::ethanol_two_sources`,
+measured with `services/api/test_coverage.py::test_the_ethanol_note_retires_when_a_resolution_layer_exists`:
+
+| | Before (no `asset_source` row for any `ethanol_plant` asset) | After (both sources linked) |
+|---|---|---|
+| `assets.resolution.exists` | `true` (the table exists in every schema now — a mechanism fact, docs/24 §5(a)) | `true` (unchanged) |
+| `assets.by_type.ethanol_plant.resolved` | `false` | **`true`** |
+| `assets.unresolved_multi_source` | `["ethanol_plant"]` | `[]` |
+| `ethanol_two_sources` note | present | **retired** |
+| `web/viewmodels.py::asset_count_note` for `{"ethanol_plant"}` | prints the corrected estimate beside the row count | returns `None` (nothing to correct — the row count is now the asset count) |
+| `/methodology` | shows the note under "asset types with two sources" | note no longer renders (the section's own retirement mechanism, unedited) |
+
+No edit was needed in `web/viewmodels.py` or `web/templates/methodology.html` — both already read the derived
+facts and the notes list, exactly as their own docstrings promise, and both were only ever going to need an
+edit if the *shape* of the statement changed; it did not.
+
+### 11.5 What remains
+
+- **RNG is the next candidate**, named in the note text itself: two sources, zero cross-source duplication
+  (§3.2), but a *within-source* granularity problem (LMOP expansions) this table does not address — that is a
+  different, ingest-time normalisation decision (§3.2's own conclusion), not a second resolution pass with
+  this matcher.
+- **Pekin's 1:2 cardinality is not fused.** This loader's assignment is strictly 1:1; the second capacity-
+  report leg of a genuine 1:*n* case loads as its own single-source asset rather than a third `asset_source`
+  row on the same asset. Four rows in the whole dataset are affected (Pekin's dry/wet mill split is the only
+  confirmed instance — §2.4).
+- **Re-running the loader after a match decision changes is not reversible.** A different threshold, or new
+  registry data that re-scores a pair, can re-point a source record's `asset_source` link from one asset to
+  another; the asset it leaves is not deleted or merged, just left with one fewer link. The reversible merge/
+  unmerge event docs/22 §13 describes for proposals does not exist for assets. This was a deliberate choice
+  (§6.3: "do not ship the link table and a full resolution pass in one change" — here they shipped together
+  for one type, but the *reversibility* half was left for later), not an oversight, and it should be built
+  before a second type's resolution runs against a live, already-published store.
+
+### 11.6 Coordinator correction (2026-09-26): the merged operator must be current, not stale-by-construction
+
+The first cut of §11.3 recorded "operator-name edges for the capacity report do not follow the merge" as an
+accepted trade-off. The coordinator rejected that framing: §7.1 measured Atlas's operator field as stale on
+exactly the rows this loader merges (40 of 183 confirmed pairs disagree, and the capacity report is always
+the current one), so an asset whose `operator_name` and only owner edge come from Atlas because Atlas happens
+to be the primary source *reproduces* §7.1's defect on the plants this change was supposed to fix it for — a
+dedupe that trades one defect for another on the same 184 rows is not a trade worth taking, and was fixed in
+the same lane before this document's numbers were considered final.
+
+**What changed**, all inside `services/ingest/assets.py::load_ethanol_plants` (no other file's logic copied,
+only its helper reused): for a matched pair, `operator_name` — both the asset's own field and the
+`asset_owner` `operator` edge this function now writes directly — takes the capacity report's respondent
+string when it states one (every real row does; `operator_name is None` is an exercised but essentially
+theoretical fallback branch) and Atlas's only when it does not. The edge is dated `as_of` from the capacity
+table's own stated vintage (`attributes.as_of_year`, the workbook's "as of January 1, `<year>`" title row —
+read directly off the row rather than through `source.vintage`, which does not carry this source's vintage
+today; see `_capacity_report_as_of`'s docstring) and carries that source's provenance quartet. Organisation
+resolution reuses `services.ingest.ownership._resolve_organization`/`_build_norm_org_index` — the same helper
+`services/ingest/midstream.py` and `services/ingest/ghgrp.py` already call — imported, not copied. The Atlas
+string is never discarded: `attributes["atlas_operator_name"]` keeps it on every merged asset.
+
+**Measured, same scratch copy of the real 2026-09-19 parquets, `role = 'operator'` edges:**
+
+| | Old two-call path (pre-dedup) | Naive dedupe (the framing this section replaces) | This fix |
+|---|---|---|---|
+| Total edges | 388 (197 Atlas + 191 capacity, one per raw row) | **204** (197 Atlas + 7 capacity singles — **184 capacity edges silently lost**) | **388** (197 Atlas + 191 capacity) |
+| Merged assets (184) carrying the capacity operator | n/a (no merge yet) | 0 of 184 | **184 of 184** |
+| Merged assets carrying the Atlas operator too | n/a | 184 of 184 | 184 of 184 (unchanged — a second, correctly-attributed source view, not a duplicate) |
+| `operator_edges_from_atlas_fallback` | n/a | n/a | **0** (measured; the fallback branch is real but unexercised by this data) |
+
+Edge count is exactly preserved (388 → 388); what changes is which asset each edge attaches to, and every
+merged asset now carries both sources' views rather than only the stale one. `web/dev_up.py::
+_load_ethanol_plants` no longer asks the generic per-file loader to look up the 184 merged capacity ids at
+all (it filters `EthanolLoadResult.merged_capacity_source_asset_ids` out of the capacity frame first);
+measured directly (not merely reasoned about) that the unfiltered call would **not** have corrupted anything
+— `services.ingest.midstream.load_operator_edges`'s own `Asset.source_id == source.id` filter already cannot
+find a merged row under the capacity source, so it would have reported those 184 ids as `unmatched_asset_ids`
+every run, wasted but harmless — filtering removes reliance on that incidental property of a module outside
+this lane's file area rather than leaving it load-bearing. Pinned by
+`services/ingest/test_assets.py::test_load_ethanol_plants_writes_the_merged_operator_edge_from_the_capacity_report`
+(and its atlas-fallback counterpart) and
+`web/test_dev_up.py::test_capacity_operator_edges_are_not_requested_for_merged_rows_after_the_fix`.

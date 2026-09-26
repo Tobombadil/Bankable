@@ -32,6 +32,7 @@ from services.db.models import (
     ApiKey,
     Asset,
     AssetOwner,
+    AssetSource,
     Event,
     Licence,
     Location,
@@ -434,9 +435,41 @@ def serialize_organization(
 
 # --------------------------------------------------------------------------------------- assets
 def asset_source_row(asset: Asset) -> dict[str, Any]:
-    return provenance_quartet(
+    """The asset's own quartet as a provenance row that satisfies `AssetProvenanceRow` (never just
+    `ProvenanceQuartet`): this *is* the primary source, by construction, whether or not an
+    `asset_source` link row exists for it yet (`asset_provenance_rows` falls back to this for
+    every asset type `asset_source` has not been backfilled for -- all but `ethanol_plant` today,
+    docs/24 §5(a))."""
+    row = provenance_quartet(
         asset.source, asset.licence, source_url=asset.source_url, retrieved_at=asset.retrieved_at
     )
+    row.update({"is_primary": True, "match_method": "deterministic_key", "match_score": None})
+    return row
+
+
+def asset_provenance_row(link: AssetSource) -> dict[str, Any]:
+    row = provenance_quartet(
+        link.source, link.licence, source_url=link.source_url, retrieved_at=link.retrieved_at
+    )
+    row.update(
+        {
+            "is_primary": link.is_primary,
+            "match_method": link.match_method,
+            "match_score": float(link.match_score) if link.match_score is not None else None,
+        }
+    )
+    return row
+
+
+def asset_provenance_rows(asset: Asset, *, sources: list[AssetSource] | None = None) -> list[dict[str, Any]]:
+    """Every link this asset has, primary first (`AssetSource.sources`'s own ordering) -- or, when
+    none exist yet, the asset's own single quartet exactly as `serialize_asset` rendered it before
+    `asset_source` existed. Never both: an asset that has been resolved should not also print its
+    own columns as a phantom extra source."""
+    links = sources if sources is not None else asset.sources
+    if links:
+        return [asset_provenance_row(link) for link in links]
+    return [asset_source_row(asset)]
 
 
 def serialize_asset_owner(edge: AssetOwner) -> dict[str, Any]:
@@ -470,6 +503,7 @@ def serialize_asset(
     asset: Asset,
     *,
     owners: list[AssetOwner] | None = None,
+    sources: list[AssetSource] | None = None,
     include_owners: bool = True,
     include_geometry: bool = True,
 ) -> dict[str, Any]:
@@ -497,7 +531,7 @@ def serialize_asset(
         "first_seen": iso(asset.first_seen),
         "last_changed": iso(asset.last_changed),
         "length_miles": asset_length_miles(asset),
-        "provenance": [asset_source_row(asset)],
+        "provenance": asset_provenance_rows(asset, sources=sources),
     }
     if include_geometry:
         out["geometry"] = asset_geometry(asset)

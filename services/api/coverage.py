@@ -55,6 +55,7 @@ from services.db.models import (
     LIFECYCLE_STATES,
     OPPORTUNITY_STATUSES,
     Asset,
+    AssetSource,
     Opportunity,
     OpportunitySource,
     Organization,
@@ -245,13 +246,35 @@ ASSET_RESOLUTION_TABLE = "asset_source"
 
 
 def asset_resolution_exists(db: Session) -> bool:
-    """Whether the store has a layer that can resolve several source rows to one asset.
+    """Whether the store has a **mechanism** that can resolve several source rows to one asset.
 
     Read from the schema through the inspector rather than from a constant, so the statement is
-    about the database this process is actually serving. Today every deployment answers False:
-    `asset` is one row per `(source_id, source_asset_id)` and nothing links two of them (docs/24
-    §4). The day migration (a) lands, this returns True with no edit here."""
+    about the database this process is actually serving. Before migration 0021 this is always
+    False: `asset` is one row per `(source_id, source_asset_id)` and nothing links two of them
+    (docs/24 §4). Once the table exists this is always True — the mechanism exists — but that is
+    deliberately not the same claim as "every multi-source type has been resolved with it": see
+    `resolved_asset_types` for the honest, per-type answer `asset_sources` actually reports."""
     return bool(sa.inspect(db.get_bind()).has_table(ASSET_RESOLUTION_TABLE))
+
+
+def resolved_asset_types(db: Session) -> set[str]:
+    """Asset types that actually have at least one `asset_source` row -- the honest per-type
+    answer to "has this type's cross-source duplication been resolved", as opposed to
+    `asset_resolution_exists`'s "does the mechanism exist at all" (docs/24 §5(a)).
+
+    Landing `asset_source` does not by itself resolve every multi-source type it could apply to:
+    only the loader that actually writes matched rows there does that work, one type at a time
+    (`ethanol_plant` first, `services/ingest/assets.py::load_ethanol_plants`). Deriving this from
+    the link table's own contents, rather than a hard-coded list, means a second type's resolution
+    landing later needs no edit here -- the day its loader starts writing `asset_source` rows, this
+    set gains it and the note that hangs off `unresolved_asset_type` retires by itself, exactly as
+    the table's own docstring promises. Returns the empty set when the table does not exist yet."""
+    if not asset_resolution_exists(db):
+        return set()
+    rows = db.execute(
+        select(Asset.asset_type).join(AssetSource, AssetSource.asset_id == Asset.id).distinct()
+    ).all()
+    return {str(r[0]) for r in rows}
 
 
 def asset_sources(db: Session) -> dict[str, Any]:
@@ -270,8 +293,13 @@ def asset_sources(db: Session) -> dict[str, Any]:
     those and nothing else (`services/api/assets.py::_get_asset_index`): where one source has
     coordinates and the other has none, the figure on the list header and the figure here differ
     by exactly the unlocated source, and the page can say so instead of leaving two numbers that
-    disagree."""
-    resolved = asset_resolution_exists(db)
+    disagree.
+
+    `resolved` (per type) is whether *that* type has actually been fused (`resolved_asset_types`),
+    not merely whether the link table exists — landing the table does not retroactively resolve a
+    type nothing has written matched rows for yet."""
+    mechanism_exists = asset_resolution_exists(db)
+    resolved_types = resolved_asset_types(db)
     by_type: dict[str, dict[str, Any]] = {}
     rows = db.execute(
         select(Asset.asset_type, Asset.source_id, func.count(), func.count(Asset.geom))
@@ -280,14 +308,21 @@ def asset_sources(db: Session) -> dict[str, Any]:
     ).all()
     for asset_type, source_id, count, located in rows:
         entry = by_type.setdefault(
-            str(asset_type), {"rows": 0, "located": 0, "sources": {}, "source_count": 0, "resolved": resolved}
+            str(asset_type),
+            {
+                "rows": 0,
+                "located": 0,
+                "sources": {},
+                "source_count": 0,
+                "resolved": str(asset_type) in resolved_types,
+            },
         )
         entry["rows"] += int(count)
         entry["located"] += int(located)
         entry["sources"][str(source_id)] = {"rows": int(count), "located": int(located)}
         entry["source_count"] = len(entry["sources"])
     return {
-        "resolution": {"exists": resolved, "mechanism": ASSET_RESOLUTION_TABLE},
+        "resolution": {"exists": mechanism_exists, "mechanism": ASSET_RESOLUTION_TABLE},
         "by_type": by_type,
         # The types on which a row count can over-state the asset count: more than one source
         # and nothing to fold them. Whether it *does* over-state is the notes' business.

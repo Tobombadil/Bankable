@@ -863,6 +863,37 @@ Rules this pass follows, each of which shows up in the stored values:
   EIA-923 13,910 of 14,659 `power_plant` assets, RFS 271 of 388 `ethanol_plant` and 48 of 1,851
   `rng_project` assets.
 
+### 3.22a `asset_source` — one source's contribution to an asset (docs/24 §5(a), migration 0021, 2026-09-26)
+
+One row per source record behind an `asset`, built to the `proposal_source` pattern (§3.2): `asset` keeps
+its own `source_id`/`source_asset_id`/`source_url`/`retrieved_at`/`licence_id` unchanged (the primary
+source's identity, predating this table), and this table adds the provenance quartet for **every**
+contributing source, primary included, so a resolved asset's page can list every register that named it.
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `id` | uuid | No | Internal key | — |
+| `asset_id` | uuid | No | FK `asset` | — |
+| `source_id`, `source_url`, `retrieved_at`, `licence_id` | — | No | Provenance quartet for this one source record | — |
+| `source_record_id` | text | No | The source's own key for this row (`asset.source_asset_id`'s value on that row) | `NE-flint-hills-fairmont` |
+| `is_primary` | boolean | No | True for the one row that set `asset.source_id`/`source_asset_id` (the source with coordinates, when the asset has one) | `true` |
+| `match_method` | text | No | `deterministic_key` for the primary row (no ambiguity); `rule`/`model`/`user` for a fused secondary source (reuses `proposal_source.link_method`'s vocabulary) | `rule` |
+| `match_score` | numeric(4,3) | Yes | Null for the primary row; the scored match for a fused one | `0.767` |
+| `created_at` | timestamptz | No | — | — |
+
+Unique: (`source_id`, `source_record_id`). Index: `asset_id`.
+
+Landed for `ethanol_plant` first (`pipeline/context/ethanol_match.py`, `services/ingest/assets.py::
+load_ethanol_plants`, docs/24 §11): matched on state, company name and city, tie-broken on nameplate
+capacity, assigned globally greedy at a threshold chosen against `data/eval/ethanol_match_labels.csv`
+(100% precision and recall measured against the real registries at the chosen threshold, docs/24 §11.2).
+Measured 2026-09-26: 388 `ethanol_plant` rows (197 Atlas, 191 capacity report) resolve to 204 assets, 184
+matched pairs and 20 single-source rows, every one of the 388 source records carrying its own link
+(docs/24 §11.3). Every other asset type still loads exactly as before this migration and writes no row
+here — the table is generic, adoption is one type at a time (`services/api/coverage.py::
+resolved_asset_types` derives which types are actually resolved from this table's own contents, not from
+its mere existence, so a second type's resolution landing later needs no edit there).
+
 ### 3.23 `asset_owner` — ownership and operation edges (ADR 0008, 2026-09-18)
 
 | Field | Type | Null | Meaning | Example |

@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 import pandas as pd
 import pytest
 from sqlalchemy.orm import Session
 
-from services.db.models import Asset, Source
+from services.db.models import Asset, AssetSource, Source
 from services.db.session import get_engine, get_sessionmaker, init_db
-from services.ingest.assets import UnsupportedAssetTypeError, load_assets, load_assets_parquet
+from services.ingest.assets import (
+    UnsupportedAssetTypeError,
+    load_assets,
+    load_assets_parquet,
+    load_ethanol_plants,
+)
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
@@ -255,3 +262,259 @@ def test_both_real_fuels_parquets_load_into_one_store(session, asset_type):
         total += result.inserted
     assert session.query(Asset).filter(Asset.asset_type == asset_type).count() == total
     assert {r.source_id for r in session.query(Asset).all()} == set(_FUELS_PARQUETS[asset_type])
+
+
+# --------------------------------------------------- ethanol_plant resolution (docs/24 §5(a))
+def _ethanol_row(
+    source_asset_id: str, name: str, city: str, capacity: float, *, state="US-IA", lon=None, lat=None
+):
+    is_atlas = "atlas" in source_asset_id
+    attributes = {"nameplate_capacity_mmgal_yr": capacity}
+    if not is_atlas:
+        # `pipeline/context/ethanol_capacity.py`'s own field: the workbook's "as of January 1,
+        # <year>" title row, carried onto every row (`services.ingest.assets._capacity_report_as_of`
+        # reads it to date a merged asset's capacity-report operator edge).
+        attributes["as_of_year"] = 2025
+    row = {
+        "source_asset_id": source_asset_id,
+        "name": f"{name} ({city}, {state[-2:]})",
+        "operator_name": name,
+        "status": "operating",
+        "technology": "ethanol",
+        "capacity_value": capacity,
+        "capacity_unit": "MMgal/yr",
+        "state_code": state,
+        "country": "US",
+        "attributes": attributes,
+        "attributes_text": {"site": city} if is_atlas else {"city": city},
+        "source_url": "https://example.invalid/ethanol",
+        "retrieved_at": "2026-09-19T15:34:29Z",
+    }
+    if lon is not None and lat is not None:
+        row["lon"], row["lat"] = lon, lat
+    return row
+
+
+def test_load_ethanol_plants_merges_a_matched_pair_into_one_asset(session):
+    atlas = pd.DataFrame(
+        [
+            _ethanol_row(
+                "atlas-fairmont",
+                "Flint Hills Resources Fairmont LLC",
+                "Fairmont",
+                127.0,
+                state="US-NE",
+                lon=-97.6,
+                lat=40.6,
+            )
+        ]
+    )
+    capacity = pd.DataFrame(
+        [_ethanol_row("cap-fairmont", "Poet Biorefining-Fairmont", "Fairmont", 128.0, state="US-NE")]
+    )
+    result = load_ethanol_plants(session, atlas, capacity)
+    assert (result.matched_pairs, result.atlas_only, result.capacity_only) == (1, 0, 0)
+    assert result.assets_total == 1 and result.assets_inserted == 1
+
+    asset = session.query(Asset).one()
+    assert asset.asset_type == "ethanol_plant"
+    assert asset.source_id == "us.eia.atlas.ethanol_plants"  # identity/location: the primary
+    assert asset.source_asset_id == "atlas-fairmont"
+    # operator: current, not the primary source's (coordinator correction, docs/24 §7.1) -- the
+    # capacity report's name, since it states one; the Atlas string is kept, not discarded.
+    assert asset.operator_name == "Poet Biorefining-Fairmont"
+    assert asset.attributes["atlas_operator_name"] == "Flint Hills Resources Fairmont LLC"
+    assert asset.geom == (-97.6, 40.6)  # location: Atlas
+    assert float(asset.capacity_value) == 128.0  # capacity: the capacity report
+    assert asset.attributes["sources"] == {
+        "capacity_value": "us.eia.ethanol_capacity",
+        "location": "us.eia.atlas.ethanol_plants",
+        "name": "us.eia.atlas.ethanol_plants",
+        "operator_name": "us.eia.ethanol_capacity",
+    }
+
+    links = sorted(asset.sources, key=lambda link: link.source_id)
+    assert [link.source_id for link in links] == ["us.eia.atlas.ethanol_plants", "us.eia.ethanol_capacity"]
+    atlas_link, capacity_link = links
+    assert atlas_link.is_primary is True and atlas_link.match_method == "deterministic_key"
+    assert atlas_link.match_score is None
+    assert capacity_link.is_primary is False and capacity_link.match_method == "rule"
+    assert capacity_link.match_score is not None and 0.0 < float(capacity_link.match_score) <= 1.0
+    assert capacity_link.source_record_id == "cap-fairmont"
+
+
+def test_load_ethanol_plants_writes_the_merged_operator_edge_from_the_capacity_report(session):
+    """Coordinator correction, 2026-09-26 (docs/24 §7.1): a merged asset's `operator` edge must be
+    the capacity report's current name, dated to that report's own stated vintage, attributed to
+    that source -- not silently defaulted to the primary (Atlas) source just because that source
+    sets the asset's identity."""
+    from services.db.models import AssetOwner
+
+    atlas = pd.DataFrame(
+        [
+            _ethanol_row(
+                "atlas-fairmont",
+                "Flint Hills Resources Fairmont LLC",
+                "Fairmont",
+                127.0,
+                state="US-NE",
+                lon=-97.6,
+                lat=40.6,
+            )
+        ]
+    )
+    capacity = pd.DataFrame(
+        [_ethanol_row("cap-fairmont", "Poet Biorefining-Fairmont", "Fairmont", 128.0, state="US-NE")]
+    )
+    result = load_ethanol_plants(session, atlas, capacity)
+    assert result.operator_edges_written == 1
+    assert (result.operator_edges_from_capacity, result.operator_edges_from_atlas_fallback) == (1, 0)
+    assert result.merged_capacity_source_asset_ids == ["cap-fairmont"]
+
+    asset = session.query(Asset).one()
+    edge = (
+        session.query(AssetOwner).filter(AssetOwner.asset_id == asset.id, AssetOwner.role == "operator").one()
+    )
+    assert edge.source_id == "us.eia.ethanol_capacity"
+    assert edge.owner_name_raw == "Poet Biorefining-Fairmont"
+    assert edge.as_of == dt.date(2025, 1, 1)  # the capacity table's own "as of January 1, 2025"
+    assert edge.organization.name_canonical == "Poet Biorefining-Fairmont"
+
+    # Idempotent: re-running does not duplicate the edge or change its attribution.
+    load_ethanol_plants(session, atlas, capacity)
+    edges = (
+        session.query(AssetOwner).filter(AssetOwner.asset_id == asset.id, AssetOwner.role == "operator").all()
+    )
+    assert len(edges) == 1
+
+
+def test_load_ethanol_plants_falls_back_to_atlas_operator_when_capacity_states_none(session):
+    """The rare/theoretical branch: if a matched capacity row somehow stated no operator name, the
+    edge and the field both fall back to Atlas's, with no `as_of` (Atlas states no comparable
+    dated vintage for this) -- exercised directly since real capacity rows always state one."""
+    from services.db.models import AssetOwner
+
+    atlas = pd.DataFrame(
+        [
+            _ethanol_row(
+                "atlas-fairmont",
+                "Flint Hills Resources Fairmont LLC",
+                "Fairmont",
+                127.0,
+                state="US-NE",
+                lon=-97.6,
+                lat=40.6,
+            )
+        ]
+    )
+    capacity_row = _ethanol_row("cap-fairmont", "Poet Biorefining-Fairmont", "Fairmont", 128.0, state="US-NE")
+    capacity_row["operator_name"] = None
+    capacity = pd.DataFrame([capacity_row])
+
+    result = load_ethanol_plants(session, atlas, capacity)
+    assert (result.operator_edges_from_capacity, result.operator_edges_from_atlas_fallback) == (0, 1)
+
+    asset = session.query(Asset).one()
+    assert asset.operator_name == "Flint Hills Resources Fairmont LLC"
+    edge = (
+        session.query(AssetOwner).filter(AssetOwner.asset_id == asset.id, AssetOwner.role == "operator").one()
+    )
+    assert edge.source_id == "us.eia.atlas.ethanol_plants"
+    assert edge.as_of is None
+
+
+def test_load_ethanol_plants_keeps_every_unmatched_row_as_its_own_asset(session):
+    """The known case (docs/24 §7.3, this task's brief): a plant present in only one registry --
+    here, modelled on Green Plains York, NE, which has no Atlas coordinate or twin -- still loads,
+    with one link, not zero."""
+    atlas = pd.DataFrame(
+        [_ethanol_row("atlas-ord", "Green Plains Ord LLC", "Ord", 57.0, state="US-NE", lon=-98.9, lat=41.6)]
+    )
+    capacity = pd.DataFrame(
+        [
+            _ethanol_row("cap-ord", "Green America Biofuels Ord LLC", "Ord", 68.0, state="US-NE"),
+            _ethanol_row("cap-york", "Green Plains York LLC", "York", 60.0, state="US-NE"),
+        ]
+    )
+    result = load_ethanol_plants(session, atlas, capacity)
+    assert (result.matched_pairs, result.atlas_only, result.capacity_only) == (1, 0, 1)
+    assert result.assets_total == 2
+
+    york = session.query(Asset).filter(Asset.source_asset_id == "cap-york").one()
+    assert york.source_id == "us.eia.ethanol_capacity"
+    assert york.geom is None  # no coordinate in this registry (docs/24)
+    assert len(york.sources) == 1
+    assert york.sources[0].is_primary is True
+    assert york.sources[0].match_method == "deterministic_key"
+    assert york.sources[0].match_score is None
+
+    ord_asset = session.query(Asset).filter(Asset.source_asset_id == "atlas-ord").one()
+    assert len(ord_asset.sources) == 2  # matched to Green America Biofuels Ord, not to York
+
+
+def test_load_ethanol_plants_never_drops_a_row(session):
+    atlas_towns = ["Prairieview", "Larkspur", "Windham"]
+    capacity_towns = ["Millbrook", "Ashfield"]
+    atlas = pd.DataFrame(
+        [
+            _ethanol_row(f"atlas-{i}", f"Atlas Only {t} LLC", t, 40.0, state="US-KS")
+            for i, t in enumerate(atlas_towns)
+        ]
+    )
+    capacity = pd.DataFrame(
+        [
+            _ethanol_row(f"cap-{i}", f"Capacity Only {t} Inc", t, 90.0, state="US-KS")
+            for i, t in enumerate(capacity_towns)
+        ]
+    )
+    result = load_ethanol_plants(session, atlas, capacity)
+    assert result.atlas_rows == 3 and result.capacity_rows == 2
+    assert result.matched_pairs == 0
+    assert result.assets_total == 5
+    assert session.query(Asset).count() == 5
+    assert session.query(AssetSource).count() == 5
+
+
+def test_load_ethanol_plants_is_idempotent(session):
+    atlas = pd.DataFrame(
+        [
+            _ethanol_row(
+                "atlas-fairmont",
+                "Flint Hills Resources Fairmont LLC",
+                "Fairmont",
+                127.0,
+                state="US-NE",
+                lon=-97.6,
+                lat=40.6,
+            )
+        ]
+    )
+    capacity = pd.DataFrame(
+        [_ethanol_row("cap-fairmont", "Poet Biorefining-Fairmont", "Fairmont", 128.0, state="US-NE")]
+    )
+    first = load_ethanol_plants(session, atlas, capacity)
+    second = load_ethanol_plants(session, atlas, capacity)
+    assert first.assets_inserted == 1 and second.assets_inserted == 0
+    assert second.assets_updated == 1
+    assert session.query(Asset).count() == 1
+    assert session.query(AssetSource).count() == 2
+
+
+def test_load_ethanol_plants_against_real_parquets(session):
+    """Measured counts against the real fuels-lane outputs (docs/24 §6.3's "rebuild counts");
+    skipped where the gitignored parquets are absent, same rule as
+    `test_both_real_fuels_parquets_load_into_one_store` above."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2] / "data" / "normalized" / "context"
+    atlas_path = root / "us.eia.atlas.ethanol_plants.parquet"
+    capacity_path = root / "us.eia.ethanol_capacity.parquet"
+    if not atlas_path.exists() or not capacity_path.exists():
+        pytest.skip("ethanol parquets not present")
+    atlas_df = pd.read_parquet(atlas_path)
+    capacity_df = pd.read_parquet(capacity_path)
+    result = load_ethanol_plants(session, atlas_df, capacity_df)
+    assert (result.atlas_rows, result.capacity_rows) == (197, 191)
+    assert result.assets_total == session.query(Asset).count()
+    assert result.assets_total < result.atlas_rows + result.capacity_rows  # duplication resolved
+    assert session.query(AssetSource).count() == result.atlas_rows + result.capacity_rows
