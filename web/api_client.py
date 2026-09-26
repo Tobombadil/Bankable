@@ -25,6 +25,7 @@ exactly one request without merging it back into `Client.cookies` -- verified in
 from __future__ import annotations
 
 import os
+import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -188,4 +189,15 @@ def build_client(*, api_base_url: str | None = None) -> ApiClient:
 
     from services.api.app import app as api_app
 
-    return ApiClient(TestClient(api_app, base_url="http://api-internal"))
+    # The site is the API's own caller here (one process), so it presents the same service
+    # identity the remote mode does. Without it every page's API calls share the anonymous
+    # per-IP bucket and the site 500s after a handful of page views (reproduced 2026-09-26:
+    # the fifth `/about` render exhausted the bucket and every page after it failed). With no
+    # configured token, a per-process secret is minted and published to the environment, which
+    # is where `services/api/app.py`'s middleware reads it on every request. In-process mode is
+    # local development and the test suite only; production sets `API_BASE_URL` and a real
+    # token (docs/60 §5).
+    token = os.environ.get("API_INTERNAL_TOKEN") or os.environ.setdefault(
+        "API_INTERNAL_TOKEN", secrets.token_urlsafe(32)
+    )
+    return ApiClient(TestClient(api_app, base_url="http://api-internal", headers={"X-Internal-Token": token}))
