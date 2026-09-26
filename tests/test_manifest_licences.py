@@ -271,8 +271,11 @@ def test_noncommercial_defaults_to_raw_ok_publication() -> None:
     assert default_publication("noncommercial") == "raw_ok"
 
 
-def test_no_committed_source_is_noncommercial_yet() -> None:
-    """Measured 2026-09-25: the class exists in the vocabulary but no manifest entry carries it —
-    reclassification is per-source work with the terms in front of the reviewer (docs/26 §2). The
-    day one does, replace this with the named list, as the fourteen-source test above does."""
-    assert [e["id"] for e in load_manifest(MANIFEST) if e.get("reuse") == "noncommercial"] == []
+def test_only_the_named_sources_are_noncommercial() -> None:
+    """2026-09-26: the first sources reclassified into the `noncommercial` register class
+    (docs/13 §6.2) — both read from the same RRC Site Policies clause, quoted there and in
+    `data/sources.yaml`. Extend this list only after the register row moves first (docs/26 §2)."""
+    assert sorted(e["id"] for e in load_manifest(MANIFEST) if e.get("reuse") == "noncommercial") == [
+        "us.tx.rrc.class_vi",
+        "us.tx.rrc.datasets",
+    ]

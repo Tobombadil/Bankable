@@ -515,9 +515,14 @@ def test_fetch_fails_closed_when_the_chosen_link_answers_html():
 
 # ------------------------------------------------------------------ publication gate
 def test_the_source_is_gated_and_the_registry_says_so(registry):
+    """2026-09-26: the manifest reclassified this source `noncommercial` / `publication: raw_ok`
+    (docs/13 §6.2) once that register class and `PLATFORM_POSTURE` existed — the terms are read and
+    recorded, but `GATED_REUSE` under the default (test) posture, `commercial`, still gates
+    `noncommercial` exactly as it gated `unknown`: `publication` states what the terms allow, the
+    posture decides whether the class ever leaves the building (`services/posture.py`)."""
     entry = registry.get(SOURCE_ID)
-    assert entry.reuse in GATED_REUSE and entry.reuse == "unknown"
-    assert entry.publication == "none"
+    assert entry.reuse in GATED_REUSE and entry.reuse == "noncommercial"
+    assert entry.publication == "raw_ok"
     assert entry.implemented  # a connector exists ...
     states = {row["id"]: row["state"] for row in registry.status()}
     assert states[SOURCE_ID] == "gated"  # ... and the registry still reports the gate, not `implemented`

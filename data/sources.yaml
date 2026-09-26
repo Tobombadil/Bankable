@@ -1122,8 +1122,8 @@ sources:
     acknowledgment of any items you use and request that you link to us in the proper context". The same
     page links the Public Information Act pages (/general-counsel/open-records/) and DIR's state website
     linking and privacy policy.
-  reuse: unknown
-  publication: none
+  reuse: noncommercial
+  publication: raw_ok
   tier: 3
   effort: M
   probe: {method: GET}
@@ -1146,19 +1146,36 @@ sources:
       us_tx_rrc_class_vi); every row keyed by RRC Tracking # and every status mapped. The RRC took Class VI
       primacy 2025-12-15.
   notes: >-
-    2026-09-25, owner decision (docs/00-PLAN.md decisions log, superseding the same-day "table the
-    commercial use" wording): "Let's move forward as a noncommercial platform for now for maximum and best
-    data access. Then decide how to proceed once we're done." The RRC's Site Policies grant quoted under
-    `license` - copy and distribute for noncommercial use, content unaltered and not presented in a
-    misleading way, acknowledgment and a link appreciated - is COMPATIBLE with that posture:
-    noncommercial (pending class). `reuse` stays
-    `unknown` and the connector (pipeline/connectors/us_tx_rrc_class_vi, built 2026-09-25) stays gated ONLY
-    UNTIL the vocabulary gains a `noncommercial` class, which another lane is adding together with a
-    platform-posture setting; Texas is the first source that class will be applied to. Until then the
-    registry refuses the connector without allow_restricted=True and a flagged run writes only to
-    quarantine. No RRC document is kept in the repository by choice, not by prohibition: the sha256s in
-    `verified` are the evidence of what was measured, the parser is pinned on synthetic cell arrays, and a
-    developer-local copy under the gitignored tests/fixtures/local/ drives the one end-to-end test.
+    RECLASSIFIED 2026-09-26 (legal-compliance lane, docs/00-PLAN.md decisions log rows 2026-09-25): `reuse`
+    moves from `unknown` to `noncommercial` and `publication` from `none` to `raw_ok`. Basis, measured from
+    text already in this file and in docs/13 §6: the RRC's Site Policies grant quoted under `license` -
+    "permission to copy and distribute the information on its website for noncommercial use, as long as the
+    content remains unaltered and is not presented in a misleading way" - grants noncommercial reuse and
+    nothing more permissive, which is exactly the `noncommercial` register class (docs/13 §0, added
+    2026-09-25 together with `PLATFORM_POSTURE`, docs/26-platform-posture.md). The condition ("unaltered ...
+    not presented in a misleading way") is met by how the platform publishes: derived/normalised fields
+    carry a citation and the RRC's own wording is never altered in a stored quote; raw application rows are
+    not mirrored on the public page — the public record links out to the RRC's own PDF for the row itself
+    (docs/13 §6.2). `publication: raw_ok` here is the manifest's statement of what the terms allow (docs/21
+    §8; `scripts/check_manifest_licences.py`'s `default_publication`); whether this or any `noncommercial`
+    row is actually served to a reader is decided at runtime by `PLATFORM_POSTURE`
+    (`services/posture.py`, code default `commercial`, fail-closed), never by this field alone. docs/26 §3
+    recorded three preconditions before the posture is "true" rather than a label, of which (ii) was
+    counsel's confirmation that this entity can hold noncommercial status at all under CC BY-NC's definition
+    and under undefined state-site grants like this one — the same question raised in docs/13 §3.2
+    (browsewrap vs. a commercial product's use of public-information facts under Tex. Gov't Code ch. 552).
+    **Precondition (ii) is withdrawn by the owner**: docs/00-PLAN.md decisions log, row dated 2026-09-26,
+    "Seven owner decisions, taken as direct answers to the coordinator's questions" — "no legal consult
+    before the flip; the owner flips on their own reading" of CC BY-NC's "not primarily intended for or
+    directed towards commercial advantage" and the RRC's "for noncommercial use"; the backstop the owner
+    named is docs/26 §5's switch-back runbook (flip → rows invisible on every non-admin surface → purge or
+    relicense per source). This is the owner's decision to proceed without a legal reading, not agreement
+    that the reading is correct; docs/13 §7 item 15 keeps the underlying question open as a recommendation,
+    not a blocker. The connector (pipeline/connectors/us_tx_rrc_class_vi, built 2026-09-25) is otherwise
+    unchanged: no code was touched by this reclassification. No RRC document is kept in the repository by
+    choice, not by prohibition: the sha256s in `verified` are the evidence of what was measured, the parser is pinned on
+    synthetic cell arrays, and a developer-local copy under the gitignored tests/fixtures/local/ drives the
+    one end-to-end test.
     Identity is the RRC's own tracking number (stable across the three releases, survived an operator
     rename). The PDF's document metadata names its RRC author; the connector never reads metadata. The
     best of the six primacy states by a distance: a genuine machine-readable table, an application-level
@@ -1247,8 +1264,8 @@ sources:
   format: fixed-width EBCDIC/ASCII dumps (UIC Database monthly "by the 3rd workday"; Drilling Permit Master plus Latitudes/Longitudes; Well Bore database), each with a PDF layout manual
   cadence: monthly (UIC); daily/twice-weekly (permits, map layers)
   license: 'RRC site policies (https://www.rrc.texas.gov/site-policies/, read 2026-09-25) — "Unless otherwise noted on an individual document, file, web page, or other website item, RRC grants permission to copy and distribute the information on its website for noncommercial use, as long as the content remains unaltered and is not presented in a misleading way." and "The RRC has no restrictions on linking to our website as long as a fee is not charged to access our material."'
-  reuse: unknown
-  publication: none
+  reuse: noncommercial
+  publication: raw_ok
   tier: 3
   effort: L
   probe: {method: GET}
@@ -1263,15 +1280,19 @@ sources:
       lists "Enhanced Recovery" and "Geologic Storage of Carbon Dioxide (CO2)" permit types. Site
       policies page 200, 68,255 bytes, clause quoted in `license`. No file was downloaded.
   notes: >-
-    noncommercial (pending class): the RRC Site Policies grant (copy and distribute for noncommercial use,
-    unaltered, not misleading) is usable under the owner's 2026-09-25 noncommercial posture; `reuse` stays
-    `unknown` only until the vocabulary gains a `noncommercial` class, the same as `us.tx.rrc.class_vi`.
-    Per-well Class II (EOR) and every W-1 drilling permit - including stratigraphic test wells - for
-    the state with 36,852 Class II recovery wells (EPA FY2024 inventory), i.e. a third of the
-    national EOR class. An
-    owner/counsel question, not an engineering one: whether a permission notice on a state agency
-    site restricts a commercial product's use of public-information facts (Tex. Gov't Code ch. 552)
-    is exactly the browsewrap question in docs/13 section 3.2. Publication waits on the `noncommercial` class; the counsel read is precondition (ii) of the posture (docs/26).
+    RECLASSIFIED 2026-09-26 (legal-compliance lane): `reuse` moves from `unknown` to `noncommercial` and
+    `publication` from `none` to `raw_ok`, the same reading as `us.tx.rrc.class_vi` (same `license` clause,
+    same operator, same Site Policies page) and the same reasoning applies verbatim — see that entry's notes
+    for the full text, docs/13 §6.2, and docs/13 §7 item 15. Per-well Class II (EOR) and every W-1
+    drilling permit — including stratigraphic test wells — for the state with 36,852 Class II recovery
+    wells (EPA FY2024 inventory), i.e. a third of the national EOR class. Whether a permission notice on a
+    state agency site restricts a commercial product's use of public-information facts (Tex. Gov't Code
+    ch. 552) is the browsewrap question in docs/13 §3.2; docs/26 §3's precondition (ii) — counsel confirming
+    this entity can hold noncommercial status at all — is withdrawn by the owner (docs/00-PLAN.md, 2026-09-26,
+    "Seven owner decisions," decision (2): flipping on the owner's own reading of the two clauses, no legal
+    consult, with docs/26 §5's runbook as the named backstop), and docs/13 §7 item 15 keeps the underlying
+    question open as a recommendation rather than a blocker. No connector exists yet for this source; nothing
+    changes about ingestion, only the register.
 
 - id: us.nd.dmr.oilgas
   name: North Dakota DMR Oil & Gas Division — well data (Basic and Premium services), hearing dockets, GIS map server
@@ -2282,6 +2303,16 @@ sources:
     sentence quoted above, and the Download Data URL it was read from now 301s to the project page. Not
     reclassified (the 2026-09-12 quote was genuinely retrieved); re-verify from the notice inside a download
     file before the next release is ingested. docs/13 section 2.18.
+    2026-09-26 (legal-compliance lane, noncommercial-posture reclassification pass): reviewed against the
+    new `noncommercial` register class and left `reuse: attribution` / `publication: raw_ok` unchanged. The
+    entry as a whole is CC BY 4.0, which is `attribution`, not `noncommercial` — the only CC BY-NC 4.0
+    material here is the TZ-ID row subset quoted above, and those rows are already dropped at ingest
+    (never stored, never published), so there is no noncommercial-licensed content in this source's
+    published rows to carry a `noncommercial` class or to gate on `PLATFORM_POSTURE`. Splitting the TZ-ID
+    rows into a separate `noncommercial`-class source id was considered (docs/02 §11.6 raised it as a
+    candidate) and rejected here: the connector does not currently retain those rows in any form the
+    posture could publish, so creating the class assignment would record a reuse right this platform does
+    not exercise.
 
 - id: global.gem.ownership_tracker
   name: Global Energy Monitor — Global Energy Ownership Tracker (entity, ownership-relationship and asset chains)
@@ -2315,6 +2346,11 @@ sources:
     geothermal, nuclear or LNG terminals, and no queue-stage proposals. Upgrade to open-attribution/raw_ok
     only after the notice inside a download file is read (docs/13 section 7 item 14); that download needs an
     email address and a licence acknowledgement, which is an owner action, not an agent one.
+    2026-09-26 (legal-compliance lane, noncommercial-posture reclassification pass): reviewed and left
+    unchanged. This is not a noncommercial-reuse case: the page states no licence at all and the only grant
+    on record is CC BY 4.0 (named by the download gate, docs/13 §2.18) — `attribution-restricted`, per the
+    register's own class, because the grant is unclear and self-limiting, not because it is noncommercial.
+    No `noncommercial` class applies here.
 
 - id: global.iea.demo_projects
   name: IEA Clean Energy Demonstration Projects Database

@@ -101,10 +101,18 @@ hold under either posture; `POST /pricing/portal`/`POST /v1/billing/portal` succ
 Group LLC, `docs/00-PLAN.md` 2026-09-18) whose stated purpose is to feed a commercial deal workflow must be
 confirmed able to hold noncommercial status under CC BY-NC's definition — "not primarily intended for or
 directed towards commercial advantage or monetary compensation" — and under undefined state-site grants like the
-RRC's, which define neither the purpose nor the user.
-
-*Status: withdrawn by the owner, 2026-09-26 (`docs/00-PLAN.md` decisions log).* No longer a precondition to
-flipping the posture; nothing in this document's runbook or tests depends on it having been satisfied.
+RRC's, which define neither the purpose nor the user. *Status, 2026-09-26:* **withdrawn by the owner.**
+`docs/00-PLAN.md` decisions log, row dated 2026-09-26, "Seven owner decisions, taken as direct answers to the
+coordinator's questions" (owner, via the coordinator's question form), decision (2): "no legal consult before
+the flip; the owner flips on their own reading" of CC BY-NC's "not primarily intended for or directed towards
+commercial advantage" and the RRC's "for noncommercial use"; "the coordinator's precondition (ii) in `docs/26`
+§3 is withdrawn by the owner, and the backstop is `docs/26` §5's switch-back runbook (flip → rows invisible on
+every non-admin surface → purge or relicense per source)." This is the owner's own decision to proceed without
+a legal reading of the two clauses, not this document's or counsel's agreement that the reading is correct;
+docs/13 §7 item 15 keeps the underlying question visible as an open recommendation, not a blocker. The
+backstop the owner named is §5 above: if the reading turns out wrong, the runbook's flip-back makes every
+`noncommercial` row invisible on every non-admin surface at once, and the purge-or-relicence decision follows
+per source.
 
 **(iii) A firewall.** No `noncommercial` row may flow to the Bankable deal workflow or any downstream commercial
 use. What enforces that today, and what does not:
@@ -119,6 +127,13 @@ use. What enforces that today, and what does not:
 | Admin surfaces | **no** | admin reads bypass the predicate by design (docs/21 §5.4); an operator can see and copy a `noncommercial` row. Acceptable for operations; not a commercial channel, but not a firewall either |
 | The Bankable deal workflow at bankablehq.com | **no mechanism** | no integration exists (`CLAUDE.md`: a later consideration, not a foundation). If one is built, it must consume the `api` entitlement through the predicate, never the store — and under the `noncommercial` posture it must not be built at all |
 | `Licence.allows_commercial_use` as a gate | **not load-bearing** | measured 2026-09-25: the field is serialised (`services/api/serialize.py`) and shown on `/about`, and nothing filters on it. The loader writes it `true` only for `open`, `false` for every `attribution` licence (because manifest `attribution` covers `attribution-restricted` register rows too), so it cannot be the gate: it would hide NESO and CC BY sources. The posture gates on the **class**; the CHECK from 0020 keeps the field consistent with the class in the one direction that is a definition |
+
+**Re-checked 2026-09-26, unchanged.** This lane reclassified two manifest entries into the `noncommercial`
+class (§6) and touched no code, so nothing in this table moved: the predicate, the loader gate and the
+absence of an export/bulk/CRM/deal-workflow route are exactly as measured above. The row most relevant to
+today's change is the first — it is the mechanism that will actually publish `us.tx.rrc.class_vi` and
+`us.tx.rrc.datasets` the day `PLATFORM_POSTURE=noncommercial` is set in a real environment, and the reason
+(i) (now delivered) had to hold before that setting could be considered.
 
 ## 4. Why the class, and why the CHECK, rather than a flag on the row
 
@@ -175,7 +190,64 @@ Switching *to* `noncommercial` is the same first step in the other direction, ta
 is met and recorded in the decisions log; steps 3–5 have no forward counterpart, because widening admits rows
 that were never ingested rather than un-hiding held ones (a `noncommercial` source loads on its next run).
 
-## 6. Tests that pin this document
+## 6. The flip, 2026-09-26
+
+What this lane set, and what did not move.
+
+**Register (docs/13 §6.2).** `us.tx.rrc.class_vi` and `us.tx.rrc.datasets` moved from `reuse: unknown` /
+`publication: none` to `reuse: noncommercial` / `publication: raw_ok` in `data/sources.yaml`, on the strength
+of the RRC Site Policies clause already quoted there and in docs/13 (§2's evidence, unchanged). `docs/13` §6's
+matrix row for both now names `noncommercial` first, per `scripts/check_manifest_licences.py`'s rule that the
+manifest may claim a class no more permissive than the register row. `global.gem.trackers` and
+`global.gem.ownership_tracker` were reviewed against the same class and left unchanged — neither is a
+noncommercial-reuse case in the rows this platform actually publishes (docs/13 §6.2 explains why for each).
+`scripts/check_manifest_licences.py` passes: **`RESULT: PASS — 113 sources no more permissive than docs/13
+§6`**.
+
+**Configuration.** `infra/compose/.env.example`'s `PLATFORM_POSTURE` is now `noncommercial` (was
+`commercial`), with the comment updated to record precondition (i)'s delivery and the owner's 2026-09-25
+decision. `infra/compose/docker-compose.yml` and `compose.prod.yml` carry no literal default for this
+variable — both read it from the env file at deploy time (docs/60 §5) — so neither needed a change; measured
+by grep, zero hits for `PLATFORM_POSTURE` in either file. `services/posture.py`'s code default is unchanged
+and stays `commercial`, fail-closed, by design: `.env.example` is a template a deployment copies from, not
+the code's own fallback, and the two are deliberately allowed to differ (docs/60 §5.1 explains the template
+vs. the running default).
+
+**What that does and does not publish.** Nothing changes in the currently-running dev/test defaults: with no
+`PLATFORM_POSTURE` set in the process environment, `services/posture.py::platform_posture()` still returns
+`commercial`, `GATED_REUSE` still contains `noncommercial`, and the two RRC entries — now correctly
+classified — are gated exactly as they were when `unknown`. A deployment that is freshly provisioned from
+`infra/compose/.env.example` (copying the template as-is, per `docs/60` §5) would from that point read
+`PLATFORM_POSTURE=noncommercial` and, on restart of the api, ingest runner and workers together (§1's rule),
+begin publishing `us.tx.rrc.class_vi` and `us.tx.rrc.datasets` records raw with attribution and a link back,
+per the visibility predicate (§3 table, row 1) — **once a connector run has actually loaded rows**; measured
+here, this lane touched no ingest code or data, and `pipeline/connectors/us_tx_rrc_class_vi` has not been run
+against a live database in this worktree. **Note, restated from §3(ii):** this is exactly the scenario
+precondition (ii) used to gate; the owner has since withdrawn it (`docs/00-PLAN.md`, 2026-09-26, "Seven owner
+decisions," decision (2) — see §3(ii)), flipping on their own reading of the two clauses rather than a legal
+one, with the §5 runbook as the named backstop if that reading is wrong. An existing production `.env` is not
+touched by editing the example file; only a fresh copy of the template would pick up the new default.
+
+**`scripts/posture_report.py`, attempted per this lane's brief.** The script takes `--database-url` (a full
+SQLAlchemy URL, defaulting to `$DATABASE_URL`), not a `--db` path, and this worktree has no
+`web/.data/dev.db` (or any other) file to point at — `DATABASE_URL` is unset and no sqlite file exists at
+that or any path this lane could find. Run and skipped rather than guessed: pointing it at a fresh,
+empty sqlite file would report "none" truthfully but say nothing about a real deployment, and fabricating a
+populated database to report against would misrepresent what this lane measured. No `noncommercial`-class
+row exists in any database this lane has access to, because no connector run against a live store happened
+here.
+
+**The sentence a public page prints, unchanged from §1, reproduced here because it is what "the flip" means
+to a reader:**
+
+> This platform operates under a noncommercial posture: sources that permit noncommercial reuse are published
+> with attribution; they will be withdrawn if the posture changes.
+
+This sentence comes from `services/posture.py::posture_statement`, not from this document or any template
+prose (§1), and it only appears once a process actually starts with `PLATFORM_POSTURE=noncommercial` in its
+environment — not merely because the example file or the register say so.
+
+## 7. Tests that pin this document
 
 - `services/test_posture.py` — the helper at 100%: default, both values, garbage fails closed, the sentence.
 - `tests/test_visibility_predicate.py` — the gate module executed under both postures and a typo; the licence

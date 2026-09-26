@@ -563,7 +563,7 @@ The honest list of what carbonstorage.io's FOIA requests and hand-curation produ
 | 2 | `us.federalregister.api` | primacy-state map (7th state pending) + PHMSA rulemaking events | S | none |
 | 3 | `us.sec.edgar_fts` | ~50 CCS filings/yr from listed companies, realtime | S | none (declared UA, ≤1 rps) |
 | 4 | `us.usaspending` CCS queries (CarbonSAFE, DAC, capture demos) | tens of awards with amounts, dates, places; status changes after the 2025 terminations | S | none; slow endpoint, long timeout |
-| 5 | `us.tx.rrc.class_vi` (+ `us.tx.rrc.datasets` later) | 18 Class VI applications now; 36,852 Class II recovery wells and every drilling permit with lat/long later | M | **unblocked** by the owner's 2026-09-25 noncommercial posture (`docs/00-PLAN.md` decisions log; §11.6); waits only on the `noncommercial` reuse class another lane is adding — the connector stays gated to quarantine until then |
+| 5 | `us.tx.rrc.class_vi` (+ `us.tx.rrc.datasets` later) | 18 Class VI applications now; 36,852 Class II recovery wells and every drilling permit with lat/long later | M | **reclassified** `noncommercial` 2026-09-26 (`docs/13` §6.2; §11.6); still gated in quarantine under the default `commercial` posture, pending `PLATFORM_POSTURE=noncommercial` in a real environment — precondition (ii) is withdrawn by the owner (`docs/00-PLAN.md` 2026-09-26, `docs/26` §3(ii)), no longer a blocker |
 | 6 | `us.epa.uic.well_inventory` | 58 state rows sizing Class II/VI per state | S | none |
 | 7 | `us.sd.puc.co2_pipeline_dockets` + `us.nd.psc.case_search` | a handful of CO₂ pipeline dockets with lifecycle dates | S–M | state terms read (SD "Disclaimer", ND) |
 | 8 | `us.nd.dmr.class_vi` document ingest (+ `us.nd.dmr.oilgas`) | 7 facilities' orders/permits + injected volumes | M | ND terms read |
@@ -601,19 +601,36 @@ mechanical. Measured over the 106 probes of this lane:
 - `us.tx.rrc.class_vi` — 18–20 Class VI applications now (the committed connector reads the 2026-09-22 release: 20
   rows); `us.tx.rrc.datasets` — 36,852 Class II recovery wells (EPA FY2024 inventory) via the monthly UIC database
   dumps, plus every drilling permit with lat/long (stratigraphic test wells included). Obstacle was solely the RRC
-  "noncommercial use" grant. Both manifest entries carry the marker `noncommercial (pending class)` in `notes`.
+  "noncommercial use" grant. **Done, 2026-09-26** (legal-compliance lane, `docs/13` §6.2): the `noncommercial` class
+  and `PLATFORM_POSTURE` existed by then, so both manifest entries are reclassified `reuse: noncommercial` /
+  `publication: raw_ok`, `notes` marker `noncommercial (pending class)` removed. Not yet true: a live publish —
+  that needs `PLATFORM_POSTURE=noncommercial` set in a real environment (unset in `infra/compose/.env.example`'s
+  code default, though the example file itself was updated the same day, `docs/26` §6) and a connector run against
+  a live store, neither of which happened here. Precondition (ii) is withdrawn by the owner (`docs/00-PLAN.md`,
+  2026-09-26, "Seven owner decisions" — the owner flips on their own reading of the two clauses, no legal consult,
+  backstop is `docs/26` §5's runbook); see `docs/26` §3(ii) and `docs/13` §7 item 15, which keeps the underlying
+  question open as a recommendation rather than a blocker.
 - `global.gem.trackers` TZ-ID rows — CC BY-NC 4.0 (`docs/13` §2.2, §6 row: "drop TZ rows at ingest"); the register
-  carries no row count for the dropped set, so the count is unmeasured here.
+  carries no row count for the dropped set, so the count is unmeasured here. **Reviewed, 2026-09-26, not
+  reclassified**: these rows are dropped at ingest, never stored or published under any class, so there is no
+  live content to assign the `noncommercial` class to; `global.gem.trackers` as a whole stays `attribution`
+  (`docs/13` §6.2).
 - gem.wiki prose — CC BY-NC-SA (`docs/13` §2.2), never ingested; usable for derived facts under the posture, still
-  share-alike on any republished text.
+  share-alike on any republished text. Unaffected by this pass (nothing to reclassify: never ingested).
 - Nothing else in the 106 probes was blocked only by a noncommercial grant: every other non-federal source is either
   silent on terms (`unknown`), robots-disallowed (SONRIS, `efs.iowa.gov`, `pipeline.wyo.gov`), challenge/403-blocked
   (AZ DEQ, IEA, CRS, MN eDockets), or open (federal §105, Sodir NLOD, SEC).
 
 The posture is true only if three preconditions the coordinator has put to the owner hold — the pricing surfaces
 suspended or marked inactive; counsel's confirmation that a pre-revenue LLC feeding a commercial deal workflow can
-hold noncommercial status; and a firewall keeping noncommercial rows out of any downstream commercial use — which the
-posture lane is writing up in `docs/26`.
+hold noncommercial status; and a firewall keeping noncommercial rows out of any downstream commercial use — written
+up in `docs/26`. **Status, 2026-09-26** (`docs/26` §3/§6): (i) delivered by lane A, same day; (ii) withdrawn by the
+owner — `docs/00-PLAN.md` decisions log, row dated 2026-09-26, "Seven owner decisions, taken as direct answers to
+the coordinator's questions", decision (2): the owner flips on their own reading of CC BY-NC's "not primarily
+intended for or directed towards commercial advantage" and the RRC's "for noncommercial use", with no legal
+consult, naming `docs/26` §5's switch-back runbook as the backstop; the underlying question stays open as a
+recommendation in `docs/13` §7 item 15, not as a blocker; (iii) unchanged, already enforced by the predicate
+where a mechanism exists at all.
 
 ## 12. EPA GHGRP — emitters, capture, ownership shares
 
