@@ -98,12 +98,44 @@
 {# ADR 0008 asset page: attributes is `asset.attributes` -- objective features only (heat rate,
    capacity factor, mileage, ...), an arbitrary label/value bag, so it renders generically rather
    than field by named field the way field-grid does for the fixed proposal/opportunity shape. #}
+{#- One attribute value, of whatever shape the bag holds (2026-09-26, ethanol page screenshots:
+   the `rfs` enrichment block and the `sources` map the asset_source merge writes had been
+   printed as a Python dict repr). A mapping renders as nested key/value rows, keys humanised
+   the same way as the top-level ones and None or empty entries skipped; a list of mappings as one nested
+   block per item; a list of scalars joined; a boolean as Yes/No; anything else as its text.
+   Never a repr, never "None". Recursive, so a block inside a block still renders as rows. -#}
+{% macro attribute_value(value) -%}
+{%- if value is mapping -%}
+<dl class="attr-nested">
+{%- for k, v in value.items() if v is not none and (v is string or v is not iterable or v | length) %}
+  <dt>{{ k | replace('_', ' ') }}</dt><dd>{{ attribute_value(v) }}</dd>
+{%- endfor %}
+</dl>
+{%- elif value is iterable and value is not string -%}
+{%- set items = value | reject('none') | list -%}
+{%- if items | select('mapping') | list -%}
+<div class="attr-nested__list">
+{%- for item in items %}
+  <div class="attr-nested__item">{{ attribute_value(item) }}</div>
+{%- endfor %}
+</div>
+{%- else -%}
+{%- for item in items %}{{ attribute_value(item) }}{% if not loop.last %}, {% endif %}{% endfor -%}
+{%- endif -%}
+{%- elif value is boolean -%}
+{{ 'Yes' if value else 'No' }}
+{%- else -%}
+{{ value }}
+{%- endif -%}
+{%- endmacro %}
+
 {#- `omit`: attribute keys already promoted to a named field on the page (a pipeline's length,
-   diameter, class, states), so the bag does not repeat them. A list value renders joined, a
-   None value is skipped -- never a Python repr, never "None". -#}
+   diameter, class, states), so the bag does not repeat them. A None or empty value is skipped. A value
+   cell holding a nested block drops the `num` right-alignment (a key/value grid reads left to
+   right) and, at 400px, stacks under its data-label instead of sharing the row with it. -#}
 {% macro attributes_table(attributes, omit=[]) -%}
 {% set shown = [] %}
-{% for key, value in (attributes or {}).items() if key not in omit and value is not none %}{% set _ = shown.append((key, value)) %}{% endfor %}
+{% for key, value in (attributes or {}).items() if key not in omit and value is not none and (value is string or value is not iterable or value | length) %}{% set _ = shown.append((key, value)) %}{% endfor %}
 {% if shown %}
 <div class="table-scroll">
 <table class="record-table">
@@ -111,7 +143,8 @@
   <thead><tr><th scope="col">Attribute</th><th scope="col" class="num">Value</th></tr></thead>
   <tbody>
   {% for key, value in shown %}
-  <tr><td data-label="Attribute">{{ key | replace('_', ' ') }}</td><td data-label="Value" class="num tnum">{% if value is iterable and value is not string and value is not mapping %}{{ value | join(', ') }}{% else %}{{ value }}{% endif %}</td></tr>
+  {%- set nested = value is mapping or (value is iterable and value is not string and (value | select('mapping') | list)) %}
+  <tr><td data-label="Attribute">{{ key | replace('_', ' ') }}</td><td data-label="Value" class="{% if nested %}record-table__nested{% else %}num tnum{% endif %}">{{ attribute_value(value) }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

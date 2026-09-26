@@ -1932,3 +1932,62 @@ def test_map_script_enables_ethanol_and_rng_with_fuel_rows_and_unit_grouping() -
     assert "latestPlantsTotal = assetsInView(features);" in source
     css = (Path(__file__).parent / "static" / "css" / "styles.css").read_text()
     assert ".in-view-list__units" in css and ".legend__note" in css
+
+
+def test_asset_detail_renders_nested_mapping_attributes_as_rows_not_reprs(web_client: TestClient) -> None:
+    """Ethanol page screenshots (2026-09-26): the `rfs` enrichment block (services/ingest/enrich.py)
+    and the `sources` map the asset_source merge writes (services/ingest/assets.py) were printed
+    as a Python dict repr. A mapping renders as nested key/value rows with humanised keys, a list
+    of mappings as one block per item, a boolean as Yes/No, None and empty entries dropped."""
+    entity = _ethanol_entity(
+        attributes={
+            "nameplate_capacity_mmgal_yr": 125.0,
+            "as_of_year": 2025.0,
+            "sources": {
+                "capacity_value": "us.eia.ethanol_capacity",
+                "location": "us.eia.atlas_ethanol",
+                "atlas_operator_name": "Absolute Energy, L.L.C.",
+                "dropped": None,
+            },
+            "rfs": {
+                "d_codes": ["D6", "D3"],
+                "pathway_count": 3,
+                "first_registered_year": 2010,
+                "facility_type": "Ethanol Plant",
+                "co_processing": False,
+                "feature_flags": [],
+                "source_url": None,
+            },
+            "certifications": [
+                {"scheme": "ISCC", "current": True},
+                {"scheme": "RSB", "current": False},
+            ],
+        }
+    )
+    _install(_fuel_transport(entity))
+
+    resp = web_client.get("/assets/absolute-energy-llc-st-ansgar-ia-us-ia")
+
+    assert resp.status_code == 200
+    body = resp.text
+    table = body.split("2.</span> Attributes")[1].split("</section>")[0]
+    # Never a Python repr of a dict or a list, never "None".
+    assert "{'" not in body and "['" not in body and "{&#39;" not in body and "[&#39;" not in body
+    assert ">None<" not in body and "None</" not in body
+    # The mapping keys render as humanised nested rows inside the value cell.
+    assert 'class="record-table__nested"' in table and 'class="attr-nested"' in table
+    assert "<dt>capacity value</dt><dd>us.eia.ethanol_capacity</dd>" in table
+    assert "<dt>atlas operator name</dt><dd>Absolute Energy, L.L.C.</dd>" in table
+    assert "<dt>d codes</dt><dd>D6, D3</dd>" in table
+    assert "<dt>pathway count</dt><dd>3</dd>" in table
+    assert "<dt>first registered year</dt><dd>2010</dd>" in table
+    assert "<dt>co processing</dt><dd>No</dd>" in table
+    # None and empty entries leave no row behind.
+    assert "dropped" not in table and "feature flags" not in table and "source url" not in table
+    # A list of mappings is one nested block per item, each with Yes/No booleans.
+    assert table.count('class="attr-nested__item"') == 2
+    assert "<dt>scheme</dt><dd>ISCC</dd>" in table and "<dt>current</dt><dd>Yes</dd>" in table
+    assert "<dt>scheme</dt><dd>RSB</dd>" in table and "<dt>current</dt><dd>No</dd>" in table
+    # The promoted ethanol keys still leave the generic table; the header row is unchanged.
+    assert "nameplate capacity mmgal yr" not in table and "as of year" not in table
+    assert '<th scope="col">Attribute</th>' in table
