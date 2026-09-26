@@ -36,8 +36,16 @@ LIST_COMMON = {"limit", "cursor", "include", "sort", "q"}
 
 
 def int_param(request: Request, name: str) -> int | None:
-    v = request.query_params.get(name)
-    return int(v) if v is not None else None
+    """An optional integer query parameter. A value that is not an integer is a 400 `validation_error`
+    on every route, the behaviour `services/api/admin_records.py` alone had until 2026-09-26 (docs/42
+    §8): the public, assets and admin-sources routes let `int()` raise instead."""
+    raw = request.query_params.get(name)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise validation_error(name, f"{name} must be an integer", request.url.path) from exc
 
 
 def sort_spec(request: Request, allowlist: set[str], default: str) -> tuple[str, bool]:
