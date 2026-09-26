@@ -8,6 +8,16 @@
   <p class="coverage-line">{{ coverage_line }} <a href="/about#sources">Sources and licences</a>.</p>
 </div>
 
+{%- if paid_tiers_inactive %}
+{#- docs/26-platform-posture.md §3 precondition (i): one page-owned sentence stating both facts
+    (paid tiers off, every record free), plus the API's own sentence (`posture.statement`) --
+    never the template's -- for why (`/about` and `/methodology` follow the same rule). -#}
+<div class="notice" role="status" data-posture="{{ posture.value }}">
+  <p class="notice__title">Paid tiers are not currently offered; every published record is free to read.</p>
+  <p>{{ posture.statement }}</p>
+</div>
+{%- endif %}
+
 {%- if notice %}
 <div class="notice notice--error" role="alert">
   <p class="notice__title">{{ notice.title }}</p>
@@ -38,7 +48,7 @@
 
 <div class="tier-list">
   {%- for tier in tiers %}
-  <section class="tier{% if selected_plan == tier.id %} tier--selected{% endif %}" aria-labelledby="tier-{{ tier.id }}">
+  <section class="tier{% if selected_plan == tier.id %} tier--selected{% endif %}{% if paid_tiers_inactive and tier.id != 'free' %} tier--inactive{% endif %}" aria-labelledby="tier-{{ tier.id }}">
     <h2 id="tier-{{ tier.id }}">{{ tier.name }}</h2>
     <p class="tier__price"><span class="tnum">{{ tier.price }}</span> <span class="tier__period">{{ tier.price_period }}</span></p>
     {#- An anchor figure from the market review, not a measured price (docs/41 marks it "verify
@@ -61,6 +71,14 @@
       {%- if tier.id == 'free' %}
       <a class="tier__button" href="/proposals">Read the register</a>
       <p class="field-hint">No account, no card.</p>
+      {%- elif paid_tiers_inactive and (tier.plan is none or not subscribed) %}
+      {#- docs/26 §3 precondition (i): no checkout button or form while paid tiers are inactive.
+          An existing subscriber (`subscribed`) still sees the "already have a paid plan" branch
+          below for a tier they can self-serve buy (Pro/Team) -- managing what is already bought
+          is unaffected by this posture -- but the API/Data tier (`tier.plan is none`) has no
+          self-serve purchase to manage, only the sales inquiry this replaces, so it is always
+          marked inactive here regardless of subscription status. -#}
+      <p class="field-hint">Not currently offered while the platform operates as a noncommercial service.</p>
       {%- elif tier.plan is none %}
       <a class="tier__button" href="mailto:{{ sales_email }}">Email us about API access</a>
       <p class="field-hint">Priced two ways -- as an add-on to Team, or on its own -- so we set it up with you rather than at a button.</p>

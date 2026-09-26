@@ -1,7 +1,13 @@
 # Pricing page copy
 
-**Status:** Sprint 3 item 6, v3 · 2026-09-21 · backend-developer (ISO change-event delay removed) · v2
-2026-09-20 (paywall-by-shape amendment) · v1 2026-09-13 product-manager, reviewed by owner (`docs/04` R-2)
+**Status:** v4 · 2026-09-26 · backend-developer (noncommercial-posture notice, docs/26 §3 precondition (i)) ·
+v3 2026-09-21 (ISO change-event delay removed) · v2 2026-09-20 (paywall-by-shape amendment) · v1 2026-09-13
+product-manager, reviewed by owner (`docs/04` R-2)
+
+> **Added 2026-09-26 — the noncommercial-posture notice (owner, "Mark inactive, then flip").** See the new
+> section below. It is conditional copy, not a standing claim: it prints only while `GET /v1/health` reports
+> `posture: noncommercial` (`web/pricing.py`, `web/templates/pricing.html`), and nothing else on this page
+> changes.
 
 > **Amended again 2026-09-21 — there is no delay left to describe (owner).** The ISO change-event delay, the
 > one this page still carried, was dropped together with its per-source knob (`docs/00-PLAN.md` decisions log;
@@ -33,6 +39,30 @@ as an anchor rather than a measured price.
 > Infraque tracks every major US interconnection queue and the open international tender registers.
 > ERCOT, CAISO and NYISO are published today; PJM, MISO, SPP and ISO-NE are linked out pending licence
 > clearance (`docs/13-legal-data-rights.md` §6; `docs/00-PLAN.md` decision S3-4).
+
+---
+
+## Noncommercial-posture notice (conditional — `noncommercial` posture only)
+
+**Renders near the top of the page, above the tier table, only while `GET /v1/health` reports
+`posture: noncommercial` (`docs/26-platform-posture.md`).** Under `commercial` (the default) it does not render
+at all, and nothing else on the page changes. Two sentences, from two different owners, per docs/26's rule that
+the sentence about the posture is always the API's, never the template's:
+
+> Paid tiers are not currently offered; every published record is free to read.
+> {the API's `posture_statement`, verbatim — e.g. "This platform operates under a noncommercial posture: sources
+> that permit noncommercial reuse are published with attribution; they will be withdrawn if the posture
+> changes."}
+
+The first sentence is page-owned copy (`web/templates/pricing.html`) and is the only place on this page that
+states either fact; the second is `services/posture.py::posture_statement`'s sentence, unedited, exactly as
+`/about` and `/methodology` print it.
+
+**Every tier card except Free is marked inactive and offers no checkout** while the notice is showing: same
+name, price and inclusions list (nothing here contradicts docs/41's other sections), but the buy button/form is
+replaced with one line — "Not currently offered while the platform operates as a noncommercial service." — and
+an existing subscriber's tier keeps its "you already have a paid plan / manage it" copy instead, since that is
+not a new sale (`docs/26-platform-posture.md` §3 precondition (i)).
 
 ---
 
@@ -150,6 +180,7 @@ Cite by path only; this table does not describe the code, it maps each promise a
 | Records and change events undelayed on every tier | `services/ingest/lag.py::record_public_at` (the identity); migrations `0016` and `0019` for rows loaded before each decision |
 | Per-tier rate limits | `services/api/ratelimit.py` |
 | Export, watchlists | **Nothing. Neither exists.** `exports_per_day` / `export_rows_max` appear in the `GET /v1/me` entitlement payload and no route reads them |
+| Noncommercial-posture notice, inactive tiers, no checkout under `noncommercial` (added 2026-09-26) | `web/pricing.py` (reads `web/page.py::get_platform_posture`, i.e. `GET /v1/health`) and `web/templates/pricing.html` for the page; `services/billing/router.py`'s `PAID_TIERS_ACTIVE` (`403 paid_tiers_inactive`) for the actual gate on `POST /v1/billing/checkout` — the page-level checks are a courtesy, not the enforcement point |
 
 No other promise on this page (seats, saved-search count, export cap size, Snowflake delivery, licence
 pass-through) has a cited enforcement point — do not imply otherwise in the published copy.

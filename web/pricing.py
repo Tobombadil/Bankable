@@ -49,6 +49,22 @@ Nothing here is processor-specific: the template names no vendor, and this modul
 the two billing routes, which sit behind `services/sor/ports.py`'s `BillingPort`. Whichever
 adapter is wired (the real one, or `services/billing/fake.py`), the page behaves the same.
 
+**The `noncommercial` posture suspends the paid tiers honestly rather than hiding a live "Get the
+plan" button behind them** (docs/26-platform-posture.md §3 precondition (i); owner, 2026-09-26
+decisions log, verbatim: "Mark inactive, then flip — keep the pricing page visible with a 'paid
+tiers not currently offered' notice; disable checkout; flip the posture once ready"). Read the
+same way `/about` and `/methodology` read it — `web/page.py::get_platform_posture`, which asks
+`GET /v1/health`'s `posture`/`posture_statement` fields rather than the environment, so this page
+can never claim a posture the API-side gate is not applying. Under `noncommercial`: `GET /pricing`
+prints a notice near the top combining the API's `posture_statement` with one page-owned sentence,
+every tier card stays visible but is marked inactive with no checkout button or form, and
+`POST /pricing/checkout` re-renders the page instead of proceeding (the API's own gate,
+`services/billing/router.py`'s `PAID_TIERS_ACTIVE`, is the backstop this route's check mirrors,
+exactly as `_is_dry_run_url` mirrors and does not replace the API's own state). Under `commercial`,
+the default, none of this fires: `get_platform_posture` returns a `commercial` value, every branch
+below behaves exactly as it did before this posture existed. `POST /pricing/portal` is unaffected
+by any of it — managing a subscription an account already holds is not selling a new one.
+
 Same page-rendering/`get_api`/CSRF glue as `web/auth.py` and `web/legal.py`, duplicated for the
 reason `web/auth.py`'s docstring gives: `web/app.py` mounts this router, so importing back from
 it at module level would be circular.
@@ -69,6 +85,7 @@ from fastapi.templating import Jinja2Templates
 from services.api.common import DOMAIN
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
+from web.page import get_platform_posture
 from web.viewmodels import footer_build as vm_footer_build
 
 router = APIRouter()
@@ -331,11 +348,18 @@ def _context(
     user = me.get("user") if me else None
     tier = str(me.get("tier")) if me else None
     email = (user or {}).get("email") if isinstance(user, dict) else None
+    posture = get_platform_posture(request)
     return {
         "tiers": TIERS,
         "coverage_line": COVERAGE_LINE,
         # Say payments are off before the button rather than after it (`_billing_configured`).
         "billing_configured": _billing_configured(request),
+        # docs/26 §3 precondition (i): the paid tiers stay visible but inactive, and no checkout
+        # button/form renders, while the platform posture is `noncommercial`. `posture` carries
+        # the API's own sentence (`GET /v1/health`'s `posture_statement`) for the template to
+        # print verbatim, the same rule `/about` and `/methodology` follow.
+        "posture": posture,
+        "paid_tiers_inactive": posture is not None and posture["value"] == "noncommercial",
         "signed_in": me is not None,
         "tier": tier,
         # `admin` is a manual grant, never derived from billing (docs/21 §3.13), so it is not a
@@ -409,9 +433,26 @@ def pricing(request: Request) -> Response:
 @router.post("/pricing/checkout", response_class=HTMLResponse)
 def checkout(request: Request, plan: Annotated[str, Form()] = "") -> Response:
     """Signed in: hand off to `POST /v1/billing/checkout` and follow the session URL it returns.
-    Signed out: register or sign in first, and come back to this tier."""
+    Signed out: register or sign in first, and come back to this tier.
+
+    Refuses while the platform posture is `noncommercial` (docs/26 §3 precondition (i)): the page
+    is simply re-rendered, `200`, with `paid_tiers_inactive` true so the persistent notice this
+    module's docstring describes is what the visitor sees -- there is no separate error box to
+    show and dismiss for a request that was never going to be honoured this way, and `200` fits a
+    request the server understood and fully handled (nothing was wrong with it, and nothing about
+    it will succeed later without a restart) better than a client error (`400`) or a redirect to
+    a prerequisite step (`303`) would. This is a courtesy backstop: the button that would post
+    here is already gone from the page under this posture (`web/templates/pricing.html`); the
+    actual gate is `POST /v1/billing/checkout` (`services/billing/router.py`'s
+    `PAID_TIERS_ACTIVE`), same as `_is_dry_run_url` above is a courtesy check ahead of a real one.
+    """
     if not _is_same_origin(request):
         return _csrf_rejection()
+
+    context = _context(request, selected_plan=_selected_plan(plan))
+    if context["paid_tiers_inactive"]:
+        return _render(request, context, status_code=200)
+
     if plan not in PURCHASABLE:
         return _render(
             request,
@@ -487,7 +528,15 @@ def checkout(request: Request, plan: Annotated[str, Form()] = "") -> Response:
 @router.post("/pricing/portal", response_class=HTMLResponse)
 def portal(request: Request) -> Response:
     """Manage an existing subscription: `POST /v1/billing/portal` and follow the URL. Shown
-    instead of a buy button once the account carries a paid entitlement."""
+    instead of a buy button once the account carries a paid entitlement.
+
+    Unaffected by the platform posture: unlike `checkout` above, this route carries no
+    `paid_tiers_inactive` gate and never will, on purpose. Managing a subscription an account
+    already holds is not selling a new one, and the owner's "mark inactive, then flip" decision
+    (docs/26-platform-posture.md §3 precondition (i); `docs/00-PLAN.md` 2026-09-26) was to stop
+    *offering* paid tiers, not to strand anyone already on one — the same reasoning
+    `services/billing/router.py::open_portal`'s docstring gives for the API route this hands off
+    to."""
     if not _is_same_origin(request):
         return _csrf_rejection()
     cookie = request.cookies.get(SESSION_COOKIE_NAME)

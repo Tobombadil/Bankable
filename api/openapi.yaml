@@ -2168,6 +2168,9 @@ paths:
         (`services/billing/router.py`'s `require_session_only("public")`). Creates a Stripe customer
         on first purchase (`account.billing_ref` persisted from the response) and a subscription-mode
         Checkout Session for `plan`/`seats`; the browser redirects the user to `data.url`.
+        `403 paid_tiers_inactive` while the platform posture is `noncommercial`
+        (docs/26-platform-posture.md §3 precondition (i)) — no new paid subscription can start
+        until it changes; `POST /v1/billing/portal` for an existing one is unaffected.
       x-tier: public
       x-status: live
       x-sprint: 3
@@ -2192,6 +2195,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/PaidTiersInactive'
         '409':
           $ref: '#/components/responses/Conflict'
         '503':
@@ -6927,6 +6932,22 @@ components:
             instance: /v1/proposals/prop_01JBQ7Z8KD
             request_id: req_4b1e33
             docs: https://infraque.com/docs/api/errors#unpublished
+    PaidTiersInactive:
+      description: 'The platform is operating under a `noncommercial` posture (docs/26-platform-posture.md; `GET /v1/health`''s `posture` field): no new paid subscription can be started until it changes. `POST /v1/billing/portal` for an existing subscription is unaffected.'
+      headers: *std_headers
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.infraque.com/errors/paid_tiers_inactive
+            title: Paid tiers are not currently offered
+            status: 403
+            code: paid_tiers_inactive
+            detail: The platform is operating under a noncommercial posture (docs/26-platform-posture.md); no new paid subscription can be started until the posture changes. An existing subscription can still be managed at POST /v1/billing/portal.
+            instance: /v1/billing/checkout
+            request_id: req_4b1e40
+            docs: https://infraque.com/docs/api/errors#paid_tiers_inactive
     Conflict:
       description: Idempotency-key reuse with a different body, a stale merge preview, a state transition that is not legal from the current state, or a duplicate name.
       headers: *std_headers
@@ -7640,6 +7661,7 @@ components:
         - not_found
         - unpublished
         - conflict
+        - paid_tiers_inactive
         - gate_unmet
         - rate_limited
         - quota_exceeded
@@ -7653,7 +7675,7 @@ components:
         type:
           type: string
           format: uri
-          pattern: '^https://api\.infraque\.com/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable)$'
+          pattern: '^https://api\.infraque\.com/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|paid_tiers_inactive|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable)$'
         title:
           type: string
         status:

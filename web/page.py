@@ -70,6 +70,26 @@ def get_lag_days(request: Request) -> dict[str, int]:
     return cached
 
 
+def get_platform_posture(request: Request) -> dict[str, str] | None:
+    """The platform posture as `GET /v1/health` reports it (`posture`, `posture_statement`;
+    docs/26): the setting lives on the API host, and the sentence the public pages print is
+    the API's, so a page can never claim a posture the gate is not applying. Not cached on
+    `app.state` like `lag_days_default`: it is read on a handful of low-traffic pages, and a
+    per-process cache is one more thing a posture flip would need restarting. `None` when the
+    API predates the field, in which case the pages print nothing rather than a guess.
+
+    Moved here verbatim from `web/app.py` (docs/42-backend-review-2026-09-26.md lane pattern;
+    owner, 2026-09-26 decisions log "Mark inactive, then flip") so `web/pricing.py` can import it
+    too without importing `web/app.py` back and creating a cycle -- the same reason this module
+    holds `get_api`/`is_preview_active` rather than `web/app.py`."""
+    health = get_api(request).get("/v1/health")
+    posture = health.get("posture")
+    statement = health.get("posture_statement")
+    if not isinstance(posture, str) or not isinstance(statement, str):
+        return None
+    return {"value": posture, "statement": statement}
+
+
 def is_htmx(request: Request) -> bool:
     return request.headers.get("hx-request") == "true"
 

@@ -807,6 +807,10 @@ h3 { font-size: var(--text-4); }
 /* The tier the visitor picked before signing in (`/pricing?plan=pro`). The heavier border is the
    visible echo of the "This is the plan you picked" line, never the only signal (SC 1.4.1). */
 .tier--selected { border-width: 2px; border-color: var(--link); }
+/* docs/26 §3 precondition (i): visible but not on offer while the platform posture is
+   `noncommercial`. Opacity only, no new token, and never the sole signal -- the "not currently
+   offered" field-hint text in the CTA carries the fact for anyone who cannot see the dimming. */
+.tier--inactive { opacity: 0.7; }
 .tier h2 { font-size: var(--text-4); margin: 0; }
 .tier__price { font-size: var(--text-5); margin: 0; line-height: 1.1; }
 .tier__period { display: block; font-size: var(--text-1); color: var(--text-muted); font-weight: 400; }
