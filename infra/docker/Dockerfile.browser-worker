@@ -20,7 +20,12 @@ COPY infra/scheduler/requirements.txt ./infra-scheduler-requirements.txt
 
 # See infra/docker/Dockerfile for why psycopg and infra/scheduler/requirements.txt (Procrastinate,
 # ADR 0004) are added at the image layer rather than in the repo-root requirements.txt.
-RUN pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt "psycopg[binary]>=3.1,<4" \
+# The `ca_bundle` secret mount is the same build-time-only TLS-interception hook as in
+# infra/docker/Dockerfile (a no-op when no secret is passed); NODE_EXTRA_CA_CERTS covers the
+# Chromium download, which Playwright's Node driver performs.
+RUN --mount=type=secret,id=ca_bundle,target=/run/secrets/ca_bundle \
+    if [ -s /run/secrets/ca_bundle ]; then export PIP_CERT=/run/secrets/ca_bundle NODE_EXTRA_CA_CERTS=/run/secrets/ca_bundle; fi \
+    && pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt "psycopg[binary]>=3.1,<4" \
     && python -m playwright install --with-deps chromium
 
 COPY pyproject.toml ./pyproject.toml

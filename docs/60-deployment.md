@@ -319,13 +319,18 @@ since neither ships by default — see §11); `docker compose config` (Compose v
 `infra/scheduler`'s pure functions have a full green pytest run; every shell script in `infra/scripts/`
 passes `bash -n` and `shellcheck` with only two informational (not warning-level) notes.
 
-**Not validated here (state per the task's own instruction):** an actual `docker build` of any Dockerfile
-— the Docker daemon is present as a CLI but has no running daemon in this sandbox (`docker info` fails);
-`hadolint` was run instead as a static check and both Dockerfiles are clean. An actual `tofu apply` against
-real Hetzner/Cloudflare accounts — `tofu plan` was exercised far enough to reach real provider
-authentication (confirms the configuration is structurally complete) but no real cloud resources were
-created, and no HCLOUD_TOKEN/CLOUDFLARE_API_TOKEN exists in this sandbox to go further. Both are §11's
-first two "unvalidated" items with the exact commands to run once real credentials exist.
+**Measured 2026-09-26 on a real Docker engine (29.3.1, Compose v5.1.1; local, not a cloud host).** All
+four images build from the two Dockerfiles and the whole Compose stack runs: images, migrations on
+PostGIS, a full data load, health, the E-10 smoke, the CI axe scan, workers and a dump/restore drill. §11
+item 9 has the numbers and the five defects the run found (three fixed in `infra/`, two open). Until
+2026-09-19 this paragraph read "no `docker build` of any Dockerfile" (no daemon then; `hadolint` was the
+only check).
+
+**Still not validated:** `tofu apply` against real Hetzner/Cloudflare accounts — `tofu plan` was
+exercised far enough to reach real provider authentication (confirms the configuration is structurally
+complete) but no real cloud resources were created, and no HCLOUD_TOKEN/CLOUDFLARE_API_TOKEN exists in
+this sandbox to go further; a `release.yml` run and GHCR push; `deploy.sh` against real hosts. These are
+§11 items 1 and 9 with the exact commands to run once real credentials exist.
 
 ### 9.1 Basemap tile refresh
 
@@ -514,8 +519,8 @@ In the order the owner needs to act, per the task brief:
    `terraform.tfvars.example` first) to see the real plan before `tofu apply`.
 2. **No managed Postgres project exists.** Create a Neon project (or Crunchy Bridge, ADR 0003 names both),
    enable the `postgis`/`pg_trgm`/`btree_gin`/`pgcrypto` extensions, and run
-   `alembic -c services/db/migrations/alembic.ini upgrade head` against it — this has never been run against
-   a real Postgres anywhere (`services/README.md`'s own caveat).
+   `alembic -c services/db/migrations/alembic.ini upgrade head` against it — never yet run against a managed
+   provider; it has run clean against PostGIS 16/3.4 in a local container (2026-09-26, item 9).
 3. **Generate the real per-environment age keys** (`infra/scripts/bootstrap_age_key.sh dev|staging|
    production`) and fill in `infra/sops/.sops.yaml`'s three `REPLACE_WITH_*` placeholders, then create the
    real `secrets.<env>.enc.yaml` files (they do not exist yet — only the throwaway `secrets.dev.example.
@@ -540,12 +545,61 @@ In the order the owner needs to act, per the task brief:
 8. **R2 backup retention is done by the script, not a lifecycle rule** (§8: 14 daily + 8 weekly). A bucket
    lifecycle rule via `infra/terraform/storage.tf` would be the belt-and-braces once the Cloudflare provider
    is upgraded; the pinned v4 provider has no such resource.
-9. **Not verified in the 2026-09-19 sandbox** (no Docker daemon, no cloud accounts): an actual image build
-   with the new `infra/entrypoint.py` CMDs; `docker compose up` with `env_file` long syntax against a real
-   engine; the cloud-init run (PGDG key import, `awscli` package name on the marketplace image's Ubuntu
-   release, timer activation); `sops --output-type dotenv` against a real encrypted file; the GHCR push
-   (needs a run of `release.yml` on `main`); `deploy.sh` against real hosts (only its order and rollback
-   path are proven, against shims). Rehearse all of it on `staging` first (`docs/40` §3).
+9. **Local container run, measured 2026-09-26** (Docker 29.3.1, Compose v5.1.1, containerd snapshotter;
+   one sandbox host, not a cloud VM). Commands and logs are in the lane's handback; the numbers:
+   - **Images** (content size as pushed / Docker's on-disk figure): `api` 327.3 MB / 1.40 GB, `web`
+     331.3 MB / 1.41 GB, `worker` 327.3 MB / 1.40 GB, `browser-worker` 1,052.9 MB / 3.81 GB. A cold build of
+     all four took 278 s; a rebuild that changes only `GIT_SHA` takes 6 s (dependency layers cached). This
+     sandbox re-terminates TLS with a private CA, so pip failed (`CERTIFICATE_VERIFY_FAILED`) until both
+     Dockerfiles gained an optional `ca_bundle` build secret. The secret is mounted for the pip/Playwright step
+     only, and when it is absent (release.yml never passes it) the build installs exactly what it did before.
+   - **Compose**: `--profile local up -d postgres api web` with the `env_file` long syntax works; `api` and
+     `web` report healthy about 8 s after start; `/v1/health` and `/health` answer 200.
+   - **Migrations, first run on PostGIS** (`postgis/postgis:16-3.4`: PostgreSQL 16.4, PostGIS 3.4.3), in a
+     one-off `api` container exactly as `deploy.sh` step 4 runs them, on a fresh volume: `upgrade head`
+     (0001 → 0021, 21 revisions) exit 0 in 4.8 s; `downgrade -1` (0021 → 0020) exit 0 in 2.2 s; `upgrade head`
+     exit 0 in 1.9 s.
+   - **Data load** from the host into that database (the `web/dev_up.py` loaders, no `create_all`, against the
+     migrated schema): 228 s; `asset` 17,871, `proposal` 10,409, `opportunity` 707, `organization` 8,374,
+     `asset_owner` 9,346, `asset_source` 388, `event` 0 (the dev loaders write no events; the resolve, social
+     and API paths do), `source`/`licence` 22 each; database 114 MB.
+   - **Browser checks** on the containerised `web`: the E-10 smoke (`web/test_e2e.py`'s paths, driven against
+     :8001) 19/19 checks at 1440 and 400 px; `npx axe` (axe-core 4.13.0, the `a11y-and-performance` job's
+     command and URLs) 0 violations on `/`, `/proposals` and `/about`. Findings are in `docs/40` §6 item 4.
+   - **Workers**: `worker` ×2, `scheduler` and `browser-worker` start, then crash-loop (9 restarts in 45 s)
+     on `psycopg.errors.UndefinedFunction: function procrastinate_prune_stalled_workers_v1(double precision)
+     does not exist`. **Nothing in the repo applies Procrastinate's schema**: not Alembic, not `deploy.sh`, not
+     the entrypoint. After a one-off `python -m procrastinate --app=infra.scheduler.app.app schema --apply`
+     (exit 0, 2 s; 4 tables, 18 functions) all four ran 8 minutes with 0 restarts, and the scheduler
+     deferred 18 due fetch jobs. The command is not idempotent: a second run exits 1 (`type
+     "procrastinate_job_status" already exists`). The durable fix is an Alembic revision or a guarded
+     `deploy.sh` step. Until then, run it once by hand before the first deploy (`docs/40` §3 step 7).
+     `/v1/health` reports `"queue": true` unconditionally (`services/api/app.py`), so it cannot catch this.
+   - **Connector runs cannot write their output in a container.** `pipeline/connectors/store.py` roots all
+     output at `/app/data` (`DATA_DIR = ROOT / "data"`). The images create that directory root-owned and run as
+     uid 10001, and no Compose file mounts a volume there. Every scheduled run therefore ends in
+     `PermissionError: [Errno 13] Permission denied: '/app/data/runs'`. Separately, fetch and load jobs can land
+     on different worker hosts, which share no filesystem. Open: this needs a decision between a per-host volume
+     and object storage for snapshots.
+   - **Fixed in this run:** (a) the footer read "Build unknown". `services/api/build_info.py` reads `GIT_SHA`,
+     but neither release.yml nor the Dockerfile set it, and the image has no `.git`. The Dockerfile now takes
+     `ARG GIT_SHA`, Compose passes `${GIT_SHA:-}`, and release.yml passes `github.sha`; `/v1/health` then
+     reported `4b00378d4575` (source `GIT_SHA`). (b) `infra/scripts/restore_drill.sh`, run with an `aws` shim
+     serving a `pg_dump` of the loaded database (R2 itself not reached), failed 2 of 2 runs at the restore step
+     (exit 137). It probed readiness over the unix socket, which the image's temporary init-phase server
+     answers, and it restored into a database whose pre-installed `tiger`/`topology` schemas make `pg_restore`
+     exit 1. It now waits on TCP and restores into a `template0` clone: exit 0 in 16 s, with row counts equal
+     to the source.
+   - **Without `API_INTERNAL_TOKEN`** every server-side call `web` makes shares the 60-per-hour anonymous
+     bucket. `/about` fans out about 20 calls, so a handful of page views turns into 429s, and `web` renders
+     those as a 500 (`web/page.py` `get_platform_posture`). With the token set, 80 of 80 `/about` requests
+     returned 200. It is in `docs/40` §2.6's secret list; treat it as required, not optional.
+
+   **Still not verified** (needs real accounts): the cloud-init run (PGDG key import, `awscli` package name on
+   the marketplace image's Ubuntu release, timer activation); `sops --output-type dotenv` against a real
+   encrypted file; the GHCR push (a run of `release.yml` on `main`); `deploy.sh` against real hosts (only its
+   order and rollback path are proven, against shims); `tofu apply`; `restore_drill.sh` against R2;
+   migrations against a managed provider (item 2). Rehearse all of it on `staging` first (`docs/40` §3).
 
 ## 12. Assumptions
 

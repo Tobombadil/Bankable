@@ -73,6 +73,11 @@ jobs:
           target: ${{ matrix.target }}
           push: true
           tags: ${{ steps.tags.outputs.tags }}
+          # services/api/build_info.py reads GIT_SHA for the footer and /v1/health; the image has
+          # no .git, so without it every deployed page said "Build unknown" (found 2026-09-26).
+          # Dockerfile.browser-worker declares no such ARG and ignores it.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

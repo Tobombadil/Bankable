@@ -35,7 +35,14 @@ COPY infra/scheduler/requirements.txt ./infra-scheduler-requirements.txt
 # (ADR 0004) is installed from infra/scheduler/requirements.txt for the same reason — only the
 # `worker` target actually runs it, but one shared base layer keeps the image count at two
 # (docs/20 §4.1 "one container image with different entrypoints").
-RUN pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt "psycopg[binary]>=3.1,<4"
+# `--mount=type=secret,id=ca_bundle` is a build-time hook for sandboxes whose egress re-terminates
+# TLS with a private CA (first real build, 2026-09-26, behind such a proxy): pass the bundle with
+# `docker buildx build --secret id=ca_bundle,src=<file>` (or Compose `build.secrets`) and pip trusts
+# it for this step only. Nothing is copied into the image, and when no secret is supplied the mount
+# is absent and the `if` is a no-op, so a plain `docker build` installs exactly what it did before.
+RUN --mount=type=secret,id=ca_bundle,target=/run/secrets/ca_bundle \
+    if [ -s /run/secrets/ca_bundle ]; then export PIP_CERT=/run/secrets/ca_bundle; fi \
+    && pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt "psycopg[binary]>=3.1,<4"
 # The CI image scan flags wheel 0.45.1 and jaraco.context 5.3.0 (CVE-2026-24049, CVE-2026-23949).
 # Those are the copies vendored inside setuptools 78.1.1 (`setuptools/_vendor/*.dist-info`), not
 # top-level installs, so upgrading the top-level packages changes nothing (tried, 2026-09-15). They
@@ -50,9 +57,16 @@ COPY infra/__init__.py ./infra/__init__.py
 COPY infra/entrypoint.py infra/logging_config.py infra/observability.py ./infra/
 COPY infra/scheduler ./infra/scheduler
 
+# The commit this image was built from, read by services/api/build_info.py for `/v1/health`'s
+# `build.commit` and the site footer. The image has no `.git` and no `git` binary, so without this
+# stamp the footer reads "Build unknown" (first local stack run, 2026-09-26). release.yml passes
+# `GIT_SHA=${{ github.sha }}`; Compose passes `${GIT_SHA:-}`. Declared after the dependency layers
+# so a new commit rebuilds only the layers below this line; empty means "unavailable", as before.
+ARG GIT_SHA=""
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    BANKABLE_DOMAIN=example-infraque.test
+    BANKABLE_DOMAIN=example-infraque.test \
+    GIT_SHA=${GIT_SHA}
 
 RUN useradd --create-home --uid 10001 appuser
 USER appuser

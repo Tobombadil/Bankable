@@ -38,18 +38,32 @@ docker run -d --rm --name "$scratch_container" \
   -e POSTGRES_DB=restore_drill -e POSTGRES_USER=drill -e POSTGRES_PASSWORD=drill \
   -p "${scratch_port}:5432" postgis/postgis:16-3.4 >/dev/null
 
-echo "[restore-drill] waiting for scratch Postgres to accept connections"
+# Over TCP, not the unix socket: the image's entrypoint runs its init scripts on a temporary
+# socket-only server and then restarts it, so a socket probe says "ready" too early and the restore
+# is cut off mid-way ("terminating connection due to administrator command"; local drill,
+# 2026-09-26). The final server is the first one listening on TCP.
+echo "[restore-drill] waiting for scratch Postgres to accept TCP connections"
+ready=0
 for _ in $(seq 1 30); do
-  docker exec "$scratch_container" pg_isready -U drill -d restore_drill >/dev/null 2>&1 && break
+  if docker exec "$scratch_container" pg_isready -h 127.0.0.1 -U drill -d restore_drill >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
   sleep 2
 done
+(( ready )) || { echo "[restore-drill] scratch Postgres never accepted TCP connections" >&2; exit 1; }
 
-echo "[restore-drill] restoring dump"
+# Into a database cloned from template0, not the image's POSTGRES_DB: that one already has the
+# postgis/topology/tiger extensions its init script installs, so the dump's own CREATE SCHEMA
+# statements fail and pg_restore exits 1 ("errors ignored on restore: 3") even though every row
+# restored (local drill, 2026-09-26).
+echo "[restore-drill] restoring dump into a fresh database (template0)"
 docker cp "${work_dir}/${latest}" "${scratch_container}:/tmp/restore.dump"
-docker exec "$scratch_container" pg_restore --no-owner --no-privileges -U drill -d restore_drill /tmp/restore.dump
+docker exec "$scratch_container" createdb -h 127.0.0.1 -U drill -T template0 restore_target
+docker exec "$scratch_container" pg_restore --no-owner --no-privileges -h 127.0.0.1 -U drill -d restore_target /tmp/restore.dump
 
 echo "[restore-drill] sanity checks: row counts on core tables (docs/21 §2)"
-docker exec "$scratch_container" psql -U drill -d restore_drill -c \
+docker exec "$scratch_container" psql -h 127.0.0.1 -U drill -d restore_target -c \
   "select 'proposal', count(*) from proposal
    union all select 'opportunity', count(*) from opportunity
    union all select 'organization', count(*) from organization
