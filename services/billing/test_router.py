@@ -7,12 +7,16 @@ checks `/v1/me` after a webhook).
 from __future__ import annotations
 
 import datetime as dt
+import importlib.util
 import json
+import sys
+import types
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+import services.billing.router as router_module
 from services.billing.fake import InMemoryBilling
 from services.sor.ports import SorRejected, SorUnavailable
 from tests.conftest import login, make_account, make_user
@@ -84,6 +88,103 @@ def test_checkout_201_with_url_and_persists_billing_ref(
     refreshed = db.get(type(account), account.id)
     assert refreshed is not None
     assert refreshed.billing_ref == recorded.billing_ref
+
+
+# ------------------------------------------------------------ posture: paid tiers inactive
+def _reimport_router(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    """Execute `services/billing/router.py` again under the current environment, mirroring
+    `tests/test_platform_posture.py::_reimport`. Proves `PAID_TIERS_ACTIVE` is computed from
+    `PLATFORM_POSTURE` at import -- the same moment `services/api/visibility.py`'s
+    `PUBLISHABLE_REUSE_CLASSES` is -- rather than read some other way. The real module, and the
+    `router` object the `client` fixture above mounts, are untouched."""
+    name = f"{router_module.__name__}_posture_probe"
+    spec_ = importlib.util.spec_from_file_location(name, router_module.__file__)
+    assert spec_ is not None and spec_.loader is not None
+    probe = importlib.util.module_from_spec(spec_)
+    monkeypatch.setitem(sys.modules, name, probe)
+    spec_.loader.exec_module(probe)
+    return probe
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_active"),
+    [(None, True), ("commercial", True), ("noncommercial", False), ("garbage", True)],
+)
+def test_paid_tiers_active_reflects_posture_at_import(
+    monkeypatch: pytest.MonkeyPatch, value: str | None, expected_active: bool
+) -> None:
+    """Default unset, `commercial` and a typo all fail closed to active (docs/26 "a typo cannot
+    widen publication" -- the same fail-closed direction applies here: a typo must not silently
+    suspend paid tiers either); only `noncommercial` turns it off."""
+    if value is None:
+        monkeypatch.delenv("PLATFORM_POSTURE", raising=False)
+    else:
+        monkeypatch.setenv("PLATFORM_POSTURE", value)
+    probe = _reimport_router(monkeypatch)
+    assert probe.PAID_TIERS_ACTIVE is expected_active
+
+
+def test_paid_tiers_active_by_default() -> None:
+    """Commercial (the default, no env var set for the whole suite) is unaffected: pinned against
+    the real module the `client` fixture mounts, not a reimport."""
+    assert router_module.PAID_TIERS_ACTIVE is True
+
+
+def test_checkout_refuses_with_paid_tiers_inactive_under_noncommercial_posture(
+    client: TestClient, db: Session, billing_port: InMemoryBilling, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(router_module, "PAID_TIERS_ACTIVE", False)
+    _signed_up_user(db, client)
+
+    resp = client.post("/v1/billing/checkout", json={"plan": "pro", "seats": 1})
+
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["code"] == "paid_tiers_inactive"
+    assert body["title"] == "Paid tiers are not currently offered"
+    assert billing_port.checkouts == []
+
+
+def test_checkout_still_requires_session_under_noncommercial_posture(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The session check is a FastAPI dependency, resolved before this route's body runs, so an
+    unauthenticated caller still gets `401` -- the posture gate never gets a chance to answer for
+    them, and does not need to: `services/billing/README.md`'s usual ordering (auth first) holds."""
+    monkeypatch.setattr(router_module, "PAID_TIERS_ACTIVE", False)
+    resp = client.post("/v1/billing/checkout", json={"plan": "pro", "seats": 1})
+    assert resp.status_code == 401
+
+
+def test_checkout_still_succeeds_when_posture_is_explicitly_commercial(
+    client: TestClient, db: Session, billing_port: InMemoryBilling, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pins "behaviour under `commercial` is unchanged" against an explicit value, not only the
+    unset default `test_checkout_201_with_url_and_persists_billing_ref` already covers."""
+    monkeypatch.setattr(router_module, "PAID_TIERS_ACTIVE", True)
+    _signed_up_user(db, client)
+
+    resp = client.post("/v1/billing/checkout", json={"plan": "pro", "seats": 1})
+
+    assert resp.status_code == 201
+    assert len(billing_port.checkouts) == 1
+
+
+def test_portal_is_unaffected_by_paid_tiers_inactive(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Managing an existing subscription stays available under `noncommercial`
+    (`open_portal`'s docstring): the owner's decision was to stop *offering* paid tiers, not to
+    strand anyone already on one."""
+    monkeypatch.setattr(router_module, "PAID_TIERS_ACTIVE", False)
+    account, _user = _signed_up_user(db, client)
+    account.billing_ref = "cus_already_a_customer"
+    db.commit()
+
+    resp = client.post("/v1/billing/portal")
+
+    assert resp.status_code == 200
+    assert resp.json()["data"]["url"].startswith("https://portal.stripe.invalid/")
 
 
 # --------------------------------------------------------------------------------------- portal

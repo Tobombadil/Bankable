@@ -35,6 +35,7 @@ from web.page import (
     canonical_query,
     get_api,
     get_lag_days,
+    get_platform_posture,
     is_htmx,
     is_preview_active,
     item_list_jsonld,
@@ -153,21 +154,6 @@ from web.admin.people import router as admin_people_router  # noqa: E402
 app.include_router(admin_people_router)
 app.include_router(admin_ops_router)
 app.include_router(admin_engagement_router)
-
-
-def get_platform_posture(request: Request) -> dict[str, str] | None:
-    """The platform posture as `GET /v1/health` reports it (`posture`, `posture_statement`;
-    docs/26): the setting lives on the API host, and the sentence the two public pages print is
-    the API's, so a page can never claim a posture the gate is not applying. Not cached on
-    `app.state` like `lag_days_default`: it is read on exactly two low-traffic pages, and a
-    per-process cache is one more thing a posture flip would need restarting. `None` when the
-    API predates the field, in which case the pages print nothing rather than a guess."""
-    health = get_api(request).get("/v1/health")
-    posture = health.get("posture")
-    statement = health.get("posture_statement")
-    if not isinstance(posture, str) or not isinstance(statement, str):
-        return None
-    return {"value": posture, "statement": statement}
 
 
 #: docs/50 §3.2 web bullet ("no Open Graph or structured data") and docs/00-PLAN.md 2026-09-19

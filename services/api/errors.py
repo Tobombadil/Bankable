@@ -20,6 +20,7 @@ ERROR_CODES = {
     "not_found": 404,
     "unpublished": 410,
     "conflict": 409,
+    "paid_tiers_inactive": 403,
     "gate_unmet": 422,
     "rate_limited": 429,
     "quota_exceeded": 429,

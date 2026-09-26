@@ -1,10 +1,11 @@
 # Platform posture: noncommercial for now, and the machinery that makes the switch a flip
 
-Phase 2 architecture/data doc. Owner: backend-developer (posture lane). Status: v1, 2026-09-25. Companion to
-`13-legal-data-rights.md` §0/§6 (the `noncommercial` class), `21-data-model.md` §3.19/§8 (the vocabulary and the
-gating table) and the `docs/00-PLAN.md` decisions log (two rows dated 2026-09-25: the Texas lane's records the
-owner's decision and what it settles for `us.tx.rrc.class_vi`; this lane's records the machinery below and the
-three preconditions).
+Phase 2 architecture/data doc. Owner: backend-developer (posture lane). Status: v2, 2026-09-26 (§3 precondition
+(i) landed; (ii) withdrawn). Companion to `13-legal-data-rights.md` §0/§6 (the `noncommercial` class),
+`21-data-model.md` §3.19/§8 (the vocabulary and the gating table) and the `docs/00-PLAN.md` decisions log (two
+rows dated 2026-09-25: the Texas lane's records the owner's decision and what it settles for
+`us.tx.rrc.class_vi`; this lane's records the machinery below and the three preconditions — plus the 2026-09-26
+row recording the owner's "Mark inactive, then flip" decision on precondition (i) and the withdrawal of (ii)).
 
 ## 1. What the posture is
 
@@ -68,16 +69,42 @@ Written here in the coordinator's words; none is implemented by this change and 
 
 **(i) The posture must be true, not a label.** The pricing page, checkout and paid tiers must be suspended or
 plainly marked inactive while the posture is `noncommercial`, because a platform with a live "Get the plan"
-button claiming noncommercial use is a false claim, and worse than the current position. *Status:* not done.
-`web/pricing.py`, `POST /v1/billing/checkout` and the `pro`/`api` entitlements are untouched by this lane on
-purpose — suspending them is a product decision for the owner. Until it is taken, `PLATFORM_POSTURE` stays
-`commercial`.
+button claiming noncommercial use is a false claim, and worse than the current position.
+
+*Status, 2026-09-26: satisfied.* Owner decision (`docs/00-PLAN.md` 2026-09-26 decisions log), verbatim: "Mark
+inactive, then flip — keep the pricing page visible with a 'paid tiers not currently offered' notice; disable
+checkout; flip the posture once ready." Gated on this precondition being read from the posture itself, not a
+second setting, so a deployment can never have the posture flipped without the paid surfaces following:
+
+- `GET /pricing` (`web/pricing.py`) reads the posture the way `/about` and `/methodology` do —
+  `web/page.py::get_platform_posture`, which asks `GET /v1/health`'s `posture`/`posture_statement` fields rather
+  than the environment. Under `noncommercial` it prints a notice near the top (the API's own sentence plus one
+  page-owned sentence, never the template's own claim about the posture) and every tier card stays visible but
+  marked inactive, with no checkout button or form. Under `commercial`, the default, nothing changes.
+- `POST /pricing/checkout` re-renders the same page, `200`, instead of posting to the API — a courtesy backstop,
+  not the gate itself, since the button that would reach it is already gone from the page.
+- `POST /v1/billing/checkout` (`services/billing/router.py`) is the actual gate: a module-level constant,
+  `PAID_TIERS_ACTIVE = platform_posture() != "noncommercial"`, computed once at import exactly the way
+  `services/api/visibility.py`'s `PUBLISHABLE_REUSE_CLASSES` is, refuses every request with a new
+  `403 paid_tiers_inactive` problem response while it is `noncommercial`, before the plan or seats are even
+  parsed. `api/openapi.yaml` documents the response on the existing operation (no operation added or removed).
+- `POST /pricing/portal` and `POST /v1/billing/portal` are deliberately untouched by all of the above: managing
+  a subscription an account already holds is not selling a new one, and the owner's decision was to stop
+  *offering* paid tiers, not to strand anyone already on one. Both routes' docstrings say so.
+
+`tests/test_platform_posture.py`+`web/test_pricing.py`+`services/billing/test_router.py` between them pin: the
+`commercial` behaviour is unchanged (checkout still succeeds, no notice, no inactive marking); the `noncommercial`
+notice, inactive marking and refusal; an existing subscriber keeps the "manage billing" branch on the tier they
+hold under either posture; `POST /pricing/portal`/`POST /v1/billing/portal` succeed under both.
 
 **(ii) Counsel must confirm the entity can hold the status.** A pre-revenue LLC (Compass International Trading
 Group LLC, `docs/00-PLAN.md` 2026-09-18) whose stated purpose is to feed a commercial deal workflow must be
 confirmed able to hold noncommercial status under CC BY-NC's definition — "not primarily intended for or
 directed towards commercial advantage or monetary compensation" — and under undefined state-site grants like the
-RRC's, which define neither the purpose nor the user. *Status:* open; belongs on the counsel list in docs/13 §7.
+RRC's, which define neither the purpose nor the user.
+
+*Status: withdrawn by the owner, 2026-09-26 (`docs/00-PLAN.md` decisions log).* No longer a precondition to
+flipping the posture; nothing in this document's runbook or tests depends on it having been satisfied.
 
 **(iii) A firewall.** No `noncommercial` row may flow to the Bankable deal workflow or any downstream commercial
 use. What enforces that today, and what does not:
@@ -161,3 +188,8 @@ that were never ingested rather than un-hiding held ones (a `noncommercial` sour
   trip is recorded in `docs/CHANGELOG.md` for this revision.
 - `tests/test_posture_report.py`, `tests/test_manifest_licences.py` (the register class), `web/test_platform_posture.py`
   (the sentence is the API's).
+- §3 precondition (i), 2026-09-26: `web/test_pricing.py` (the notice, the inactive marking, no checkout
+  button/form, `commercial` unchanged, an existing subscriber keeps "manage billing", `POST /pricing/portal`
+  unaffected) and `services/billing/test_router.py` (`PAID_TIERS_ACTIVE` computed at import under every
+  `PLATFORM_POSTURE` value; `POST /v1/billing/checkout` refuses `403 paid_tiers_inactive` under `noncommercial`,
+  still requires a session first, still succeeds under `commercial`; `POST /v1/billing/portal` unaffected).

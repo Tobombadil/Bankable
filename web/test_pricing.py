@@ -497,3 +497,127 @@ def test_the_dry_run_port_reports_itself_not_live(billing_port: InMemoryBilling)
     every test, and every adapter that is not Stripe."""
     assert billing_port.live is False
     assert LiveLikeBilling().live is True
+
+
+# --------------------------------------------------- platform posture (docs/26 §3 precondition (i))
+def _patch_posture(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    """Makes `GET /v1/health` report `value` the way a real API host would once `PLATFORM_POSTURE`
+    is set and it restarts (`services/posture.py::posture_statement` for the exact sentence). This
+    file drives the real `services.api.app` in-process (module docstring), so the way to exercise
+    "the pricing page reads the posture from `/v1/health`, not the environment"
+    (`web/page.py::get_platform_posture`) is to control what that endpoint answers -- the same
+    technique `test_an_api_that_does_not_report_the_field_assumes_payments_are_live` already uses
+    for `checks.billing_configured`, not a shortcut around it."""
+    from services.posture import posture_statement
+
+    real_get = ApiClient.get
+
+    def _with_posture(self: ApiClient, path: str, **kwargs: object) -> dict[str, object]:
+        body = real_get(self, path, **kwargs)  # type: ignore[arg-type]
+        if path == "/v1/health":
+            body = {**body, "posture": value, "posture_statement": posture_statement(value)}
+        return body
+
+    monkeypatch.setattr(ApiClient, "get", _with_posture)
+
+
+def test_commercial_posture_leaves_the_page_unchanged(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explicit `commercial`, not just the untouched default: pins "nothing changes under
+    `commercial`" against a real (patched) health response rather than an absent field."""
+    _patch_posture(monkeypatch, "commercial")
+
+    body = web_client.get("/pricing").text
+
+    assert "Paid tiers are not currently offered" not in body
+    assert "tier--inactive" not in body
+    assert 'data-posture="noncommercial"' not in body
+
+
+def test_pricing_page_shows_the_notice_and_marks_tiers_inactive_under_noncommercial_posture(
+    live_client: TestClient, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`live_client` (a processor-like port) so the checkout button would otherwise be shown --
+    the posture notice must suppress it regardless of whether payments are switched on."""
+    _sign_in_as(live_client, db_sessionmaker)
+    _patch_posture(monkeypatch, "noncommercial")
+
+    body = live_client.get("/pricing").text
+
+    # One page-owned sentence stating both facts, plus the API's own sentence -- never the
+    # template's (docs/26's rule, kept the way `/about` and `/methodology` keep it).
+    assert "Paid tiers are not currently offered; every published record is free to read." in body
+    assert "This platform operates under a noncommercial posture" in body
+    assert 'data-posture="noncommercial"' in body
+    # Plan cards stay visible, marked inactive, with no checkout button or form. The class is the
+    # last one added to the `<section>` tag (`web/templates/pricing.html`), so this substring is
+    # exactly "this card is inactive", regardless of whether it is also the selected one.
+    for tier_id in ("pro", "team", "api"):
+        assert f'tier--inactive" aria-labelledby="tier-{tier_id}"' in body
+        section = body.split(f'aria-labelledby="tier-{tier_id}"', 1)[1].split("</section>", 1)[0]
+        assert "Not currently offered while the platform operates as a noncommercial service." in section
+    assert 'action="/pricing/checkout"' not in body
+    assert "Continue to payment" not in body
+    assert "Email us about API access" not in body
+    # Free stays exactly as it is: reading the register is not a paid tier.
+    assert 'tier--inactive" aria-labelledby="tier-free"' not in body
+    free_section = body.split('aria-labelledby="tier-free"', 1)[1].split("</section>", 1)[0]
+    assert "Read the register" in free_section
+
+
+def test_checkout_post_refuses_under_noncommercial_posture(
+    live_client: TestClient,
+    db_sessionmaker: sessionmaker[Session],
+    live_billing_port: LiveLikeBilling,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _sign_in_as(live_client, db_sessionmaker, email="buyer@example.com")
+    _patch_posture(monkeypatch, "noncommercial")
+
+    resp = live_client.post("/pricing/checkout", data={"plan": "pro"}, headers=ORIGIN, follow_redirects=False)
+
+    assert resp.status_code == 200
+    assert "Paid tiers are not currently offered" in resp.text
+    assert live_billing_port.checkouts == []
+
+
+def test_checkout_still_refuses_a_csrf_request_before_checking_posture(
+    web_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_posture(monkeypatch, "noncommercial")
+    assert web_client.post("/pricing/checkout", data={"plan": "pro"}).status_code == 403
+
+
+def test_an_existing_subscriber_still_sees_manage_billing_under_noncommercial_posture(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point 3: managing a subscription already bought is not selling a new one. The Pro card the
+    account is actually subscribed to keeps its portal-management copy; the API card, which never
+    had a self-serve purchase to manage, is still marked inactive."""
+    _sign_in_as(web_client, db_sessionmaker, entitlement="pro", billing_ref="cus_existing")
+    _patch_posture(monkeypatch, "noncommercial")
+
+    body = web_client.get("/pricing").text
+
+    assert 'action="/pricing/portal"' in body
+    assert "Open the billing page" in body
+    pro_section = body.split('aria-labelledby="tier-pro"', 1)[1].split("</section>", 1)[0]
+    assert "You already have a paid plan." in pro_section
+    api_section = body.split('aria-labelledby="tier-api"', 1)[1].split("</section>", 1)[0]
+    assert "Not currently offered while the platform operates as a noncommercial service." in api_section
+    assert "Email us about API access" not in api_section
+
+
+def test_portal_still_works_under_noncommercial_posture(
+    live_client: TestClient, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`POST /pricing/portal` for an existing subscription is untouched by the posture, exactly as
+    `web/pricing.py::portal`'s docstring says."""
+    _sign_in_as(live_client, db_sessionmaker, entitlement="pro", billing_ref="cus_existing")
+    _patch_posture(monkeypatch, "noncommercial")
+
+    resp = live_client.post("/pricing/portal", headers=ORIGIN, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "https://pay.example.com/p/1"

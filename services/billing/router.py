@@ -27,6 +27,7 @@ from services.api.serialize import (
 )
 from services.billing.entitlement import apply_entitlement_change
 from services.db.models import Account, Subscription
+from services.posture import platform_posture
 from services.sor.ports import (
     PLAN_TIERS,
     BillingPort,
@@ -42,6 +43,17 @@ from services.sor.wiring import get_billing_port, get_crm_port
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+#: Whether a *new* paid-tier purchase may be started. Computed once at import from
+#: `PLATFORM_POSTURE`, the same moment `services/api/visibility.py`'s `PUBLISHABLE_REUSE_CLASSES`
+#: and `services/api/app.py`'s `PLATFORM_POSTURE` constant are (docs/26-platform-posture.md §3
+#: precondition (i); owner, 2026-09-26 decisions log, verbatim: "Mark inactive, then flip — keep
+#: the pricing page visible with a 'paid tiers not currently offered' notice; disable checkout;
+#: flip the posture once ready."). `False` only under `noncommercial`; unaffected — always
+#: `True` — under `commercial`, the default, so a deployment that never sets `PLATFORM_POSTURE`
+#: behaves exactly as it did before this constant existed. `open_portal` below does not read this:
+#: managing a subscription already sold is not selling a new one (see its docstring).
+PAID_TIERS_ACTIVE = platform_posture() != "noncommercial"
 
 
 # ------------------------------------------------------------------------------------ serialization
@@ -124,7 +136,24 @@ def create_checkout(
     port: Annotated[BillingPort, Depends(get_billing_port)],
 ) -> Any:
     """Any signed-in user may start a checkout (`require_session_only("public")`) — the account
-    does not need an existing entitlement to buy one."""
+    does not need an existing entitlement to buy one.
+
+    Refuses with `403 paid_tiers_inactive` while `PAID_TIERS_ACTIVE` is `False` (`noncommercial`
+    posture): a new paid subscription is exactly what the owner's "mark inactive" decision stops
+    this route from selling, before checking anything else about the request (a bad plan or a
+    missing email is beside the point when nothing can be bought at all right now).
+    `POST /v1/billing/portal` is untouched — see its docstring."""
+    if not PAID_TIERS_ACTIVE:
+        raise ProblemError(
+            "paid_tiers_inactive",
+            "Paid tiers are not currently offered",
+            detail=(
+                "The platform is operating under a noncommercial posture "
+                "(docs/26-platform-posture.md); no new paid subscription can be started until "
+                "the posture changes. An existing subscription can still be managed at "
+                "POST /v1/billing/portal."
+            ),
+        )
     plan = body.get("plan")
     seats = body.get("seats", 1)
     if plan not in PLAN_TIERS:
@@ -192,6 +221,12 @@ def open_portal(
     ctx: Annotated[AuthContext, Depends(require_session_only("public"))],
     port: Annotated[BillingPort, Depends(get_billing_port)],
 ) -> Any:
+    """Stays available under every posture, including `noncommercial` — unlike `create_checkout`
+    above, this route does not read `PAID_TIERS_ACTIVE` and never refuses on it. Managing a
+    subscription an account already holds is not selling a new one, and the owner's "mark
+    inactive, then flip" decision (docs/26-platform-posture.md §3 precondition (i);
+    `docs/00-PLAN.md` 2026-09-26) was to stop *offering* paid tiers, not to strand anyone already
+    on one without a way to change their card or cancel."""
     account = ctx.account
     if account is None or account.billing_ref is None:
         raise ProblemError(
