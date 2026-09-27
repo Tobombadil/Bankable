@@ -247,17 +247,42 @@ def normalise_trigger(value: Any, *, fallback: str = SCHEDULED_TRIGGER) -> str:
     return fallback
 
 
+#: What a Procrastinate retry of a fetch job is recorded as (docs/21 §4.2). Until 2026-09-27 a retry
+#: re-ran the job with its original arguments and was recorded as whatever started the first
+#: attempt (`schedule`, or `manual` for a run-now), with `attempt = 1` every time.
+RETRY_TRIGGER = "retry"
+
+#: `error_class` of a `running` row closed because no outcome was ever recorded for it: the admin
+#: "run now" guard found it older than its cutoff (`services/api/admin_sources.py`
+#: `STALE_RUNNING_AFTER`), or the job failed before the connector could report. A row closed this
+#: way is still completed by the run's real outcome if one arrives later (`record_source_run`).
+ABANDONED_ERROR_CLASS = "RunAbandoned"
+
+
 def record_source_run(
-    session_factory: Any, source_id: str, record: Mapping[str, Any], *, trigger: str | None = None
+    session_factory: Any,
+    source_id: str,
+    record: Mapping[str, Any],
+    *,
+    trigger: str | None = None,
+    attempt: int | None = None,
+    dead_lettered: bool | None = None,
 ) -> bool:
     """Write one `source_run` row from a runner record (docs/21 §4.2) and update the source's
-    health, failure counter and last-success/last-error fields (docs/21 §4.1). Idempotent per
-    run id. Returns False when the source has no row and cannot get one (a gated source is
-    refused by `upsert_licence_and_source`, so there is nothing to attach a run to).
+    health, failure counter and last-success/last-error fields (docs/21 §4.1). Returns False when
+    the source has no row and cannot get one (a gated source is refused by
+    `upsert_licence_and_source`, so there is nothing to attach a run to).
+
+    One row per run, keyed by the record's id (2026-09-27). A row with that id that is still
+    `running` — the one the admin "run now" route created before deferring the job, whose id the
+    job passed down as `--run-id` — or that was closed as abandoned is completed in place; any other
+    existing row means the outcome was already recorded, and nothing changes (idempotent).
 
     `trigger`, when the caller gives one, wins over the record's: the caller is the one that
-    knows who started the run (the scheduler says `schedule`; the admin "run now" path says
-    `manual`/`backfill`). Without one the record's value is used, then `schedule`."""
+    knows who started the run (the scheduler says `schedule`, or `retry` on a Procrastinate retry;
+    the admin "run now" path says `manual`/`backfill`). Without one the record's value is used,
+    then `schedule`. `attempt` and `dead_lettered` likewise come from the job when it knows them
+    (Procrastinate's attempt counter and retry strategy), else from the record."""
     from services.db.models import SOURCE_RUN_STATUSES, Source, SourceRun
     from services.db.session import session_scope
 
@@ -268,40 +293,91 @@ def record_source_run(
             if source is None:
                 return False
         run_id = _run_uuid(record.get("id"))
-        if run_id is not None and session.get(SourceRun, run_id) is not None:
+        run = session.get(SourceRun, run_id) if run_id is not None else None
+        if run is not None and not _is_open(run):
             return True  # already recorded (a retried outcome write)
         status = str(record.get("status") or "failed")
-        if status not in SOURCE_RUN_STATUSES:
+        if status not in SOURCE_RUN_STATUSES or status == "running":
             status = "failed"
         started_at = _to_datetime(record.get("started_at")) or _utcnow()
         finished_at = _to_datetime(record.get("finished_at")) or _utcnow()
-        run = SourceRun(
-            source_id=source_id,
-            trigger=normalise_trigger(trigger or record.get("trigger")),
-            started_at=started_at,
-            finished_at=finished_at,
-            status=status,
-            http_status=record.get("http_status"),
-            bytes=record.get("bytes"),
-            egress_class=str(record.get("egress_class") or source.egress or "plain"),
-            rows_seen=int(record.get("rows_seen") or 0),
-            rows_new=int(record.get("rows_new") or 0),
-            rows_changed=int(record.get("rows_changed") or 0),
-            rows_gone=int(record.get("rows_gone") or 0),
-            events_emitted=int(record.get("events_emitted") or 0),
-            worker_seconds=float(record.get("worker_seconds") or 0.0),
-            dq_status=record.get("dq_status"),
-            dq=record.get("dq"),
-            error=(str(record["error"])[:2000] if record.get("error") else None),
-            error_class=record.get("error_class"),
-            attempt=int(record.get("attempt") or 1),
-            dead_lettered=bool(record.get("dead_lettered", False)),
-        )
-        if run_id is not None:
-            run.id = run_id
-        session.add(run)
-        _update_health(source, status, run.error, finished_at)
+        values: dict[str, Any] = {
+            "source_id": source_id,
+            "trigger": normalise_trigger(trigger or record.get("trigger")),
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "status": status,
+            "http_status": record.get("http_status"),
+            "bytes": record.get("bytes"),
+            "egress_class": str(record.get("egress_class") or source.egress or "plain"),
+            "rows_seen": int(record.get("rows_seen") or 0),
+            "rows_new": int(record.get("rows_new") or 0),
+            "rows_changed": int(record.get("rows_changed") or 0),
+            "rows_gone": int(record.get("rows_gone") or 0),
+            "events_emitted": int(record.get("events_emitted") or 0),
+            "worker_seconds": float(record.get("worker_seconds") or 0.0),
+            "dq_status": record.get("dq_status"),
+            "dq": record.get("dq"),
+            "error": (str(record["error"])[:2000] if record.get("error") else None),
+            "error_class": record.get("error_class"),
+            "attempt": int(attempt if attempt is not None else record.get("attempt") or 1),
+            "dead_lettered": bool(
+                dead_lettered if dead_lettered is not None else record.get("dead_lettered", False)
+            ),
+        }
+        if run is None:
+            run = SourceRun(**values)
+            if run_id is not None:
+                run.id = run_id
+            session.add(run)
+        else:
+            # The pre-created row keeps the time the operator asked for the run: the admin panel
+            # listed it from then, and the queue wait is part of what they waited for.
+            values["started_at"] = min(_aware(run.started_at), started_at)
+            for key, value in values.items():
+                setattr(run, key, value)
+        _update_health(source, status, values["error"], finished_at)
         session.flush()
+    return True
+
+
+def _is_open(run: Any) -> bool:
+    """A row whose outcome has not been recorded: still `running`, or closed as abandoned."""
+    return bool(
+        run.status == "running" or (run.status == "failed" and run.error_class == ABANDONED_ERROR_CLASS)
+    )
+
+
+def _aware(value: dt.datetime) -> dt.datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=dt.UTC)
+
+
+def close_pending_run(session_factory: Any, run_id: str | None, *, error: str) -> bool:
+    """Close a `running` row that will get no outcome from the connector (the job failed before the
+    CLI reported, or the CLI refused the run): `failed`, `error_class = RunAbandoned`, `error`. The
+    source's health is left alone, since no fetch happened to judge it by. False, and nothing
+    written, when there is no such row or it is no longer `running`. Never raises: it runs on
+    failure paths, and must not mask the failure that brought it here."""
+    from services.db.models import SourceRun
+    from services.db.session import session_scope
+
+    key = _run_uuid(run_id)
+    if key is None:
+        return False
+    try:
+        with session_scope(session_factory) as session:
+            run = session.get(SourceRun, key)
+            if run is None or run.status != "running":
+                return False
+            run.status = "failed"
+            run.finished_at = _utcnow()
+            run.error = error[:2000]
+            run.error_class = ABANDONED_ERROR_CLASS
+            session.flush()
+    except Exception:
+        logger.exception("could not close the pending run row", extra={"run_id": run_id})
+        return False
+    logger.warning("pending run row closed as abandoned", extra={"run_id": run_id, "error": error[:500]})
     return True
 
 
@@ -365,11 +441,20 @@ def fetch_outcome(
     started_at: dt.datetime | None = None,
     session_factory: Any = None,
     timeout_s: int | None = None,
+    run_id: str | None = None,
+    attempt: int = 1,
+    final_attempt: bool = False,
 ) -> dict[str, Any]:
     """Turn one `python -m pipeline.connectors run <id>` invocation into a `source_run` row plus
     a health update, and say what the caller should do next: `status` (the runner's, or
     `refused` for a gate/registration refusal, or `failed` for a crash/timeout), `ts` (the run's
-    snapshot token, for `load_source`) and `transient` (whether a retry is worth it)."""
+    snapshot token, for `load_source`) and `transient` (whether a retry is worth it).
+
+    `run_id` is the id the job passed as `--run-id` (the row an admin run-now created): a crash or
+    timeout with no record from the CLI is recorded against it, and a refusal closes it, so that
+    row never stays `running`. `attempt` is the job's 1-based attempt number; `final_attempt`
+    says the retry strategy will not run it again, so a transient failure now is the dead letter
+    (docs/20 §4.2) and its row says `dead_lettered`."""
     result = parse_result_line(stdout)
     record: dict[str, Any] | None = None
     if result is not None and result.get("run_path"):
@@ -379,6 +464,12 @@ def fetch_outcome(
     if record is None and returncode == 2:
         # The CLI's own refusals (gate, unregistered): logged there, nothing to run or retry.
         logger.warning("fetch refused", extra={"source_id": source_id, "stderr": stderr[-2000:]})
+        if run_id is not None:
+            close_pending_run(
+                session_factory if session_factory is not None else build_session_factory(),
+                run_id,
+                error=f"the connector CLI refused the run: {stderr[-1500:]}",
+            )
         return {"status": "refused", "ts": None, "transient": False, "record": None}
     if record is None:
         detail = "timeout" if returncode is None else f"exit {returncode}"
@@ -392,15 +483,25 @@ def fetch_outcome(
             + f": {tail}",
             "error_class": "TimeoutExpired" if returncode is None else "ProcessCrashed",
         }
+    if run_id is not None and not record.get("id"):
+        record["id"] = run_id  # the CLI never reported an id: the outcome belongs to the named run
+    transient = is_transient(record)
     factory = session_factory if session_factory is not None else build_session_factory()
-    recorded = record_source_run(factory, source_id, record, trigger=trigger)
+    recorded = record_source_run(
+        factory,
+        source_id,
+        record,
+        trigger=trigger,
+        attempt=attempt,
+        dead_lettered=transient and final_attempt,
+    )
     ts = Path(str(result["run_path"])).stem if result is not None and result.get("run_path") else None
     status = str(record.get("status") or "failed")
     logger.info(
         "fetch outcome",
         extra={"source_id": source_id, "status": status, "recorded": recorded, "ts": ts},
     )
-    return {"status": status, "ts": ts, "transient": is_transient(record), "record": record}
+    return {"status": status, "ts": ts, "transient": transient, "record": record}
 
 
 def _read_run_record(result: Mapping[str, Any]) -> dict[str, Any] | None:

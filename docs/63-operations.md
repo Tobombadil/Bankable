@@ -49,8 +49,8 @@ measured numbers come from.
 six cron schedules, always rounding to the more frequent bucket, and never less often than weekly. A fetch job
 has a 10-minute timeout (5 for browser sources); the load that follows has a 30-minute timeout, resolve 60,
 enrich 30 (`infra/scheduler/app.py` `LOAD_TIMEOUT_S`, `RESOLVE_TIMEOUT_S`, `ENRICH_TIMEOUT_S`). Transient
-failures retry five times with exponential waits summing to ≈ 65 minutes before dead-lettering
-(`FETCH_RETRY`); a block, corrupt payload or gate refusal is recorded once and left for the next tick.
+failures retry four times with exponential waits summing to ≈ 13 minutes, and the fifth failure
+dead-letters (`FETCH_RETRY`, `docs/21` D-13); a block, corrupt payload or gate refusal is recorded once and left for the next tick.
 
 The sixteen connectors that exist, with the bucket the cadence string resolves to:
 
@@ -234,7 +234,16 @@ is `info`, not protection. Sandbox results on 2026-09-12: 9 pass, NYISO warn (2 
   running posture (`gated_reuse_classes(platform_posture())`) or a `gate_flag`, publish state, last run and
   snapshots; filters on `health`, `publish_state`, `implemented`; the gate form is rendered only for the `legal`
   role (US-905 AC1); **run-now** (`POST /admin/v1/sources/{id}/run`, 202) always enqueues and never runs
-  inline, so it behaves exactly like the scheduled tick.
+  inline, so it behaves exactly like the scheduled tick. The row it shows at once is the run's only row: the job
+  completes it with the outcome (`docs/21` D-12). A second run-now is refused (`409`) while that row is
+  `running`; the refusal says when a stuck row is released. If a row stays `running` (the worker was killed
+  mid-job), do nothing: a run-now more than **2 hours** after it started closes it as `failed` /
+  `RunAbandoned` and queues the new run. Do not edit the row by hand. A retry of a failed fetch appears as
+  its own row with trigger `retry` and its attempt number; the one marked dead-lettered was the last
+  (`docs/21` D-13).
+- **One row per run** (`docs/21` D-11): the fetch and the load of a run share one row, so the runs list and
+  `GET /admin/v1/costs` count each run once. Rows written before 2026-09-27 still show loaded runs twice
+  (the second with a fresh id and trigger copied from the record); nothing rewrites them.
 - **What the screen cannot show yet:** model cost per record (no `model_call` writer, §8), events emitted per
   run is on the run row only if the loader ran (it does on the scheduled path since the 2026-09-18 audit's
   closed-loop fix, `infra/scheduler/jobs.py` "the closed loop").

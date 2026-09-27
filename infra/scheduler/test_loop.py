@@ -261,7 +261,7 @@ def test_run_connector_retries_with_exponential_backoff_only_on_transient_failur
     strategy = scheduler_app.app.tasks["infra.scheduler.app.run_connector"].retry_strategy
     if not isinstance(strategy, procrastinate.RetryStrategy):
         raise AssertionError(f"run_connector must carry a RetryStrategy, got {strategy!r}")
-    if strategy.max_attempts != 5:
+    if strategy.max_attempts != 4:  # five runs, the fifth failure dead-letters (docs/21 D-13)
         raise AssertionError(strategy.max_attempts)
     if not strategy.exponential_wait:
         raise AssertionError("no exponential wait: five attempts with zero backoff (the audit finding)")
@@ -270,8 +270,10 @@ def test_run_connector_retries_with_exponential_backoff_only_on_transient_failur
         def __init__(self, attempts: int) -> None:
             self.attempts = attempts
 
+    # `attempts` is the number of attempts already made when this one failed (0 on the first run),
+    # so attempts=4 is the fifth failure.
     waits: list[int | None] = []
-    for attempts in range(1, 6):
+    for attempts in range(0, 5):
         decision = strategy.get_retry_decision(
             exception=jobs.TransientConnectorFailure("x"), job=cast(Any, _Job(attempts))
         )
@@ -280,10 +282,11 @@ def test_run_connector_retries_with_exponential_backoff_only_on_transient_failur
         else:
             waits.append(round((decision.retry_at - dt.datetime.now(dt.UTC)).total_seconds()))
     if waits[-1] is not None:
-        raise AssertionError(f"fifth failure must dead-letter, got {waits}")
+        raise AssertionError(f"the fifth failure must dead-letter, got {waits}")
     real = [w for w in waits if w is not None]
-    if real != sorted(real) or len(set(real)) != len(real) or real[0] < 10:
-        raise AssertionError(f"waits must grow: {waits}")
+    expected = [5, 25, 125, 625]
+    if len(real) != len(expected) or any(abs(w - e) > 1 for w, e in zip(real, expected, strict=True)):
+        raise AssertionError(f"waits must be {expected} s, got {waits}")
     if (
         strategy.get_retry_decision(exception=jobs.ConnectorRunFailed("parse"), job=cast(Any, _Job(1)))
         is not None

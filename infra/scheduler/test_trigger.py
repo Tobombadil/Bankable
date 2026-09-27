@@ -165,3 +165,107 @@ def test_a_run_now_job_passes_its_manual_trigger_through(
         raise AssertionError(commands)
     if _triggers(factory) != ["manual"]:
         raise AssertionError(_triggers(factory))
+
+
+# ---------------------------------------------------------------- retries say `retry` (2026-09-27)
+def _ctx(attempts: int) -> Any:
+    class _Job:
+        queue = "fetch"
+
+    job = _Job()
+    job.attempts = attempts  # type: ignore[attr-defined]  # procrastinate.Job.attempts: prior attempts
+
+    class _Context:
+        pass
+
+    context = _Context()
+    context.job = job  # type: ignore[attr-defined]
+    return context
+
+
+def _run_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    factory: _Factory,
+    attempts: int,
+    *,
+    status: str = "unchanged",
+    **kwargs: Any,
+) -> list[list[str]]:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    commands: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        commands.append(cmd)
+        trigger = cmd[cmd.index("--trigger") + 1]
+        run_id = (
+            cmd[cmd.index("--run-id") + 1]
+            if "--run-id" in cmd
+            else f"00000000-0000-4000-8000-0000000001{attempts:02d}"
+        )
+        record = {**_record(run_id, trigger), "status": status}
+        if status == "failed":
+            record.update(error="HttpFailed('503')", error_class="HttpFailed")
+        path = tmp_path / f"{run_id}.json"
+        path.write_text(json.dumps(record))
+        line = {"event": "result", "status": status, "run_id": run_id, "run_path": str(path)}
+        return subprocess.CompletedProcess(cmd, 1 if status == "failed" else 0, json.dumps(line), "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(jobs, "build_session_factory", lambda: factory)
+    scheduler_app.run_connector.func(_ctx(attempts), SOURCE_ID, **kwargs)
+    return commands
+
+
+def _rows(factory: _Factory) -> list[SourceRun]:
+    with factory() as session:
+        return list(session.scalars(select(SourceRun).order_by(SourceRun.started_at, SourceRun.id)))
+
+
+def test_a_first_attempt_is_recorded_as_its_trigger_with_attempt_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, factory: _Factory
+) -> None:
+    commands = _run_attempt(monkeypatch, tmp_path, factory, 0)
+    if commands[0][-2:] != ["--trigger", "schedule"]:
+        raise AssertionError(commands)
+    rows = _rows(factory)
+    if [(r.trigger, r.attempt, r.dead_lettered) for r in rows] != [("schedule", 1, False)]:
+        raise AssertionError([(r.trigger, r.attempt, r.dead_lettered) for r in rows])
+
+
+@pytest.mark.parametrize("original", [None, "manual", "backfill"])
+def test_a_procrastinate_retry_is_recorded_as_retry_with_its_attempt_number(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, factory: _Factory, original: str | None
+) -> None:
+    """Procrastinate re-runs the same job with `job.attempts` = the attempts already made; the
+    retry is a new run (its own row), recorded `trigger = retry`, `attempt = attempts + 1`, whatever
+    started the original."""
+    kwargs: dict[str, Any] = {} if original is None else {"trigger": original}
+    commands = _run_attempt(monkeypatch, tmp_path, factory, 2, **kwargs)
+    if commands[0][-2:] != ["--trigger", "retry"]:
+        raise AssertionError(commands)
+    rows = _rows(factory)
+    if [(r.trigger, r.attempt) for r in rows] != [("retry", 3)]:
+        raise AssertionError([(r.trigger, r.attempt) for r in rows])
+
+
+def test_the_last_transient_failure_is_recorded_dead_lettered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, factory: _Factory
+) -> None:
+    """`FETCH_RETRY` decides whether a transient failure is retried; the attempt it refuses to
+    retry is the dead letter, and its row says so. Earlier transient failures do not."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    last = scheduler_app.FETCH_RETRY.max_attempts
+    if last is None:
+        raise AssertionError("FETCH_RETRY must bound its attempts")
+    for attempts in (last - 1, last):
+        with pytest.raises(jobs.TransientConnectorFailure):
+            _run_attempt(monkeypatch, tmp_path, factory, attempts, status="failed")
+    rows = _rows(factory)
+    got = sorted((r.attempt, r.dead_lettered, r.trigger) for r in rows)
+    if got != [(last, False, "retry"), (last + 1, True, "retry")]:
+        raise AssertionError(got)

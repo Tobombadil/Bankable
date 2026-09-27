@@ -1439,6 +1439,9 @@ def load_from_files(
 
     Raises `GateRefused` before touching any file if the source's registry entry is gated —
     independent of whatever the connector run already did (module docstring).
+
+    One `source_run` row per run (2026-09-27, `_run_for_load`): the load attaches to the row the
+    scheduler recorded for the fetch, and writes one itself only when loaded standalone.
     """
     registry = registry or Registry()
     entry = registry.get(source_id)
@@ -1456,28 +1459,7 @@ def load_from_files(
     run_record = store.read_json(run_path) if store.exists(run_path) else None
 
     source = upsert_licence_and_source(session, entry, registry.version)
-
-    run = SourceRun(
-        source_id=source.id,
-        trigger=(run_record or {}).get("trigger", "manual"),
-        started_at=_to_datetime((run_record or {}).get("started_at")) or utcnow(),
-        finished_at=_to_datetime((run_record or {}).get("finished_at")),
-        status=(run_record or {}).get("status", "ok"),
-        http_status=(run_record or {}).get("http_status"),
-        bytes=(run_record or {}).get("bytes"),
-        egress_class=(run_record or {}).get("egress_class", entry.egress),
-        rows_seen=(run_record or {}).get("rows_seen", len(records_df)),
-        rows_new=(run_record or {}).get("rows_new", 0),
-        rows_changed=(run_record or {}).get("rows_changed", 0),
-        rows_gone=(run_record or {}).get("rows_gone", 0),
-        events_emitted=(run_record or {}).get(
-            "events_emitted", len(events_df) if events_df is not None else 0
-        ),
-        dq_status=(run_record or {}).get("dq_status"),
-        dq=(run_record or {}).get("dq"),
-    )
-    session.add(run)
-    session.flush()
+    run = _run_for_load(session, source, run_record, records_df, events_df, entry.egress)
 
     # Proposal frames carry `lifecycle_state`; opportunity frames carry `status` + `title`
     # instead (pipeline.connectors.base PROPOSAL_COLUMNS vs OPPORTUNITY_COLUMNS) — a cheap,
@@ -1487,3 +1469,68 @@ def load_from_files(
     result = load_dataframe(session, source, kind, records_df, events_df, run=run)
     result.source_run_id = run.id
     return result
+
+
+def _run_for_load(
+    session: Session,
+    source: Source,
+    run_record: dict[str, Any] | None,
+    records_df: pd.DataFrame,
+    events_df: pd.DataFrame | None,
+    egress: str,
+) -> SourceRun:
+    """The `source_run` row this load's events and data-quality warnings attach to: one row per
+    run, keyed by the run record's id (2026-09-27).
+
+    Canonical row: the one the scheduler writes for the fetch (`infra/scheduler/jobs.py`
+    `record_source_run`, under the run record's id). It carries what the admin runs screen, the
+    source's health and `GET /admin/v1/costs` read — the caller's trigger, the attempt, timings,
+    the DQ verdict, the diff counts — and a DQ-hold release marks it by that id. When that row
+    exists it is reused as it is; the loader adds only its own DQ warnings to it. Until this
+    change the loader also inserted a second row, with a fresh id, for every loaded run, so each
+    appeared twice on the runs screen and its `rows_changed` was counted twice in the costs.
+
+    Loaded standalone (the CLI/dev path, `web/data_loading.py`; no scheduler, so no fetch row) the
+    row is written here from the run record, under the record's id, so loading the same run again
+    reuses it and a later `record_source_run` for it finds it already recorded. With no run record
+    at all a row with a fresh id is written, as before."""
+    from services.db.models import SOURCE_RUN_STATUSES, SOURCE_RUN_TRIGGERS
+
+    record = run_record or {}
+    run_id: _uuid.UUID | None
+    try:
+        run_id = _uuid.UUID(str(record["id"])) if record.get("id") else None
+    except ValueError:
+        run_id = None
+    if run_id is not None:
+        existing = session.get(SourceRun, run_id)
+        if existing is not None:
+            return existing
+    # `scheduled` is what the scheduler wrote before migration 0025 fixed the vocabulary.
+    trigger = str(record.get("trigger") or "manual")
+    trigger = "schedule" if trigger == "scheduled" else trigger
+    status = str(record.get("status") or "ok")
+    run = SourceRun(
+        source_id=source.id,
+        trigger=trigger if trigger in SOURCE_RUN_TRIGGERS else "manual",
+        started_at=_to_datetime(record.get("started_at")) or utcnow(),
+        finished_at=_to_datetime(record.get("finished_at")),
+        status=status if status in SOURCE_RUN_STATUSES else "ok",
+        http_status=record.get("http_status"),
+        bytes=record.get("bytes"),
+        egress_class=record.get("egress_class", egress),
+        rows_seen=record.get("rows_seen", len(records_df)),
+        rows_new=record.get("rows_new", 0),
+        rows_changed=record.get("rows_changed", 0),
+        rows_gone=record.get("rows_gone", 0),
+        events_emitted=record.get("events_emitted", len(events_df) if events_df is not None else 0),
+        worker_seconds=record.get("worker_seconds", 0),
+        dq_status=record.get("dq_status"),
+        dq=record.get("dq"),
+        attempt=int(record.get("attempt") or 1),
+    )
+    if run_id is not None:
+        run.id = run_id
+    session.add(run)
+    session.flush()
+    return run

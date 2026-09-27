@@ -39,8 +39,11 @@ A `SourceRunner` Protocol (`enqueue(db, source, *, trigger, requested_by) -> Sou
 - Tests override `get_source_runner` with a `_FakeSourceRunner` that only creates the row (no
   Procrastinate/Postgres involved) — the route is never exercised against a real queue in this
   sandbox, matching every other connector-adjacent test in this codebase.
-- The worker (a later sprint's wave) is the thing that updates the row it finds when it actually
-  runs the connector — this endpoint's job ends at "queued and visible", never at "ran".
+- The job carries the row's id (`defer(source_id, trigger, run_id)`), passes it to the CLI as
+  `--run-id`, and `infra/scheduler/jobs.py::record_source_run` completes that same row with the
+  outcome (decision 13) — this endpoint's job ends at "queued and visible", never at "ran".
+- A second run-now is refused (`409`) while the source has a `running` row younger than
+  `STALE_RUNNING_AFTER` (2 hours); an older one is closed as abandoned by the check itself.
 
 ## Decisions (numbered, with reasons — mirrored as inline comments in the module docstring)
 
@@ -142,6 +145,23 @@ A `SourceRunner` Protocol (`enqueue(db, source, *, trigger, requested_by) -> Sou
     gate_unmet` for a gated source (the release lifts the DQ gate only; the loader's licence gate
     still runs). A repeat release writes nothing new and re-enqueues only while the row is still
     `partial`. Tests override `get_hold_releaser` with a fake, as they do `get_source_runner`.
+13. **"Run now" and the job share one `source_run` row (2026-09-27).** Measured before: the route
+    created a `running` row, the job recorded the run under the runner's own freshly generated id,
+    and nothing ever completed the first row, so the `409` guard refused every later run-now of
+    that source (`tests/test_api_admin_sources.py::test_run_now_again_after_the_job_completed_is_accepted`
+    failed with `409` on the second POST). Now the job carries the row's id to the CLI
+    (`--run-id`), the runner uses it as the run id, and `record_source_run` completes the row in
+    place (health updated as for any outcome). Failure paths: a crash or timeout with no record is
+    recorded against the row; a CLI refusal (exit 2) or a job that fails before the CLI runs, or
+    while recording, closes it `failed` with `error_class = RunAbandoned` (health untouched: no
+    fetch happened). The one case no code path can catch — the worker process killed mid-job —
+    is covered by a cutoff in the guard: a `running` row older than `STALE_RUNNING_AFTER` = 2 hours
+    is closed as `RunAbandoned` and no longer blocks. Two hours because the row covers the first
+    attempt only, whose legitimate life is the queue wait, the per-source execution lock (a
+    `load_source` holds it for up to 30 minutes) and the fetch (at most 10 minutes): about 40
+    minutes plus backlog, so three times that. A late real outcome still completes an abandoned
+    row. The `409` now says when a stuck row will be released (`detail`). Procrastinate retries
+    are separate runs with their own rows (`trigger = retry`, `attempt` = the attempt number).
 
 ## Deferred (not implemented this sprint, and why)
 

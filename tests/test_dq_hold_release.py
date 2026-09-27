@@ -138,6 +138,54 @@ def test_the_cli_rejects_an_unknown_trigger(
     assert exc.value.code == 2
 
 
+# ------------------------------------------------------------------------------------- run id
+_RUN_ID = "00000000-0000-4000-8000-00000000f001"
+
+
+def test_the_cli_uses_the_run_id_it_is_given(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sized: Registry,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The scheduler passes the id of the `source_run` row an admin run-now created, so the run
+    record (and the row completed from it) is that run, not a second one (2026-09-27)."""
+    monkeypatch.setattr(cli, "Registry", lambda: sized)
+    assert cli.main(["run", SOURCE_ID, "--data-dir", str(tmp_path), "--run-id", _RUN_ID]) == 0
+    record = json.loads(max((tmp_path / "runs" / SOURCE_ID).glob("*.json")).read_text())
+    assert record["id"] == _RUN_ID
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+    assert [line["run_id"] for line in lines if line.get("event") == "result"] == [_RUN_ID]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["run", SOURCE_ID, "--run-id", "not-a-uuid"],
+        ["run", SOURCE_ID, "us.iso.caiso.gen_queue", "--run-id", _RUN_ID],
+        ["run", "--all", "--run-id", _RUN_ID],
+    ],
+)
+def test_the_cli_refuses_a_bad_or_ambiguous_run_id(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, sized: Registry, argv: list[str]
+) -> None:
+    monkeypatch.setattr(cli, "Registry", lambda: sized)
+    with pytest.raises(SystemExit) as exc:
+        cli.main([*argv, "--data-dir", str(tmp_path)])
+    assert exc.value.code == 2
+    assert not any(tmp_path.iterdir())
+
+
+def test_the_runner_refuses_a_run_id_that_is_not_a_uuid_before_any_io(
+    tmp_path: pathlib.Path, sized: Registry
+) -> None:
+    with pytest.raises(ValueError, match="run_id"):
+        run(SOURCE_ID, registry=sized, store=Store(tmp_path), raw=_snap(5, T0), run_id="run-1")
+    assert not any(tmp_path.iterdir())
+    record = run(SOURCE_ID, registry=sized, store=Store(tmp_path), raw=_snap(5, T0), run_id=_RUN_ID).run
+    assert record["id"] == _RUN_ID
+
+
 # ------------------------------------------------------------------------------- hold release
 def test_a_held_run_is_released_into_normalized_and_becomes_the_baseline(
     tmp_path: pathlib.Path, sized: Registry

@@ -117,15 +117,18 @@ def _load_sources() -> list[dict[str, Any]]:
 
 #: docs/20 §4.2 "retries with exponential backoff; five failures -> dead-letter". Before
 #: 2026-09-18 this was `retry=5`, which Procrastinate reads as `RetryStrategy(max_attempts=5)`
-#: with `wait=0`: five attempts back to back, no backoff (audit §3.1). Procrastinate's formula is
-#: `wait = exponential_wait ** (attempts + 1)`, so with base 5 the waits after failures 1..4 are
-#: 25 s, 125 s, 625 s and 3,125 s (65 min in total before the fifth attempt dead-letters), all
-#: inside a daily cadence. Procrastinate has no jitter parameter; the per-host token bucket in
+#: with `wait=0`: back-to-back retries, no backoff (audit §3.1). Procrastinate's formula is
+#: `wait = exponential_wait ** (attempts + 1)` with `attempts` the attempts already made (0 on the
+#: first run), and it retries while `attempts < max_attempts`. Measured on procrastinate 3.9.0,
+#: `max_attempts=5` ran the job six times, one more failure than docs/20 §4.2 allows; since
+#: 2026-09-27 it is 4: the job runs five times (attempts 0..4), with waits of 5 s, 25 s, 125 s and
+#: 625 s (≈ 13 min in total), and the fifth failure dead-letters (docs/21 D-13). All inside a
+#: daily cadence. Procrastinate has no jitter parameter; the per-host token bucket in
 #: `pipeline/connectors/http.py` already spreads the requests themselves. Only
 #: `TransientConnectorFailure` is retried: a block, a corrupt payload or a gate refusal is
 #: recorded once (`source_run` + `source.health`) and left for the next tick.
 FETCH_RETRY = procrastinate.RetryStrategy(
-    max_attempts=5, exponential_wait=5, retry_exceptions=[TransientConnectorFailure]
+    max_attempts=4, exponential_wait=5, retry_exceptions=[TransientConnectorFailure]
 )
 LOAD_TIMEOUT_S = 1800  # a full NYISO/EIA frame loads in well under this on the reference laptop
 RESOLVE_TIMEOUT_S = 3600
@@ -134,7 +137,10 @@ ENRICH_TIMEOUT_S = 1800
 
 @app.task(queue="fetch", retry=FETCH_RETRY, pass_context=True)
 def run_connector(
-    context: procrastinate.JobContext, source_id: str, trigger: str = jobs.SCHEDULED_TRIGGER
+    context: procrastinate.JobContext,
+    source_id: str,
+    trigger: str = jobs.SCHEDULED_TRIGGER,
+    run_id: str | None = None,
 ) -> None:
     """Run one connector via the same CLI a human uses (`pipeline/README.md`), record the run
     (`source_run` row, `source.health`) and, when it produced a new normalised snapshot, enqueue
@@ -146,6 +152,18 @@ def run_connector(
     and to `fetch_outcome`, whose explicit value wins over the record's (2026-09-27: before this,
     the CLI's default `manual` won and every scheduled run was recorded as manual).
 
+    `run_id` is the `source_run` row the admin "run now" route created before deferring this job
+    (2026-09-27). It goes to the CLI as `--run-id`, so the runner's record and the row completed
+    from it are that row, not a second one; a crash, timeout or refusal is recorded against it too,
+    so it never stays `running` (`fetch_outcome`). Bucket ticks pass none; the runner makes one.
+
+    Retries (2026-09-27): Procrastinate re-runs this job with the same arguments after a
+    `TransientConnectorFailure`, and `context.job.attempts` is the number of attempts already made
+    (0 the first time; `procrastinate.RetryStrategy.get_retry_decision`). A retry is its own run —
+    its own row, `trigger = retry`, `attempt = attempts + 1` — so it does not reuse `run_id`, which
+    the first attempt already completed. The attempt `FETCH_RETRY` will not retry again is the
+    dead letter: a transient failure there is recorded `dead_lettered`.
+
     A single `fetch` job may not run more than 10 minutes for a plain source, 5 for a browser one
     (docs/20 §4.2); the timeout is enforced here rather than trusted to the connector itself, so a
     hung request cannot wedge a worker slot forever. `context.job.queue` reflects the queue this
@@ -153,33 +171,58 @@ def run_connector(
     defer time in `_register_bucket_tick` below), not the task's `fetch` decorator default.
     """
     timeout = 300 if context.job.queue == "fetch_browser" else 600
-    trigger = jobs.normalise_trigger(trigger)
-    cmd = [sys.executable, "-m", "pipeline.connectors", "run", source_id, "--trigger", trigger]
+    attempts = int(getattr(context.job, "attempts", 0) or 0)
+    if attempts > 0:
+        # If the first attempt died unrecorded, its row gets no outcome now: close it.
+        _close_pending(run_id, "the first attempt ended without an outcome")
+        trigger, run_id = jobs.RETRY_TRIGGER, None
+    else:
+        trigger = jobs.normalise_trigger(trigger)
+    final_attempt = FETCH_RETRY.max_attempts is not None and attempts >= FETCH_RETRY.max_attempts
+    cmd = [sys.executable, "-m", "pipeline.connectors", "run", source_id]
+    if run_id is not None:
+        cmd += ["--run-id", run_id]
+    cmd += ["--trigger", trigger]
     logger.info("fetch job starting", extra={"source_id": source_id, "cmd": cmd, "timeout_s": timeout})
     started_at = jobs._utcnow()
+    outcome_kw: dict[str, Any] = {
+        "trigger": trigger,
+        "started_at": started_at,
+        "run_id": run_id,
+        "attempt": attempts + 1,
+        "final_attempt": final_attempt,
+    }
     try:
         result = subprocess.run(  # noqa: S603 -- fixed argv built from a trusted registry id, no shell
             cmd, cwd=ROOT, timeout=timeout, capture_output=True, text=True, check=False
         )
     except subprocess.TimeoutExpired as exc:
-        outcome = jobs.fetch_outcome(
+        jobs.fetch_outcome(
             source_id,
             returncode=None,
             stdout=_text(exc.stdout),
             stderr=_text(exc.stderr),
-            trigger=trigger,
-            started_at=started_at,
             timeout_s=timeout,
+            **outcome_kw,
         )
         raise TransientConnectorFailure(f"connector run for {source_id} timed out after {timeout}s") from exc
-    outcome = jobs.fetch_outcome(
-        source_id,
-        returncode=result.returncode,
-        stdout=result.stdout,
-        stderr=result.stderr,
-        trigger=trigger,
-        started_at=started_at,
-    )
+    except Exception as exc:
+        # The CLI never ran (no interpreter, no fork): nothing will report on the named run.
+        _close_pending(run_id, f"fetch job failed: {exc!r}")
+        raise
+    try:
+        outcome = jobs.fetch_outcome(
+            source_id,
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            **outcome_kw,
+        )
+    except Exception as exc:
+        # Recording the outcome failed (the database, most likely): try to close the named row so
+        # the admin guard does not see it `running`; the job fails and the next tick fetches again.
+        _close_pending(run_id, f"recording failed: {exc!r}")
+        raise
     status = outcome["status"]
     if status == "ok" and outcome["ts"]:
         _defer_load(source_id, outcome["ts"])
@@ -200,6 +243,17 @@ def run_connector(
             f"connector run failed for {source_id} ({status}); will retry with backoff"
         )
     raise ConnectorRunFailed(f"connector run for {source_id} ended {status}; not retried")
+
+
+def _close_pending(run_id: str | None, error: str) -> None:
+    """`jobs.close_pending_run` for the row an admin run-now created, when there is one; never
+    raises, so it cannot mask the failure being handled."""
+    if run_id is None:
+        return
+    try:
+        jobs.close_pending_run(jobs.build_session_factory(), run_id, error=error)
+    except Exception:
+        logger.exception("could not close the pending run row", extra={"run_id": run_id})
 
 
 def _defer_load(source_id: str, ts: str) -> None:
