@@ -50,6 +50,7 @@ from services.api.records import (
     PROPOSAL_SORT_ALLOWLIST,
     _opportunity_query_with_filters,
     _proposal_query_with_filters,
+    instant_filter,
 )
 from services.api.visibility import event_visibility_filter
 from services.db.models import (
@@ -140,14 +141,20 @@ def validate_export_query(resource: Resource, query: Any, *, instance: str) -> d
             raise validation_error(
                 f"query.{key}", f"{key} describes a page, not a result set; an export has neither", instance
             )
+    check_query_values(query, instance)
+    check_allowed(synthetic_request(query, path=instance), EXPORT_QUERY_KEYS[resource])
+    return dict(query)
+
+
+def check_query_values(query: Mapping[str, Any], instance: str) -> None:
+    """A stored filter's values are scalars or lists of scalars (`SavedSearchQuery`, `ExportCreate`):
+    anything else is a `400 validation_error` naming `query.<key>`."""
     for key, value in query.items():
         if isinstance(value, (list, tuple)):
             if not all(isinstance(v, (str, int, float)) and not isinstance(v, bool) for v in value):
                 raise validation_error(f"query.{key}", "list values must be strings or numbers", instance)
         elif not isinstance(value, (str, int, float, bool)):
             raise validation_error(f"query.{key}", "values must be scalars or lists of scalars", instance)
-    check_allowed(synthetic_request(query, path=instance), EXPORT_QUERY_KEYS[resource])
-    return dict(query)
 
 
 def resolve_subject(db: Session, public_id_value: str) -> Proposal | Opportunity | None:
@@ -252,11 +259,9 @@ def event_query_with_filters(request: Request, db: Session, entitlement: str) ->
 
 
 def _parse_instant(value: str, field: str, instance: str) -> dt.datetime:
-    try:
-        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise validation_error(field, f"{field} must be an RFC 3339 instant", instance) from exc
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=dt.UTC)
+    """`services/api/records.py::instant_filter`: one parser for every date-time bound, normalised
+    to UTC so SQLite (wall-clock text) and Postgres (instants) agree on an offset bound."""
+    return instant_filter(field, value, instance)
 
 
 # ------------------------------------------------------------------------- redistribution clauses
@@ -392,6 +397,7 @@ __all__ = [
     "SORT_ALLOWLISTS",
     "RedistributionFlag",
     "Resource",
+    "check_query_values",
     "event_query_with_filters",
     "lean_load_options",
     "normalise_resource",

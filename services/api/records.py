@@ -18,6 +18,7 @@ module imports them from there rather than owning a copy.
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any, Literal, NamedTuple, cast
@@ -111,6 +112,54 @@ PROPOSAL_SORT_ALLOWLIST = {"last_changed", "first_seen", "capacity_mw", "name_ca
 PLACEMENT_REGION_PRECISIONS = ("county_centroid", "state_centroid", "country_centroid")
 
 
+def number_filter(name: str, value: str, instance: str) -> float:
+    """A range bound such as `capacity_mw[gte]`. Not a finite number is a `400 validation_error`
+    naming the parameter (before 2026-09-27 `float()` raised and the route answered 500). The alert
+    matcher (`services/alerts/matching.py`) parses stored bounds through this same function."""
+    try:
+        number = float(value)
+    except ValueError as exc:
+        raise validation_error(name, f"{name} must be a number", instance) from exc
+    if not math.isfinite(number):
+        raise validation_error(name, f"{name} must be a finite number", instance)
+    return number
+
+
+def instant_filter(name: str, value: str, instance: str) -> dt.datetime:
+    """A date-time bound such as `due_at[from]`, as an aware UTC instant: RFC 3339 with `Z` or an
+    offset; a bare date or offset-less time is read as UTC. Normalised to UTC before it is bound
+    because SQLite compares the stored wall-clock text and ignores the offset, while Postgres
+    compares instants; with the bound in UTC both agree (the store writes UTC). Unparseable is a
+    `400 validation_error` (before 2026-09-27, a 500). Shared with the alert matcher."""
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise validation_error(name, f"{name} must be an RFC 3339 date-time", instance) from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=dt.UTC)
+    return parsed.astimezone(dt.UTC)
+
+
+PLACEMENT_GRADES = ("exact", "region", "none")
+
+
+def placement_grades(raw: str | None, default: list[str] | None, instance: str) -> list[str] | None:
+    """The grades `?placement=` asks for, `default` when it names none, `None` for no filter. An
+    unknown grade is a `400 validation_error`. Shared with the alert matcher
+    (`services/alerts/matching.py`) so a saved search and the list read one value the same way.
+
+    `?placement=,` parses to no grades and means the caller's default, as an empty value does for
+    every sibling filter: before 2026-09-27 it reached `sa.or_()` with no clauses, which selected
+    every *located* proposal and silently dropped the unlocated ones."""
+    grades = (csv_param(raw) if raw else None) or default
+    if grades is None:
+        return None
+    unknown = [g for g in grades if g not in PLACEMENT_GRADES]
+    if unknown:
+        raise validation_error("placement", f"unknown placement value(s): {', '.join(unknown)}", instance)
+    return grades
+
+
 def _apply_placement_filter(
     stmt: sa.Select[Any], request: Request, *, default: list[str] | None
 ) -> sa.Select[Any]:
@@ -121,15 +170,9 @@ def _apply_placement_filter(
     `default` is `None` on `GET /v1/proposals` (every grade returned unless the caller asks
     otherwise) and `["exact", "region"]` on `GET /v1/proposals/geo` (docs/23 §3.1's stated
     default for that endpoint)."""
-    v = request.query_params.get("placement")
-    grades = csv_param(v) if v else default
+    grades = placement_grades(request.query_params.get("placement"), default, request.url.path)
     if grades is None:
         return stmt
-    unknown = [g for g in grades if g not in ("exact", "region", "none")]
-    if unknown:
-        raise validation_error(
-            "placement", f"unknown placement value(s): {', '.join(unknown)}", request.url.path
-        )
     # Placement is judged on the grade a row is *served* at, not the one it is stored at
     # (restricted-precision rule, docs/04 D-9): an `exact` row whose licence forbids raw
     # publication is a `region` row on every non-admin surface (`services/api/geo.py::
@@ -164,20 +207,30 @@ def _apply_slip_filter(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]
     which is a different and wrong answer (docs/04 API-3's rule that a request we cannot honour is
     an error, never a silent no-op).
     """
-    qp = request.query_params
+    parsed = slip_params(
+        request.query_params.get("slipped"), request.query_params.get("slip_bucket"), request.url.path
+    )
+    if parsed is None:
+        return stmt
+    slipped, buckets = parsed
+    return stmt.where(slip_filter(slipped=slipped, buckets=buckets, on=slip_today()))
+
+
+def slip_params(
+    raw_slipped: str | None, raw_buckets: str | None, instance: str
+) -> tuple[bool | None, list[str] | None] | None:
+    """`(slipped, buckets)` for `?slipped=`/`?slip_bucket=`, or `None` for no filter; the 400s
+    `_apply_slip_filter` documents. Shared with the alert matcher (`services/alerts/matching.py`)."""
     # An empty value means "no filter" for both, as it does for every sibling filter here (the
     # `if v := qp.get(name)` idiom below); a form that submits an unset control must not 400.
-    raw_slipped = qp.get("slipped") or None
-    raw_buckets = qp.get("slip_bucket")
+    raw_slipped = raw_slipped or None
     if raw_slipped is None and not raw_buckets:
-        return stmt
+        return None
     slipped: bool | None = None
     if raw_slipped is not None:
         if raw_slipped not in ("true", "false"):
             raise validation_error(
-                "slipped",
-                f"unknown slipped value {raw_slipped!r}; expected true or false",
-                request.url.path,
+                "slipped", f"unknown slipped value {raw_slipped!r}; expected true or false", instance
             )
         slipped = raw_slipped == "true"
     buckets = csv_param(raw_buckets) if raw_buckets else None
@@ -188,20 +241,20 @@ def _apply_slip_filter(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]
                 "slip_bucket",
                 f"unknown slip_bucket value(s): {', '.join(unknown)}; "
                 f"expected one of {', '.join(SLIP_BUCKETS)}",
-                request.url.path,
+                instance,
             )
         if slipped is False:
             raise validation_error(
                 "slip_bucket",
                 "slip_bucket selects slipped proposals and cannot be combined with slipped=false",
-                request.url.path,
+                instance,
             )
     if not buckets and slipped is None:
         # `?slip_bucket=,,` parses to no tokens. Without this, it would fall through to
         # `slip_filter(slipped=None, ...)` and silently mean `slipped=false` -- a filter the
         # caller never asked for. An empty value means "no filter", as everywhere else here.
-        return stmt
-    return stmt.where(slip_filter(slipped=slipped, buckets=buckets, on=slip_today()))
+        return None
+    return slipped, buckets
 
 
 def _apply_proposal_filters(
@@ -221,14 +274,18 @@ def _apply_proposal_filters(
     if v := qp.get("iso"):
         stmt = stmt.where(Proposal.iso.in_(csv_param(v)))
     if v := qp.get("source_id"):
-        stmt = stmt.join(ProposalSource, ProposalSource.proposal_id == Proposal.id).where(
+        # A subquery, not a join: a proposal linked to two of the named sources would otherwise be
+        # returned twice (`?source_id=a,b` answered 120 rows for 96 proposals on the parity store,
+        # `tests/test_saved_search_parity.py`), and `include=count` counted both.
+        linked = select(ProposalSource.proposal_id).where(
             ProposalSource.source_id.in_(csv_param(v)),
             *visible_source_link_filter(ProposalSource, entitlement),
         )
+        stmt = stmt.where(Proposal.id.in_(linked))
     if v := qp.get("capacity_mw[gte]"):
-        stmt = stmt.where(Proposal.capacity_mw >= float(v))
+        stmt = stmt.where(Proposal.capacity_mw >= number_filter("capacity_mw[gte]", v, request.url.path))
     if v := qp.get("capacity_mw[lte]"):
-        stmt = stmt.where(Proposal.capacity_mw <= float(v))
+        stmt = stmt.where(Proposal.capacity_mw <= number_filter("capacity_mw[lte]", v, request.url.path))
     if v := qp.get("slug"):
         stmt = stmt.where(Proposal.slug == v)
     if v := qp.get("county_fips"):
@@ -238,6 +295,13 @@ def _apply_proposal_filters(
         # -- a second join to the same table there would be invalid SQL, and a subquery is correct
         # regardless of what the caller already joined.
         loc_subquery = select(Location.id).where(Location.county_fips.in_(csv_param(v)))
+        stmt = stmt.where(Proposal.location_id.in_(loc_subquery))
+    if v := qp.get("state"):
+        # `location.state_code` (ISO 3166-2, api/openapi.yaml `State`), a subquery for the same reason
+        # as `county_fips` above. A proposal with no location, or a location with no state code,
+        # matches no state. Until 2026-09-27 this key was allowlisted and never applied: `?state=US-TX`
+        # answered all 10,409 proposals on the dev store.
+        loc_subquery = select(Location.id).where(Location.state_code.in_(csv_param(v)))
         stmt = stmt.where(Proposal.location_id.in_(loc_subquery))
     stmt = _apply_slip_filter(stmt, request)
     if v := qp.get("q"):
@@ -651,14 +715,16 @@ def _opportunity_query_with_filters(
     if v := qp.get("jurisdiction"):
         stmt = stmt.where(Opportunity.jurisdiction.in_(csv_param(v)))
     if v := qp.get("source_id"):
-        stmt = stmt.join(OpportunitySource, OpportunitySource.opportunity_id == Opportunity.id).where(
+        # A subquery, not a join, for the same reason as the proposal arm: no duplicate rows.
+        linked = select(OpportunitySource.opportunity_id).where(
             OpportunitySource.source_id.in_(csv_param(v)),
             *visible_source_link_filter(OpportunitySource, entitlement),
         )
+        stmt = stmt.where(Opportunity.id.in_(linked))
     if v := qp.get("due_at[from]"):
-        stmt = stmt.where(Opportunity.due_at >= dt.datetime.fromisoformat(v.replace("Z", "+00:00")))
+        stmt = stmt.where(Opportunity.due_at >= instant_filter("due_at[from]", v, request.url.path))
     if v := qp.get("due_at[to]"):
-        stmt = stmt.where(Opportunity.due_at <= dt.datetime.fromisoformat(v.replace("Z", "+00:00")))
+        stmt = stmt.where(Opportunity.due_at <= instant_filter("due_at[to]", v, request.url.path))
     if v := qp.get("slug"):
         stmt = stmt.where(Opportunity.slug == v)
     if v := qp.get("q"):

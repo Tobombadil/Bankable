@@ -218,8 +218,11 @@ are architecture changes; all are bounded follow-ups.
    silently-ignored second sort key beyond dropping it) rather than pretended-complete.
 7. **Filter coverage is a named subset, not the full grammar.** Every filter parameter this
    service *declares* as allowed is real, tested and effective; parameters `api/openapi.yaml`
-   lists but this sprint does not implement (e.g. `changed_key`, `updated_since`, `county_fips`,
-   `sponsor_id`/`issuer_id`, `budget_amount[gte]`, `capacity_sought_mw[gte]`) are **not** in this
+   lists but the service does not implement (as of 2026-09-27: `changed_key` and
+   `observed_at[from|to]` on events, `state` on opportunities, `updated_since` on the lists (the
+   bulk streams take it), `sponsor_id`/`issuer_id`,
+   `budget_amount[gte]`, `capacity_sought_mw[gte]`; `county_fips` and `state` on proposals are
+   now implemented and pinned by `tests/test_saved_search_parity.py`) are **not** in this
    service's allowlist and so answer `400 unknown_parameter` rather than being silently accepted
    and ignored — docs/04 API-3 treats a silently-dropped filter as a licence-sensitive leak, and
    an honest 400 is safer than a filter that looks like it works and doesn't.
@@ -753,7 +756,9 @@ services/api/feeds.py            extended: render_rss/render_json_feed/feed_titl
 services/api/deps.py             get_db now commits on a clean return / rolls back on exception
                                   (Sprint 2's routes were all reads; this sprint's are the first
                                   writes, and a bare `finally: db.close()` silently discards them)
-services/alerts/matching.py      saved-search/webhook query grammar evaluated against one row
+services/alerts/matching.py      saved-search/webhook query grammar evaluated against one row;
+                                  the list endpoints' full grammar since 2026-09-27, pinned by
+                                  tests/test_saved_search_parity.py (open decision 7 below)
 services/alerts/evaluate.py      run_alert_cycle: matches new events since each saved search's
                                   watermark_seq, digests every match in one pass into one Alert
                                   per channel, sends through EmailPort
@@ -815,12 +820,28 @@ services/alerts/webhooks.py      HMAC signing/verification, endpoint matching, e
    job (ADR 0004) should call on an interval in production; this sprint ships and tests the
    functions, not the periodic-task wiring (`infra/scheduler/` is devops-engineer's tree, out of
    this task's scope).
-7. **Matching re-implements a named subset of the filter grammar** (`services/alerts/matching.py`)
-   rather than generalising `services/api/app.py`'s `_apply_proposal_filters` et al. to also drive
-   in-Python matching against one already-loaded row. Reusing those would have meant restructuring
-   Sprint 2's already-shipped, already-tested public list endpoints; this sprint's matcher covers
-   the same named subset of parameters (docs/04 §10 "Filter coverage is a named subset" decision,
-   unchanged) plus `q`. A follow-up could unify both under one grammar module.
+7. **Matching re-implements the full filter grammar, pinned by a parity test**
+   (`services/alerts/matching.py`) rather than generalising `services/api/records.py`'s
+   `_apply_proposal_filters` et al. to drive in-Python matching against one already-loaded row.
+   Until 2026-09-27 it covered a named subset (kind, technology, lifecycle_state, jurisdiction, iso,
+   source_id, capacity, `q` on the name only) while saved-search and webhook creation stored any
+   `query` unvalidated, so a search for "storage over 500 MW in US-TX" alerted on every storage
+   proposal anywhere. It now implements every key `GET /v1/proposals`, `GET /v1/opportunities` and
+   `GET /v1/events` accept, with the SQL's semantics (inclusive bounds, NULL column or missing
+   location matches no filter on it, `placement` on the served grade, slippage through
+   `services/api/slippage.py`, opportunity `status` defaulting to `open`, `q` over name, visible
+   sponsor/issuer and visible source record ids with `LIKE` wildcards), parsing values through the
+   list's own functions (`number_filter`, `instant_filter`, `placement_grades`, `slip_params`).
+   `tests/test_saved_search_parity.py` builds a store covering every filter dimension and asserts,
+   at the public and Pro tiers, that the list's ids (paged) equal the matcher's ids for every single
+   filter and a set of combinations, that each single filter narrows, and that every key in
+   `PROPOSAL_FILTERS`/`OPPORTUNITY_FILTERS`/`EVENT_FILTERS` is exercised -- a filter added to a list
+   without a matcher arm fails CI. Creation and update (`POST`/`PATCH /v1/saved-searches`,
+   `POST /v1/webhooks`) now refuse a key the entity's list does not filter on with
+   `400 unknown_parameter`, and a value the list would refuse with its `400 validation_error`;
+   stored rows are not re-validated on read, and a stored value the list would refuse makes the
+   matcher match nothing (fail closed). Behaviour change for existing opportunity searches with no
+   `status`: they now alert only on `open` opportunities, as the list shows.
 8. **Rotation is create-then-revoke**, not a dedicated endpoint — `api/openapi.yaml` defines only
    `createKey` (session-only) and `revokeKey`; task brief calls for a "rotation endpoint" and this
    is the workflow that satisfies it without adding an undocumented path (tested end to end in
