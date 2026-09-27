@@ -41,9 +41,14 @@ Decisions carried over from `admin_people.py` (fuller versions with reasons in
    (`services/api/deps.py` `get_db`): raising past `SorUnavailable`/`SorRejected` rolls back
    whatever this request already wrote (a new proposal, a task update), matching the deletion-task
    rule in `admin_people.py` ("nothing half-applied") without needing bespoke transaction handling.
-8. `matches_computed` on `POST .../approve-intake` is always `0` — the US-401 rule engine is a
-   different sprint's area; nothing here recomputes matches, and the field says so honestly rather
-   than fabricating a count.
+8. `matches_computed` on `POST .../approve-intake` (2026-09-26, US-1002 AC2): on `approve` and on
+   `link` the record the task now points at is re-matched with `services.match.run.run_matches`
+   scoped to that one record, inside this request's transaction, and the field is the number of
+   active matches it holds afterwards (`0` on `reject`). A `pending_review` record is matched like
+   any other; its matches stay invisible on every non-admin surface until it is published, because
+   the match routes apply the visibility predicate to both sides. The CRM hand-off of a *match* is
+   still the separate operator action `POST /admin/v1/leads` (US-403 AC1), which takes the
+   `mat_...` id this computation produced; decision 3 is unchanged.
 
 The three decisions were one 159-line `if/elif` block (`admin_people.py` L1155-1313 on
 `daf5e80`); `_IntakeDecisionContext` carries the five inputs every decision needs (`db`, `request`,
@@ -87,6 +92,7 @@ from services.db.models import (
     User,
 )
 from services.ids import public_id, slugify
+from services.match.run import active_match_count, run_matches
 from services.sor.ports import CompanyUpsert, CrmPort, LeadSignal, SorRejected, SorUnavailable
 from services.sor.wiring import get_crm_port
 
@@ -614,6 +620,17 @@ def _apply_approve_decision(
     return record_dict
 
 
+def _compute_matches(db: Session, task: Task) -> int:
+    """decision 8: re-match the one record the decision left the task pointing at."""
+    if task.subject_id is None:  # unreachable after approve/link, which always set it
+        return 0
+    if task.subject_type == "proposal":
+        run_matches(db, proposal_ids=[task.subject_id])
+        return active_match_count(db, proposal_id=task.subject_id)
+    run_matches(db, opportunity_ids=[task.subject_id])
+    return active_match_count(db, opportunity_id=task.subject_id)
+
+
 @router.post("/admin/v1/tasks/{task_id}/approve-intake")
 def admin_approve_intake(
     task_id: str,
@@ -654,11 +671,12 @@ def admin_approve_intake(
         record_dict = _apply_approve_decision(dctx, pending, body, crm)
 
     db.flush()
+    matches_computed = _compute_matches(db, task) if decision != "reject" else 0  # decision 8
     data = {
         "task": serialize_task(task),
         "decision": decision,
         "record": record_dict,
-        "matches_computed": 0,  # decision 8
+        "matches_computed": matches_computed,
         "lead": None,  # decision 3
         "curated_issuer_source_id": None,
     }

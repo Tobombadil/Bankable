@@ -35,3 +35,26 @@ def slugify(text: str, *, max_length: int = 80) -> str:
     lowered = text.strip().lower()
     slug = _SLUG_STRIP.sub("-", lowered).strip("-")
     return (slug or "record")[:max_length]
+
+
+def parse_public_id(prefix: str, value: str) -> _uuid.UUID | None:
+    """Inverse of `public_id` for an entity whose public id is *synthesised* from its internal uuid
+    rather than stored (`match` -> `mat_...`, `event` -> `evt_...`; docs/21 §3.11 gives `match` no
+    `public_id` column). `None` for anything that is not `<prefix>_<crockford digits>` or whose
+    digits do not fit a uuid -- callers turn that into the same 404 an unknown id gets, never a 400
+    that would confirm the shape of a real id."""
+    if not value.startswith(f"{prefix}_"):
+        return None
+    digits = value[len(prefix) + 1 :]
+    if not digits:
+        return None
+    n = 0
+    for ch in digits:
+        index = _CROCKFORD.find(ch)
+        if index < 0:
+            return None
+        n = n * 32 + index
+    try:
+        return _uuid.UUID(int=n)
+    except ValueError:
+        return None

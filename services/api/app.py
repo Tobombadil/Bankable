@@ -5,8 +5,6 @@ Implemented (all `x-tier: public`): proposals (list, geo, detail, events, source
 get-by-id, sources and licences registers, vocabularies, health, and the RSS/JSON Feed twins.
 
 Deliberately not implemented this sprint (see services/README.md "Open decisions"):
-  - `/v1/proposals/{id}/matches`, `/v1/opportunities/{id}/matches`, `/v1/matches*` — no
-    match-producing pipeline exists yet (docs/21 `match` table has no writer before Sprint 3).
   - `/v1/documents/{id}` — no document ingestion this sprint (out of the task's entity list).
   - `/v1/intake/*`, `/v1/reports` — `x-sprint: 3` in api/openapi.yaml.
   - Pro, API-key and admin surfaces — explicitly out of scope for this sprint.
@@ -178,6 +176,13 @@ from services.api.records import (  # noqa: E402
 from services.api.records import router as records_router  # noqa: E402
 
 app.include_router(records_router)
+
+# Proposal <-> opportunity matches (docs/10 US-401-403): the two record-scoped public lists, the Pro
+# cross-entity list, match detail and per-user dismissal. The rows are written by
+# `services/match/run.py`; the routes compose visibility.py's predicates on both sides.
+from services.api.matches import router as matches_router  # noqa: E402
+
+app.include_router(matches_router)
 
 
 @app.middleware("http")

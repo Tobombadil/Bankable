@@ -776,6 +776,28 @@ class Match(Base):
     )
 
 
+# ===================================================== match_dismissal (§4.4 supporting table)
+class MatchDismissal(Base):
+    """Per-user dismissal of a match (docs/10 US-402 AC2; docs/21 §3.11 "a personal action never
+    mutates global data", §4.4 `match_dismissal (user_id, match_id, dismissed_at)`). One row per
+    (user, match); `POST /v1/matches/{id}/dismiss` is idempotent on it and `DELETE` removes it.
+    The `match` row itself is untouched by either. Migration 0023."""
+
+    __tablename__ = "match_dismissal"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    user_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("user.id"), nullable=False)
+    match_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("match.id"), nullable=False)
+    dismissed_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("user_id", "match_id", name="uq_match_dismissal_user_match"),
+        sa.Index("ix_match_dismissal_match_id", "match_id"),
+    )
+
+
 # ===================================================================================== account (§3.13)
 class Account(Base, TimestampMixin):
     """The entitlement mirror (docs/21 §3.13). Authoritative for nothing once a real CRM/ERP
