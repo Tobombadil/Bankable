@@ -1908,7 +1908,7 @@ Decisions, each a choice:
    `budget_currency` (a new documented facet, ISO 4217 upper case); without one, or with several, it is a
    `400 validation_error` naming `budget_amount[gte]`. On the dev store `budget_amount >= 1000000` alone would
    select 204 rows in six currencies; `budget_currency=EUR&budget_amount[gte]=1000000` selects 67.
-   **Open:** `sort=budget_amount` still orders across currencies (not a filter; out of this lane's scope).
+   **Open:** `sort=budget_amount` still orders across currencies (not a filter; out of this lane's scope). *Closed by lane E16, below.*
 3. **`updated_since` means what the bulk stream means**: `last_changed` at or after the instant, identical
    to `last_changed[from]`; given both, both apply. It moved from `resource_statement` into the list's filter
    stack, so bulk, CSV and exports read it from one place. **A saved search or webhook refuses it**
@@ -1977,3 +1977,59 @@ pass requests the detail page and search only).
 itself) on the proposal page and the admin record's read-only row; the admin edit form, the API, `?iso=` and
 alerts keep the stored token. The web has no ISO list column or filter today, so those are the only two places
 an ISO renders.
+
+## Budget sort in one currency, raw owner spellings withheld (2026-09-27, lane E16)
+
+Closes the two defects lane E15 left open. Both choices apply the rule an earlier lane already set.
+
+1. **`sort=budget_amount` / `-budget_amount` is defined only beside exactly one `budget_currency`.** This is
+   the `budget_amount[gte]` rule. Without a currency, or with several, the request is a `400 validation_error`
+   naming `sort`. A `budget_amount` token counts in any position of the comma list, not only the first. With
+   one currency, the facet also narrows the rows to that currency, so the page is ordered inside it. The check
+   is one function, `records.check_budget_sort`, and it runs on every surface that takes an opportunity sort:
+   - `GET /v1/opportunities`, before its `Accept: text/csv` branch, so the CSV twin gives the same 400 instead
+     of a failed export and a 503;
+   - `GET /v1/organizations/{id}/opportunities`, which now documents and applies the `budget_currency` facet.
+     Without it, the documented sort could only ever answer 400;
+   - `POST /v1/exports`, through `validate_export_query` (400, and no export row is written);
+   - the export's own ordering (`exports._ordered_capped_statement`), as defence for anything that reaches it.
+
+   Other surfaces need no change. Saved searches and webhooks already refuse `sort`. Bulk streams, feeds and the
+   map take no `sort`. The web `/opportunities` page does not forward `sort`.
+
+   Measured on a copy of `web/.data/dev.db`, `?status=open,closed,awarded,cancelled`:
+   - Before, `sort=-budget_amount` answered 200 over 685 rows. The first six rows were HUF 3,449,282,316,
+     HUF 2,722,876,738, CZK 1,266,866,061.69 (twice), NOK 1,200,000,000 and SEK 700,000,000. The first
+     page mixed five currencies, and EUR 294,000,000 was not near the top.
+   - After, that request and `budget_currency=EUR,USD` both answer `400` with `errors[0].field = sort`.
+   - `budget_currency=EUR&sort=-budget_amount` answers 200 over 172 rows. The first five are 294,000,000,
+     51,500,000, 42,091,753.18, 42,005,000 and 20,000,000, which is the direct SQL order.
+   - Open, not in scope: one `eu.ted.api` notice stores a budget of -1 EUR and eight store 0. An ascending
+     sort puts them first; they look like "not stated" sentinels.
+
+2. **A raw owner-name string on an owner edge that keys to a non-public organisation is `null`.** This
+   applies on every non-admin surface, even when the edge points to a public organisation.
+   `WithheldNames.owner_name_raw` does it, and `serialize_asset_owner` now requires `withheld` as a keyword,
+   like `serialize_asset`. The edge stays, with the public organisation's canonical name and link.
+
+   The rule is conservative, like E14's operator rule: a key shared by a hidden and a public organisation is
+   withheld. The spec's `AssetOwnerRow.owner_name_raw` is now nullable and says why.
+
+   `owners[]` is only embedded on `GET /v1/assets/{id}`. The asset list, the organisation-assets list
+   (`held_by` is the canonical summary), the maps and the web pages never print the raw string, and a
+   test pins each of them.
+
+   The M-11 audit's `withheld_name_paths` now scans every raw string on an `owners[]` edge (everything but
+   the `organization` summary and `provenance`). It also adds to the audited asset set any asset with an edge
+   whose `owner_name_raw` keys to a withheld organisation, so the store pass renders that asset and the served
+   pass probes it.
+
+   Measured on a second copy of dev.db, with the one organisation taken down that 141 edges' raw spellings
+   key to ("WM Renewable Energy"; its same-key twin stays public):
+   - Before, 102 asset detail pages printed the raw spelling.
+   - After, none do.
+   - The audit reports `m11 = 0`, with 27 withheld-name probes and no leaks.
+   - With the serializer regressed, the audit finds 102 `withheld_name_printed:detail:owners[0].owner_name_raw`
+     breaches, and 25 of them are confirmed served.
+   - In this twin case the public organisation's canonical name is the same string. It is still shown,
+     because that organisation is public in its own right.

@@ -221,6 +221,31 @@ def budget_bound(raw_amount: str | None, raw_currency: str | None, instance: str
     return amount, currencies[0]
 
 
+def check_budget_sort(raw_sort: str | None, raw_currency: str | None, instance: str) -> None:
+    """`sort=budget_amount` / `-budget_amount` is defined only beside exactly one `budget_currency`
+    (2026-09-27, lane E16): the same rule as `budget_bound`, for the same reason. Budgets are stored in
+    the notice's own currency and never converted, so ordering the dev store's nine currencies by the
+    bare number put HUF 3,449,282,316 (about EUR 8.9 million) above EUR 294,000,000. With one currency,
+    `budget_currency` also narrows the rows to it, so the page is ordered within that currency. A
+    `budget_amount` token anywhere in the comma list counts, not only the first. Otherwise a
+    `400 validation_error` naming `sort`. Called by every surface that takes an opportunity sort: the
+    list (before its `Accept: text/csv` branch), `/v1/organizations/{id}/opportunities`, an export's
+    stored query (`resource_queries.validate_export_query`) and the export's own ordering."""
+    if not raw_sort:
+        return
+    fields = {token.strip().lstrip("-") for token in raw_sort.split(",")}
+    if "budget_amount" not in fields:
+        return
+    currencies = currency_values(raw_currency, instance) if raw_currency else []
+    if len(currencies) != 1:
+        raise validation_error(
+            "sort",
+            "sort=budget_amount orders amounts in one currency and never converts: pass exactly one "
+            "budget_currency (an ISO 4217 code such as EUR)",
+            instance,
+        )
+
+
 PLACEMENT_GRADES = ("exact", "region", "none")
 
 
@@ -906,6 +931,11 @@ def list_opportunities(
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
     check_allowed(request, LIST_COMMON | OPPORTUNITY_FILTERS | SYNC_FILTERS)
+    # Before the CSV branch, so `Accept: text/csv` refuses a cross-currency budget sort with the
+    # same 400 instead of a failed export.
+    check_budget_sort(
+        request.query_params.get("sort"), request.query_params.get("budget_currency"), request.url.path
+    )
     if wants_csv(request):
         return _csv_list_response(request, db, ctx, "opportunity")
     limit = clamp_limit(int_param(request, "limit"))

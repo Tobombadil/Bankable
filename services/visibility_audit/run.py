@@ -36,7 +36,8 @@ Two passes, deliberately independent of each other:
 names is taken down, but no non-admin surface may print that organisation's name in the asset's
 register text (`services/api/withheld_names.py`; docs/00-PLAN.md 2026-09-27, lane E14). The store pass
 renders every shown asset that is linked to a non-public organisation -- an `operator` edge, an
-`operator_name` spelling of it, or any owner edge -- through the builders the surfaces call
+`operator_name` spelling of it, any owner edge to it, or (lane E16) an owner edge to a public
+organisation whose `owner_name_raw` spells it -- through the builders the surfaces call
 (`services/api/assets.py::asset_surface_shapes`: detail, list/search, map point, map line) and scans
 the name-bearing parts (`operator_name`, `attributes`, `owners`) for a withheld name
 (`withheld_name_printed`). The served pass requests the detail page of a sample of those assets and
@@ -420,9 +421,12 @@ def withheld_name_paths(
     read (`operator_name`, `attributes`, `owners`); the asset's own name, provenance and geometry are
     not about the organisation. A hit is any string in `operator_name`/`attributes` whose `org_key` is a
     withheld key; an `owners[]` edge to a hidden organisation (by public id -- a *public* owner that
-    happens to share a spelling is that owner, printed rightly); and, where the asset has an `operator`
-    edge to a hidden organisation, any `operator_name` at all (the register may spell the company in a
-    way no key catches, which is why the edge withholds it)."""
+    happens to share a spelling is that owner, printed rightly); any raw string on an `owners[]` edge
+    (`owner_name_raw`, the register's spelling) whose `org_key` is a withheld key, even on an edge to a
+    public organisation (lane E16: the edge's `organization` summary and `provenance` are not raw text
+    and are not read); and, where the asset has an `operator` edge to a hidden organisation, any
+    `operator_name` at all (the register may spell the company in a way no key catches, which is why
+    the edge withholds it)."""
     body: Mapping[str, Any] = shape.get("properties", shape) if shape.get("type") == "Feature" else shape
     found: list[str] = []
 
@@ -441,9 +445,15 @@ def withheld_name_paths(
         if key in body:
             walk(body[key], key)
     for i, edge in enumerate(body.get("owners") or []):
-        org = edge.get("organization") if isinstance(edge, Mapping) else None
+        if not isinstance(edge, Mapping):
+            continue
+        org = edge.get("organization")
         if isinstance(org, Mapping) and org.get("public_id") in hidden_org_ids:
             found.append(f"owners[{i}]")
+            continue
+        for key, value in edge.items():
+            if key not in ("organization", "provenance"):
+                walk(value, f"owners[{i}].{key}")
     if operator_edge and body.get("operator_name") is not None and "operator_name" not in found:
         found.append("operator_name")
     return found
@@ -474,9 +484,18 @@ def _audit_asset_operator_names(
     from services.api.assets import asset_surface_shapes
 
     hidden_ids, hidden_public_ids = hidden
+    # Lane E16: an edge to a *public* organisation whose raw spelling keys to a withheld one also links
+    # the asset (`withheld_name_paths` reads `owners[].owner_name_raw`). The distinct raw spellings are
+    # a few thousand strings on the dev store, keyed through the same memoised `org_key`.
+    owner_spellings = sorted(
+        name
+        for name in db.scalars(select(AssetOwner.owner_name_raw).distinct())
+        if withheld.names_withheld(name)
+    )
     linked = or_(
         ~withheld.operator_name_searchable(),
         Asset.id.in_(select(AssetOwner.asset_id).where(AssetOwner.organization_id.in_(hidden_ids))),
+        Asset.id.in_(select(AssetOwner.asset_id).where(AssetOwner.owner_name_raw.in_(owner_spellings))),
     )
     assets = list(
         db.scalars(

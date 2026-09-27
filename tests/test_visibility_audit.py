@@ -736,3 +736,99 @@ def test_withheld_name_paths_reads_owners_by_id_and_an_operator_edge_whatever_th
     feature = {"type": "Feature", "properties": {"operator_name": HIDDEN_OPERATOR}}
     assert run.withheld_name_paths(feature, withheld, operator_edge=False) == ["operator_name"]
     assert run.withheld_name_paths({"operator_name": None}, withheld, operator_edge=True) == []
+
+
+# ======================================================= owner edges' raw spellings (lane E16)
+def seed_raw_owner_spelling(db: Session) -> dict[str, Any]:
+    """The clean store plus an organisation taken down while a public asset's owner edge -- to a
+    *public* organisation -- still carries a raw register spelling of it. Nothing else links the asset
+    to the hidden organisation (no operator edge, no operator name), so only the new arm finds it."""
+    from services.api.conftest import make_asset_owner
+
+    seeded = seed_clean_store(db)
+    lic, src = seeded["open"], seeded["ercot"]
+    hidden = make_org(db, HIDDEN_OPERATOR)
+    public_owner = make_org(db, "Open Owner Holdings")
+    plant = make_asset(db, src, lic, source_asset_id="r1", name="Prairie Gas Plant", geom=(-98.0, 32.0))
+    plant.operator_name = "Open Owner Holdings"
+    edge = make_asset_owner(db, plant, public_owner, src, lic, role="owner")
+    edge.owner_name_raw = HIDDEN_OPERATOR_REGISTER
+    hidden.publish_state = "unpublished"
+    db.flush()
+    return {**seeded, "hidden_org": hidden, "public_owner": public_owner, "plant": plant}
+
+
+def test_a_raw_owner_spelling_withheld_by_the_serializer_is_probed_and_not_a_breach(
+    db: Session, db_sessionmaker: sessionmaker[Session], _fresh_name_caches: None
+) -> None:
+    seeded = seed_raw_owner_spelling(db)
+    db.commit()
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    assert result["m11"] == 0, result["breaches"]
+    details = [
+        c
+        for c in result["served"]["checks"]
+        if c["kind"] == "withheld_name" and c["why"].startswith("detail")
+    ]
+    assert seeded["plant"].public_id in {c["public_id"] for c in details}
+    assert all(c["status"] == 200 and not c["leak"] for c in details)
+
+
+def test_a_serializer_that_prints_a_raw_owner_spelling_is_a_breach_on_both_passes(
+    db: Session,
+    db_sessionmaker: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    _fresh_name_caches: None,
+) -> None:
+    """The regression the new arm exists for: the owner-edge serializer printing `owner_name_raw` as
+    stored (the behaviour before lane E16). The store pass sees it in the rendered detail shape; the
+    served pass confirms the real detail page prints it."""
+    from services.api import serialize as serialize_module
+
+    real = serialize_module.serialize_asset_owner
+    seeded = seed_raw_owner_spelling(db)
+    db.commit()
+
+    def regressed(edge: Any, **kwargs: Any) -> dict[str, Any]:
+        out: dict[str, Any] = real(edge, **kwargs)
+        out["owner_name_raw"] = edge.owner_name_raw  # printed as stored, whatever it spells
+        return out
+
+    monkeypatch.setattr(serialize_module, "serialize_asset_owner", regressed)
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    printed = [
+        b
+        for b in _breaches(result, "assets")
+        if b["public_id"] == seeded["plant"].public_id and b["reason"].startswith("withheld_name_printed:")
+    ]
+    assert [b["reason"] for b in printed] == ["withheld_name_printed:detail:owners[0].owner_name_raw"]
+    assert printed[0]["served_status"] == 200 and printed[0]["served_leak"] is True
+    assert result["m11"] == len(result["breaches"]) == 1
+    # The audit row names the path, never the withheld spelling.
+    assert HIDDEN_OPERATOR.lower() not in json.dumps(result["breaches"]).lower()
+
+
+def test_withheld_name_paths_reads_raw_strings_on_an_edge_to_a_public_organisation() -> None:
+    from pipeline.normalize import org_key
+    from services.api.withheld_names import WithheldNames
+
+    withheld = WithheldNames(keys=frozenset({org_key(HIDDEN_OPERATOR)}))
+    shape = {
+        "operator_name": None,
+        "owners": [
+            {
+                "organization": {"public_id": "org_public", "name_canonical": "Open Owner Holdings"},
+                "owner_name_raw": HIDDEN_OPERATOR_REGISTER,
+                "provenance": {"source_name": "Test"},
+            },
+            {"organization": {"public_id": "org_public"}, "owner_name_raw": "Open Owner Holdings"},
+            {"organization": {"public_id": "org_public"}, "owner_name_raw": None},
+            # The edge's organisation summary is the public owner it points to, not raw text.
+            {"organization": {"public_id": "org_twin", "name_canonical": HIDDEN_OPERATOR}},
+        ],
+    }
+    assert run.withheld_name_paths(shape, withheld, operator_edge=False) == ["owners[0].owner_name_raw"]
