@@ -206,8 +206,49 @@ PROPOSAL_PASSTHROUGH_FILTERS = (
     # allowlist here.
     "slipped",
     "slip_bucket",
+    # Every other filter the API list takes, so a shared or hand-written link such as
+    # `/proposals?state=US-TX` narrows the page exactly as `GET /v1/proposals?state=US-TX` does
+    # instead of silently showing everything (2026-09-27: `state` was dropped here, 2,077 rows for
+    # 806). No form control sets these; they are passed through for links. Pinned against the
+    # API's own filter set by `web/test_list_filter_passthrough.py`.
+    "iso",
+    "state",
+    "source_id",
+    "sponsor_id",
+    "storage_mwh[gte]",
+    "first_seen[from]",
+    "first_seen[to]",
+    "last_changed[from]",
+    "last_changed[to]",
+    "updated_since",
+    "slug",
 )
-OPPORTUNITY_PASSTHROUGH_FILTERS = ("kind", "jurisdiction", "technologies", "q")
+#: As above for `GET /v1/opportunities`; `status` is resolved separately (`opportunity_status_param`).
+OPPORTUNITY_PASSTHROUGH_FILTERS = (
+    "kind",
+    "jurisdiction",
+    "technologies",
+    "q",
+    "source_id",
+    "issuer_id",
+    "due_at[from]",
+    "due_at[to]",
+    "open_at[from]",
+    "open_at[to]",
+    "capacity_sought_mw[gte]",
+    "budget_currency",
+    "budget_amount[gte]",
+    "first_seen[from]",
+    "first_seen[to]",
+    "last_changed[from]",
+    "last_changed[to]",
+    "updated_since",
+    "slug",
+)
+#: The filters `lifecycle_breakdown` forwards to `/v1/proposals/geo`, so the "Showing N active
+#: proposals" line counts the same set the list shows (before 2026-09-27 it forwarded only
+#: technology, jurisdiction and kind: `?q=solar&state=US-TX` listed 651 and announced 1,743).
+BREAKDOWN_FILTERS = PROPOSAL_PASSTHROUGH_FILTERS
 
 
 def _proposal_params(qp: QueryParams, *, lifecycle_csv: str) -> dict[str, str | None]:
@@ -222,9 +263,7 @@ def home_map(request: Request) -> HTMLResponse:
     qp = request.query_params
     _lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
     vocab = api.get("/v1/meta/vocabularies")["data"]
-    breakdown = lifecycle_breakdown(
-        api, extra_filters={n: qp[n] for n in ("technology", "jurisdiction", "kind") if qp.get(n)}
-    )
+    breakdown = lifecycle_breakdown(api, extra_filters={n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n)})
     tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
     tile_mode = _tile_mode(tile_url)
     # docs/40 §2.7 / task item 3: only regions a published, non-gated source actually covers get a
@@ -374,9 +413,7 @@ def proposals_list(request: Request) -> HTMLResponse:
     params["include"] = "count"
     envelope = api.get("/v1/proposals", params=params)
     vocab = api.get("/v1/meta/vocabularies")["data"]
-    breakdown = lifecycle_breakdown(
-        api, extra_filters={n: qp[n] for n in ("technology", "jurisdiction", "kind") if qp.get(n)}
-    )
+    breakdown = lifecycle_breakdown(api, extra_filters={n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n)})
 
     records = [flatten_proposal(e) for e in envelope["data"]]
     canonical_path = "/proposals" + canonical_query(
