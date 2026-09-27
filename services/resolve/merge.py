@@ -441,6 +441,8 @@ def merge_organization(
     actor_type: str = "pipeline",
     source_url: str | None = None,
     retrieved_at: dt.datetime | None = None,
+    source_id: str | None = None,
+    licence_id: str | None = None,
 ) -> Event:
     """Merge `absorbed` organization into `canonical` and write one `merged` event (mirrors
     `merge_proposal`; docs/21 §6.3, applied to `organization` per its own `merged_into_id` column,
@@ -623,8 +625,10 @@ def merge_organization(
         subject_id=canonical.id,
         event_type="merged",
         observed_at=utcnow(),
+        source_id=source_id,
         source_url=source_url,
         retrieved_at=retrieved_at,
+        licence_id=licence_id,
         before=before_payload,
         after=after_payload,
         changed_keys=changed_keys,

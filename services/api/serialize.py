@@ -26,6 +26,7 @@ from services.api.lines import (
     tolerance_for_zoom,
 )
 from services.api.slippage import proposal_slip
+from services.api.withheld_names import WithheldNames
 from services.db.models import (
     Account,
     Alert,
@@ -535,18 +536,22 @@ def serialize_asset_summary(asset: Asset) -> dict[str, Any]:
 def serialize_asset(
     asset: Asset,
     *,
+    withheld: WithheldNames,
     owners: list[AssetOwner] | None = None,
     sources: list[AssetSource] | None = None,
     include_owners: bool = True,
     include_geometry: bool = True,
 ) -> dict[str, Any]:
+    """`withheld` is required, not defaulted: every caller states which organisation names the
+    register text may not print (`services/api/withheld_names.py`), so a new asset surface cannot
+    forget it and print a taken-down operator's name."""
     out: dict[str, Any] = {
         "public_id": asset.public_id,
         "slug": asset.slug,
         "url": f"{WEB_HOST}/assets/{asset.slug}",
         "asset_type": asset.asset_type,
         "name": asset.name,
-        "operator_name": asset.operator_name,
+        "operator_name": withheld.operator_name(asset.id, asset.operator_name),
         "status": asset.status,
         "technology": asset.technology,
         "technology_raw": asset.technology_raw,
@@ -556,7 +561,7 @@ def serialize_asset(
         "capacity_unit": asset.capacity_unit,
         "commissioned_year": asset.commissioned_year,
         "unit_count": asset.unit_count,
-        "attributes": asset.attributes or {},
+        "attributes": withheld.attributes(asset.id, asset.operator_name, asset.attributes),
         "state_code": asset.state_code,
         "county_name": asset.county_name,
         "county_fips": asset.county_fips,

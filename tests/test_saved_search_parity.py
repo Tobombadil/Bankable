@@ -286,6 +286,15 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     proposals = list(db.scalars(select(Proposal).order_by(Proposal.last_changed.desc())).all())
     opportunities = list(db.scalars(select(Opportunity).order_by(Opportunity.last_changed.desc())).all())
     event_types = ["status_change", "capacity_change", "created", "status_change"]
+    # `lifecycleXstate` is there to catch an unescaped `_` in the SQLite arm of `changed_key`
+    # (a LIKE wildcard): `changed_key=lifecycle_state` must not select it.
+    changed_key_sets: list[list[str]] = [
+        ["lifecycle_state"],
+        ["capacity_mw", "proposed_online_date"],
+        [],
+        ["lifecycle_state", "capacity_mw"],
+        ["lifecycleXstate"],
+    ]
     subjects: list[Proposal | Opportunity] = [*proposals[:24], *opportunities[:12]]
     for i, subject in enumerate(subjects):
         src = _pick([src_a, src_b, src_g], i)
@@ -301,7 +310,7 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 licence_id=src.licence_id,
                 before={},
                 after={},
-                changed_keys=[],
+                changed_keys=_pick(changed_key_sets, i),
                 public_at=NOW - dt.timedelta(days=1),
                 published_at=NOW - dt.timedelta(days=1),
                 idempotency_key=f"par:{i}",
@@ -400,6 +409,7 @@ def _event_queries(store: dict[str, Any]) -> list[dict[str, Any]]:
     proposal = store["proposals"][4]
     opportunity = store["opportunities"][1]
     middle = store["events"][len(store["events"]) // 2]
+    early = store["events"][len(store["events"]) // 4]
     return [
         {"subject_type": "opportunity"},
         {"event_type": "created"},
@@ -410,6 +420,19 @@ def _event_queries(store: dict[str, Any]) -> list[dict[str, Any]]:
         {"since": str(middle.seq)},
         {"since": (NOW - dt.timedelta(days=30)).isoformat()},
         {"subject_type": "proposal", "event_type": "capacity_change", "since": "3"},
+        {"changed_key": "lifecycle_state"},
+        {"changed_key": "capacity_mw,proposed_online_date"},
+        {"changed_key": ["proposed_online_date", "lifecycleXstate"]},
+        {"changed_key": "no_such_key"},
+        # Inclusive bounds, set exactly on an event's own instant so the boundary row decides.
+        {"observed_at[from]": middle.observed_at.isoformat()},
+        {"observed_at[to]": middle.observed_at.isoformat()},
+        {
+            "observed_at[from]": early.observed_at.isoformat(),
+            "observed_at[to]": middle.observed_at.isoformat(),
+        },
+        {"observed_at[to]": (NOW - dt.timedelta(days=30)).strftime("%Y-%m-%d")},
+        {"changed_key": "lifecycle_state", "observed_at[from]": early.observed_at.isoformat()},
     ]
 
 
@@ -543,6 +566,7 @@ def test_event_list_and_matcher_agree(
         matches=event_matches_query,
         queries=_event_queries(store),
         single_filter_baseline={make_public_id("evt", e.id) for e in visible},
+        may_be_empty=({"changed_key": "no_such_key"},),
     )
 
 

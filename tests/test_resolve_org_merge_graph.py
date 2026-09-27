@@ -510,3 +510,20 @@ def test_load_merges_refuses_a_row_already_merged_elsewhere(session: Session, tm
 def test_a_malformed_merge_file_is_a_value_error(tmp_path: pathlib.Path, body: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         read_merge_rules(_write_rules(tmp_path, body))
+
+
+def test_load_merges_event_carries_the_registered_source(
+    session: Session, tallgrass: dict[str, object], tmp_path: pathlib.Path
+) -> None:
+    """docs/22 A-22-23 closed (2026-09-27): `curated.organization_merges` is registered in
+    `data/sources.yaml` and the docs/13 §6 matrix, so a curated merge event carries a full provenance
+    quartet instead of a NULL `source_id`."""
+    survivor = tallgrass["survivor"]
+    assert isinstance(survivor, Organization)
+    load_merges(session, _write_rules(tmp_path, "merges:\n" + _RULE))
+    event = session.scalar(select(Event).where(Event.subject_id == survivor.id, Event.event_type == "merged"))
+    assert event is not None
+    assert event.source_id == "curated.organization_merges"
+    assert event.licence_id is not None and event.licence_id.startswith("curated.organization_merges#")
+    assert event.source is not None and event.source.url.endswith("organizations/merges.yaml")
+    assert event.licence is not None and event.licence.reuse_class == "open"

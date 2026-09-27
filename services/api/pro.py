@@ -198,9 +198,9 @@ def saved_search_query_keys(entity: str) -> frozenset[str]:
     """The keys a saved search's or webhook's `query` may name for `entity`: exactly the filters
     that entity's list endpoint applies (docs/23 §9.1 "a webhook is a saved search with a URL"),
     which `services/alerts/matching.py` implements in full (`tests/test_saved_search_parity.py`).
-    `q` is one on proposals and opportunities; `GET /v1/events` allowlists `q` but applies no text
-    filter, so an event query may not name it -- storing it would be the silently ignored filter
-    this check exists to refuse."""
+    `q` is one on proposals and opportunities. On events it is not: `GET /v1/events` refuses `q`
+    (2026-09-27, lane E14; before that it accepted `q` and applied nothing), and an event query may
+    name `changed_key` and `observed_at[from|to]`, which the list and the matcher both apply."""
     from services.api.resource_queries import EVENT_FILTERS
 
     if entity == "proposal":

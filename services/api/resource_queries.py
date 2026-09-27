@@ -29,6 +29,8 @@ redistribution surfaces the tier predicate does not distinguish (docs/21 §8's p
 from __future__ import annotations
 
 import datetime as dt
+import json
+import re
 import uuid as _uuid
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, cast
@@ -79,8 +81,31 @@ RESOURCE_ALIASES: dict[str, Resource] = {
     "events": "event",
 }
 
-EVENT_FILTERS = {"subject_type", "subject_id", "event_type", "source_id", "since"}
+EVENT_FILTERS = {
+    "subject_type",
+    "subject_id",
+    "event_type",
+    "source_id",
+    "since",
+    "changed_key",
+    "observed_at[from]",
+    "observed_at[to]",
+}
 EVENT_SORT_ALLOWLIST = {"seq", "observed_at"}
+#: What `GET /v1/events` accepts: its filters plus the page parameters. **Not `q`**, which the
+#: other lists share through `LIST_COMMON` (2026-09-27, lane E14): an event has no text of its own
+#: to search (its subject's name lives on the subject list, reachable here by `subject_id`), the
+#: spec never documented `q` on this operation, and until this change it was accepted and applied
+#: nothing -- a filter that looks like it works and does not (docs/04 API-3). It is refused with
+#: `400 unknown_parameter`, as on saved searches, webhooks and exports for `entity=event`.
+EVENT_LIST_PARAMS = {"limit", "cursor", "include", "sort"} | EVENT_FILTERS
+
+#: `changed_key` values: canonical field names as `event.changed_keys` stores them (`lifecycle_state`,
+#: `capacity_mw`, `merged_into_id`; dotted for a nested key). Anything else is a `400
+#: validation_error`, which is what keeps the SQLite arm below exact: it matches the JSON-quoted
+#: token inside the encoded list, and a value that could hold a quote or a comma could match across
+#: two elements.
+_CHANGED_KEY_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,100}$")
 
 #: What an export's `query` may name, per resource: the list endpoint's filters plus `q` and
 #: `sort` (both of which shape "the list I am looking at"); never `limit`/`cursor`/`include`,
@@ -232,7 +257,8 @@ def subject_infos(db: Session, events: Sequence[Event]) -> dict[_uuid.UUID, dict
 
 def event_query_with_filters(request: Request, db: Session, entitlement: str) -> sa.Select[tuple[Event]]:
     """`GET /v1/events`'s filters (docs/23 §7: `subject_type`, `subject_id`, `event_type`,
-    `source_id`, `since` as a seq or a timestamp) over `event_visibility_filter`. Moved here from
+    `source_id`, `since` as a seq or a timestamp; `changed_key` and `observed_at[from|to]` since
+    2026-09-27, lane E14) over `event_visibility_filter`. Moved here from
     `services/api/app.py::list_events` so bulk and exports run the same block. A `since` that is
     neither an integer nor an RFC 3339 instant is a `400 validation_error` (the inline block let
     `fromisoformat` raise, a 500)."""
@@ -255,7 +281,43 @@ def event_query_with_filters(request: Request, db: Session, entitlement: str) ->
             stmt = stmt.where(Event.seq > int(v))
         else:
             stmt = stmt.where(Event.observed_at > _parse_instant(v, "since", request.url.path))
+    if v := qp.get("changed_key"):
+        stmt = stmt.where(_changed_key_filter(db, changed_key_values(v, request.url.path)))
+    # Inclusive bounds, as `due_at[from|to]` on opportunities; `since` stays strictly-after.
+    if v := qp.get("observed_at[from]"):
+        stmt = stmt.where(Event.observed_at >= _parse_instant(v, "observed_at[from]", request.url.path))
+    if v := qp.get("observed_at[to]"):
+        stmt = stmt.where(Event.observed_at <= _parse_instant(v, "observed_at[to]", request.url.path))
     return stmt
+
+
+def changed_key_values(raw: str, instance: str) -> list[str]:
+    """`?changed_key=a,b` as the list of canonical field names it names (OR within the facet), each
+    checked against `_CHANGED_KEY_RE`. Shared with the alert matcher
+    (`services/alerts/matching.py`) so a saved search and the list read one value the same way."""
+    values = csv_param(raw)
+    for value in values:
+        if not _CHANGED_KEY_RE.fullmatch(value):
+            raise validation_error(
+                "changed_key", "changed_key values are canonical field names ([A-Za-z0-9_.-])", instance
+            )
+    return values
+
+
+def _changed_key_filter(db: Session, values: list[str]) -> ColumnElement[bool]:
+    """Any-of over `event.changed_keys`: an event matches when it changed at least one named key; an
+    empty list matches nothing (`IN ()`'s reading, and the matcher's). Postgres: the native `&&`
+    overlap on `text[]`. SQLite stores the array as JSON text (`services/db/types.py TextArray`), so
+    the test is a substring match on the JSON-quoted token, with `autoescape` so the `_` in
+    `lifecycle_state` is a literal, not a LIKE wildcard; `_CHANGED_KEY_RE` keeps the token free of
+    quotes and commas, so it can only match one whole element."""
+    if not values:
+        return sa.false()
+    dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
+    if dialect == "postgresql":
+        return Event.changed_keys.op("&&")(list(values))
+    as_text = sa.cast(Event.changed_keys, sa.Text)
+    return sa.or_(*(as_text.contains(json.dumps(v), autoescape=True) for v in values))
 
 
 def _parse_instant(value: str, field: str, instance: str) -> dt.datetime:
@@ -391,12 +453,14 @@ def resource_model(resource: Resource) -> type[Proposal] | type[Opportunity] | t
 __all__ = [
     "DEFAULT_SORTS",
     "EVENT_FILTERS",
+    "EVENT_LIST_PARAMS",
     "EVENT_SORT_ALLOWLIST",
     "EXPORT_QUERY_KEYS",
     "RESOURCE_ALIASES",
     "SORT_ALLOWLISTS",
     "RedistributionFlag",
     "Resource",
+    "changed_key_values",
     "check_query_values",
     "event_query_with_filters",
     "lean_load_options",

@@ -1991,3 +1991,44 @@ def test_asset_detail_renders_nested_mapping_attributes_as_rows_not_reprs(web_cl
     # The promoted ethanol keys still leave the generic table; the header row is unchanged.
     assert "nameplate capacity mmgal yr" not in table and "as of year" not in table
     assert '<th scope="col">Attribute</th>' in table
+
+
+def test_pipeline_page_says_which_length_is_which(web_client: TestClient) -> None:
+    """Rockies Express showed "Length (miles) 1,321" beside PHMSA's "onshore transmission miles
+    1766.13" with nothing saying they measure different things (2026-09-27): the first is the route
+    as mapped (EIA Atlas), the second what the operator reports to PHMSA for its whole system."""
+    entity = _pipeline_entity(
+        length_miles=1321.2,
+        attributes={
+            "miles": 1321.2,
+            "phmsa": {"onshore_transmission_miles": 1766.13, "report_year": 2024, "matched_on": "org_key"},
+        },
+    )
+    transport = _default_transport(
+        {
+            "/v1/assets": (200, {"data": [entity]}),
+            "/v1/assets/asset_01REX/nearby-proposals": (200, {"data": []}),
+        }
+    )
+    _install(transport)
+
+    body = web_client.get("/assets/rockies-express-pipeline").text
+
+    assert "<dt>Mapped route length (miles)</dt>" in body
+    assert "1,321" in body
+    note = body[body.index('field-note"') :][:900]
+    assert "mapped route" in note.lower() and "PHMSA" in note and "2024" in note
+    assert "whole" in note  # the operator's system, not this one route
+
+
+def test_pipeline_page_without_a_phmsa_block_has_no_length_note(web_client: TestClient) -> None:
+    transport = _default_transport(
+        {
+            "/v1/assets": (200, {"data": [_pipeline_entity()]}),
+            "/v1/assets/asset_01REX/nearby-proposals": (200, {"data": []}),
+        }
+    )
+    _install(transport)
+    body = web_client.get("/assets/rockies-express-pipeline").text
+    assert "<dt>Mapped route length (miles)</dt>" in body
+    assert 'field-note"' not in body

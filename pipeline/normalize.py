@@ -75,6 +75,38 @@ SOURCE_META = {
     "eia860m": (None, "https://www.eia.gov/electricity/data/eia860m/", "public-domain"),
 }
 
+#: EIA's balancing-authority codes for the seven RTO/ISO balancing authorities, mapped to the
+#: market-operator token the ISO queue connectors write and `?iso=` filters on (api/openapi.yaml
+#: `Iso`: CAISO, ERCOT, NYISO, ISONE, SPP, MISO, PJM). EIA-860M's `Balancing Authority Code` column
+#: carries the BA code, so without this an ERCOT plant read "ERCO" under "ISO / operator" and was
+#: invisible to `?iso=ERCOT` (2026-09-27, lane E14). Codes and names from EIA's balancing-authority
+#: reference table, https://www.eia.gov/electricity/930-content/EIA930_Reference_Tables.xlsx (sheet
+#: "BAs", read 2026-09-27: CISO California Independent System Operator, ERCO Electric Reliability
+#: Council of Texas, ISNE ISO New England, MISO Midcontinent Independent System Operator, NYIS New York
+#: Independent System Operator, PJM PJM Interconnection, SWPP Southwest Power Pool). Any other BA (a
+#: utility such as TVA or SOCO) is not an ISO and keeps its EIA code: it is still the operator of the
+#: grid the plant sits in, and there is no market token to map it to.
+EIA_BA_ISO_TOKENS: dict[str, str] = {
+    "CISO": "CAISO",
+    "ERCO": "ERCOT",
+    "ISNE": "ISONE",
+    "MISO": "MISO",
+    "NYIS": "NYISO",
+    "PJM": "PJM",
+    "SWPP": "SPP",
+}
+
+
+def iso_token_from_eia_ba(code: object) -> str | None:
+    """An EIA balancing-authority code as the `iso` value a proposal carries (`EIA_BA_ISO_TOKENS`)."""
+    if code is None or (isinstance(code, float) and pd.isna(code)) or code is pd.NA:
+        return None
+    text = str(code).strip().upper()
+    if not text:
+        return None
+    return EIA_BA_ISO_TOKENS.get(text, text)
+
+
 US_STATES = {
     "alabama": "AL",
     "alaska": "AK",
@@ -594,7 +626,9 @@ def normalize_eia(df: pd.DataFrame, status_map: dict, retrieved_at: str) -> pd.D
                 dtype="Float64",
             ),
             "storage_mwh": pd.array([None] * n, dtype="Float64"),
-            "iso": get("Balancing Authority Code").astype("string"),
+            "iso": pd.array(
+                [iso_token_from_eia_ba(v) for v in get("Balancing Authority Code")], dtype="string"
+            ),
             "state": [norm_state(v) for v in get("Plant State")],
             "county": get("County").astype("string").str.strip(),
             "county_norm": [norm_county(v) for v in get("County")],

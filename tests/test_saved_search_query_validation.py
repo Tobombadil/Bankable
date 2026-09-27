@@ -79,6 +79,10 @@ def test_create_refuses_a_key_the_list_does_not_filter_on(client, db, entity, ke
         ("proposal", {"slipped": False, "slip_bucket": "under_1y"}, "slip_bucket"),
         ("opportunity", {"due_at[from]": "next tuesday"}, "due_at[from]"),
         ("event", {"since": "yesterday"}, "since"),
+        ("event", {"changed_key": "lifecycle state"}, "changed_key"),
+        ("event", {"changed_key": 'a","b'}, "changed_key"),
+        ("event", {"observed_at[from]": "last week"}, "observed_at[from]"),
+        ("event", {"observed_at[to]": "soon"}, "observed_at[to]"),
         ("proposal", {"state": {"nested": "object"}}, "query.state"),
     ],
 )
@@ -110,6 +114,26 @@ def test_create_accepts_every_list_filter(client, db):
     resp = client.post("/v1/saved-searches", json={"name": "all", "entity": "proposal", "query": query})
     assert resp.status_code == 201, resp.text
     assert resp.json()["data"]["query"] == query
+
+
+def test_create_accepts_the_event_filters_added_on_2026_09_27(client, db):
+    _login(client, db)
+    query = {
+        "changed_key": ["lifecycle_state", "capacity_mw"],
+        "observed_at[from]": "2026-09-01T00:00:00Z",
+        "observed_at[to]": "2026-09-30",
+        "event_type": "status_change",
+    }
+    resp = client.post("/v1/saved-searches", json={"name": "events", "entity": "event", "query": query})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["data"]["query"] == query
+
+
+def test_events_list_refuses_q_rather_than_ignoring_it(client, db):
+    """`GET /v1/events?q=` was accepted and filtered nothing until 2026-09-27 (lane E14): the whole
+    feed came back under a search that looked applied."""
+    resp = client.get("/v1/events", params={"q": "solar"})
+    _problem(resp, 400, "unknown_parameter", "q")
 
 
 def test_patch_validates_a_new_query_against_the_stored_entity(client, db):

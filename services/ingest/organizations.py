@@ -97,6 +97,7 @@ from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id as make_public_id
 from services.ids import slugify
 from services.ingest.loader import upsert_licence_and_source
+from services.ingest.org_redirects import OrgRedirects
 from services.resolve.merge import merge_organization
 
 log = logging.getLogger(__name__)
@@ -109,6 +110,7 @@ DEFAULT_GLEIF_PARQUET = ROOT / "data" / "normalized" / "context" / "global.gleif
 
 GLEIF_SOURCE_ID = "global.gleif.lei"
 ALIASES_SOURCE_ID = "curated.organization_aliases"
+MERGES_SOURCE_ID = "curated.organization_merges"
 
 #: Direct beats ultimate for `parent_org_id` (module docstring); the order is the preference.
 RELATIONSHIP_PREFERENCE: tuple[str, ...] = (
@@ -145,21 +147,45 @@ def org_key_multimap(session: Session) -> dict[str, list[Organization]]:
     """`org_key(name)` -> every live organisation with that key, over `name_canonical` and every
     alias. `services/ingest/ownership.py::_build_norm_org_index` keeps only the first organisation
     per key, which is right for "resolve this owner string to one row"; a parent loader has to see
-    the collision to decide whether it may act on it, so it builds its own multimap."""
+    the collision to decide whether it may act on it, so it builds its own multimap.
+
+    Live organisations only, as before; since 2026-09-27 a merged row's own spelling, and any alias
+    left on it, also resolve -- to the survivor at the end of its `merged_into_id` chain
+    (`services/ingest/org_redirects.py`) -- where the key has no live row of its own. Without that,
+    a GLEIF parent or an alias rule naming an absorbed spelling that no alias carries (a merge writes
+    one only when it has provenance for it, docs/22 §20.2) created a second copy of the absorbed
+    organisation."""
     index: dict[str, list[Organization]] = defaultdict(list)
     orgs: dict[Any, Organization] = {}
-    for org in session.scalars(select(Organization).where(Organization.merged_into_id.is_(None))):
+    merged: list[Organization] = []
+    for org in session.scalars(select(Organization)):
+        if org.merged_into_id is not None:
+            merged.append(org)
+            continue
         orgs[org.id] = org
         key = org_key(org.name_canonical)
         if key and org not in index[key]:
             index[key].append(org)
+    merged_aliases: list[tuple[str, Any]] = []
     for alias, org_id in session.execute(
         select(OrganizationAlias.alias, OrganizationAlias.organization_id)
     ).all():
         alias_org = orgs.get(org_id)
         key = org_key(alias)
-        if alias_org is not None and key and alias_org not in index[key]:
+        if alias_org is None:
+            merged_aliases.append((alias, org_id))
+        elif key and alias_org not in index[key]:
             index[key].append(alias_org)
+    # Redirects only fill keys no live name or alias holds, so a live collision is still reported
+    # as one and nothing a live row already answers changes.
+    redirects = OrgRedirects(session)
+    redirected: dict[Any, Organization] = {org.id: redirects.terminal(org) for org in merged}
+    spellings = [(org.name_canonical, org.id) for org in merged] + merged_aliases
+    for spelling, org_id in spellings:
+        key = org_key(spelling)
+        survivor = redirected.get(org_id)
+        if key and key not in index and survivor is not None and survivor.merged_into_id is None:
+            index[key].append(survivor)
     return dict(index)
 
 
@@ -603,7 +629,9 @@ def _orgs_named(session: Session, name: str) -> list[Organization]:
     )
 
 
-def load_merges(session: Session, path: pathlib.Path = DEFAULT_MERGES_PATH) -> MergesLoadResult:
+def load_merges(
+    session: Session, path: pathlib.Path = DEFAULT_MERGES_PATH, *, manifest_version: str = ""
+) -> MergesLoadResult:
     """Apply the curated merge file (`data/vendored/organizations/merges.yaml`, docs/22 §20.5): one
     `services.resolve.merge.merge_organization` call per rule, idempotent, never creating an
     organisation. A rule is `missing` when either side is not loaded, `already_merged` when the
@@ -611,10 +639,16 @@ def load_merges(session: Session, path: pathlib.Path = DEFAULT_MERGES_PATH) -> M
     when a name matches more than one row, the absorbed row already redirects elsewhere, the
     survivor is itself a redirect, or the two names are one row.
 
-    The event carries the rule's `source_url` and `retrieved_at`, and its rationale in `reason`.
-    It carries no `source_id`: a new `source` row needs a `data/sources.yaml` entry and a docs/13 §6
-    register row (R1) first, which this lane does not own (docs/22 §20.5)."""
+    The event carries the rule's `source_url` and `retrieved_at`, its rationale in `reason`, and
+    since 2026-09-27 the full quartet: `source_id = curated.organization_merges` (registered in
+    `data/sources.yaml` and the docs/13 §6 matrix) and that source's licence -- docs/22 A-22-23,
+    which accepted a NULL `source_id` until the registration existed. Events written before then
+    keep their NULL; the loader is idempotent and does not rewrite them."""
     rules = read_merge_rules(path)
+    registry = Registry()
+    source = upsert_licence_and_source(
+        session, registry.get(MERGES_SOURCE_ID), manifest_version or registry.version
+    )
     result = MergesLoadResult(rules=len(rules))
     for rule in rules:
         label = f"{rule.absorb} -> {rule.into}"
@@ -647,6 +681,8 @@ def load_merges(session: Session, path: pathlib.Path = DEFAULT_MERGES_PATH) -> M
             actor_type="user",
             source_url=rule.source_url,
             retrieved_at=pd.Timestamp(rule.retrieved_at).to_pydatetime(),
+            source_id=source.id,
+            licence_id=source.licence_id,
         )
         result.merged.append(label)
     session.commit()
