@@ -55,6 +55,7 @@ from services.api.records import (
     SYNC_FILTERS,
     _opportunity_query_with_filters,
     _proposal_query_with_filters,
+    check_budget_sort,
     instant_filter,
 )
 from services.api.visibility import event_visibility_filter
@@ -170,7 +171,14 @@ def validate_export_query(resource: Resource, query: Any, *, instance: str) -> d
                 f"query.{key}", f"{key} describes a page, not a result set; an export has neither", instance
             )
     check_query_values(query, instance)
-    check_allowed(synthetic_request(query, path=instance), EXPORT_QUERY_KEYS[resource])
+    request = synthetic_request(query, path=instance)
+    check_allowed(request, EXPORT_QUERY_KEYS[resource])
+    if resource == "opportunity":
+        # A cross-currency budget sort is refused here, as on the list, rather than becoming a
+        # failed export row (records.check_budget_sort; 2026-09-27, lane E16).
+        check_budget_sort(
+            request.query_params.get("sort"), request.query_params.get("budget_currency"), instance
+        )
     return dict(query)
 
 

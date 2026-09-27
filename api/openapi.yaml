@@ -955,6 +955,7 @@ paths:
         - $ref: '#/components/parameters/OpportunityKind'
         - $ref: '#/components/parameters/OpportunityStatus'
         - $ref: '#/components/parameters/Technologies'
+        - $ref: '#/components/parameters/BudgetCurrency'
       responses:
         '400':
           $ref: '#/components/responses/BadRequest'
@@ -6080,7 +6081,12 @@ components:
     SortOpportunities:
       name: sort
       in: query
-      description: 'Allowlist: `due_at`, `open_at`, `last_changed`, `budget_amount`. Default `due_at`.'
+      description: >-
+        Allowlist: `due_at`, `open_at`, `last_changed`, `budget_amount`. Default `due_at`. Budgets are stored in the
+        notice's own currency and never converted, so `budget_amount` (either direction, in any position) orders only
+        within exactly one `budget_currency` (`?budget_currency=EUR&sort=-budget_amount`); without `budget_currency`,
+        or with more than one, it is a `400 validation_error` naming `sort` rather than an ordering across currencies.
+        The same rule applies to an export's stored `query` and to `Accept: text/csv`.
       schema:
         type: string
         pattern: '^-?(due_at|open_at|last_changed|budget_amount)(,-?(due_at|open_at|last_changed|budget_amount))*$'
@@ -9626,7 +9632,11 @@ components:
           type: [string, 'null']
           format: date
         owner_name_raw:
-          type: string
+          type: [string, 'null']
+          description: >-
+            The owner's name as the register spelt it. `null` when that spelling has the same `org_key` as an
+            organisation that is not public, even though this edge points to a public one: a raw string must not
+            name a taken-down organisation (`organization` still names the public owner the edge points to).
         provenance:
           $ref: '#/components/schemas/ProvenanceQuartet'
     AssetSummary:

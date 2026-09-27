@@ -16,6 +16,7 @@ import jsonschema
 import pytest
 import yaml
 
+from services.api import exports as exports_module
 from services.api import ratelimit
 from services.api.conftest import (
     make_attribution_licence,
@@ -184,7 +185,18 @@ def test_daily_quota_is_enforced_per_user_and_failed_attempts_do_not_count(clien
         PlanQuota(exports_per_day=2, export_rows_max=10, bulk_requests_per_hour=None),
     )
     _login(client, db)
-    failed = _create(client, query={"capacity_mw[gte]": "not-a-number"}).json()["data"]
+    # A generation failure (not a bad request: that is a 400 before any row exists, below).
+    real_write = exports_module._write_csv
+    calls = {"n": 0}
+
+    def _fail_once(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("disk full")
+        return real_write(*args, **kwargs)
+
+    monkeypatch.setattr(exports_module, "_write_csv", _fail_once)
+    failed = _create(client).json()["data"]
     assert failed["status"] == "failed"
     assert failed["error"] and failed["download_url"] is None
     assert _create(client).status_code == 202
@@ -399,13 +411,48 @@ def test_accept_text_csv_needs_pro(client, db):
     assert client.get("/v1/proposals", headers={"Accept": "text/csv"}).status_code == 403
 
 
-def test_accept_text_csv_failure_is_a_503_and_still_logged(client, db):
+def test_accept_text_csv_failure_is_a_503_and_still_logged(client, db, monkeypatch):
     _seed(db, n=1)
     _login(client, db)
-    resp = client.get("/v1/proposals?capacity_mw[gte]=abc", headers={"Accept": "text/csv"})
+
+    def _fail(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(exports_module, "_write_csv", _fail)
+    resp = client.get("/v1/proposals", headers={"Accept": "text/csv"})
     assert resp.status_code == 503
     rows = db.query(Export).all()
     assert [r.status for r in rows] == ["failed"]
+
+
+def test_accept_text_csv_bad_value_is_the_lists_400_and_writes_no_row(client, db):
+    """A value the JSON list refuses is the caller's error on the CSV twin too: the list's own
+    `400 validation_error`, not a `503`, and no export row (before 2026-09-27 it was a 503 and a
+    `failed` row)."""
+    _seed(db, n=1)
+    _login(client, db)
+    json_resp = client.get("/v1/proposals?capacity_mw[gte]=abc")
+    csv_resp = client.get("/v1/proposals?capacity_mw[gte]=abc", headers={"Accept": "text/csv"})
+    assert json_resp.status_code == csv_resp.status_code == 400
+    assert csv_resp.json()["code"] == json_resp.json()["code"] == "validation_error"
+    assert db.query(Export).count() == 0
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        {"capacity_mw[gte]": "not-a-number"},
+        {"sort": "not_a_sort_field"},
+        {"placement": "nowhere"},
+    ],
+)
+def test_post_exports_bad_value_is_a_400_before_any_row(client, db, query):
+    _seed(db, n=1)
+    _login(client, db)
+    resp = _create(client, query=query)
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "validation_error"
+    assert db.query(Export).count() == 0
 
 
 # ------------------------------------------------------------------------------ units

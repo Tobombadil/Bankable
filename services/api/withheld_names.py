@@ -25,6 +25,16 @@ Then `operator_name` is `null`, and the operator-bearing attribute keys above ar
 naming a taken-down owner, an RFS `company_name`), and the operator name cannot be searched: `GET
 /v1/assets?q=` does not match an asset through a withheld `operator_name` (`operator_name_searchable`).
 
+**Owner edges' raw spellings** (2026-09-27, lane E16). An `owners[]` edge to a non-public organisation
+is dropped (above). An edge to a *public* organisation stays, but its `owner_name_raw` is the register's
+own spelling, and that spelling can share an `org_key` with a non-public organisation (a register that
+spells the public owner the way the taken-down one is known, or a resolver that linked the string to
+the public row). Printing it names the taken-down organisation. So, by the same conservative rule as the
+operator name ("a key that matches both a hidden and a public organisation is withheld"), an
+`owner_name_raw` whose key is a withheld key is `null` on every surface (`owner_name_raw`); the edge
+stays and shows the public organisation's canonical name and link, which is what it points to. The
+admin surfaces read the row, not this serializer.
+
 **Cost.** One query (the non-public organisations) when nothing is taken down, which is the normal
 state. When something is, the aliases and edges of those organisations (a handful of rows) and the
 distinct register spellings whose key matches; the last is a scan of `asset.operator_name`, so it is
@@ -88,6 +98,11 @@ class WithheldNames:
 
     def operator_name(self, asset_id: Any, operator_name: str | None) -> str | None:
         return None if self.operator_withheld(asset_id, operator_name) else operator_name
+
+    def owner_name_raw(self, text: str | None) -> str | None:
+        """An owner edge's raw register spelling, or `None` when it spells a non-public organisation
+        (module docstring, "Owner edges' raw spellings") -- whichever organisation the edge points to."""
+        return None if self.names_withheld(text) else text
 
     def attributes(
         self, asset_id: Any, operator_name: str | None, attributes: Mapping[str, Any] | None

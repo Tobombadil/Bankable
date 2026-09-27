@@ -506,13 +506,17 @@ def asset_provenance_rows(asset: Asset, *, sources: list[AssetSource] | None = N
     return [asset_source_row(asset)]
 
 
-def serialize_asset_owner(edge: AssetOwner) -> dict[str, Any]:
+def serialize_asset_owner(edge: AssetOwner, *, withheld: WithheldNames) -> dict[str, Any]:
+    """One `owners[]` edge. `withheld` is required for the reason `serialize_asset` gives: the raw
+    register spelling is `null` when its `org_key` names a non-public organisation, even on an edge
+    to a public one (`services/api/withheld_names.py`, lane E16); the edge and its canonical
+    organisation stay."""
     return {
         "organization": serialize_organization_summary(edge.organization),
         "role": edge.role,
         "share_pct": float(edge.share_pct) if edge.share_pct is not None else None,
         "as_of": iso(edge.as_of),
-        "owner_name_raw": edge.owner_name_raw,
+        "owner_name_raw": withheld.owner_name_raw(edge.owner_name_raw),
         "provenance": provenance_quartet(
             edge.source, edge.licence, source_url=edge.source_url, retrieved_at=edge.retrieved_at
         ),
@@ -581,7 +585,7 @@ def serialize_asset(
 
         edges = owners if owners is not None else asset.owners
         out["owners"] = [
-            serialize_asset_owner(o)
+            serialize_asset_owner(o, withheld=withheld)
             for o in edges
             if organization_visible(o.organization) and provenance_visible(o.source, o.licence)
         ]

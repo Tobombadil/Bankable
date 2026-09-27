@@ -54,6 +54,7 @@ import logging
 import os
 import pathlib
 import time
+from collections.abc import Mapping
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -70,6 +71,7 @@ from services.api.pagination import clamp_limit, paginate
 from services.api.params import check_allowed, int_param, sort_spec
 from services.api.pro import _rate_limit_headers
 from services.api.ratelimit import PlanQuota, plan_quota
+from services.api.records import check_budget_sort
 from services.api.resource_queries import (
     DEFAULT_SORTS,
     SORT_ALLOWLISTS,
@@ -341,21 +343,38 @@ def _provenance_columns_for_event(e: Event) -> tuple[dict[str, Any], dict[str, A
 
 
 # ---------------------------------------------------------------------------------- generation
-def _ordered_capped_statement(export: Export, db: Session) -> Any:
-    resource: Resource = export.entity  # type: ignore[assignment]
-    params = dict(export.query or {})
-    instance = f"/v1/exports/{export.public_id}"
+def _checked_statement(
+    resource: Resource, params: Mapping[str, Any], *, db: Session, tier: str, instance: str
+) -> tuple[Any, str, bool]:
+    """The export's filtered statement and its sort, built but not run. Every value the list would
+    refuse (a non-numeric bound, an unknown sort, a cross-currency budget sort) raises the list's
+    own `400` here. `POST /v1/exports` and the `Accept: text/csv` twin call it before an export row
+    exists, so a bad request is a `400` and not a `failed` export (or, on the CSV path, a `503`
+    for what is the caller's error; 2026-09-27). Generation calls it again, as its only path."""
     stmt = resource_statement(
         resource,
         params,
         db=db,
-        entitlement=export.tier,
+        entitlement=tier,
         redistribution="allows_bulk_export",
         instance=instance,
     )
-    field, ascending = sort_spec(
-        synthetic_request(params, path=instance), SORT_ALLOWLISTS[resource], DEFAULT_SORTS[resource]
-    )
+    request = synthetic_request(params, path=instance)
+    field, ascending = sort_spec(request, SORT_ALLOWLISTS[resource], DEFAULT_SORTS[resource])
+    if resource == "opportunity":
+        # The one ordering path every export and `Accept: text/csv` file goes through: never order
+        # budgets across currencies, whatever reached it (records.check_budget_sort).
+        check_budget_sort(
+            request.query_params.get("sort"), request.query_params.get("budget_currency"), instance
+        )
+    return stmt, field, ascending
+
+
+def _ordered_capped_statement(export: Export, db: Session) -> Any:
+    resource: Resource = export.entity  # type: ignore[assignment]
+    params = dict(export.query or {})
+    instance = f"/v1/exports/{export.public_id}"
+    stmt, field, ascending = _checked_statement(resource, params, db=db, tier=export.tier, instance=instance)
     model = resource_model(resource)
     sort_column = getattr(model, field)
     order = (sort_column.asc() if ascending else sort_column.desc()).nulls_last()
@@ -646,6 +665,7 @@ def create_export(
     if query is None:
         raise validation_error("query", "query (or saved_search_id) is required", instance)
     validated = validate_export_query(resource, query, instance=instance)
+    _checked_statement(resource, validated, db=db, tier=ctx.entitlement, instance=instance)
     columns = _validate_columns(resource, body.get("columns"), instance=instance)
     export = start_export(db, ctx, resource=resource, query=validated, instance=instance, columns=columns)
     return _envelope(serialize_export(export), ctx)
@@ -746,6 +766,7 @@ def csv_list_response(request: Request, db: Session, ctx: AuthContext, resource:
         )
     headers = _rate_limit_headers(request, ctx)
     query = {k: v for k, v in request.query_params.items() if k not in _PAGE_PARAMS}
+    _checked_statement(resource, query, db=db, tier=ctx.entitlement, instance=request.url.path)
     export = start_export(db, ctx, resource=resource, query=query, instance=request.url.path)
     if export.status != "ready" or not export.object_key:
         # Keep the failed row (the per-user log, US-603 AC3) although the response is an error:

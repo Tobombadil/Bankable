@@ -174,6 +174,8 @@ from services.api.records import (  # noqa: E402
     _opportunity_technologies_filter,
     _proposal_licence_rows,
     _proposal_query_with_filters,
+    check_budget_sort,
+    currency_values,
     instant_filter,
 )
 from services.api.records import router as records_router  # noqa: E402
@@ -461,11 +463,14 @@ def list_organization_opportunities(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, {"limit", "cursor", "sort", "kind", "status", "technologies"})
+    check_allowed(request, {"limit", "cursor", "sort", "kind", "status", "technologies", "budget_currency"})
     org = visible_organization_or_404(db, public_id, request.url.path)
     limit = clamp_limit(int_param(request, "limit"))
     field, ascending = sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
     qp = request.query_params
+    # `sort=budget_amount` needs exactly one `budget_currency` (records.check_budget_sort), so this
+    # route takes the facet too (2026-09-27, lane E16); without it the documented sort could only 400.
+    check_budget_sort(qp.get("sort"), qp.get("budget_currency"), request.url.path)
     status = csv_param(qp.get("status")) or ["open"]
     stmt = (
         select(Opportunity)
@@ -480,6 +485,8 @@ def list_organization_opportunities(
         stmt = stmt.where(Opportunity.kind.in_(csv_param(v)))
     if v := qp.get("technologies"):
         stmt = stmt.where(_opportunity_technologies_filter(db, csv_param(v)))
+    if v := qp.get("budget_currency"):
+        stmt = stmt.where(Opportunity.budget_currency.in_(currency_values(v, request.url.path)))
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
