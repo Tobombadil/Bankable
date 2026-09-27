@@ -176,6 +176,7 @@ TRANSIENT_ERROR_CLASSES = frozenset(
         "RemoteDisconnected",
         "ProcessCrashed",
         "TimeoutExpired",
+        "StoreWriteError",  # object storage unreachable mid-run (docs/20 §12); the run failed closed
     }
 )
 
@@ -346,11 +347,7 @@ def fetch_outcome(
     result = parse_result_line(stdout)
     record: dict[str, Any] | None = None
     if result is not None and result.get("run_path"):
-        path = Path(str(result["run_path"]))
-        try:
-            record = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            record = None
+        record = _read_run_record(result)
     if record is None and result is not None:
         record = {"status": result.get("status"), "error": result.get("error"), "id": result.get("run_id")}
     if record is None and returncode == 2:
@@ -380,6 +377,22 @@ def fetch_outcome(
     return {"status": status, "ts": ts, "transient": is_transient(record), "record": record}
 
 
+def _read_run_record(result: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The run record the CLI's result line points at: from the object store when the CLI wrote
+    to one (`store: s3` plus `run_key`), otherwise from the local file at `run_path`."""
+    try:
+        if result.get("store") == "s3" and result.get("run_key"):
+            from pipeline.connectors.store import open_store
+
+            data = json.loads(open_store().backend.get(str(result["run_key"])).decode("utf-8"))
+        else:
+            data = json.loads(Path(str(result["run_path"])).read_text(encoding="utf-8"))
+    except Exception as exc:  # unreadable record -> the thin record from the result line
+        logger.warning("run record unreadable", extra={"error": repr(exc)[:500]})
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def _result_to_dict(result: Any) -> dict[str, Any]:
     data = _report_to_dict(result)
     return {key: (str(value) if isinstance(value, uuid.UUID) else value) for key, value in data.items()}
@@ -392,12 +405,16 @@ def load_source_job(
     (the same call `web/data_loading.py` makes), committed as one transaction. A gate refusal
     is logged and returned, never raised — there is nothing to retry."""
     load = _load if _load is not None else _load_fn("services.ingest.loader", "load_from_files")
+    from pipeline.connectors import store as store_module
     from services.db.session import session_scope
 
-    data_root = _data_root if _data_root is not None else ROOT / "data"
+    # The same root and backend the fetch wrote through (`SNAPSHOT_STORE`, docs/60 §5): with the
+    # S3 backend the load reads the bucket, so it need not run on the host that fetched.
+    data_root = _data_root if _data_root is not None else store_module.DATA_DIR
+    store = store_module.open_store(data_root)
     with session_scope(build_session_factory()) as session:
         try:
-            result = load(session, source_id, ts, data_root=data_root)
+            result = load(session, source_id, ts, data_root=data_root, store=store)
         except Exception as exc:
             if type(exc).__name__ == "GateRefused":
                 logger.warning("load refused", extra={"source_id": source_id, "error": str(exc)})
@@ -464,10 +481,10 @@ def default_resolve(session_factory: Any, *, data_root: Path | None = None) -> d
 def _latest_proposal_frames(data_root: Path | None) -> list[Any]:
     """The latest normalised frame of every implemented, non-gated `proposal` connector."""
     from pipeline.connectors.registry import Registry
-    from pipeline.connectors.store import Store
+    from pipeline.connectors.store import open_store
 
     registry = Registry()
-    store = Store(data_root) if data_root is not None else Store()
+    store = open_store(data_root)
     frames = []
     for row in registry.status():
         if row.get("state") != "implemented":

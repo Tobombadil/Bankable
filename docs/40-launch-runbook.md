@@ -431,6 +431,14 @@ softened.
     `PermissionError`. Worker hosts also share no filesystem between a fetch and its load. Until this is
     decided (a per-host volume or object storage), the scheduled loop cannot refresh data. The only load
     measured end to end is the host-side loader run on 2026-09-26.
+    **Object-storage mode (2026-09-26):** `SNAPSHOT_STORE=s3` routes every connector-store read and write to
+    the environment's R2 bucket (`docs/60` §5 lists the variables; the R2 ones are those `backup.sh` already
+    reads). That closes the cross-host half: the load reads what the fetch wrote without sharing its host. Runs
+    fail closed if the bucket is unreachable. It passed its store contract against a local S3-compatible server
+    (`docs/60` §11 item 9) but has not touched a real R2 bucket. For staging, set it with the other R2 values in
+    `secrets.staging.enc.yaml`. Before trusting the scheduled loop, run one source by hand in a `worker` container
+    (`python -m pipeline.connectors run us.eia.860m`) and check that its `runs/` object appears under
+    `data/` in the bucket.
 
 ---
 

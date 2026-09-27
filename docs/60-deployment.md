@@ -169,6 +169,26 @@ accepts the token unverified and the api logs one warning per process. The site 
 and has no consumer until a `/submit` page renders the widget (`docs/30` §4.5 designs it; nothing under `web/`
 does yet). Both are commented placeholders in `infra/compose/.env.example`.
 
+**`SNAPSHOT_STORE` and the R2 variables** (added 2026-09-26; `docs/20` §2, §12; `docs/40` §6 item 13). The
+connector store (`pipeline/connectors/store.py`, backends in `pipeline/connectors/objectstore.py`) writes
+snapshots, normalised and event parquet, held rows and run records either to local files or to the
+environment's R2 bucket. Fetch (`run_connector`) and load (`load_source`) run on different worker hosts with no
+shared filesystem, so `staging` and `production` need `s3`. The R2 names are the ones `infra/scripts/backup.sh`
+already reads, and the same scoped token can serve both: snapshots go under `data/`, backups under `postgres/`.
+
+| Variable | Secret | Read by | Value |
+|---|---|---|---|
+| `SNAPSHOT_STORE` | no | connector CLI, `load_source`, `resolve_tick`, `fetch_outcome` | `local` (default when unset) or `s3`. Any other value, or `s3` with a setting below missing, is a startup error (`StoreConfigError`, CLI exit 1). There is no silent fallback to local disk. |
+| `R2_BUCKET` | no | same, and `backup.sh` | the per-environment `object_storage` bucket (`infra/terraform/storage.tf`: `${r2_bucket_name}-${environment}`) |
+| `R2_ACCOUNT_ID` | no | same | builds the endpoint `https://<account>.r2.cloudflarestorage.com`, as `backup.sh` does |
+| `R2_ENDPOINT` | no | connector store only | optional override of that endpoint (another S3-compatible server; the local proof used `http://127.0.0.1:9599`) |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | yes | same, and `backup.sh` | R2 API token with Object Read & Write on that bucket |
+| `SNAPSHOT_STORE_PREFIX` | no | connector store only | key prefix inside the bucket, default `data/` (keys then mirror the repo's `data/` tree) |
+
+The two credentials belong in `secrets.<env>.enc.yaml`, and they already reach every container through the
+single `.env` file described above. The non-secret names are listed here but are not yet in
+`infra/compose/.env.example`. Adding them there is a one-line change per variable for whoever owns that file.
+
 ### 5.1 Platform posture (data-licensing configuration, not a secret)
 
 `PLATFORM_POSTURE` (`commercial` | `noncommercial`; `services/posture.py`, `docs/26-platform-posture.md`)
@@ -581,6 +601,26 @@ In the order the owner needs to act, per the task brief:
      `PermissionError: [Errno 13] Permission denied: '/app/data/runs'`. Separately, fetch and load jobs can land
      on different worker hosts, which share no filesystem. Open: this needs a decision between a per-host volume
      and object storage for snapshots.
+   - **Object-storage mode for the connector store (added 2026-09-26).** `docs/20` §2 already settles the
+     cross-host half: stages talk through the database and object storage. `SNAPSHOT_STORE=s3` (§5) now sends
+     every store read and write to the R2 bucket. That covers snapshots (immutable: different bytes under an
+     existing key are refused, identical bytes are a no-op), normalised, event and held parquet, run records, and
+     the per-source run listing. Keys mirror the local tree under `data/`. `load_source` and `resolve_tick` read
+     through the same store, so a load no longer needs the fetch's host. Failure is closed (`docs/20` §12). An
+     object-write error fails the run and deletes that run's normalised, events and held objects. The run record
+     is written last and is the commit marker every reader starts from. If the bucket is unreachable even for
+     that record, the CLI exits 1 with no result line, the scheduler records a crash, retries it, and defers no
+     load. With the endpoint down, a run gave up after 18.7 s of botocore retries (5 attempts, `standard` mode).
+     **Measured:** the store contract ran against the local backend, an in-memory S3 fake and a real
+     S3-compatible server in a local container: RustFS 1.0.0 through boto3 1.43.103. Result: 59 of 59 passed
+     (`tests/test_connector_store_backends.py`; the `live` cases run when `INFRAQUE_TEST_S3_ENDPOINT` is set).
+     That includes the server returning 412 to `If-None-Match: *` on an existing key, and an ERCOT fixture fetched
+     through one store and loaded (25 proposals) through a fresh one with no local files written. MinIO was the
+     intended server, but its Docker Hub repository refused the pull, quay.io returned 401 and dl.min.io returned
+     410. **Not validated:** a real R2 bucket, meaning its handling of `If-None-Match` on `PutObject`, R2 API token
+     scopes, and latency from Hetzner `ash`. Also not built: the 24-month snapshot retention and monthly
+     compaction (`docs/20` §3.2, A-7). Nothing writes the `snapshot` table yet either. `services/db/models.py`
+     defines it, but today the object location lives only in the run record's `snapshot.object_key`.
    - **Fixed in this run:** (a) the footer read "Build unknown". `services/api/build_info.py` reads `GIT_SHA`,
      but neither release.yml nor the Dockerfile set it, and the image has no `.git`. The Dockerfile now takes
      `ARG GIT_SHA`, Compose passes `${GIT_SHA:-}`, and release.yml passes `github.sha`; `/v1/health` then

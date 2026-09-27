@@ -40,6 +40,44 @@ stops (`docs/20` §3.2). When the payload does change, the run diffs the new nor
 against the previous one and writes `new / removed / status_change / capacity_change / cod_change /
 withdrawn` events.
 
+### Object storage (`SNAPSHOT_STORE=s3`)
+
+The table above is the key layout, and it does not depend on where the bytes live.
+`pipeline/connectors/objectstore.py` provides two backends behind `Store`:
+
+- **`local`** (the default, and what `Store()` always is): files under `--data-dir`. Writes go to a temp file
+  and are renamed into place, so a crash never leaves a truncated object.
+- **`s3`**: an S3-compatible bucket, Cloudflare R2 in `staging`/`production`, selected with `SNAPSHOT_STORE=s3`
+  plus the R2 variables in `docs/60` §5. Keys are the relative paths above under `SNAPSHOT_STORE_PREFIX`
+  (default `data/`), so `aws s3 sync data/ s3://$R2_BUCKET/data/` turns a local tree into a bucket and back.
+  boto3 is imported only when this backend first builds a client.
+
+`open_store()` reads the environment. The CLI, `load_source` (`services.ingest.loader.load_from_files(...,
+store=)`) and `resolve_tick` all use it, so a fetch on one worker host and its load on another meet in the
+bucket (`docs/20` §2). Rules that hold on both backends:
+
+- **Snapshots are immutable.** Writing different bytes to an existing snapshot key raises
+  `ImmutableObjectExists`, and writing identical bytes is a no-op. On S3 this is a HEAD check plus a
+  conditional `PUT` (`If-None-Match: *`).
+- **The run record is the commit marker.** Readers (`runs`, `last_snapshot_sha`, `previous_normalized`, the
+  loader by `ts`) start from run records. The runner writes the record last, so outputs from a crashed run are
+  never read as a result.
+- **Failure is closed** (`docs/20` §12). A write that raises `StoreWriteError` fails the run `failed` and deletes
+  that run's normalised, events and held objects. The snapshot is kept as evidence. If the run record cannot be
+  written either, the exception propagates: the CLI exits 1 with no result line, and the scheduler records a
+  crash and retries. `StoreWriteError` is in the scheduler's transient set. A misconfigured `SNAPSHOT_STORE`
+  (unknown mode, missing R2 variable) is `StoreConfigError`, never a silent fallback to local disk.
+- The CLI's `result` line carries `run_key` and `store`, and the scheduler reads the run record from the bucket
+  when `store` is `s3`.
+
+`pipeline/context/*` builders still use a local `Store()` and write their feature parquet under
+`data/normalized/context/` directly. They run by hand, not on the scheduled path.
+
+`tests/test_connector_store_backends.py` runs the store contract against both backends, with S3 over an
+in-memory fake. Set `INFRAQUE_TEST_S3_ENDPOINT`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` (and have boto3
+installed) to add the `live` cases against a real server. `docs/60` §11 item 9 records the one run against a
+local RustFS container.
+
 ## Connectors implemented (Sprint 1)
 
 | `source_id` | Kind | What it fetches |
