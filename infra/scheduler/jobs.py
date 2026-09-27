@@ -398,6 +398,15 @@ def _result_to_dict(result: Any) -> dict[str, Any]:
     return {key: (str(value) if isinstance(value, uuid.UUID) else value) for key, value in data.items()}
 
 
+def connector_data_root() -> Path:
+    """Where `python -m pipeline.connectors run` wrote the run `load_source` reads: the same
+    `INFRAQUE_DATA_DIR` rule as `pipeline/connectors/store.py`'s `DATA_DIR` (default `data/` in the
+    checkout). Read here rather than imported, so the loader keeps working whichever storage
+    backend that module grows (lane E10b); in a container it is the `connector_data` volume
+    (infra/compose/docker-compose.yml)."""
+    return Path(os.environ.get("INFRAQUE_DATA_DIR") or ROOT / "data")
+
+
 def load_source_job(
     source_id: str, ts: str, *, _load: Callable[..., Any] | None = None, _data_root: Path | None = None
 ) -> dict[str, Any]:
@@ -408,9 +417,10 @@ def load_source_job(
     from pipeline.connectors import store as store_module
     from services.db.session import session_scope
 
-    # The same root and backend the fetch wrote through (`SNAPSHOT_STORE`, docs/60 §5): with the
-    # S3 backend the load reads the bucket, so it need not run on the host that fetched.
-    data_root = _data_root if _data_root is not None else store_module.DATA_DIR
+    # The same root and backend the fetch wrote through: `INFRAQUE_DATA_DIR` read at call time
+    # (the container's `connector_data` volume) and `SNAPSHOT_STORE` (docs/60 §5), so with the S3
+    # backend the load reads the bucket and need not run on the host that fetched.
+    data_root = _data_root if _data_root is not None else connector_data_root()
     store = store_module.open_store(data_root)
     with session_scope(build_session_factory()) as session:
         try:

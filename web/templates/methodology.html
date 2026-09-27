@@ -41,7 +41,7 @@
   <p>Three things a reader cannot get from a record page: how old the source&rsquo;s own data is, which categories are empty because we have no source rather than because nothing is happening, and what the status words on every chip actually assert. Every number below is measured when this page loads.</p>
   {%- if posture %}
   {#- The API's sentence (`GET /v1/health` `posture_statement`), not this template's. -#}
-  <p class="platform-posture" data-posture="{{ posture.value }}">{{ posture.statement }}</p>
+  <p class="platform-posture" data-posture="{{ posture.value }}"{% if posture.available is false %} data-status="unavailable" role="status"{% endif %}>{{ posture.statement }}</p>
   {%- endif %}
 </div>
 

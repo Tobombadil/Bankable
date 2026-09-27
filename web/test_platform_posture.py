@@ -261,3 +261,122 @@ def test_no_sentence_when_the_api_reports_no_posture(web_client: TestClient, pat
     body = web_client.get(path).text
     assert "platform-posture" not in body
     assert "operates under a" not in body
+
+
+# ------------------------------------------- the API will not answer (docs/60 §11 item 9, 2026-09-26)
+RATE_LIMITED = (429, {"type": "about:blank", "title": "rate_limited", "status": 429})
+
+
+class _Unreachable(FakeTransport):
+    """The API is down: every call raises the way `httpx.Client` does on a refused connection."""
+
+    def _respond(self, url: str) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+
+def _install_failing_health(health: tuple[int, Any]) -> None:
+    web_app.state.api_client = ApiClient(
+        FakeTransport(
+            {
+                "/v1/health": health,
+                "/v1/sources": (200, {"data": [], "meta": {}}),
+                "/v1/coverage": (200, COVERAGE),
+                "/v1/lifecycle-states": (200, VOCABULARY),
+            }
+        )
+    )
+    web_app.state.lag_days_default = None
+    web_app.state.build_info = None
+    web_app.state.coverage_facts = None
+
+
+@pytest.mark.parametrize("health", [RATE_LIMITED, (503, {"title": "unavailable"}), (500, None)])
+@pytest.mark.parametrize("path", ["/about", "/methodology"])
+def test_a_failed_health_call_renders_status_unavailable_not_a_500(
+    web_client: TestClient, path: str, health: tuple[int, Any]
+) -> None:
+    """A 429 from the shared anonymous bucket (no `API_INTERNAL_TOKEN`), or any other failed
+    `/v1/health`, used to surface as a 500. Now the page renders, says the status is unavailable,
+    and claims no posture -- neither the commercial nor the noncommercial sentence."""
+    _install_failing_health(health)
+    resp = web_client.get(path)
+    assert resp.status_code == 200, resp.text[:500]
+    body = resp.text
+    assert 'data-status="unavailable"' in body
+    assert "Platform status unavailable" in body
+    assert "operates under a" not in body
+    # The page's own behaviour falls back fail-closed to the default posture.
+    assert 'data-posture="commercial"' in body
+    if path == "/about":
+        assert resp.headers["cache-control"] == "no-store"
+    assert web_app.state.lag_days_default is None  # a failed read is not cached for the process
+
+
+def test_the_posture_fallback_is_services_posture_default() -> None:
+    from services.posture import DEFAULT_POSTURE, normalise_posture
+    from web.page import get_platform_posture
+
+    class _Req:
+        class app:  # noqa: N801 -- mirrors Starlette's attribute name
+            class state:  # noqa: N801
+                api_client = ApiClient(_Unreachable({}))
+
+    fallback = get_platform_posture(_Req())  # type: ignore[arg-type]
+    assert fallback is not None
+    assert fallback["value"] == DEFAULT_POSTURE == normalise_posture(None) == "commercial"
+    assert fallback["available"] is False
+
+
+def test_an_unreachable_api_renders_the_unavailable_page_not_a_500(web_client: TestClient) -> None:
+    web_app.state.api_client = ApiClient(_Unreachable({}))
+    web_app.state.lag_days_default = None
+    resp = web_client.get("/about")
+    assert resp.status_code == 503
+    assert "Temporarily unavailable" in resp.text
+    assert resp.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize(
+    ("path", "failing"),
+    [
+        ("/about", "/v1/sources"),  # the call that failed in the 2026-09-26 reproduction
+        ("/methodology", "/v1/coverage"),
+        ("/attribution", "/v1/sources"),
+    ],
+)
+@pytest.mark.parametrize("status", [429, 502, 503])
+def test_a_refused_page_data_call_is_a_503_page_not_a_500(
+    web_client: TestClient, path: str, failing: str, status: int
+) -> None:
+    """Not only the health call: any data call a page cannot do without, refused for capacity
+    (429) or failing upstream (5xx), renders the 503 page, uncached."""
+    _install_failing_health(
+        (200, {**HEALTH_BASE, "posture": "noncommercial", "posture_statement": NC_SENTENCE}),
+    )
+    web_app.state.api_client._transport.responses[failing] = (
+        status,
+        {"title": "unavailable", "status": status},
+    )
+    resp = web_client.get(path)
+    assert resp.status_code == 503, resp.text[:300]
+    assert "Temporarily unavailable" in resp.text
+    assert resp.headers["cache-control"] == "no-store"
+
+
+def test_a_client_error_from_the_api_is_still_a_bug_not_an_outage(web_client: TestClient) -> None:
+    """Only capacity and upstream failures become the 503 page; a 400 means the page asked
+    something wrong, and that must stay loud (a 500 and a logged traceback)."""
+    from web.api_client import ApiError
+
+    _install_failing_health((200, {**HEALTH_BASE, "posture": "commercial", "posture_statement": "x"}))
+    web_app.state.api_client._transport.responses["/v1/sources"] = (400, {"title": "bad_request"})
+    with pytest.raises(ApiError):
+        web_client.get("/about")
+
+
+def test_a_healthy_api_leaves_about_cacheable_and_marked_available(web_client: TestClient) -> None:
+    _install({**HEALTH_BASE, "posture": "noncommercial", "posture_statement": NC_SENTENCE})
+    resp = web_client.get("/about")
+    assert resp.status_code == 200
+    assert "no-store" not in resp.headers.get("cache-control", "")
+    assert 'data-status="unavailable"' not in resp.text

@@ -9,11 +9,16 @@
 #   2. pull the target images on every host (the release workflow pushed them:
 #      ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}:<tag>);
 #   3. stop workers and the scheduler (nothing mid-fetch while the schema changes);
-#   4. run migrations ONCE, in a one-off container of the same api image (expand phase, E-11);
+#   4. run migrations ONCE, in a one-off container of the same api image (expand phase, E-11),
+#      then install or upgrade Procrastinate's job-queue schema, once, from the worker image
+#      (infra/scheduler/queue_schema.py: idempotent, version-recorded, guarded by an advisory lock);
 #   5. start caddy/api/web on the app VM and wait, bounded, until every api/web replica is healthy
-#      and /v1/health answers — on failure roll back to the previously deployed tag;
+#      and /v1/health answers with `checks.queue: true` — on failure roll back to the previous tag;
 #   6. start the workers; 7. start the scheduler last (it never enqueues work no worker is up for).
-# Re-running with the same tag is a no-op at every step (pull, migrate, up -d are idempotent).
+# Re-running with the same tag is a no-op at every step (pull, migrate, queue schema, up -d are
+# idempotent). Before any of it, the decrypted secrets must carry a non-empty API_INTERNAL_TOKEN:
+# without it every call `web` makes shares the anonymous 60/hour bucket and pages turn into 429s
+# (docs/60 §11 item 9), so the deploy refuses rather than starting a `web` that fails after a few views.
 set -Eeuo pipefail # -E: the ERR trap below must fire inside functions too
 
 usage() {
@@ -79,6 +84,24 @@ stage_file infra/scripts/backup.sh "$stage_dir/scripts/backup.sh"
 chmod +x "$stage_dir/scripts/backup.sh"
 commit="$(git rev-parse --short "${deploy_ref:-HEAD}" 2>/dev/null || echo unknown)"
 
+# ---------------------------------------------------------------- secrets, decrypted once, checked first
+# sops converts the YAML secrets file to KEY=VALUE lines: that is what `--env-file`, `env_file:`
+# and the systemd backup unit's EnvironmentFile all read. Held in memory only (never written
+# locally) and piped to each host below, exactly as the per-host `sops -d | ssh` pipe did before.
+secrets_dotenv="$(SOPS_AGE_KEY="$SOPS_AGE_KEY" sops -d --input-type yaml --output-type dotenv "infra/sops/secrets.${environment}.enc.yaml")"
+dotenv_value() { # <KEY>: the last assignment of KEY in the decrypted secrets, quotes stripped
+  local line
+  line="$(grep -E "^${1}=" <<<"$secrets_dotenv" | tail -n 1 || true)"
+  line="${line#"${1}"=}"
+  line="${line%\"}"; line="${line#\"}"; line="${line%\'}"; line="${line#\'}"
+  printf '%s' "$line"
+}
+if [[ -z "$(dotenv_value API_INTERNAL_TOKEN)" ]]; then
+  echo "[deploy $environment] refusing to deploy: API_INTERNAL_TOKEN is empty or missing in infra/sops/secrets.${environment}.enc.yaml." >&2
+  echo "[deploy $environment] web shares the anonymous 60/hour API bucket without it and starts failing after a few page views (docs/60 §11 item 9)." >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------- remote helpers
 remote() { local host="$1"; shift; ssh "${ssh_user}@${host}" "$@"; }
 
@@ -93,10 +116,7 @@ sync_host() { # compose files + backup script + decrypted secrets, before anythi
   remote "$host" "mkdir -p ${remote_dir}/compose ${remote_dir}/secrets ${remote_dir}/scripts ${remote_dir}/backups"
   scp -q "$stage_dir"/compose/* "${ssh_user}@${host}:${remote_dir}/compose/"
   scp -q "$stage_dir/scripts/backup.sh" "${ssh_user}@${host}:${remote_dir}/scripts/backup.sh"
-  # sops converts the YAML secrets file to KEY=VALUE lines: that is what `--env-file`, `env_file:`
-  # and the systemd backup unit's EnvironmentFile all read.
-  SOPS_AGE_KEY="$SOPS_AGE_KEY" sops -d --input-type yaml --output-type dotenv "infra/sops/secrets.${environment}.enc.yaml" \
-    | remote "$host" "umask 077 && cat > ${env_file} && chmod 600 ${env_file}"
+  printf '%s\n' "$secrets_dotenv" | remote "$host" "umask 077 && cat > ${env_file} && chmod 600 ${env_file}"
   if [[ -n "${GHCR_READ_TOKEN:-}" ]]; then
     printf '%s' "$GHCR_READ_TOKEN" | remote "$host" "docker login ghcr.io -u ${GHCR_USER:?set GHCR_USER with GHCR_READ_TOKEN} --password-stdin"
   fi
@@ -117,6 +137,15 @@ wait_healthy() { # <host> <service...>: every replica reports a healthy healthch
     fi
     sleep "$health_interval"
   done
+}
+
+require_queue_ready() { # /v1/health from inside the network must answer AND report the queue schema
+  local body
+  body="$(remote_compose "$APP_HOST" run --rm --no-deps -T api curl -sf --max-time 5 http://api:8000/v1/health)" || return 1
+  if [[ "$body" != *'"queue":true'* ]]; then
+    log "/v1/health answered but checks.queue is not true: the job-queue schema is missing (workers would crash-loop)"
+    return 1
+  fi
 }
 
 previous_tag="$(remote "$APP_HOST" "cat ${remote_dir}/current-tag 2>/dev/null" || true)"
@@ -157,11 +186,17 @@ remote_compose "$APP_HOST" stop scheduler
 
 log "4/7 running migrations once (expand phase, docs/04 E-11) in a one-off container of ${image_tag}"
 remote_compose "$APP_HOST" run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini upgrade head
+log "4/7 installing or upgrading the job-queue schema (Procrastinate, from the ${image_tag} worker image)"
+# `python -m infra.scheduler.queue_schema ensure`, except that an image built before that module
+# existed (a rollback target from before 2026-09-27) says so and changes nothing instead of failing
+# the rollback: the schema a newer image installed stays, which is what that image needs anyway.
+queue_schema_py='import importlib.util as u, runpy, sys; m = "infra.scheduler.queue_schema"; sys.exit(print("queue schema step skipped: this image predates " + m) if u.find_spec(m) is None else runpy.run_module(m, run_name="__main__"))'
+remote_compose "$APP_HOST" run --rm --no-deps -T scheduler python -c "'${queue_schema_py}'" ensure
 
 log "5/7 starting caddy/api/web on $APP_HOST (behind the Cloudflare edge cache) and waiting for health"
 remote_compose "$APP_HOST" up -d --no-build caddy api web
 wait_healthy "$APP_HOST" api web
-remote_compose "$APP_HOST" run --rm --no-deps -T api curl -sf --max-time 5 http://api:8000/v1/health >/dev/null
+require_queue_ready
 
 log "6/7 starting workers"
 for host in $WORKER_HOSTS; do

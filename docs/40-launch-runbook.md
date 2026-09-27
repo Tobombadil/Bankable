@@ -253,10 +253,10 @@ which only makes sense once 1–6 exist.
    ```
    alembic -c services/db/migrations/alembic.ini upgrade head
    ```
-   `requirements.txt` has no Postgres driver at the root lockfile level — `infra/docker/Dockerfile` and
-   `Dockerfile.browser-worker` install `psycopg[binary]` as an image-layer stopgap (`docs/60` §11 item 4).
-   This is a known gap outside this runbook's write scope; confirm the image build still installs it before
-   relying on this step.
+   The Postgres driver (`psycopg[binary]`) comes from `requirements.txt`; the images no longer install it
+   a second time (`docs/60` §11 item 4, rebuilt and checked 2026-09-27: psycopg 3.3.6 in all four images).
+   The deploy (step 7) runs the migrations itself; running them by hand here is only a first check that the
+   managed provider accepts them.
 3. **Per-environment secrets file.** Generate real age keys and create the encrypted secrets files that do not
    exist yet:
    ```
@@ -284,24 +284,28 @@ which only makes sense once 1–6 exist.
    export APP_HOST=... WORKER_HOSTS="..." BROWSER_WORKER_HOST=... SOPS_AGE_KEY="$(cat path/to/key)"
    infra/scripts/deploy.sh <staging|production> sha-<short sha>
    ```
-   The script: syncs compose files, `backup.sh` and the decrypted secrets to every VM → pulls the images →
-   stops `worker`/`browser-worker`/`scheduler` → runs migrations once in a one-off container of the same
-   api image (`alembic upgrade head`, expand phase only) → starts `caddy`/`api`/`web` on the app VM (public
-   pages keep serving from the Cloudflare edge cache throughout) and waits, bounded, for every replica to be
-   healthy and `/v1/health` to answer → starts the workers → starts the scheduler last. A failed health
-   check rolls back to the previously deployed tag automatically. It appends a row to
-   `infra/deploy-log.md`. The nightly backup timer (`docs/60` §8) starts working after this first deploy
-   ships `backup.sh` and the secrets file to the app VM.
-   **First deploy only, straight after the command above** (`docs/60` §11 item 9, measured 2026-09-26):
-   nothing in the repo creates Procrastinate's job-queue schema, so `worker`, `scheduler` and
-   `browser-worker` crash-loop after the first deploy. Apply the schema once on the app VM. `deploy.sh` has
-   already copied the compose files and secrets it needs:
-   `cd /opt/infraque/compose && IMAGE_TAG=sha-<short sha> docker compose -f docker-compose.yml -f
-   compose.prod.yml --env-file /opt/infraque/secrets/.env run --rm --no-deps -T scheduler python -m
-   procrastinate --app=infra.scheduler.app.app schema --apply`. Then run the same `docker compose ... up -d
-   --no-build` for `scheduler` on the app VM, `worker` on each worker VM and `browser-worker` on its VM. Run
-   the schema command once only: a second run exits 1. Before deploying, confirm `API_INTERNAL_TOKEN` is in the
-   secrets file, because without it pages start returning 500 after a few views.
+   The script (`docs/60` §10.1 step 3 has the detail):
+   1. It decrypts the secrets and refuses to go on if `API_INTERNAL_TOKEN` is empty or missing. Without the
+      token every call `web` makes shares the anonymous 60-per-hour bucket, so pages fail after a few
+      views. Nothing has been touched at that point.
+   2. It syncs compose files, `backup.sh` and the decrypted secrets to every VM, pulls the images, and stops
+      `worker`/`browser-worker`/`scheduler`.
+   3. It runs migrations once in a one-off container of the same api image (`alembic upgrade head`, expand
+      phase only).
+   4. It installs or upgrades Procrastinate's job-queue schema once (`python -m infra.scheduler.queue_schema
+      ensure` in a one-off `scheduler` container of the same tag). The first deploy gets the schema
+      installed here; later deploys are a no-op, or apply the Procrastinate migrations when the pin moved.
+      Nothing needs running by hand, and the one-off `procrastinate schema --apply` this step used to ask for
+      is no longer needed. A schema applied that way earlier is recognised and recorded, not re-applied.
+   5. It starts `caddy`/`api`/`web` on the app VM (public pages keep serving from the Cloudflare edge cache
+      throughout) and waits, bounded, until every replica is healthy and `/v1/health` answers with
+      `checks.queue: true`.
+   6. It starts the workers, then the scheduler last.
+
+   A failed health or queue check rolls back to the previously deployed tag automatically. The script
+   appends a row to `infra/deploy-log.md`. The nightly backup timer (`docs/60` §8) starts working after this
+   first deploy ships `backup.sh` and the secrets file to the app VM. All of this except SSH to real hosts
+   was run on a local Compose stack on 2026-09-27 (`docs/60` §11 item 10).
    **Verify:** `curl https://infraque.com/health` and `curl https://infraque.com/v1/health` return 200, and
    `/v1/health`'s `build.commit` and the page footer show the deployed commit, not "unknown". On each worker host,
    `docker compose ps` shows `worker`/`browser-worker`/`scheduler` up with no restarts; `deploy.sh` does not
@@ -419,19 +423,25 @@ softened.
    gap.
 10. **Four ISO queues (PJM, MISO, SPP, ISO-NE) show nothing** until the legal items in §1/§2.1 clear.
 11. **`requirements.txt` now lists the Postgres driver** (`psycopg[binary]>=3.1,<4`, added 2026-09-26; resolves
-    to psycopg 3.3.6 and passes `pip-audit` with CI's ignore list). `infra/docker/Dockerfile` and
-    `Dockerfile.browser-worker` still install it a second time as the §3 step 2 stopgap; removing that duplicate
-    `pip install` argument is the devops lane's follow-up (`docs/60` §11 item 4). No test in this repo exercises
-    the driver — every suite runs on SQLite (`services/README.md`).
-12. **Nothing applies Procrastinate's job-queue schema** (`docs/60` §11 item 9). Without it every worker
-    process crash-loops. §3 step 7 has the one-off command for the first deploy. The durable fix, an Alembic
-    revision or a guarded `deploy.sh` step, is open. `/v1/health`'s `queue` check is hard-coded `true`.
-13. **Scheduled connector runs cannot write their output in a container** (`docs/60` §11 item 9). The
-    pipeline writes under `/app/data`, which the images leave root-owned and unmounted, so every run ends in
-    `PermissionError`. Worker hosts also share no filesystem between a fetch and its load. Until this is
-    decided (a per-host volume or object storage), the scheduled loop cannot refresh data. The only load
-    measured end to end is the host-side loader run on 2026-09-26.
-    **Object-storage mode (2026-09-26):** `SNAPSHOT_STORE=s3` routes every connector-store read and write to
+    to psycopg 3.3.6 and passes `pip-audit` with CI's ignore list). The Dockerfiles' duplicate install went on
+    2026-09-27; the rebuilt images carry psycopg 3.3.6 (`docs/60` §11 item 4). The unit suites still run on
+    SQLite (`services/README.md`); the driver is exercised by the Compose stack and the Postgres-gated tests.
+12. **The job-queue schema is applied by the deploy** (closed 2026-09-27, `docs/60` §11 item 10). `deploy.sh`
+    runs `infra/scheduler/queue_schema.py ensure` after Alembic and before any worker starts. The step
+    installs, upgrades or does nothing, and records the Procrastinate version in the database.
+    `/v1/health`'s `checks.queue` reports whether the schema exists, and the deploy will not start workers
+    unless it says `true`. On a local stack, all four worker processes ran with 0 restarts. Not yet run
+    against the managed Postgres provider. The schema needs only PL/pgSQL, which every PostgreSQL database
+    has by default, but that is unverified until §3 step 2 runs.
+13. **Connector output: a named volume on one host, object storage across hosts** (`docs/60` §11 items 9–10). On a single host, `worker` and
+    `browser-worker` write to the named volume `connector_data`, mounted at `INFRAQUE_DATA_DIR`
+    (`/var/lib/infraque/data`, owned by the container user). Every replica on that host shares it, so a fetch
+    and its load can run on different replicas. Measured 2026-09-27: a fixture-input run in one worker, and
+    its load, resolve and enrich in the other, all succeeded. The scheduled loop can refresh data on a
+    one-host staging. It cannot on the production topology (`docs/60` §2), where fetch and load can land on
+    different worker VMs that share no filesystem. For that topology use the object-storage mode below
+    (`docs/20` §2: stages talk only through the database and object storage).
+    **Object-storage mode (added 2026-09-26, merged 2026-09-27):** `SNAPSHOT_STORE=s3` routes every connector-store read and write to
     the environment's R2 bucket (`docs/60` §5 lists the variables; the R2 ones are those `backup.sh` already
     reads). That closes the cross-host half: the load reads what the fetch wrote without sharing its host. Runs
     fail closed if the bucket is unreachable. It passed its store contract against a local S3-compatible server

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Temporarily unavailable -- Infraque{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="error-state" role="alert" data-status="unavailable">
+  <h1>Temporarily unavailable</h1>
+  <p>The data behind this page could not be read just now: the service that holds it is busy or did not answer. Nothing has been removed. Try again in a few minutes.</p>
+  <p><a href="/">Return to the map</a></p>
+</div>
+{% endblock %}

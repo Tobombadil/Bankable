@@ -9855,7 +9855,13 @@ components:
             database:
               type: boolean
             queue:
-              type: boolean
+              type: [boolean, 'null']
+              description: >-
+                Whether the job-queue schema the workers need is installed (a catalogue lookup for
+                `procrastinate_jobs`). `false` when it is missing or the database is unreachable;
+                `null` when not applicable (a SQLite store, which runs no workers). Not folded into
+                `status`: the API serves reads without it. The deploy script requires `true` before
+                it starts any worker.
             rate_limiter_active:
               type: boolean
             edge_cache:

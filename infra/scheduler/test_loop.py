@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import pathlib
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -28,6 +30,8 @@ from sqlalchemy import select
 from infra.scheduler import cadence, jobs
 from services.db.models import Source, SourceRun
 from services.db.session import get_engine, get_sessionmaker, init_db
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 SOURCE_ID = "us.iso.ercot.gen_queue"  # open, implemented, plain egress
 
@@ -414,6 +418,7 @@ def test_load_source_job_loads_the_run_and_the_task_chains_to_resolve_then_enric
     monkeypatch: pytest.MonkeyPatch, factory: _Factory
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    monkeypatch.delenv("INFRAQUE_DATA_DIR", raising=False)
     import infra.scheduler.app as scheduler_app
 
     calls: list[tuple[Any, ...]] = []
@@ -447,6 +452,39 @@ def test_load_source_job_loads_the_run_and_the_task_chains_to_resolve_then_enric
     real_resolve.func()
     if [d[0] for d in deferred] != ["resolve_tick", "enrich_tick"]:
         raise AssertionError(deferred)
+
+
+def test_the_load_reads_where_the_connector_wrote_when_the_data_dir_is_a_volume(
+    monkeypatch: pytest.MonkeyPatch, factory: _Factory, tmp_path: pathlib.Path
+) -> None:
+    """docs/60 §11 item 9: in a container the connector output lives on the `connector_data`
+    volume named by INFRAQUE_DATA_DIR, not under the root-owned /app/data. The fetch (the
+    connector CLI's `Store` default) and the load must agree on it, or every load misses its file."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    monkeypatch.setenv("INFRAQUE_DATA_DIR", str(tmp_path))
+    seen: list[Any] = []
+
+    def fake_load(session: Any, source_id: str, ts: str, **kw: Any) -> dict[str, Any]:
+        seen.append(kw.get("data_root"))
+        return {}
+
+    monkeypatch.setattr(jobs, "build_session_factory", lambda: factory)
+    jobs.load_source_job(SOURCE_ID, "20260918T030700Z", _load=fake_load)
+    if seen != [tmp_path]:
+        raise AssertionError(seen)
+    # The connector side reads the variable at import; check it in a fresh interpreter.
+    probe = "from pipeline.connectors.store import DATA_DIR, Store; print(DATA_DIR, Store().root)"
+    out = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+        [sys.executable, "-c", probe], capture_output=True, text=True, cwd=ROOT, check=True
+    ).stdout.split()
+    if out != [str(tmp_path), str(tmp_path)]:
+        raise AssertionError(out)
+    unset = {k: v for k, v in os.environ.items() if k != "INFRAQUE_DATA_DIR"}
+    out = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+        [sys.executable, "-c", probe], capture_output=True, text=True, cwd=ROOT, env=unset, check=True
+    ).stdout.split()
+    if out != [str(ROOT / "data")] * 2:
+        raise AssertionError(f"unset must keep today's default: {out}")
 
 
 def test_load_resolve_and_enrich_tasks_are_registered_on_queues_the_worker_consumes(

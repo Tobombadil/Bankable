@@ -27,12 +27,9 @@ WORKDIR /app
 COPY requirements.txt ./requirements.txt
 COPY infra/scheduler/requirements.txt ./infra-scheduler-requirements.txt
 
-# requirements.txt has no Postgres driver — every test suite in this repo runs against SQLite
-# (services/README.md "Postgres vs SQLite" section). psycopg is added here, at the image layer,
-# so a production container can actually reach the managed Postgres ADR 0003 specifies; the
-# durable fix is a pyproject.toml/requirements.txt entry from whoever owns that lockfile
-# (docs/CHANGELOG.md line records this as a flagged gap, not silently worked around). Procrastinate
-# (ADR 0004) is installed from infra/scheduler/requirements.txt for the same reason — only the
+# The Postgres driver (`psycopg[binary]`) comes from requirements.txt since 2026-09-26; until then
+# this line installed it a second time as a stopgap (docs/60 §11 item 4). Procrastinate (ADR 0004)
+# is also pinned there (==3.9.0) and bounded again in infra/scheduler/requirements.txt — only the
 # `worker` target actually runs it, but one shared base layer keeps the image count at two
 # (docs/20 §4.1 "one container image with different entrypoints").
 # `--mount=type=secret,id=ca_bundle` is a build-time hook for sandboxes whose egress re-terminates
@@ -42,7 +39,7 @@ COPY infra/scheduler/requirements.txt ./infra-scheduler-requirements.txt
 # is absent and the `if` is a no-op, so a plain `docker build` installs exactly what it did before.
 RUN --mount=type=secret,id=ca_bundle,target=/run/secrets/ca_bundle \
     if [ -s /run/secrets/ca_bundle ]; then export PIP_CERT=/run/secrets/ca_bundle; fi \
-    && pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt "psycopg[binary]>=3.1,<4"
+    && pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt
 # The CI image scan flags wheel 0.45.1 and jaraco.context 5.3.0 (CVE-2026-24049, CVE-2026-23949).
 # Those are the copies vendored inside setuptools 78.1.1 (`setuptools/_vendor/*.dist-info`), not
 # top-level installs, so upgrading the top-level packages changes nothing (tried, 2026-09-15). They
@@ -68,7 +65,17 @@ ENV PYTHONUNBUFFERED=1 \
     BANKABLE_DOMAIN=example-infraque.test \
     GIT_SHA=${GIT_SHA}
 
-RUN useradd --create-home --uid 10001 appuser
+# Connector output (snapshots, normalised parquet, events, run records; pipeline/connectors/
+# store.py) goes to INFRAQUE_DATA_DIR, not /app/data: /app is root-owned and read-only to the
+# process, and /app/data holds sources.yaml, which a volume mounted there would hide. The directory
+# is created owned by appuser so the named volume Compose mounts on it (`connector_data`) starts
+# out writable by uid 10001; before 2026-09-27 every scheduled run ended in `PermissionError:
+# '/app/data/runs'` (docs/60 §11 item 9). This is the single-host local mode; the object-storage
+# mode docs/20 §2 specifies is a separate backend (lane E10b).
+ENV INFRAQUE_DATA_DIR=/var/lib/infraque/data
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p "$INFRAQUE_DATA_DIR" \
+    && chown appuser:appuser "$INFRAQUE_DATA_DIR"
 USER appuser
 
 # Every process starts through infra/entrypoint.py, which wires JSON logging

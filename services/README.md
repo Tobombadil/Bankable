@@ -32,6 +32,11 @@ file explains how to run what those documents specify, not what the design is.
   identically on both backends, at the cost of not proving PostGIS-specific query performance or
   correctness. `event` is a normal table here, not the monthly-partitioned one docs/21 §5.3
   specifies (also called out as a known gap in the migration's docstring).
+- `GET /v1/health`'s `checks.queue` (2026-09-27) is one of the few places the two backends answer
+  differently on purpose: on Postgres it is a `to_regclass('procrastinate_jobs')` lookup (is the
+  job-queue schema the workers need installed?); on SQLite it is `null`, "not applicable", because a
+  SQLite store runs no workers. It was hard-coded `true` before. It does not change `status` or the
+  HTTP code; `infra/scripts/deploy.sh` reads it before starting workers (`docs/60` §10.1).
 
 ## Run the tests
 

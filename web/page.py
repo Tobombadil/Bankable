@@ -21,12 +21,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
+import httpx
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import QueryParams
 
-from web.api_client import ApiClient, build_client
+from services.posture import DEFAULT_POSTURE
+from web.api_client import ApiClient, ApiError, build_client
 from web.assets import ASSET_VERSION
 from web.viewmodels import ALL_OPPORTUNITY_STATUSES
 from web.viewmodels import footer_build as vm_footer_build
@@ -58,19 +60,41 @@ def is_preview_active(request: Request) -> bool:
     return os.environ.get("WEB_DEV_PREVIEW", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+#: What can go wrong asking the API for `/v1/health` that a page should survive: a problem
+#: response (a 429 from the shared anonymous bucket when `API_INTERNAL_TOKEN` is unset, a 5xx), a
+#: transport failure (API down, timeout) or a body that is not JSON.
+API_UNAVAILABLE = (ApiError, httpx.HTTPError, ValueError)
+
+#: Printed where the posture sentence goes when `/v1/health` cannot be read. It claims no posture:
+#: the page falls back to `DEFAULT_POSTURE` for its own behaviour (fail closed, the same default
+#: `services/posture.py` applies), but it does not tell the reader that is the posture in force.
+POSTURE_UNAVAILABLE_STATEMENT = (
+    "Platform status unavailable: the API did not answer, so this page cannot state the platform's "
+    "publication posture right now. What is published is still decided by the API's own gates."
+)
+
+#: `lag_days_default` when `/v1/health` cannot be read: the values the API reports today (nothing is
+#: delayed on any tier since 2026-09-21). Not cached, so the next page view asks again.
+LAG_DAYS_FALLBACK: dict[str, int] = {"supply": 0, "opportunities": 0}
+
+
 def get_lag_days(request: Request) -> dict[str, int]:
     """`lag_days_default` from `/v1/health` cached for the process lifetime -- it is server
     configuration, not per-request data, and the footer (product defect B) and delayed-tier notice
-    on every page need it without a health round trip each time."""
+    on every page need it without a health round trip each time. A failed read falls back to
+    `LAG_DAYS_FALLBACK` for this request only instead of failing the page (docs/60 §11 item 9)."""
     cached: dict[str, int] | None = getattr(request.app.state, "lag_days_default", None)
     if cached is None:
-        health = get_api(request).get("/v1/health")
-        cached = dict(health["lag_days_default"])
+        try:
+            health = get_api(request).get("/v1/health")
+            cached = dict(health["lag_days_default"])
+        except (*API_UNAVAILABLE, KeyError, TypeError):
+            return dict(LAG_DAYS_FALLBACK)
         request.app.state.lag_days_default = cached
     return cached
 
 
-def get_platform_posture(request: Request) -> dict[str, str] | None:
+def get_platform_posture(request: Request) -> dict[str, Any] | None:
     """The platform posture as `GET /v1/health` reports it (`posture`, `posture_statement`;
     docs/26): the setting lives on the API host, and the sentence the public pages print is
     the API's, so a page can never claim a posture the gate is not applying. Not cached on
@@ -81,13 +105,23 @@ def get_platform_posture(request: Request) -> dict[str, str] | None:
     Moved here verbatim from `web/app.py` (docs/42-backend-review-2026-09-26.md lane pattern;
     owner, 2026-09-26 decisions log "Mark inactive, then flip") so `web/pricing.py` can import it
     too without importing `web/app.py` back and creating a cycle -- the same reason this module
-    holds `get_api`/`is_preview_active` rather than `web/app.py`."""
-    health = get_api(request).get("/v1/health")
+    holds `get_api`/`is_preview_active` rather than `web/app.py`.
+
+    When `/v1/health` cannot be read (`API_UNAVAILABLE`: first measured 2026-09-26 as a 429 turned
+    into a 500 on `/about`, docs/60 §11 item 9) the page still renders: `value` falls back to
+    `DEFAULT_POSTURE` (`commercial`, fail closed, as `services/posture.py` does for an unset or
+    unrecognised setting), `statement` says the status is unavailable instead of claiming that
+    posture, and `available` is `False` so a template can mark it. Checkout is unaffected either
+    way: the API's own gate decides it (`web/pricing.py` `checkout`)."""
+    try:
+        health = get_api(request).get("/v1/health")
+    except API_UNAVAILABLE:
+        return {"value": DEFAULT_POSTURE, "statement": POSTURE_UNAVAILABLE_STATEMENT, "available": False}
     posture = health.get("posture")
     statement = health.get("posture_statement")
     if not isinstance(posture, str) or not isinstance(statement, str):
         return None
-    return {"value": posture, "statement": statement}
+    return {"value": posture, "statement": statement, "available": True}
 
 
 def is_htmx(request: Request) -> bool:
@@ -233,6 +267,16 @@ def querystring_without(params: QueryParams, *drop: str) -> str:
 
 def not_found_response(request: Request, kind: str) -> HTMLResponse:
     return templates.TemplateResponse(request, "not_found.html", {"kind": kind}, status_code=404)
+
+
+def unavailable_response(request: Request) -> HTMLResponse:
+    """The page shown when a data call the page cannot do without fails: a 503 that says the data
+    is temporarily unavailable, never cached (`no-store`), instead of the bare 500 an unhandled
+    `ApiError`/`httpx.HTTPError` produced (docs/60 §11 item 9). Rendering it asks the API nothing
+    that can fail: the footer's reads (`get_lag_days`, `footer_build`) already fall back."""
+    response = templates.TemplateResponse(request, "unavailable.html", {}, status_code=503)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 # docs/40-launch-runbook.md §2.7 / CLAUDE.md task brief "Basemap": three modes, keyed on the shape
