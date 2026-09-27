@@ -2312,6 +2312,15 @@ paths:
         (US-501 AC2). Any filtered list — proposals, opportunities, events, matches — can be saved (US-501 AC1).
         Limit 25 per user (configurable); the 26th answers `403 forbidden_tier` naming the quota. `delivery_mode`
         defaults to `daily` (US-502 AC1); `channels` may include `rss`, which mints a private `rss_token` feed.
+
+        `query` is held to the `entity`'s list endpoint: a key that list does not filter on answers
+        `400 unknown_parameter` naming it (proposals: that list's filters plus `q`; opportunities likewise;
+        events: `subject_type`, `subject_id`, `event_type`, `source_id`, `since`; matches: the `GET /v1/matches`
+        filters), and a value the list would refuse answers the list's own `400 validation_error`. Page and
+        ordering keys (`limit`, `cursor`, `include`, `sort`) are not filters and are refused the same way. The
+        alert matcher applies every accepted key with the list's semantics, so a saved search alerts on exactly
+        the records the list returns for the same query at the owner's tier. Searches stored before this check
+        are not re-validated on read.
       x-tier: pro
       x-status: live
       x-sprint: 2
@@ -2372,7 +2381,7 @@ paths:
       operationId: updateSavedSearch
       tags: [Saved searches & alerts]
       summary: Edit or pause a saved search
-      description: Name, query, delivery mode, channels or `status` (`active` | `paused`); the change is reflected in the next delivery cycle (US-504 AC1).
+      description: Name, query, delivery mode, channels or `status` (`active` | `paused`); the change is reflected in the next delivery cycle (US-504 AC1). A new `query` is validated as on create (`400 unknown_parameter` for a key the entity's list does not filter on).
       x-tier: pro
       x-status: live
       x-sprint: 2
@@ -3088,7 +3097,9 @@ paths:
         A webhook is a saved search with a URL as its channel (docs/23 §9.1): `query` uses the saved-search grammar
         and `types` selects the payload types. The signing `secret` is returned once. Up to 10 per account.
         The payload is tier-filtered and licence-gated exactly like a `GET` on the same key. Outbound payload
-        shapes are documented under `webhooks` at the end of this document.
+        shapes are documented under `webhooks` at the end of this document. `entity` must be a `SavedSearchEntity`
+        (`400 validation_error` otherwise) and `query` is validated exactly as on `POST /v1/saved-searches`: a key
+        the entity's list does not filter on answers `400 unknown_parameter`, never a filter stored and ignored.
       x-tier: api
       x-status: live
       x-sprint: 2
@@ -11141,7 +11152,7 @@ components:
                   $ref: '#/components/schemas/Account'
     SavedSearchQuery:
       type: object
-      description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results.
+      description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results. Keys are the filters of the `entity`'s list endpoint; any other key is a `400 unknown_parameter` on create and update.
       additionalProperties: true
       examples:
         - kind: [storage]

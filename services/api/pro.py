@@ -33,10 +33,16 @@ from services.api.auth import (
 )
 from services.api.common import utcnow
 from services.api.deps import get_db
-from services.api.errors import ProblemError, not_found, validation_error
+from services.api.errors import ProblemError, not_found, unknown_parameter, validation_error
 from services.api.feeds import render_json_feed, render_rss
 from services.api.params import check_allowed, csv_param
 from services.api.ratelimit import plan_quota
+from services.api.records import (
+    OPPORTUNITY_FILTERS,
+    PROPOSAL_FILTERS,
+    _opportunity_query_with_filters,
+    _proposal_query_with_filters,
+)
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -182,6 +188,57 @@ def get_account(
 
 
 # -------------------------------------------------------------------------------- saved searches
+SAVED_SEARCH_ENTITIES = ("proposal", "opportunity", "event", "match")
+#: Page and ordering parameters: they shape a response, not the set a saved search or webhook
+#: watches, so a stored `query` may not name them (the same rule an export's `query` follows).
+_PAGE_KEYS = frozenset({"limit", "cursor", "include", "sort"})
+
+
+def saved_search_query_keys(entity: str) -> frozenset[str]:
+    """The keys a saved search's or webhook's `query` may name for `entity`: exactly the filters
+    that entity's list endpoint applies (docs/23 §9.1 "a webhook is a saved search with a URL"),
+    which `services/alerts/matching.py` implements in full (`tests/test_saved_search_parity.py`).
+    `q` is one on proposals and opportunities; `GET /v1/events` allowlists `q` but applies no text
+    filter, so an event query may not name it -- storing it would be the silently ignored filter
+    this check exists to refuse."""
+    from services.api.resource_queries import EVENT_FILTERS
+
+    if entity == "proposal":
+        return frozenset(PROPOSAL_FILTERS | {"q"})
+    if entity == "opportunity":
+        return frozenset(OPPORTUNITY_FILTERS | {"q"})
+    if entity == "event":
+        return frozenset(EVENT_FILTERS)
+    # Deferred: `services.api.matches` imports this module (`_rate_limit_headers`).
+    from services.api.matches import LIST_MATCHES_PARAMS
+
+    return frozenset(LIST_MATCHES_PARAMS - _PAGE_KEYS)
+
+
+def validate_saved_search_query(db: Session, entity: str, query: dict[str, Any], instance: str) -> None:
+    """A stored `query` (saved search create/update, webhook create) is held to the list endpoint's
+    rules: a key the entity's list does not filter on is a `400 unknown_parameter` naming it, and a
+    value the list would refuse (an unknown `placement`, a non-numeric capacity bound, a malformed
+    `due_at[from]`, ...) is the list's own `400 validation_error`, found by building -- not running
+    -- the list's statement over the stored query. Before 2026-09-27 any dict was stored and the
+    matcher ignored what it did not implement, so a search for "storage over 500 MW in US-TX"
+    alerted on every storage proposal. Rows already stored are not re-validated on read."""
+    from services.api.resource_queries import check_query_values, event_query_with_filters, synthetic_request
+
+    check_query_values(query, instance)
+    allowed = saved_search_query_keys(entity)
+    for key in query:
+        if key not in allowed:
+            raise unknown_parameter(key, instance)
+    request = synthetic_request(query, path=instance)
+    if entity == "proposal":
+        _proposal_query_with_filters(request)
+    elif entity == "opportunity":
+        _opportunity_query_with_filters(request, db)
+    elif entity == "event":
+        event_query_with_filters(request, db, "public")
+
+
 def _query_hash(query: dict[str, Any]) -> str:
     import json
 
@@ -226,8 +283,9 @@ def create_saved_search(
     name = body.get("name")
     entity = body.get("entity")
     query = body.get("query")
-    if not name or entity not in ("proposal", "opportunity", "event", "match") or not isinstance(query, dict):
+    if not name or entity not in SAVED_SEARCH_ENTITIES or not isinstance(query, dict):
         raise validation_error("name", "name, entity and query are required", request.url.path)
+    validate_saved_search_query(db, entity, query, request.url.path)
     existing = db.scalar(
         select(func.count()).select_from(SavedSearch).where(SavedSearch.user_id == ctx.user.id)
     )
@@ -296,6 +354,9 @@ def update_saved_search(
     if "name" in body:
         search.name = body["name"]
     if "query" in body:
+        if not isinstance(body["query"], dict):
+            raise validation_error("query", "query must be an object", request.url.path)
+        validate_saved_search_query(db, search.entity, body["query"], request.url.path)
         search.query = body["query"]
         search.query_hash = _query_hash(body["query"])
     if "delivery_mode" in body:
@@ -568,6 +629,15 @@ def create_webhook(
         raise validation_error("url", "url must be https://", request.url.path)
     if not types:
         raise validation_error("types", "at least one type is required", request.url.path)
+    entity = body.get("entity", "event")
+    if entity not in SAVED_SEARCH_ENTITIES:
+        raise validation_error(
+            "entity", f"entity must be one of {', '.join(SAVED_SEARCH_ENTITIES)}", request.url.path
+        )
+    query = body.get("query") or {}
+    if not isinstance(query, dict):
+        raise validation_error("query", "query must be an object", request.url.path)
+    validate_saved_search_query(db, entity, query, request.url.path)
     existing = db.scalar(
         select(func.count()).select_from(WebhookEndpoint).where(WebhookEndpoint.account_id == account.id)
     )
@@ -586,8 +656,8 @@ def create_webhook(
         url=url,
         description=body.get("description"),
         types=types,
-        entity=body.get("entity", "event"),
-        query=body.get("query") or {},
+        entity=entity,
+        query=query,
         secret=secret,
     )
     db.add(endpoint)
