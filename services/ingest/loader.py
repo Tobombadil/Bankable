@@ -111,6 +111,7 @@ from pipeline.connectors.dedupe import (
     split_key,
 )
 from pipeline.connectors.registry import GATED_REUSE, PUBLISHABLE_REUSE, Registry, SourceEntry
+from pipeline.connectors.store import Store
 from services.db.models import (
     Event,
     Licence,
@@ -1427,9 +1428,14 @@ def load_from_files(
     *,
     data_root: pathlib.Path = pathlib.Path("data"),
     registry: Registry | None = None,
+    store: Store | None = None,
 ) -> LoadResult:
     """Read `data/normalized/<source_id>/<ts>.parquet` (+ the matching `events/` file and, if
     present, the `runs/<source_id>/<ts>.json` record) and load them (docs/20 §3.2, §3.7).
+
+    `store` is where those objects live — pass `pipeline.connectors.store.open_store()` to read
+    the bucket a fetch on another host wrote to (`SNAPSHOT_STORE=s3`); without one, local files
+    under `data_root` are read, as before.
 
     Raises `GateRefused` before touching any file if the source's registry entry is gated —
     independent of whatever the connector run already did (module docstring).
@@ -1438,15 +1444,16 @@ def load_from_files(
     entry = registry.get(source_id)
     _assert_not_gated(entry)
 
-    normalized_path = data_root / "normalized" / source_id / f"{ts}.parquet"
-    events_path = data_root / "events" / source_id / f"{ts}.parquet"
-    run_path = data_root / "runs" / source_id / f"{ts}.json"
-    if not normalized_path.exists():
-        raise FileNotFoundError(normalized_path)
+    store = store if store is not None else Store(data_root)
+    normalized_path = store.normalized_path(source_id, ts)
+    events_path = store.events_path(source_id, ts)
+    run_path = store.run_path(source_id, ts)
+    if not store.exists(normalized_path):
+        raise FileNotFoundError(store.locate(normalized_path))
 
-    records_df = pd.read_parquet(normalized_path)
-    events_df = pd.read_parquet(events_path) if events_path.exists() else None
-    run_record = json.loads(run_path.read_text(encoding="utf-8")) if run_path.exists() else None
+    records_df = store.read_parquet(normalized_path)
+    events_df = store.read_parquet(events_path) if store.exists(events_path) else None
+    run_record = store.read_json(run_path) if store.exists(run_path) else None
 
     source = upsert_licence_and_source(session, entry, registry.version)
 

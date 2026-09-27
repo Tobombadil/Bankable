@@ -5,6 +5,12 @@ Stage rules: every stage writes its output before the next starts; a failure fai
 recorded on the run; a DQ hold keeps the raw snapshot (evidence) and writes nothing publishable;
 a gated source (reuse restricted/unknown) is refused unless `allow_restricted=True` and is then
 routed to the quarantine store, which cannot write to a publishable path.
+
+Object-store failures fail closed (docs/20 §12): a snapshot or parquet write that raises
+`StoreError` ends the run `failed`, after the run's own normalised/events/held objects are deleted
+again, and the run record — the commit marker every downstream reader starts from — is written
+last. If that record cannot be written either, the exception propagates and the CLI exits 1 with
+no result line, which the scheduler records as a crash and retries.
 """
 
 from __future__ import annotations
@@ -29,8 +35,9 @@ from pipeline.connectors.base import (
 from pipeline.connectors.dedupe import align_previous_keys
 from pipeline.connectors.dq import DQResult, run_gates
 from pipeline.connectors.http import HttpBlocked, HttpFailed, PoliteSession
+from pipeline.connectors.objectstore import StoreError
 from pipeline.connectors.registry import Registry
-from pipeline.connectors.store import QuarantineStore, Store, ts_token
+from pipeline.connectors.store import QuarantineStore, Store, open_store, ts_token
 from pipeline.diff import EVENT_TYPES, diff_snapshots
 
 log = logging.getLogger("pipeline.connectors")
@@ -60,6 +67,21 @@ def _diff_view(df: pd.DataFrame) -> pd.DataFrame:
     return view
 
 
+def _discard(st: Store, paths: list[pathlib.Path], source_id: str, run_id: str) -> None:
+    """Best-effort removal of the outputs a failed run had already written, so no downstream stage
+    (or a consumer globbing the tree) sees a half-written result. A failure here is logged, not
+    raised: without a run record those objects are unreachable through the store anyway."""
+    for path in paths:
+        try:
+            st.delete(path)
+        except Exception:
+            log.warning(
+                "could not remove partial output",
+                extra={"source_id": source_id, "run_id": run_id, "path": st.locate(path)},
+                exc_info=True,
+            )
+
+
 def _source_columns(rows: list[dict[str, Any]]) -> list[str]:
     seen: dict[str, None] = {}
     for r in rows:
@@ -87,10 +109,10 @@ def run(
     registry = registry or Registry()
     source = registry.get(source_id)
     connector = registry.instantiate(source_id, allow_restricted=allow_restricted, http=http)
-    base_store = store or Store()
+    base_store = store if store is not None else open_store()
     if source.gated:
         # allow_restricted=True got us here: outputs are quarantined, never publishable.
-        st: Store = QuarantineStore(base_store.root)
+        st: Store = QuarantineStore(base_store.base_root, backend=base_store.backend)
     else:
         st = base_store
 
@@ -192,8 +214,12 @@ def run(
     # 2. snapshot (unchanged short-circuit, docs/20 §3.2) ------------------
     if st.last_snapshot_sha(source_id) == snap.sha256:
         return finish("unchanged")
-    path = st.write_snapshot(source_id, ts, snap.ext, content)
-    record["snapshot"]["object_key"] = str(path)
+    try:
+        path = st.write_snapshot(source_id, ts, snap.ext, content)
+    except StoreError as e:
+        log.error("snapshot write failed", extra={"source_id": source_id, "run_id": run_id, "error": repr(e)})
+        return finish("failed", e)
+    record["snapshot"]["object_key"] = st.locate(path)
     result.paths["snapshot"] = path
 
     # 3. parse + normalise ------------------------------------------------
@@ -243,8 +269,13 @@ def run(
     result.records = df
     if dq.held:
         record["hold_reasons"] = dq.hold_reasons()
-        result.paths["held"] = st.write_parquet(st.held_path(source_id, ts), df)
-        record["outputs"]["held"] = str(result.paths["held"])
+        held_path = st.held_path(source_id, ts)
+        try:
+            result.paths["held"] = st.write_parquet(held_path, df)
+        except StoreError as e:
+            _discard(st, [held_path], source_id, run_id)
+            return finish("failed", e)
+        record["outputs"]["held"] = st.locate(held_path)
         return finish("partial")
 
     # 5. diff against the previous normalised snapshot ---------------------
@@ -265,13 +296,23 @@ def run(
     result.events = events
 
     # 6. store (publishable outputs only from a publishable store) ---------
-    result.paths["normalized"] = st.write_parquet(st.normalized_path(source_id, ts), df)
-    record["outputs"]["normalized"] = str(result.paths["normalized"])
-    if len(events):
-        ev = events.copy()
-        ev["event_type"] = ev["event_type"].astype(str)
-        result.paths["events"] = st.write_parquet(st.events_path(source_id, ts), ev)
-        record["outputs"]["events"] = str(result.paths["events"])
+    # All-or-nothing: a failed write deletes whatever this step already wrote and fails the run.
+    targets = [st.normalized_path(source_id, ts)] + ([st.events_path(source_id, ts)] if len(events) else [])
+    try:
+        result.paths["normalized"] = st.write_parquet(targets[0], df)
+        if len(events):
+            ev = events.copy()
+            ev["event_type"] = ev["event_type"].astype(str)
+            result.paths["events"] = st.write_parquet(targets[1], ev)
+    except StoreError as e:
+        log.error("output write failed", extra={"source_id": source_id, "run_id": run_id, "error": repr(e)})
+        _discard(st, targets, source_id, run_id)
+        result.paths.pop("normalized", None)
+        result.paths.pop("events", None)
+        return finish("failed", e)
+    record["outputs"]["normalized"] = st.locate(result.paths["normalized"])
+    if "events" in result.paths:
+        record["outputs"]["events"] = st.locate(result.paths["events"])
     return finish("ok")
 
 

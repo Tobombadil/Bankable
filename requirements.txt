@@ -12,6 +12,10 @@ websocket-client>=1.8    # pipeline/connectors/us_epa_class_vi: EPA's Class VI t
                          # Qlik Sense app whose only machine route is the Engine JSON API over a
                          # websocket. Imported lazily inside fetch(); parser tests need it not.
 pdfplumber>=0.11         # pipeline/connectors/us_tx_rrc_class_vi: the RRC's Class VI list is a vector-table PDF (ADR 0002, docs/20 §15)
+boto3>=1.36,<2           # pipeline/connectors/objectstore.py: SNAPSHOT_STORE=s3 (Cloudflare R2 over the S3 API,
+                         # docs/60 §5). Imported lazily, only when that backend builds a client, so tests and the
+                         # local store need neither it nor credentials. 1.36 is the first release with the
+                         # `request_checksum_calculation` setting Cloudflare documents for R2.
 
 # services/db, services/ingest, services/api (Sprint 2 backend)
 sqlalchemy>=2.0,<2.1

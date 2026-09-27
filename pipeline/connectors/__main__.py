@@ -14,9 +14,10 @@ import sys
 from typing import Any
 
 from pipeline.connectors.base import GateViolation
+from pipeline.connectors.objectstore import StoreConfigError
 from pipeline.connectors.registry import RegistrationError, Registry
 from pipeline.connectors.runner import run
-from pipeline.connectors.store import DATA_DIR, Store
+from pipeline.connectors.store import DATA_DIR, open_store
 
 _STD = {
     "name",
@@ -79,7 +80,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run a reuse=restricted/unknown source into the quarantine store",
     )
-    rp.add_argument("--data-dir", default=str(DATA_DIR))
+    rp.add_argument(
+        "--data-dir",
+        default=str(DATA_DIR),
+        help="local data root; with SNAPSHOT_STORE=s3 only the key layout under it matters",
+    )
     args = ap.parse_args(argv)
     log = _setup_logging()
     registry = Registry()
@@ -94,7 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         ids += [s["id"] for s in registry.status() if s["state"] == "implemented"]
     if not ids:
         ap.error("give source ids or --all")
-    store = Store(pathlib.Path(args.data_dir))
+    try:
+        store = open_store(pathlib.Path(args.data_dir))
+    except StoreConfigError as e:
+        log.error("store misconfigured", extra={"error": str(e)})
+        return 1
     rc = 0
     for sid in ids:
         try:
@@ -127,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
                 "hold_reasons": r.get("hold_reasons"),
                 "error": r.get("error"),
                 "run_path": str(res.paths.get("run")),
+                "run_key": store.key(res.paths["run"]) if "run" in res.paths else None,
+                "store": store.backend.name,
             },
         )
         if r["status"] in ("failed", "blocked"):
