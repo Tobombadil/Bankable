@@ -22,6 +22,7 @@
     <tr><th scope="row">Worker seconds</th><td>{{ run.worker_seconds }}</td></tr>
     <tr><th scope="row">Attempt</th><td>{{ run.attempt }}{% if run.dead_lettered %} (dead-lettered){% endif %}</td></tr>
     <tr><th scope="row">Error</th><td>{{ run.error or "&mdash;" }}{% if run.error_class %} ({{ run.error_class }}){% endif %}</td></tr>
+    <tr><th scope="row">Hold released</th><td>{% if run.released_at %}{{ run.released_at }} by <span class="mono">{{ run.released_by or "&mdash;" }}</span>: {{ run.release_reason }}{% if run.status == "partial" %} (promotion and load queued){% endif %}{% else %}&mdash;{% endif %}</td></tr>
     <tr>
       <th scope="row">Snapshot</th>
       <td>{% if run.snapshot_id %}<a href="/admin/snapshots/{{ run.snapshot_id }}">{{ run.snapshot_id }}</a>{% else %}&mdash;{% endif %}</td>
@@ -37,6 +38,14 @@
 </dl>
 {% else %}
 <p class="admin-empty">No data-quality report on this run (status: {{ run.dq_status }}).</p>
+{% endif %}
+{% if run.status == "partial" and run.dq_status == "fail" and not run.released_at %}
+<form class="admin-form" method="post" action="/admin/source-runs/{{ run.run_id }}/release">
+  <h3>Release data-quality hold</h3>
+  <p class="admin-muted">Loads the output this run's data-quality gates withheld, as though they had passed, and makes it the baseline the next run is compared against. It does not lift a licence gate.</p>
+  <div class="field"><label for="release-reason">Reason</label><input id="release-reason" name="reason" required></div>
+  <button class="admin-button admin-button--primary" type="submit">Release hold</button>
+</form>
 {% endif %}
 {% endif %}
 {% endblock %}

@@ -1,6 +1,9 @@
-"""CLI: `python -m pipeline.connectors list | run <source_id>... [--all] [--allow-restricted]`.
+"""CLI: `python -m pipeline.connectors list | run <source_id>... [--all] [--allow-restricted]
+[--trigger schedule|manual|backfill|retry]`.
 
-Logs are structured JSON on stdout (docs/04 E-18); nothing is printed otherwise.
+Logs are structured JSON on stdout (docs/04 E-18); nothing is printed otherwise. `--trigger`
+defaults to `manual` (a human at a terminal); `infra/scheduler/app.py::run_connector` passes
+`--trigger schedule`, so the run record, and every `source_run` row read from it, says which it was.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from typing import Any
 from pipeline.connectors.base import GateViolation
 from pipeline.connectors.objectstore import StoreConfigError
 from pipeline.connectors.registry import RegistrationError, Registry
-from pipeline.connectors.runner import run
+from pipeline.connectors.runner import RUN_TRIGGERS, run
 from pipeline.connectors.store import DATA_DIR, open_store
 
 _STD = {
@@ -81,6 +84,12 @@ def main(argv: list[str] | None = None) -> int:
         help="run a reuse=restricted/unknown source into the quarantine store",
     )
     rp.add_argument(
+        "--trigger",
+        choices=RUN_TRIGGERS,
+        default="manual",
+        help="what started the run, recorded on source_run (docs/21 §4.2); the scheduler passes schedule",
+    )
+    rp.add_argument(
         "--data-dir",
         default=str(DATA_DIR),
         help="local data root; with SNAPSHOT_STORE=s3 only the key layout under it matters",
@@ -107,7 +116,13 @@ def main(argv: list[str] | None = None) -> int:
     rc = 0
     for sid in ids:
         try:
-            res = run(sid, registry=registry, store=store, allow_restricted=args.allow_restricted)
+            res = run(
+                sid,
+                registry=registry,
+                store=store,
+                allow_restricted=args.allow_restricted,
+                trigger=args.trigger,
+            )
         except GateViolation as e:
             log.error("gate refused", extra={"source_id": sid, "error": str(e)})
             rc = 2
@@ -127,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
                 "source_id": sid,
                 "run_id": r["id"],
                 "status": r["status"],
+                "trigger": r["trigger"],
                 "rows_seen": r["rows_seen"],
                 "rows_fetched": r["rows_fetched"],
                 "rows_new": r["rows_new"],

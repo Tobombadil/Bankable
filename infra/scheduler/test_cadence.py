@@ -3,14 +3,31 @@ recorded inputs, no live/network dependency)."""
 
 from __future__ import annotations
 
+import pathlib
+from typing import Any
+
+import pytest
 import yaml
 
 from infra.scheduler.cadence import (
     CRON_BY_BUCKET,
+    DEFAULT_ANNUAL_RUN_MONTH,
+    annual_run_month,
     bucket_for_cadence,
+    is_due,
     queue_for_source,
     queueing_lock_for,
+    release_month,
+    schedule_for_source,
 )
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+def _manifest() -> dict[str, dict[str, Any]]:
+    doc = yaml.safe_load((ROOT / "data" / "sources.yaml").read_text())
+    return {s["id"]: s for s in doc["sources"]}
+
 
 # Every cadence string actually observed in data/sources.yaml as of 2026-09-12 (grep -oh
 # 'cadence: .*' data/sources.yaml | sort -u). Kept as a literal list, not read from the file,
@@ -129,3 +146,68 @@ def test_sources_yaml_cadences_are_all_covered(sources_yaml_path: str = "data/so
             continue
         decision = bucket_for_cadence(str(source["cadence"]))
         assert decision.bucket in CRON_BY_BUCKET, source["id"]
+
+
+# ------------------------------------------------------------ release-aware annual (2026-09-27)
+def test_annual_sources_run_the_month_after_their_release_not_in_january() -> None:
+    """The defect: every annual source ran on 2 January (`37 7 2 1 *`), before GHGRP's October
+    or EIA-860's September release, so it fetched a year-old file and then waited a year."""
+    sources = _manifest()
+    expected = {
+        "us.epa.ghgrp": "37 7 2 11 *",  # released October -> runs 2 November
+        "us.epa.ghgrp.subpart_rr": "37 7 2 11 *",
+        "us.eia.860": "37 7 2 10 *",  # final released September -> runs 2 October
+    }
+    for source_id, cron in expected.items():
+        assert schedule_for_source(sources[source_id]) == cron, source_id
+        assert not is_due(sources[source_id], "annual", 1), f"{source_id} must not run in January"
+    assert is_due(sources["us.epa.ghgrp"], "annual", 11)
+    assert is_due(sources["us.eia.860"], "annual", 10)
+
+
+def test_an_annual_source_without_release_month_keeps_the_january_default() -> None:
+    source = {"id": "x", "cadence": "annual"}
+    assert DEFAULT_ANNUAL_RUN_MONTH == 1
+    assert annual_run_month(source) == 1
+    assert schedule_for_source(source) == "37 7 2 1 *"  # the pre-2026-09-27 schedule, unchanged
+    assert [m for m in range(1, 13) if is_due(source, "annual", m)] == [1]
+
+
+def test_every_annual_source_runs_in_exactly_one_month() -> None:
+    for source in _manifest().values():
+        if "cadence" in source and bucket_for_cadence(str(source["cadence"])).bucket == "annual":
+            months = [m for m in range(1, 13) if is_due(source, "annual", m)]
+            assert months == [annual_run_month(source)], source["id"]
+
+
+def test_a_december_release_wraps_to_january() -> None:
+    assert annual_run_month({"cadence": "annual", "release_month": 12}) == 1
+
+
+def test_non_annual_buckets_ignore_the_month() -> None:
+    weekly = {"cadence": "weekly", "release_month": 3}
+    assert all(is_due(weekly, "weekly", m) for m in range(1, 13))
+    assert not is_due(weekly, "annual", 4)
+    assert schedule_for_source(weekly) == CRON_BY_BUCKET["weekly"]
+
+
+@pytest.mark.parametrize("bad", [0, 13, "10", 9.5, True])
+def test_a_malformed_release_month_is_refused(bad: object) -> None:
+    with pytest.raises(ValueError, match="release_month"):
+        release_month({"id": "x", "cadence": "annual", "release_month": bad})
+
+
+def test_manifest_release_months_are_valid_and_only_on_annual_sources() -> None:
+    """Every `release_month` in data/sources.yaml is an integer 1-12 on a source the annual
+    bucket schedules (on any other bucket it would be silently ignored), with its evidence cited
+    in a comment directly above it (data/sources.yaml field guide)."""
+    text = (ROOT / "data" / "sources.yaml").read_text().splitlines()
+    carrying = [s for s in _manifest().values() if "release_month" in s]
+    assert len(carrying) >= 5
+    for source in carrying:
+        assert release_month(source) is not None, source["id"]
+        assert bucket_for_cadence(str(source["cadence"])).bucket == "annual", source["id"]
+    for i, line in enumerate(text):
+        if line.strip().startswith("release_month:"):
+            above = text[i - 1].strip()
+            assert above.startswith("# release_month:") and "http" in above, f"line {i + 1}: {above!r}"

@@ -199,12 +199,24 @@ position, recorded as an assumption pending the owner's answer (`docs/15` §4):
 = fail`, `hold_reasons` are recorded, and the scheduled path records the run as `partial`, which sets
 `source.health = degraded` without counting as a failure (`infra/scheduler/jobs.py::_update_health`).
 
-**Releasing a hold (not operable as designed):** `docs/04` DA-6 and `docs/60` §10.4 describe release "from the
-task queue (US-907) with a reason". `TASK_TYPES` (`services/db/models.py`) is `report, intake_proposal,
-intake_opportunity, deletion_request, resolution_dispute` — there is no hold task type and no admin release
-action. Today the procedure is manual: inspect `data/held/<source_id>/`, fix the cause (parser, threshold or
-the source), and run-now; the frame is re-fetched, not released. `docs/04` O-9 lists "DQ-hold release" among
-the runbooks required at launch; it does not exist yet.
+**Releasing a hold (built 2026-09-27, lane E12; operable once deployed):** an admin action, not a task-queue
+item. Runbook:
+1. Admin → Sources → the source → the held run (`partial`, DQ `fail`). Read `hold_reasons`, then inspect the
+   frame under `data/held/<source_id>/`.
+2. Decide which case it is. If the source really changed and the frame is right (a legitimate drift, a new column
+   that feeds nothing), release it. If the parser or the status map is wrong, fix that and run-now instead;
+   releasing would publish the wrong frame.
+3. To release, use "Release data-quality hold" on the run page with a reason, or call
+   `POST /admin/v1/source-runs/{run_id}/release` with `{"reason": …}`. Operator/owner only. The run records
+   `released_at`/`released_by`/`release_reason`, and an `admin_edit` audit event is written.
+4. The worker promotes the held frame through the normal diff-and-store step, marks the run `ok`, and
+   enqueues the load. The released frame becomes the baseline for the next run's drift checks.
+5. Refusals: `409` if the run is not held or a later run superseded it; `422 gate_unmet` for a gated source (the
+   loader's licence gate still applies); `503` if the queue is down (nothing is recorded). A repeat release is
+   idempotent.
+`docs/04` DA-6 and `docs/60` §10.4 describe release "from the task queue (US-907)". The admin action meets
+the same need (a named human, a reason, an audit row) without a new task type; that deviation is recorded in the
+`docs/00-PLAN.md` decisions log (2026-09-27); the release semantics are `docs/21` §9 D-9.
 
 **Baselines (measured):** every connector has one verified live run (§2.1 last column). Row-drift and
 null-spike gates only bite from the second and second-to-sixth runs respectively, so the first production week
@@ -365,7 +377,7 @@ Written for one person. Times are estimates, not measurements. Until the first d
 ### 7.1 Daily (≈ 15 minutes; `docs/40` §5)
 
 1. Admin source health: any `failing`/`blocked` chip → `docs/60` §10.4; any `degraded` with a DQ `fail` →
-   §4.1 manual hold procedure.
+   §4.1 hold release runbook.
 2. Task queue oldest-first: `deletion_request` age against 30 days; `report` tasks about published facts;
    red-flagged escalations (named party, press, legal wording) answered within 4 working hours.
 3. Social review queue: approve, edit or reject with a reason code; drafts past 24 h (LinkedIn/X) or 48 h
@@ -425,7 +437,6 @@ Stated so that nothing above is read as running.
 | Any production environment | No Hetzner, Cloudflare zone, Neon or R2 account; no tokens; migrations never run on real Postgres; images never pulled by a VM | `docs/60` §11 items 1–3, 9; `docs/40` §2.6, §3 |
 | **Nightly M-11 audit** | **In build 2026-09-26** by another lane; `docs/40` §4 row 11 still reads "not located". Until it runs, M-11 = 0 is proven by tests on fixtures, not observed on production data | `docs/04` R-4; `docs/15` R-06 |
 | Alerts to a human on failing sources, DQ holds, 5xx, backup age, cost 80 % | No Grafana Cloud or Sentry account; logs not shipped; the `source_run` data exists, the delivery channel does not | `docs/60` §7, §11 item 7 |
-| DQ-hold release from the task queue | No hold task type, no admin release action (§4.1) | `docs/04` O-9 required runbook list |
 | Restore, rollback, secret rotation, deploy | Never executed; no environment to execute in | `docs/60` §10 |
 | Supervision Routine that drafts fixture and parser fixes on a red nightly run | Does not exist; a human does it | `docs/03` §1; `connectors-nightly.yml` header |
 | Model cost log (US-909), extraction, adjudication, the county-permit pilot's US$2 kill criterion | `services/modelgw` does not exist; `model_call` has no writer | `docs/60` §11 item 5; `docs/15` R-16 |

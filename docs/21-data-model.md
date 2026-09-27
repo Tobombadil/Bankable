@@ -1009,7 +1009,7 @@ Guard: a connector whose source resolves to `category = aggregator` with `reuse 
 |---|---|---|---|---|
 | `id` | uuid | No | Run identifier, carried on every log line and event | `018f39…` |
 | `source_id` | text | No | FK `source` | `us.iso.caiso.gen_queue` |
-| `trigger` | text | No | `schedule \| manual \| backfill \| retry` | `schedule` |
+| `trigger` | text | No | `schedule \| manual \| backfill \| retry`, CHECK-enforced since migration `0025`. The scheduler records `schedule` (it passes `--trigger schedule` to the CLI and its value wins over the record's); a CLI run defaults to `manual`; admin "run now" passes `manual`/`backfill` through the job (**D-8**) | `schedule` |
 | `started_at` / `finished_at` | timestamptz | No / Yes | Wall clock | `2026-09-11T05:00:00Z` |
 | `status` | text | No | `running \| ok \| unchanged \| partial \| failed \| blocked \| budget` (`docs/20` §3.2, §4.5, §12) | `ok` |
 | `snapshot_id` | uuid | Yes | FK `snapshot` produced by this run | `018f41…` |
@@ -1026,6 +1026,7 @@ Guard: a connector whose source resolves to `category = aggregator` with `reuse 
 | `error` / `error_class` | text | Yes | Failure detail and classification | `null` |
 | `attempt` | int | No | Retry counter | `1` |
 | `dead_lettered` | boolean | No | Five failures (`docs/20` §4.2) | `false` |
+| `released_at` / `released_by` / `release_reason` | timestamptz / uuid FK `user` / text | Yes | Set when an operator releases a data-quality hold (`status = partial`, `dq_status = fail`) through `POST /admin/v1/source-runs/{run_id}/release` (migration `0025`); the same facts are in the audited `admin_edit` event. The row turns `ok` with the promoted diff counts once `release_held_run` has run (**D-9**) | `null` |
 
 ### 4.3 `snapshot`
 
@@ -1403,6 +1404,9 @@ attribution for a source present in the payload is a bug that fails the launch c
 | D-5 | Personal data is limited to `user` columns, `alert.recipient`, intake contact fields and `document.personal_data_flag` | legal-compliance inventory (`docs/10` §8.2) | Inventory grows; schema check (US-910 AC2) enforces it |
 | D-6 | The app stores only `crm_lead_ref`, `sor_ref`, `billing_ref` from the system of record | `docs/20` §9, **[A-4]** | Adapter change only |
 | D-7 | `location.geom` for restricted-source projects is always a county centroid, never an exact point | US-104 AC3, legal-compliance to confirm which sources | Precision field already carries the distinction |
+| D-8 | *(2026-09-27)* `source_run.trigger` says who started the run: the caller's explicit value wins over the run record's, and the legacy `scheduled` the scheduler wrote from 2026-09-18 is rewritten to `schedule` by migration `0025`. Measured before: every scheduled row read `manual`, because the runner's default won in `infra/scheduler/jobs.py::record_source_run` | §4.2 vocabulary; `api/openapi.yaml` `SourceRun.trigger` | A new trigger value needs the CHECK, `SOURCE_RUN_TRIGGERS` and `pipeline/connectors/runner.py::RUN_TRIGGERS` changed together (`infra/scheduler/test_trigger.py` pins the last two) |
+| D-9 | *(2026-09-27)* Releasing a data-quality hold lifts that one gate and nothing else: the held frame is promoted by the runner's own diff-and-store step, becomes the baseline the next run's drift is measured against, and is loaded through the ordinary `load_source` path, whose licence gate still applies; a gated source is refused (`422 gate_unmet`), and so is a run that is not held or that a later run with output has superseded (`409`). Before the route an operator needed a database edit, and because a held run's snapshot hash counts for the `unchanged` short-circuit, the source stayed held until its bytes changed | `docs/04` DA-6; `pipeline/connectors/dq.py`; `services/api/admin_sources.py` D12 | If a release should *not* reset the drift baseline, `release_held` would have to write the record with a status the DQ history skips; nothing else changes |
+| D-10 | *(2026-09-27)* An annual source with a `release_month` in `data/sources.yaml` runs on the 2nd of the month **after** it; without one, in January as before. The month after, not the month of, because release months are known at month granularity and the day inside the month varies (EIA-860 2025 final on 2026-09-10; GHGRP RY2023 on 2024-10-15): a run on the 2nd of the release month would almost always precede the release and then wait a year | Cited release pages in `data/sources.yaml`; `infra/scheduler/cadence.py` | A release that slips past its month is missed for a year unless an operator runs the source by hand; the field is per source, so a chronically late source can name a later month |
 
 ## 10. Corrections to `docs/20`
 
