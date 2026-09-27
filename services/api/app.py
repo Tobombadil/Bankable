@@ -3,9 +3,10 @@
 Implemented (all `x-tier: public`): proposals (list, geo, detail, events, sources), opportunities
 (the same five), organizations (list, detail, proposals, opportunities), the global event feed and
 get-by-id, sources and licences registers, vocabularies, health, and the RSS/JSON Feed twins.
+Later lanes mount their own routers below (Pro, admin, assets, records, and since 2026-09-26
+matches, documents, exports and bulk).
 
 Deliberately not implemented this sprint (see services/README.md "Open decisions"):
-  - `/v1/documents/{id}` — no document ingestion this sprint (out of the task's entity list).
   - `/v1/intake/*`, `/v1/reports` — `x-sprint: 3` in api/openapi.yaml.
   - Pro, API-key and admin surfaces — explicitly out of scope for this sprint.
   - Sitemaps (`/sitemap.xml`) — a web/ concern (docs/23 §9.2 open decision 11), not this service.
@@ -34,7 +35,7 @@ from services.api.errors import ProblemError, not_found, problem_exception_handl
 from services.api.feeds import event_provenance, link_provenance, render_json_feed, render_rss
 from services.api.lifecycle import vocabulary as lifecycle_vocabulary
 from services.api.pagination import clamp_limit, paginate
-from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec
+from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec, wants_csv
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -183,6 +184,24 @@ app.include_router(records_router)
 from services.api.matches import router as matches_router  # noqa: E402
 
 app.include_router(matches_router)
+
+# Lane E6b (US-603, US-703, US-302 AC1): CSV exports, the NDJSON bulk streams and document
+# metadata, each in its own module; `resource_queries.py` is the filter layer the first two and
+# this file's `list_events` share.
+from services.api.bulk import router as bulk_router  # noqa: E402
+from services.api.documents import router as documents_router  # noqa: E402
+from services.api.exports import csv_list_response  # noqa: E402
+from services.api.exports import router as exports_router  # noqa: E402
+from services.api.resource_queries import (  # noqa: E402
+    EVENT_FILTERS,
+    EVENT_SORT_ALLOWLIST,
+    event_query_with_filters,
+)
+from services.api.resource_queries import subject_info as _subject_info  # noqa: E402
+
+app.include_router(exports_router)
+app.include_router(bulk_router)
+app.include_router(documents_router)
 
 
 @app.middleware("http")
@@ -470,28 +489,15 @@ def list_organization_opportunities(
 def list_events(
     request: Request, db: Session = Depends(get_db), ctx: AuthContext = Depends(get_auth_context)
 ) -> Any:
-    check_allowed(request, LIST_COMMON | {"subject_type", "subject_id", "event_type", "source_id", "since"})
+    check_allowed(request, LIST_COMMON | EVENT_FILTERS)
+    if wants_csv(request):
+        return csv_list_response(request, db, ctx, "event")
     limit = clamp_limit(int_param(request, "limit"))
-    field, ascending = sort_spec(request, {"seq", "observed_at"}, "-seq")
-    stmt = select(Event).where(*event_visibility_filter(ctx.entitlement))
+    field, ascending = sort_spec(request, EVENT_SORT_ALLOWLIST, "-seq")
+    # The filter block lives in `services/api/resource_queries.py` (lane E6b) so `/v1/bulk/events`
+    # and an event export apply exactly these filters over exactly this predicate.
+    stmt = event_query_with_filters(request, db, ctx.entitlement)
     qp = request.query_params
-    if v := qp.get("subject_type"):
-        stmt = stmt.where(Event.subject_type.in_(csv_param(v)))
-    if v := qp.get("event_type"):
-        stmt = stmt.where(Event.event_type.in_(csv_param(v)))
-    if v := qp.get("source_id"):
-        stmt = stmt.where(Event.source_id.in_(csv_param(v)))
-    if v := qp.get("subject_id"):
-        subj = _resolve_subject(db, v)
-        if subj is None:
-            stmt = stmt.where(Event.subject_id == _uuid.UUID(int=0))
-        else:
-            stmt = stmt.where(Event.subject_id == subj.id)
-    if v := qp.get("since"):
-        if v.isdigit():
-            stmt = stmt.where(Event.seq > int(v))
-        else:
-            stmt = stmt.where(Event.observed_at > dt.datetime.fromisoformat(v.replace("Z", "+00:00")))
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
@@ -515,34 +521,6 @@ def list_events(
         licence_summary=build_licence_summary(licence_rows),
         page=build_page(next_cursor, None, has_more),
     )
-
-
-def _resolve_subject(db: Session, public_id_value: str) -> Proposal | Opportunity | None:
-    if public_id_value.startswith("prop_"):
-        return db.scalar(select(Proposal).where(Proposal.public_id == public_id_value))
-    if public_id_value.startswith("opp_"):
-        return db.scalar(select(Opportunity).where(Opportunity.public_id == public_id_value))
-    return None
-
-
-def _subject_info(db: Session, event: Event) -> dict[str, str]:
-    if event.subject_type == "proposal":
-        p = db.get(Proposal, event.subject_id)
-        if p:
-            return {
-                "subject_public_id": p.public_id,
-                "subject_name": p.name_canonical,
-                "subject_url": f"{WEB_HOST}/proposals/{p.slug}",
-            }
-    if event.subject_type == "opportunity":
-        o = db.get(Opportunity, event.subject_id)
-        if o:
-            return {
-                "subject_public_id": o.public_id,
-                "subject_name": o.title,
-                "subject_url": f"{WEB_HOST}/opportunities/{o.slug}",
-            }
-    return {"subject_public_id": str(event.subject_id), "subject_name": "Unknown", "subject_url": WEB_HOST}
 
 
 @app.get("/v1/events/{event_id}")

@@ -36,6 +36,7 @@ from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.feeds import render_json_feed, render_rss
 from services.api.params import check_allowed, csv_param
+from services.api.ratelimit import plan_quota
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -124,6 +125,10 @@ def get_me(
     if me_user is None:
         raise not_found(request.url.path, "No user context for this credential.")
     account = ctx.account
+    # The export and bulk figures are the ones `services/api/exports.py` and `bulk.py` enforce
+    # (`ratelimit.PLAN_QUOTAS`, lane E6b); before those routes existed they were `None` here. Bulk
+    # is a key scope, so a session reads `None` for it whatever the plan.
+    quota = plan_quota(ctx.entitlement)
     data: dict[str, Any] = {
         "user": serialize_user(me_user, account_public_id=account.public_id),
         "account": serialize_account(account),
@@ -132,9 +137,9 @@ def get_me(
             "read_per_hour": int(rl["RateLimit-Limit"]),
             "search_per_hour": int(rl["RateLimit-Limit"]),
             "writes_per_hour": int(rl["RateLimit-Limit"]),
-            "bulk_requests_per_hour": None,
-            "exports_per_day": None,
-            "export_rows_max": None,
+            "bulk_requests_per_hour": quota.bulk_requests_per_hour if ctx.api_key is not None else None,
+            "exports_per_day": quota.exports_per_day,
+            "export_rows_max": quota.export_rows_max,
             "daily_cap": None,
         },
         "saved_search_quota": {

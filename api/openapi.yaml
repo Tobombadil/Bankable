@@ -286,7 +286,7 @@ paths:
         with provenance columns and a leading `#` licence block (US-105 AC2). Append `.rss` or `.json` to the path
         for the feed twin (`/feeds/proposals.{format}`).
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-101, US-102, US-103, US-105, US-601, US-604, US-703]
       security: *sec_public
@@ -370,7 +370,7 @@ paths:
 
         Budget: ≤ 2,000 features, ≤ 300 KB gzipped, p95 ≤ 400 ms (docs/04 D-13, E-16).
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-104, US-102, US-601]
       security: *sec_public
@@ -433,7 +433,7 @@ paths:
         rendered as it stands now — no delay on any tier — and `meta.data_as_of` states the cut (US-201 AC4). Pro+ adds `field_provenance`.
         `include=events,matches,sources` expands the related collections inline.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-201, US-203, US-601, US-604, US-703]
       security: *sec_public
@@ -471,7 +471,7 @@ paths:
         links to the absorbed record (US-202 AC2). The proposal's `lifecycle_state` equals the `after` value of the
         latest visible `status_change` event or `unknown` (US-202 AC3). Public tier: events with `public_at <= now()`.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-202, US-302, US-601]
       security: *sec_public
@@ -515,7 +515,7 @@ paths:
         `include=raw` on a source that withholds raw answers `403 licence_gated` while the derived view is still
         available at the parent resource.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-201, US-105, US-703]
       security: *sec_public
@@ -583,7 +583,7 @@ paths:
         status and source on every row (US-301 AC1). Default view `status=open` sorted `due_at` ascending
         (US-301 AC2). Tier rules of US-101 AC3–AC4 apply (US-301 AC3). `Accept: text/csv` on Pro+.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-301, US-303, US-105, US-601, US-703]
       security: *sec_public
@@ -644,7 +644,7 @@ paths:
         county-centroid / state-aggregate precedence and the restricted-precision rule. Cluster features carry
         `status_counts` and `technology_counts`.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-104, US-301]
       security: *sec_public
@@ -690,7 +690,7 @@ paths:
         changes are events with source and date, not overwrites (US-302 AC2); the timeline is at
         `/{public_id}/events`. `301`/`410` semantics as for proposals.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-302, US-303, US-601, US-604, US-703]
       security: *sec_public
@@ -721,7 +721,7 @@ paths:
       summary: Status timeline
       description: Events on the opportunity, newest first; `frozen → cancelled → reinstated` each carry source and date (US-302 AC2).
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-302, US-202, US-601]
       security: *sec_public
@@ -757,7 +757,7 @@ paths:
       summary: Provenance rows
       description: One row per visible `opportunity_source` (docs/21 §3.4); same gating as the proposal twin.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-302, US-303, US-105]
       security: *sec_public
@@ -818,7 +818,7 @@ paths:
       summary: List organizations
       description: Sponsors and issuers. `is_curated_issuer=true` lists the curated RFP issuer registry (US-303). No personal data.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-203, US-303, US-703]
       security: *sec_public
@@ -856,7 +856,7 @@ paths:
       summary: Organization detail
       description: Canonical name, type, identifiers, aliases (each with its provenance quartet) and counts of visible proposals and opportunities (US-203 AC1).
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-203, US-303, US-703]
       security: *sec_public
@@ -888,7 +888,7 @@ paths:
         widening an existing list endpoint's default would change what every current caller's counts mean — is an
         honest empty page for a group parent. The response's `scope` block says how the set was gathered.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-203]
       security: *sec_public
@@ -925,7 +925,7 @@ paths:
       summary: Opportunities issued by the organization
       description: Same shape and filters as `GET /v1/opportunities`, scoped to `issuer_org_id` (US-303).
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-303]
       security: *sec_public
@@ -969,7 +969,7 @@ paths:
         `before`/`after` are keyed by canonical field name and gated at field class; withheld keys appear in
         `redactions[]`.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-703, US-202, US-601, US-604]
       security: *sec_public
@@ -1022,7 +1022,7 @@ paths:
         is this one, at most 50, with `subsidiary_count` the full number), where the ownership data lane has set
         `parent_org_id` (ADR 0008 §2).
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-703]
       security: *sec_public
@@ -1051,7 +1051,7 @@ paths:
         publication; news is never stored (`link_only` / `headline_only`) and the response links to `source_url`
         instead (US-302 AC1, docs/02 §4). `personal_data_flag = true` documents never expose bytes on non-admin tiers.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-302]
       security: *sec_public
@@ -1063,6 +1063,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/documents/{document_id}/content:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      operationId: getDocumentContent
+      tags: [Documents]
+      summary: Stored document bytes
+      description: |
+        The target of `Document.download_url` while no object store is provisioned (lane E6b, 2026-09-26): the API
+        streams the stored copy from its own document directory instead of handing out a pre-signed object-store
+        URL, so `download_expires_at` is `null` and the conditions are re-checked on every request. Served only when
+        the document is visible on the caller's tier, `storage_policy = stored`, the licence allows raw publication
+        and `personal_data_flag = false` (US-302 AC1, docs/02 §4); every other case is the same `404` an unknown id
+        gets. Pre-signed R2 links are the production follow-up (`services/api/documents.py`).
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-302]
+      security: *sec_public
+      responses:
+        '200':
+          description: The stored bytes, with the document's `content_type`.
+          headers: *std_headers
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
         '404':
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
@@ -1079,7 +1111,7 @@ paths:
         `category = procurement` (US-303 AC1). Sources with an unmet gate are listed (their existence is public in
         `data/sources.yaml`) with `publish_state = ingest_only`; their rows are not.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 1
       x-prd-stories: [US-105, US-303, US-704]
       security: *sec_public
@@ -1111,7 +1143,7 @@ paths:
       summary: Source detail
       description: One registry row with its licence, attribution text, publish state and last successful run time (US-704).
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 1
       x-prd-stories: [US-105, US-704]
       security: *sec_public
@@ -1152,7 +1184,7 @@ paths:
         Public on every tier and independent of the visibility predicate: what is missing from a register is
         not a row, and tiering the answer would defeat its purpose.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-105, US-604, US-904]
       security: *sec_public
@@ -1188,7 +1220,7 @@ paths:
         bucket. `is_fallback` marks `unknown`, which is reached by falling through every map rather than by a
         rule, so an empty `maps_from` on it is correct rather than a gap.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-105, US-202, US-604]
       security: *sec_public
@@ -1209,7 +1241,7 @@ paths:
       summary: Licence register
       description: Reuse class and permissions per licence (docs/21 §3.19). Gate evidence fields are admin-only.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 1
       x-prd-stories: [US-105, US-704]
       security: *sec_public
@@ -1237,7 +1269,7 @@ paths:
       tags: [Sources & licences]
       summary: Licence detail
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 1
       x-prd-stories: [US-704]
       security: *sec_public
@@ -1263,7 +1295,7 @@ paths:
         kinds and statuses, event types, organization types, reuse classes, publish states. Vocabularies are
         documented as open: a new value is announced ≥ 30 days ahead (docs/04 API-7) and appears here first.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 1
       x-prd-stories: [US-102, US-703]
       security: *sec_public
@@ -1397,7 +1429,7 @@ paths:
         checklist probes (rate limiter active, backup age, queue age) (US-604, US-904, US-908). Never carries source
         payloads or internal ids. Unauthenticated, edge-cached 60 s.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 1
       x-prd-stories: [US-604, US-904, US-908]
       security: *sec_public
@@ -2573,7 +2605,7 @@ paths:
       summary: List the caller's exports
       description: Export jobs are logged per user (US-603 AC3, metric M-6).
       x-tier: pro
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-603]
       security: *sec_pro
@@ -2602,8 +2634,11 @@ paths:
         Rows carry `source_id`, `source_url`, `retrieved_at`, `licence` columns and the file opens with a `#`
         comment block holding the licence summary and attribution line (US-105 AC2, US-603 AC2). Sources whose
         licence has `allows_bulk_export = false` contribute derived columns only. Quota 5/day on Pro.
+        v1 generates the file inside the request (lane E6b, 2026-09-26: measured well inside request time at the
+        10,000-row cap), so the `202` body already reads `ready` (or `failed`) with its `download_url`; polling
+        `getExport` still works and is what a client should do if a later version queues the job.
       x-tier: pro
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-603, US-105]
       security:
@@ -2642,7 +2677,7 @@ paths:
       summary: Export status and download link
       description: '`status` moves `queued → running → ready | failed`; `download_url` is a pre-signed link valid until `expires_at`.'
       x-tier: pro
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-603]
       security: *sec_pro
@@ -2660,6 +2695,38 @@ paths:
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
 
+
+  /v1/exports/{export_id}/download:
+    parameters:
+      - $ref: '#/components/parameters/ExportId'
+    get:
+      operationId: downloadExport
+      tags: [Exports]
+      summary: Download a ready export
+      description: |
+        The target of `Export.download_url` while no object store is provisioned (lane E6b, 2026-09-26): the API
+        streams the finished CSV to the export's owner (the same session, or a key of the same user) instead of
+        handing out a pre-signed object-store URL. Valid until `expires_at` (24 h), after which the export reads
+        `expired` and this route answers `404`, as it does for anyone but the owner and for a `failed` export.
+        Pre-signed R2 links are the production follow-up (`services/api/exports.py`).
+      x-tier: pro
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-603]
+      security: *sec_pro
+      responses:
+        '200':
+          description: The CSV file, opening with the `#` licence block.
+          headers: *std_headers
+          content:
+            text/csv:
+              schema:
+                $ref: '#/components/schemas/CsvExport'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
   /v1/matches:
     get:
       operationId: listMatches
@@ -2894,7 +2961,7 @@ paths:
         Sources with `allows_bulk_export = false` contribute derived columns only; `allows_api_redistribution =
         false` sources are absent. 20 bulk requests/hour on the API plan; `RateLimit-Policy: bulk`.
       x-tier: api
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-703, US-105]
       security: *sec_api_bulk
@@ -2928,7 +2995,7 @@ paths:
       summary: NDJSON stream of opportunities
       description: As `/v1/bulk/proposals` for the demand side.
       x-tier: api
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-703, US-105]
       security: *sec_api_bulk
@@ -2963,7 +3030,7 @@ paths:
       summary: NDJSON stream of events
       description: As `/v1/bulk/proposals` for the event log, ordered by `seq`; `since` is the resume watermark.
       x-tier: api
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-703]
       security: *sec_api_bulk
@@ -5202,7 +5269,7 @@ paths:
         JSON Feed: `date_published` = `public_at`, plus a `_platform` extension with `event_type`, `subject`,
         `provenance` and `licence_summary`. Edge-cached, 120/hour per IP.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-503, US-604, US-105]
       security:
@@ -5250,7 +5317,7 @@ paths:
       summary: Opportunity feed
       description: Feed twin of `GET /v1/opportunities`; same rules as the proposal feed.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-503, US-604, US-301]
       security:
@@ -5291,7 +5358,7 @@ paths:
         Feed twin of `GET /v1/events`; same rules as the proposal feed, and the same subject-visibility predicate
         as the list — an event on a hidden, restricted-licence or not-yet-public record has no item.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-503, US-604, US-703]
       security:
@@ -5444,9 +5511,9 @@ paths:
       operationId: sitemapIndex
       tags: [Feeds]
       summary: Sitemap index
-      description: Points at `/sitemaps/proposals-{n}.xml` and the opportunity and organization sitemaps; regenerated hourly from the public view (docs/23 §9.2). Public-tier detail pages only.
+      description: A single `<urlset>` of public pages and public-tier detail pages while the site has at most 25,000 URLs; above that, a `<sitemapindex>` pointing at `/sitemaps/{number}.xml` (docs/23 §9.2; served by the web app, `web/sitemaps.py`).
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-503, US-604]
       security:
@@ -5462,19 +5529,17 @@ paths:
                 description: Sitemap protocol `<sitemapindex>` document.
         <<: *common_errors
 
-  /sitemaps/{resource}-{n}.xml:
+  /sitemaps/{number}.xml:
     servers: *feed_servers
     parameters:
-      - name: resource
+      - name: number
         in: path
         required: true
-        schema:
-          type: string
-          enum: [proposals, opportunities, organizations]
-      - name: n
-        in: path
-        required: true
-        description: Page number, 50,000 URLs per page.
+        description: |
+          Chunk number, from 1. The site serves one mixed chunk sequence rather than per-resource pages (lane E6b,
+          2026-09-26, recording what `web/sitemaps.py` serves): at or below 25,000 URLs `/sitemap.xml` is a single
+          `<urlset>` and no chunk exists; above it, `/sitemap.xml` is a `<sitemapindex>` over `/sitemaps/{number}.xml`,
+          25,000 URLs per chunk (half the protocol's 50,000). A number outside the current build is `404`.
         schema:
           type: integer
           minimum: 1
@@ -5483,7 +5548,7 @@ paths:
       tags: [Feeds]
       summary: Sitemap page
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 2
       x-prd-stories: [US-503]
       security:

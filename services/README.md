@@ -1664,3 +1664,126 @@ not projects. The labels were produced by this implementing lane, not an indepen
 trip (`tests/test_migration_0023.py`) was run with `down_revision` temporarily `0021`, passed, and
 was restored to `0022`; until 0022 lands, any `alembic upgrade head` in this tree fails on the
 missing revision.
+
+## Exports, bulk and documents (2026-09-26, lane E6b)
+
+US-603 (CSV export), US-703 (NDJSON bulk) and US-302 AC1 (document metadata and link). Four new
+modules, one migration, one CI-step change. `services/api/visibility.py` has zero changes.
+
+| Module | Routes | Notes |
+|---|---|---|
+| `services/api/resource_queries.py` | none | The one filter layer the exports, bulk and `GET /v1/events` share: a stored `query` dict becomes a synthetic request fed to the list endpoints' own filter functions (`records.py`), so an export cannot disagree with the list it was taken from. Adds the redistribution clauses (`allows_bulk_export` for exports, `allows_api_redistribution` for bulk), `updated_since`, the events filter block (moved out of `app.py::list_events`), `subject_info`/`subject_infos` (moved out of `app.py`; the batched form is for whole pages) and `lean_load_options`. |
+| `services/api/exports.py` | `POST /v1/exports`, `GET /v1/exports`, `GET /v1/exports/{id}`, `GET /v1/exports/{id}/download`; the `Accept: text/csv` twin of `GET /v1/proposals`, `/v1/opportunities`, `/v1/events` | Pro/API (`require_entitlement("pro")`). Synchronous generation (below). Quota and cap from `ratelimit.PLAN_QUOTAS`. File in `EXPORT_DIR` (docs/60 §5.2). |
+| `services/api/bulk.py` | `GET /v1/bulk/proposals`, `/v1/bulk/opportunities`, `/v1/bulk/events` | `application/x-ndjson`: a `BulkMetaLine` first, then one detail-shaped record per line. Key with `read:bulk` on an API plan; its own 20/hour `bulk` bucket. |
+| `services/api/documents.py` | `GET /v1/documents/{id}`, `GET /v1/documents/{id}/content` | Public tier. Bytes only for `storage_policy = stored`, licence `allows_raw_publication`, `personal_data_flag = false`, and a file present in `DOCUMENT_DIR`. |
+
+**Plan table.** `services/api/ratelimit.py::PLAN_QUOTAS` sits next to `TIER_LIMITS`: Pro 5 exports a
+day of 10,000 rows (docs/23 §6); API 20 bulk requests an hour. docs/23 §6 names no export allowance for
+the API plan, and §3.2 says an API plan has "everything in" Pro, so the API plan inherits Pro's export
+figures (a reading, not a spec line). `admin` gets Pro's export figures and no bulk allowance (bulk is a
+key scope, and an operator session carries none). Any other tier gets `403 forbidden_tier`.
+
+**Quota semantics.** Per user, midnight UTC to midnight UTC; a `failed` export does not count; the
+refusal is `429 quota_exceeded` with `Retry-After` to midnight. A key-only caller is attributed to the
+key's creator (as `/v1/me` does), and the key id is stored too. The `Accept: text/csv` twin goes through
+the same `start_export`, so it is quota-counted, capped and logged like `POST`. It returns the file
+inline with `X-Export-Id`, drops `limit`/`cursor`/`include`, and a failure is a `503` with the failed row
+kept.
+
+**The log (US-603 AC3, metric M-6)** is the `export` table itself (migration 0024): one row per
+attempt, failed ones included, carrying `user_id`, `api_key_id`, `entity`, `query` (the filter
+definition, never results), `tier`, `row_cap`, `row_count`, `truncated`, `error` and timestamps. It also
+writes one `services.api.exports` log line per export.
+
+**Licence shape.** An export row prints the provenance of the record's first active link whose
+licence has `allows_bulk_export`. A record with no such link is not exported, because a row with
+nothing to print would break "never a record without provenance". Every active source the record draws on is
+credited in the `#` block. The block's first line names the export, every licence id present, the row
+count, the cap and whether it truncated; then the attribution line, one line per source (licence,
+reuse class, credit, link-back), the redistribution statement, and the terms URL. Bulk: a record needs a
+link whose licence has `allows_api_redistribution`, and only such links appear in `provenance[]`. A link without
+`allows_bulk_export` has its `source_record_id` nulled and a `licence` redaction. A location whose licence
+forbids API redistribution does not travel. Under `PLATFORM_POSTURE=noncommercial` the loader writes
+both flags `false` for `noncommercial` sources, so those rows are on the site and absent from exports and
+bulk, which is docs/21 §8's per-shape table working as designed.
+
+**Why synchronous, and the measurement.** These figures are end to end through the endpoints (TestClient) on
+a SQLite store built from `data/normalized` with `web.data_loading.load_dev_database` (11.8 s load; 10,409
+proposals, 707 opportunities, 0 events). 12,000 synthetic `status_change` events on real proposals were
+added for the event case. The machine was a shared 4-core box at load average 4-6, so there is run-to-run noise:
+
+| Request | Rows | Before the two fixes | After |
+|---|---:|---:|---:|
+| `POST /v1/exports` proposals, no filter (cap hit, `truncated`) | 10,000 | 8.0 s cold / 4.8 s warm | 2.5-3.6 s |
+| `POST /v1/exports` events, no filter (cap hit) | 10,000 | 9.7 s | 1.6-2.1 s |
+| `POST /v1/exports` proposals `jurisdiction=US-TX` | 2,333 | 0.9-1.8 s | 0.7-0.9 s |
+| `POST /v1/exports` opportunities, every status | 685 | 0.4-0.6 s | 0.1-0.3 s |
+| `GET /v1/bulk/proposals` (2.07 MB) | 1,000 | 1.45 s | 0.7-1.0 s |
+| `GET /v1/bulk/opportunities` (1.09 MB) | 707 | 0.61 s | 0.3-0.7 s |
+| `GET /v1/bulk/events` (1.09 MB) | 1,000 | 1.38 s | 0.5 s |
+
+The two fixes, both found by profiling rather than guessed:
+
+1. **`lean_load_options`.** Defer every source link's `raw`/`normalised` JSON and the record's
+   `field_provenance`/`overrides`. Load the `source`/`licence` many-to-one hops lazily rather than by
+   the models' default `joined`: after the first row each hop is an identity-map hit, where the join
+   re-hydrated a few dozen sources on each of 10,000 rows.
+2. **`subject_infos`.** Event subjects are looked up in one column-only query per 500 ids. The per-event
+   `db.get` was 15 of 19 profiled seconds, because the session's weak identity map had already dropped
+   rows streamed past.
+
+At the cap the export is 2-4 s, well inside any timeout in the path, so v1 generates inside the request and
+`POST` answers `202` with a `ready` (or `failed`) row. `generate_export(session, export)` is already job-shaped. It becomes a
+Procrastinate task (the `infra/scheduler/app.py` pattern) with no API change if a larger cap or a slower
+backend ever needs it. Postgres will differ: re-measure at the first deploy.
+
+**Contract changes (api/openapi.yaml), each because the served shape must differ:**
+
+- `downloadExport` (`GET /v1/exports/{export_id}/download`) and `getDocumentContent`
+  (`GET /v1/documents/{document_id}/content`) are new. With no object store there is no pre-signed
+  URL to hand out, so `download_url` points at an API route that re-checks ownership (exports) or the
+  licence (documents) on every request. `download_expires_at` is `null` for documents.
+- `createExport`'s description says the `202` body is already `ready`.
+- `sitemapPage` is now `/sitemaps/{number}.xml`. That is what `web/sitemaps.py` serves: one mixed
+  chunk sequence of 25,000 URLs, not per-resource `/sitemaps/{resource}-{n}.xml` pages. `sitemapIndex`'s
+  description says it is a single `<urlset>` until the site passes 25,000 URLs.
+- Nothing else changed. The `x-status: planned` markers on `createExport`/`listExports`/`getExport`/`bulk*`/
+  `getDocument`/`sitemap*` are left for the coordinator to flip.
+
+**CI spec inventory.** The api-contract step counts a documented operation as served when either
+`services.api.app.app` or `web.app.app` serves it. Only the API is held to "every served operation
+is documented", because the site's HTML pages are not API operations. After this change the step reports **6
+missing, all in `matches`** (`listMatches`, `getMatch`, `dismissMatch`, `undismissMatch`,
+`listProposalMatches`, `listOpportunityMatches`), 0 misfiled, and 0 undocumented. It stays report-only; the
+comment in the step names the flip condition (`MISSING FROM THE APP: 0`).
+`tests/test_spec_operation_inventory.py` now pins `GET /v1/matches` as its unimplemented example
+(it was `/v1/bulk/proposals`) and asserts the sitemap operations are not reported missing.
+
+**Other behaviour changes.** `GET /v1/me`'s `limits.exports_per_day`/`export_rows_max` (and
+`bulk_requests_per_hour`, for a key) now report the enforced `PLAN_QUOTAS` figures; they were `None`
+while no route stood behind them. `tests/test_paid_shapes_are_gated.py` had pinned that emptiness as a
+tripwire ("the day either ships, this test fails and the claim gets revisited"). It fired and has been
+rewritten: watchlists are still unbuilt; exports are Pro-gated. The owner's Team-pricing decision
+rested on exports not existing, so it needs revisiting. `web/pricing.py` still advertises no export
+(docs/41). `GET /v1/events?since=<not a seq or RFC 3339 instant>` is now `400
+validation_error` (it was a 500), because `list_events` calls the shared filter block. `Accept: text/csv` is
+honoured only when it is the first media type the client lists, so `text/html,text/csv` from a browser
+still gets JSON.
+
+**Documents: nothing writes `document` rows today.** No connector or pipeline step creates them; the
+only constructor call outside the model is an admin test fixture. The route serves what exists
+(nothing, on a real load) and is proven against fixtures (`tests/test_api_documents.py`). Visibility
+is composed from `visibility.py`'s existing pieces without editing it: `PUBLISHABLE_REUSE_CLASSES`,
+the tier's permitted source states, and `proposal_`/`opportunity_visibility_filter` on the subject.
+
+**Migration 0024** (`export`) has `down_revision = "0023"`. 0022/0023 belong to other lanes and are not
+in this lane's worktree, so `tests/test_migration_0024.py` was run with the value set to `"0021"`, and
+it was then restored. The test reads 0024's `down_revision` from the revision graph, so it runs
+unchanged once 0022/0023 are merged.
+
+**Follow-ups, not done here (outside this lane's paths):** add `data/exports/` and `data/documents/`
+to `.gitignore`. Mount `EXPORT_DIR` on a persistent volume in `infra/compose`. Move both stores to
+R2 with pre-signed links. `web/pricing.py` still says exports and bulk "have not shipped". Flip the
+`x-status` markers above.
+
+Verbatim gates for this lane are in the lane's hand-back, not repeated here.

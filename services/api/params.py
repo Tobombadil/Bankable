@@ -58,3 +58,12 @@ def sort_spec(request: Request, allowlist: set[str], default: str) -> tuple[str,
             "sort", f"sort field {field!r} is not allowlisted for this resource", request.url.path
         )
     return field, ascending
+
+
+def wants_csv(request: Request) -> bool:
+    """True when the client's most-preferred `Accept` media type is `text/csv` (docs/23 §1:
+    "`Accept: text/csv` on list endpoints returns an export (Pro+)") -- an explicit ask, never a
+    `*/*` or a browser's HTML-first list. The list routes branch on it before paginating and hand
+    the request to `services/api/exports.py::csv_list_response`."""
+    first = request.headers.get("accept", "").split(",")[0].strip().split(";")[0].strip().lower()
+    return first == "text/csv"
