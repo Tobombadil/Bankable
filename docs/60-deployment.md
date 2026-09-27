@@ -342,7 +342,8 @@ passes `bash -n` and `shellcheck` with only two informational (not warning-level
 **Measured 2026-09-26 on a real Docker engine (29.3.1, Compose v5.1.1; local, not a cloud host).** All
 four images build from the two Dockerfiles and the whole Compose stack runs: images, migrations on
 PostGIS, a full data load, health, the E-10 smoke, the CI axe scan, workers and a dump/restore drill. §11
-item 9 has the numbers and the five defects the run found (three fixed in `infra/`, two open). Until
+item 9 has the numbers and the defects the run found; the ones it left open were fixed on 2026-09-27 and
+re-measured on the same kind of stack (§11 item 10). Until
 2026-09-19 this paragraph read "no `docker build` of any Dockerfile" (no daemon then; `hadolint` was the
 only check).
 
@@ -401,15 +402,21 @@ Format per `docs/04` O-9. Kept as sections of this file rather than one file eac
 2. `infra/scripts/deploy.sh <staging|production> sha-<short sha>` (the tag defaults to `$IMAGE_TAG`, then
    `latest`; set `DEPLOY_REF=<sha>` to ship that commit's compose files via `git show` instead of the
    working tree's).
-3. The script (order rewritten 2026-09-19; `infra/test_scripts.py` asserts it against ssh/scp/sops shims):
-   syncs compose files, Caddyfile, `backup.sh` and the decrypted `.env` to **every** host → `docker compose
-   pull` on every host → stops `worker`/`browser-worker` on the worker VMs and `scheduler` on the app VM →
-   runs migrations once in a one-off container of the **same** api image (`run --rm --no-deps api alembic
-   upgrade head`, expand phase, `docs/04` E-11) → `up -d --no-build caddy api web` → waits up to
-   `HEALTH_TIMEOUT_SECONDS` (180) until every api/web replica's Docker healthcheck is `healthy` and
-   `GET http://api:8000/v1/health` answers from inside the network (the API exposes `/v1/health`, the web
-   app `/health`; there is no `/healthz`) → starts the workers → starts the scheduler last → records the
-   tag in `/opt/infraque/current-tag`.
+3. The script (order rewritten 2026-09-19, queue-schema step and token check added 2026-09-27;
+   `infra/test_scripts.py` asserts it against ssh/scp/sops shims): decrypts the secrets once and **refuses
+   to deploy** if `API_INTERNAL_TOKEN` is empty or missing (before any host is touched) → syncs compose
+   files, Caddyfile, `backup.sh` and the decrypted `.env` to **every** host → `docker compose pull` on
+   every host → stops `worker`/`browser-worker` on the worker VMs and `scheduler` on the app VM → runs
+   migrations once in a one-off container of the **same** api image (`run --rm --no-deps api alembic
+   upgrade head`, expand phase, `docs/04` E-11) → installs or upgrades Procrastinate's job-queue schema once,
+   in a one-off `scheduler` container of the same tag (`infra/scheduler/queue_schema.py ensure`: applies
+   `schema.sql` when absent, the shipped migrations between the recorded and the installed version on an
+   upgrade, nothing when current; an image older than the module skips the step, so a rollback to it still
+   works) → `up -d --no-build caddy api web` → waits up to `HEALTH_TIMEOUT_SECONDS` (180) until every
+   api/web replica's Docker healthcheck is `healthy` and `GET http://api:8000/v1/health` answers from inside
+   the network **with `checks.queue: true`** (the API exposes `/v1/health`, the web app `/health`; there is
+   no `/healthz`) → starts the workers → starts the scheduler last → records the tag in
+   `/opt/infraque/current-tag`.
 4. Any failure after the workers are stopped triggers `rollback.sh <env> <previous tag>` automatically
    (once — the rollback runs with `INFRAQUE_NO_AUTO_ROLLBACK=1`); a failure before that (sync, pull) just
    exits, nothing has changed.
@@ -545,11 +552,11 @@ In the order the owner needs to act, per the task brief:
    production`) and fill in `infra/sops/.sops.yaml`'s three `REPLACE_WITH_*` placeholders, then create the
    real `secrets.<env>.enc.yaml` files (they do not exist yet — only the throwaway `secrets.dev.example.
    enc.yaml` does).
-4. **`requirements.txt` has no Postgres driver.** Every test suite in this repo runs against SQLite
-   (`services/README.md`). `infra/docker/Dockerfile` and `Dockerfile.browser-worker` install
-   `psycopg[binary]` at the image layer as a stopgap; the durable fix (adding it to the root
-   `requirements.txt`/`pyproject.toml`) is outside this task's write scope (`infra/`, `.github/workflows/`,
-   `docs/60-*.md`, `docs/adr/0005`, the Makefile only) and is flagged for whoever owns that lockfile.
+4. **Postgres driver: resolved.** `requirements.txt` carries `psycopg[binary]>=3.1,<4` since 2026-09-26, and
+   on 2026-09-27 both Dockerfiles dropped the duplicate `"psycopg[binary]>=3.1,<4"` argument they had
+   installed as a stopgap. Rebuilt images (all four): `psycopg 3.3.6` (binary implementation, bundled libpq 18.6),
+   `procrastinate 3.9.0`. Every test suite still runs on SQLite (`services/README.md`); the driver is
+   exercised by the Compose stack and by the Postgres-gated tests (`POSTGIS_TEST_URL`).
 5. **`services/modelgw` does not exist yet** (§2, §4's cost table) — the `worker-model` pool has no code to
    run. Not a DevOps gap: the model gateway is `docs/20` §2's `backend-developer`-owned component and has
    not been built in any sprint so far.
@@ -595,12 +602,14 @@ In the order the owner needs to act, per the task brief:
      "procrastinate_job_status" already exists`). The durable fix is an Alembic revision or a guarded
      `deploy.sh` step. Until then, run it once by hand before the first deploy (`docs/40` §3 step 7).
      `/v1/health` reports `"queue": true` unconditionally (`services/api/app.py`), so it cannot catch this.
+     **Resolved 2026-09-27** by a guarded `deploy.sh` step, and `checks.queue` is now real (item 10).
    - **Connector runs cannot write their output in a container.** `pipeline/connectors/store.py` roots all
      output at `/app/data` (`DATA_DIR = ROOT / "data"`). The images create that directory root-owned and run as
      uid 10001, and no Compose file mounts a volume there. Every scheduled run therefore ends in
      `PermissionError: [Errno 13] Permission denied: '/app/data/runs'`. Separately, fetch and load jobs can land
      on different worker hosts, which share no filesystem. Open: this needs a decision between a per-host volume
-     and object storage for snapshots.
+     and object storage for snapshots. **Local mode resolved 2026-09-27** (a named volume, item 10). Object
+     storage is the architecture's answer for more than one host (`docs/20` §2); that mode is the next bullet.
    - **Object-storage mode for the connector store (added 2026-09-26).** `docs/20` §2 already settles the
      cross-host half: stages talk through the database and object storage. `SNAPSHOT_STORE=s3` (§5) now sends
      every store read and write to the R2 bucket. That covers snapshots (immutable: different bytes under an
@@ -633,13 +642,79 @@ In the order the owner needs to act, per the task brief:
    - **Without `API_INTERNAL_TOKEN`** every server-side call `web` makes shares the 60-per-hour anonymous
      bucket. `/about` fans out about 20 calls, so a handful of page views turns into 429s, and `web` renders
      those as a 500 (`web/page.py` `get_platform_posture`). With the token set, 80 of 80 `/about` requests
-     returned 200. It is in `docs/40` §2.6's secret list; treat it as required, not optional.
+     returned 200. It is in `docs/40` §2.6's secret list; treat it as required, not optional. **Resolved
+     2026-09-27**: `deploy.sh` refuses an empty token, and `web` renders a 503 page instead of a 500 (item 10).
 
    **Still not verified** (needs real accounts): the cloud-init run (PGDG key import, `awscli` package name on
    the marketplace image's Ubuntu release, timer activation); `sops --output-type dotenv` against a real
    encrypted file; the GHCR push (a run of `release.yml` on `main`); `deploy.sh` against real hosts (only its
    order and rollback path are proven, against shims); `tofu apply`; `restore_drill.sh` against R2;
    migrations against a managed provider (item 2). Rehearse all of it on `staging` first (`docs/40` §3).
+
+10. **Item 9's open defects, fixed and re-measured 2026-09-27** (same sandbox: Docker 29.3.1, Compose v5.1.1,
+   `postgis/postgis:16-3.4`; images rebuilt from this tree; the deploy steps run by hand in `deploy.sh`'s
+   order and with its exact container commands, since `deploy.sh` itself needs SSH hosts):
+   - **Job-queue schema: a guarded `deploy.sh` step, not an Alembic revision.** `infra/scheduler/
+     queue_schema.py ensure` runs once after Alembic and before any worker starts, from the tag's worker
+     image. Procrastinate keeps no record of what is installed ("It's your responsibility to keep track of
+     which migrations have been applied", its production migrations guide), so the step records the version
+     in `infraque_queue_schema_version`. On a fresh database it applies the pinned version's `schema.sql`.
+     On an upgrade it applies the shipped migration files between the recorded and the installed version,
+     pre before post. That is the guide's "with service interruption" path, which `deploy.sh` already
+     provides by stopping the workers and scheduler first. The step also adopts a schema someone applied
+     by hand, but only when its functions match exactly, and otherwise refuses. It runs under an advisory
+     lock and in one transaction. Why not Alembic: the queue schema follows the Procrastinate pin, not the
+     domain schema. A revision that ran `schema.sql` would install whatever version the image carried. The
+     alternative, vendored SQL, needs a hand-written revision per upgrade, and the Alembic chain also runs
+     on SQLite in every test suite. Measured: `alembic upgrade head` 4.1 s; `ensure` on the fresh database
+     took 1.4 s (`install`, 4 tables, 18 functions); a second `ensure` took 1.4 s (`noop`, exit 0).
+     `procrastinate schema --apply` on top still exits 1, which is why the step is guarded. Upgrade path, in
+     throwaway databases: Procrastinate 3.3.0's `schema.sql` recorded as 3.3.0, then `ensure` applied
+     `03.04.00_01_pre_…` and `03.04.00_50_post_…`. Its 55 functions, columns and indexes are identical to a
+     fresh 3.9.0 install. A hand-applied 3.9.0 schema was adopted and is also identical. An image built
+     before the module prints "skipped" and exits 0, so a rollback to it still works.
+   - **`/v1/health` `checks.queue`** is a `to_regclass('procrastinate_jobs')` lookup: `true` on the stack,
+     `false` with the table renamed away (HTTP 200 and `status: ok` either way; the API serves reads without
+     the queue), `null` on SQLite ("not applicable": no workers run there). `deploy.sh` now requires
+     `"queue":true` in the in-network health answer before it starts a worker; a `false` fails the deploy
+     and rolls back (`infra/test_scripts.py`).
+   - **Workers**: `worker` ×2, `browser-worker` and `scheduler` ran 20 minutes (00:10:30–00:30:29 UTC) with
+     0 restarts, no `UndefinedFunction` and no `PermissionError`; 4 rows in `procrastinate_workers`; two
+     `tick_15min` firings, 30 fetch jobs finished and 3 waiting on retry backoff.
+   - **Connector output, local mode**: `INFRAQUE_DATA_DIR` (default `data/` in a checkout, unchanged) picks
+     the root in `pipeline/connectors/store.py`, and the load job reads the same variable. The images set it
+     to `/var/lib/infraque/data`, created owned by `appuser`, and Compose mounts the named volume
+     `connector_data` there for `worker` and `browser-worker`. It is not mounted at `/app/data`, where it
+     would hide `sources.yaml`. Measured: a `gb.find_a_tender` run against its recorded fixture, inside
+     `worker-1` through the runner and default store, ended `ok` with 8 rows and DQ `pass`. The
+     `load_source` job it deferred ran on `worker-2`, the other replica, which found the file on the shared
+     volume: 8 opportunities in 1.3 s, then `resolve_tick` (1.5 s) and `enrich_tick` succeeded. The
+     scheduler's own 00:15 UTC `tick_15min` deferred 18 fetch jobs. 15 ended at once: unimplemented,
+     gated or excluded sources are refused before any I/O. The 3 implemented sources wrote their run
+     records to the volume and then failed at the network, because this sandbox gives containers no
+     egress. They are retrying with backoff. There were 0 `PermissionError`s. Single host only: a
+     multi-host deploy needs lane E10b's object-storage backend.
+   - **Web without `API_INTERNAL_TOKEN`**: 30 `/about` views returned 200. Then the 60/hour anonymous
+     bucket ran out: 61 API 429s. The next 60 views each returned a 503 "Temporarily unavailable" page
+     with `Cache-Control: no-store`, and none returned a 500. With the token, 30 of 30 views returned 200
+     before that, and 20 of 20 after the bucket was spent, from the same container IP. The 503 comes from one handler in `web/app.py` that
+     covers any page data call answered with 429 or 5xx, or not answered at all. A failed `/v1/health`
+     alone leaves the page at 200 with "Platform status unavailable" in place of the posture sentence;
+     the page's own logic then assumes `commercial`. `deploy.sh` refuses an empty token before touching
+     any host.
+   - **Feeds**: every RSS item now carries an `<infraque:provenance>` element (`source_id`, `source_url`,
+     `retrieved_at`, `licence`, `reuse_class`, `attribution`) and a `dc:source`, and the JSON Feed's
+     `_platform.provenance` is filled; live, 50 of 50 items on `/feeds/opportunities.rss` and
+     `/feeds/proposals.json`.
+   - **axe** (axe-core 4.13.0 through Playwright, map rendered): 0 violations on `/proposals`, `/about`, a
+     proposal detail page and two asset pages, including `/assets/grand-coulee-us-wa`, where
+     `landmark-unique` fired before. The cause was MapLibre's own `canvas[role=region] "Map"`; the page's
+     section is now "Location map". `/` showed 2 serious violations on this sampled data load:
+     `color-contrast` on 19 `.chip--neutral .chip__label` nodes, and `list` on `#in-view-items`. They were
+     not seen on 2026-09-26's full load, and are outside this change (`web/` home map).
+   - **Images**: the duplicate psycopg argument is gone (item 4). A rebuild with no build cache took
+     2 min 49 s for api/web/worker and 5 min 4 s for browser-worker. The sandbox disk filled on the first
+     attempt ("no space left on device" extracting the Playwright layer), so the build cache was pruned.
 
 ## 12. Assumptions
 

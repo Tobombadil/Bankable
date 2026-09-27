@@ -467,10 +467,31 @@ jobs:
       - name: axe-core scan (map, list, detail — D-30)
         run: |
           npm install --no-save @axe-core/cli
+          # Detail pages are looked up, not hard-coded: slugs come from whatever dev_up loaded. The
+          # API (dev_up's :8001) names the first proposal and the first asset; a load with no
+          # proposal fails this step loudly rather than silently scanning no detail page (until
+          # 2026-09-27 the step said "detail" and scanned /about instead).
+          detail_urls="$(python - <<'PY'
+          import json, sys, urllib.request
+          def first_slug(path):
+              with urllib.request.urlopen(f"http://127.0.0.1:8001{path}?limit=1", timeout=30) as r:
+                  rows = json.load(r)["data"]
+              return rows[0]["slug"] if rows else None
+          proposal, asset = first_slug("/v1/proposals"), first_slug("/v1/assets")
+          if proposal is None:
+              sys.exit("no proposal loaded: there is no detail page to scan")
+          urls = [f"http://127.0.0.1:8000/proposals/{proposal}"]
+          if asset is not None:
+              urls.append(f"http://127.0.0.1:8000/assets/{asset}")
+          print(" ".join(urls))
+          PY
+          )"
+          echo "detail pages: $detail_urls"
           # The runner image ships a chromedriver matched to its Chrome under $CHROMEWEBDRIVER;
           # axe's bundled driver was one major version ahead of the runner's Chrome on the first
           # CI run (2026-09-15: driver 153, browser 152) and refused to start a session.
-          npx axe http://127.0.0.1:8000/ http://127.0.0.1:8000/proposals http://127.0.0.1:8000/about \
+          # shellcheck disable=SC2086 # $detail_urls is a space-separated URL list by design
+          npx axe http://127.0.0.1:8000/ http://127.0.0.1:8000/proposals http://127.0.0.1:8000/about $detail_urls \
             --chromedriver-path "$CHROMEWEBDRIVER/chromedriver" \
             --exit
       - name: Lighthouse CI (D-31 budgets)

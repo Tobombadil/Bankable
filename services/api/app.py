@@ -23,7 +23,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -33,7 +33,7 @@ from services.api.common import API_HOST, WEB_HOST, new_request_id, utcnow
 from services.api.coverage import coverage, source_vintages
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
-from services.api.feeds import render_json_feed, render_rss
+from services.api.feeds import event_provenance, link_provenance, render_json_feed, render_rss
 from services.api.lifecycle import vocabulary as lifecycle_vocabulary
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec
@@ -885,6 +885,28 @@ def _health_vintage(db: Session) -> dict[str, Any]:
     }
 
 
+#: The table whose presence means Procrastinate's job-queue schema is installed. Kept equal to
+#: `infra/scheduler/queue_schema.py`'s `SENTINEL_TABLE` (services/api/test_routes.py pins the two);
+#: not imported from there, because the API has no reason to import the scheduler package.
+QUEUE_SENTINEL_TABLE = "procrastinate_jobs"
+
+
+def queue_schema_present(db: Session) -> bool | None:
+    """`checks.queue`: whether the job-queue schema the workers need exists, as one catalogue
+    lookup (`to_regclass`, no table scan). `None` on SQLite, which has no job queue at all -- the
+    dev/test store runs no workers (`infra/scheduler` is Postgres-only) -- so "not applicable" is
+    reported as such rather than as a pass or a failure. Before 2026-09-27 this was hard-coded
+    `True`, which is how a stack whose workers crash-looped on a missing schema still read healthy
+    (docs/60 §11 item 9)."""
+    if db.get_bind().dialect.name != "postgresql":
+        return None
+    try:
+        found = db.execute(text("SELECT to_regclass(:t) IS NOT NULL"), {"t": QUEUE_SENTINEL_TABLE}).scalar()
+        return bool(found)
+    except Exception:
+        return False
+
+
 @app.get("/v1/health")
 def get_health(
     db: Session = Depends(get_db),
@@ -912,7 +934,10 @@ def get_health(
         },
         "checks": {
             "database": database_ok,
-            "queue": True,
+            # `null` where not applicable (SQLite). Deliberately not folded into `status` or the
+            # HTTP code: the API serves every read without the queue, so its container stays
+            # healthy; infra/scripts/deploy.sh checks this field itself before starting workers.
+            "queue": queue_schema_present(db) if database_ok else False,
             "rate_limiter_active": True,
             "edge_cache": True,
             "backup_age_hours": None,
@@ -975,7 +1000,7 @@ def feed_proposals(format: str, request: Request, db: Session = Depends(get_db))
                         "name": p.name_canonical,
                         "url": f"{WEB_HOST}/proposals/{p.slug}",
                     },
-                    "provenance": [],
+                    "provenance": link_provenance(p.sources),
                     "licence_summary": build_licence_summary(_proposal_licence_rows([p])),
                     "data_as_of": build_meta("proposal")["data_as_of"],
                 },
@@ -1012,7 +1037,7 @@ def feed_opportunities(format: str, request: Request, db: Session = Depends(get_
                         "name": o.title,
                         "url": f"{WEB_HOST}/opportunities/{o.slug}",
                     },
-                    "provenance": [],
+                    "provenance": link_provenance(o.sources),
                     "licence_summary": build_licence_summary(_opportunity_licence_rows([o])),
                     "data_as_of": build_meta("opportunity")["data_as_of"],
                 },
@@ -1052,7 +1077,7 @@ def feed_events(format: str, request: Request, db: Session = Depends(get_db)) ->
                         "name": info["subject_name"],
                         "url": info["subject_url"],
                     },
-                    "provenance": [],
+                    "provenance": event_provenance(e),
                     "licence_summary": build_licence_summary(
                         [r] if (r := event_licence_row(e)) is not None else []
                     ),

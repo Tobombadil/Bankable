@@ -23,9 +23,11 @@ SSH_SHIM = r"""#!/usr/bin/env bash
 # Records the remote command; answers the few queries deploy.sh reads back.
 printf 'ssh %s\n' "$*" >> "$FAKE_LOG"
 cat > /dev/null  # swallow piped stdin (secrets, tokens)
+healthy_body='{"status":"ok","checks":{"database":true,"queue":true}}'
 case "$*" in
   *"cat /opt/infraque/current-tag"*) printf '%s\n' "${FAKE_PREVIOUS_TAG:-}" ;;
   *"docker inspect"*) printf '%s\n' "${FAKE_HEALTH:-healthy}" ;;
+  *"/v1/health"*) printf '%s\n' "${FAKE_HEALTH_BODY:-$healthy_body}" ;;
 esac
 exit 0
 """
@@ -33,7 +35,9 @@ LOGGING_SHIM = (
     '#!/usr/bin/env bash\nprintf \'{name} %s\\n\' "$*" >> "$FAKE_LOG"\ncat > /dev/null 2>&1 || true\nexit 0\n'
 )
 SOPS_SHIM = (
-    "#!/usr/bin/env bash\nprintf 'sops %s\\n' \"$*\" >> \"$FAKE_LOG\"\necho 'DOMAIN=example.test'\nexit 0\n"
+    "#!/usr/bin/env bash\nprintf 'sops %s\\n' \"$*\" >> \"$FAKE_LOG\"\necho 'DOMAIN=example.test'\n"
+    # A non-empty API_INTERNAL_TOKEN unless a test sets FAKE_TOKEN (possibly to ""); deploy.sh needs one.
+    'echo "API_INTERNAL_TOKEN=${FAKE_TOKEN-fake-internal-token-not-a-secret}"\nexit 0\n'
 )
 PG_SHIMS = {
     "psql": "#!/usr/bin/env bash\necho '16.4'\n",
@@ -128,6 +132,9 @@ def test_deploy_order_sync_pull_stop_migrate_up_health_workers_scheduler(
     migrate = first_index(
         lines, "run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini upgrade head"
     )
+    queue_schema = first_index(lines, f"{app} {compose} run --rm --no-deps -T scheduler python -c ")
+    step = lines[queue_schema]
+    expect('m = "infra.scheduler.queue_schema"' in step and step.endswith(" ensure"), step)
     up_app = first_index(lines, "up -d --no-build caddy api web")
     health = first_index(lines, "docker inspect -f '{{.State.Health.Status}}'")
     health_url = first_index(lines, "curl -sf --max-time 5 http://api:8000/v1/health")
@@ -135,8 +142,11 @@ def test_deploy_order_sync_pull_stop_migrate_up_health_workers_scheduler(
     up_browser = first_index(lines, "up -d --no-build browser-worker")
     up_scheduler = first_index(lines, "up -d --no-build scheduler")
     record = first_index(lines, "> /opt/infraque/current-tag")
-    order = [sync_app, secrets_app, pull, stop_worker, stop_scheduler, migrate, up_app, health, health_url]
-    order += [up_worker, up_browser, up_scheduler, record]
+    order = [sync_app, secrets_app, pull, stop_worker, stop_scheduler, migrate, queue_schema, up_app, health]
+    order += [health_url, up_worker, up_browser, up_scheduler, record]
+    expect(
+        sum("infra.scheduler.queue_schema" in ln for ln in lines) == 1, "queue schema step runs exactly once"
+    )
     expect(order == sorted(order), f"deploy steps out of order: {order}\n" + "\n".join(lines))
     sops_call = "--input-type yaml --output-type dotenv infra/sops/secrets.staging.enc.yaml"
     expect(any(sops_call in ln for ln in lines), "sops must emit dotenv lines")
@@ -145,6 +155,41 @@ def test_deploy_order_sync_pull_stop_migrate_up_health_workers_scheduler(
     )
     expect(sum("scp " in ln and "backup.sh" in ln for ln in lines) == 4, "backup.sh must reach all 4 hosts")
     expect("| staging | sha-abc1234 |" in pathlib.Path(env["DEPLOY_LOG"]).read_text(), "deploy log row")
+
+
+def test_deploy_refuses_to_start_web_without_the_internal_token(
+    shims: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    """docs/60 §11 item 9: without API_INTERNAL_TOKEN every page `web` renders shares the anonymous
+    60/hour bucket and starts returning errors after a few views. The deploy stops before any host
+    is touched, not after `web` is up."""
+    log, env = shims
+    for token in ("", '""'):
+        log.write_text("")
+        result = run("deploy.sh", "production", "sha-abc1234", env={**env, "FAKE_TOKEN": token})
+        expect(result.returncode == 1, result.stdout + result.stderr)
+        expect("API_INTERNAL_TOKEN is empty or missing" in result.stderr, result.stderr)
+        lines = calls(log)
+        expect(not any(ln.startswith(("ssh ", "scp ")) for ln in lines), f"no host may be touched: {lines}")
+
+
+def test_missing_queue_schema_fails_the_health_gate_and_rolls_back(
+    shims: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    """If `/v1/health` answers but reports `checks.queue` false (the queue schema step did not take),
+    the deploy must not start workers that would crash-loop: it fails and rolls back."""
+    log, env = shims
+    body = '{"status":"ok","checks":{"database":true,"queue":false}}'
+    env = {**env, "FAKE_HEALTH_BODY": body, "FAKE_PREVIOUS_TAG": "sha-good111"}
+    result = run("deploy.sh", "staging", "sha-bad0000", env=env)
+    expect(result.returncode != 0, result.stdout + result.stderr)
+    expect("checks.queue is not true" in result.stdout, result.stdout)
+    expect("rolling back to the previous tag sha-good111" in result.stdout, result.stdout)
+    lines = calls(log)
+    expect(
+        not any("IMAGE_TAG=sha-bad0000" in ln and "up -d --no-build worker" in ln for ln in lines),
+        "workers of the failed tag must never start",
+    )
 
 
 def test_deploy_defaults_to_image_tag_env_then_latest(shims: tuple[pathlib.Path, dict[str, str]]) -> None:

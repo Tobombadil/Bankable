@@ -49,7 +49,10 @@
 </dl>
 
 {% if mini_map %}
-<section aria-label="Map">
+{#- Not labelled plain "Map": MapLibre gives the map container it builds inside this section its own
+    region landmark named "Map", and two landmarks of one role and name fail axe `landmark-unique`
+    (moderate; docs/40 §6 item 4, measured 2026-09-26 on /assets/<slug>). -#}
+<section aria-label="Location map">
   {{ m.section_heading("1.", "Map") }}
   {{ m.mini_map(mini_map, tile_url, tile_mode) }}
 </section>

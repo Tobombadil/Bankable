@@ -30,6 +30,7 @@ from __future__ import annotations
 import datetime as dt
 import io
 import json
+import os
 import pathlib
 from typing import Any
 
@@ -39,7 +40,7 @@ from pipeline.connectors.base import json_default, to_parquet_safe
 from pipeline.connectors.objectstore import LocalBackend, ObjectBackend, backend_from_env
 from pipeline.connectors.registry import ROOT
 
-DATA_DIR = ROOT / "data"
+DATA_DIR = pathlib.Path(os.environ.get("INFRAQUE_DATA_DIR") or ROOT / "data")  # container: a volume
 PUBLISHABLE_SUBDIRS = ("normalized", "events")
 QUARANTINE_DIR = "quarantine"
 

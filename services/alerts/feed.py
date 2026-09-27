@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from services.alerts.visibility import event_with_visible_subject_filter
 from services.api.common import WEB_HOST
+from services.api.feeds import event_provenance, link_provenance
 from services.api.serialize import build_licence_summary, licence_summary_row
 from services.db.models import Account, Event, Opportunity, Proposal, SavedSearch
 
@@ -99,7 +100,7 @@ def _proposal_feed_item(p: Proposal) -> dict[str, Any]:
                 "name": p.name_canonical,
                 "url": f"{WEB_HOST}/proposals/{p.slug}",
             },
-            "provenance": [],
+            "provenance": link_provenance(p.sources),
             "licence_summary": build_licence_summary(
                 [
                     licence_summary_row(s.source, s.source.licence, s.retrieved_at)
@@ -131,7 +132,7 @@ def _opportunity_feed_item(o: Opportunity) -> dict[str, Any]:
                 "name": o.title,
                 "url": f"{WEB_HOST}/opportunities/{o.slug}",
             },
-            "provenance": [],
+            "provenance": link_provenance(o.sources),
             "licence_summary": build_licence_summary(
                 [
                     licence_summary_row(s.source, s.source.licence, s.retrieved_at)
@@ -156,7 +157,7 @@ def _event_feed_item(e: Event) -> dict[str, Any]:
         "platform_ext": {
             "event_type": e.event_type,
             "subject": {"public_id": str(e.subject_id), "name": e.subject_type, "url": WEB_HOST},
-            "provenance": [],
+            "provenance": event_provenance(e),
             "licence_summary": build_licence_summary(
                 [licence_summary_row(e.source, e.licence, e.retrieved_at)] if e.source and e.licence else []
             ),

@@ -270,6 +270,55 @@ def test_vocabularies_and_health(client, db):
     assert resp2.json()["lag_days_default"] == {"supply": 0, "opportunities": 0}
 
 
+def test_health_queue_check_is_not_applicable_on_sqlite(client, db):
+    """`checks.queue` was hard-coded `true` (docs/60 §11 item 9). On SQLite there is no job queue
+    at all, so it says `null` -- neither a pass nor a failure -- and `status` is unaffected."""
+    body = client.get("/v1/health").json()
+    assert body["checks"]["queue"] is None
+    assert body["status"] == "ok"
+
+
+class _PgStub:
+    """Just enough of a `Session` for `queue_schema_present`: a Postgres dialect and a scripted
+    answer (or error) for the one catalogue query."""
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.seen = []
+
+    def get_bind(self):
+        class _Bind:
+            class dialect:  # noqa: N801 -- mirrors SQLAlchemy's attribute name
+                name = "postgresql"
+
+        return _Bind()
+
+    def execute(self, statement, params=None):
+        self.seen.append((str(statement), params))
+        if isinstance(self.answer, Exception):
+            raise self.answer
+
+        class _Result:
+            def scalar(inner):  # noqa: N805
+                return self.answer
+
+        return _Result()
+
+
+def test_health_queue_check_on_postgres_is_one_catalogue_lookup():
+    from infra.scheduler.queue_schema import SENTINEL_TABLE
+    from services.api.app import QUEUE_SENTINEL_TABLE, queue_schema_present
+
+    assert QUEUE_SENTINEL_TABLE == SENTINEL_TABLE  # the API checks the table the deploy step installs
+    present = _PgStub(True)
+    assert queue_schema_present(present) is True
+    assert "to_regclass" in present.seen[0][0]
+    assert present.seen[0][1] == {"t": "procrastinate_jobs"}
+    assert queue_schema_present(_PgStub(False)) is False
+    assert queue_schema_present(_PgStub(None)) is False  # a NULL answer reads as absent, never as present
+    assert queue_schema_present(_PgStub(RuntimeError("connection lost"))) is False
+
+
 def test_rss_and_json_feed(client, db):
     lic = make_open_licence(db)
     src = make_public_source(db, lic)
@@ -286,6 +335,93 @@ def test_rss_and_json_feed(client, db):
     body = resp2.json()
     assert body["version"] == "https://jsonfeed.org/version/1.1"
     assert len(body["items"]) == 1
+
+
+def test_every_feed_item_carries_its_attribution(client, db):
+    """CLAUDE.md: attribution renders automatically on every surface; docs/23 §10 names the fields.
+    Before 2026-09-27 an RSS item carried only `dc:creator` and a link, and the JSON Feed's
+    `_platform.provenance` was always `[]`. Now each item names `source_id`, `source_url`,
+    `retrieved_at` and `licence` in a declared namespace (plus a Dublin Core `dc:source`), and the
+    credit line is in the description, on both formats."""
+    import xml.etree.ElementTree as ET
+
+    from services.api.feeds import PROVENANCE_NS
+
+    lic = make_attribution_licence(db)
+    src = make_public_source(db, lic)
+    make_visible_proposal(db, src, public_id_suffix="51")
+    db.commit()
+
+    resp = client.get("/feeds/proposals.rss")
+    assert resp.status_code == 200
+    root = ET.fromstring(resp.text)  # noqa: S314 -- our own output, parsed to prove it is well-formed
+    ns = {"infraque": PROVENANCE_NS, "dc": "http://purl.org/dc/elements/1.1/"}
+    items = root.findall("./channel/item")
+    assert len(items) == 1
+    item = items[0]
+    rows = item.findall("infraque:provenance", ns)
+    assert len(rows) == 1
+    fields = {child.tag.split("}")[1]: child.text for child in rows[0]}
+    assert fields["source_id"] == "us.test.public_source"
+    assert fields["source_url"] == "https://example.org/queue#51"
+    assert fields["licence"] == lic.id
+    assert fields["reuse_class"] == "attribution"
+    assert fields["attribution"] == "Source: Test ISO"
+    assert fields["retrieved_at"].endswith("Z")
+    assert [e.text for e in item.findall("dc:source", ns)] == ["https://example.org/queue#51"]
+    assert item.findtext("description").endswith("— Source: Test ISO")
+
+    feed = client.get("/feeds/proposals.json").json()
+    ext = feed["items"][0]["_platform"]
+    assert [(p["source_id"], p["source_url"], p["licence_id"]) for p in ext["provenance"]] == [
+        ("us.test.public_source", "https://example.org/queue#51", lic.id)
+    ]
+    assert ext["provenance"][0]["retrieved_at"] == fields["retrieved_at"]
+    assert feed["items"][0]["content_text"].endswith("— Source: Test ISO")
+
+
+def test_feed_renderer_escapes_and_skips_absent_provenance():
+    """An item with no provenance rows (a user-actor event) renders exactly as before, credited to
+    its `creator`; hostile text in a provenance field is escaped, never markup."""
+    import xml.etree.ElementTree as ET
+
+    from services.api.feeds import render_rss
+
+    base = {
+        "title": "t",
+        "url": "https://example.test/x",
+        "guid": "g",
+        "pub_date": dt.datetime(2026, 9, 27, tzinfo=dt.UTC),
+        "creator": "the platform",
+        "description": "d",
+    }
+    hostile = {
+        "source_id": "s",
+        "source_name": "n",
+        "source_url": "https://example.test/?a=1&b=<2>",
+        "retrieved_at": "2026-09-27T00:00:00Z",
+        "licence_id": "l",
+        "reuse_class": "open",
+        "attribution_text": "</infraque:attribution><script>",
+    }
+    xml = render_rss(
+        resource="Events",
+        kind="proposal",
+        self_url="https://example.test/feed",
+        items=[
+            {**base, "platform_ext": {"provenance": []}},
+            {**base, "guid": "h", "platform_ext": {"provenance": [hostile]}},
+        ],
+    )
+    root = ET.fromstring(xml)  # noqa: S314 -- our own output
+    first, second = root.findall("./channel/item")
+    assert first.findtext("description") == "d — the platform"
+    assert "provenance" not in ET.tostring(first, encoding="unicode")
+    assert "<script>" not in xml
+    ns = {"infraque": "https://infraque.com/ns/feed-provenance/1"}
+    assert (
+        second.find("infraque:provenance/infraque:attribution", ns).text == "</infraque:attribution><script>"
+    )
 
 
 def test_rate_limit_and_request_id_headers_present(client, db):

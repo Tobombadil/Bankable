@@ -13,11 +13,13 @@ file (or the default in-memory database, empty until something loads it).
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import QueryParams
 
@@ -42,6 +44,7 @@ from web.page import (
     not_found_response,
     querystring_without,
     templates,
+    unavailable_response,
 )
 from web.regions import Region, regions_with_data
 from web.viewmodels import (
@@ -91,6 +94,8 @@ HOME_MAP_ASSET_TYPES: list[tuple[str, str, bool]] = [
     ("rng_project", "RNG", True),
 ]
 
+
+logger = logging.getLogger("web.app")
 
 app = FastAPI(title="Infraque -- public site")
 app.mount("/static", StaticFiles(directory=str(WEB_ROOT / "static")), name="static")
@@ -597,6 +602,9 @@ def search(request: Request) -> HTMLResponse:
 
 @app.get("/about", response_class=HTMLResponse)
 def about(request: Request) -> HTMLResponse:
+    """The source register, the tiers and the posture sentence. If the register itself cannot be
+    read the whole page is the 503 `api_unavailable_handler` renders; if only `/v1/health` fails,
+    the page renders and the posture line says the status is unavailable (`get_platform_posture`)."""
     api = get_api(request)
     sources_env = api.get("/v1/sources", params={"limit": 100})
     sources = []
@@ -616,15 +624,15 @@ def about(request: Request) -> HTMLResponse:
         except ApiError:
             rows_visible = None
         sources.append({**source, "kind": kind, "rows_visible": rows_visible})
-    return templates.TemplateResponse(
+    posture = get_platform_posture(request)
+    response = templates.TemplateResponse(
         request,
         "about.html",
-        {
-            "sources": sources,
-            "lag_days": get_lag_days(request),
-            "posture": get_platform_posture(request),
-        },
+        {"sources": sources, "lag_days": get_lag_days(request), "posture": posture},
     )
+    if posture is not None and posture.get("available") is False:
+        response.headers["Cache-Control"] = "no-store"  # a cache must not keep the degraded version
+    return response
 
 
 #: How `source.vintage_basis` reads to someone who is not going to read the code. The four
@@ -702,6 +710,27 @@ def health(request: Request) -> dict[str, Any]:
         "preview_active": is_preview_active(request),
         "checked_at": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+
+
+@app.exception_handler(ApiError)
+async def api_unavailable_handler(request: Request, exc: ApiError) -> Response:
+    """Any page whose data call is refused for capacity (429: the shared anonymous bucket when
+    `API_INTERNAL_TOKEN` is unset or wrong) or fails upstream (5xx) renders the 503 "temporarily
+    unavailable" page instead of a 500 (docs/60 §11 item 9, measured 2026-09-26 on /about's
+    `/v1/sources` call). Routes that can do without one call keep catching `ApiError` themselves;
+    this is the floor under the rest. Other 4xx statuses are a bug in the page, not an outage, and
+    stay a 500. `ApiNotFound` keeps its own handler below (Starlette picks the closest class)."""
+    if exc.status_code != 429 and exc.status_code < 500:
+        raise exc
+    logger.warning("api unavailable", extra={"path": request.url.path, "api_status": exc.status_code})
+    return unavailable_response(request)
+
+
+@app.exception_handler(httpx.HTTPError)
+async def api_unreachable_handler(request: Request, exc: httpx.HTTPError) -> Response:
+    """The API did not answer at all (refused, timed out): the same 503 page."""
+    logger.warning("api unreachable", extra={"path": request.url.path, "error": type(exc).__name__})
+    return unavailable_response(request)
 
 
 @app.exception_handler(ApiNotFound)

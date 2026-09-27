@@ -151,6 +151,8 @@ services:
     environment:
       <<: *app-env
       WORKER_ROLE: worker-plain
+    volumes:
+      - connector_data:/var/lib/infraque/data # INFRAQUE_DATA_DIR (set in the image); see `volumes:` below
     depends_on: *postgres-dependency
     deploy:
       replicas: 2 # docs/20 §4.1 "worker-plain | 2 replicas"; scale further via `docker compose up --scale worker=N` (docs/20 §13 step 1)
@@ -169,6 +171,8 @@ services:
       <<: *app-env
       WORKER_ROLE: worker-browser
       PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
+    volumes:
+      - connector_data:/var/lib/infraque/data
     depends_on: *postgres-dependency
     shm_size: "1gb" # Chromium needs real /dev/shm, not Docker's 64 MB default
     mem_limit: 2g   # docs/20 §4.1: "Playwright Chromium pool, max 3 pages, 2 GB RAM"
@@ -176,3 +180,10 @@ services:
 
 volumes:
   pg_data:
+  # Connector output (pipeline/connectors/store.py via INFRAQUE_DATA_DIR): snapshots, normalised
+  # parquet, events and run records, shared by every `worker` replica and `browser-worker` ON ONE
+  # HOST, so a `run_connector` job and the `load_source` job it defers find the same files whichever
+  # replica takes each. Single-host dev/staging only: production's worker VMs share no filesystem,
+  # which is what the object-storage backend (docs/20 §2; lane E10b) is for. Docker initialises the
+  # empty volume from the image directory, so it starts owned by appuser (uid 10001).
+  connector_data:

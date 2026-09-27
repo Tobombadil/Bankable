@@ -15,7 +15,7 @@
   {%- if posture %}
   {#- The sentence is the API's (`GET /v1/health` `posture_statement`), derived from the
       PLATFORM_POSTURE setting; nothing about the posture is typed into this template. -#}
-  <p class="platform-posture" data-posture="{{ posture.value }}">{{ posture.statement }}</p>
+  <p class="platform-posture" data-posture="{{ posture.value }}"{% if posture.available is false %} data-status="unavailable" role="status"{% endif %}>{{ posture.statement }}</p>
   {%- endif %}
 </section>
 
