@@ -135,7 +135,9 @@ def _event_matches_endpoint(db: Session, endpoint: WebhookEndpoint, event: Event
         subject = db.get(Opportunity, event.subject_id)
     else:
         return False
-    return subject is not None and matches_query(endpoint.entity, subject, endpoint.query)
+    return subject is not None and matches_query(
+        endpoint.entity, subject, endpoint.query, _endpoint_entitlement(db, endpoint)
+    )
 
 
 def enqueue_deliveries_for_event(db: Session, event: Event) -> list[WebhookDelivery]:

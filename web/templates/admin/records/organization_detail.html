@@ -8,6 +8,7 @@
 {% else %}
 <div class="page-header">
   <h1>{{ organization.name_canonical }} <span class="admin-muted mono">{{ organization.public_id }}</span></h1>
+  <span class="chip chip--neutral">{{ organization.publish_state }}</span>
   {% if organization.is_curated_issuer %}<span class="chip chip--neutral">curated issuer</span>{% endif %}
 </div>
 {% include "admin/_notice.html" %}
@@ -30,6 +31,35 @@
   <div class="field"><label for="website">Website</label><input id="website" name="website" type="url" value="{{ organization.website or '' }}"></div>
   <div class="field"><label for="edit-reason">Reason</label><input id="edit-reason" name="reason" required></div>
   <button class="admin-button admin-button--primary" type="submit">Save</button>
+</form>
+
+<h2>Events</h2>
+{% if organization.events %}
+<table class="admin-table">
+  <thead><tr><th scope="col">When</th><th scope="col">Type</th><th scope="col">Reason</th></tr></thead>
+  <tbody>
+    {% for ev in organization.events %}
+    <tr><td class="mono">{{ ev.observed_at }}</td><td>{{ ev.event_type }}</td><td>{{ ev.reason or "&mdash;" }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="admin-empty">No events recorded for this organization.</p>
+{% endif %}
+
+<h2>Publish state</h2>
+<form class="admin-form" method="post" action="/admin/records/organizations/{{ organization.public_id }}/publish-state">
+  <div class="field">
+    <label for="publish_state">State</label>
+    <select id="publish_state" name="publish_state">
+      {% for v in publish_state_values %}<option value="{{ v }}"{% if organization.publish_state == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label><input type="checkbox" name="takedown"> This is a takedown request, not an editorial unpublish</label>
+  </div>
+  <div class="field"><label for="ps-reason">Reason</label><input id="ps-reason" name="reason" required></div>
+  <button class="admin-button" type="submit">Set publish state</button>
 </form>
 {% endif %}
 {% endblock %}

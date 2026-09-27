@@ -36,12 +36,15 @@ Numbered decisions (full detail and rationale in `services/api/admin_records.md`
    `subject_type="proposal"` (the left member) — `resolution_decision` is not in docs/21 §3.10's
    `subject_type` vocabulary, and `admin_edit` is the closest event the vocab already has for "a
    human recorded a decision with a reason".
-5. `docs/21` §7.1's `RecordPublishState` and the visibility predicate exist for `proposal` and
-   `opportunity`; `organization` has no `publish_state`/`published_at`/`public_at` columns in
-   `services/db/models.py`, and no visibility predicate anywhere reads one for it. Setting
-   `record_type=organizations` on `PUT .../publish-state` is refused with `400 validation_error`
-   rather than silently accepted-and-ignored (this task's paths cannot add the column or a
-   migration) — a documented gap, not a fabricated no-op success.
+5. `organization` carries `publish_state` since migration 0022 (2026-09-26; docs/40 §6 item 2
+   closed), with the same vocabulary as `proposal`/`opportunity`, and `PUT .../publish-state`
+   accepts `record_type=organizations` with the same `reason`, `takedown` and audit-event
+   handling. Two things differ because the row differs: an organisation has no
+   `published_at`/`public_at` pair (nothing on it is time-gated), so publishing sets only the
+   state; and it has no `min_reuse_class`, so the `422 gate_unmet` check does not apply. The
+   public surfaces read the state through `services/api/visibility.py`'s organisation arm, and
+   `GET /admin/v1/organizations/{public_id}` is the ungated read the admin panel uses to show
+   (and republish) a taken-down organisation the public routes now answer `404` for.
 6. Takedown (`RecordPublishStateRequest.takedown=true`) nulls `published_at`/`public_at` on every
    event of the subject (docs/21 has no separate publish flag on `event`, per this task's brief),
    including the just-written `published`/`unpublished` admin event itself — leaving the takedown
@@ -103,6 +106,7 @@ from services.api.serialize import (
     serialize_location,
     serialize_opportunity,
     serialize_organization,
+    serialize_organization_summary,
     serialize_proposal,
 )
 from services.api.visibility import PUBLISHABLE_REUSE_CLASSES
@@ -309,8 +313,15 @@ def _admin_source_row(link: ProposalSource | OpportunitySource) -> dict[str, Any
     return row
 
 
+_SUBJECT_WEB_PATHS = {
+    "proposal": "proposals",
+    "opportunity": "opportunities",
+    "organization": "organizations",
+}
+
+
 def _admin_events(
-    db: Session, subject_type: str, obj: Proposal | Opportunity, *, limit: int = 50
+    db: Session, subject_type: str, obj: Proposal | Opportunity | Organization, *, limit: int = 50
 ) -> list[Any]:
     rows = db.scalars(
         select(Event)
@@ -318,9 +329,8 @@ def _admin_events(
         .order_by(Event.seq.desc())
         .limit(limit)
     ).all()
-    name = obj.name_canonical if isinstance(obj, Proposal) else obj.title
-    path = "proposals" if subject_type == "proposal" else "opportunities"
-    subject_url = f"{WEB_HOST}/{path}/{obj.slug}"
+    name = obj.title if isinstance(obj, Opportunity) else obj.name_canonical
+    subject_url = f"{WEB_HOST}/{_SUBJECT_WEB_PATHS[subject_type]}/{obj.slug}"
     return [
         serialize_event(e, subject_public_id=obj.public_id, subject_name=name, subject_url=subject_url)
         for e in rows
@@ -343,6 +353,9 @@ def _last_admin_event_id(db: Session, subject_type: str, subject_id: _uuid.UUID)
 def _admin_proposal_dict(db: Session, proposal: Proposal) -> dict[str, Any]:
     sources = list(db.scalars(select(ProposalSource).where(ProposalSource.proposal_id == proposal.id)).all())
     data = serialize_proposal(proposal, sources=[s for s in sources if s.active])
+    # Admin reads bypass the visibility predicate (docs/21 §5.4): the sponsor is embedded whether
+    # or not the public tier may see it (`serialize_proposal` drops a taken-down one).
+    data["sponsor"] = serialize_organization_summary(proposal.sponsor) if proposal.sponsor else None
     data["provenance"] = [_admin_provenance_row(s) for s in sources]
     data["sources"] = [_admin_source_row(s) for s in sources]
     data["events"] = _admin_events(db, "proposal", proposal)
@@ -358,6 +371,7 @@ def _admin_opportunity_dict(db: Session, opportunity: Opportunity) -> dict[str, 
         db.scalars(select(OpportunitySource).where(OpportunitySource.opportunity_id == opportunity.id)).all()
     )
     data = serialize_opportunity(opportunity, sources=[s for s in sources if s.active])
+    data["issuer"] = serialize_organization_summary(opportunity.issuer) if opportunity.issuer else None
     data["provenance"] = [_admin_provenance_row(s) for s in sources]
     data["sources"] = [_admin_source_row(s) for s in sources]
     data["events"] = _admin_events(db, "opportunity", opportunity)
@@ -365,6 +379,17 @@ def _admin_opportunity_dict(db: Session, opportunity: Opportunity) -> dict[str, 
     data["publish_state"] = opportunity.publish_state
     data["overrides"] = opportunity.overrides or {}
     data["last_admin_event_id"] = _last_admin_event_id(db, "opportunity", opportunity.id)
+    return data
+
+
+def _admin_organization_dict(db: Session, org: Organization) -> dict[str, Any]:
+    """The organisation regardless of `publish_state` (decision 5): the public serialisation plus
+    the state, the event timeline and the last admin event -- the same admin fields the proposal
+    and opportunity dicts carry that exist on this row."""
+    data = serialize_organization(org)
+    data["publish_state"] = org.publish_state
+    data["events"] = _admin_events(db, "organization", org)
+    data["last_admin_event_id"] = _last_admin_event_id(db, "organization", org.id)
     return data
 
 
@@ -664,6 +689,21 @@ def admin_update_opportunity(
     )
 
 
+@router.get("/admin/v1/organizations/{public_id}")
+def admin_get_organization(
+    public_id: str,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: Annotated[AuthContext, Depends(require_admin())],
+) -> Any:
+    org = db.scalar(select(Organization).where(Organization.public_id == public_id))
+    if org is None:
+        raise not_found(request.url.path)
+    return build_envelope(
+        _admin_organization_dict(db, org), meta=_admin_meta(), licence_summary=_empty_licence_summary()
+    )
+
+
 @router.patch("/admin/v1/organizations/{public_id}")
 def admin_update_organization(
     public_id: str,
@@ -715,7 +755,7 @@ def admin_update_organization(
     db.flush()
 
     return build_envelope(
-        serialize_organization(org), meta=_admin_meta(), licence_summary=_empty_licence_summary()
+        _admin_organization_dict(db, org), meta=_admin_meta(), licence_summary=_empty_licence_summary()
     )
 
 
@@ -731,23 +771,23 @@ def admin_set_record_publish_state(
 ) -> Any:
     if record_type not in RECORD_TYPES:
         raise validation_error("record_type", f"must be one of {RECORD_TYPES}", request.url.path)
-    if record_type == "organizations":
-        # decision 5: no publish_state column exists on `organization` yet.
-        raise validation_error(
-            "record_type",
-            "organizations do not carry an independent publish_state in this schema version",
-            request.url.path,
-        )
 
-    record: Proposal | Opportunity | None
+    record: Proposal | Opportunity | Organization | None
     if record_type == "proposals":
         subject_type = "proposal"
         record = db.scalar(select(Proposal).where(Proposal.public_id == public_id))
-    else:
+    elif record_type == "opportunities":
         subject_type = "opportunity"
         record = db.scalar(select(Opportunity).where(Opportunity.public_id == public_id))
+    else:
+        # decision 5: organisations carry `publish_state` since migration 0022.
+        subject_type = "organization"
+        record = db.scalar(select(Organization).where(Organization.public_id == public_id))
     if record is None:
         raise not_found(request.url.path)
+    # The time-gated pair and the licence gate exist on the two record tables only; an
+    # organisation is state alone (decision 5).
+    timed = record if isinstance(record, Proposal | Opportunity) else None
 
     new_state = body.get("publish_state")
     reason = body.get("reason")
@@ -756,12 +796,16 @@ def admin_set_record_publish_state(
         raise validation_error("publish_state", f"must be one of {RECORD_PUBLISH_STATES}", request.url.path)
     if not reason:
         raise validation_error("reason", "reason is required", request.url.path)
-    if new_state in ("public", "api_only") and record.min_reuse_class not in PUBLISHABLE_REUSE_CLASSES:
+    if (
+        new_state in ("public", "api_only")
+        and timed is not None
+        and timed.min_reuse_class not in PUBLISHABLE_REUSE_CLASSES
+    ):
         raise ProblemError(
             "gate_unmet",
             "Publication gate unmet",
             detail=(
-                f"min_reuse_class is {record.min_reuse_class!r} over visible sources; "
+                f"min_reuse_class is {timed.min_reuse_class!r} over visible sources; "
                 "publish/api_only is refused (docs/21 §8)."
             ),
             instance=request.url.path,
@@ -770,9 +814,9 @@ def admin_set_record_publish_state(
     before = {"publish_state": record.publish_state}
     record.publish_state = new_state
     now = utcnow()
-    if new_state == "public":
-        record.published_at = record.published_at or now
-        record.public_at = record.public_at or now
+    if new_state == "public" and timed is not None:
+        timed.published_at = timed.published_at or now
+        timed.public_at = timed.public_at or now
     record.last_changed = now
 
     event = record_audit_event(

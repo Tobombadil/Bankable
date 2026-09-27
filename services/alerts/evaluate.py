@@ -129,7 +129,7 @@ def evaluate_saved_search(db: Session, search: SavedSearch, account: Account) ->
         subject, name, url = _subject_and_attribution(db, event)
         if subject is None or subject.id in seen_subjects:
             continue
-        if not matches_query(search.entity, subject, search.query):
+        if not matches_query(search.entity, subject, search.query, account.entitlement):
             continue
         source_name = event.source.name if event.source else None
         attribution = (

@@ -38,15 +38,41 @@ admin reads bypass this predicate entirely per docs/21 §5.4's fourth row) and d
 Backward-compatible names `proposal_public_filter`/`opportunity_public_filter`/
 `event_public_filter` are kept as the `entitlement="public"` case — `services/api/app.py`'s public
 routes are unchanged by this sprint.
+
+**The organisation arm (2026-09-26, migration 0022; docs/40 §6 item 2).** `organization` now
+carries `publish_state` with the record vocabulary, and `organization_visibility_filter` is the
+predicate's first clause alone: `r.publish_state = 'public'`. The other three clauses do not
+apply — an organisation has no source link rows, no `min_reuse_class` and no `published_at`/
+`public_at` pair (nothing on it is time-gated), so the arm is the same on every tier and
+`entitlement`/`now` are accepted for signature parity only. Every public read of organisations
+goes through it or its Python twin `organization_visible`: `GET /v1/organizations` and the
+detail/sub-list routes (`visible_organization_or_404`, which answers the same `not_found`
+problem an unknown id gets, so existence does not leak), the sponsor/issuer embeds
+(`services/api/serialize.py::visible_organization_summary`), the asset owners table, the
+`organization=`/`q=` filters that match through an organisation, and the ownership tree in both
+directions (`services/api/orgtree.py`). The web pages and sitemaps read only through those routes.
+
+**Edges to a taken-down organisation are dropped, not rendered with the name withheld.** docs/21
+§8 item 3 settles the shape for the analogous case (a source row the tier may not see): "the
+Sources panel omits the row entirely rather than showing a greyed placeholder, because the
+existence of the row is itself a disclosure". A withheld-name edge on an asset's owners table or a
+proposal's `sponsor` would say "there is an organisation here you may not see", which is the leak
+a takedown exists to close; so `sponsor`/`issuer` become `null`, the `asset_owner` edge is
+omitted, the parent link is `null` and the ancestor chain stops below the hidden organisation, and
+a hidden subsidiary is absent from `subsidiaries`, the counts and every `scope=` walk. Admin reads
+bypass all of this (`GET /admin/v1/organizations/{public_id}`), as docs/21 §5.4's fourth row says.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy import ColumnElement, and_, exists, or_, select
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import Session, aliased
 
+from services.api.errors import not_found
 from services.db.models import (
     REUSE_CLASSES,
     Asset,
@@ -55,6 +81,7 @@ from services.db.models import (
     Location,
     Opportunity,
     OpportunitySource,
+    Organization,
     Proposal,
     ProposalSource,
     Source,
@@ -102,7 +129,7 @@ def _has_permitted_source(
         .where(
             fk,
             link_model.active.is_(True),
-            Source.publish_state.in_(_PERMITTED_SOURCE_STATES.get(entitlement, ("public",))),
+            Source.publish_state.in_(permitted_source_states(entitlement)),
         )
     )
 
@@ -275,3 +302,100 @@ def asset_geometry_permitted() -> ColumnElement[bool]:
 def asset_geometry_visible(asset: Asset) -> bool:
     """Python twin of `asset_geometry_permitted` for a loaded `Asset` (detail responses)."""
     return bool(asset.licence.allows_raw_publication)
+
+
+def organization_visibility_filter(
+    entitlement: Entitlement = "public", now: dt.datetime | None = None
+) -> list[ColumnElement[bool]]:
+    """The organisation arm (module docstring): `publish_state = 'public'` and nothing else. No
+    source or licence clause (an organisation has no source link rows and no `min_reuse_class`;
+    the records and assets that point at it carry their own) and no timing clause (no
+    `published_at`/`public_at` on the row), so the arm is identical on every tier;
+    `entitlement` and `now` exist for signature parity with the other `*_visibility_filter`s."""
+    del entitlement, now
+    return [Organization.publish_state == "public"]
+
+
+def organization_visible(org: Organization) -> bool:
+    """Python twin of `organization_visibility_filter` for an already-loaded row: the sponsor and
+    issuer embeds, the asset owners table and the parent link are read off relationships, not
+    re-queried, so they apply the same single clause here."""
+    return org.publish_state == "public"
+
+
+def visible_organization_or_404(db: Session, public_id: str, instance: str) -> Organization:
+    """Load the organisation a public route was asked for, or raise the same `not_found` problem
+    an unknown id raises. One helper for the detail route and every `/v1/organizations/{id}/...`
+    sub-list so a taken-down organisation cannot be told apart from one that never existed
+    (docs/21 §8 item 3; `services/api/errors.py::not_found`'s own docstring)."""
+    org = db.scalar(
+        select(Organization).where(Organization.public_id == public_id, *organization_visibility_filter())
+    )
+    if org is None:
+        raise not_found(instance)
+    return org
+
+
+# ------------------------------------------------------------------------- source link rows
+# docs/21 §8 item 3 (2026-09-26, M-11 audit): a record visible through one publishable source
+# still carries its link rows to every other source, and the record predicate above only asks that
+# *some* link be permitted. The Sources panel (`/v1/{proposals,opportunities}/{id}/sources`), the
+# `provenance` array, the `licence_summary` built from those links, the feed item's credited source
+# and an asset's `asset_source`/`asset_owner` rows each list links one by one, so each must drop a
+# link whose source the tier may not read -- "the Sources panel omits the row entirely rather than
+# showing a greyed placeholder, because the existence of the row is itself a disclosure". The two
+# clauses are the ones `_has_permitted_source` and `asset_visibility_filter` already apply:
+# `source_permits` (the source's `publish_state` against `_PERMITTED_SOURCE_STATES`) and
+# `licence_permits` (the licence's class in `PUBLISHABLE_REUSE_CLASSES`, posture-dependent, the
+# same on every tier). Admin reads bypass all of it, as everywhere else in this module.
+def permitted_source_states(entitlement: Entitlement = "public") -> tuple[str, ...]:
+    """The `source.publish_state` values `entitlement` may read (`source_permits`), for a caller
+    composing its own SQL over `Source` -- `services/api/records.py`'s licence aggregate."""
+    return _PERMITTED_SOURCE_STATES.get(entitlement, ("public",))
+
+
+def source_visible(source: Source, entitlement: Entitlement = "public") -> bool:
+    """Python twin of `source_permits AND licence_permits` for one loaded source."""
+    return (
+        source.publish_state in permitted_source_states(entitlement)
+        and source.licence.reuse_class in PUBLISHABLE_REUSE_CLASSES
+    )
+
+
+def provenance_visible(source: Source, licence: Licence, entitlement: Entitlement = "public") -> bool:
+    """A row that carries its own licence beside its source (`asset_source`, `asset_owner`): the
+    source must be visible and the row's own licence publishable, since that licence is the one
+    the row's provenance quartet prints."""
+    return source_visible(source, entitlement) and licence.reuse_class in PUBLISHABLE_REUSE_CLASSES
+
+
+def visible_source_links(
+    links: Iterable[ProposalSource | OpportunitySource], entitlement: Entitlement = "public"
+) -> list[Any]:
+    """The active `proposal_source`/`opportunity_source` rows `entitlement` may see, in order."""
+    return [link for link in links if link.active and source_visible(link.source, entitlement)]
+
+
+def visible_source_link_filter(
+    link_model: type[ProposalSource] | type[OpportunitySource], entitlement: Entitlement = "public"
+) -> list[ColumnElement[bool]]:
+    """SQL twin of `visible_source_links` over a `proposal_source`/`opportunity_source` row: active,
+    and its source passes `source_permits` and `licence_permits` at `entitlement`. For the list
+    filters that match *through* a link (`source_id=`, the `q=` source-record-id arm in
+    `services/api/records.py`): matching a record through a link the tier may not see would
+    confirm the link exists and search its identifying field, the disclosure docs/21 §8 item 3
+    forbids. Aliased so the EXISTS keeps its own FROM whatever the caller already joined."""
+    src = aliased(Source)
+    lic = aliased(Licence)
+    return [
+        link_model.active.is_(True),
+        exists(
+            select(src.id)
+            .join(lic, lic.id == src.licence_id)
+            .where(
+                src.id == link_model.source_id,
+                src.publish_state.in_(permitted_source_states(entitlement)),
+                lic.reuse_class.in_(PUBLISHABLE_REUSE_CLASSES),
+            )
+        ),
+    ]

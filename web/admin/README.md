@@ -29,7 +29,7 @@ the API call, then a 303 redirect with `?flash=` on success or the page re-rende
 | `GET /admin/snapshots/{snapshot_id}` | Snapshot metadata (linked from a run's detail page) |
 | `GET /admin/records` | Public-id lookup form (`prop_`/`opp_`/`org_`) |
 | `GET /admin/records/proposals/{public_id}`, `/opportunities/{public_id}` | Every field, sources table with licence class, event history, edit form, publish-state form, merge (preview then apply), unmerge |
-| `GET /admin/records/organizations/{public_id}` | Minimal edit (name, website, reason) — no publish-state form (decision 5 below) |
+| `GET /admin/records/organizations/{public_id}` | Minimal edit (name, website, reason), event history and the publish-state form, read through the ungated `GET /admin/v1/organizations/{public_id}` (decision 9 below) |
 | `GET /admin/resolution` | Candidate pairs, filter `status`, decide forms (`same`/`different`/`defer`) |
 | `GET /admin/extractions` | Extraction queue, filters `status`/`subject_type`, accept/reject forms |
 
@@ -67,10 +67,12 @@ the API call, then a 303 redirect with `?flash=` on success or the page re-rende
 8. **The opportunity edit form's `technologies` field is one comma-separated text input**, split
    into a list on submit. `AdminOpportunityUpdate.technologies` has no fixed enum, and a
    repeatable-add widget would need JavaScript, which this screen may not use.
-9. **Organisation records never show a publish-state form.** `PUT
-   /admin/v1/records/{record_type}/{public_id}/publish-state` refuses `record_type=organizations`
-   with `400` (no `publish_state` column on `organization` — `services/api/admin_records.py`
-   decision 5); a form that always fails would be worse than omitting it.
+9. **Organisation records show the same publish-state form as proposals and opportunities**
+   since migration 0022 gave `organization` a `publish_state` (2026-09-26; docs/40 §6 item 2).
+   Before that the API refused `record_type=organizations` with `400` and the form was omitted.
+   The page reads the ungated `GET /admin/v1/organizations/{public_id}`, not the public route,
+   because a taken-down organisation is `404` on every public route and the page has to show it
+   to republish it.
 10. **Resolution `defer` posts to the same `decide` endpoint with `decision=defer`** rather than
     being a client-side no-op, so the API's real behaviour (no state change) is what gets
     exercised, not a shortcut that never reaches it.

@@ -32,6 +32,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from services.api.common import WEB_HOST, ensure_aware
+from services.api.visibility import organization_visible
 from services.db.models import Event, Opportunity, Proposal
 from services.social.editorial import SocialEvent
 
@@ -161,13 +162,23 @@ def _proposal_social_event(event: Event, event_type: str, proposal: Proposal) ->
         docket_id=_docket_id(proposal.identifiers),
         status_from=_lifecycle_value(event.before),
         status_to=_lifecycle_value(event.after),
-        developer_org=proposal.sponsor.name_canonical if proposal.sponsor else None,
+        # A sponsor the public tier may not see is not named in a post either (docs/21 §8 item 5's
+        # rule for a gated source, applied to a taken-down organisation; migration 0022).
+        developer_org=(
+            proposal.sponsor.name_canonical
+            if proposal.sponsor is not None and organization_visible(proposal.sponsor)
+            else None
+        ),
         withdrawal_reason_code=withdrawal_reason,
     )
 
 
 def _opportunity_social_event(event: Event, event_type: str, opportunity: Opportunity) -> SocialEvent | None:
-    issuer_org = opportunity.issuer.name_canonical if opportunity.issuer else None
+    issuer_org = (
+        opportunity.issuer.name_canonical
+        if opportunity.issuer is not None and organization_visible(opportunity.issuer)
+        else None
+    )
 
     if event_type in ("opportunity.rfp_opened", "opportunity.rfp_closing", "opportunity.awarded"):
         # docs/32 §3.3's RFP/award templates print `issuer_org` unconditionally -- never an

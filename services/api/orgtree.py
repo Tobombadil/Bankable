@@ -68,6 +68,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from services.api.errors import validation_error
+from services.api.visibility import organization_visibility_filter, organization_visible
 from services.db.models import Organization
 
 #: The scope vocabulary, in widening order. `children` is the pre-2026-09-20 behaviour of
@@ -147,7 +148,11 @@ def _parent_edge(db: Session, child: Organization) -> OwnershipEdge | None:
     if child.parent_org_id is None:
         return None
     parent = db.get(Organization, child.parent_org_id)
-    if parent is None:  # pragma: no cover - foreign key guarantees the row
+    # The foreign key guarantees the row; a parent the public tier may not see
+    # (`organization.publish_state`, migration 0022) ends the chain here -- the edge is dropped, not
+    # rendered with the name withheld, and nothing above it is reachable except through it
+    # (`services/api/visibility.py`, the organisation arm).
+    if parent is None or not organization_visible(parent):
         return None
     return OwnershipEdge(
         child=child,
@@ -181,11 +186,15 @@ def org_ancestors(db: Session, org: Organization) -> list[OwnershipEdge]:
 
 def _children_of(db: Session, ids: list[Any]) -> list[Any]:
     """One level down from every id in `ids`, merged-away organisations excluded (a merged row is
-    not a company, it is a redirect). One query per level — see the module docstring on cost."""
+    not a company, it is a redirect) and taken-down ones too (`organization_visibility_filter`:
+    a hidden subsidiary is absent from the scope, its counts and its portfolio row, and so is
+    everything below it). One query per level — see the module docstring on cost."""
     return list(
         db.scalars(
             select(Organization.id).where(
-                Organization.parent_org_id.in_(ids), Organization.merged_into_id.is_(None)
+                Organization.parent_org_id.in_(ids),
+                Organization.merged_into_id.is_(None),
+                *organization_visibility_filter(),
             )
         ).all()
     )

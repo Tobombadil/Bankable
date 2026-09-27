@@ -11,8 +11,8 @@ operations named in the task brief, to the schemas already committed in `api/ope
 |---|---|---|
 | GET/PATCH | `/admin/v1/proposals/{public_id}` | Full row regardless of `publish_state`; every source and event; `admin_edit` audit event, `overrides` tracking, `clear_overrides` |
 | GET/PATCH | `/admin/v1/opportunities/{public_id}` | Same pattern, demand side |
-| PATCH | `/admin/v1/organizations/{public_id}` | Same audit pattern; no `overrides`/`publish_state` — see decision 5 |
-| PUT | `/admin/v1/records/{record_type}/{public_id}/publish-state` | `proposals`/`opportunities` only (decision 5); `422 gate_unmet` on a restricted/unknown `min_reuse_class`; `takedown` nulls event visibility (decision 6) |
+| GET/PATCH | `/admin/v1/organizations/{public_id}` | Full row regardless of `publish_state` (GET added with migration 0022); same audit pattern; no `overrides` — see decision 5 |
+| PUT | `/admin/v1/records/{record_type}/{public_id}/publish-state` | `proposals`, `opportunities` and (since migration 0022) `organizations` (decision 5); `422 gate_unmet` on a restricted/unknown `min_reuse_class`; `takedown` nulls event visibility (decision 6) |
 | POST | `/admin/v1/proposals/{public_id}/merge` | Preview (signed, 15-minute token) then apply; calls `services.resolve.merge.merge_proposal` |
 | POST | `/admin/v1/proposals/{public_id}/unmerge` | Calls `services.resolve.merge.unmerge_proposal`, exact restore |
 | GET | `/admin/v1/resolution-candidates` | `ResolutionDecision` rows, paginated by score |
@@ -68,15 +68,15 @@ operations named in the task brief, to the schemas already committed in `api/ope
    post | user | account | api_key`), and `admin_edit` is the closest existing event type for "a
    human recorded a decision, with a reason, and nothing else moved."
 
-5. **`organization` has no `publish_state` in `services/db/models.py`.** Only `proposal` and
-   `opportunity` carry `publish_state`/`published_at`/`public_at`/`min_reuse_class`; no visibility
-   predicate anywhere in the codebase reads a publish state for `organization`. This task's
-   writable paths cannot add a column or a migration. `PUT .../publish-state` with
-   `record_type=organizations` therefore answers `400 validation_error` naming the gap explicitly,
-   rather than accepting the request and silently doing nothing (a fabricated 200 would be a worse
-   lie than an honest 400). `docs/00-PLAN.md`'s decisions log is the right place to record this as
-   an open item for whichever sprint adds organisation-level publication; not done here since it is
-   out of this task's three writable paths.
+5. **`organization` carries `publish_state` since migration 0022 (2026-09-26).** Until then the
+   column did not exist and `PUT .../publish-state` with `record_type=organizations` answered
+   `400 validation_error` (docs/40 §6 item 2). It now takes the same body, `reason` requirement,
+   `takedown` flag and audit event as the other two record types. Two differences follow from the
+   row: an organisation has no `published_at`/`public_at` (nothing on it is time-gated), so
+   publishing sets the state only; and it has no `min_reuse_class`, so `422 gate_unmet` does not
+   apply. `GET /admin/v1/organizations/{public_id}` is the ungated read (state, events, last admin
+   event) the panel uses once the public routes answer `404`. The public side is
+   `services/api/visibility.py`'s organisation arm.
 
 6. **Takedown nulls every event's visibility, including the one just written.** `docs/21` has no
    separate "published" flag on `event` (docs/21 §3.10's own `published_at`/`public_at` pair is the
@@ -143,8 +143,6 @@ operations named in the task brief, to the schemas already committed in `api/ope
 
 ## Deferred / not done
 
-- **Organization publish-state** (decision 5): needs a schema change (new columns, a migration)
-  outside this task's writable paths.
 - **Extraction accept on organisation/issuer references or the nested `location` object**
   (decision 8): out of scope for one single-field extraction row.
 - **Organization merge/unmerge endpoints**: `services/resolve/merge.py` already exports

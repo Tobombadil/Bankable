@@ -461,8 +461,10 @@ def test_admin_update_organization_happy_path(client, db, spec):
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert_valid(spec, "OrganizationDetailResponse", body)
+    assert_valid(spec, "AdminOrganizationDetailResponse", body)
     assert body["data"]["is_curated_issuer"] is True
+    assert body["data"]["publish_state"] == "public"
+    assert body["data"]["last_admin_event_id"] is not None
 
     db.expire_all()
     ev = db.query(Event).filter_by(event_type="admin_edit", subject_id=org.id).one()
@@ -514,16 +516,125 @@ def test_admin_set_publish_state_not_found(client, db):
     assert resp.status_code == 404
 
 
-def test_admin_set_publish_state_organizations_unsupported(client, db):
+# ------------------------------------------------------- organisations (migration 0022, docs/40 §6 item 2)
+def test_admin_set_publish_state_organization_takedown_changes_state_and_audits(client, db, spec):
     org = make_org(db)
+    assert org.publish_state == "public", "the model default is the state every organisation was in"
     db.commit()
     admin_login(client, db)
 
     resp = client.put(
         f"/admin/v1/records/organizations/{org.public_id}/publish-state",
-        json={"publish_state": "public", "reason": "x"},
+        json={"publish_state": "unpublished", "takedown": True, "reason": "rights-holder request #77"},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
+    body = resp.json()
+    assert_valid(spec, "RecordPublishStateResponse", body)
+    assert body["data"]["record_type"] == "organizations"
+    assert body["data"]["public_id"] == org.public_id
+    assert body["data"]["publish_state"] == "unpublished"
+
+    db.expire_all()
+    assert org.publish_state == "unpublished"
+    ev = db.query(Event).filter_by(subject_type="organization", subject_id=org.id).one()
+    assert ev.event_type == "unpublished"
+    assert ev.reason == "rights-holder request #77"
+    assert ev.actor_type == "user"
+    assert ev.before == {"publish_state": "public"}
+    assert ev.after == {"publish_state": "unpublished", "takedown": True}
+    assert body["data"]["event_id"] == public_id("evt", ev.id)
+    # decision 6: the takedown nulls the visibility of every event on the subject, this one included.
+    assert ev.published_at is None and ev.public_at is None
+
+
+def test_admin_set_publish_state_organization_republish_audits_and_keeps_the_notice_public(client, db):
+    org = make_org(db)
+    org.publish_state = "unpublished"
+    db.commit()
+    admin_login(client, db)
+
+    resp = client.put(
+        f"/admin/v1/records/organizations/{org.public_id}/publish-state",
+        json={"publish_state": "public", "reason": "request withdrawn"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["publish_state"] == "public"
+
+    db.expire_all()
+    assert org.publish_state == "public"
+    ev = db.query(Event).filter_by(subject_type="organization", subject_id=org.id).one()
+    assert ev.event_type == "published"
+    assert ev.before == {"publish_state": "unpublished"}
+    assert ev.after == {"publish_state": "public", "takedown": False}
+    assert ev.published_at is not None and ev.public_at is not None
+
+
+def test_admin_set_publish_state_organization_reason_and_vocab_are_enforced_the_same_way(client, db):
+    org = make_org(db)
+    db.commit()
+    admin_login(client, db)
+    path = f"/admin/v1/records/organizations/{org.public_id}/publish-state"
+    assert client.put(path, json={"publish_state": "unpublished"}).status_code == 400
+    assert client.put(path, json={"publish_state": "banana", "reason": "x"}).status_code == 400
+    assert (
+        client.put(
+            "/admin/v1/records/organizations/org_0000000000/publish-state",
+            json={"publish_state": "unpublished", "reason": "x"},
+        ).status_code
+        == 404
+    )
+    db.expire_all()
+    assert org.publish_state == "public"
+
+
+def test_admin_get_organization_is_ungated_and_carries_the_state(client, db, spec):
+    org = make_org(db)
+    org.publish_state = "unpublished"
+    db.commit()
+    admin_login(client, db)
+
+    resp = client.get(f"/admin/v1/organizations/{org.public_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert_valid(spec, "AdminOrganizationDetailResponse", body)
+    assert body["data"]["publish_state"] == "unpublished"
+    assert body["data"]["events"] == []
+    assert body["data"]["last_admin_event_id"] is None
+
+    assert client.get("/admin/v1/organizations/org_0000000000").status_code == 404
+
+
+def test_admin_record_detail_still_names_a_taken_down_sponsor_and_issuer(client, db):
+    """Admin reads bypass the predicate (docs/21 §5.4): the public embed is `null`, the admin one is
+    not, so an operator can see what the takedown hid."""
+    licence = make_open_licence(db)
+    source = make_public_source(db, licence)
+    org = make_org(db)
+    org.publish_state = "unpublished"
+    proposal = make_visible_proposal(db, source, public_id_suffix="9", sponsor=org)
+    opportunity = make_visible_opportunity(db, source, public_id_suffix="9")
+    opportunity.issuer_org_id = org.id
+    db.commit()
+    admin_login(client, db)
+
+    prop = client.get(f"/admin/v1/proposals/{proposal.public_id}").json()["data"]
+    assert prop["sponsor"]["public_id"] == org.public_id
+    opp = client.get(f"/admin/v1/opportunities/{opportunity.public_id}").json()["data"]
+    assert opp["issuer"]["public_id"] == org.public_id
+
+
+def test_admin_get_organization_lists_the_takedown_event_after_one(client, db):
+    org = make_org(db)
+    db.commit()
+    admin_login(client, db)
+    client.put(
+        f"/admin/v1/records/organizations/{org.public_id}/publish-state",
+        json={"publish_state": "unpublished", "takedown": True, "reason": "request"},
+    )
+    body = client.get(f"/admin/v1/organizations/{org.public_id}").json()["data"]
+    assert body["publish_state"] == "unpublished"
+    assert [e["event_type"] for e in body["events"]] == ["unpublished"]
+    assert body["events"][0]["subject"]["url"].endswith(f"/organizations/{org.slug}")
 
 
 def test_admin_set_publish_state_gate_unmet_for_restricted_source(client, db):

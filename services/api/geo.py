@@ -123,6 +123,7 @@ def build_geo_feature_collection(
     records_total: int,
     lifecycle_state_counts: dict[str, int],
     technology_counts: dict[str, int],
+    entitlement: str = "public",
 ) -> dict[str, Any]:
     """`plottable_proposals` must already be tier/licence filtered by the caller
     (services/api/visibility.py) *and* pre-restricted to records with a placeable point
@@ -179,7 +180,7 @@ def build_geo_feature_collection(
     features: list[dict[str, Any]] = []
     if len(in_view) <= SPLIT_THRESHOLD:
         for p, loc, (lon, lat), placement in in_view:
-            features.append(_record_feature(p, loc, lon, lat, placement))
+            features.append(_record_feature(p, loc, lon, lat, placement, entitlement))
     else:
         groups: dict[tuple[int, int], list[_Member]] = defaultdict(list)
         for member in in_view:
@@ -218,10 +219,14 @@ _Member = tuple[Proposal, Location, tuple[float, float], Placement]
 
 
 def _record_feature(
-    p: Proposal, loc: Location, lon: float, lat: float, placement: Placement
+    p: Proposal, loc: Location, lon: float, lat: float, placement: Placement, entitlement: str = "public"
 ) -> dict[str, Any]:
+    """`entitlement` picks which source links the feature's `provenance` may list: a link to a
+    source the tier may not read is omitted (docs/21 §8 item 3;
+    `services/api/visibility.py::visible_source_links`), as on the record's own detail."""
     from services.api.common import WEB_HOST
     from services.api.serialize import provenance_row
+    from services.api.visibility import visible_source_links
 
     reason = _precision_reason(loc, placement)
     return {
@@ -243,7 +248,7 @@ def _record_feature(
             "precision_reason": reason,
             "precision_note": precision_note(placement.precision, reason),
             "last_changed": p.last_changed.isoformat(),
-            "provenance": [provenance_row(s, s.source) for s in p.sources if s.active],
+            "provenance": [provenance_row(s, s.source) for s in visible_source_links(p.sources, entitlement)],
         },
     }
 

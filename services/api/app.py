@@ -57,8 +57,11 @@ from services.api.visibility import (
     event_visibility_filter,
     opportunity_public_filter,
     opportunity_visibility_filter,
+    organization_visibility_filter,
     proposal_public_filter,
     proposal_visibility_filter,
+    visible_organization_or_404,
+    visible_source_links,
 )
 from services.db.models import (
     REUSE_CLASSES,
@@ -257,7 +260,9 @@ def list_organizations(request: Request, db: Session = Depends(get_db)) -> Any:
     check_allowed(request, LIST_COMMON | {"type", "country", "is_curated_issuer", "slug"})
     limit = clamp_limit(int_param(request, "limit"))
     field, ascending = sort_spec(request, {"name_canonical"}, "name_canonical")
-    stmt = select(Organization).where(Organization.merged_into_id.is_(None))
+    stmt = select(Organization).where(
+        Organization.merged_into_id.is_(None), *organization_visibility_filter()
+    )
     qp = request.query_params
     if v := qp.get("slug"):
         stmt = stmt.where(Organization.slug == v)
@@ -309,9 +314,7 @@ def _counts_for_org(
 
 @app.get("/v1/organizations/{public_id}")
 def get_organization(public_id: str, request: Request, db: Session = Depends(get_db)) -> Any:
-    org = db.scalar(select(Organization).where(Organization.public_id == public_id))
-    if org is None:
-        raise not_found(request.url.path)
+    org = visible_organization_or_404(db, public_id, request.url.path)
     group = org_scope(db, org, "all")
     p_count, o_count = _counts_for_org(db, org)
     data = serialize_organization(org, proposal_count=p_count, opportunity_count=o_count)
@@ -359,9 +362,7 @@ def list_organization_proposals(
             "include_subsidiaries",
         },
     )
-    org = db.scalar(select(Organization).where(Organization.public_id == public_id))
-    if org is None:
-        raise not_found(request.url.path)
+    org = visible_organization_or_404(db, public_id, request.url.path)
     limit = clamp_limit(int_param(request, "limit"))
     field, ascending = sort_spec(request, PROPOSAL_SORT_ALLOWLIST, "-last_changed")
     # `scope` (2026-09-20) gives this list the same ownership-tree treatment the asset and
@@ -401,12 +402,12 @@ def list_organization_proposals(
         limit=limit,
         instance=request.url.path,
     )
-    data = [serialize_proposal(p) for p in rows]
+    data = [serialize_proposal(p, entitlement=ctx.entitlement) for p in rows]
     meta = build_meta("proposal", tier=ctx.entitlement)
     env = build_list_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(_proposal_licence_rows(rows)),
+        licence_summary=build_licence_summary(_proposal_licence_rows(rows, ctx.entitlement)),
         page=build_page(next_cursor, None, has_more),
     )
     env["scope"] = scope_result.as_meta()
@@ -421,9 +422,7 @@ def list_organization_opportunities(
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
     check_allowed(request, {"limit", "cursor", "sort", "kind", "status", "technologies"})
-    org = db.scalar(select(Organization).where(Organization.public_id == public_id))
-    if org is None:
-        raise not_found(request.url.path)
+    org = visible_organization_or_404(db, public_id, request.url.path)
     limit = clamp_limit(int_param(request, "limit"))
     field, ascending = sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
     qp = request.query_params
@@ -451,12 +450,12 @@ def list_organization_opportunities(
         limit=limit,
         instance=request.url.path,
     )
-    data = [serialize_opportunity(o) for o in rows]
+    data = [serialize_opportunity(o, entitlement=ctx.entitlement) for o in rows]
     meta = build_meta("opportunity", tier=ctx.entitlement)
     return build_list_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(_opportunity_licence_rows(rows)),
+        licence_summary=build_licence_summary(_opportunity_licence_rows(rows, ctx.entitlement)),
         page=build_page(next_cursor, None, has_more),
     )
 
@@ -981,7 +980,9 @@ def feed_proposals(format: str, request: Request, db: Session = Depends(get_db))
     proposals = list(db.scalars(stmt.order_by(Proposal.last_changed.desc()).limit(50)).all())
     items = []
     for p in proposals:
-        source_row = next((s for s in p.sources if s.active), None)
+        # The credited source is one the public tier may see (docs/21 §8 item 3), never the first
+        # active link whatever its licence.
+        source_row = next(iter(visible_source_links(p.sources)), None)
         items.append(
             {
                 "title": f"{p.name_canonical} — {p.lifecycle_state}",
@@ -1000,7 +1001,7 @@ def feed_proposals(format: str, request: Request, db: Session = Depends(get_db))
                         "name": p.name_canonical,
                         "url": f"{WEB_HOST}/proposals/{p.slug}",
                     },
-                    "provenance": link_provenance(p.sources),
+                    "provenance": link_provenance(visible_source_links(p.sources)),
                     "licence_summary": build_licence_summary(_proposal_licence_rows([p])),
                     "data_as_of": build_meta("proposal")["data_as_of"],
                 },
@@ -1018,7 +1019,7 @@ def feed_opportunities(format: str, request: Request, db: Session = Depends(get_
     items_rows = list(db.scalars(stmt.order_by(Opportunity.last_changed.desc()).limit(50)).all())
     items = []
     for o in items_rows:
-        source_row = next((s for s in o.sources if s.active), None)
+        source_row = next(iter(visible_source_links(o.sources)), None)
         items.append(
             {
                 "title": f"{o.title} — {o.status}",
@@ -1037,7 +1038,7 @@ def feed_opportunities(format: str, request: Request, db: Session = Depends(get_
                         "name": o.title,
                         "url": f"{WEB_HOST}/opportunities/{o.slug}",
                     },
-                    "provenance": link_provenance(o.sources),
+                    "provenance": link_provenance(visible_source_links(o.sources)),
                     "licence_summary": build_licence_summary(_opportunity_licence_rows([o])),
                     "data_as_of": build_meta("opportunity")["data_as_of"],
                 },

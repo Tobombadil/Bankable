@@ -96,7 +96,11 @@ from services.api.visibility import (
     asset_geometry_visible,
     asset_visibility_filter,
     location_exact_permitted,
+    organization_visibility_filter,
+    organization_visible,
     proposal_public_filter,
+    visible_organization_or_404,
+    visible_source_links,
 )
 from services.db.models import (
     ASSET_OWNER_ROLES,
@@ -766,7 +770,13 @@ def _organization_asset_ids(db: Session, org_public_ids: list[str], scope: str) 
     which is the right shape here because `organization=` is already a bounded CSV of names the
     caller typed."""
     holders: set[Any] = set()
-    for org in db.scalars(select(Organization).where(Organization.public_id.in_(org_public_ids))).all():
+    # A taken-down organisation matches nothing, exactly as an unknown one does (the organisation
+    # arm, services/api/visibility.py): `?organization=<its id>` must not confirm it holds anything.
+    for org in db.scalars(
+        select(Organization).where(
+            Organization.public_id.in_(org_public_ids), *organization_visibility_filter()
+        )
+    ).all():
         holders.update(scope_ids(db, org, scope))
     if not holders:
         return set()
@@ -918,7 +928,7 @@ def _asset_query_with_filters(request: Request) -> sa.Select[tuple[Asset]]:
         owner_asset_ids = (
             select(AssetOwner.asset_id)
             .join(Organization, Organization.id == AssetOwner.organization_id)
-            .where(Organization.public_id.in_(org_ids))
+            .where(Organization.public_id.in_(org_ids), *organization_visibility_filter())
         )
         stmt = stmt.where(Asset.id.in_(owner_asset_ids))
     if v := qp.get("q"):
@@ -926,7 +936,7 @@ def _asset_query_with_filters(request: Request) -> sa.Select[tuple[Asset]]:
         owner_name_hits = (
             select(AssetOwner.asset_id)
             .join(Organization, Organization.id == AssetOwner.organization_id)
-            .where(sa.func.lower(Organization.name_canonical).like(like))
+            .where(sa.func.lower(Organization.name_canonical).like(like), *organization_visibility_filter())
         )
         stmt = stmt.where(
             sa.or_(
@@ -1160,11 +1170,11 @@ def _within_radius(
 
 
 def _nearby_licence_rows(proposals: list[Proposal]) -> list[dict[str, Any]]:
+    """Only the links the public tier may see (docs/21 §8 items 3-4)."""
     rows = []
     for p in proposals:
-        for s in p.sources:
-            if s.active:
-                rows.append(licence_summary_row(s.source, s.source.licence, s.retrieved_at))
+        for s in visible_source_links(p.sources):
+            rows.append(licence_summary_row(s.source, s.source.licence, s.retrieved_at))
     return rows
 
 
@@ -1341,23 +1351,22 @@ def organization_hierarchy(db: Session, org: Organization) -> dict[str, Any]:
       holding company's page has to say instead of the direct count.
     """
     parent = db.get(Organization, org.parent_org_id) if org.parent_org_id is not None else None
+    if parent is not None and not organization_visible(parent):
+        # The parent link is dropped, not rendered with the name withheld; `org_ancestors` stops
+        # at the same row, so `parent_edge` and `ancestors` agree with this (organisation arm,
+        # services/api/visibility.py).
+        parent = None
     ancestors = org_ancestors(db, org)
-    subs_stmt = (
-        select(Organization)
-        .where(Organization.parent_org_id == org.id, Organization.merged_into_id.is_(None))
-        .order_by(Organization.name_canonical, Organization.id)
+    subs_where = (
+        Organization.parent_org_id == org.id,
+        Organization.merged_into_id.is_(None),
+        *organization_visibility_filter(),
     )
+    subs_stmt = select(Organization).where(*subs_where).order_by(Organization.name_canonical, Organization.id)
     subs = list(db.scalars(subs_stmt.limit(SUBSIDIARY_CAP + 1)).all())
     count = len(subs)
     if count > SUBSIDIARY_CAP:
-        count = (
-            db.scalar(
-                select(sa.func.count())
-                .select_from(Organization)
-                .where(Organization.parent_org_id == org.id, Organization.merged_into_id.is_(None))
-            )
-            or count
-        )
+        count = db.scalar(select(sa.func.count()).select_from(Organization).where(*subs_where)) or count
     return {
         "parent": serialize_organization_summary(parent) if parent is not None else None,
         "parent_edge": serialize_ownership_edge(ancestors[0]) if ancestors else None,
@@ -1381,9 +1390,7 @@ def list_organization_assets(
     how many organisations were spanned and whether any bound stopped the walk.
     """
     check_allowed(request, {"limit", "cursor", "role", "asset_type", "scope", "include_subsidiaries"})
-    org = db.scalar(select(Organization).where(Organization.public_id == public_id))
-    if org is None:
-        raise not_found(request.url.path)
+    org = visible_organization_or_404(db, public_id, request.url.path)
 
     limit = clamp_limit(int_param(request, "limit"))
     roles = _role_filter_values(request)
@@ -1463,9 +1470,7 @@ def list_organization_nearby_proposals(
         request,
         {"radius_km", "limit", "role", "asset_type", "scope", "include_subsidiaries", "technology"},
     )
-    org = db.scalar(select(Organization).where(Organization.public_id == public_id))
-    if org is None:
-        raise not_found(request.url.path)
+    org = visible_organization_or_404(db, public_id, request.url.path)
     radius_km = _radius_km_param(request)
     limit = clamp_limit(int_param(request, "limit"))
     roles = _role_filter_values(request)

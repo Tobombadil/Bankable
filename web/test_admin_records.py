@@ -354,6 +354,108 @@ def test_organization_detail_and_edit(web_client: TestClient, db_sessionmaker: s
     assert "Acme Developer Renamed LLC" in detail2.text
 
 
+def test_organization_publish_state_takedown_and_republish_through_the_panel(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    """docs/40 §6 item 2: the takedown is actioned through the admin panel, and the panel still
+    shows the organisation afterwards (the ungated admin read) so it can be republished."""
+    with db_sessionmaker() as db:
+        org = make_org(db, name="Taken Down Holdings")
+        db.commit()
+        public_id = org.public_id
+    _sign_in(web_client, db_sessionmaker, role="operator")
+    detail = web_client.get(f"/admin/records/organizations/{public_id}")
+    assert 'chip--neutral">public' in detail.text
+    assert f"/admin/records/organizations/{public_id}/publish-state" in detail.text
+
+    resp = web_client.post(
+        f"/admin/records/organizations/{public_id}/publish-state",
+        data={"publish_state": "unpublished", "takedown": "on", "reason": "rights-holder request"},
+        headers={"origin": "http://testserver"},
+    )
+    assert resp.status_code == 303
+    detail = web_client.get(f"/admin/records/organizations/{public_id}")
+    assert detail.status_code == 200
+    assert "Taken Down Holdings" in detail.text
+    assert 'chip--neutral">unpublished' in detail.text
+    assert "rights-holder request" in detail.text  # the event timeline
+    # The public company page no longer knows it; the admin page above still does.
+    assert web_client.get(f"/organizations/{public_id}").status_code == 404
+
+    resp = web_client.post(
+        f"/admin/records/organizations/{public_id}/publish-state",
+        data={"publish_state": "public", "reason": "request withdrawn"},
+        headers={"origin": "http://testserver"},
+    )
+    assert resp.status_code == 303
+    detail = web_client.get(f"/admin/records/organizations/{public_id}")
+    assert 'chip--neutral">public' in detail.text
+    assert web_client.get(f"/organizations/{public_id}").status_code == 200
+
+
+def test_a_taken_down_organization_leaves_every_public_page_and_the_sitemap(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    """The public side of docs/40 §6 item 2: the company index, search, the sitemap and the
+    sponsoring proposal's page (its body and its JSON-LD) stop naming the organisation, and the
+    proposal page itself stays up. The web layer reads only through the API, so this is the API's
+    organisation arm observed where a reader and a crawler meet it."""
+    with db_sessionmaker() as db:
+        lic = make_open_licence(db)
+        source = make_public_source(db, lic, id_="us.test.org_takedown")
+        org = make_org(db, name="Zebulon Takedown Power")
+        proposal = make_visible_proposal(db, source, public_id_suffix="7", sponsor=org)
+        db.commit()
+        public_id, slug, proposal_slug = org.public_id, org.slug, proposal.slug
+
+    def _sitemap() -> str:
+        web_app.state.__dict__.pop("sitemap_cache", None)  # one walk per hour otherwise
+        resp = web_client.get("/sitemap.xml")
+        assert resp.status_code == 200
+        return resp.text
+
+    name = "Zebulon Takedown Power"
+    assert name in web_client.get("/organizations").text
+    assert name in web_client.get("/search", params={"q": "zebulon"}).text
+    assert f"/organizations/{slug}" in _sitemap()
+    assert name in web_client.get(f"/proposals/{proposal_slug}").text
+
+    _sign_in(web_client, db_sessionmaker, role="operator")
+    resp = web_client.post(
+        f"/admin/records/organizations/{public_id}/publish-state",
+        data={"publish_state": "unpublished", "takedown": "on", "reason": "rights-holder request"},
+        headers={"origin": "http://testserver"},
+    )
+    assert resp.status_code == 303
+
+    assert name not in web_client.get("/organizations").text
+    assert name not in web_client.get("/search", params={"q": "zebulon"}).text
+    assert f"/organizations/{slug}" not in _sitemap()
+    assert web_client.get(f"/organizations/{slug}").status_code == 404
+    page = web_client.get(f"/proposals/{proposal_slug}")
+    assert page.status_code == 200
+    assert name not in page.text  # neither the sponsor line nor any JSON-LD block names it
+    web_app.state.__dict__.pop("sitemap_cache", None)
+
+
+def test_organization_publish_state_without_reason_rerenders_with_the_problem(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    with db_sessionmaker() as db:
+        org = make_org(db, name="Still Public LLC")
+        db.commit()
+        public_id = org.public_id
+    _sign_in(web_client, db_sessionmaker, role="operator")
+    resp = web_client.post(
+        f"/admin/records/organizations/{public_id}/publish-state",
+        data={"publish_state": "unpublished", "reason": ""},
+        headers={"origin": "http://testserver"},
+    )
+    assert resp.status_code == 400
+    assert "Still Public LLC" in resp.text
+    assert 'chip--neutral">public' in resp.text
+
+
 def test_organization_edit_without_origin_is_refused(
     web_client: TestClient, db_sessionmaker: sessionmaker[Session]
 ) -> None:
