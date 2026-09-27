@@ -473,7 +473,14 @@ jobs:
       - name: serve api + web in the background (web/dev_up.py)
         run: |
           nohup python -m web.dev_up --preview > /tmp/web.log 2>&1 &
-          for _ in $(seq 1 60); do curl -sf http://127.0.0.1:8000/health && break; sleep 2; done
+          # Wait for both processes. The web app answers /health before the API has finished
+          # importing, and the scan's first step queries the API (2026-09-27: "connection refused"
+          # on :8001 once the API gained its export, bulk and document modules). Fail with the log
+          # if either never answers, rather than letting the next step fail for an unclear reason.
+          for url in http://127.0.0.1:8001/v1/health http://127.0.0.1:8000/health; do
+            for _ in $(seq 1 90); do curl -sf "$url" > /dev/null && break; sleep 2; done
+            curl -sf "$url" > /dev/null || { echo "$url never answered"; cat /tmp/web.log; exit 1; }
+          done
       - name: axe-core scan (map, list, detail — D-30)
         run: |
           npm install --no-save @axe-core/cli
