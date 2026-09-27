@@ -793,7 +793,9 @@
   function appendGroupName(text) {
     var li = document.createElement("li");
     li.className = "in-view-list__group-name";
-    li.setAttribute("role", "presentation");
+    // A plain list item, not role="presentation": that role strips the item's listitem semantics,
+    // which leaves the <ul> directly containing a non-item (axe `list`, serious; found 2026-09-27
+    // once CI scanned a page with real rows).
     li.textContent = text;
     listEl.appendChild(li);
   }

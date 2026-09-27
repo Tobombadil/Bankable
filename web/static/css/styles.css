@@ -26,7 +26,7 @@
   --focus-ring: var(--color-ink);
 
   /* 1.2 status families -- light theme text + chip fill (docs/31 §1.2) */
-  --family-neutral-text: #5b6b7c;
+  --family-neutral-text: #4f5e6e; /* 5.44:1 on --family-neutral-fill; #5b6b7c measured 4.47:1, under WCAG AA 4.5 (axe, 2026-09-27) */
   --family-neutral-fill: #e4e9ed;
   --family-progress-text: #2f6480;
   --family-progress-fill: #d6e6ee;
