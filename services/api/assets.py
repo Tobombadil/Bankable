@@ -701,6 +701,43 @@ def _line_features_in_view(
     return features, len(in_view)
 
 
+def asset_surface_shapes(
+    db: Session, assets: list[Asset], withheld: WithheldNames
+) -> dict[str, list[tuple[str, dict[str, Any]]]]:
+    """Every shape a non-admin surface prints each of `assets` in, keyed by public id, built by the
+    same functions the routes call: `detail` (`GET /v1/assets/{id}`, `serialize_asset` with owners),
+    `list` (`GET /v1/assets`, search, `/v1/organizations/{id}/assets`), `map_point` (the point
+    feature of `/v1/assets/geo` and `/v1/context/plants/geo`) and, for a line asset in the line
+    index, `map_line`. For the M-11 audit's withheld-name check (`services/visibility_audit/run.py`,
+    lane E15), so it scans what the surfaces build rather than a restatement of it. Coordinates are
+    not the point here, so the point feature is built at (0, 0)."""
+    lines: dict[str, LineIndexRow] = {}
+    sources: dict[str, Source] = {}
+    licences: dict[str, Licence] = {}
+    if any(a.geom_line is not None for a in assets):
+        wanted = {str(a.id) for a in assets}
+        lines = {r.id: r for r in _get_line_index(db, _asset_index_cache_key(db)).rows if r.id in wanted}
+        source_ids = {r.source_id for r in lines.values()}
+        licence_ids = {r.licence_id for r in lines.values()}
+        sources = {s.id: s for s in db.scalars(select(Source).where(Source.id.in_(source_ids))).all()}
+        licences = {
+            lic.id: lic for lic in db.scalars(select(Licence).where(Licence.id.in_(licence_ids))).all()
+        }
+    out: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for asset in assets:
+        # The detail route's own owner rule: an edge under a gated licence is not passed in.
+        owners = [o for o in asset.owners if o.licence.reuse_class in PUBLISHABLE_REUSE_CLASSES]
+        shapes = [
+            ("detail", serialize_asset(asset, withheld=withheld, owners=owners)),
+            ("list", serialize_asset(asset, withheld=withheld, include_owners=False, include_geometry=False)),
+            ("map_point", _asset_feature(asset, 0.0, 0.0, withheld)),
+        ]
+        if (row := lines.get(str(asset.id))) is not None:
+            shapes.append(("map_line", _line_feature(row, row.parts, sources, licences, withheld)))
+        out[asset.public_id] = shapes
+    return out
+
+
 def _parse_bbox(value: str, instance: str) -> tuple[float, float, float, float]:
     parts = value.split(",")
     if len(parts) != 4:

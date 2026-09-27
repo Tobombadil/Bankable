@@ -32,6 +32,17 @@ Two passes, deliberately independent of each other:
    right (`served_hidden`), so a serving path that bypasses the predicate is caught even when the
    predicate is right.
 
+**Withheld operator names** (lane E15, 2026-09-27). An asset stays public when an organisation it
+names is taken down, but no non-admin surface may print that organisation's name in the asset's
+register text (`services/api/withheld_names.py`; docs/00-PLAN.md 2026-09-27, lane E14). The store pass
+renders every shown asset that is linked to a non-public organisation -- an `operator` edge, an
+`operator_name` spelling of it, or any owner edge -- through the builders the surfaces call
+(`services/api/assets.py::asset_surface_shapes`: detail, list/search, map point, map line) and scans
+the name-bearing parts (`operator_name`, `attributes`, `owners`) for a withheld name
+(`withheld_name_printed`). The served pass requests the detail page of a sample of those assets and
+searches `GET /v1/assets?q=` for a sample of the withheld spellings (`withheld_name_served`,
+`withheld_name_searchable`). When every organisation is public this is one query and no breach.
+
 `m11` is the total number of breaches from both passes. The result is persisted **without a new
 table**: one append-only `event` row (docs/21 §3.10; subject type `source`, the closest existing
 vocabulary entry for a platform-wide publication check; `event_type = visibility_audit`;
@@ -72,6 +83,7 @@ from sqlalchemy import ColumnElement, exists, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session, aliased, sessionmaker
 
 from services.api import visibility
+from services.api.withheld_names import WithheldNames, withheld_names
 from services.db.models import (
     Asset,
     AssetOwner,
@@ -157,6 +169,19 @@ class _Candidate:
     surface: str
     public_id: str
     why: str
+
+
+@dataclass(frozen=True)
+class _NameProbe:
+    """A served-pass request whose response must not carry a withheld organisation name: an asset's
+    detail page (`kind="detail"`, `target` its public id) or an asset search for one withheld spelling
+    (`kind="search"`, `target` the spelling; `assets` the ids that name it only through register text,
+    which the search must not return)."""
+
+    kind: str
+    target: str
+    assets: frozenset[str] = frozenset()
+    operator_edge: bool = False
 
 
 # ================================================================================ the register
@@ -383,6 +408,125 @@ def _audit_assets(
     return count, breaches
 
 
+def withheld_name_paths(
+    shape: Mapping[str, Any],
+    withheld: WithheldNames,
+    *,
+    operator_edge: bool,
+    hidden_org_ids: frozenset[str] = frozenset(),
+) -> list[str]:
+    """The paths in one rendered asset shape (a JSON object, or a GeoJSON feature's `properties`) that
+    print a withheld organisation. Only the parts that carry register text or organisation edges are
+    read (`operator_name`, `attributes`, `owners`); the asset's own name, provenance and geometry are
+    not about the organisation. A hit is any string in `operator_name`/`attributes` whose `org_key` is a
+    withheld key; an `owners[]` edge to a hidden organisation (by public id -- a *public* owner that
+    happens to share a spelling is that owner, printed rightly); and, where the asset has an `operator`
+    edge to a hidden organisation, any `operator_name` at all (the register may spell the company in a
+    way no key catches, which is why the edge withholds it)."""
+    body: Mapping[str, Any] = shape.get("properties", shape) if shape.get("type") == "Feature" else shape
+    found: list[str] = []
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, str):
+            if withheld.names_withheld(node):
+                found.append(path)
+        elif isinstance(node, Mapping):
+            for key, value in node.items():
+                walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                walk(value, f"{path}[{i}]")
+
+    for key in ("operator_name", "attributes"):
+        if key in body:
+            walk(body[key], key)
+    for i, edge in enumerate(body.get("owners") or []):
+        org = edge.get("organization") if isinstance(edge, Mapping) else None
+        if isinstance(org, Mapping) and org.get("public_id") in hidden_org_ids:
+            found.append(f"owners[{i}]")
+    if operator_edge and body.get("operator_name") is not None and "operator_name" not in found:
+        found.append("operator_name")
+    return found
+
+
+def _hidden_organization_ids(db: Session) -> tuple[list[uuid.UUID], frozenset[str]]:
+    rows = db.execute(
+        select(Organization.id, Organization.public_id).where(Organization.publish_state != "public")
+    )
+    pairs = rows.all()
+    return [r[0] for r in pairs], frozenset(r[1] for r in pairs)
+
+
+def _audit_asset_operator_names(
+    db: Session,
+    *,
+    now: dt.datetime,
+    withheld: WithheldNames,
+    hidden: tuple[list[uuid.UUID], frozenset[str]],
+) -> tuple[list[Breach], list[_NameProbe]]:
+    """The store half of the withheld-name check (module docstring). `hidden` is
+    `_hidden_organization_ids`. Returns the breaches and the served-pass probes: every linked asset's
+    detail page, and one search per withheld spelling."""
+    if withheld.empty:
+        return [], []
+    from sqlalchemy.orm import selectinload
+
+    from services.api.assets import asset_surface_shapes
+
+    hidden_ids, hidden_public_ids = hidden
+    linked = or_(
+        ~withheld.operator_name_searchable(),
+        Asset.id.in_(select(AssetOwner.asset_id).where(AssetOwner.organization_id.in_(hidden_ids))),
+    )
+    assets = list(
+        db.scalars(
+            select(Asset)
+            .where(*PREDICATES["assets"]("public", now), linked)
+            .options(selectinload(Asset.owners).selectinload(AssetOwner.organization))
+            .order_by(Asset.public_id)
+        ).all()
+    )
+    shapes = asset_surface_shapes(db, assets, withheld)
+    breaches: list[Breach] = []
+    for asset in assets:
+        edge = asset.id in withheld.operator_edge_asset_ids
+        for shape, rendered in shapes[asset.public_id]:
+            paths = withheld_name_paths(
+                rendered, withheld, operator_edge=edge, hidden_org_ids=hidden_public_ids
+            )
+            if paths:
+                breaches.append(
+                    Breach(
+                        "assets",
+                        asset.public_id,
+                        asset.source_id,
+                        f"withheld_name_printed:{shape}:{paths[0]}",
+                    )
+                )
+    probes = [
+        _NameProbe("detail", a.public_id, operator_edge=a.id in withheld.operator_edge_asset_ids)
+        for a in assets
+    ]
+    for spelling in sorted(withheld.operator_spellings):
+        # An asset the search may rightly return for this text: its own name contains it, or a
+        # *visible* owner's name does (`_asset_query_with_filters`' other two arms). Any other
+        # linked asset whose operator name is withheld must not come back.
+        needle = spelling.lower()
+        must_not_match = frozenset(
+            a.public_id
+            for a in assets
+            if withheld.operator_withheld(a.id, a.operator_name)
+            and needle not in (a.name or "").lower()
+            and not any(
+                visibility.organization_visible(o.organization)
+                and needle in o.organization.name_canonical.lower()
+                for o in a.owners
+            )
+        )
+        probes.append(_NameProbe("search", spelling, must_not_match))
+    return breaches, probes
+
+
 def _audit_organizations(
     db: Session, *, gated_src: Mapping[str, str], now: dt.datetime
 ) -> tuple[int, list[Breach]]:
@@ -579,6 +723,10 @@ def audit_store(
     shown, found = _audit_assets(db, gated_src=gated_src, gated_lic=gated_lic, now=now)
     counts["assets"]["shown"] = shown
     breaches.extend(found)
+    withheld = withheld_names(db)
+    hidden = _hidden_organization_ids(db) if not withheld.empty else ([], frozenset[str]())
+    found, name_probes = _audit_asset_operator_names(db, now=now, withheld=withheld, hidden=hidden)
+    breaches.extend(found)
     # The links surface has no independent row count of its own: what it "shows" is the active
     # link rows of the shown proposals, opportunities and assets.
     counts["source_links"]["shown"] = _shown_link_count(db, now)
@@ -602,6 +750,9 @@ def audit_store(
         "served": {"checked": 0, "leaks": 0, "inconclusive": 0, "checks": []},
         "m11": len(breaches),
         "_breaches": breaches,  # in-memory only; stripped before persisting/returning
+        "_withheld": withheld,  # in-memory only: the served pass scans with the same names
+        "_hidden_org_ids": hidden[1],
+        "_name_probes": name_probes,  # in-memory only
     }
 
 
@@ -719,6 +870,9 @@ def served_pass(
             leak = response.status_code == 200
             if leak and breach.surface == "source_links" and breach.source_id:
                 leak = _mentions_source(response.json(), breach.source_id)
+            if leak and breach.reason.startswith("withheld_name_printed:"):
+                # The asset is rightly served; the leak is the name in it.
+                leak = bool(_served_name_paths(response.json().get("data") or {}, result, breach.public_id))
             breach.served_leak = leak
             leaks += int(leak)
             checks.append(
@@ -758,6 +912,7 @@ def served_pass(
                 )
                 breaches.append(breach)
                 result["counts"][candidate.surface]["breaches"] += 1
+        leaks += _served_name_checks(client, result, already, checks, sample=sample)
     # A status that is neither "served" (200) nor "hidden" (404) — a 429 from the public tier's
     # hourly budget, a 5xx — proves nothing either way; it is counted so a run whose served pass
     # was starved cannot read as a clean one.
@@ -772,6 +927,73 @@ def served_pass(
     result["breach_total"] = len(breaches)
     result["breaches_truncated"] = len(breaches) > BREACH_CAP
     result["m11"] = len(breaches)
+
+
+def _served_name_paths(data: Mapping[str, Any], result: Mapping[str, Any], asset_public_id: str) -> list[str]:
+    withheld: WithheldNames | None = result.get("_withheld")
+    if withheld is None or withheld.empty:
+        return []
+    edge = any(p.operator_edge for p in result.get("_name_probes", ()) if p.target == asset_public_id)
+    return withheld_name_paths(
+        data, withheld, operator_edge=edge, hidden_org_ids=result.get("_hidden_org_ids", frozenset())
+    )
+
+
+def _served_name_checks(
+    client: Any,
+    result: dict[str, Any],
+    already: set[tuple[str, str]],
+    checks: list[dict[str, Any]],
+    *,
+    sample: int,
+) -> int:
+    """The served half of the withheld-name check (module docstring): a sample of linked assets'
+    detail pages must not print a withheld name, and an asset search for a withheld spelling must
+    neither print one nor return an asset it could only have matched through that name. Returns the
+    number of leaks; each is also a breach (`withheld_name_served`, `withheld_name_searchable`)."""
+    probes: list[_NameProbe] = result.get("_name_probes", [])
+    breaches: list[Breach] = result["_breaches"]
+    leaks = 0
+    details = [p for p in probes if p.kind == "detail" and ("assets", p.target) not in already]
+    searches = [p for p in probes if p.kind == "search"]
+    for probe in [*details[:sample], *searches[:sample]]:
+        if probe.kind == "detail":
+            path = f"/v1/assets/{probe.target}"
+            response = client.get(path)
+            data = response.json().get("data") if response.status_code == 200 else None
+            paths = _served_name_paths(data or {}, result, probe.target)
+            offenders = [(probe.target, f"withheld_name_served:detail:{p}") for p in paths[:1]]
+        else:
+            path = "/v1/assets"
+            response = client.get(path, params={"q": probe.target, "limit": 200})
+            rows = (response.json().get("data") or []) if response.status_code == 200 else []
+            offenders = []
+            for row in rows:
+                pid = str(row.get("public_id"))
+                if pid in probe.assets:
+                    offenders.append((pid, "withheld_name_searchable:operator_name"))
+                row_paths = _served_name_paths(row, result, pid)
+                if row_paths:
+                    offenders.append((pid, f"withheld_name_served:list:{row_paths[0]}"))
+        leak = bool(offenders)
+        leaks += int(leak)
+        # A search probe names the asset it caught, never the withheld spelling it searched for.
+        checked_id = probe.target if probe.kind == "detail" else (offenders[0][0] if offenders else "search")
+        checks.append(
+            {
+                "kind": "withheld_name",
+                "surface": "assets",
+                "public_id": checked_id,
+                "path": path if probe.kind == "detail" else f"{path}?q=<withheld spelling>",
+                "status": response.status_code,
+                "leak": leak,
+                "why": f"{probe.kind}:withheld organisation name",
+            }
+        )
+        for pid, reason in offenders:
+            breaches.append(Breach("assets", pid, None, reason, response.status_code, True))
+            result["counts"]["assets"]["breaches"] += 1
+    return leaks
 
 
 # ================================================================================ persistence
@@ -840,7 +1062,8 @@ def run_audit(
         with session_scope(session_factory) as db:
             event = persist_result(db, result)
             result["event_id"] = public_id("evt", event.id)
-    result.pop("_breaches", None)
+    for key in [k for k in result if k.startswith("_")]:
+        result.pop(key)
     if result["m11"] > 0:
         logger.error(
             "M-11 breach: %s gated or restricted rows reachable on a non-admin surface (S1, docs/04 S-9)",

@@ -84,6 +84,21 @@ def test_create_refuses_a_key_the_list_does_not_filter_on(client, db, entity, ke
         ("event", {"observed_at[from]": "last week"}, "observed_at[from]"),
         ("event", {"observed_at[to]": "soon"}, "observed_at[to]"),
         ("proposal", {"state": {"nested": "object"}}, "query.state"),
+        # Lane E15 (2026-09-27): the filters implemented that day parse through the list's functions.
+        ("proposal", {"storage_mwh[gte]": "lots"}, "storage_mwh[gte]"),
+        ("proposal", {"first_seen[from]": "last spring"}, "first_seen[from]"),
+        ("proposal", {"last_changed[to]": "2026-13-01"}, "last_changed[to]"),
+        ("opportunity", {"open_at[from]": "2026-01-01T00:00:00Z"}, "open_at[from]"),
+        ("opportunity", {"open_at[to]": "June"}, "open_at[to]"),
+        ("opportunity", {"capacity_sought_mw[gte]": "inf"}, "capacity_sought_mw[gte]"),
+        ("opportunity", {"budget_currency": "eur"}, "budget_currency"),
+        ("opportunity", {"budget_amount[gte]": 1000000}, "budget_amount[gte]"),
+        (
+            "opportunity",
+            {"budget_amount[gte]": 1000000, "budget_currency": ["EUR", "USD"]},
+            "budget_amount[gte]",
+        ),
+        ("opportunity", {"budget_amount[gte]": "a million", "budget_currency": "EUR"}, "budget_amount[gte]"),
     ],
 )
 def test_create_refuses_a_value_the_list_would_refuse(client, db, entity, query, field):
@@ -110,10 +125,73 @@ def test_create_accepts_every_list_filter(client, db):
         "slipped": True,
         "slip_bucket": "under_1y",
         "q": "solar",
+        "sponsor_id": "org_01JBQ8C4X1",
+        "storage_mwh[gte]": 100,
+        "first_seen[from]": "2026-09-01T00:00:00Z",
+        "first_seen[to]": "2026-09-30",
+        "last_changed[from]": "2026-09-01T00:00:00+02:00",
+        "last_changed[to]": "2026-09-30T00:00:00Z",
     }
     resp = client.post("/v1/saved-searches", json={"name": "all", "entity": "proposal", "query": query})
     assert resp.status_code == 201, resp.text
     assert resp.json()["data"]["query"] == query
+
+
+def test_create_accepts_every_opportunity_filter(client, db):
+    _login(client, db)
+    query = {
+        "status": "open,closed",
+        "kind": "rfp",
+        "technologies": "wind",
+        "jurisdiction": "GB",
+        "source_id": "us.test.public_source",
+        "due_at[from]": "2026-10-01",
+        "due_at[to]": "2026-12-31T23:59:59Z",
+        "slug": "x",
+        "q": "wind",
+        "issuer_id": ["org_01JBQ8C4X1"],
+        "open_at[from]": "2026-01-01",
+        "open_at[to]": "2026-06-30",
+        "capacity_sought_mw[gte]": 50,
+        "budget_currency": "EUR",
+        "budget_amount[gte]": 1000000,
+        "first_seen[from]": "2026-09-01T00:00:00Z",
+        "first_seen[to]": "2026-09-30",
+        "last_changed[from]": "2026-09-01",
+        "last_changed[to]": "2026-09-30",
+    }
+    resp = client.post("/v1/saved-searches", json={"name": "opps", "entity": "opportunity", "query": query})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["data"]["query"] == query
+
+
+@pytest.mark.parametrize("entity", ["proposal", "opportunity"])
+def test_create_refuses_updated_since_and_says_what_to_use(client, db, entity):
+    """`updated_since` is the list's sync cursor, not an alert filter (records.SYNC_FILTERS): refused
+    with the key named and a detail that points at `last_changed[from]`."""
+    _login(client, db)
+    resp = client.post(
+        "/v1/saved-searches",
+        json={"name": "n", "entity": entity, "query": {"updated_since": "2026-09-01T00:00:00Z"}},
+    )
+    _problem(resp, 400, "unknown_parameter", "updated_since")
+    assert "last_changed[from]" in resp.json()["detail"]
+    assert db.query(SavedSearch).count() == 0
+
+
+def test_webhook_create_refuses_updated_since(client, db):
+    _login(client, db, "api")
+    resp = client.post(
+        "/v1/webhooks",
+        json={
+            "url": "https://example.com/hook",
+            "types": ["event.published"],
+            "entity": "opportunity",
+            "query": {"updated_since": "2026-09-01"},
+        },
+    )
+    _problem(resp, 400, "unknown_parameter", "updated_since")
+    assert "last_changed[from]" in resp.json()["detail"]
 
 
 def test_create_accepts_the_event_filters_added_on_2026_09_27(client, db):

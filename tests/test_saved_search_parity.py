@@ -212,6 +212,7 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     sponsors = [None, acme, hidden]
     source_sets = [[src_a], [src_b], [src_a, src_g], [src_g], [src_a, src_b]]
     names = ["Alpha Solar", "Bravo Wind", "Charlie Storage", "Delta_Grid", "Echo 100% Farm"]
+    storage = [None, 0.0, 99.999, 100.0, 400.0]
 
     for i in range(140):
         prop = Proposal(
@@ -233,6 +234,8 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             sponsor_org_id=(s.id if (s := _pick(sponsors, i, 4)) else None),
             location_id=(loc.id if (loc := _pick(locations, i, 5)) else None),
             proposed_online_date=_pick(dates, i),
+            storage_mwh=_pick(storage, i, 3),
+            first_seen=NOW - dt.timedelta(days=i % 40, hours=1),
             last_changed=NOW - dt.timedelta(minutes=i),
         )
         db.add(prop)
@@ -257,6 +260,20 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     ]
     issuers = [None, acme, hidden]
     titles = ["Solar RFP", "Wind Tender", "Storage Grant", "Grid_Upgrade Call", "Hydro Notice"]
+    opens: list[dt.date | None] = [None, dt.date(2026, 1, 1), dt.date(2026, 6, 1), dt.date(2026, 9, 1)]
+    sought: list[float | None] = [None, 10.0, 49.999, 50.0, 200.0]
+    # Mixed currencies on purpose: `budget_amount[gte]` must never compare across them (records.py
+    # `budget_bound`). A CZK amount above every EUR bound, an exact-boundary EUR amount, and an EUR
+    # row with no amount.
+    budgets: list[tuple[float | None, str | None]] = [
+        (None, None),
+        (1_000_000.0, "EUR"),
+        (999_999.99, "EUR"),
+        (25_000_000.0, "CZK"),
+        (2_000_000.0, "USD"),
+        (None, "EUR"),
+        (3_000_000.0, "EUR"),
+    ]
     for i in range(80):
         opp = Opportunity(
             public_id="",
@@ -267,6 +284,11 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             technologies=_pick(opp_techs, i, 3),
             status=_pick(statuses, i),
             due_at=_pick(dues, i, 5),
+            open_at=_pick(opens, i, 3),
+            capacity_sought_mw=_pick(sought, i, 7),
+            budget_amount=_pick(budgets, i, 5)[0],
+            budget_currency=_pick(budgets, i, 5)[1],
+            first_seen=NOW - dt.timedelta(days=i % 30, hours=2),
             issuer_org_id=(s.id if (s := _pick(issuers, i)) else None),
             publish_state="public",
             published_at=NOW - dt.timedelta(days=10),
@@ -319,12 +341,24 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         db.flush()
     db.commit()
     events = list(db.scalars(select(Event).order_by(Event.seq)).all())
-    return {"proposals": proposals, "opportunities": opportunities, "events": events}
+    return {
+        "proposals": proposals,
+        "opportunities": opportunities,
+        "events": events,
+        "orgs": {"acme": acme.public_id, "hidden": hidden.public_id},
+    }
+
+
+#: An organisation id that names nothing: a taken-down organisation must select exactly what this does.
+UNKNOWN_ORG = "org_does-not-exist"
 
 
 # --------------------------------------------------------------------------------------- queries
 def _proposal_queries(store: dict[str, Any]) -> list[dict[str, Any]]:
     slug = store["proposals"][5].slug
+    acme, hidden = store["orgs"]["acme"], store["orgs"]["hidden"]
+    middle = store["proposals"][len(store["proposals"]) // 2]
+    late = store["proposals"][10]
     return [
         {"kind": "storage"},
         {"kind": ["storage", "load"]},
@@ -374,11 +408,27 @@ def _proposal_queries(store: dict[str, Any]) -> list[dict[str, Any]]:
         {"jurisdiction": "US-TX,GB", "slip_bucket": "over_3y", "capacity_mw[lte]": 500},
         {"q": "wind", "placement": "none"},
         {"state": "US-TX", "technology": "wind", "capacity_mw[gte]": 0},
+        # Lane E15 (2026-09-27): the filters documented and refused until then.
+        {"sponsor_id": acme},
+        {"sponsor_id": hidden},
+        {"sponsor_id": UNKNOWN_ORG},
+        {"sponsor_id": [acme, hidden]},
+        {"storage_mwh[gte]": 100},
+        {"storage_mwh[gte]": 0},
+        {"first_seen[from]": middle.first_seen.isoformat()},
+        {"first_seen[to]": middle.first_seen.isoformat()},
+        {"first_seen[from]": late.first_seen.isoformat(), "first_seen[to]": middle.first_seen.isoformat()},
+        {"last_changed[from]": middle.last_changed.isoformat()},
+        {"last_changed[to]": middle.last_changed.isoformat()},
+        {"updated_since": middle.last_changed.isoformat()},
+        {"sponsor_id": acme, "storage_mwh[gte]": 50, "last_changed[to]": middle.last_changed.isoformat()},
     ]
 
 
 def _opportunity_queries(store: dict[str, Any]) -> list[dict[str, Any]]:
     slug = store["opportunities"][0].slug
+    acme, hidden = store["orgs"]["acme"], store["orgs"]["hidden"]
+    middle = store["opportunities"][len(store["opportunities"]) // 2]
     return [
         {"status": "closed"},
         {"status": "open,awarded"},
@@ -402,6 +452,28 @@ def _opportunity_queries(store: dict[str, Any]) -> list[dict[str, Any]]:
         {"status": "open,closed", "technologies": "wind", "jurisdiction": "US-AZ"},
         {"status": "closed,awarded,announced", "due_at[from]": "2026-10-01T00:00:00Z", "kind": "rfp,tender"},
         {"source_id": "us.par.gated,us.par.b", "q": "tender"},
+        # Lane E15 (2026-09-27).
+        {"issuer_id": acme},
+        {"issuer_id": hidden},
+        {"issuer_id": UNKNOWN_ORG},
+        {"issuer_id": f"{acme},{hidden}"},
+        {"open_at[from]": "2026-06-01"},
+        {"open_at[to]": "2026-06-01"},
+        {"open_at[from]": "2026-01-02", "open_at[to]": "2026-09-01"},
+        {"capacity_sought_mw[gte]": 50},
+        {"capacity_sought_mw[gte]": "0"},
+        {"budget_currency": "EUR"},
+        {"budget_currency": ["EUR", "USD"]},
+        # `budget_amount[gte]` is only defined with one currency, so it never appears alone.
+        {"budget_currency": "EUR", "budget_amount[gte]": 1_000_000},
+        {"budget_currency": "CZK", "budget_amount[gte]": 1_000_000},
+        {"status": "open,closed,awarded", "budget_currency": "EUR", "budget_amount[gte]": 999_999.99},
+        {"first_seen[from]": middle.first_seen.isoformat()},
+        {"first_seen[to]": middle.first_seen.isoformat()},
+        {"last_changed[from]": middle.last_changed.isoformat()},
+        {"last_changed[to]": middle.last_changed.isoformat()},
+        {"updated_since": middle.last_changed.isoformat()},
+        {"issuer_id": acme, "open_at[from]": "2026-01-01", "status": "open,closed"},
     ]
 
 
@@ -516,6 +588,9 @@ def test_proposal_list_and_matcher_agree(
         may_be_empty=(
             {"state": "US-ZZ"},
             {"q": "hidden"},  # an unpublished sponsor's name matches nothing, on every tier
+            # A taken-down sponsor's id selects nothing, the same as an id that never existed.
+            {"sponsor_id": store["orgs"]["hidden"]},
+            {"sponsor_id": UNKNOWN_ORG},
             *([{"source_id": "us.par.gated"}] if tier == "public" else []),
         ),
     )
@@ -541,7 +616,12 @@ def test_opportunity_list_and_matcher_agree(
         queries=[{}, *queries],
         single_filter_baseline=None,
     )
-    may_be_empty = [{"q": "hidden"}, *([{"source_id": "us.par.gated"}] if tier == "public" else [])]
+    may_be_empty = [
+        {"q": "hidden"},
+        {"issuer_id": store["orgs"]["hidden"]},
+        {"issuer_id": UNKNOWN_ORG},
+        *([{"source_id": "us.par.gated"}] if tier == "public" else []),
+    ]
     for query in queries:
         if len(query) == 1:
             selected = {o.public_id for o in visible if opportunity_matches_query(o, query, tier)}
@@ -577,8 +657,10 @@ def test_every_list_filter_is_exercised(store: dict[str, Any]) -> None:
     def keys(queries: list[dict[str, Any]]) -> set[str]:
         return {k for q in queries for k in q}
 
-    assert records.PROPOSAL_FILTERS | {"q"} <= keys(_proposal_queries(store))
-    assert records.OPPORTUNITY_FILTERS | {"q"} <= keys(_opportunity_queries(store))
+    # `SYNC_FILTERS` (`updated_since`) is not a saved-search key, but the matcher reads it the same
+    # way for a row stored before that rule, so it is pinned here too.
+    assert records.PROPOSAL_FILTERS | records.SYNC_FILTERS | {"q"} <= keys(_proposal_queries(store))
+    assert records.OPPORTUNITY_FILTERS | records.SYNC_FILTERS | {"q"} <= keys(_opportunity_queries(store))
     assert EVENT_FILTERS <= keys(_event_queries(store))
 
 
@@ -602,3 +684,56 @@ def test_the_fixture_store_covers_the_dimensions(store: dict[str, Any]) -> None:
     assert set(records.PLACEMENT_REGION_PRECISIONS) | {"exact", "unknown"} <= grades
     assert any(o.technologies == [] for o in store["opportunities"])
     assert any(o.due_at is None for o in store["opportunities"])
+
+
+@pytest.mark.parametrize("tier", TIERS)
+def test_a_hidden_organisation_id_selects_what_an_unknown_id_does(
+    client: TestClient, db: Session, store: dict[str, Any], tier: str
+) -> None:
+    """No oracle (docs/21 §8 item 3): the hidden organisation sponsors and issues visible records, so
+    an empty page for its id is the filter refusing to see it, not an absence of rows -- and the
+    page must be byte-for-byte the page an id that never existed gets, on both sides."""
+    _login(client, db, tier)
+    hidden = store["orgs"]["hidden"]
+    hidden_uuid = db.scalar(select(Organization.id).where(Organization.public_id == hidden))
+    assert any(p.sponsor_org_id == hidden_uuid for p in store["proposals"])
+    assert any(o.issuer_org_id == hidden_uuid for o in store["opportunities"])
+    for path, key, extra in (
+        ("/v1/proposals", "sponsor_id", ""),
+        ("/v1/opportunities", "issuer_id", "&status=open,closed,awarded,announced,cancelled"),
+        ("/v1/proposals/geo", "sponsor_id", "&bbox=-180,-90,180,90&zoom=3"),
+        ("/v1/opportunities/geo", "issuer_id", "&bbox=-180,-90,180,90&zoom=3"),
+        ("/feeds/proposals.json", "sponsor_id", ""),
+        ("/feeds/opportunities.json", "issuer_id", ""),
+    ):
+        default_limiter.reset()
+        seen = client.get(f"{path}?{key}={hidden}{extra}")
+        default_limiter.reset()
+        unknown = client.get(f"{path}?{key}={UNKNOWN_ORG}{extra}")
+        assert seen.status_code == unknown.status_code == 200, (path, seen.text)
+        a, b = seen.json(), unknown.json()
+        for body in (a, b):
+            body.pop("meta", None)  # request-scoped (request id, generated_at)
+            for volatile in ("feed_url", "home_page_url"):
+                body.pop(volatile, None)
+        assert a == b, path
+    proposal = next(p for p in store["proposals"] if p.sponsor_org_id == hidden_uuid)
+    assert not proposal_matches_query(proposal, {"sponsor_id": hidden}, tier)
+
+
+def test_budget_bound_is_a_strict_subset_of_its_currency(client: TestClient, store: dict[str, Any]) -> None:
+    """`budget_amount[gte]` only exists beside one `budget_currency`, so the "each filter narrows" check
+    runs on the pair: non-empty, and strictly inside the currency's own set, which holds a CZK amount
+    far above the bound that must not leak in."""
+    currency = set(_list_ids(client, "/v1/opportunities", {"budget_currency": "EUR"}, "public_id"))
+    bounded = set(
+        _list_ids(
+            client,
+            "/v1/opportunities",
+            {"budget_currency": "EUR", "budget_amount[gte]": 1_000_000},
+            "public_id",
+        )
+    )
+    assert bounded and bounded < currency
+    czk = [o for o in store["opportunities"] if o.budget_currency == "CZK" and o.status == "open"]
+    assert czk and not {o.public_id for o in czk} & bounded

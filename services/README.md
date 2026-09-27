@@ -216,20 +216,20 @@ are architecture changes; all are bounded follow-ups.
    only the first field is applied; `page.prev_cursor` is always `null` (reverse iteration is not
    implemented). Both are honestly represented in the response shape (no fabricated cursor, no
    silently-ignored second sort key beyond dropping it) rather than pretended-complete.
-7. **Filter coverage is a named subset, not the full grammar.** Every filter parameter this
+7. **Filter coverage: every documented filter is implemented, or refused by name.** Every filter parameter this
    service *declares* as allowed is real, tested and effective; parameters `api/openapi.yaml`
    lists but the service does not implement are **not** in this service's allowlist and so answer
    `400 unknown_parameter` rather than being silently accepted and ignored -- docs/04 API-3 treats
    a silently-dropped filter as a licence-sensitive leak, and an honest 400 is safer than a filter
-   that looks like it works and doesn't. As of 2026-09-27 (lane E14) the documented-and-refused set
-   is: on proposals (list, geo, feed) `sponsor_id`, and on the list and geo `storage_mwh[gte]`,
-   `first_seen[from|to]`, `last_changed[from|to]`, `updated_since` (the bulk streams and exports
-   take `updated_since`); on opportunities (list, geo, feed) `issuer_id`, and on the list
-   `open_at[from|to]`, `capacity_sought_mw[gte]`, `budget_amount[gte]`, `first_seen[from|to]`,
-   `last_changed[from|to]`, `updated_since` (geo: `updated_since`); on organisations
-   `jurisdiction`, `updated_since`; on the events feed `jurisdiction`. **This list is enforced, not
-   remembered:** `tests/test_spec_list_parameters.py` walks every list-shaped `GET` in the spec
-   (paging operations, `.../geo`, `/feeds/*`), requests each documented query parameter, and fails
+   that looks like it works and doesn't. **Since 2026-09-27 (lane E15) the documented-and-refused set
+   is empty**: every query parameter the spec documents on a list-shaped operation is implemented
+   (section "Documented list filters completed ... (lane E15)" below). Lane E14 had listed it as `sponsor_id`,
+   `storage_mwh[gte]`, `first_seen`/`last_changed` windows and `updated_since` on proposals; `issuer_id`,
+   `open_at`, `capacity_sought_mw[gte]`, `budget_amount[gte]`, the windows and `updated_since` on
+   opportunities; `jurisdiction` and `updated_since` on organisations; `jurisdiction` on the events
+   feed. A parameter documented before it is built goes back into `REFUSED` as a reviewable line.
+   **This list is enforced, not remembered:** `tests/test_spec_list_parameters.py` walks every
+   list-shaped `GET` in the spec (paging operations, `.../geo`, `/feeds/*`), requests each documented query parameter, and fails
    when one the test's `REFUSED` set does not name answers `400 unknown_parameter`, when a
    `REFUSED` one is accepted, or when an operation accepts a parameter a sibling documents but it
    does not (the "accepted and ignored" shape). Closed on 2026-09-27: `changed_key` and
@@ -1869,3 +1869,111 @@ Seven measured defects; the choices, and why.
    (a connector run); nothing rewrites stored rows.
 7. **The asset page labels its length "Mapped route length (miles)"** and, when a PHMSA block is present,
    says in one line that PHMSA's onshore transmission miles are the operator's whole-system report.
+
+## Documented list filters completed, withheld names audited, ISO labels (2026-09-27, lane E15)
+
+Open decision 7's documented-and-refused set is empty: `REFUSED` in `tests/test_spec_list_parameters.py`
+is `frozenset()`. Every filter below parses through the shared functions in `services/api/records.py`
+(`number_filter`, `instant_filter`, `date_filter`, `currency_values`, `budget_bound`), so a malformed value
+is the list's `400 validation_error`; bounds are inclusive; a NULL column matches no bound and no value.
+Each runs in SQL on the list, map and feed (columns or `IN` subqueries, as the existing filters), and the
+alert matcher (`services/alerts/matching.py`) implements it through the same parser.
+
+| Filter | Where | Meaning |
+|---|---|---|
+| `sponsor_id`, `issuer_id` | proposals / opportunities: list, geo, feed | exact organisation, comma-separated for OR (`visible_organization_ids`) |
+| `storage_mwh[gte]`, `capacity_sought_mw[gte]` | proposals / opportunities | inclusive lower bound |
+| `first_seen[from|to]`, `last_changed[from|to]` | proposals, opportunities (list, geo, feed) | inclusive bounds on the record's own columns (`RECORD_TIME_BOUNDS`) |
+| `updated_since` | proposals, opportunities (list, geo, feed); organisations | `last_changed >= t` (organisations: `updated_at >= t`) |
+| `open_at[from|to]` | opportunities | calendar-date bounds, `YYYY-MM-DD` only |
+| `budget_currency`, `budget_amount[gte]` | opportunities | currency facet; amount bound only within one stated currency |
+| `jurisdiction` | organisations | the organisation's own `jurisdiction` field, exact |
+| `jurisdiction`, `source_id` | `/feeds/events.{format}` | the subject's jurisdiction; the event's own source |
+
+Decisions, each a choice:
+
+1. **No oracle on a hidden organisation.** `sponsor_id`/`issuer_id` resolve through
+   `Organization.public_id IN (...) AND organization_visibility_filter()`, the same predicate every
+   `/v1/organizations` route uses, identical on every tier. A taken-down organisation's id selects nothing,
+   the same page as an id that never existed. `tests/test_saved_search_parity.py::
+   test_a_hidden_organisation_id_selects_what_an_unknown_id_does` compares the two response bodies on the
+   list, map and feed at the public and Pro tiers, over a store where the hidden organisation sponsors and
+   issues visible records. The match is the exact organisation: not its ownership group
+   (`/v1/organizations/{id}/proposals?scope=` does that) and not a merge survivor (the detail route does not
+   follow merges either). The spec's single-id schema became a comma-separated array, as every other facet.
+2. **`budget_amount[gte]` never compares across currencies.** The dev store holds nine budget currencies
+   (EUR 172 rows, USD 101, PLN 39, CZK 29, RON 20, SEK 17, NOK 4, HUF 2, DKK 1; 322 with none). The spec said
+   "in the opportunity's `budget_currency`; no conversion", which read literally compares CZK 1,000,000
+   (about EUR 40,000) with EUR 1,000,000. The bound is therefore defined only beside exactly one
+   `budget_currency` (a new documented facet, ISO 4217 upper case); without one, or with several, it is a
+   `400 validation_error` naming `budget_amount[gte]`. On the dev store `budget_amount >= 1000000` alone would
+   select 204 rows in six currencies; `budget_currency=EUR&budget_amount[gte]=1000000` selects 67.
+   **Open:** `sort=budget_amount` still orders across currencies (not a filter; out of this lane's scope).
+3. **`updated_since` means what the bulk stream means**: `last_changed` at or after the instant, identical
+   to `last_changed[from]`; given both, both apply. It moved from `resource_statement` into the list's filter
+   stack, so bulk, CSV and exports read it from one place. **A saved search or webhook refuses it**
+   (`400 unknown_parameter`, detail pointing at `last_changed[from]`): an alert already delivers only changes
+   after its own watermark, and the record it evaluates has just changed, so a stored `updated_since`
+   matches every change (past bound) or none until the clock passes it (future bound). `SYNC_FILTERS` in
+   `records.py` holds it apart from `PROPOSAL_FILTERS`/`OPPORTUNITY_FILTERS` (the saved-search key sets). The
+   matcher still reads it the list's way for a row stored before this rule. `first_seen`/`last_changed`
+   windows are accepted on saved searches for parity; a changed record's `last_changed` is the change time,
+   so `last_changed[to]` in the past never alerts.
+4. **Organisations' `updated_since` reads `updated_at`**, as the spec's `UpdatedSince` says ("for
+   organizations and matches, `updated_at`"): it moves on every ORM write to the row where `last_changed` is
+   loader-set, and is never earlier than it, so paging with the largest `last_changed` seen misses nothing.
+   `jurisdiction` on organisations is the field as served (NULL on all 8,374 dev-store rows today, so it
+   selects nothing there); a country is `country`.
+5. **The events feed's `jurisdiction` is the subject's.** An event has none of its own; "events in Texas" is
+   the natural feed question, and both subject tables carry a NOT NULL `jurisdiction`. Two uncorrelated `IN`
+   subqueries on `event.subject_id`, one per subject type (`resource_queries.event_subject_jurisdiction_filter`).
+   No visibility clause is needed in them: the feed's `event_visibility_filter` already requires a visible
+   subject, so a hidden subject's jurisdiction cannot be probed. `GET /v1/events` does not document it and
+   still refuses it. **Found and fixed:** the events feed accepted `source_id` and applied nothing; it now
+   filters on the event's own source.
+6. **The feeds and the opportunities map now document the list's full filter set.** The proposal feed's spec
+   says "Feed twin of `GET /v1/proposals` with the same query string (US-503 AC1)" but documented a subset;
+   with the new filters in the shared allowlist, the drift test's "accepts but does not document" check
+   required either per-operation allowlists or the spec lines. The spec lines were added (proposal feed,
+   opportunity feed, opportunities map), so one filter set per entity serves every list-shaped view.
+
+**Measured on a copy of `web/.data/dev.db`** (10,409 proposals, 707 opportunities, 8,374 organisations; before
+= commit 93082eb, where every row below answered `400 unknown_parameter`), each cross-checked against direct
+SQL on the same copy:
+
+| Request | After | Direct SQL |
+|---|---|---|
+| `/v1/proposals?sponsor_id=<largest sponsor>` | 157 | 157 |
+| `/v1/proposals?first_seen[from]=<5,001st first_seen>` | 5,409 | 5,409 |
+| `/v1/proposals?last_changed[to]=<3,001st last_changed>` | 3,001 | 3,001 |
+| `/v1/proposals?updated_since=<same>` and `last_changed[from]=<same>` | 7,409 each | 7,409 |
+| `/v1/proposals?storage_mwh[gte]=0` | 0 | 0 (no row states storage) |
+| `/v1/opportunities?status=<all>&open_at[from]=2025-01-01` | 657 | 657 |
+| `/v1/opportunities?status=<all>&budget_currency=EUR` | 172 | 172 |
+| `...&budget_currency=EUR&budget_amount[gte]=1000000` | 67 | 67 |
+| `...&budget_amount[gte]=1000000` (no currency) | 400 | 204 if compared across currencies |
+| `/v1/organizations?updated_since=<4,001st updated_at>` | 4,371 | 4,371 (4,374 less 3 merged rows the list never shows) |
+| `/feeds/events.json?jurisdiction=US-TX` | 0 items | 0 (16 events on US-TX subjects, none public) |
+
+After the first (warm-up) request, each list request with `include=count` answered in 30-150 ms in-process on
+SQLite; no index was added and no migration was needed.
+
+**Withheld operator names in the M-11 audit.** `services/visibility_audit/run.py` gains a check that no
+non-admin asset surface prints the name of an organisation that is not public (lane E14's
+`services/api/withheld_names.py`). Store pass: every shown asset linked to a hidden organisation (operator edge,
+`operator_name` spelling, or any owner edge) is rendered through `services/api/assets.py::asset_surface_shapes`
+(the detail, list/search, map point and map line builders the routes call) and its `operator_name`,
+`attributes` and `owners` are scanned (`withheld_name_paths`: by `org_key` for register text, by public id for
+owner edges, and any `operator_name` at all where an operator edge exists): `withheld_name_printed:<shape>:<path>`.
+Served pass: a sample of those assets' detail pages (`withheld_name_served`) and an asset search per withheld
+spelling (`withheld_name_searchable` when an asset comes back that could only match through the withheld name);
+the check kind is `withheld_name` (spec enum extended). The persisted row names the asset, never the withheld
+spelling searched. When every organisation is public the check is one query. Not covered: a *visible* owner
+edge's `owner_name_raw` that happens to share a withheld key (the serializer prints it; policy is unsettled),
+and a served request to the map endpoints (the store pass renders their point and line builders; the served
+pass requests the detail page and search only).
+
+**ISO display labels.** `web/viewmodels.py::iso_label` maps `ISONE` to "ISO-NE" (every other token reads as
+itself) on the proposal page and the admin record's read-only row; the admin edit form, the API, `?iso=` and
+alerts keep the stored token. The web has no ISO list column or filter today, so those are the only two places
+an ISO renders.

@@ -40,6 +40,7 @@ from services.api.ratelimit import plan_quota
 from services.api.records import (
     OPPORTUNITY_FILTERS,
     PROPOSAL_FILTERS,
+    SYNC_FILTERS,
     _opportunity_query_with_filters,
     _proposal_query_with_filters,
 )
@@ -200,7 +201,9 @@ def saved_search_query_keys(entity: str) -> frozenset[str]:
     which `services/alerts/matching.py` implements in full (`tests/test_saved_search_parity.py`).
     `q` is one on proposals and opportunities. On events it is not: `GET /v1/events` refuses `q`
     (2026-09-27, lane E14; before that it accepted `q` and applied nothing), and an event query may
-    name `changed_key` and `observed_at[from|to]`, which the list and the matcher both apply."""
+    name `changed_key` and `observed_at[from|to]`, which the list and the matcher both apply.
+    `updated_since` is not here: the list takes it (`records.SYNC_FILTERS`), a stored search does not,
+    and `validate_saved_search_query` says so by name."""
     from services.api.resource_queries import EVENT_FILTERS
 
     if entity == "proposal":
@@ -228,6 +231,21 @@ def validate_saved_search_query(db: Session, entity: str, query: dict[str, Any],
     check_query_values(query, instance)
     allowed = saved_search_query_keys(entity)
     for key in query:
+        if key in SYNC_FILTERS and entity in ("proposal", "opportunity"):
+            # The list takes it; a stored search does not (records.SYNC_FILTERS says why). Same
+            # code as any other key the search cannot carry, with a detail that says what to use.
+            raise ProblemError(
+                "unknown_parameter",
+                "Unknown query parameter",
+                detail=(
+                    f'"{key}" is an incremental-sync cursor for the list and bulk endpoints, not a '
+                    "saved-search filter: an alert already delivers only changes after its own watermark, "
+                    "and a changed record's last_changed is the time of the change. Use last_changed[from] "
+                    "for a fixed window."
+                ),
+                errors=[{"field": key, "message": "not a saved-search filter; use last_changed[from]"}],
+                instance=instance,
+            )
         if key not in allowed:
             raise unknown_parameter(key, instance)
     request = synthetic_request(query, path=instance)

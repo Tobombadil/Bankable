@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import re
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any, Literal, NamedTuple, cast
@@ -102,7 +103,24 @@ PROPOSAL_FILTERS = {
     # `proposed_online_date` against the current date, never stored.
     "slipped",
     "slip_bucket",
+    # 2026-09-27 (lane E15): documented since Sprint 2 and refused until now (services/README.md
+    # open decision 7). `sponsor_id` names a *public* organisation; a taken-down one selects
+    # nothing, exactly as an id that never existed (`visible_organization_ids`).
+    "sponsor_id",
+    "storage_mwh[gte]",
+    "first_seen[from]",
+    "first_seen[to]",
+    "last_changed[from]",
+    "last_changed[to]",
 }
+#: Filters the list, map and feed apply that a saved search or webhook may **not** carry.
+#: `updated_since` is the incremental-sync cursor (docs/23 §7; `services/api/bulk.py`): "rows whose
+#: `last_changed` is at or after this instant", identical to `last_changed[from]`. An alert already
+#: delivers only what changed after its own watermark, and the record it evaluates has just changed,
+#: so a stored `updated_since` would either match every change (a past bound) or none until the
+#: clock passes it (a future one) -- a cursor frozen into a filter. `validate_saved_search_query`
+#: refuses it with a message pointing at `last_changed[from]` (services/api/pro.py).
+SYNC_FILTERS = {"updated_since"}
 PROPOSAL_SORT_ALLOWLIST = {"last_changed", "first_seen", "capacity_mw", "name_canonical"}
 
 #: ADR 0008, docs/21 §3.7: the three region-grade precisions a `placement=region` filter expands
@@ -138,6 +156,69 @@ def instant_filter(name: str, value: str, instance: str) -> dt.datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=dt.UTC)
     return parsed.astimezone(dt.UTC)
+
+
+def date_filter(name: str, value: str, instance: str) -> dt.date:
+    """A calendar-date bound such as `open_at[from]` (api/openapi.yaml `format: date`), for a `DATE`
+    column: `YYYY-MM-DD` only. A date-time is refused rather than truncated, because which day
+    `2026-01-01T23:00:00-05:00` names depends on a time zone the column does not carry. Unparseable is
+    a `400 validation_error`. Shared with the alert matcher."""
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise validation_error(name, f"{name} must be a date (YYYY-MM-DD)", instance) from exc
+
+
+def visible_organization_ids(values: list[str]) -> sa.Select[Any]:
+    """The internal ids of the organisations `sponsor_id=`/`issuer_id=` name, restricted to the ones a
+    non-admin caller may see (`organization_visibility_filter`, identical on every tier). A taken-down
+    organisation's id therefore selects nothing -- the same empty page as an id that never existed,
+    so the filter cannot be used to confirm a hidden organisation exists or which records it is
+    linked to (docs/21 §8 item 3; the 2026-09-27 takedown decision in docs/00-PLAN.md). The match is
+    on the exact organisation, not its ownership tree (`/v1/organizations/{id}/proposals?scope=`
+    widens) and not a merge survivor (the detail route does not follow merges either)."""
+    return select(Organization.id).where(
+        Organization.public_id.in_(values), *organization_visibility_filter()
+    )
+
+
+_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+
+
+def currency_values(raw: str, instance: str) -> list[str]:
+    """`?budget_currency=EUR,GBP` as ISO 4217 codes (upper case, three letters, as stored); anything
+    else is a `400 validation_error`. Shared with the alert matcher."""
+    values = csv_param(raw)
+    for value in values:
+        if not _CURRENCY_RE.fullmatch(value):
+            raise validation_error(
+                "budget_currency", "budget_currency values are ISO 4217 codes such as USD or EUR", instance
+            )
+    return values
+
+
+def budget_bound(raw_amount: str | None, raw_currency: str | None, instance: str) -> tuple[float, str] | None:
+    """`(amount, currency)` for `budget_amount[gte]`, or `None` when it is absent.
+
+    Budgets are stored in the notice's own currency and never converted (api/openapi.yaml
+    `BudgetAmountGte`); the 2026-09-27 dev store holds nine (EUR, USD, PLN, CZK, RON, SEK, NOK, HUF,
+    DKK). Comparing `budget_amount >= 1000000` across them would rank a CZK 1,000,000 grant (about
+    EUR 40,000) with a EUR 1,000,000 one. So the bound is only defined within one stated currency:
+    `budget_amount[gte]` requires `budget_currency` naming exactly one code, and selects rows in
+    that currency with an amount at or above the bound. Without it, or with several, it is a
+    `400 validation_error` naming `budget_amount[gte]` -- never a silent cross-currency compare."""
+    if not raw_amount:
+        return None
+    amount = number_filter("budget_amount[gte]", raw_amount, instance)
+    currencies = currency_values(raw_currency, instance) if raw_currency else []
+    if len(currencies) != 1:
+        raise validation_error(
+            "budget_amount[gte]",
+            "budget_amount[gte] compares amounts in one currency and never converts: pass exactly one "
+            "budget_currency (an ISO 4217 code such as EUR)",
+            instance,
+        )
+    return amount, currencies[0]
 
 
 PLACEMENT_GRADES = ("exact", "region", "none")
@@ -257,6 +338,34 @@ def slip_params(
     return slipped, buckets
 
 
+#: The record-level time windows proposals and opportunities share: `(parameter, column attribute,
+#: comparison)`. Inclusive bounds, as `due_at[from|to]`; a NULL column matches no bound (both columns
+#: are NOT NULL today). `updated_since` is `last_changed[from]` under its sync name (`SYNC_FILTERS`).
+RECORD_TIME_BOUNDS: tuple[tuple[str, str, str], ...] = (
+    ("first_seen[from]", "first_seen", "gte"),
+    ("first_seen[to]", "first_seen", "lte"),
+    ("last_changed[from]", "last_changed", "gte"),
+    ("last_changed[to]", "last_changed", "lte"),
+    ("updated_since", "last_changed", "gte"),
+)
+
+
+def _apply_record_time_filters(
+    stmt: sa.Select[Any],
+    request: Request,
+    first_seen: InstrumentedAttribute[dt.datetime],
+    last_changed: InstrumentedAttribute[dt.datetime],
+) -> sa.Select[Any]:
+    """`first_seen[from|to]`, `last_changed[from|to]` and `updated_since` over the record's own
+    columns, each bound parsed by `instant_filter` (a malformed one is a `400 validation_error`)."""
+    columns = {"first_seen": first_seen, "last_changed": last_changed}
+    for name, column, op in RECORD_TIME_BOUNDS:
+        if v := request.query_params.get(name):
+            bound = instant_filter(name, v, request.url.path)
+            stmt = stmt.where(columns[column] >= bound if op == "gte" else columns[column] <= bound)
+    return stmt
+
+
 def _apply_proposal_filters(
     stmt: sa.Select[Any], request: Request, entitlement: str = "public"
 ) -> sa.Select[Any]:
@@ -286,6 +395,11 @@ def _apply_proposal_filters(
         stmt = stmt.where(Proposal.capacity_mw >= number_filter("capacity_mw[gte]", v, request.url.path))
     if v := qp.get("capacity_mw[lte]"):
         stmt = stmt.where(Proposal.capacity_mw <= number_filter("capacity_mw[lte]", v, request.url.path))
+    if v := qp.get("storage_mwh[gte]"):
+        stmt = stmt.where(Proposal.storage_mwh >= number_filter("storage_mwh[gte]", v, request.url.path))
+    if v := qp.get("sponsor_id"):
+        stmt = stmt.where(Proposal.sponsor_org_id.in_(visible_organization_ids(csv_param(v))))
+    stmt = _apply_record_time_filters(stmt, request, Proposal.first_seen, Proposal.last_changed)
     if v := qp.get("slug"):
         stmt = stmt.where(Proposal.slug == v)
     if v := qp.get("county_fips"):
@@ -490,7 +604,7 @@ def list_proposals(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, LIST_COMMON | PROPOSAL_FILTERS)
+    check_allowed(request, LIST_COMMON | PROPOSAL_FILTERS | SYNC_FILTERS)
     if wants_csv(request):
         return _csv_list_response(request, db, ctx, "proposal")
     limit = clamp_limit(int_param(request, "limit"))
@@ -573,7 +687,7 @@ def get_proposals_geo(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, {"bbox", "zoom"} | PROPOSAL_FILTERS | {"q"})
+    check_allowed(request, {"bbox", "zoom"} | PROPOSAL_FILTERS | SYNC_FILTERS | {"q"})
     bbox_param = request.query_params.get("bbox")
     zoom_param = request.query_params.get("zoom")
     if not bbox_param or zoom_param is None:
@@ -665,6 +779,19 @@ OPPORTUNITY_FILTERS = {
     "due_at[from]",
     "due_at[to]",
     "slug",
+    # 2026-09-27 (lane E15), refused until now (services/README.md open decision 7). `issuer_id`
+    # follows `sponsor_id`'s no-oracle rule; `budget_amount[gte]` needs one `budget_currency`
+    # (`budget_bound`), which is also a facet on its own.
+    "issuer_id",
+    "open_at[from]",
+    "open_at[to]",
+    "capacity_sought_mw[gte]",
+    "budget_currency",
+    "budget_amount[gte]",
+    "first_seen[from]",
+    "first_seen[to]",
+    "last_changed[from]",
+    "last_changed[to]",
 }
 OPPORTUNITY_SORT_ALLOWLIST = {"due_at", "open_at", "last_changed", "budget_amount"}
 
@@ -725,6 +852,22 @@ def _opportunity_query_with_filters(
         stmt = stmt.where(Opportunity.due_at >= instant_filter("due_at[from]", v, request.url.path))
     if v := qp.get("due_at[to]"):
         stmt = stmt.where(Opportunity.due_at <= instant_filter("due_at[to]", v, request.url.path))
+    if v := qp.get("issuer_id"):
+        stmt = stmt.where(Opportunity.issuer_org_id.in_(visible_organization_ids(csv_param(v))))
+    if v := qp.get("open_at[from]"):
+        stmt = stmt.where(Opportunity.open_at >= date_filter("open_at[from]", v, request.url.path))
+    if v := qp.get("open_at[to]"):
+        stmt = stmt.where(Opportunity.open_at <= date_filter("open_at[to]", v, request.url.path))
+    if v := qp.get("capacity_sought_mw[gte]"):
+        bound = number_filter("capacity_sought_mw[gte]", v, request.url.path)
+        stmt = stmt.where(Opportunity.capacity_sought_mw >= bound)
+    if v := qp.get("budget_currency"):
+        stmt = stmt.where(Opportunity.budget_currency.in_(currency_values(v, request.url.path)))
+    budget = budget_bound(qp.get("budget_amount[gte]"), qp.get("budget_currency"), request.url.path)
+    if budget is not None:
+        amount, currency = budget
+        stmt = stmt.where(Opportunity.budget_currency == currency, Opportunity.budget_amount >= amount)
+    stmt = _apply_record_time_filters(stmt, request, Opportunity.first_seen, Opportunity.last_changed)
     if v := qp.get("slug"):
         stmt = stmt.where(Opportunity.slug == v)
     if v := qp.get("q"):
@@ -762,7 +905,7 @@ def list_opportunities(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, LIST_COMMON | OPPORTUNITY_FILTERS)
+    check_allowed(request, LIST_COMMON | OPPORTUNITY_FILTERS | SYNC_FILTERS)
     if wants_csv(request):
         return _csv_list_response(request, db, ctx, "opportunity")
     limit = clamp_limit(int_param(request, "limit"))
@@ -802,7 +945,7 @@ def get_opportunities_geo(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, {"bbox", "zoom"} | OPPORTUNITY_FILTERS | {"q"})
+    check_allowed(request, {"bbox", "zoom"} | OPPORTUNITY_FILTERS | SYNC_FILTERS | {"q"})
     bbox_param = request.query_params.get("bbox")
     zoom_param = request.query_params.get("zoom")
     if not bbox_param or zoom_param is None:

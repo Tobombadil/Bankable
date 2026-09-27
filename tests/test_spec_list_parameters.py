@@ -42,48 +42,10 @@ from tests.conftest import login, make_account, make_api_key, make_user
 SPEC_PATH = pathlib.Path(__file__).resolve().parents[1] / "api" / "openapi.yaml"
 
 #: `(path, parameter)` pairs the spec documents and the code refuses with `400 unknown_parameter`.
-#: services/README.md open decision 7 names the same set; keep the two in step.
-REFUSED: frozenset[tuple[str, str]] = frozenset(
-    {
-        # Proposals: sponsor by id, storage size, the date windows and incremental sync on the list
-        # (the bulk stream takes `updated_since`; exports take it in their stored query).
-        ("/v1/proposals", "sponsor_id"),
-        ("/v1/proposals", "storage_mwh[gte]"),
-        ("/v1/proposals", "first_seen[from]"),
-        ("/v1/proposals", "first_seen[to]"),
-        ("/v1/proposals", "last_changed[from]"),
-        ("/v1/proposals", "last_changed[to]"),
-        ("/v1/proposals", "updated_since"),
-        # Opportunities: the same windows, the issuer by id, and the two numeric floors.
-        ("/v1/opportunities", "issuer_id"),
-        ("/v1/opportunities", "open_at[from]"),
-        ("/v1/opportunities", "open_at[to]"),
-        ("/v1/opportunities", "capacity_sought_mw[gte]"),
-        ("/v1/opportunities", "budget_amount[gte]"),
-        ("/v1/opportunities", "first_seen[from]"),
-        ("/v1/opportunities", "first_seen[to]"),
-        ("/v1/opportunities", "last_changed[from]"),
-        ("/v1/opportunities", "last_changed[to]"),
-        ("/v1/opportunities", "updated_since"),
-        # The map payloads take the list's implemented filters and refuse the same unimplemented ones.
-        ("/v1/proposals/geo", "sponsor_id"),
-        ("/v1/proposals/geo", "storage_mwh[gte]"),
-        ("/v1/proposals/geo", "first_seen[from]"),
-        ("/v1/proposals/geo", "first_seen[to]"),
-        ("/v1/proposals/geo", "last_changed[from]"),
-        ("/v1/proposals/geo", "last_changed[to]"),
-        ("/v1/proposals/geo", "updated_since"),
-        ("/v1/opportunities/geo", "issuer_id"),
-        ("/v1/opportunities/geo", "updated_since"),
-        # Organisations: neither filter is implemented on the list yet.
-        ("/v1/organizations", "jurisdiction"),
-        ("/v1/organizations", "updated_since"),
-        # Feeds: the lists' gaps, plus `jurisdiction` on the events feed (an event has none of its own).
-        ("/feeds/proposals.{format}", "sponsor_id"),
-        ("/feeds/opportunities.{format}", "issuer_id"),
-        ("/feeds/events.{format}", "jurisdiction"),
-    }
-)
+#: services/README.md open decision 7 names the same set; keep the two in step. Empty since
+#: 2026-09-27 (lane E15): every documented list filter is implemented. A parameter documented
+#: before it is built goes here, as a reviewable line, never as a silent no-op.
+REFUSED: frozenset[tuple[str, str]] = frozenset()
 
 #: A value per parameter name where the schema alone does not produce a sensible one.
 _VALUES: dict[str, str] = {
@@ -96,6 +58,7 @@ _VALUES: dict[str, str] = {
     "subject_id": "prop_0",
     "state": "US-TX",
     "jurisdiction": "US-TX",
+    "budget_currency": "EUR",
     "county_fips": "48453",
     "scope": "self",
     "bbox": "-106.6,25.8,-93.5,36.5",

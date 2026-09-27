@@ -608,6 +608,7 @@ paths:
         - $ref: '#/components/parameters/OpenAtFrom'
         - $ref: '#/components/parameters/OpenAtTo'
         - $ref: '#/components/parameters/CapacitySoughtMwGte'
+        - $ref: '#/components/parameters/BudgetCurrency'
         - $ref: '#/components/parameters/BudgetAmountGte'
         - $ref: '#/components/parameters/FirstSeenFrom'
         - $ref: '#/components/parameters/FirstSeenTo'
@@ -663,6 +664,15 @@ paths:
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/DueAtFrom'
         - $ref: '#/components/parameters/DueAtTo'
+        - $ref: '#/components/parameters/OpenAtFrom'
+        - $ref: '#/components/parameters/OpenAtTo'
+        - $ref: '#/components/parameters/CapacitySoughtMwGte'
+        - $ref: '#/components/parameters/BudgetCurrency'
+        - $ref: '#/components/parameters/BudgetAmountGte'
+        - $ref: '#/components/parameters/FirstSeenFrom'
+        - $ref: '#/components/parameters/FirstSeenTo'
+        - $ref: '#/components/parameters/LastChangedFrom'
+        - $ref: '#/components/parameters/LastChangedTo'
         - $ref: '#/components/parameters/UpdatedSince'
         - $ref: '#/components/parameters/SlugFilter'
       responses:
@@ -821,8 +831,9 @@ paths:
       summary: List organizations
       description: >-
         Sponsors and issuers. `is_curated_issuer=true` lists the curated RFP issuer registry (US-303). No personal
-        data. `jurisdiction` and `updated_since` are documented and not yet implemented: each answers
-        `400 unknown_parameter`, never a silent no-op (services/README.md open decision 7).
+        data. `jurisdiction` matches the organisation's own `jurisdiction` field exactly (NULL matches nothing; filter a
+        country with `country`). `updated_since` reads the row's `updated_at`, which moves on every write to the
+        organisation and is never earlier than its `last_changed`.
       x-tier: public
       x-status: live
       x-sprint: 2
@@ -5361,6 +5372,12 @@ paths:
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
         - $ref: '#/components/parameters/CapacityMwLte'
+        - $ref: '#/components/parameters/StorageMwhGte'
+        - $ref: '#/components/parameters/FirstSeenFrom'
+        - $ref: '#/components/parameters/FirstSeenTo'
+        - $ref: '#/components/parameters/LastChangedFrom'
+        - $ref: '#/components/parameters/LastChangedTo'
+        - $ref: '#/components/parameters/UpdatedSince'
         - $ref: '#/components/parameters/Slipped'
         - $ref: '#/components/parameters/SlipBucket'
         - $ref: '#/components/parameters/Placement'
@@ -5391,7 +5408,9 @@ paths:
       operationId: feedOpportunities
       tags: [Feeds]
       summary: Opportunity feed
-      description: Feed twin of `GET /v1/opportunities`; same rules as the proposal feed.
+      description: >-
+        Feed twin of `GET /v1/opportunities` with the same filters (not the page parameters); same rules as the
+        proposal feed.
       x-tier: public
       x-status: live
       x-sprint: 2
@@ -5407,6 +5426,16 @@ paths:
         - $ref: '#/components/parameters/Jurisdiction'
         - $ref: '#/components/parameters/DueAtFrom'
         - $ref: '#/components/parameters/DueAtTo'
+        - $ref: '#/components/parameters/OpenAtFrom'
+        - $ref: '#/components/parameters/OpenAtTo'
+        - $ref: '#/components/parameters/CapacitySoughtMwGte'
+        - $ref: '#/components/parameters/BudgetCurrency'
+        - $ref: '#/components/parameters/BudgetAmountGte'
+        - $ref: '#/components/parameters/FirstSeenFrom'
+        - $ref: '#/components/parameters/FirstSeenTo'
+        - $ref: '#/components/parameters/LastChangedFrom'
+        - $ref: '#/components/parameters/LastChangedTo'
+        - $ref: '#/components/parameters/UpdatedSince'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/SlugFilter'
       responses:
@@ -5434,7 +5463,9 @@ paths:
       summary: Global change feed as RSS or JSON Feed
       description: >-
         Feed twin of `GET /v1/events`; same rules as the proposal feed, and the same subject-visibility predicate
-        as the list — an event on a hidden, restricted-licence or not-yet-public record has no item.
+        as the list — an event on a hidden, restricted-licence or not-yet-public record has no item. An event has no
+        jurisdiction of its own: `jurisdiction` matches the *subject's* (the proposal's or opportunity's
+        `jurisdiction`, exact, comma-separated for OR). `source_id` is the event's own source.
       x-tier: public
       x-status: live
       x-sprint: 2
@@ -6306,15 +6337,28 @@ components:
     SponsorId:
       name: sponsor_id
       in: query
-      description: Organization public id of the sponsor.
+      description: >-
+        Organization public id of the sponsor; comma-separated for OR. The exact organisation, not its group (the
+        organisation's own `/proposals?scope=` widens). An organisation that is not public (taken down) matches nothing,
+        exactly as an id that does not exist, so the filter never confirms a hidden organisation.
+      style: form
+      explode: false
       schema:
-        $ref: '#/components/schemas/OrganizationPublicId'
+        type: array
+        items:
+          $ref: '#/components/schemas/OrganizationPublicId'
     IssuerId:
       name: issuer_id
       in: query
-      description: Organization public id of the issuer.
+      description: >-
+        Organization public id of the issuer; comma-separated for OR. Same rules as `sponsor_id`: an organisation that
+        is not public matches nothing, exactly as an unknown id.
+      style: form
+      explode: false
       schema:
-        $ref: '#/components/schemas/OrganizationPublicId'
+        type: array
+        items:
+          $ref: '#/components/schemas/OrganizationPublicId'
     SourceIdFilter:
       name: source_id
       in: query
@@ -6340,50 +6384,76 @@ components:
     StorageMwhGte:
       name: 'storage_mwh[gte]'
       in: query
+      description: Inclusive lower bound on `storage_mwh`; a proposal with no stated storage matches no bound.
       schema:
         type: number
         minimum: 0
     CapacitySoughtMwGte:
       name: 'capacity_sought_mw[gte]'
       in: query
+      description: Inclusive lower bound on `capacity_sought_mw`; an opportunity with none stated matches no bound.
       schema:
         type: number
         minimum: 0
+    BudgetCurrency:
+      name: budget_currency
+      in: query
+      description: >-
+        ISO 4217 code(s) of the opportunity's `budget_currency`, upper case; comma-separated for OR. An opportunity with
+        no stated budget currency matches none.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          pattern: '^[A-Z]{3}$'
     BudgetAmountGte:
       name: 'budget_amount[gte]'
       in: query
-      description: In the opportunity's `budget_currency`; no conversion.
+      description: >-
+        Inclusive lower bound on `budget_amount`, in exactly one currency named by `budget_currency`
+        (`?budget_currency=EUR&budget_amount[gte]=1000000`). Budgets are never converted, so without `budget_currency`,
+        or with more than one, this is a `400 validation_error` rather than a comparison across currencies.
       schema:
         type: number
         minimum: 0
     FirstSeenFrom:
       name: 'first_seen[from]'
       in: query
+      description: Inclusive lower bound on the record's `first_seen` (UTC; an offset is honoured, a bare date is midnight UTC).
       schema:
         type: string
         format: date-time
     FirstSeenTo:
       name: 'first_seen[to]'
       in: query
+      description: Inclusive upper bound on the record's `first_seen` (UTC; an offset is honoured, a bare date is midnight UTC).
       schema:
         type: string
         format: date-time
     LastChangedFrom:
       name: 'last_changed[from]'
       in: query
+      description: Inclusive lower bound on the record's `last_changed` (UTC; an offset is honoured, a bare date is midnight UTC).
       schema:
         type: string
         format: date-time
     LastChangedTo:
       name: 'last_changed[to]'
       in: query
+      description: Inclusive upper bound on the record's `last_changed` (UTC; an offset is honoured, a bare date is midnight UTC).
       schema:
         type: string
         format: date-time
     UpdatedSince:
       name: updated_since
       in: query
-      description: Records whose `last_changed` (or, for organizations and matches, `updated_at`) is at or after this instant. The incremental-sync parameter.
+      description: >-
+        Records whose `last_changed` (or, for organizations and matches, `updated_at`) is at or after this instant. The
+        incremental-sync parameter; on proposals and opportunities it is the same bound as `last_changed[from]`, and
+        combined with it both apply. Not a saved-search or webhook filter (an alert already delivers only changes after
+        its own watermark): a stored query naming it is a `400 unknown_parameter`; use `last_changed[from]`.
       schema:
         type: string
         format: date-time
@@ -6432,12 +6502,14 @@ components:
     OpenAtFrom:
       name: 'open_at[from]'
       in: query
+      description: Inclusive lower bound on `open_at`, a calendar date (`YYYY-MM-DD`; a date-time is a `400`). No `open_at` matches no bound.
       schema:
         type: string
         format: date
     OpenAtTo:
       name: 'open_at[to]'
       in: query
+      description: Inclusive upper bound on `open_at`, a calendar date (`YYYY-MM-DD`; a date-time is a `400`). No `open_at` matches no bound.
       schema:
         type: string
         format: date
@@ -11971,7 +12043,11 @@ components:
       properties:
         kind:
           type: string
-          enum: [breach, must_be_hidden]
+          enum: [breach, must_be_hidden, withheld_name]
+          description: >-
+            `breach` re-requests a store-pass breach; `must_be_hidden` requests a row that must answer 404;
+            `withheld_name` requests an asset page or an asset search that must not print, or match through, the name
+            of an organisation that is not public (the asset itself is rightly served).
         surface:
           type: string
         public_id:

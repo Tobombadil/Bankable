@@ -11,7 +11,7 @@ on a filter. The events filter block (five `if`s that lived inline in `services/
 list_events`) moves here as `event_query_with_filters` and `app.py` calls it back, for the same
 reason.
 
-Two clauses the list endpoints do **not** apply are added here, because bulk and CSV are
+One clause the list endpoints do **not** apply is added here, because bulk and CSV are
 redistribution surfaces the tier predicate does not distinguish (docs/21 §8's per-shape table;
 `services/api/visibility.py` is untouched):
 
@@ -22,8 +22,10 @@ redistribution surfaces the tier predicate does not distinguish (docs/21 §8's p
   `upsert_licence_and_source`), which docs/21 §8 says contributes "nothing" to bulk export or the
   API even while the posture admits it on the web -- so under `PLATFORM_POSTURE=noncommercial`
   those rows are on the site and absent here, by design.
-- `updated_since` (docs/23 §7; api/openapi.yaml `UpdatedSince`) on proposals and opportunities,
-  the incremental-sync parameter the list endpoints never took.
+
+`updated_since` (docs/23 §7; api/openapi.yaml `UpdatedSince`), the incremental-sync parameter, was
+a second clause added here until 2026-09-27; the list endpoints now take it themselves
+(`records.SYNC_FILTERS`), with the same meaning, so it runs in the shared filter stack.
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ from services.api.records import (
     OPPORTUNITY_SORT_ALLOWLIST,
     PROPOSAL_FILTERS,
     PROPOSAL_SORT_ALLOWLIST,
+    SYNC_FILTERS,
     _opportunity_query_with_filters,
     _proposal_query_with_filters,
     instant_filter,
@@ -111,8 +114,8 @@ _CHANGED_KEY_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,100}$")
 #: `sort` (both of which shape "the list I am looking at"); never `limit`/`cursor`/`include`,
 #: which describe a page, not a result set.
 EXPORT_QUERY_KEYS: dict[Resource, set[str]] = {
-    "proposal": PROPOSAL_FILTERS | {"q", "sort", "updated_since"},
-    "opportunity": OPPORTUNITY_FILTERS | {"q", "sort", "updated_since"},
+    "proposal": PROPOSAL_FILTERS | SYNC_FILTERS | {"q", "sort"},
+    "opportunity": OPPORTUNITY_FILTERS | SYNC_FILTERS | {"q", "sort"},
     "event": EVENT_FILTERS | {"sort"},
 }
 SORT_ALLOWLISTS: dict[Resource, set[str]] = {
@@ -291,6 +294,27 @@ def event_query_with_filters(request: Request, db: Session, entitlement: str) ->
     return stmt
 
 
+def event_subject_jurisdiction_filter(values: list[str]) -> ColumnElement[bool]:
+    """`jurisdiction=` on `/feeds/events.{format}` (lane E15, 2026-09-27): an event has no
+    jurisdiction of its own, so the filter reads its *subject's* (`proposal.jurisdiction` or
+    `opportunity.jurisdiction`, both NOT NULL), exact match, OR within the facet, as on the record
+    lists and feeds. Two uncorrelated `IN` subqueries on the subject id, one per subject type, so
+    no join and no duplicate items. No visibility clause here: the feed's own
+    `event_visibility_filter` already requires the subject to be visible, so a hidden subject's
+    event is absent with or without this filter and its jurisdiction cannot be probed. Any other
+    subject type matches no jurisdiction."""
+    return sa.or_(
+        sa.and_(
+            Event.subject_type == "proposal",
+            Event.subject_id.in_(select(Proposal.id).where(Proposal.jurisdiction.in_(values))),
+        ),
+        sa.and_(
+            Event.subject_type == "opportunity",
+            Event.subject_id.in_(select(Opportunity.id).where(Opportunity.jurisdiction.in_(values))),
+        ),
+    )
+
+
 def changed_key_values(raw: str, instance: str) -> list[str]:
     """`?changed_key=a,b` as the list of canonical field names it names (OR within the facet), each
     checked against `_CHANGED_KEY_RE`. Shared with the alert matcher
@@ -384,23 +408,19 @@ def resource_statement(
     the opportunity list's `status=open` default so an incremental sync sees every status unless
     the caller filters one; an export keeps the list's default, since it exports the list."""
     request = synthetic_request(params, path=instance)
-    stmt: sa.Select[Any]
     if resource == "proposal":
-        stmt = _proposal_query_with_filters(request, entitlement).where(
+        # `updated_since` is applied by the list's own filter stack since 2026-09-27 (lane E15;
+        # `records.RECORD_TIME_BOUNDS`), with the meaning it always had here: `last_changed` at or
+        # after the instant.
+        return _proposal_query_with_filters(request, entitlement).where(
             proposal_redistribution_clause(redistribution)
         )
-        if v := request.query_params.get("updated_since"):
-            stmt = stmt.where(Proposal.last_changed >= _parse_instant(v, "updated_since", instance))
-        return stmt
     if resource == "opportunity":
         if all_opportunity_statuses and "status" not in params:
             request = synthetic_request({**params, "status": list(OPPORTUNITY_STATUSES)}, path=instance)
-        stmt = _opportunity_query_with_filters(request, db, entitlement).where(
+        return _opportunity_query_with_filters(request, db, entitlement).where(
             opportunity_redistribution_clause(redistribution)
         )
-        if v := request.query_params.get("updated_since"):
-            stmt = stmt.where(Opportunity.last_changed >= _parse_instant(v, "updated_since", instance))
-        return stmt
     return event_query_with_filters(request, db, entitlement).where(
         event_redistribution_clause(redistribution)
     )
@@ -463,6 +483,7 @@ __all__ = [
     "changed_key_values",
     "check_query_values",
     "event_query_with_filters",
+    "event_subject_jurisdiction_filter",
     "lean_load_options",
     "normalise_resource",
     "redistributable_link",

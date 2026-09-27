@@ -54,6 +54,7 @@ from web.admin.shell import (
     require_same_origin,
     templates,
 )
+from web.viewmodels import iso_label
 
 router = APIRouter()
 
@@ -66,6 +67,8 @@ def _count_citations(extraction: dict[str, Any]) -> int:
 
 
 templates.env.globals["count_citations"] = _count_citations
+#: The stored token is what the edit form submits; the read-only row shows the reader's label.
+templates.env.globals["iso_label"] = iso_label
 
 
 # ======================================================================================= lookup
