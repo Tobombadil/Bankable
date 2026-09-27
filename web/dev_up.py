@@ -35,13 +35,14 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import Engine
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from services.db.session import get_engine, get_sessionmaker, init_db
-from web.data_loading import DEFAULT_DATA_ROOT, DEFAULT_SOURCES_YAML, load_dev_database
+from web.data_loading import DEFAULT_DATA_ROOT, DEFAULT_SOURCES_YAML, load_dev_database, load_test_database
 
 log = logging.getLogger("web.dev_up")
 
@@ -383,6 +384,33 @@ def _columns_missing_from(engine: Engine) -> list[str]:
     return missing
 
 
+#: Rows per lifecycle state taken from the committed fixture when no connector output exists: enough
+#: for every page type to render real records, small enough to load in seconds on a CI runner.
+FIXTURE_SAMPLE_PER_STATE = 60
+
+
+def load_fixture_if_empty(session: Session, report: dict[str, Any], *, sample_per_state: int | None) -> bool:
+    """A fresh checkout has no `data/normalized/*` (git-ignored; only connector runs create it), so the
+    real load reports every source `missing` and the site serves empty pages. That is what CI's
+    accessibility job scanned until 2026-09-27, when its new detail-page guard refused to call an
+    empty scan a pass. Fall back, as `web/test_e2e.py` already does, to the committed entity-resolution
+    fixture (`data/eval/normalized.parquet`, docs/22): real rows and geometry, no network. Returns
+    whether the fixture was loaded; says so in the log, since fixture rows are not the live register."""
+    loaded = sum(1 for value in (report.get("sources") or {}).values() if value == "loaded")
+    if loaded:
+        return False
+    log.warning(
+        "no connector output under data/normalized: loading the committed evaluation fixture instead "
+        "(data/eval/normalized.parquet). The site is serving fixture rows, not the live register."
+    )
+    load_test_database(
+        session,
+        sample_per_state=sample_per_state or FIXTURE_SAMPLE_PER_STATE,
+        include_opportunities=False,
+    )
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = _parse_args(argv)
@@ -411,6 +439,7 @@ def main(argv: list[str] | None = None) -> int:
                 preview=args.preview,
                 sample_per_state=args.sample_per_state,
             )
+            load_fixture_if_empty(session, report, sample_per_state=args.sample_per_state)
             _load_plants_context_layer(session, args.data_dir)
             _load_context_asset_layers(session, args.data_dir)  # includes owner shares + features
             session.commit()  # belt-and-braces: correct even if either loader above also commits

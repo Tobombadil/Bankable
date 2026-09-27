@@ -272,3 +272,26 @@ def test_columns_missing_from_is_empty_for_a_current_database(tmp_path: Path) ->
     init_db(engine)
 
     assert dev_up._columns_missing_from(engine) == []
+
+
+def test_fixture_fallback_loads_only_when_no_connector_output_loaded(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A fresh checkout (CI) has no `data/normalized/*`: dev_up must serve the committed fixture rather
+    than empty pages, and say so; with real output loaded it must not touch the fixture."""
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(dev_up, "load_test_database", lambda session, **kw: calls.append(kw))
+
+    real = {"sources": {"us.caiso.queue": "loaded", "us.pjm.queue": "skipped: gated"}}
+    assert dev_up.load_fixture_if_empty(object(), real, sample_per_state=None) is False  # type: ignore[arg-type]
+    assert calls == []
+
+    empty = {"sources": {"us.caiso.queue": "missing", "us.ercot.gis": "missing"}}
+    with caplog.at_level(logging.WARNING, logger="web.dev_up"):
+        assert dev_up.load_fixture_if_empty(object(), empty, sample_per_state=None) is True  # type: ignore[arg-type]
+    assert calls == [{"sample_per_state": dev_up.FIXTURE_SAMPLE_PER_STATE, "include_opportunities": False}]
+    assert "fixture" in caplog.text
+
+    calls.clear()
+    dev_up.load_fixture_if_empty(object(), {"sources": {}}, sample_per_state=5)  # type: ignore[arg-type]
+    assert calls == [{"sample_per_state": 5, "include_opportunities": False}]
