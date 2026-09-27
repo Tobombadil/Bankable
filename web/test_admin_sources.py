@@ -410,3 +410,86 @@ def test_source_runs_list_and_detail(web_client: TestClient, db_sessionmaker: se
     assert filtered_empty.status_code == 200
     assert "No runs match" in filtered_empty.text
     assert "status=failed" in filtered_empty.text
+
+
+# ============================================================================ DQ hold release
+class _FakeHoldReleaser:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def enqueue(self, db: Session, run: SourceRun, source: Source, *, requested_by: Any) -> None:
+        self.calls.append(str(run.id))
+
+
+def _seed_run(db_sessionmaker: sessionmaker[Session], source_id: str, *, status: str, dq_status: str) -> str:
+    from services.ids import public_id
+
+    with db_sessionmaker() as db:
+        lic = make_open_licence(db, id_=f"open-lic-{source_id[-1]}")
+        source = make_public_source(db, lic, id_=source_id)
+        source.implemented = True
+        run = SourceRun(
+            source_id=source.id,
+            trigger="schedule",
+            started_at=dt.datetime.now(UTC),
+            status=status,
+            dq_status=dq_status,
+            dq={"status": "hold" if dq_status == "fail" else "pass", "checks": []},
+            egress_class="plain",
+        )
+        db.add(run)
+        db.commit()
+        return public_id("run", run.id)
+
+
+def test_a_held_run_can_be_released_from_its_detail_page(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    run_id = _seed_run(db_sessionmaker, "us.test.source_r", status="partial", dq_status="fail")
+    _sign_in(web_client, db_sessionmaker, role="operator")
+    page = web_client.get(f"/admin/source-runs/{run_id}")
+    assert page.status_code == 200
+    assert "Release data-quality hold" in page.text
+    assert 'name="reason"' in page.text
+
+    releaser = _FakeHoldReleaser()
+    api_app.dependency_overrides[api_admin_sources.get_hold_releaser] = lambda: releaser
+    try:
+        resp = web_client.post(
+            f"/admin/source-runs/{run_id}/release",
+            data={"reason": "the drop is the operator's real clean-up"},
+            headers={"origin": "http://testserver"},
+        )
+    finally:
+        del api_app.dependency_overrides[api_admin_sources.get_hold_releaser]
+    assert resp.status_code == 303
+    assert "flash=Hold+released" in resp.headers["location"]
+    assert len(releaser.calls) == 1
+
+    after = web_client.get(resp.headers["location"])
+    assert "Hold released" in after.text
+    assert "the drop is the operator&#39;s real clean-up" in after.text
+    assert "Release data-quality hold" not in after.text, "no second form once released"
+
+
+def test_releasing_a_run_that_is_not_held_renders_the_409(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    run_id = _seed_run(db_sessionmaker, "us.test.source_s", status="ok", dq_status="pass")
+    _sign_in(web_client, db_sessionmaker, role="operator")
+    assert "Release data-quality hold" not in web_client.get(f"/admin/source-runs/{run_id}").text
+    resp = web_client.post(
+        f"/admin/source-runs/{run_id}/release", data={"reason": "x"}, headers={"origin": "http://testserver"}
+    )
+    assert resp.status_code == 409
+    assert "Run is not held" in resp.text
+    assert "Traceback" not in resp.text
+
+
+def test_the_release_form_refuses_a_cross_origin_post(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    run_id = _seed_run(db_sessionmaker, "us.test.source_t", status="partial", dq_status="fail")
+    _sign_in(web_client, db_sessionmaker, role="operator")
+    resp = web_client.post(f"/admin/source-runs/{run_id}/release", data={"reason": "x"})
+    assert resp.status_code == 403

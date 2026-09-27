@@ -23,6 +23,8 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
                           -> resolve_tick             organisations + proposal clusters, store-wide
                              -> enrich_tick           geocode backfill and later enrichment stages
     tick_resolve (daily)  ->  resolve_tick            safety net for rows loaded outside the chain
+    admin release         ->  release_held_run        a DQ-held run an operator released (2026-09-27):
+                              -> load_source ...      promote `held/` -> `normalized/`, then the chain
 
 Overlap guards: `run_connector` and `load_source` share the per-source Procrastinate `lock`
 (`cadence.execution_lock_for`), so one source is never fetched and loaded at the same moment;
@@ -44,6 +46,7 @@ double-fetch.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import os
 import subprocess
@@ -59,8 +62,8 @@ import yaml
 from infra.scheduler import jobs
 from infra.scheduler.cadence import (
     CRON_BY_BUCKET,
-    bucket_for_cadence,
     execution_lock_for,
+    is_due,
     queue_for_source,
     queueing_lock_for,
     safe_id,
@@ -130,10 +133,18 @@ ENRICH_TIMEOUT_S = 1800
 
 
 @app.task(queue="fetch", retry=FETCH_RETRY, pass_context=True)
-def run_connector(context: procrastinate.JobContext, source_id: str) -> None:
+def run_connector(
+    context: procrastinate.JobContext, source_id: str, trigger: str = jobs.SCHEDULED_TRIGGER
+) -> None:
     """Run one connector via the same CLI a human uses (`pipeline/README.md`), record the run
     (`source_run` row, `source.health`) and, when it produced a new normalised snapshot, enqueue
     `load_source` for it under the same per-source lock.
+
+    `trigger` is `schedule` for the bucket ticks (they defer with `source_id` only) and whatever
+    the admin "run now" route passes (`manual`/`backfill`). It goes to the CLI as `--trigger`, so
+    the run record itself says it — the loader copies the record's value into the row it writes —
+    and to `fetch_outcome`, whose explicit value wins over the record's (2026-09-27: before this,
+    the CLI's default `manual` won and every scheduled run was recorded as manual).
 
     A single `fetch` job may not run more than 10 minutes for a plain source, 5 for a browser one
     (docs/20 §4.2); the timeout is enforced here rather than trusted to the connector itself, so a
@@ -142,7 +153,8 @@ def run_connector(context: procrastinate.JobContext, source_id: str) -> None:
     defer time in `_register_bucket_tick` below), not the task's `fetch` decorator default.
     """
     timeout = 300 if context.job.queue == "fetch_browser" else 600
-    cmd = [sys.executable, "-m", "pipeline.connectors", "run", source_id]
+    trigger = jobs.normalise_trigger(trigger)
+    cmd = [sys.executable, "-m", "pipeline.connectors", "run", source_id, "--trigger", trigger]
     logger.info("fetch job starting", extra={"source_id": source_id, "cmd": cmd, "timeout_s": timeout})
     started_at = jobs._utcnow()
     try:
@@ -155,6 +167,7 @@ def run_connector(context: procrastinate.JobContext, source_id: str) -> None:
             returncode=None,
             stdout=_text(exc.stdout),
             stderr=_text(exc.stderr),
+            trigger=trigger,
             started_at=started_at,
             timeout_s=timeout,
         )
@@ -164,16 +177,12 @@ def run_connector(context: procrastinate.JobContext, source_id: str) -> None:
         returncode=result.returncode,
         stdout=result.stdout,
         stderr=result.stderr,
+        trigger=trigger,
         started_at=started_at,
     )
     status = outcome["status"]
     if status == "ok" and outcome["ts"]:
-        try:
-            load_source.configure(
-                lock=execution_lock_for(source_id), queueing_lock=f"load:{safe_id(source_id)}"
-            ).defer(source_id=source_id, ts=outcome["ts"])
-        except procrastinate.exceptions.AlreadyEnqueued:
-            logger.info("skipped: previous load still queued or running", extra={"source_id": source_id})
+        _defer_load(source_id, outcome["ts"])
     if status in ("ok", "unchanged", "partial", "refused"):
         logger.info("fetch job finished", extra={"source_id": source_id, "status": status})
         return
@@ -193,17 +202,45 @@ def run_connector(context: procrastinate.JobContext, source_id: str) -> None:
     raise ConnectorRunFailed(f"connector run for {source_id} ended {status}; not retried")
 
 
+def _defer_load(source_id: str, ts: str) -> None:
+    """Enqueue `load_source` for one run's snapshot token under the per-source execution lock."""
+    try:
+        load_source.configure(
+            lock=execution_lock_for(source_id), queueing_lock=f"load:{safe_id(source_id)}"
+        ).defer(source_id=source_id, ts=ts)
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous load still queued or running", extra={"source_id": source_id})
+
+
 def _text(value: str | bytes | None) -> str:
     if value is None:
         return ""
     return value.decode("utf-8", "replace") if isinstance(value, bytes) else value
 
 
+def due_sources(bucket: str, timestamp: int) -> list[dict[str, Any]]:
+    """The sources one tick of `bucket` fetches: `cadence.is_due` at the tick's scheduled time
+    (Procrastinate passes it as a Unix timestamp), so the monthly annual tick picks only the
+    sources whose run month it is. A malformed `release_month` is logged and that source falls
+    back to the default January run rather than stopping the whole tick."""
+    month = dt.datetime.fromtimestamp(timestamp, tz=dt.UTC).month
+    due = []
+    for source in _load_sources():
+        try:
+            if is_due(source, bucket, month):
+                due.append(source)
+        except ValueError as exc:
+            logger.warning("bad release_month; using the default run month", extra={"error": str(exc)})
+            if is_due({**source, "release_month": None}, bucket, month):
+                due.append(source)
+    return due
+
+
 def _register_bucket_tick(bucket: str, cron: str) -> None:
     @app.periodic(cron=cron, periodic_id=f"tick:{bucket}")
     @app.task(name=f"tick_{bucket}", queue=SCHEDULER_ONLY_QUEUE)
     def _tick(timestamp: int, _bucket: str = bucket) -> None:
-        due = [s for s in _load_sources() if bucket_for_cadence(str(s["cadence"])).bucket == _bucket]
+        due = due_sources(_bucket, timestamp)
         logger.info("bucket tick", extra={"bucket": _bucket, "timestamp": timestamp, "due_count": len(due)})
         for source in due:
             source_id = source["id"]
@@ -328,6 +365,27 @@ def load_source(source_id: str, ts: str) -> dict[str, Any]:
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: resolve_tick already queued", extra={"source_id": source_id})
     return report
+
+
+@app.task(name="release_held_run", queue="normalise", retry=0)
+def release_held_run(source_id: str, run_id: str, released_by: str) -> dict[str, Any]:
+    """An operator released a data-quality hold (`POST /admin/v1/source-runs/{run_id}/release`,
+    which records who, when and why before deferring this): promote the held frame to
+    `normalized/`, mark the run `ok`, then enqueue the `load_source` the hold withheld. Deferred
+    under the per-source execution lock, so it never runs beside a fetch or load of the same
+    source. `retry=0`: a refusal (`HoldReleaseRefused`) is not fixed by retrying, and a crash is
+    recoverable by releasing again (every step is idempotent)."""
+    report = _run_with_timeout(
+        lambda: jobs.release_held_job(source_id, run_id, released_by), timeout_s=LOAD_TIMEOUT_S
+    )
+    if report.get("ts"):
+        _defer_load(source_id, str(report["ts"]))
+    return report
+
+
+def release_queueing_lock_for(run_id: str) -> str:
+    """One queued release per run: a double-submitted release form cannot enqueue it twice."""
+    return f"release:{safe_id(run_id)}"
 
 
 @app.task(name="resolve_tick", queue="resolve", retry=0, queueing_lock="resolve_tick", lock="resolve")

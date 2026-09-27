@@ -77,6 +77,11 @@ CREATED_BY_VALUES = ("pipeline", "user", "import")
 LINK_METHODS = ("deterministic_key", "rule", "model", "user")
 MATCH_STATUSES = ("active", "removed", "superseded")
 SOURCE_RUN_STATUSES = ("running", "ok", "unchanged", "partial", "failed", "blocked", "budget")
+#: docs/21 §4.2 `source_run.trigger`; CHECK-enforced since migration 0025. The scheduler records
+#: `schedule` (it wrote the off-vocabulary `scheduled` until 0025 normalised it), the CLI and the
+#: admin "run now" `manual`/`backfill`. `pipeline/connectors/runner.py::RUN_TRIGGERS` repeats it
+#: (the pipeline does not import the ORM); `infra/scheduler/test_trigger.py` pins the two equal.
+SOURCE_RUN_TRIGGERS = ("schedule", "manual", "backfill", "retry")
 LOCATION_KINDS = ("point", "county", "state", "region", "service_territory")
 #: `country_centroid` added by ADR 0008 (2026-09-18): the third region-grade precision, alongside
 #: `county_centroid`/`state_centroid` — a proposal or opportunity known only to a country. Placement
@@ -336,12 +341,21 @@ class SourceRun(Base):
     error_class: Mapped[str | None] = mapped_column(sa.Text)
     attempt: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
     dead_lettered: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    #: A data-quality hold released by an operator (`POST /admin/v1/source-runs/{run_id}/release`,
+    #: migration 0025): who, when and why. All three null on every run that was never held or is
+    #: still held; the same facts are also in the append-only audit event the release writes.
+    released_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    released_by: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("user.id"))
+    release_reason: Mapped[str | None] = mapped_column(sa.Text)
     created_at: Mapped[dt.datetime] = mapped_column(
         sa.DateTime(timezone=True), default=utcnow, nullable=False
     )
 
+    releaser: Mapped[User | None] = relationship(foreign_keys=[released_by], lazy="select")
+
     __table_args__ = (
         sa.CheckConstraint(f"status IN {SOURCE_RUN_STATUSES!r}", name="status_vocab"),
+        sa.CheckConstraint(f"trigger IN {SOURCE_RUN_TRIGGERS!r}", name="trigger_vocab"),
         sa.Index("ix_source_run_source_started", "source_id", sa.text("started_at DESC")),
     )
 

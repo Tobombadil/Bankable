@@ -3562,6 +3562,55 @@ paths:
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
 
+  /admin/v1/source-runs/{run_id}/release:
+    servers: *admin_servers
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    post:
+      operationId: adminReleaseSourceRun
+      tags: [Admin — sources]
+      summary: Release a data-quality hold
+      description: |
+        Releases a run its data-quality gates held (`status = partial`, `dq_status = fail`; docs/04 DA-6, docs/20 §10)
+        so the output the hold withheld is loaded: records `released_at`, `released_by` and the mandatory `reason` on the
+        run and in an audited `admin_edit` event, then enqueues the promotion of the held frame (the same diff and
+        all-or-nothing write a passing run makes) followed by its load. Idempotent: releasing an already released run
+        writes no second audit event and answers `202` with the run as it stands. Refused with `409` when the run is not
+        held or a later run with output of its own has superseded it, and with `422 gate_unmet` when the source is gated —
+        a release lifts the data-quality gate only, never the licence gate.
+      x-tier: admin
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-904]
+      security: *sec_admin
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminReleaseSourceRunRequest'
+      responses:
+        '202':
+          description: Release recorded and the promotion + load enqueued (or already done).
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceRunDetailResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/GateUnmet'
+        <<: *common_errors
+
   /admin/v1/snapshots/{snapshot_id}:
     servers: *admin_servers
     parameters:
@@ -11796,6 +11845,14 @@ components:
           default: manual
         reason:
           type: string
+    AdminReleaseSourceRunRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          description: Why the held output is correct after all (audited).
     SourcePublishStateRequest:
       type: object
       required: [publish_state, reason]
@@ -12008,6 +12065,7 @@ components:
         trigger:
           type: string
           enum: [schedule, manual, backfill, retry]
+          description: What started the run. Scheduled runs are `schedule` (CHECK-enforced since migration 0025).
         started_at:
           type: string
           format: date-time
@@ -12057,6 +12115,16 @@ components:
           type: integer
         dead_lettered:
           type: boolean
+        released_at:
+          type: [string, 'null']
+          format: date-time
+          description: When an operator released this run's data-quality hold (`adminReleaseSourceRun`); null otherwise.
+        released_by:
+          oneOf:
+            - $ref: '#/components/schemas/UserPublicId'
+            - type: 'null'
+        release_reason:
+          type: [string, 'null']
     SourceRunListResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'

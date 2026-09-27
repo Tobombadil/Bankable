@@ -16,7 +16,7 @@ import pathlib
 import pytest
 import yaml
 
-from services.api.admin_sources import get_source_runner
+from services.api.admin_sources import get_hold_releaser, get_source_runner
 from services.api.admin_sources import router as admin_sources_router
 from services.api.app import app
 from services.api.common import utcnow
@@ -65,11 +65,28 @@ class _FakeSourceRunner:
         return run
 
 
+class _FakeHoldReleaser:
+    """Test double for `services.api.admin_sources.HoldReleaser`: records what would have been
+    deferred onto `release_held_run` instead of reaching Procrastinate."""
+
+    def __init__(self):
+        self.calls = []
+
+    def enqueue(self, db, run, source, *, requested_by):
+        self.calls.append((str(run.id), source.id, requested_by.public_id))
+
+
+_RELEASER = _FakeHoldReleaser()
+
+
 @pytest.fixture(autouse=True)
 def _fake_runner():
     app.dependency_overrides[get_source_runner] = lambda: _FakeSourceRunner()
+    app.dependency_overrides[get_hold_releaser] = lambda: _RELEASER
+    _RELEASER.calls.clear()
     yield
     app.dependency_overrides.pop(get_source_runner, None)
+    app.dependency_overrides.pop(get_hold_releaser, None)
 
 
 # --------------------------------------------------------------------------------------- helpers
@@ -1282,3 +1299,204 @@ def test_list_audit_subject_id_filter_resolves_source_ids(client, db):
     resp = client.get("/admin/v1/audit", params={"subject_id": src.id})
     reasons = [r["reason"] for r in resp.json()["data"]]
     assert "direct" in reasons
+
+
+# ================================================================ POST /source-runs/{id}/release
+_HELD_DQ = {
+    "status": "hold",
+    "checks": [{"check": "row_count_drift", "level": "hold", "detail": "100 -> 50 rows"}],
+}
+
+
+def _held_run(db, src, *, started_at=None, **over):
+    fields = {
+        "source_id": src.id,
+        "trigger": "schedule",
+        "started_at": started_at or utcnow(),
+        "status": "partial",
+        "dq_status": "fail",
+        "dq": _HELD_DQ,
+        "egress_class": "plain",
+    }
+    fields.update(over)
+    run = SourceRun(**fields)
+    db.add(run)
+    db.flush()
+    return run
+
+
+def _release(client, run, reason="upstream renumbered the queue; verified against the operator's notice"):
+    body = {"reason": reason} if reason is not None else {}
+    return client.post(f"/admin/v1/source-runs/{public_id('run', run.id)}/release", json=body)
+
+
+def _release_events(db, src):
+    return [
+        e
+        for e in db.query(Event).filter_by(event_type="admin_edit").all()
+        if (e.after or {}).get("action") == "release_dq_hold" and (e.after or {}).get("source_id") == src.id
+    ]
+
+
+def test_release_requires_auth_and_an_operator_role(client, db):
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    run = _held_run(db, src)
+    viewer = _viewer(db)
+    legal = _legal(db)
+    db.commit()
+    assert _release(client, run).status_code == 401
+    login(client, db, viewer)
+    assert _release(client, run).status_code == 403
+    login(client, db, legal)
+    assert _release(client, run).status_code == 403
+    assert _RELEASER.calls == []
+
+
+def test_release_happy_path_records_who_when_why_audits_and_enqueues(client, db, spec):
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    run = _held_run(db, src)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+
+    resp = _release(client, run)
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert_valid(spec, "SourceRunDetailResponse", body)
+    data = body["data"]
+    assert data["status"] == "partial", "the job, not the request, promotes the run"
+    assert data["released_by"] == operator.public_id
+    assert data["released_at"] is not None
+    assert data["release_reason"].startswith("upstream renumbered")
+
+    db.expire_all()
+    row = db.get(SourceRun, run.id)
+    assert row.released_by == operator.id and row.released_at is not None
+    events = _release_events(db, src)
+    assert len(events) == 1
+    assert events[0].actor_user_id == operator.id and events[0].reason.startswith("upstream renumbered")
+    assert events[0].before["status"] == "partial"
+    assert _RELEASER.calls == [(str(run.id), src.id, operator.public_id)]
+
+
+def test_release_requires_a_reason(client, db):
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    run = _held_run(db, src)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    assert _release(client, run, reason=None).status_code == 400
+    assert _release(client, run, reason="   ").status_code == 400
+    assert _RELEASER.calls == []
+
+
+def test_release_unknown_run_is_404(client, db):
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    resp = client.post("/admin/v1/source-runs/run_0000000000/release", json={"reason": "x"})
+    assert resp.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "status,dq_status",
+    [("ok", "pass"), ("ok", "warn"), ("failed", None), ("running", None), ("unchanged", "pass")],
+)
+def test_release_refuses_a_run_that_is_not_held(client, db, status, dq_status):
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    run = _held_run(db, src, status=status, dq_status=dq_status, dq=None)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    resp = _release(client, run)
+    assert resp.status_code == 409
+    assert "not held" in resp.json()["title"]
+    assert _RELEASER.calls == [] and _release_events(db, src) == []
+
+
+def test_release_is_idempotent(client, db):
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    run = _held_run(db, src)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+
+    assert _release(client, run).status_code == 202
+    db.expire_all()
+    first = db.get(SourceRun, run.id).released_at
+    assert first is not None
+    # The job has not marked it `ok` yet: a repeat re-enqueues (one job, by its queueing lock) and
+    # writes no second audit event or release record.
+    again = _release(client, run, reason="clicked twice")
+    assert again.status_code == 202
+    db.expire_all()
+    assert db.get(SourceRun, run.id).released_at == first
+    assert db.get(SourceRun, run.id).release_reason.startswith("upstream renumbered")
+    assert len(_release_events(db, src)) == 1
+    assert len(_RELEASER.calls) == 2
+
+    # Once the job has promoted it, a repeat is a pure no-op.
+    db.get(SourceRun, run.id).status = "ok"
+    db.commit()
+    third = _release(client, run, reason="and again")
+    assert third.status_code == 202
+    assert third.json()["data"]["status"] == "ok"
+    assert len(_RELEASER.calls) == 2
+    assert len(_release_events(db, src)) == 1
+
+
+def test_release_refuses_a_gated_source(client, db):
+    lic = _restricted_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    run = _held_run(db, src)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    resp = _release(client, run)
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "gate_unmet"
+    assert _RELEASER.calls == []
+    db.expire_all()
+    assert db.get(SourceRun, run.id).released_at is None
+
+
+def test_release_refuses_a_run_superseded_by_a_later_run_with_output(client, db):
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    now = utcnow()
+    run = _held_run(db, src, started_at=now - dt.timedelta(days=2))
+    _held_run(db, src, started_at=now - dt.timedelta(days=1), status="unchanged", dq_status="pass", dq=None)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    # A later `unchanged` run fetched the same bytes: the held output is still the newest, releasable.
+    assert _release(client, run).status_code == 202
+
+    run2 = _held_run(db, src, started_at=now - dt.timedelta(hours=12))
+    _held_run(db, src, started_at=now, status="ok", dq_status="pass", dq=None)
+    db.commit()
+    resp = _release(client, run2)
+    assert resp.status_code == 409
+    assert "superseded" in resp.json()["title"]
+
+
+def test_release_is_refused_503_when_the_queue_is_unreachable(client, db):
+    from services.api.admin_sources import QueuedHoldReleaser
+
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    run = _held_run(db, src)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    app.dependency_overrides[get_hold_releaser] = lambda: QueuedHoldReleaser()
+    resp = _release(client, run)
+    assert resp.status_code == 503
+    db.expire_all()
+    assert db.get(SourceRun, run.id).released_at is None, "no release is recorded that was not enqueued"
+    assert _release_events(db, src) == []

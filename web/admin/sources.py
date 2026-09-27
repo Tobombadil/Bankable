@@ -431,9 +431,39 @@ def source_run_detail(
     return render(
         request,
         "admin/sources/run_detail.html",
-        {"run": result.body.get("data"), "notice": None},
+        {"run": result.body.get("data"), "notice": None, "flash": request.query_params.get("flash")},
         ctx=ctx,
         nav_key="sources",
+    )
+
+
+@router.post("/admin/source-runs/{run_id}/release", response_class=HTMLResponse)
+async def release_source_run(
+    run_id: str, request: Request, ctx: Annotated[AdminContext, Depends(require_operator)]
+) -> Response:
+    """Release a data-quality hold (`POST /admin/v1/source-runs/{run_id}/release`): the API records
+    who, when and the reason, audits it and enqueues the load the hold withheld."""
+    same_origin = require_same_origin(request)
+    if same_origin is not None:
+        return same_origin
+    form = await request.form()
+    result = ctx.api.post(
+        f"/admin/v1/source-runs/{run_id}/release", json={"reason": str(form.get("reason", ""))}
+    )
+    if result.status_code == 202:
+        return RedirectResponse(url=f"/admin/source-runs/{run_id}?flash=Hold+released", status_code=303)
+    current = ctx.api.get(f"/admin/v1/source-runs/{run_id}")
+    return render(
+        request,
+        "admin/sources/run_detail.html",
+        {
+            "run": current.body.get("data") if current.status_code == 200 else None,
+            "notice": problem_notice(result),
+            "flash": None,
+        },
+        ctx=ctx,
+        nav_key="sources",
+        status_code=result.status_code,
     )
 
 

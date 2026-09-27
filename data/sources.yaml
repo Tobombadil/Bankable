@@ -24,6 +24,11 @@
 #   tier     : 1 = MVP, 2 = second wave, 3 = later / opportunistic
 #   effort   : S (<1 day connector) | M (1–3 days) | L (>3 days or needs agreements/browser automation)
 #   verified : result of scripts/probe_sources.py on the date shown (see data/probes/)
+#   release_month : optional, 1–12, only on sources whose cadence falls in the scheduler's annual bucket:
+#              the month the source publishes its annual data, with the page that says so cited in a
+#              comment above it. The scheduler runs the source on the 2nd of the *following* month
+#              (infra/scheduler/cadence.py `annual_run_month`); without the field an annual source
+#              runs in January, as before 2026-09-27. infra/scheduler/test_cadence.py validates it.
 #
 # Reuse of US federal government works is public domain (17 U.S.C. §105). ISO/RTO and state sites are
 # NOT federal works: each carries its own terms and is recorded individually below.
@@ -241,6 +246,8 @@ sources:
   auth: none (page 403 to non-browser clients; direct xlsx link works in browser)
   format: xlsx
   cadence: annual (data through 2025 published May–Jun 2026)
+  # release_month: the manifest's own 2026 observation above (data through 2025 published May–Jun 2026); https://emp.lbl.gov/queues answered 403 to the project User-Agent on 2026-09-27, so June, the end of the window, is used
+  release_month: 6
   license: CC BY 4.0 (attribute LBNL and GridTracker)
   # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1266) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
   reuse: unknown
@@ -687,6 +694,8 @@ sources:
     reported_subparts CONTAINING RR (carries rr_mrv_plan_url); plus the HTML table of Subpart RR
     Annual Monitoring Reports (one PDF per facility-year)
   cadence: annual (RY data published the following October; RY2023 is the newest on 2026-09-25)
+  # release_month: https://www.epa.gov/ghgreporting/data-sets links the RY2023 zip under /system/files/other-files/2024-10/ (Last-Modified: Tue, 15 Oct 2024), checked 2026-09-27
+  release_month: 10
   license: public domain
   reuse: open
   publication: raw_ok
@@ -737,6 +746,8 @@ sources:
     ghgp_data_<year>.xlsx in the annual Data Summary Spreadsheets zip; Envirofacts
     pub_dim_facility filtered reported_subparts CONTAINING UU / PP, and the pp_subpart_level_information table
   cadence: annual (RY2023 newest on 2026-09-25)
+  # release_month: same GHGRP annual release as us.epa.ghgrp (https://www.epa.gov/ghgreporting/data-sets, RY2023 zip Last-Modified 15 Oct 2024), checked 2026-09-27
+  release_month: 10
   license: public domain
   reuse: open
   publication: raw_ok
@@ -776,6 +787,8 @@ sources:
   auth: none
   format: xlsx (one row per state, columns per class; a tribal companion file)
   cadence: annual (FY; the FY2024 file was posted 2026-02-05)
+  # release_month: https://www.epa.gov/uic/uic-injection-well-inventory lists the FY 2024 State and Tribal inventories, "Last updated on February 5, 2026" (one observation), checked 2026-09-27
+  release_month: 2
   license: public domain
   reuse: open
   publication: raw_ok
@@ -1840,6 +1853,8 @@ sources:
   auth: none
   format: csv
   cadence: annual (republished alongside each year's Future Energy Scenarios; 2021–2024 vintages seen)
+  # release_month: https://www.neso.energy/publications/future-energy-scenarios-fes — FES 2025 launched "Tuesday 15 July"; the GSP info file is republished with each FES, checked 2026-09-27
+  release_month: 7
   license: 'National Energy SO Open Data Licence v1.0 (identical to the TEC register''s own licence, docs/13-legal-data-rights.md §2.5 — this dataset''s own package_show confirms the same license_title/license_id/license_url); must "Acknowledge NESO as the source of the Information by including the following attribution statement: Supported by National Energy SO Open Data"'
   reuse: attribution
   publication: raw_ok
@@ -1868,6 +1883,8 @@ sources:
   auth: none
   format: csv
   cadence: annual (published each summer; the July 2024 edition indexes place names as at December 2023)
+  # release_month: https://www.arcgis.com/sharing/rest/content/items/208d9884575647c29f0dd5a1184e711a?f=json — "as at December 2023 (published July 2024) ... The IPN is published annually", item created 2024-07-01, checked 2026-09-27
+  release_month: 7
   license: 'Open Government Licence v3.0 (docs/13-legal-data-rights.md §2.17; the Open Geography Portal item''s own licenseInfo points at https://www.ons.gov.uk/methodology/geography/licences, which states ONS material may be re-used "whether commercially or privately … freely without a specific application for a licence", and the dataset''s user guide repeats the OGL v3 grant); attribution required: "Source: Office for National Statistics licensed under the Open Government Licence v3.0" and "Contains OS data © Crown copyright and database right 2024"'
   reuse: attribution
   publication: raw_ok
@@ -2569,6 +2586,8 @@ sources:
   auth: none
   format: 'zip of xlsx (2024 final archive 22.1 MB: 1___Utility, 2___Plant, 3_1_Generator, 3_2 Wind, 3_3 Solar, 3_4 Energy_Storage, 3_5 Multifuel, 4___Owner, 6_x Enviro, LayoutY2024)'
   cadence: annual (final in Q3/Q4 of the following year; early release earlier)
+  # release_month: https://www.eia.gov/electricity/data/eia860/ — "Release Date: September 10, 2026, Final 2025 data" (the June release is the early-release file, not the final the connector reads), checked 2026-09-27
+  release_month: 9
   license: 'US federal work — public domain; EIA reuse statement quoted in docs/13-legal-data-rights.md section 2.11'
   reuse: open
   publication: raw_ok
@@ -2758,7 +2777,9 @@ sources:
   access: bulk_file
   auth: none
   format: xlsx (ethanolcapacity.xlsx, linked from the report page)
-  cadence: annual (as of January 1, published mid-year)
+  cadence: annual (as of January 1, published late summer; the 2025 edition on 2025-09-26)
+  # release_month: https://www.eia.gov/petroleum/ethanolcapacity/ — "Release Date: September 26, 2025" for capacity as of January 1, 2025 (the page's related EIA articles are dated Sep 2020, Sep 2021, Aug 2022, Sep 2023), checked 2026-09-27
+  release_month: 9
   license: 'US federal work — public domain; EIA reuse statement quoted in docs/13 section 2.11'
   reuse: open
   publication: raw_ok
@@ -2977,6 +2998,8 @@ sources:
     (one ghgp_data_<year>.xlsx per reporting year) only for the Subpart RR / UU quantity sheets; FLIGHT
     (ghgdata.epa.gov) is the map front end over the same data
   cadence: annual (reporting year, published the following October), with revisions
+  # release_month: https://www.epa.gov/ghgreporting/data-sets links the RY2023 zip under /system/files/other-files/2024-10/ (Last-Modified: Tue, 15 Oct 2024), checked 2026-09-27
+  release_month: 10
   license: public domain
   reuse: open
   publication: raw_ok

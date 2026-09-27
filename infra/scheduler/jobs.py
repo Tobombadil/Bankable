@@ -225,13 +225,39 @@ def _utcnow() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
 
+#: What a run the scheduler started is recorded as (docs/21 §4.2 `schedule | manual | backfill |
+#: retry`). Until 2026-09-27 this module wrote `scheduled` — off the vocabulary — and even that lost
+#: to the runner's own default `manual` (below), so every scheduled row read `manual`.
+SCHEDULED_TRIGGER = "schedule"
+#: Values written before the vocabulary was enforced (migration 0025 rewrites them in the table).
+_LEGACY_TRIGGERS = {"scheduled": "schedule"}
+
+
+def normalise_trigger(value: Any, *, fallback: str = SCHEDULED_TRIGGER) -> str:
+    """A `source_run.trigger` value inside `SOURCE_RUN_TRIGGERS`: the legacy `scheduled` becomes
+    `schedule`; anything else off the vocabulary is logged and replaced by `fallback` rather than
+    failing the row insert on the CHECK (the run happened; losing its row would hide it)."""
+    from services.db.models import SOURCE_RUN_TRIGGERS
+
+    text = _LEGACY_TRIGGERS.get(str(value), str(value)) if value else ""
+    if text in SOURCE_RUN_TRIGGERS:
+        return text
+    if value:
+        logger.warning("off-vocabulary trigger %r recorded as %r", value, fallback)
+    return fallback
+
+
 def record_source_run(
-    session_factory: Any, source_id: str, record: Mapping[str, Any], *, trigger: str = "scheduled"
+    session_factory: Any, source_id: str, record: Mapping[str, Any], *, trigger: str | None = None
 ) -> bool:
     """Write one `source_run` row from a runner record (docs/21 §4.2) and update the source's
     health, failure counter and last-success/last-error fields (docs/21 §4.1). Idempotent per
     run id. Returns False when the source has no row and cannot get one (a gated source is
-    refused by `upsert_licence_and_source`, so there is nothing to attach a run to)."""
+    refused by `upsert_licence_and_source`, so there is nothing to attach a run to).
+
+    `trigger`, when the caller gives one, wins over the record's: the caller is the one that
+    knows who started the run (the scheduler says `schedule`; the admin "run now" path says
+    `manual`/`backfill`). Without one the record's value is used, then `schedule`."""
     from services.db.models import SOURCE_RUN_STATUSES, Source, SourceRun
     from services.db.session import session_scope
 
@@ -251,7 +277,7 @@ def record_source_run(
         finished_at = _to_datetime(record.get("finished_at")) or _utcnow()
         run = SourceRun(
             source_id=source_id,
-            trigger=str(record.get("trigger") or trigger),
+            trigger=normalise_trigger(trigger or record.get("trigger")),
             started_at=started_at,
             finished_at=finished_at,
             status=status,
@@ -335,7 +361,7 @@ def fetch_outcome(
     returncode: int | None,
     stdout: str,
     stderr: str,
-    trigger: str = "scheduled",
+    trigger: str = SCHEDULED_TRIGGER,
     started_at: dt.datetime | None = None,
     session_factory: Any = None,
     timeout_s: int | None = None,
@@ -434,6 +460,83 @@ def load_source_job(
     data.update(source_id=source_id, ts=ts)
     _log_report("load_source", data)
     return data
+
+
+class HoldReleaseRefused(RuntimeError):
+    """`release_held_run` found the run not releasable in the store (not held, superseded by a
+    later run, gated, or its record missing). Raised so the job shows as failed in the queue; the
+    `source_run` row is left as it was (`status = partial`, the release request recorded)."""
+
+
+def release_held_job(
+    source_id: str,
+    run_id: str,
+    released_by: str,
+    *,
+    _release: Callable[..., Any] | None = None,
+    _session_factory: Any = None,
+    _data_root: Path | None = None,
+) -> dict[str, Any]:
+    """Body of `release_held_run` (docs/21 §4.2, `POST /admin/v1/source-runs/{run_id}/release`):
+    promote the held frame of one run through `pipeline.connectors.runner.release_held` — the same
+    diff and all-or-nothing write a passing run makes — then mark its `source_run` row `ok` with
+    the diff counts the promotion produced. The caller (`infra/scheduler/app.py`) enqueues
+    `load_source` for the returned `ts`, exactly as after a fetch that passed its gates.
+
+    Idempotent: a run already promoted comes back `already_released` and its row is re-marked
+    with the same values. Reads and writes through the same store the fetch used (`open_store`
+    over `INFRAQUE_DATA_DIR`), as `load_source_job` does."""
+    release = _release if _release is not None else _load_fn("pipeline.connectors.runner", "release_held")
+    from pipeline.connectors import store as store_module
+
+    data_root = _data_root if _data_root is not None else connector_data_root()
+    try:
+        result = release(source_id, run_id, released_by=released_by, store=store_module.open_store(data_root))
+    except Exception as exc:
+        if type(exc).__name__ == "ReleaseRefused":
+            logger.warning(
+                "hold release refused",
+                extra={"source_id": source_id, "run_id": run_id, "code": getattr(exc, "code", None)},
+            )
+            raise HoldReleaseRefused(str(exc)) from exc
+        raise
+    record: Mapping[str, Any] = result.run
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    marked = _mark_run_released(factory, run_id, record)
+    data: dict[str, Any] = {
+        "source_id": source_id,
+        "run_id": run_id,
+        "ts": result.ts,
+        "already_released": bool(result.already_released),
+        "row_marked": marked,
+        "rows_new": int(record.get("rows_new") or 0),
+        "rows_changed": int(record.get("rows_changed") or 0),
+        "rows_gone": int(record.get("rows_gone") or 0),
+        "events_emitted": int(record.get("events_emitted") or 0),
+    }
+    _log_report("release_held_run", data)
+    return data
+
+
+def _mark_run_released(session_factory: Any, run_id: str, record: Mapping[str, Any]) -> bool:
+    """Set the released run's row to what the promotion produced. False (logged) when no row
+    carries that id — the run was never recorded — which does not undo the promotion."""
+    from services.db.models import SourceRun
+    from services.db.session import session_scope
+
+    key = _run_uuid(run_id)
+    with session_scope(session_factory) as session:
+        run = session.get(SourceRun, key) if key is not None else None
+        if run is None:
+            logger.warning("released run has no source_run row", extra={"run_id": run_id})
+            return False
+        run.status = "ok"
+        run.rows_new = int(record.get("rows_new") or 0)
+        run.rows_changed = int(record.get("rows_changed") or 0)
+        run.rows_gone = int(record.get("rows_gone") or 0)
+        run.events_emitted = int(record.get("events_emitted") or 0)
+        session.flush()
+    return True
 
 
 def resolve_tick_job(

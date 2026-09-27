@@ -60,7 +60,9 @@ def _record(tmp_path: pathlib.Path, status: str, **over: Any) -> tuple[dict[str,
     record: dict[str, Any] = {
         "id": "8d3b7f1e-4c2a-4b1e-9c3d-1f2e3d4c5b6a",
         "source_id": SOURCE_ID,
-        "trigger": "scheduled",
+        # What the runner wrote into every record before 2026-09-27, whoever started the run: the
+        # CLI's default. The scheduled path must still record `schedule` (test_trigger.py).
+        "trigger": "manual",
         "started_at": "2026-09-18T03:07:00+00:00",
         "finished_at": "2026-09-18T03:07:09+00:00",
         "status": status,
@@ -110,7 +112,7 @@ def test_fetch_outcome_writes_a_source_run_row_and_marks_the_source_healthy(
         run = session.scalar(select(SourceRun))
         if run is None:
             raise AssertionError("no source_run row written")
-        if str(run.id) != record["id"] or run.status != "ok" or run.trigger != "scheduled":
+        if str(run.id) != record["id"] or run.status != "ok" or run.trigger != "schedule":
             raise AssertionError((run.id, run.status, run.trigger))
         if (run.rows_seen, run.rows_new, run.rows_changed, run.events_emitted) != (25, 1, 2, 3):
             raise AssertionError((run.rows_seen, run.rows_new, run.rows_changed, run.events_emitted))
@@ -525,3 +527,154 @@ def test_default_resolve_runs_over_the_store_without_a_normalised_frame(
 def test_execution_lock_is_per_source_and_shared_by_fetch_and_load() -> None:
     if cadence.execution_lock_for("us.iso.ercot.gen_queue") != "source:us-iso-ercot-gen-queue":
         raise AssertionError(cadence.execution_lock_for("us.iso.ercot.gen_queue"))
+
+
+# ---------------------------------------------------------------- DQ hold release (2026-09-27)
+@dataclass
+class _Released:  # shaped like pipeline.connectors.runner.ReleaseResult
+    run: dict[str, Any]
+    ts: str
+    already_released: bool
+
+
+def _held_row(factory: _Factory, run_id: str) -> None:
+    jobs.record_source_run(
+        factory,
+        SOURCE_ID,
+        {
+            "id": run_id,
+            "status": "partial",
+            "dq_status": "fail",
+            "started_at": "2026-09-18T03:07:00+00:00",
+            "finished_at": "2026-09-18T03:07:09+00:00",
+        },
+    )
+
+
+def test_release_held_job_promotes_the_run_and_marks_its_row_ok(
+    tmp_path: pathlib.Path, factory: _Factory
+) -> None:
+    run_id = "00000000-0000-4000-8000-0000000000d1"
+    _held_row(factory, run_id)
+    calls: list[tuple[str, str, str]] = []
+
+    def fake_release(source_id: str, rid: str, *, released_by: str, store: Any) -> _Released:
+        calls.append((source_id, rid, released_by))
+        record = {
+            "id": rid,
+            "status": "ok",
+            "rows_new": 0,
+            "rows_changed": 3,
+            "rows_gone": 50,
+            "events_emitted": 53,
+        }
+        return _Released(run=record, ts="20260918T030700Z", already_released=False)
+
+    report = jobs.release_held_job(
+        SOURCE_ID,
+        run_id,
+        "usr_OPERATOR",
+        _release=fake_release,
+        _session_factory=factory,
+        _data_root=tmp_path,
+    )
+    if calls != [(SOURCE_ID, run_id, "usr_OPERATOR")]:
+        raise AssertionError(calls)
+    if report["ts"] != "20260918T030700Z" or report["rows_gone"] != 50 or not report["row_marked"]:
+        raise AssertionError(report)
+    with factory() as session:
+        row = session.scalar(select(SourceRun))
+        if row is None or row.status != "ok" or (row.rows_gone, row.events_emitted) != (50, 53):
+            raise AssertionError(row and (row.status, row.rows_gone, row.events_emitted))
+
+
+def test_a_refused_release_fails_the_job_and_leaves_the_row_held(
+    tmp_path: pathlib.Path, factory: _Factory
+) -> None:
+    from pipeline.connectors.runner import ReleaseRefused
+
+    run_id = "00000000-0000-4000-8000-0000000000d2"
+    _held_row(factory, run_id)
+
+    def refuse(source_id: str, rid: str, **kw: Any) -> _Released:
+        raise ReleaseRefused("superseded", "a later run has output")
+
+    with pytest.raises(jobs.HoldReleaseRefused, match="superseded"):
+        jobs.release_held_job(
+            SOURCE_ID, run_id, "usr_OPERATOR", _release=refuse, _session_factory=factory, _data_root=tmp_path
+        )
+    with factory() as session:
+        row = session.scalar(select(SourceRun))
+        if row is None or row.status != "partial":
+            raise AssertionError(row and row.status)
+
+
+def test_the_release_task_enqueues_the_load_the_hold_withheld(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    deferred: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+    monkeypatch.setattr(scheduler_app, "load_source", _FakeTask("load_source", deferred))
+    monkeypatch.setattr(
+        jobs, "release_held_job", lambda source_id, run_id, released_by: {"ts": "20260918T030700Z"}
+    )
+    scheduler_app.release_held_run.func(SOURCE_ID, "run-1", "usr_OPERATOR")
+    if deferred != [
+        (
+            "load_source",
+            {
+                "lock": cadence.execution_lock_for(SOURCE_ID),
+                "queueing_lock": f"load:{cadence.safe_id(SOURCE_ID)}",
+            },
+            {"source_id": SOURCE_ID, "ts": "20260918T030700Z"},
+        )
+    ]:
+        raise AssertionError(deferred)
+    task = scheduler_app.app.tasks["release_held_run"]
+    if task.queue != "normalise":
+        raise AssertionError(task.queue)
+    if scheduler_app.release_queueing_lock_for("a.b c") != "release:a-b-c":
+        raise AssertionError(scheduler_app.release_queueing_lock_for("a.b c"))
+
+
+# ---------------------------------------------------------------- release-aware annual tick
+def test_the_annual_tick_fetches_only_the_sources_whose_run_month_it_is(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    def at(month: int) -> int:
+        return int(dt.datetime(2027, month, 2, 7, 37, tzinfo=dt.UTC).timestamp())
+
+    january = {s["id"] for s in scheduler_app.due_sources("annual", at(1))}
+    october = {s["id"] for s in scheduler_app.due_sources("annual", at(10))}
+    november = {s["id"] for s in scheduler_app.due_sources("annual", at(11))}
+    if "us.epa.ghgrp" in january or "us.eia.860" in january:
+        raise AssertionError("GHGRP and EIA-860 must not run in January, before their data exists")
+    if "us.eia.860" not in october or "us.epa.ghgrp" not in november:
+        raise AssertionError((sorted(october), sorted(november)))
+    if "us.census.cartographic_boundaries" not in january:
+        raise AssertionError("an annual source without release_month keeps the January default")
+    weekly = {s["id"] for s in scheduler_app.due_sources("weekly", at(10))}
+    if SOURCE_ID in weekly or "us.iso.caiso.gen_queue" not in weekly:
+        raise AssertionError("non-annual buckets are unaffected by the month")
+
+
+def test_a_malformed_release_month_falls_back_to_january_without_stopping_the_tick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    sources = [
+        {"id": "a", "cadence": "annual", "release_month": "Oct"},
+        {"id": "b", "cadence": "annual", "release_month": 9},
+    ]
+    monkeypatch.setattr(scheduler_app, "_load_sources", lambda: sources)
+    january = int(dt.datetime(2027, 1, 2, tzinfo=dt.UTC).timestamp())
+    october = int(dt.datetime(2027, 10, 2, tzinfo=dt.UTC).timestamp())
+    if [s["id"] for s in scheduler_app.due_sources("annual", january)] != ["a"]:
+        raise AssertionError("malformed release_month -> default month")
+    if [s["id"] for s in scheduler_app.due_sources("annual", october)] != ["b"]:
+        raise AssertionError("the valid source still runs in its month")

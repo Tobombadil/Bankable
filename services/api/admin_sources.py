@@ -75,6 +75,18 @@ D11. Curated issuers (`POST /admin/v1/sources`) are created with `tier = 3`, `fo
      — the last one is not a guess: the spec's own description says "The issuer URL host is added
      to the egress allowlist for the `plain` pool only", which only makes sense if the row's egress
      class is `plain`.
+D12. **Releasing a data-quality hold** (`POST /admin/v1/source-runs/{run_id}/release`, 2026-09-27).
+     A run the DQ gates held (`status = partial`, `dq_status = fail`; `pipeline/connectors/dq.py`)
+     wrote its frame to `held/` and was never loaded; before this route the only way out was a
+     database edit. The route records `released_at`/`released_by`/`release_reason` on the row
+     (migration 0025) and an audited `admin_edit` event, then enqueues `release_held_run`
+     (`infra/scheduler/app.py`), which promotes the frame through the runner's own diff-and-store
+     step and enqueues the `load_source` the hold withheld. It refuses (409) a run that is not
+     held or that a later run with output has superseded, and (422 `gate_unmet`) a gated source:
+     the release lifts the data-quality gate only, never the licence gate, and the loader's own
+     gate check still runs. Idempotent: a second release of the same run writes no second audit
+     event; while the job has not yet marked the run `ok` it re-enqueues it (a queueing lock per
+     run keeps that to one job).
 """
 
 from __future__ import annotations
@@ -228,12 +240,14 @@ class QueuedSourceRunner:
         db.flush()
         try:
             from infra.scheduler.app import run_connector
-            from infra.scheduler.cadence import queue_for_source, queueing_lock_for
+            from infra.scheduler.cadence import execution_lock_for, queue_for_source, queueing_lock_for
 
             queue = queue_for_source({"egress": source.egress, "access": source.access})
-            run_connector.configure(queue=queue, queueing_lock=queueing_lock_for(source.id)).defer(
-                source_id=source.id
-            )
+            # `trigger` travels with the job so the run is recorded as what the operator asked for
+            # (`manual`/`backfill`), not as the scheduler's default `schedule`.
+            run_connector.configure(
+                queue=queue, lock=execution_lock_for(source.id), queueing_lock=queueing_lock_for(source.id)
+            ).defer(source_id=source.id, trigger=trigger)
         except Exception as exc:  # pragma: no cover - exercised via FakeSourceRunner in tests
             raise ProblemError(
                 "unavailable",
@@ -245,6 +259,51 @@ class QueuedSourceRunner:
 
 def get_source_runner() -> SourceRunner:
     return QueuedSourceRunner()
+
+
+# -------------------------------------------------------------------- DQ hold release (D12)
+class HoldReleaser(Protocol):
+    """Enqueues the promotion + load of a released run. Never promotes or loads inline: the
+    request only records the decision (D12)."""
+
+    def enqueue(self, db: Session, run: SourceRun, source: Source, *, requested_by: User) -> None: ...
+
+
+class QueuedHoldReleaser:
+    """Production implementation: defers `release_held_run` (`infra/scheduler/app.py`) under the
+    source's execution lock (never beside a fetch or load of the same source) and a per-run
+    queueing lock. An already-queued release is success (the job it names is the one wanted);
+    any other failure to reach the queue is a fixed `503 unavailable`, and `get_db` rolls the
+    request back, so no release is recorded that was not also enqueued."""
+
+    def enqueue(self, db: Session, run: SourceRun, source: Source, *, requested_by: User) -> None:
+        try:
+            import procrastinate
+
+            from infra.scheduler.app import release_held_run, release_queueing_lock_for
+            from infra.scheduler.cadence import execution_lock_for
+        except Exception as exc:  # pragma: no cover - exercised via a fake releaser in tests
+            raise _queue_unavailable() from exc
+        try:
+            release_held_run.configure(
+                lock=execution_lock_for(source.id), queueing_lock=release_queueing_lock_for(str(run.id))
+            ).defer(source_id=source.id, run_id=str(run.id), released_by=requested_by.public_id)
+        except procrastinate.exceptions.AlreadyEnqueued:
+            return
+        except Exception as exc:  # pragma: no cover - exercised via a fake releaser in tests
+            raise _queue_unavailable() from exc
+
+
+def _queue_unavailable() -> ProblemError:
+    return ProblemError(
+        "unavailable",
+        "Run queue unavailable",
+        detail="The connector run queue could not be reached; try again shortly.",
+    )
+
+
+def get_hold_releaser() -> HoldReleaser:
+    return QueuedHoldReleaser()
 
 
 # ------------------------------------------------------------------------------- serializers
@@ -322,6 +381,9 @@ def _serialize_source_run(run: SourceRun) -> dict[str, Any]:
         "error_class": run.error_class,
         "attempt": run.attempt,
         "dead_lettered": run.dead_lettered,
+        "released_at": _iso_or_none(run.released_at),
+        "released_by": run.releaser.public_id if run.releaser is not None else None,
+        "release_reason": run.release_reason,
     }
 
 
@@ -803,6 +865,104 @@ def admin_get_source_run(
     run = _find_source_run(db, run_id)
     if run is None:
         raise not_found(request.url.path)
+    return build_envelope(
+        _serialize_source_run(run),
+        meta=build_meta(lag_days=0, tier="admin"),
+        licence_summary=build_licence_summary([]),
+    )
+
+
+# ============================================================ POST /source-runs/{id}/release (D12)
+@router.post("/admin/v1/source-runs/{run_id}/release", status_code=202)
+def admin_release_source_run(
+    run_id: str,
+    request: Request,
+    body: dict[str, Any] | None,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: Annotated[AuthContext, Depends(require_admin())],
+    releaser: Annotated[HoldReleaser, Depends(get_hold_releaser)],
+) -> Any:
+    path = request.url.path
+    reason = _require_reason(body, path)
+    run = _find_source_run(db, run_id)
+    if run is None:
+        raise not_found(path)
+    source = db.get(Source, run.source_id)
+    if source is None:  # pragma: no cover - source_run.source_id is a foreign key
+        raise not_found(path)
+    user = _require_user(ctx)
+    public_run_id = public_id("run", run.id)
+
+    if run.released_at is not None:
+        # Idempotent replay: no second audit event. While the job has not marked the run `ok`,
+        # enqueue it again (its per-run queueing lock keeps that to one job).
+        if run.status == "partial":
+            releaser.enqueue(db, run, source, requested_by=user)
+        return _source_run_envelope(run)
+
+    if run.status != "partial" or run.dq_status != "fail":
+        raise ProblemError(
+            "conflict",
+            "Run is not held",
+            detail=(
+                f"Run {public_run_id} ended {run.status!r} with dq_status {run.dq_status!r}; only a run "
+                "held by its data-quality gates (status partial, dq_status fail) can be released."
+            ),
+        )
+    if source.gated:
+        raise ProblemError(
+            "gate_unmet",
+            "Licence gate unmet",
+            detail=(
+                f"Source {source.id!r} is gated (licence {source.licence.id!r}, reuse class "
+                f"{source.licence.reuse_class!r}); releasing a data-quality hold never lifts the "
+                "licence gate."
+            ),
+        )
+    superseding = db.scalar(
+        select(SourceRun.id)
+        .where(
+            SourceRun.source_id == run.source_id,
+            SourceRun.started_at > run.started_at,
+            SourceRun.status.in_(("ok", "partial")),
+        )
+        .limit(1)
+    )
+    if superseding is not None:
+        raise ProblemError(
+            "conflict",
+            "Run is superseded",
+            detail=(
+                f"A later run ({public_id('run', superseding)}) produced output of its own; loading "
+                f"{public_run_id} now would roll the source back. Release the later run instead."
+            ),
+        )
+
+    run.released_at = utcnow()
+    run.released_by = user.id
+    run.release_reason = reason
+    db.flush()
+    record_audit_event(
+        db,
+        subject_type="source",
+        subject_id=_source_subject_uuid(source.id),
+        event_type="admin_edit",
+        actor=user,
+        reason=reason,
+        before={"source_id": source.id, "run_id": public_run_id, "status": "partial", "dq_status": "fail"},
+        after={
+            "source_id": source.id,
+            "run_id": public_run_id,
+            "action": "release_dq_hold",
+            "released_at": _iso_or_none(run.released_at),
+        },
+    )
+    releaser.enqueue(db, run, source, requested_by=user)
+    db.refresh(run)
+    return _source_run_envelope(run)
+
+
+def _source_run_envelope(run: SourceRun) -> Any:
     return build_envelope(
         _serialize_source_run(run),
         meta=build_meta(lag_days=0, tier="admin"),

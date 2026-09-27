@@ -11,6 +11,17 @@ Object-store failures fail closed (docs/20 §12): a snapshot or parquet write th
 again, and the run record — the commit marker every downstream reader starts from — is written
 last. If that record cannot be written either, the exception propagates and the CLI exits 1 with
 no result line, which the scheduler records as a crash and retries.
+
+`trigger` is what the run record says started the run, one of `RUN_TRIGGERS` (docs/21 §4.2):
+the CLI defaults to `manual` and the scheduler passes `schedule` explicitly, so a scheduled run is
+never recorded as a manual one. An off-vocabulary value is refused before any I/O.
+
+`release_held` is the other way a run's output reaches `normalized/`: an operator accepted a
+data-quality hold (`POST /admin/v1/source-runs/{run_id}/release`), so the held frame is diffed
+against the previous normalised snapshot and written exactly as step 6 of `run` would have, the
+run record is rewritten `ok` with a `release` block, and the caller enqueues the load. It refuses
+a run that is not held, one a later run has superseded, and any gated source (the same gate the
+runner and the loader apply; a release never makes quarantined output publishable).
 """
 
 from __future__ import annotations
@@ -41,6 +52,10 @@ from pipeline.connectors.store import QuarantineStore, Store, open_store, ts_tok
 from pipeline.diff import EVENT_TYPES, diff_snapshots
 
 log = logging.getLogger("pipeline.connectors")
+
+#: docs/21 §4.2 `source_run.trigger`. Mirrors `services.db.models.SOURCE_RUN_TRIGGERS` (the
+#: pipeline does not import the ORM); `infra/scheduler/test_trigger.py` pins the two equal.
+RUN_TRIGGERS = ("schedule", "manual", "backfill", "retry")
 
 # Opportunity columns that play the roles pipeline/diff.py keys on (docs/21 §7.2 vs §7.1).
 _DIFF_ALIASES = {"lifecycle_state": "status", "capacity_mw": "capacity_sought_mw", "proposed_cod": "due_at"}
@@ -106,6 +121,8 @@ def run(
     `raw` injects a recorded snapshot (tests, replays) so `fetch()` is skipped.
     Raises `GateViolation` before any I/O when the source is gated and the flag is absent.
     """
+    if trigger not in RUN_TRIGGERS:
+        raise ValueError(f"trigger must be one of {RUN_TRIGGERS}, got {trigger!r}")
     registry = registry or Registry()
     source = registry.get(source_id)
     connector = registry.instantiate(source_id, allow_restricted=allow_restricted, http=http)
@@ -278,9 +295,29 @@ def run(
         record["outputs"]["held"] = st.locate(held_path)
         return finish("partial")
 
-    # 5. diff against the previous normalised snapshot ---------------------
+    # 5-6. diff against the previous normalised snapshot, then store ----------
+    try:
+        _diff_and_store(st, source_id, ts, df, prev_df, snap.retrieved_at_iso, record, result)
+    except StoreError as e:
+        return finish("failed", e)
+    return finish("ok")
+
+
+def _diff_and_store(
+    st: Store,
+    source_id: str,
+    ts: str,
+    df: pd.DataFrame,
+    prev_df: pd.DataFrame | None,
+    observed_at: str,
+    record: dict[str, Any],
+    result: RunResult,
+) -> None:
+    """Steps 5 and 6 of a run, shared with `release_held`: diff `df` against `prev_df`, set the
+    record's diff counts, and write the normalised frame (+ events) all-or-nothing. A failed write
+    deletes whatever this step already wrote and re-raises `StoreError` for the caller to record."""
     if prev_df is not None:
-        events = diff_snapshots(_diff_view(prev_df), _diff_view(df), observed_at=snap.retrieved_at_iso)
+        events = diff_snapshots(_diff_view(prev_df), _diff_view(df), observed_at=observed_at)
     else:
         events = pd.DataFrame(
             columns=["event_type", "record_id", "source_id", "field", "before", "after", "observed_at"]
@@ -295,8 +332,8 @@ def run(
     record["events_emitted"] = len(events)
     result.events = events
 
-    # 6. store (publishable outputs only from a publishable store) ---------
-    # All-or-nothing: a failed write deletes whatever this step already wrote and fails the run.
+    # Publishable outputs only from a publishable store. All-or-nothing: a failed write deletes
+    # whatever this step already wrote and fails the run.
     targets = [st.normalized_path(source_id, ts)] + ([st.events_path(source_id, ts)] if len(events) else [])
     try:
         result.paths["normalized"] = st.write_parquet(targets[0], df)
@@ -305,15 +342,116 @@ def run(
             ev["event_type"] = ev["event_type"].astype(str)
             result.paths["events"] = st.write_parquet(targets[1], ev)
     except StoreError as e:
-        log.error("output write failed", extra={"source_id": source_id, "run_id": run_id, "error": repr(e)})
-        _discard(st, targets, source_id, run_id)
+        log.error(
+            "output write failed",
+            extra={"source_id": source_id, "run_id": record.get("id"), "error": repr(e)},
+        )
+        _discard(st, targets, source_id, str(record.get("id")))
         result.paths.pop("normalized", None)
         result.paths.pop("events", None)
-        return finish("failed", e)
+        raise
     record["outputs"]["normalized"] = st.locate(result.paths["normalized"])
     if "events" in result.paths:
         record["outputs"]["events"] = st.locate(result.paths["events"])
-    return finish("ok")
 
 
-__all__ = ["GateViolation", "RunResult", "run"]
+# ------------------------------------------------------------------------ DQ hold release
+class ReleaseRefused(Exception):
+    """`release_held` will not promote this run. `code` is one of `not_found` (no run record with
+    that id), `not_held` (the run did not end in a DQ hold), `superseded` (a later run produced
+    output of its own; release that one instead, or let the next run stand) or `gated` (the
+    source's reuse class is gated: nothing it fetches may reach a publishable path)."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
+
+
+@dataclass
+class ReleaseResult:
+    run: dict[str, Any]
+    ts: str
+    #: True when the run record already carried a release: nothing was rewritten this time.
+    already_released: bool
+    paths: dict[str, pathlib.Path] = field(default_factory=dict)
+
+
+def release_held(
+    source_id: str,
+    run_id: str,
+    *,
+    released_by: str,
+    registry: Registry | None = None,
+    store: Store | None = None,
+    now: dt.datetime | None = None,
+) -> ReleaseResult:
+    """Promote the held output of run `run_id` to `normalized/` (+ `events/`), as though its DQ
+    gates had passed, and rewrite its run record `ok` with a `release` block (`released_by`,
+    `released_at`). Idempotent: a record that already carries a release is returned untouched.
+
+    The record is found by id among the source's run records, not by timestamp, because the id is
+    what the `source_run` row and the admin route carry. Raises `ReleaseRefused` (see its codes)
+    and lets `StoreError` propagate after deleting any partial output, leaving the record held.
+    """
+    registry = registry or Registry()
+    source = registry.get(source_id)
+    if source.gated:
+        raise ReleaseRefused(
+            "gated", f"{source_id} is gated (reuse {source.reuse!r}); nothing is loaded from it"
+        )
+    st = store if store is not None else open_store()
+
+    entries = st._run_entries(source_id)
+    index = next((i for i, (_, r) in enumerate(entries) if str(r.get("id")) == run_id), None)
+    if index is None:
+        raise ReleaseRefused("not_found", f"no run record {run_id} for {source_id}")
+    ts, record = entries[index]
+    record = dict(record)
+    if record.get("release") and record.get("status") == "ok":
+        return ReleaseResult(run=record, ts=ts, already_released=True)
+    if record.get("status") != "partial" or not (record.get("outputs") or {}).get("held"):
+        raise ReleaseRefused("not_held", f"run {run_id} ended {record.get('status')!r}, not in a DQ hold")
+    later = [r.get("id") for _, r in entries[index + 1 :] if r.get("status") in ("ok", "partial")]
+    if later:
+        raise ReleaseRefused(
+            "superseded",
+            f"run {run_id} is superseded by later run(s) with output: {', '.join(map(str, later))}",
+        )
+
+    held_path = st.held_path(source_id, ts)
+    if not st.exists(held_path):
+        raise ReleaseRefused(
+            "not_held", f"the held output of run {run_id} is missing ({st.locate(held_path)})"
+        )
+    df = st.read_parquet(held_path)
+    prev_df, prev_run_id = st.previous_normalized(source_id)
+    if prev_df is not None:
+        prev_df = align_previous_keys(prev_df, df)
+    observed_at = str((record.get("snapshot") or {}).get("retrieved_at") or record.get("started_at"))
+    record.setdefault("outputs", {})
+    result = RunResult(run=record, records=df)
+    _diff_and_store(st, source_id, ts, df, prev_df, observed_at, record, result)
+    if record.get("snapshot") is not None:
+        record["snapshot"]["previous_run_id"] = prev_run_id
+    released_at = (now or utcnow()).isoformat()
+    record["status"] = "ok"
+    record["release"] = {"released_by": released_by, "released_at": released_at, "held_status": "partial"}
+    # The run record is the commit marker (module docstring): written last, after the outputs.
+    result.paths["run"] = st.write_run(source_id, ts, record)
+    log.info(
+        "held run released",
+        extra={"source_id": source_id, "run_id": run_id, "rows_new": record["rows_new"], "ts": ts},
+    )
+    return ReleaseResult(run=record, ts=ts, already_released=False, paths=result.paths)
+
+
+__all__ = [
+    "RUN_TRIGGERS",
+    "GateViolation",
+    "ReleaseRefused",
+    "ReleaseResult",
+    "RunResult",
+    "release_held",
+    "run",
+]

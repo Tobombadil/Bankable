@@ -17,6 +17,7 @@ the coordinator flips them to `live` once this module is mounted).
 | `adminSetSourcePublishState` | `PUT /admin/v1/sources/{id}/publish-state` | `422 gate_unmet` naming the unmet condition(s) |
 | `adminListSourceRuns` | `GET /admin/v1/source-runs` | filters: `source_id`, `status`, `started_at[from/to]` |
 | `adminGetSourceRun` | `GET /admin/v1/source-runs/{run_id}` | `run_` id decoded via Crockford, like `mat_` ids |
+| `adminReleaseSourceRun` | `POST /admin/v1/source-runs/{run_id}/release` | 202; releases a data-quality hold (decision 12): records who/when/why, audits, enqueues `release_held_run` |
 | `adminGetSnapshot` | `GET /admin/v1/snapshots/{snapshot_id}` | `snap_` id, same decode scheme |
 | `adminSetLicenceGate` | `PUT /admin/v1/licences/{id}/gate` | `legal` role only; reclassification creates a new licence row |
 | `adminGetCosts` | `GET /admin/v1/costs` | aggregates `model_call` + `source_run` in Python, day-bucketed |
@@ -128,6 +129,19 @@ A `SourceRunner` Protocol (`enqueue(db, source, *, trigger, requested_by) -> Sou
     (decision 8 explains why null/empty is acceptable) **and `egress="plain"`** — not a guess: the
     spec's own description says the issuer host is added to "the egress allowlist for the `plain`
     pool only", which only makes sense if the row's own egress class is `plain`.
+12. **Releasing a data-quality hold (2026-09-27).** A run held by `pipeline/connectors/dq.py`
+    (`status = partial`, `dq_status = fail`) wrote its frame to `held/` and was never loaded, and
+    no route could change that. `POST /admin/v1/source-runs/{run_id}/release` (operator/owner, a
+    non-blank `reason`) sets `released_at`/`released_by`/`release_reason` (migration 0025), writes
+    an `admin_edit` audit event with `after.action = "release_dq_hold"`, and hands the run to a
+    `HoldReleaser` port whose production implementation defers `release_held_run` under the
+    source's execution lock and a per-run queueing lock (an already-queued release is success;
+    anything else is `503` and the request rolls back). The job promotes the held frame with the
+    runner's own diff-and-store step, marks the row `ok`, and enqueues `load_source`. Refused:
+    `409` for a run that is not held or that a later `ok`/`partial` run supersedes, `422
+    gate_unmet` for a gated source (the release lifts the DQ gate only; the loader's licence gate
+    still runs). A repeat release writes nothing new and re-enqueues only while the row is still
+    `partial`. Tests override `get_hold_releaser` with a fake, as they do `get_source_runner`.
 
 ## Deferred (not implemented this sprint, and why)
 
