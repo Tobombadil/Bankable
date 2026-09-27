@@ -24,7 +24,7 @@
         <tr><th scope="row">Capacity MW</th><td>{{ proposal.capacity_mw if proposal.capacity_mw is not none else "&mdash;" }}</td></tr>
         <tr><th scope="row">Storage MWh</th><td>{{ proposal.storage_mwh if proposal.storage_mwh is not none else "&mdash;" }}</td></tr>
         <tr><th scope="row">Jurisdiction</th><td>{{ proposal.jurisdiction }}</td></tr>
-        <tr><th scope="row">ISO</th><td>{{ proposal.iso or "&mdash;" }}</td></tr>
+        <tr><th scope="row">ISO</th><td>{{ iso_label(proposal.iso) or "&mdash;" }}</td></tr>
         <tr><th scope="row">Lifecycle state</th><td>{{ proposal.lifecycle_state }}</td></tr>
         <tr><th scope="row">Status raw</th><td>{{ proposal.status_raw or "&mdash;" }}</td></tr>
         <tr><th scope="row">Proposed online date</th><td>{{ proposal.proposed_online_date or "&mdash;" }}</td></tr>

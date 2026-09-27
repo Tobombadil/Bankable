@@ -18,7 +18,7 @@
   <div><dt>Storage (MWh)</dt><dd class="tnum">{{ '%.1f'|format(record.storage_mwh) if record.storage_mwh is not none else '—' }}</dd></div>
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
   <div><dt>County</dt><dd>{{ record.county or '—' }}{% if record.restricted_precision %} <span class="reuse-badge">county level (source licence)</span>{% elif record.location_precision == 'county_centroid' %} <span class="reuse-badge">county centroid</span>{% endif %}</dd></div>
-  <div><dt>ISO / operator</dt><dd>{{ record.iso or '—' }}</dd></div>
+  <div><dt>ISO / operator</dt><dd>{{ record.iso_label or '—' }}</dd></div>
   <div><dt>Sponsor</dt><dd>{{ record.sponsor or '—' }}</dd></div>
   <div><dt>Queue ID</dt><dd class="mono">{{ record.queue_id or '—' }}</dd></div>
   <div><dt>EIA plant / generator ID</dt><dd class="mono">{{ (record.eia_plant_id ~ ' / ' ~ record.eia_generator_id) if record.eia_plant_id else '—' }}</dd></div>

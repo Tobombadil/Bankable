@@ -175,6 +175,19 @@ def slip_display(slip: Mapping[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+#: How a stored ISO token reads on a page (lane E15). The API and the store keep the spec's `Iso`
+#: token (`ISONE`, what `?iso=`, alerts and social copy match on, docs/00-PLAN.md 2026-09-27 lane E14);
+#: readers know the operator as "ISO-NE". Display only: links and query strings keep the token.
+ISO_DISPLAY_LABELS: dict[str, str] = {"ISONE": "ISO-NE"}
+
+
+def iso_label(token: str | None) -> str | None:
+    """The reader-facing label for an ISO token; any token without a mapping reads as itself."""
+    if not token:
+        return token
+    return ISO_DISPLAY_LABELS.get(token, token)
+
+
 def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
     """API `serialize_proposal()` shape -> the flat dict the detail/list templates read."""
     location = entity.get("location") or {}
@@ -196,6 +209,7 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
         "location_precision": location.get("precision"),
         "restricted_precision": location.get("precision_reason") == "licence",
         "iso": entity.get("iso"),
+        "iso_label": iso_label(entity.get("iso")),
         "sponsor": (entity.get("sponsor") or {}).get("name_canonical"),
         "lifecycle_state": entity.get("lifecycle_state"),
         "lifecycle_family": lifecycle_family(entity.get("lifecycle_state")),

@@ -168,11 +168,13 @@ from services.api.records import (  # noqa: E402
     OPPORTUNITY_SORT_ALLOWLIST,
     PROPOSAL_FILTERS,
     PROPOSAL_SORT_ALLOWLIST,
+    SYNC_FILTERS,
     _opportunity_licence_rows,
     _opportunity_query_with_filters,
     _opportunity_technologies_filter,
     _proposal_licence_rows,
     _proposal_query_with_filters,
+    instant_filter,
 )
 from services.api.records import router as records_router  # noqa: E402
 
@@ -196,6 +198,7 @@ from services.api.resource_queries import (  # noqa: E402
     EVENT_LIST_PARAMS,
     EVENT_SORT_ALLOWLIST,
     event_query_with_filters,
+    event_subject_jurisdiction_filter,
 )
 from services.api.resource_queries import subject_info as _subject_info  # noqa: E402
 
@@ -281,7 +284,10 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
 # ------------------------------------------------------------------------------------ organizations
 @app.get("/v1/organizations")
 def list_organizations(request: Request, db: Session = Depends(get_db)) -> Any:
-    check_allowed(request, LIST_COMMON | {"type", "country", "is_curated_issuer", "slug"})
+    check_allowed(
+        request,
+        LIST_COMMON | {"type", "country", "jurisdiction", "is_curated_issuer", "slug", "updated_since"},
+    )
     limit = clamp_limit(int_param(request, "limit"))
     field, ascending = sort_spec(request, {"name_canonical"}, "name_canonical")
     stmt = select(Organization).where(
@@ -294,6 +300,16 @@ def list_organizations(request: Request, db: Session = Depends(get_db)) -> Any:
         stmt = stmt.where(Organization.type.in_(csv_param(v)))
     if v := qp.get("country"):
         stmt = stmt.where(Organization.country.in_(csv_param(v)))
+    if v := qp.get("jurisdiction"):
+        # The organisation's own sub-national jurisdiction (ISO 3166-2), where a source states one;
+        # NULL matches nothing, as on the record lists. Country-level filtering is `country`.
+        stmt = stmt.where(Organization.jurisdiction.in_(csv_param(v)))
+    if v := qp.get("updated_since"):
+        # api/openapi.yaml `UpdatedSince`: for organisations the sync column is `updated_at`, which
+        # moves on every write to the row (a rename, a merge, a new parent link) where `last_changed`
+        # is set by the loaders; it is never earlier than `last_changed`, so a client that pages
+        # with the largest `last_changed` it has seen as its next cursor misses nothing.
+        stmt = stmt.where(Organization.updated_at >= instant_filter("updated_since", v, request.url.path))
     if v := qp.get("is_curated_issuer"):
         stmt = stmt.where(Organization.is_curated_issuer.is_(v.lower() == "true"))
     if v := qp.get("q"):
@@ -958,7 +974,7 @@ def get_health(
 # -------------------------------------------------------------------------------------------- feeds
 @app.get("/feeds/proposals.{format}")
 def feed_proposals(format: str, request: Request, db: Session = Depends(get_db)) -> Response:
-    check_allowed(request, PROPOSAL_FILTERS | {"q"})
+    check_allowed(request, PROPOSAL_FILTERS | SYNC_FILTERS | {"q"})
     stmt = _proposal_query_with_filters(request)
     proposals = list(db.scalars(stmt.order_by(Proposal.last_changed.desc()).limit(50)).all())
     items = []
@@ -997,7 +1013,7 @@ def feed_proposals(format: str, request: Request, db: Session = Depends(get_db))
 
 @app.get("/feeds/opportunities.{format}")
 def feed_opportunities(format: str, request: Request, db: Session = Depends(get_db)) -> Response:
-    check_allowed(request, OPPORTUNITY_FILTERS | {"q"})
+    check_allowed(request, OPPORTUNITY_FILTERS | SYNC_FILTERS | {"q"})
     stmt = _opportunity_query_with_filters(request, db)
     items_rows = list(db.scalars(stmt.order_by(Opportunity.last_changed.desc()).limit(50)).all())
     items = []
@@ -1034,13 +1050,21 @@ def feed_opportunities(format: str, request: Request, db: Session = Depends(get_
 
 @app.get("/feeds/events.{format}")
 def feed_events(format: str, request: Request, db: Session = Depends(get_db)) -> Response:
-    check_allowed(request, {"subject_type", "event_type", "source_id"})
+    check_allowed(request, {"subject_type", "event_type", "source_id", "jurisdiction"})
     stmt = select(Event).where(*event_public_filter())
     qp = request.query_params
     if v := qp.get("subject_type"):
         stmt = stmt.where(Event.subject_type.in_(csv_param(v)))
     if v := qp.get("event_type"):
         stmt = stmt.where(Event.event_type.in_(csv_param(v)))
+    if v := qp.get("source_id"):
+        # Accepted and never applied until 2026-09-27 (lane E15): `?source_id=` returned the whole
+        # feed. The event's own source, as `GET /v1/events?source_id=`.
+        stmt = stmt.where(Event.source_id.in_(csv_param(v)))
+    if v := qp.get("jurisdiction"):
+        # An event has no jurisdiction of its own: this is its subject's
+        # (`resource_queries.event_subject_jurisdiction_filter`).
+        stmt = stmt.where(event_subject_jurisdiction_filter(csv_param(v)))
     rows = list(db.scalars(stmt.order_by(Event.seq.desc()).limit(50)).all())
     items = []
     for e in rows:

@@ -18,10 +18,13 @@ judged on the grade the row is *served* at, `slipped`/`slip_bucket` through the 
 `services/api/slippage.py` functions, an opportunity query with no `status` meaning `status=open`
 (the list's default), `q` over the name, the visible sponsor/issuer and the visible source
 record ids with SQL `LIKE` wildcards, and on events `changed_key` (any-of over `changed_keys`)
-and inclusive `observed_at[from|to]` bounds (2026-09-27, lane E14). `GET /v1/events` refuses
+and inclusive `observed_at[from|to]` bounds (2026-09-27, lane E14); on proposals and opportunities
+`sponsor_id`/`issuer_id` (a hidden organisation matches no id), `storage_mwh[gte]`,
+`capacity_sought_mw[gte]`, `open_at[from|to]`, `budget_currency` and `budget_amount[gte]` (one currency,
+never across), and the `first_seen`/`last_changed` windows (2026-09-27, lane E15). `GET /v1/events` refuses
 `q`, so an event query never carries one that means anything. Value parsing and validation go
-through the functions the list endpoints call (`number_filter`, `instant_filter`,
-`placement_grades`, `slip_params`, `changed_key_values`).
+through the functions the list endpoints call (`number_filter`, `instant_filter`, `date_filter`,
+`currency_values`, `budget_bound`, `placement_grades`, `slip_params`, `changed_key_values`).
 `tests/test_saved_search_parity.py` asserts, over a fixture store and a generated query set, at the
 public and Pro tiers, that the ids the list returns equal the ids this module accepts, and that
 every filter key the list accepts is exercised -- so a filter added to the list without a matching
@@ -56,6 +59,10 @@ from services.api.errors import ProblemError
 from services.api.params import csv_param
 from services.api.records import (
     PLACEMENT_REGION_PRECISIONS,
+    RECORD_TIME_BOUNDS,
+    budget_bound,
+    currency_values,
+    date_filter,
     instant_filter,
     number_filter,
     placement_grades,
@@ -134,6 +141,34 @@ def _as_utc(value: dt.datetime) -> dt.datetime:
     return value.replace(tzinfo=dt.UTC) if value.tzinfo is None else value.astimezone(dt.UTC)
 
 
+def _at_least(value: Any, bound: float) -> bool:
+    """`column >= bound` for a nullable numeric column: NULL satisfies no bound."""
+    return value is not None and float(value) >= bound
+
+
+def _org_matches(org: Any, raw: str) -> bool:
+    """`sponsor_id=`/`issuer_id=` (records.py `visible_organization_ids`): the linked organisation is
+    one of the named public ids *and* visible; a taken-down organisation matches no id, as in SQL."""
+    return org is not None and organization_visible(org) and org.public_id in csv_param(raw)
+
+
+def _time_bounds_match(record: Proposal | Opportunity, qp: Mapping[str, str]) -> bool:
+    """`first_seen[from|to]`, `last_changed[from|to]`, `updated_since`: records.py
+    `RECORD_TIME_BOUNDS`, inclusive, compared as UTC instants. A saved search cannot store
+    `updated_since` (services/api/pro.py refuses it); a row stored before that rule reads it as the
+    list does."""
+    for name, column, op in RECORD_TIME_BOUNDS:
+        if v := qp.get(name):
+            bound = instant_filter(name, v, _INSTANCE)
+            stored = getattr(record, column)
+            if stored is None:
+                return False
+            value = _as_utc(stored)
+            if (op == "gte" and value < bound) or (op == "lte" and value > bound):
+                return False
+    return True
+
+
 def _served_grade(loc: Location) -> str | None:
     """The placement grade a location is served at: `records.py::_apply_placement_filter`'s three
     SQL arms, row by row (an `exact` point whose licence forbids raw publication serves as
@@ -170,6 +205,14 @@ def _proposal_matches(proposal: Proposal, qp: Mapping[str, str], entitlement: st
         bound = number_filter("capacity_mw[lte]", v, _INSTANCE)
         if capacity is None or not capacity <= bound:
             return False
+    if (v := qp.get("storage_mwh[gte]")) and not _at_least(
+        proposal.storage_mwh, number_filter("storage_mwh[gte]", v, _INSTANCE)
+    ):
+        return False
+    if (v := qp.get("sponsor_id")) and not _org_matches(proposal.sponsor, v):
+        return False
+    if not _time_bounds_match(proposal, qp):
+        return False
     if (v := qp.get("slug")) and proposal.slug != v:
         return False
     loc = proposal.location
@@ -229,6 +272,27 @@ def _opportunity_matches(opportunity: Opportunity, qp: Mapping[str, str], entitl
         bound = instant_filter("due_at[to]", v, _INSTANCE)
         if due is None or due > bound:
             return False
+    if (v := qp.get("issuer_id")) and not _org_matches(opportunity.issuer, v):
+        return False
+    for name, op in (("open_at[from]", "gte"), ("open_at[to]", "lte")):
+        if v := qp.get(name):
+            day = date_filter(name, v, _INSTANCE)
+            opened = opportunity.open_at
+            if opened is None or (op == "gte" and opened < day) or (op == "lte" and opened > day):
+                return False
+    if (v := qp.get("capacity_sought_mw[gte]")) and not _at_least(
+        opportunity.capacity_sought_mw, number_filter("capacity_sought_mw[gte]", v, _INSTANCE)
+    ):
+        return False
+    if (v := qp.get("budget_currency")) and opportunity.budget_currency not in currency_values(v, _INSTANCE):
+        return False
+    budget = budget_bound(qp.get("budget_amount[gte]"), qp.get("budget_currency"), _INSTANCE)
+    if budget is not None:
+        amount, currency = budget
+        if opportunity.budget_currency != currency or not _at_least(opportunity.budget_amount, amount):
+            return False
+    if not _time_bounds_match(opportunity, qp):
+        return False
     if (v := qp.get("slug")) and opportunity.slug != v:
         return False
     if (v := qp.get("q")) and not _text_matches(

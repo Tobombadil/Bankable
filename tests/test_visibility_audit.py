@@ -573,3 +573,166 @@ def test_the_admin_list_refuses_unknown_parameters(client: Any, db: Session) -> 
     _admin(client, db)
     assert client.get("/admin/v1/visibility-audits", params={"offset": 5}).status_code == 400
     assert client.get("/admin/v1/visibility-audits/latest", params={"x": 1}).status_code == 400
+
+
+# ================================================================ withheld operator names (lane E15)
+HIDDEN_OPERATOR = "Shadow Midstream Partners"
+HIDDEN_OPERATOR_REGISTER = "SHADOW MIDSTREAM PARTNERS, LLC"
+
+
+@pytest.fixture()
+def _fresh_name_caches() -> Iterator[None]:
+    import services.api.assets as assets_module
+    from services.api import withheld_names
+
+    assets_module._reset_asset_index_cache()
+    withheld_names.reset_cache()
+    yield
+    assets_module._reset_asset_index_cache()
+    withheld_names.reset_cache()
+
+
+def seed_taken_down_operator(db: Session) -> dict[str, Any]:
+    """The clean store plus an organisation taken down while three public assets still name it: a
+    plant operated through an edge (register spelling differs), a compressor named only by its
+    register string, and a pipeline line whose attributes name it. The assets stay public."""
+    from services.api.conftest import make_asset_owner
+
+    seeded = seed_clean_store(db)
+    lic, src = seeded["open"], seeded["ercot"]
+    hidden = make_org(db, HIDDEN_OPERATOR)
+    public_owner = make_org(db, "Open Owner Holdings")
+    plant = make_asset(db, src, lic, source_asset_id="w1", name="Prairie Gas Plant", geom=(-98.0, 32.0))
+    plant.operator_name = HIDDEN_OPERATOR_REGISTER
+    plant.attributes = {"operator_raw": HIDDEN_OPERATOR_REGISTER, "city": "Midland"}
+    make_asset_owner(db, plant, hidden, src, lic, role="operator", share_pct=None)
+    make_asset_owner(db, plant, public_owner, src, lic, role="owner")
+    compressor = make_asset(db, src, lic, source_asset_id="w2", name="Mesa Compressor", geom=(-97.0, 31.0))
+    compressor.operator_name = HIDDEN_OPERATOR.upper()
+    line = make_asset(
+        db, src, lic, source_asset_id="w3", name="Long Line", asset_type="gas_pipeline", technology=None
+    )
+    line.geom = None
+    line.geom_line = [(-99.0, 31.0), (-97.0, 33.0)]
+    line.operator_name = HIDDEN_OPERATOR
+    line.attributes = {"operator": HIDDEN_OPERATOR, "miles": 120.0}
+    hidden.publish_state = "unpublished"
+    db.flush()
+    return {**seeded, "hidden_org": hidden, "plant": plant, "compressor": compressor, "line": line}
+
+
+def test_a_taken_down_operator_named_by_public_assets_is_not_a_breach_when_every_surface_withholds_it(
+    db: Session, db_sessionmaker: sessionmaker[Session], _fresh_name_caches: None, spec: dict[str, Any]
+) -> None:
+    seeded = seed_taken_down_operator(db)
+    db.commit()
+
+    result = run.run_audit(db_sessionmaker)
+
+    assert result["m11"] == 0, result["breaches"]
+    name_checks = [c for c in result["served"]["checks"] if c["kind"] == "withheld_name"]
+    detail_ids = {c["public_id"] for c in name_checks if c["why"].startswith("detail")}
+    assert {seeded["plant"].public_id, seeded["compressor"].public_id, seeded["line"].public_id} <= detail_ids
+    assert any(c["why"].startswith("search") for c in name_checks)
+    assert all(c["status"] == 200 and not c["leak"] for c in name_checks)
+    # The persisted row never carries the withheld spelling the search probe used.
+    stored = db.scalars(select(Event).where(Event.event_type == run.EVENT_TYPE)).one()
+    assert HIDDEN_OPERATOR.lower() not in json.dumps(stored.after).lower()
+    assert not any(k.startswith("_") for k in result)
+
+
+def test_an_asset_surface_that_forgets_the_withheld_names_is_a_breach_on_both_passes(
+    db: Session,
+    db_sessionmaker: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    _fresh_name_caches: None,
+) -> None:
+    """The regression the check exists for: an asset serializer called without the takedown set (a
+    new surface, or a refactor that passes `NONE`). The store pass sees the name in the rendered
+    shape; the served pass confirms the real detail page prints it."""
+    import services.api.assets as assets_module
+    from services.api import withheld_names
+    from services.api.serialize import serialize_asset
+
+    seeded = seed_taken_down_operator(db)
+    db.commit()
+
+    def forgetful(asset: Any, **kwargs: Any) -> dict[str, Any]:
+        return serialize_asset(asset, **{**kwargs, "withheld": withheld_names.NONE})
+
+    monkeypatch.setattr(assets_module, "serialize_asset", forgetful)
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    printed = [b for b in _breaches(result, "assets") if b["reason"].startswith("withheld_name_printed:")]
+    by_asset = {b["public_id"]: b for b in printed if b["reason"].startswith("withheld_name_printed:detail:")}
+    assert set(by_asset) == {
+        seeded["plant"].public_id,
+        seeded["compressor"].public_id,
+        seeded["line"].public_id,
+    }
+    assert by_asset[seeded["plant"].public_id]["reason"] == "withheld_name_printed:detail:operator_name"
+    assert all(b["served_status"] == 200 and b["served_leak"] for b in by_asset.values())
+    # The map point feature does not go through the serializer, so it is not a breach here.
+    assert not any(":map_point:" in b["reason"] for b in printed)
+    assert result["m11"] == len(result["breaches"]) >= 3
+
+
+def test_an_asset_search_that_matches_a_withheld_operator_name_is_a_breach(
+    db: Session,
+    db_sessionmaker: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    _fresh_name_caches: None,
+) -> None:
+    import sqlalchemy as sa
+
+    from services.api.withheld_names import WithheldNames
+
+    seeded = seed_taken_down_operator(db)
+    db.commit()
+    real = WithheldNames.operator_name_searchable
+    calls = {"n": 0}
+
+    def searchable_everywhere(self: WithheldNames) -> Any:
+        # The audit's own store query uses the real clause; the served search gets the regression.
+        calls["n"] += 1
+        return real(self) if calls["n"] == 1 else sa.true()
+
+    monkeypatch.setattr(WithheldNames, "operator_name_searchable", searchable_everywhere)
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    assert calls["n"] >= 2, "the served search never reached the regressed clause"
+    searchable = {
+        b["public_id"] for b in result["breaches"] if b["reason"] == "withheld_name_searchable:operator_name"
+    }
+    # Every spelling contains "Shadow Midstream Partners", so each search finds all three by operator
+    # name; none of them carries the text in its own name or in a public owner's name.
+    assert searchable == {seeded["plant"].public_id, seeded["compressor"].public_id, seeded["line"].public_id}
+    assert not any(b["reason"].startswith("withheld_name_printed:") for b in result["breaches"])
+
+
+def test_withheld_name_paths_reads_owners_by_id_and_an_operator_edge_whatever_the_spelling() -> None:
+    from pipeline.normalize import org_key
+    from services.api.withheld_names import WithheldNames
+
+    # Keys, not raw strings: the register spelling below differs in case and legal form.
+    withheld = WithheldNames(keys=frozenset({org_key(HIDDEN_OPERATOR)}))
+    shape = {
+        "operator_name": "Unrelated Energy",
+        "attributes": {"nested": {"owner_raw": HIDDEN_OPERATOR_REGISTER}, "list": ["x", HIDDEN_OPERATOR]},
+        "owners": [
+            {"organization": {"public_id": "org_public", "name": HIDDEN_OPERATOR}},
+            {"organization": {"public_id": "org_hidden", "name": "Renamed"}},
+        ],
+        "name": HIDDEN_OPERATOR,  # the asset's own name is not register text about the company
+    }
+    paths = run.withheld_name_paths(
+        shape, withheld, operator_edge=False, hidden_org_ids=frozenset({"org_hidden"})
+    )
+    assert paths == ["attributes.nested.owner_raw", "attributes.list[1]", "owners[1]"]
+    edge = run.withheld_name_paths({"operator_name": "Unrelated Energy"}, withheld, operator_edge=True)
+    assert edge == ["operator_name"]
+    feature = {"type": "Feature", "properties": {"operator_name": HIDDEN_OPERATOR}}
+    assert run.withheld_name_paths(feature, withheld, operator_edge=False) == ["operator_name"]
+    assert run.withheld_name_paths({"operator_name": None}, withheld, operator_edge=True) == []
