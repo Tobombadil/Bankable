@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import re
-import uuid as _uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
@@ -26,7 +25,7 @@ from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.serialize import build_envelope, build_licence_summary, build_meta
 from services.db.models import Account, Match, Opportunity, Proposal
-from services.ids import _CROCKFORD, public_id
+from services.ids import parse_public_id, public_id
 from services.sor.ports import (
     CompanyRef,
     CompanyUpsert,
@@ -48,19 +47,12 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 def _find_match_by_public_id(db: Session, value: str) -> Match | None:
     """`mat_<crockford>` ids are synthesised from `match.id` (docs/21 §3.11 has no separate
-    `public_id` column on `match`, same situation as `event` — mirrors `services/api/app.py`'s
-    `_find_event_by_public_id`)."""
-    if not value.startswith("mat_"):
-        return None
-    digits = value[4:]
-    try:
-        n = 0
-        for ch in digits:
-            n = n * 32 + _CROCKFORD.index(ch)
-        candidate = _uuid.UUID(int=n)
-    except (ValueError, OverflowError):
-        return None
-    return db.get(Match, candidate)
+    `public_id` column on `match`, same situation as `event`). Decoded by
+    `services.ids.parse_public_id`, the one inverse of `public_id` that `services/api/matches.py`
+    uses too, so a `mat_...` id from `GET /v1/matches` (written by `services/match/run.py`) is the
+    id this hand-off accepts (US-403 AC1)."""
+    internal = parse_public_id("mat", value)
+    return db.get(Match, internal) if internal is not None else None
 
 
 def _first_sentence(text: str) -> str:

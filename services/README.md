@@ -161,10 +161,8 @@ All `x-tier: public` in `api/openapi.yaml`. 25 operations implemented:
 
 **Not implemented this sprint** (each is a deliberate scope cut, not an oversight):
 
-- `listProposalMatches`, `listOpportunityMatches`, `listMatches`, `getMatch` — `api/openapi.yaml`
-  marks these `x-sprint: 3`, and no writer for the `match` table exists yet (`pipeline/resolve.py`
-  and a matching stage are later, data-scientist-owned work). The `match` **model** is
-  implemented per the task brief; only the read endpoints are deferred.
+- ~~`listProposalMatches`, `listOpportunityMatches`, `listMatches`, `getMatch`~~ — served since
+  2026-09-26 with `dismissMatch`/`undismissMatch`; see "Matches (US-401-403)" at the end of this file.
 - `getDocument` — the task's entity list for this sprint (`proposal` through `licence`, 13
   tables) does not include `document`, and no document ingestion pipeline exists yet.
 - `/v1/intake/*`, `/v1/reports` — `x-sprint: 3` in the spec.
@@ -1548,9 +1546,121 @@ the first run) in `services/api/admin_audit_routes.py`, tagged US-906/US-908.
 707 opportunities, 0 events, 8,374 organisations, 17,871 assets, 11,504 links; no gated source is
 in that store, so the served pass had nothing to probe.
 
-**Found while building it, not fixed here (outside this lane):** `GET /v1/proposals/{id}/sources`
-and the `provenance` array on record detail serve *every* active link, including one to a gated
-source on a mixed-provenance record, which `docs/21` §8 item 3 forbids. No such row exists in the
-dev store today, and the audit catches it when one appears
-(`tests/test_visibility_audit.py::test_a_pjm_or_miso_row_on_the_public_surface_is_found_whatever_the_store_says`),
-but the serving path itself still needs the filter.
+**Found while building it, fixed on 2026-09-27 by the organisation-takedown lane:** record source
+panels, provenance arrays, licence summaries, the proposals map, feeds and the `source_id`/queue-id
+filters served links to gated sources on otherwise-public records (`docs/21` §8 item 3). They now go
+through `services/api/visibility.py::visible_source_links` or its SQL form; the audit still checks for
+it (`tests/test_visibility_audit.py::test_a_pjm_or_miso_row_on_the_public_surface_is_found_whatever_the_store_says`).
+
+## Matches (US-401-403, 2026-09-26)
+
+Proposal <-> opportunity matching end to end: a versioned rule file, a pure scorer, a recompute job
+that writes `match` rows and their events, six API operations, per-user dismissal, and the CRM
+hand-off of a computed match.
+
+```
+data/match_rules.yaml            the rule set (`rule_set_version: match-rules@v1`): weights, threshold,
+                                 technology families, US state adjacency, size-window ratios, timing credits
+services/match/rules.py          parses it once into a frozen RuleSet; a malformed field fails at load, named
+services/match/engine.py         score_pair(proposal_facts, opportunity_facts, rules, now) -> MatchResult:
+                                 four RuleOutcomes, weighted score, `rationale` {rules_passed, rules_failed,
+                                 features} and `rationale_text` ("storage, TX, 50–550 MW, due in 45 days")
+services/match/run.py            run_matches(session, full= | proposal_ids= | opportunity_ids=); CLI
+                                 `python -m services.match.run [--all] [--proposal ID] [--opportunity ID]`
+services/match/eval.py           precision/recall on data/eval/match_labels.csv; `--sweep`; draw_sample()
+services/api/matches.py          the six routes; mounted in app.py after records.py
+services/db/migrations/versions/0023_match_dismissal.py   match_dismissal (user_id, match_id, dismissed_at)
+```
+
+**Publish gate (coordinator decision, 2026-09-26).** `data/match_rules.yaml` carries `publish`
+(absent means `false`); `match-rules@v1` is `publish: false` because it measured precision 0.25
+against US-401 AC3's 0.7 (docs/22 §21.4). While false, `run_matches` still computes and stores
+every match and writes every event, with `public_at`/`published_at` NULL (never visible on any
+tier, timeline, feed or webhook); the three list routes answer every non-operator caller with an
+empty `data` and a top-level `matches_withheld` (`reason: pending_evaluation`, `rule_set_version`,
+`detail`; `MatchesWithheld` in `api/openapi.yaml`), after validating parameters as usual; the
+by-id routes (`GET /v1/matches/{id}`, dismiss, undismiss) are `404`. Operator sessions see
+everything and `POST /admin/v1/leads` never consults the gate. Opening the gate does not
+retro-publish events written while it was closed (A-22-26). `services.api.matches.matches_published`
+is the one reader on the API side; tests flip it rather than the committed file.
+
+**Rules.** A pair is a match when all four rules pass and the weighted score reaches `threshold`
+(0.70). Technology: the proposal's token and one of the opportunity's fall in one family
+(`bess` meets `storage`); an opportunity's pipe-joined element (`"solar_pv|nuclear"`, how the
+extractors store multi-technology notices) is split first; an **empty** `technologies` list fails
+-- it means "not extracted", not "all-source", which is a deliberate divergence from
+`GET /v1/opportunities?technologies=`, where an empty list matches every value (on
+data/normalized 142 of 149 grants.gov notices are empty, and they are research, health and
+diplomacy programmes). Jurisdiction: same region 1.0, a national opportunity 0.8, a neighbouring
+US state 0.5, a proposal with only a country 0.5, anything else fails. Size window:
+`[0.1, 1.1] x capacity_sought_mw`, 0.5 when either side is unstated. Timing: the opportunity is
+`announced`/`open`/`reinstated` (or `unknown` at 0.5) and not past `due_at`; the proposal is not
+`withdrawn`/`cancelled`/`built`.
+
+**Recompute.** `full` scores every eligible pair (eligible = not merged, not `unpublished`;
+`pending_review` intake records are matched and stay invisible until published); `incremental`
+(the default) re-scores records whose `updated_at` is after the last run (`worker_watermark`
+`match_run`) plus opportunities holding an active match whose `due_at` has passed; `scoped`
+re-scores named records and leaves the watermark alone. A different `rule_set_version` on any
+active match forces `full`. Blocking on `(country, technology family)` is exact (pinned by
+`test_engine.py` against brute force): 1,199 pairs scored of 7.4 million on data/normalized,
+2.8 s wall clock for the full run including the SQLite writes. One active row per pair
+(`uq_match_active_pair`); a still-matching pair keeps its row and `first_matched_at`; a pair that
+stops matching is `removed` with `removed_at`, and a later re-match is a new row.
+
+**Events.** Each add or remove writes two events (`match_added`/`match_removed`, docs/21 §7.3),
+one per subject, so the change is in both timelines. Provenance is the *counterpart's* most
+publishable active source link, so `event_visibility_filter`'s licence/source clauses gate the side
+the event names while its subject clause gates the side it is filed under. `public_at`/
+`published_at` are stamped only when the gate is open and both sides pass the public/Pro predicate at write time;
+otherwise the event is recorded with both null and never surfaces. **Known limitation:** such an
+event does not surface later when the hidden side is published (the match itself does, via the
+match routes); and a counterpart unpublished *after* the event was written is not re-checked by
+the timeline, which composes only the subject's predicate (`services/api/visibility.py` is another
+lane's file). The headline renders as "<name>: match_added" (`serialize._headline` has no
+match-specific wording). `services/crm/signals.py` maps `("match", "match_added")`, a subject type
+these events do not use; nothing calls that mapping yet (its worker is deferred), so it is noted
+here, not changed.
+
+**Routes.** `GET /v1/proposals/{id}/matches` and `/v1/opportunities/{id}/matches` are public
+(`limit`, `cursor`, `status`; `-score` order); `GET /v1/matches` (filters `proposal_id`,
+`opportunity_id`, `status`, `score[gte]`, `technology` (either side), `jurisdiction` (either
+side), `updated_since` (on `last_evaluated_at`), `include=count`, `sort` on `score` or
+`first_matched_at`), `GET /v1/matches/{id}`, `POST`/`DELETE /v1/matches/{id}/dismiss` are Pro,
+metered with `pro._rate_limit_headers`. Every query joins both sides and applies
+`proposal_visibility_filter` **and** `opportunity_visibility_filter` for the caller's entitlement;
+a match with a hidden side is absent, and its id is the same 404 as an unknown one. Each side
+carries its `provenance` quartets and the envelope's `licence_summary` lists both sides' sources.
+`crm_lead_ref` is returned to operator sessions only. A tampered cursor is `400 invalid_cursor`
+(checked before `paginate` binds its tiebreaker into a `GUID` comparison). `Accept: text/csv`,
+documented on `listMatches`, is not served (no list endpoint serves CSV yet).
+
+**Dismissal** is a `match_dismissal` row per (user, match); the `match` row is never written. An
+API key acts for `api_key.created_by_user_id`. `GET /v1/matches` hides the caller's dismissals
+unless `include_dismissed=true`; the record-scoped lists flag them (`dismissed_by_me`) and do not
+hide them. **Spec change:** `api/openapi.yaml` documented `exclude_dismissed` (default `false`)
+for this operation; it is now `include_dismissed` (default `false`), because under the old default
+a dismissal changed nothing a client saw unless every client remembered the flag. The operation had
+never been served, so no client depended on the old name. Other spec changes made while serving
+these six: `x-status: planned -> live`; the Match schema's sides gain the `provenance` array
+(required) and the descriptive fields the route returns; the `MatchList` example uses the real
+rule names (`jurisdiction`, not `jurisdiction_adjacent`).
+
+**Hooks.** `web/dev_up.py` runs `run_matches(session, full=True)` after every load and logs the
+summary; `POST /admin/v1/tasks/{id}/approve-intake` runs a scoped recompute for the record an
+`approve` or `link` leaves the task pointing at, and `matches_computed` is that record's active
+match count (it was a hard-coded 0). The CRM hand-off of a match stays the operator action
+`POST /admin/v1/leads` (US-403 AC1), which already took `match_id` and wrote `crm_lead_ref`; its
+`mat_` decoding now goes through `services.ids.parse_public_id`, the same inverse the match routes
+use, and `tests/test_api_matches.py` drives a computed match through it with the fake CRM port.
+
+**Measured** (docs/22 §21): on data/normalized the full run produces **20** active matches, all
+four DOE/NIH nuclear notices against the five US nuclear proposals; on the 103 labelled pairs
+precision is **0.250** (5/20, 95 % CI 0.112-0.469) and recall 1.000 (5/5, CI 0.566-1.000), so
+US-401 AC3 (precision >= 0.7) is **not met**. The false positives are notices that fund people,
+not projects. The labels were produced by this implementing lane, not an independent labeller.
+
+**Migration 0023** revises `0022`, which is another lane's and not in this worktree. The round
+trip (`tests/test_migration_0023.py`) was run with `down_revision` temporarily `0021`, passed, and
+was restored to `0022`; until 0022 lands, any `alembic upgrade head` in this tree fails on the
+missing revision.

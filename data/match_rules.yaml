@@ -1,0 +1,131 @@
+# Proposal <-> opportunity matching rules (docs/10 US-401 AC1: "the rule set is a versioned config
+# file"). Loaded by `services/match/rules.py`, applied by `services/match/engine.py`, measured by
+# `services/match/eval.py` against `data/eval/match_labels.csv` (docs/22 "Proposal–opportunity
+# matching v1"). Bump `rule_set_version` whenever a rule, weight or threshold changes: every stored
+# match records the version that produced it, and a re-run under a new version re-evaluates every
+# pair (`services/match/run.py`).
+#
+# An opportunity's `technologies` list is split on `|` first: the extractors store a multi-technology
+# notice as one pipe-joined element (`["solar_pv|nuclear"]`).
+#
+# A pair is a match when ALL FOUR rules pass (US-401 AC1) and the weighted score is at least
+# `threshold`. Each rule yields a credit in [0, 1]: 1.0 for a clean pass, a smaller value for a pass
+# on incomplete evidence (a national programme, an unstated capacity window, no stated deadline),
+# 0 for a fail. `score = sum(weight_i * credit_i) / sum(weight_i)`.
+rule_set_version: match-rules@v1
+
+# Public display gate (coordinator decision, 2026-09-26). docs/10 US-401 AC3 sets the bar at
+# precision >= 0.7 at the default threshold; this rule set measured 0.250 (5/20, 95 % CI
+# 0.112-0.469) on the 103 labelled pairs and 0.333 on the held-out half (docs/22 §21), so most of
+# the matches it produces would be wrong claims in front of readers. While `false`: matches are
+# still computed and stored, their `match_added` / `match_removed` events are written with
+# `public_at` and `published_at` NULL (never visible on any tier, feed or webhook), and every
+# match route returns an empty list with `matches_withheld` to every caller but an operator.
+# Operators see everything and the CRM lead hand-off still works. Set `true` only for a rule set
+# whose own measurement clears AC3.
+publish: false
+
+# Set a priori, before any label existed: a pair on full evidence scores 1.0, and 0.70 still admits
+# one rule passing on its weakest credit. `services/match/eval.py --sweep` on the `tune` half of
+# data/eval/match_labels.csv could not move it -- that half holds no positive pair, and every pair
+# the rules accept there scores 0.865 -- so it stands untuned. docs/22 §21 has the numbers.
+threshold: 0.70
+
+weights:
+  technology: 0.35
+  jurisdiction: 0.30
+  size_window: 0.15
+  timing: 0.20
+
+rules:
+  technology:
+    # Pass when the proposal's technology and one of the opportunity's technologies fall in the
+    # same family. Tokens are the normalised values docs/21 §7 and /v1/meta/vocabularies publish on
+    # either side; families let a `bess` tender meet a `storage` queue row. An opportunity whose
+    # technologies list is EMPTY fails this rule: an empty list means "not extracted", not
+    # "all-source" -- an all-source solicitation is curated with an explicit `all_source` token.
+    all_source_tokens: [all_source, any]
+    families:
+      solar: [solar, solar_pv, solar_thermal, solar_storage]
+      storage: [storage, bess, bess_li_ion, pumped_storage, solar_storage, wind_storage]
+      wind: [wind, wind_offshore, wind_onshore, wind_storage]
+      gas: [gas, gas_cc, gas_ct, gas_steam, gas_ice, gas_other, natural_gas]
+      hydro: [hydro, pumped_storage]
+      nuclear: [nuclear]
+      geothermal: [geothermal]
+      biomass: [biomass, waste, biogas, rng]
+      transmission: [transmission]
+      hydrogen: [hydrogen, fuel_cell]
+      coal: [coal]
+      oil: [oil]
+      efficiency: [efficiency]
+      heat: [heat, solar_thermal, geothermal]
+      ev_charging: [ev_charging]
+  jurisdiction:
+    # ISO 3166-2 on both sides (`US-TX`), or ISO 3166-1 for a country-level row (`US`). A different
+    # country fails. Credits for the passes that are not an exact region match:
+    national_credit: 0.8      # the opportunity is country-wide (`US`) and the proposal is in it
+    unresolved_credit: 0.5    # the proposal carries only a country (no state/region known)
+    adjacent_credit: 0.5      # neighbouring US states (the table below); "AZ/NV adjacent"
+    adjacency:
+      US-AL: [US-FL, US-GA, US-MS, US-TN]
+      US-AR: [US-LA, US-MO, US-MS, US-OK, US-TN, US-TX]
+      US-AZ: [US-CA, US-CO, US-NM, US-NV, US-UT]
+      US-CA: [US-AZ, US-NV, US-OR]
+      US-CO: [US-AZ, US-KS, US-NE, US-NM, US-OK, US-UT, US-WY]
+      US-CT: [US-MA, US-NY, US-RI]
+      US-DC: [US-MD, US-VA]
+      US-DE: [US-MD, US-NJ, US-PA]
+      US-FL: [US-AL, US-GA]
+      US-GA: [US-AL, US-FL, US-NC, US-SC, US-TN]
+      US-IA: [US-IL, US-MN, US-MO, US-NE, US-SD, US-WI]
+      US-ID: [US-MT, US-NV, US-OR, US-UT, US-WA, US-WY]
+      US-IL: [US-IA, US-IN, US-KY, US-MO, US-WI]
+      US-IN: [US-IL, US-KY, US-MI, US-OH]
+      US-KS: [US-CO, US-MO, US-NE, US-OK]
+      US-KY: [US-IL, US-IN, US-MO, US-OH, US-TN, US-VA, US-WV]
+      US-LA: [US-AR, US-MS, US-TX]
+      US-MA: [US-CT, US-NH, US-NY, US-RI, US-VT]
+      US-MD: [US-DC, US-DE, US-PA, US-VA, US-WV]
+      US-ME: [US-NH]
+      US-MI: [US-IN, US-OH, US-WI]
+      US-MN: [US-IA, US-ND, US-SD, US-WI]
+      US-MO: [US-AR, US-IA, US-IL, US-KS, US-KY, US-NE, US-OK, US-TN]
+      US-MS: [US-AL, US-AR, US-LA, US-TN]
+      US-MT: [US-ID, US-ND, US-SD, US-WY]
+      US-NC: [US-GA, US-SC, US-TN, US-VA]
+      US-ND: [US-MN, US-MT, US-SD]
+      US-NE: [US-CO, US-IA, US-KS, US-MO, US-SD, US-WY]
+      US-NH: [US-MA, US-ME, US-VT]
+      US-NJ: [US-DE, US-NY, US-PA]
+      US-NM: [US-AZ, US-CO, US-OK, US-TX, US-UT]
+      US-NV: [US-AZ, US-CA, US-ID, US-OR, US-UT]
+      US-NY: [US-CT, US-MA, US-NJ, US-PA, US-VT]
+      US-OH: [US-IN, US-KY, US-MI, US-PA, US-WV]
+      US-OK: [US-AR, US-CO, US-KS, US-MO, US-NM, US-TX]
+      US-OR: [US-CA, US-ID, US-NV, US-WA]
+      US-PA: [US-DE, US-MD, US-NJ, US-NY, US-OH, US-WV]
+      US-RI: [US-CT, US-MA]
+      US-SC: [US-GA, US-NC]
+      US-SD: [US-IA, US-MN, US-MT, US-ND, US-NE, US-WY]
+      US-TN: [US-AL, US-AR, US-GA, US-KY, US-MO, US-MS, US-NC, US-VA]
+      US-TX: [US-AR, US-LA, US-NM, US-OK]
+      US-UT: [US-AZ, US-CO, US-ID, US-NM, US-NV, US-WY]
+      US-VA: [US-DC, US-KY, US-MD, US-NC, US-TN, US-WV]
+      US-VT: [US-MA, US-NH, US-NY]
+      US-WA: [US-ID, US-OR]
+      US-WI: [US-IA, US-IL, US-MI, US-MN]
+      US-WV: [US-KY, US-MD, US-OH, US-PA, US-VA]
+      US-WY: [US-CO, US-ID, US-MT, US-NE, US-SD, US-UT]
+  size_window:
+    # The window an opportunity's `capacity_sought_mw` implies: a bid may be a fraction of what is
+    # sought (down to `lower_ratio` of it) and may exceed it slightly (`upper_ratio`). "50–500 MW"
+    # for a 500 MW solicitation. A window that neither side can state passes at `unstated_credit`.
+    lower_ratio: 0.1
+    upper_ratio: 1.1
+    unstated_credit: 0.5
+  timing:
+    open_statuses: [announced, open, reinstated]
+    unknown_status_credit: 0.5   # `status = unknown`: not known to be closed
+    no_deadline_credit: 0.5      # open with no stated `due_at`
+    proposal_excluded_states: [withdrawn, cancelled, built]

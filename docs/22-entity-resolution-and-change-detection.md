@@ -1798,3 +1798,135 @@ instead of the full and truncated spellings with 1 each.
   spellings. Revisit if a collision is ever observed with differing `share_pct`.
 - **A-22-23:** a curated merge event without a `source_id` is acceptable provenance for now because it carries
   the document URL, the read time and the rationale; it becomes a full quartet when the source is registered.
+
+## 21. Proposal–opportunity matching v1 (2026-09-26)
+
+> **Mandatory caveat.** The 103 labels in `data/eval/match_labels.csv` were produced by the lane that
+> implemented the rule set, not by an independent labeller, and that lane had read every notice title in the
+> corpus before it labelled. US-401 AC3 asks for a sample "supplied by the data-scientist"; this is not that.
+> Treat every number below as a first measurement to be repeated on independent labels, not as a pass or fail
+> of the rule set against the acceptance criterion. `services/match/eval.py::draw_sample` re-draws the same
+> frame from a loaded store with the label column empty, so an independent labeller can start from it.
+
+### 21.1 What was built, and what the corpus can test
+
+The rule set is `data/match_rules.yaml` (`match-rules@v1`): four rules — technology family, jurisdiction,
+size window, timing — each yielding a credit in [0, 1]; a pair matches when all four pass and the weighted
+score reaches 0.70 (`services/README.md` "Matches" has the rules in full). `python -m services.match.run
+--all` on the store `web/dev_up.py` builds from data/normalized (10,409 proposals, 707 opportunities),
+run on 2026-09-26, scores **1,199** pairs and produces **20** active matches (40 `match_added` events).
+
+The corpus decides what that number can mean. Of 7.4 million proposal × opportunity pairs, only
+1.22 million share a country, because the demand side is EU TED (458 notices), World Bank (100) and
+grants.gov (149, every one `US`-national) and the supply side is US ISO queues, EIA-860M and the GB NESO
+register: no GB notice exists (Find a Tender returned 0 rows) and no EU proposal exists. Of the US-national
+notices, 142 of 149 carry no technology tag and the seven that do are four nuclear, two `efficiency` and one
+`gas`. Measured over the 1.22 million same-country pairs at `now = 2026-09-26`:
+
+| Rules failed | Pairs |
+|---|---|
+| technology and timing | 668,328 |
+| technology only | 553,912 |
+| timing only | 1,179 (1,155 of them the one gas notice, closed 2026-09-22) |
+| none — the 20 matches | 20 |
+
+The size-window rule is never exercised by this corpus: no opportunity row carries `capacity_sought_mw`, so
+every pair passes it on the "size not stated" credit (0.5). Its branches are pinned by unit tests only.
+
+### 21.2 The sample and the labelling rule
+
+103 pairs, 22 proposal jurisdictions, 17 proposal technologies, 54 distinct notices, drawn by
+`draw_sample(as_of=2026-09-26)` in five strata (deterministic: hash order, per-notice caps, one row per
+proposal technology × jurisdiction):
+
+| Stratum | n | What it is for |
+|---|---|---|
+| `predicted_match` | 20 | every pair the rules accept — a census, so precision has no sampling error from this stratum |
+| `timing_only_fail` | 13 | technology and jurisdiction pass; would a looser timing rule have been right? |
+| `technology_fail_same_country` | 30 | same country, technology fails — the bulk of the frame |
+| `probe_same_country` | 20 | four untagged or `efficiency` notices the labeller named in advance as possibly project-eligible (ARPA-E SCALEUP READY, USDA PART, the two USDA REAP postings): where recall errors would be |
+| `cross_country_same_family` | 20 | shared technology family, different country |
+
+**Labelling rule** (a modelling choice, stated): `true` when the proposal's sponsor could plausibly apply to or
+bid the notice *with this project*, judged from the notice's title, issuer and programme and the project's
+technology, place, size and lifecycle state on `as_of`. A withdrawn, cancelled or built project is never
+`true`; a closed notice is never `true`. Every row carries its reason in `note`.
+
+**Split:** per notice, `tune` when the first hex digit of `sha256("<source_id>:<source_record_id>")` is even,
+so every pair of one notice falls in the same half (48 tune, 55 test).
+
+### 21.3 Results
+
+`python -m services.match.eval --sweep`:
+
+| Split | n | Positives | TP | FP | FN | Precision (95 % Wilson CI) | Recall (95 % Wilson CI) |
+|---|---|---|---|---|---|---|---|
+| tune | 48 | 0 | 0 | 5 | 0 | 0.000 (0.000–0.434) | n/a |
+| **test** | **55** | **5** | **5** | **10** | **0** | **0.333 (0.152–0.583)** | **1.000 (0.566–1.000)** |
+| all | 103 | 5 | 5 | 15 | 0 | 0.250 (0.112–0.469) | 1.000 (0.566–1.000) |
+
+**US-401 AC3 (precision ≥ 0.7 at the default threshold) is not met**, on either half or on the whole sample.
+
+**Tuning did nothing, and could not.** The tune half holds no positive pair, and every pair the rules accept
+there scores 0.865, so the sweep (0.50–0.95) is 0 precision at every threshold that predicts anything. The
+threshold stays at the a-priori 0.70.
+
+**Where the errors are.** All five true matches are the DOE *Advanced Nuclear Energy Licensing Cost-Share
+Grant Program* (DE-FOA-0003339, open to 2026-09-30) against the five pre-construction US nuclear
+proposals (EIA-860M Kemmerer Unit 1 and the four Project Matador units). All fifteen false positives are the
+three other nuclear-tagged notices: a university scholarship and fellowship programme, an NIH HAZMAT worker
+training programme and a staff-support grant for regional radioactive-materials transport planning. The
+technology tag is right (they are about nuclear) and the eligibility is wrong (they fund people, not
+projects). No threshold separates them: they score the same as the true matches. Recall is 5 of 5, which
+says little — the probe stratum found no project-eligible notice the rules missed, because the notices in
+the corpus that fund deployment (REAP) are stale FY2016/FY2019 postings and the rest are research
+programmes.
+
+### 21.4 The publish gate: computed, stored, not shown
+
+Coordinator decision, 2026-09-26: **matches from `match-rules@v1` are not shown to readers.** A precision
+of 0.25 against AC3's 0.7 means three of every four matches a reader saw would be a wrong claim — "this
+project is eligible for that programme" when it is not — and the errors are the confident kind (they score
+exactly as high as the right ones). `data/match_rules.yaml` therefore carries `publish: false`, and absent
+means false. While it is false:
+
+- `services/match/run.py` still computes and stores every match and writes every `match_added` /
+  `match_removed` event, with `public_at` and `published_at` NULL, so no event of a withheld rule set
+  reaches `/v1/events`, a record timeline, `/feeds/events.*` or a webhook on any tier;
+- `GET /v1/matches`, `/v1/proposals/{id}/matches` and `/v1/opportunities/{id}/matches` return an empty
+  `data` with a top-level `matches_withheld` (`reason: pending_evaluation`, the rule-set version, a sentence)
+  to every caller but an operator, and the by-id routes (`/v1/matches/{id}`, dismiss, undismiss) are `404`;
+- operator sessions see every match, and the CRM hand-off (`POST /admin/v1/leads`, US-403) works, so the
+  operations team can still review and route matches by hand.
+
+The gate belongs to the rule set, not to the deployment: a new `rule_set_version` whose own measurement
+clears AC3 is the thing that sets `publish: true`.
+
+### 21.5 What would move the number
+
+1. **A demand side the matcher is for.** US utility RFPs and state solicitations (the curated issuer
+   registry, US-303) do not exist in data/normalized; until they do, matching measures grants.gov's
+   topical tagging, not the rule set.
+2. **Tag eligibility, not topic, at extraction.** The grants.gov extractor sets `technologies` from title
+   keywords. A notice that funds scholarships, training or staff support should carry no technology tag
+   (or a `non_project` flag the technology rule reads). This is a v2 candidate for the rule file too — an
+   opportunity-title exclusion list — but it was **not** added: the tune half offers one false-positive
+   notice ("Staff Support ..."), a term list derived from it would not generalise to the test half's
+   scholarship and training notices, and a list derived from all four would be fitted to the labels it is
+   then measured on.
+3. **Independent labels**, drawn from the same frame (`draw_sample`) and a corpus with (1) in it.
+
+### 21.6 Assumptions recorded
+
+- **A-22-24:** an empty `opportunity.technologies` list means "not extracted", not "all-source", for
+  matching. The public list filter (`GET /v1/opportunities?technologies=`) treats empty as all-source per
+  `api/openapi.yaml`; the matcher does not, because on this corpus 142 of 149 empty rows are research,
+  health or diplomacy programmes. An all-source solicitation is matched only when it carries `all_source`.
+- **A-22-25:** matching recomputes at 2026-09-26's clock; the timing rule makes the match set date-dependent
+  without any row changing. Two of the four nuclear notices close on 2026-09-30, so the 20 above drops to
+  10 on the first run after that date. `run_matches` handles this by re-scoring, on every incremental run,
+  each opportunity that holds an active match and whose `due_at` has passed.
+- **A-22-26:** opening the gate does not retro-publish. Events written while a rule set was withheld keep
+  NULL stamps for good (the event log is append-only, docs/21 §3.10); the matches themselves appear at once,
+  because the match routes read the gate at request time. A timeline therefore starts showing match changes
+  from the first run after the gate opens, which is the honest reading: nothing was claimed publicly before.

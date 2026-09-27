@@ -295,3 +295,26 @@ def test_fixture_fallback_loads_only_when_no_connector_output_loaded(
     calls.clear()
     dev_up.load_fixture_if_empty(object(), {"sources": {}}, sample_per_state=5)  # type: ignore[arg-type]
     assert calls == [{"sample_per_state": 5, "include_opportunities": False}]
+
+
+def test_run_matches_runs_the_matcher_in_full_mode_and_logs_its_summary(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """docs/10 US-401: `dev_up` computes matches after every load, through the matcher's own entry
+    point, in full mode (a fresh store has no watermark to be incremental against)."""
+    calls: list[dict[str, Any]] = []
+
+    class _Report:
+        def summary(self) -> str:
+            return "mode=full added=3"
+
+    def fake(session: Any, **kwargs: Any) -> _Report:
+        calls.append({"session": session, **kwargs})
+        return _Report()
+
+    monkeypatch.setattr(dev_up, "run_matches", fake)
+    session = object()
+    with caplog.at_level(logging.INFO, logger=dev_up.log.name):
+        dev_up._run_matches(session)  # type: ignore[arg-type]
+    assert calls == [{"session": session, "full": True}]
+    assert "matches: mode=full added=3" in [r.getMessage() for r in caplog.records]

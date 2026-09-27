@@ -42,6 +42,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from services.db.session import get_engine, get_sessionmaker, init_db
+from services.match.run import run_matches
 from web.data_loading import DEFAULT_DATA_ROOT, DEFAULT_SOURCES_YAML, load_dev_database, load_test_database
 
 log = logging.getLogger("web.dev_up")
@@ -353,6 +354,15 @@ def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
         log.info("context asset layers: no midstream/fuels parquet under %s yet, skipping", context_dir)
 
 
+def _run_matches(session: Session) -> None:
+    """docs/10 US-401: compute proposal <-> opportunity matches over everything just loaded, through
+    the matcher's own entry point (`services.match.run.run_matches`, full mode -- a fresh store has
+    no watermark, and the rule set may have changed since the last `dev.db`). Writes the `match`
+    rows and their `match_added` events; the summary line says how many."""
+    report = run_matches(session, full=True)
+    log.info("matches: %s", report.summary())
+
+
 def _wait_for(url: str, timeout_s: float = 20.0) -> None:
     deadline = time.monotonic() + timeout_s
     last_error: Exception | None = None
@@ -442,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
             load_fixture_if_empty(session, report, sample_per_state=args.sample_per_state)
             _load_plants_context_layer(session, args.data_dir)
             _load_context_asset_layers(session, args.data_dir)  # includes owner shares + features
+            _run_matches(session)
             session.commit()  # belt-and-braces: correct even if either loader above also commits
         finally:
             session.close()

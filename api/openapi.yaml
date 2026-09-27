@@ -544,10 +544,14 @@ paths:
       summary: Matched opportunities with score and rationale
       description: |
         Active matches for the proposal, `-score` first, each with `score`, `rationale` (rules passed / failed) and
-        `rationale_text` (US-203 AC2, US-402 AC1). Empty `data` when none. On Pro+ each match carries
-        `dismissed_by_me` reflecting the caller's per-user dismissal (US-402 AC2); the global match is unchanged.
+        `rationale_text` (US-203 AC2, US-402 AC1). Empty `data` when none. A match is listed only when its
+        opportunity is visible to the caller too. On Pro+ each match carries `dismissed_by_me` reflecting the
+        caller's per-user dismissal (US-402 AC2); dismissed matches are flagged here, not hidden, and the global
+        match is unchanged.
+        **Publish gate:** while the producing rule set is not cleared for display, every caller but an operator
+        gets an empty `data` and a top-level `matches_withheld` object; parameters are still validated.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-203, US-401, US-402]
       security: *sec_public
@@ -780,9 +784,12 @@ paths:
       operationId: listOpportunityMatches
       tags: [Opportunities, Matches]
       summary: Matched proposals with score and rationale
-      description: Active matches for the opportunity; the demand-side twin of `GET /v1/proposals/{public_id}/matches` (US-401).
+      description: |
+        Active matches for the opportunity; the demand-side twin of `GET /v1/proposals/{public_id}/matches` (US-401).
+        **Publish gate:** while the producing rule set is not cleared for display, every caller but an operator
+        gets an empty `data` and a top-level `matches_withheld` object; parameters are still validated.
       x-tier: public
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-401, US-402]
       security: *sec_public
@@ -2661,10 +2668,15 @@ paths:
       description: |
         All active matches visible to the caller, filterable by either side, technology, jurisdiction and score
         (US-401). `rule_set_version` names the versioned config that produced each match (US-401 AC1). A change in
-        the match set emits `match_added` / `match_removed` events in both timelines (US-401 AC2). Per-user
-        dismissals are reflected in `dismissed_by_me`; `exclude_dismissed=true` hides them.
+        the match set emits `match_added` / `match_removed` events in both timelines (US-401 AC2). A match is
+        listed only when both its proposal and its opportunity are visible to the caller. The caller's own
+        dismissals are hidden unless `include_dismissed=true`, and every row carries `dismissed_by_me` (US-402 AC2).
+        `technology` matches the proposal's technology or any of the opportunity's; `jurisdiction` either side's;
+        `updated_since` reads `last_evaluated_at`. `include` accepts `count` only.
+        **Publish gate:** while the producing rule set is not cleared for display, every caller but an operator
+        gets an empty `data` and a top-level `matches_withheld` object; parameters are still validated.
       x-tier: pro
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-401, US-402, US-703]
       security: *sec_pro
@@ -2679,7 +2691,7 @@ paths:
         - $ref: '#/components/parameters/ScoreGte'
         - $ref: '#/components/parameters/Technology'
         - $ref: '#/components/parameters/Jurisdiction'
-        - $ref: '#/components/parameters/ExcludeDismissed'
+        - $ref: '#/components/parameters/IncludeDismissed'
         - $ref: '#/components/parameters/UpdatedSince'
       responses:
         '200':
@@ -2710,8 +2722,9 @@ paths:
       operationId: getMatch
       tags: [Matches]
       summary: Match detail
+      description: '`404` for a match with a side the caller cannot see, and for every match while the producing rule set is withheld (see `MatchesWithheld`), except to operators. The dismiss routes answer the same way.'
       x-tier: pro
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-402, US-703]
       security: *sec_pro
@@ -2738,7 +2751,7 @@ paths:
       summary: Dismiss a match for the caller only
       description: Writes a `match_dismissal (user_id, match_id)` row; the global match is unchanged (US-402 AC2). Idempotent.
       x-tier: pro
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-402]
       security: *sec_pro
@@ -2762,7 +2775,7 @@ paths:
       tags: [Matches]
       summary: Restore a dismissed match for the caller
       x-tier: pro
-      x-status: planned
+      x-status: live
       x-sprint: 3
       x-prd-stories: [US-402]
       security: *sec_pro
@@ -6400,10 +6413,14 @@ components:
         type: number
         minimum: 0
         maximum: 1
-    ExcludeDismissed:
-      name: exclude_dismissed
+    IncludeDismissed:
+      name: include_dismissed
       in: query
-      description: Hide matches the caller has dismissed (US-402 AC2). Default `false`.
+      description: |
+        Also list matches the caller has dismissed (US-402 AC2). Default `false`: a dismissed match is hidden
+        from the caller's own list and from no one else's. Replaced `exclude_dismissed` (default `false`) on
+        2026-09-26, before the operation was served: under that default a dismissal changed nothing a client saw
+        unless every client remembered to pass the flag.
       schema:
         type: boolean
         default: false
@@ -8638,7 +8655,7 @@ components:
           $ref: '#/components/schemas/MatchPublicId'
         proposal:
           type: object
-          required: [public_id, name_canonical, url]
+          required: [public_id, name_canonical, url, provenance]
           properties:
             public_id:
               $ref: '#/components/schemas/ProposalPublicId'
@@ -8647,9 +8664,22 @@ components:
             url:
               type: string
               format: uri
+            technology:
+              type: [string, 'null']
+            jurisdiction:
+              type: string
+            capacity_mw:
+              type: [number, 'null']
+            lifecycle_state:
+              type: string
+            provenance:
+              type: array
+              description: One quartet per active source link of the proposal (docs/23 §10; added 2026-09-26, when the operation was first served — every record the API returns carries its provenance).
+              items:
+                $ref: '#/components/schemas/ProvenanceQuartet'
         opportunity:
           type: object
-          required: [public_id, title, url]
+          required: [public_id, title, url, provenance]
           properties:
             public_id:
               $ref: '#/components/schemas/OpportunityPublicId'
@@ -8661,6 +8691,17 @@ components:
             url:
               type: string
               format: uri
+            kind:
+              type: string
+            jurisdiction:
+              type: string
+            status:
+              type: string
+            provenance:
+              type: array
+              description: One quartet per active source link of the opportunity (as `proposal.provenance`).
+              items:
+                $ref: '#/components/schemas/ProvenanceQuartet'
         score:
           type: number
           minimum: 0
@@ -10398,6 +10439,24 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Match'
+            matches_withheld:
+              $ref: '#/components/schemas/MatchesWithheld'
+    MatchesWithheld:
+      type: object
+      description: |
+        Present, with `data` empty, when the rule set that produced the matches is not cleared for display
+        (`publish: false` in `data/match_rules.yaml`): its measured precision is below docs/10 US-401 AC3's bar,
+        so its matches are computed and stored but shown to operators only. Absent when matches are shown.
+      required: [reason, rule_set_version, detail]
+      properties:
+        reason:
+          type: string
+          enum: [pending_evaluation]
+        rule_set_version:
+          type: string
+          examples: [match-rules@v1]
+        detail:
+          type: string
     MatchDetailResponse:
       allOf:
         - $ref: '#/components/schemas/Envelope'
@@ -13856,20 +13915,37 @@ components:
               public_id: prop_01JBQ7Z8KD
               name_canonical: Gemini Solar + Storage
               url: https://infraque.com/proposals/gemini-solar-bess-clark-nv
+              provenance:
+                - source_id: us.iso.caiso.gen_queue
+                  source_name: CAISO Public Queue Report
+                  source_url: https://www.caiso.com/planning/Pages/GeneratorInterconnection/Default.aspx
+                  retrieved_at: '2026-09-11T05:00:00Z'
+                  licence_id: caiso-tou
+                  reuse_class: attribution
+                  attribution_text: 'Source: California ISO'
             opportunity:
               public_id: opp_01JBQ8A2M0
               title: 2027 All-Source Request for Proposals
               due_at: '2026-12-15T22:00:00Z'
               url: https://infraque.com/opportunities/apsc-2027-all-source-rfp
+              provenance:
+                - source_id: us.issuer.example
+                  source_name: Curated issuer page (example)
+                  source_url: https://example.org/rfp/2027-all-source
+                  retrieved_at: '2026-09-11T05:00:00Z'
+                  licence_id: issuer-terms-example
+                  reuse_class: attribution
+                  attribution_text: 'Source: the issuing utility'
             score: 0.82
             rationale:
-              rules_passed: [technology, jurisdiction_adjacent, size_window, timing]
+              rules_passed: [technology, jurisdiction, size_window, timing]
               rules_failed: []
               features:
+                jurisdiction_relation: adjacent
                 days_to_due: 94
                 capacity_ratio: 0.575
-            rationale_text: storage, AZ/NV adjacent, 50–1,200 MW window, due in 94 days
-            rule_set_version: match-rules@v2
+            rationale_text: storage, NV/AZ adjacent, 120–1,320 MW, due in 94 days
+            rule_set_version: match-rules@v1
             created_by: rule
             status: active
             first_matched_at: '2026-09-11T05:06:00Z'
