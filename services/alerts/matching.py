@@ -16,9 +16,12 @@ across facets, inclusive range bounds, a NULL column matching no value and no bo
 with no location matching no location filter (`state`, `county_fips`, `placement`), `placement`
 judged on the grade the row is *served* at, `slipped`/`slip_bucket` through the same
 `services/api/slippage.py` functions, an opportunity query with no `status` meaning `status=open`
-(the list's default), and `q` over the name, the visible sponsor/issuer and the visible source
-record ids with SQL `LIKE` wildcards. Value parsing and validation go through the functions the
-list endpoints call (`number_filter`, `instant_filter`, `placement_grades`, `slip_params`).
+(the list's default), `q` over the name, the visible sponsor/issuer and the visible source
+record ids with SQL `LIKE` wildcards, and on events `changed_key` (any-of over `changed_keys`)
+and inclusive `observed_at[from|to]` bounds (2026-09-27, lane E14). `GET /v1/events` refuses
+`q`, so an event query never carries one that means anything. Value parsing and validation go
+through the functions the list endpoints call (`number_filter`, `instant_filter`,
+`placement_grades`, `slip_params`, `changed_key_values`).
 `tests/test_saved_search_parity.py` asserts, over a fixture store and a generated query set, at the
 public and Pro tiers, that the ids the list returns equal the ids this module accepts, and that
 every filter key the list accepts is exercised -- so a filter added to the list without a matching
@@ -58,6 +61,7 @@ from services.api.records import (
     placement_grades,
     slip_params,
 )
+from services.api.resource_queries import changed_key_values
 from services.api.visibility import organization_visible, visible_source_links
 from services.db.models import Event, Location, Opportunity, OpportunitySource, Proposal, ProposalSource
 from services.ids import parse_public_id, public_id
@@ -279,6 +283,18 @@ def _event_matches(event: Event, qp: Mapping[str, str]) -> bool:
                 return False
         elif not _as_utc(event.observed_at) > instant_filter("since", v, _INSTANCE):
             return False
+    if (v := qp.get("changed_key")) and not set(event.changed_keys or []) & set(
+        changed_key_values(v, _INSTANCE)
+    ):
+        return False
+    if (v := qp.get("observed_at[from]")) and _as_utc(event.observed_at) < instant_filter(
+        "observed_at[from]", v, _INSTANCE
+    ):
+        return False
+    if (v := qp.get("observed_at[to]")) and _as_utc(event.observed_at) > instant_filter(
+        "observed_at[to]", v, _INSTANCE
+    ):
+        return False
     return True
 
 

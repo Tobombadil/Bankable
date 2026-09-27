@@ -2746,6 +2746,30 @@ sources:
     (docs/22 §16.2 measured that at 46.3 %). Family relationships belong in curated.organization_parents or
     GLEIF Level 2, never here.
 
+- id: curated.organization_merges
+  name: Curated organisation merges (one legal entity loaded as two rows) — data/vendored/organizations/merges.yaml
+  jurisdiction: US
+  category: registry
+  operator: Infraque (curated from SEC EDGAR filings and the companies' own published statements)
+  url: file:///data/vendored/organizations/merges.yaml
+  access: bulk_file
+  auth: none
+  format: yaml (absorb, into, rationale, source_url, retrieved_at)
+  cadence: continuous
+  license: 'curated by Infraque from public filings and company statements; each rule cites the document URL it was read from and quotes the passage in its rationale'
+  reuse: open
+  publication: raw_ok
+  tier: 2
+  effort: S
+  verified: {date: 2026-09-27, result: ok, note: 'Three rules as of 2026-09-26, each read that day and quoted in the file: TALLGRASS INTERSTATE GAS TRANSMISSIO -> Tallgrass Interstate Gas Transmission (Tallgrass Energy LP 10-K 2018, www.sec.gov), Markwest Liberty Midstream & Res -> MarkWest Liberty Midstream & Resources (MarkWest Energy Partners 10-K 2014, www.sec.gov), Green Knight Economic Development Corpor -> Green Knight Economic Development Corporation (gkedc.org/energy-center). Loaded by services/ingest/organizations.py::load_merges, which writes one reversible merged event per rule (services/resolve/merge.py::merge_organization) with this source id, the rule''s source_url and retrieved_at, and the rationale in reason (docs/22 §20.5, assumption A-22-23 closed). Registered 2026-09-27 (lane E14); until then the events carried a NULL source_id. Not a fetched source: the file is in the repo, the URL above is where it lives.'}
+  notes: >-
+    Sibling of curated.organization_aliases and curated.organization_parents, and the same contract: a
+    cited public document per rule, nothing inferred from a name alone (a shared prefix is not identity,
+    docs/22 §16.2). An alias rule attaches a spelling to one existing organisation; a merge rule retires a
+    second organisation row the loaders already created for the same legal entity, reversibly (unmerge is
+    exact, docs/22 §20.2). The facts recorded are identities (which rows name one company), not expression
+    from the cited documents; the rationale quotes a sentence or two as evidence.
+
 - id: us.eia.atlas.ethanol_plants
   name: EIA US Energy Atlas — Ethanol Plants (point geometries, owner, nameplate capacity)
   jurisdiction: US

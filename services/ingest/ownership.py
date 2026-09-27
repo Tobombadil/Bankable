@@ -82,6 +82,7 @@ from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id as make_public_id
 from services.ids import slugify
 from services.ingest.loader import upsert_licence_and_source
+from services.ingest.org_redirects import OrgRedirects
 
 DEFAULT_DB_PATH = pathlib.Path("web/.data/dev.db")
 OWNERSHIP_SOURCE_ID = "us.eia.860"
@@ -247,12 +248,27 @@ def _build_norm_org_index(session: Session) -> dict[str, Organization]:
     (measured 8.2% over-split on the eval corpus vs. that key) -- the same deterministic,
     legal-form-stripping key `services/resolve/merge.py` already uses to decide two filings name
     the same organisation. Built from both `organization.name_canonical` and every
-    `organization_alias.alias` so a raw spelling seen only as an alias still resolves."""
+    `organization_alias.alias` so a raw spelling seen only as an alias still resolves.
+
+    **Every entry is a live organisation** (2026-09-27, docs/22 §20.7): a merged row's spelling
+    maps to the end of its `merged_into_id` chain (`services/ingest/org_redirects.py`), and a live
+    row wins a key over a redirect. Before, the index held redirects, so a re-run of any loader
+    that shares it (ownership, midstream, GHGRP, the ethanol operator edges) wrote new edges and
+    aliases onto the absorbed row, where no page reads them."""
+    redirects = OrgRedirects(session)
     index: dict[str, Organization] = {}
+    merged: list[Organization] = []
     for org in session.scalars(select(Organization)):
+        if org.merged_into_id is not None:
+            merged.append(org)
+            continue
         key = org_key(org.name_canonical)
         if key:
             index.setdefault(key, org)
+    for org in merged:
+        key = org_key(org.name_canonical)
+        if key:
+            index.setdefault(key, redirects.terminal(org))
     for alias, org_id in session.execute(
         select(OrganizationAlias.alias, OrganizationAlias.organization_id)
     ).all():
@@ -260,7 +276,7 @@ def _build_norm_org_index(session: Session) -> dict[str, Organization]:
         if key and key not in index:
             alias_org = session.get(Organization, org_id)
             if alias_org is not None:
-                index[key] = alias_org
+                index[key] = redirects.terminal(alias_org)
     return index
 
 

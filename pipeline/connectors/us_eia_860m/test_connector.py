@@ -8,6 +8,7 @@ from conftest import connector_for, snapshot
 from pipeline.connectors.base import ConnectorError, ParseError
 from pipeline.connectors.http import HttpBlocked
 from pipeline.connectors.us_eia_860m.connector import INDEX_URL, find_xlsx_links
+from pipeline.normalize import EIA_BA_ISO_TOKENS, iso_token_from_eia_ba
 
 SOURCE_ID = "us.eia.860m"
 URL = "https://www.eia.gov/electricity/data/eia860m/xls/july_generator2026.xlsx"
@@ -124,3 +125,34 @@ def test_an_html_placeholder_month_is_a_parse_error():
     raw.content = b"<!doctype html><html><body>Page not found</body></html>"
     with pytest.raises(ParseError):
         c.parse(raw)
+
+
+def test_rto_balancing_authority_codes_become_the_iso_token_the_filters_use(parsed):
+    """EIA-860M's `Balancing Authority Code` is EIA's BA code (`ERCO`, `CISO`, `NYIS`, `SWPP`,
+    `ISNE`), which the proposal page printed under "ISO / operator" and `?iso=ERCOT` never matched.
+    The seven RTO/ISO codes map to the market-operator token the ISO connectors write
+    (`pipeline.normalize.EIA_BA_ISO_TOKENS`); a utility BA keeps its EIA code."""
+    _, _, rows, df = parsed
+    by_ba = dict(zip((r.get("Balancing Authority Code") for r in rows), df["iso"], strict=True))
+    for code, token in {
+        "ERCO": "ERCOT",
+        "CISO": "CAISO",
+        "NYIS": "NYISO",
+        "SWPP": "SPP",
+        "ISNE": "ISONE",
+        "MISO": "MISO",
+        "PJM": "PJM",
+    }.items():
+        if code in by_ba:
+            assert by_ba[code] == token, code
+    assert "ERCO" in by_ba, "the recorded sheet carries ERCOT rows; the check above would be empty"
+    assert not set(df["iso"].dropna()) & {"ERCO", "CISO", "NYIS", "SWPP", "ISNE"}
+    utility = {code: iso for code, iso in by_ba.items() if code not in EIA_BA_ISO_TOKENS and code}
+    assert all(iso == code for code, iso in utility.items())
+
+
+def test_the_ba_token_map_is_total_on_odd_input():
+    assert iso_token_from_eia_ba(" erco ") == "ERCOT"
+    assert iso_token_from_eia_ba("TVA") == "TVA"
+    assert iso_token_from_eia_ba(None) is None
+    assert iso_token_from_eia_ba("") is None

@@ -1780,7 +1780,7 @@ instead of the full and truncated spellings with 1 each.
 
 ### 20.7 Open, not in this lane's files
 
-- **Loader re-runs write onto redirects.** `services/ingest/ownership.py::_build_norm_org_index` indexes every
+- **Loader re-runs write onto redirects.** *Fixed 2026-09-27 (lane E14), see §20.9.* `services/ingest/ownership.py::_build_norm_org_index` indexes every
   organisation, merged or not, and never follows `merged_into_id`. Measured on the merged copy: all three absorbed
   spellings resolve to the merged row, not the survivor. `dev_up` rebuilds and runs merges last, so it is
   unaffected; a scheduled re-run of the ownership, midstream, GHGRP or ethanol loaders against a merged store would
@@ -1789,6 +1789,7 @@ instead of the full and truncated spellings with 1 each.
   (`merged_into_id` chain) in that function.
 - **docs/21 §6.3** shows the proposal payload only; the organisation payload keys in §20.2 belong there.
 - **Registration** of `curated.organization_merges` in `data/sources.yaml` plus a docs/13 §6 row (A-22-23).
+  *Done 2026-09-27 (lane E14), see §20.9.*
 
 ### 20.8 Assumptions recorded
 
@@ -1798,6 +1799,32 @@ instead of the full and truncated spellings with 1 each.
   spellings. Revisit if a collision is ever observed with differing `share_pct`.
 - **A-22-23:** a curated merge event without a `source_id` is acceptable provenance for now because it carries
   the document URL, the read time and the rationale; it becomes a full quartet when the source is registered.
+  *Closed 2026-09-27:* registered, and `load_merges` now writes `source_id` and `licence_id` (§20.9).
+
+### 20.9 Loader re-runs follow the redirect; the merge file is a registered source (2026-09-27, lane E14)
+
+**Redirects.** `services/ingest/org_redirects.py::OrgRedirects` reads every `merged_into_id` once per loader
+call and returns the end of the chain for any organisation (a cycle, which no merge writes, is logged and the
+row found is returned unchanged). Every name lookup that can attach a record to an organisation now goes
+through it:
+
+| Lookup | Before | After |
+|---|---|---|
+| `loader.py` sponsor, exact spelling (`org_by_exact`, all rows) | the redirect: new proposals sponsored by the absorbed row | the survivor |
+| `loader.py` sponsor, punctuation key (`org_by_punct`, live rows only) | a punctuation variant of an absorbed spelling created a **new** organisation | live rows first, then absorbed spellings -> survivor |
+| `ownership._build_norm_org_index` (ownership, midstream edges and parents, GHGRP, ethanol operator edges) | first row seen per key, redirect included: new edges and aliases on the absorbed row | live rows first, then redirects -> survivor; aliases -> survivor |
+| `organizations.org_key_multimap` (GLEIF parents, alias rules) | live rows only: an absorbed spelling no alias carries created a duplicate | also absorbed spellings and their leftover aliases -> survivor, where no live row holds the key |
+
+`load_merges` and `_orgs_named` deliberately still see redirects (they must report `already_merged`), and
+`services/ingest/enrich.py` creates nothing, so neither changed. Tests: `services/ingest/test_org_redirects.py`
+(7; 6 fail on the previous code) merge A into B and re-run the loader that created A: no new proposal, edge or
+alias on A, no second copy of A, and a two-step chain lands on its end.
+
+**Registration.** `curated.organization_merges` is in `data/sources.yaml` §K (reuse `open`, `raw_ok`,
+mirroring `curated.organization_aliases`) and in the docs/13 §6 matrix; `load_merges` upserts the source and
+passes its id and licence to `merge_organization` (two new optional arguments), so a curated merge event
+carries a full provenance quartet. Events written before this carry a NULL `source_id` and are not rewritten
+(the loader is idempotent: a rule already applied is reported `already_merged`).
 
 ## 21. Proposal–opportunity matching v1 (2026-09-26)
 

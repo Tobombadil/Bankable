@@ -741,3 +741,19 @@ this lane's file area rather than leaving it load-bearing. Pinned by
 `services/ingest/test_assets.py::test_load_ethanol_plants_writes_the_merged_operator_edge_from_the_capacity_report`
 (and its atlas-fallback counterpart) and
 `web/test_dev_up.py::test_capacity_operator_edges_are_not_requested_for_merged_rows_after_the_fix`.
+
+## 12. An asset's register text never names a taken-down organisation (2026-09-27, lane E14)
+
+`asset.operator_name` and several `attributes` keys (`operator_raw`, `owner_raw`, `atlas_operator_name`, the
+anticipated `operator`, `phmsa.operator_name`/`operator_id`) are the source register's own company strings,
+kept as spelt (§7.1). When the organisation they name is not public (`organization.publish_state`, migration
+0022; docs/00-PLAN.md 2026-09-27), every asset surface withholds them: the API detail and list, a public
+co-owner's asset list, both map layers (points and the cached line index, filtered per request) and so the web
+asset page, company page and search. The rule, in `services/api/withheld_names.py`: the operator name is
+withheld when the asset has an `operator` edge to a non-public organisation, or when `org_key(operator_name)`
+equals the key of that organisation's name, an alias, or a row merged into it; any attribute string with such a
+key is dropped wherever it sits; and `GET /v1/assets?q=` does not match through a withheld operator name. The
+asset itself stays listed -- the register fact is public -- with `operator_name: null`, no placeholder
+(docs/21 §8 item 3). A name that keys to both a hidden and a public organisation is withheld (the conservative
+reading). Republishing restores every name at once. Tests: `tests/test_api_asset_operator_withheld.py` (5 of 6
+fail on the previous code; the sixth pins that the fixture shows the names while the organisation is public).

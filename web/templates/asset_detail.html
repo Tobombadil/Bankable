@@ -24,7 +24,7 @@
   <div><dt>Operator</dt><dd>{% if record.operator.public_id %}<a class="row-link" href="/organizations/{{ record.operator.slug or record.operator.public_id }}">{{ record.operator.name }}</a>{% else %}{{ record.operator.name }}{% endif %}</dd></div>
   {% endif %}
   {% if record.line_class %}<div><dt>Pipeline class</dt><dd>{{ record.line_class }}</dd></div>{% endif %}
-  {% if record.length_miles is not none %}<div><dt>Length (miles)</dt><dd class="tnum">{{ '{:,.0f}'.format(record.length_miles) }}</dd></div>{% endif %}
+  {% if record.length_miles is not none %}<div><dt>Mapped route length (miles)</dt><dd class="tnum">{{ '{:,.0f}'.format(record.length_miles) }}</dd></div>{% endif %}
   {% if record.diameter %}<div><dt>Diameter</dt><dd class="tnum">{{ record.diameter }}</dd></div>{% endif %}
   {% if record.states %}<div><dt>States crossed</dt><dd>{{ record.states }}</dd></div>{% endif %}
   {% for f in record.fuel_fields %}
@@ -47,6 +47,14 @@
   <div><dt>Source</dt><dd><a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text or record.source_name }}</a>{% if record.retrieved_at %}, retrieved <span class="tnum">{{ record.retrieved_at[:10] }}</span>{% endif %}</dd></div>
   {% endif %}
 </dl>
+{#- Two lengths, two measures (2026-09-27): the row above is the route as mapped (EIA Energy Atlas,
+    or measured on the drawn line); PHMSA's `onshore_transmission_miles`, in the Attributes table, is
+    the operator's own annual report for everything under its PHMSA operator ID, joined to this asset
+    through its operator (services/ingest/enrich.py). Say so wherever both are on the page. -#}
+{% set phmsa = (record.attributes or {}).get('phmsa') if (record.attributes or {}) is mapping else none %}
+{% if record.length_miles is not none and phmsa is mapping and phmsa.get('onshore_transmission_miles') is not none %}
+<p class="attribution-line field-note">Two different lengths: <strong>mapped route length</strong> is this pipeline&rsquo;s route as mapped (EIA Energy Atlas); <strong>onshore transmission miles</strong> under Attributes is what the operator reported to PHMSA{% if phmsa.get('report_year') %} for {{ phmsa.get('report_year') }}{% endif %} for its whole onshore gas transmission system, so the two need not agree.</p>
+{% endif %}
 
 {% if mini_map %}
 {#- Not labelled plain "Map": MapLibre gives the map container it builds inside this section its own

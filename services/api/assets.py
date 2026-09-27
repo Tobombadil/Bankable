@@ -102,6 +102,8 @@ from services.api.visibility import (
     visible_organization_or_404,
     visible_source_links,
 )
+from services.api.withheld_names import NONE as NO_WITHHELD_NAMES
+from services.api.withheld_names import WithheldNames, withheld_names
 from services.db.models import (
     ASSET_OWNER_ROLES,
     ASSET_TYPES,
@@ -373,6 +375,9 @@ def _get_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
 
 
 def _line_feature_attributes(attributes: dict[str, Any] | None) -> dict[str, Any]:
+    """The subset the line layer prints. The cached index keeps the stored strings; a withheld
+    organisation's name is removed per request in `_line_feature`, so a takedown or a republish
+    takes effect without invalidating the index."""
     src = attributes or {}
     return {k: src[k] for k in LINE_FEATURE_ATTRIBUTE_KEYS if k in src}
 
@@ -499,7 +504,7 @@ def _filter_line_index(
     return rows
 
 
-def _asset_feature(asset: Asset, lon: float, lat: float) -> dict[str, Any]:
+def _asset_feature(asset: Asset, lon: float, lat: float, withheld: WithheldNames) -> dict[str, Any]:
     return {
         "type": "Feature",
         "id": asset.public_id,
@@ -510,7 +515,7 @@ def _asset_feature(asset: Asset, lon: float, lat: float) -> dict[str, Any]:
             "slug": asset.slug,
             "url": f"{WEB_HOST}/assets/{asset.slug}",
             "name": asset.name,
-            "operator_name": asset.operator_name,
+            "operator_name": withheld.operator_name(asset.id, asset.operator_name),
             "asset_type": asset.asset_type,
             "status": asset.status,
             "technology": asset.technology,
@@ -527,7 +532,11 @@ def _asset_feature(asset: Asset, lon: float, lat: float) -> dict[str, Any]:
 
 
 def _line_feature(
-    row: LineIndexRow, parts: Parts, sources: dict[str, Source], licences: dict[str, Licence]
+    row: LineIndexRow,
+    parts: Parts,
+    sources: dict[str, Source],
+    licences: dict[str, Licence],
+    withheld: WithheldNames,
 ) -> dict[str, Any]:
     stated = stated_length_miles(row.attributes)
     length_miles = stated if stated is not None else round(km_to_miles(row.length_km), 1)
@@ -541,14 +550,14 @@ def _line_feature(
             "slug": row.slug,
             "url": f"{WEB_HOST}/assets/{row.slug}",
             "name": row.name,
-            "operator_name": row.operator_name,
+            "operator_name": withheld.operator_name(row.id, row.operator_name),
             "asset_type": row.asset_type,
             "status": row.status,
             "state_code": row.state_code,
             "capacity_value": row.capacity_value,
             "capacity_unit": row.capacity_unit,
             "length_miles": length_miles,
-            "attributes": dict(row.attributes),
+            "attributes": withheld.attributes(row.id, row.operator_name, row.attributes),
             "source": provenance_quartet(
                 sources[row.source_id],
                 licences[row.licence_id],
@@ -614,6 +623,7 @@ def build_asset_feature_collection(
     asset_details: dict[str, Asset] | None = None,
     line_features: list[dict[str, Any]] | None = None,
     line_count: int = 0,
+    withheld: WithheldNames = NO_WITHHELD_NAMES,
 ) -> dict[str, Any]:
     in_view = [row for row in index if _in_bbox(row.lon, row.lat, bbox)]
 
@@ -624,7 +634,7 @@ def build_asset_feature_collection(
                 "asset_details is required when the in-view asset count is at or below SPLIT_THRESHOLD"
             )
         for row in in_view:
-            features.append(_asset_feature(asset_details[row.id], row.lon, row.lat))
+            features.append(_asset_feature(asset_details[row.id], row.lon, row.lat, withheld))
     else:
         groups: dict[tuple[int, int], list[AssetIndexRow]] = defaultdict(list)
         for row in in_view:
@@ -665,7 +675,12 @@ def _fetch_asset_details(db: Session, ids: list[str]) -> dict[str, Asset]:
 
 
 def _line_features_in_view(
-    db: Session, cache: _LineIndexCache, rows: list[LineIndexRow], bbox: Bbox, zoom: int
+    db: Session,
+    cache: _LineIndexCache,
+    rows: list[LineIndexRow],
+    bbox: Bbox,
+    zoom: int,
+    withheld: WithheldNames,
 ) -> tuple[list[dict[str, Any]], int]:
     """`asset_line` features for the lines that touch `bbox`, at `zoom`'s simplification, longest
     first and capped at `LINE_FEATURE_CAP`. Returns `(features, lines in view before the cap)`."""
@@ -682,7 +697,7 @@ def _line_features_in_view(
     licence_ids = {r.licence_id for r in shown}
     sources = {s.id: s for s in db.scalars(select(Source).where(Source.id.in_(source_ids))).all()}
     licences = {lic.id: lic for lic in db.scalars(select(Licence).where(Licence.id.in_(licence_ids))).all()}
-    features = [_line_feature(r, simplified[r.id], sources, licences) for r in shown]
+    features = [_line_feature(r, simplified[r.id], sources, licences, withheld) for r in shown]
     return features, len(in_view)
 
 
@@ -830,7 +845,8 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
     asset_details = (
         _fetch_asset_details(db, [row.id for row in in_view]) if len(in_view) <= SPLIT_THRESHOLD else None
     )
-    line_features, line_count = _line_features_in_view(db, line_cache, filtered_lines, bbox, zoom)
+    withheld = withheld_names(db)
+    line_features, line_count = _line_features_in_view(db, line_cache, filtered_lines, bbox, zoom, withheld)
 
     fc = build_asset_feature_collection(
         filtered,
@@ -842,6 +858,7 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
         asset_details=asset_details,
         line_features=line_features,
         line_count=line_count,
+        withheld=withheld,
     )
 
     agg_stmt = _apply_sql_filters(
@@ -908,7 +925,9 @@ def get_context_plants_geo_alias(request: Request, db: Annotated[Session, Depend
 
 
 # ------------------------------------------------------------------------------------- list/detail
-def _asset_query_with_filters(request: Request) -> sa.Select[tuple[Asset]]:
+def _asset_query_with_filters(
+    request: Request, withheld: WithheldNames = NO_WITHHELD_NAMES
+) -> sa.Select[tuple[Asset]]:
     stmt = (
         select(Asset)
         .where(*asset_visibility_filter())
@@ -941,7 +960,9 @@ def _asset_query_with_filters(request: Request) -> sa.Select[tuple[Asset]]:
         stmt = stmt.where(
             sa.or_(
                 sa.func.lower(Asset.name).like(like),
-                sa.func.lower(Asset.operator_name).like(like),
+                # A withheld operator name is not searchable: finding the asset by it would name the
+                # organisation as surely as printing it (`services/api/withheld_names.py`).
+                sa.and_(sa.func.lower(Asset.operator_name).like(like), withheld.operator_name_searchable()),
                 Asset.id.in_(owner_name_hits),
             )
         )
@@ -968,7 +989,8 @@ def list_assets(request: Request, db: Annotated[Session, Depends(get_db)]) -> An
     )
     limit = clamp_limit(int_param(request, "limit"))
     field, ascending = _asset_sort_spec(request)
-    stmt = _asset_query_with_filters(request)
+    withheld = withheld_names(db)
+    stmt = _asset_query_with_filters(request, withheld)
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
@@ -979,7 +1001,7 @@ def list_assets(request: Request, db: Annotated[Session, Depends(get_db)]) -> An
         limit=limit,
         instance=request.url.path,
     )
-    data = [serialize_asset(a, include_owners=False, include_geometry=False) for a in rows]
+    data = [serialize_asset(a, withheld=withheld, include_owners=False, include_geometry=False) for a in rows]
     meta = build_meta(lag_days=0, tier="public")
     licence_rows = [licence_summary_row(a.source, a.licence, a.retrieved_at) for a in rows]
     return build_list_envelope(
@@ -1038,7 +1060,7 @@ def get_asset(public_id: str, request: Request, db: Annotated[Session, Depends(g
     # restricted `proposal_source` row (docs/21 §8 item 3).
     owners = [o for o in asset.owners if o.licence.reuse_class in PUBLISHABLE_REUSE_CLASSES]
     parts = _line_parts_for(db, asset)
-    data = serialize_asset(asset, owners=owners)
+    data = serialize_asset(asset, withheld=withheld_names(db), owners=owners)
     data["geometry"] = asset_geometry(asset, parts=parts)
     data["length_miles"] = asset_length_miles(asset, parts=parts)
     meta = build_meta(lag_days=0, tier="public")
@@ -1417,10 +1439,13 @@ def list_organization_assets(
         limit=limit,
         instance=request.url.path,
     )
+    withheld = withheld_names(db)
     data = []
     licence_rows = []
     for edge in rows:
-        asset_row = serialize_asset(edge.asset, include_owners=False, include_geometry=False)
+        asset_row = serialize_asset(
+            edge.asset, withheld=withheld, include_owners=False, include_geometry=False
+        )
         asset_row["role"] = edge.role
         asset_row["share_pct"] = float(edge.share_pct) if edge.share_pct is not None else None
         asset_row["as_of"] = edge.as_of.isoformat() if edge.as_of is not None else None

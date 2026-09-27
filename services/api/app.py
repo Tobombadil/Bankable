@@ -193,7 +193,7 @@ from services.api.documents import router as documents_router  # noqa: E402
 from services.api.exports import csv_list_response  # noqa: E402
 from services.api.exports import router as exports_router  # noqa: E402
 from services.api.resource_queries import (  # noqa: E402
-    EVENT_FILTERS,
+    EVENT_LIST_PARAMS,
     EVENT_SORT_ALLOWLIST,
     event_query_with_filters,
 )
@@ -489,7 +489,7 @@ def list_organization_opportunities(
 def list_events(
     request: Request, db: Session = Depends(get_db), ctx: AuthContext = Depends(get_auth_context)
 ) -> Any:
-    check_allowed(request, LIST_COMMON | EVENT_FILTERS)
+    check_allowed(request, EVENT_LIST_PARAMS)
     if wants_csv(request):
         return csv_list_response(request, db, ctx, "event")
     limit = clamp_limit(int_param(request, "limit"))

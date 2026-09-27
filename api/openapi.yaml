@@ -398,6 +398,7 @@ paths:
         - $ref: '#/components/parameters/LastChangedFrom'
         - $ref: '#/components/parameters/LastChangedTo'
         - $ref: '#/components/parameters/UpdatedSince'
+        - $ref: '#/components/parameters/SlugFilter'
       responses:
         '200':
           description: Clustered features for the viewport inside the attribution envelope.
@@ -582,6 +583,9 @@ paths:
         Kind, issuer, title, jurisdiction, technologies, `capacity_sought_mw` or budget, `open_at`, `due_at`,
         status and source on every row (US-301 AC1). Default view `status=open` sorted `due_at` ascending
         (US-301 AC2). Tier rules of US-101 AC3–AC4 apply (US-301 AC3). `Accept: text/csv` on Pro+.
+        No `state` filter: opportunities are not geocoded (no `location.state_code` to match), and the place an
+        opportunity is about is its `jurisdiction` (ISO 3166-2 such as `US-TX`, or a country), which that filter
+        already takes. `state` is a `400 unknown_parameter` here (removed from this operation 2026-09-27).
       x-tier: public
       x-status: live
       x-sprint: 2
@@ -598,7 +602,6 @@ paths:
         - $ref: '#/components/parameters/OpportunityStatus'
         - $ref: '#/components/parameters/Technologies'
         - $ref: '#/components/parameters/Jurisdiction'
-        - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/DueAtFrom'
         - $ref: '#/components/parameters/DueAtTo'
@@ -657,11 +660,11 @@ paths:
         - $ref: '#/components/parameters/OpportunityStatus'
         - $ref: '#/components/parameters/Technologies'
         - $ref: '#/components/parameters/Jurisdiction'
-        - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/DueAtFrom'
         - $ref: '#/components/parameters/DueAtTo'
         - $ref: '#/components/parameters/UpdatedSince'
+        - $ref: '#/components/parameters/SlugFilter'
       responses:
         '200':
           description: Opportunity features for the viewport inside the attribution envelope.
@@ -816,7 +819,10 @@ paths:
       operationId: listOrganizations
       tags: [Organizations]
       summary: List organizations
-      description: Sponsors and issuers. `is_curated_issuer=true` lists the curated RFP issuer registry (US-303). No personal data.
+      description: >-
+        Sponsors and issuers. `is_curated_issuer=true` lists the curated RFP issuer registry (US-303). No personal
+        data. `jurisdiction` and `updated_since` are documented and not yet implemented: each answers
+        `400 unknown_parameter`, never a silent no-op (services/README.md open decision 7).
       x-tier: public
       x-status: live
       x-sprint: 2
@@ -826,7 +832,9 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Include'
+        - $ref: '#/components/parameters/SortOrganizations'
         - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/SlugFilter'
         - $ref: '#/components/parameters/OrganizationType'
         - $ref: '#/components/parameters/Country'
         - $ref: '#/components/parameters/Jurisdiction'
@@ -958,7 +966,11 @@ paths:
       description: |
         Every published event across all subjects, `-seq` by default. `since` is either a `seq` watermark or an
         RFC 3339 timestamp and pairs with `cursor` for exactly-once consumption (US-703 AC1). Filter by
-        `subject_type`, `subject_id`, `event_type`, `source_id`, `changed_key`. Public tier: `public_at <= now()`;
+        `subject_type`, `subject_id`, `event_type`, `source_id`, `changed_key` (any of the named keys in
+        `changed_keys`) and `observed_at[from]`/`observed_at[to]` (inclusive). There is no `q`: an event has no
+        text of its own to search, and `q` is a `400 unknown_parameter` here (search the subject lists and filter
+        by `subject_id`). Saved searches and webhooks with `entity=event` take exactly these filters and match
+        exactly what this list returns. Public tier: `public_at <= now()`;
         no event whose `licence_id` resolves to a restricted or unknown licence, at any tier (docs/21 §8 item 2).
         An event is visible only when its subject is: the subject proposal or opportunity must itself pass the
         record-level visibility predicate for the caller's tier (`publish_state = public`, publishable
@@ -1456,7 +1468,8 @@ paths:
         domain or CC BY — but the licence gate applies: an asset whose licence is `restricted`/`unknown` or whose
         source is not on the public surface is absent here and `404` on detail (docs/21 §8 items 1 and 4), and an
         `owners[]` edge recorded under such a licence is omitted from a visible asset. `q` matches name, operator
-        name, or an owning/operating organisation's name.
+        name, or an owning/operating organisation's name; an operator name that names an organisation which is not
+        public is neither printed (`operator_name: null`) nor matched.
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -1465,6 +1478,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/SortAssets'
         - $ref: '#/components/parameters/Q'
         - $ref: '#/components/parameters/AssetType'
         - $ref: '#/components/parameters/Technology'
@@ -5349,6 +5363,8 @@ paths:
         - $ref: '#/components/parameters/CapacityMwLte'
         - $ref: '#/components/parameters/Slipped'
         - $ref: '#/components/parameters/SlipBucket'
+        - $ref: '#/components/parameters/Placement'
+        - $ref: '#/components/parameters/SlugFilter'
       responses:
         '200':
           description: The feed.
@@ -5391,6 +5407,8 @@ paths:
         - $ref: '#/components/parameters/Jurisdiction'
         - $ref: '#/components/parameters/DueAtFrom'
         - $ref: '#/components/parameters/DueAtTo'
+        - $ref: '#/components/parameters/SourceIdFilter'
+        - $ref: '#/components/parameters/SlugFilter'
       responses:
         '200':
           description: The feed.
@@ -6036,6 +6054,22 @@ components:
         type: string
         pattern: '^-?(due_at|open_at|last_changed|budget_amount)(,-?(due_at|open_at|last_changed|budget_amount))*$'
         default: due_at
+    SortOrganizations:
+      name: sort
+      in: query
+      description: 'Allowlist: `name_canonical`. Default `name_canonical`.'
+      schema:
+        type: string
+        pattern: '^-?name_canonical$'
+        default: name_canonical
+    SortAssets:
+      name: sort
+      in: query
+      description: 'Allowlist: `last_changed`, `first_seen`, `name`, `capacity_mw`; only the first field applies. Default `-last_changed`.'
+      schema:
+        type: string
+        pattern: '^-?(last_changed|first_seen|name|capacity_mw)(,-?(last_changed|first_seen|name|capacity_mw))*$'
+        default: '-last_changed'
     SortEvents:
       name: sort
       in: query
@@ -6472,22 +6506,25 @@ components:
     ChangedKey:
       name: changed_key
       in: query
-      description: Canonical field name present in `changed_keys`; comma-separated for OR.
+      description: Canonical field name present in `changed_keys`; comma-separated for OR (an event matches when it changed any of them). A value outside `[A-Za-z0-9_.-]` is a `400 validation_error`.
       style: form
       explode: false
       schema:
         type: array
         items:
           type: string
+          pattern: '^[A-Za-z0-9_.-]{1,100}$'
     ObservedAtFrom:
       name: 'observed_at[from]'
       in: query
+      description: Events observed at or after this instant (inclusive). An offset-less value is read as UTC.
       schema:
         type: string
         format: date-time
     ObservedAtTo:
       name: 'observed_at[to]'
       in: query
+      description: Events observed at or before this instant (inclusive). An offset-less value is read as UTC.
       schema:
         type: string
         format: date-time
@@ -9294,6 +9331,11 @@ components:
           type: string
         operator_name:
           type: [string, 'null']
+          description: >-
+            The operator as the source register spells it. `null` when it names an organisation that is not public
+            (taken down or pending review): the asset has an `operator` edge to it, or the spelling has its
+            organisation key. Attribute strings naming such an organisation are omitted the same way, and `q` does
+            not match through a withheld name (services/api/withheld_names.py).
         asset_type:
           $ref: '#/components/schemas/AssetType'
         status:
@@ -9345,6 +9387,11 @@ components:
           type: string
         operator_name:
           type: [string, 'null']
+          description: >-
+            The operator as the source register spells it. `null` when it names an organisation that is not public
+            (taken down or pending review): the asset has an `operator` edge to it, or the spelling has its
+            organisation key. Attribute strings naming such an organisation are omitted the same way, and `q` does
+            not match through a withheld name (services/api/withheld_names.py).
         asset_type:
           $ref: '#/components/schemas/AssetType'
         status:
@@ -9550,6 +9597,11 @@ components:
           type: string
         operator_name:
           type: [string, 'null']
+          description: >-
+            The operator as the source register spells it. `null` when it names an organisation that is not public
+            (taken down or pending review): the asset has an `operator` edge to it, or the spelling has its
+            organisation key. Attribute strings naming such an organisation are omitted the same way, and `q` does
+            not match through a withheld name (services/api/withheld_names.py).
         status:
           $ref: '#/components/schemas/AssetStatus'
         technology:

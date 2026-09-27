@@ -218,14 +218,28 @@ are architecture changes; all are bounded follow-ups.
    silently-ignored second sort key beyond dropping it) rather than pretended-complete.
 7. **Filter coverage is a named subset, not the full grammar.** Every filter parameter this
    service *declares* as allowed is real, tested and effective; parameters `api/openapi.yaml`
-   lists but the service does not implement (as of 2026-09-27: `changed_key` and
-   `observed_at[from|to]` on events, `state` on opportunities, `updated_since` on the lists (the
-   bulk streams take it), `sponsor_id`/`issuer_id`,
-   `budget_amount[gte]`, `capacity_sought_mw[gte]`; `county_fips` and `state` on proposals are
-   now implemented and pinned by `tests/test_saved_search_parity.py`) are **not** in this
-   service's allowlist and so answer `400 unknown_parameter` rather than being silently accepted
-   and ignored — docs/04 API-3 treats a silently-dropped filter as a licence-sensitive leak, and
-   an honest 400 is safer than a filter that looks like it works and doesn't.
+   lists but the service does not implement are **not** in this service's allowlist and so answer
+   `400 unknown_parameter` rather than being silently accepted and ignored -- docs/04 API-3 treats
+   a silently-dropped filter as a licence-sensitive leak, and an honest 400 is safer than a filter
+   that looks like it works and doesn't. As of 2026-09-27 (lane E14) the documented-and-refused set
+   is: on proposals (list, geo, feed) `sponsor_id`, and on the list and geo `storage_mwh[gte]`,
+   `first_seen[from|to]`, `last_changed[from|to]`, `updated_since` (the bulk streams and exports
+   take `updated_since`); on opportunities (list, geo, feed) `issuer_id`, and on the list
+   `open_at[from|to]`, `capacity_sought_mw[gte]`, `budget_amount[gte]`, `first_seen[from|to]`,
+   `last_changed[from|to]`, `updated_since` (geo: `updated_since`); on organisations
+   `jurisdiction`, `updated_since`; on the events feed `jurisdiction`. **This list is enforced, not
+   remembered:** `tests/test_spec_list_parameters.py` walks every list-shaped `GET` in the spec
+   (paging operations, `.../geo`, `/feeds/*`), requests each documented query parameter, and fails
+   when one the test's `REFUSED` set does not name answers `400 unknown_parameter`, when a
+   `REFUSED` one is accepted, or when an operation accepts a parameter a sibling documents but it
+   does not (the "accepted and ignored" shape). Closed on 2026-09-27: `changed_key` and
+   `observed_at[from|to]` on `GET /v1/events` are implemented (list, CSV, event exports, saved
+   searches and webhooks; `tests/test_saved_search_parity.py` pins list/matcher parity); `q` on
+   `GET /v1/events` is refused (it was accepted and applied nothing); `state` was removed from the
+   `GET /v1/opportunities` and `/v1/opportunities/geo` specs; `slug` and `sort` on organisations,
+   `sort` on assets, `slug` on the geo and feed operations, `placement` on the proposals feed and
+   `source_id` on the opportunities feed were implemented but undocumented, and are now documented.
+   `county_fips` and `state` on proposals are implemented and pinned by the parity test.
 8. **Geo clustering is a pure-Python lon/lat grid**, not PostGIS `ST_ClusterKMeans`/
    `ST_SnapToGrid` — see the Postgres/SQLite section above. Correct on both backends; not
    representative of production query performance at the `docs/04` D-13 budget (≤400 ms p95,
@@ -1808,3 +1822,50 @@ R2 with pre-signed links. `web/pricing.py` still says exports and bulk "have not
 `x-status` markers above.
 
 Verbatim gates for this lane are in the lane's hand-back, not repeated here.
+
+## List filters, withheld operator names, merge redirects (2026-09-27, lane E14)
+
+Seven measured defects; the choices, and why.
+
+1. **`GET /v1/events` refuses `q` (`400 unknown_parameter`) rather than implementing it.** It was in
+   the allowlist through `LIST_COMMON` and applied nothing, so `?q=solar` returned the whole feed. An
+   event has no text of its own: the only candidate is the subject's name, which the proposal and
+   opportunity lists already search (with sponsor/issuer visibility), and which reaches events through
+   `subject_id`. Implementing it would have meant a second, event-shaped copy of the subject search in
+   the list *and* the alert matcher, for no query the spec ever documented. Refusing keeps saved searches,
+   webhooks and event exports (which already refused it) consistent with the list. `EVENT_LIST_PARAMS`
+   in `services/api/resource_queries.py` is the allowlist.
+2. **`changed_key` and `observed_at[from|to]` are implemented on `GET /v1/events`**, in
+   `event_query_with_filters` (so the CSV path, event exports and saved-search validation run the same
+   block) and in `services/alerts/matching.py` through the same parser (`changed_key_values`). Semantics:
+   `changed_key` is any-of over `changed_keys`, values restricted to `[A-Za-z0-9_.-]` (a `400
+   validation_error` otherwise); on SQLite the match is the JSON-quoted token with `autoescape`, so the
+   `_` in `lifecycle_state` is not a LIKE wildcard (the parity store carries a `lifecycleXstate` key that
+   fails the test without it); `observed_at` bounds are inclusive, like `due_at`. **`state` was removed
+   from the opportunities spec** (list and geo) rather than aliased: opportunities are not geocoded, and
+   the place an opportunity concerns is already its `jurisdiction` (ISO 3166-2 or a country), which that
+   filter takes -- a second name for the same filter with a different reading of country-level rows would
+   be worse than none. `validate_saved_search_query` needed no change: its key set is `EVENT_FILTERS`,
+   which gained the two filters, and it builds the list's statement, so bad values are the list's 400s.
+   The drift test is `tests/test_spec_list_parameters.py` (open decision 7). It takes ~35 s: ~3,000
+   in-process requests.
+3. **An asset's register text never names a non-public organisation** (`services/api/withheld_names.py`;
+   docs/24 §12). `serialize_asset` takes `withheld` as a required keyword so a new asset surface cannot
+   forget it. Cost when nothing is taken down: one query per asset request. When something is, the
+   distinct `asset.operator_name` scan is cached against the takedown set and the asset table's
+   `(count, max(last_changed))`.
+4. **Loader re-runs follow `merged_into_id`** (`services/ingest/org_redirects.py`; docs/22 §20.9).
+5. **`curated.organization_merges` is a registered source** and curated merge events carry it
+   (docs/22 §20.9; docs/13 §6 row added).
+6. **EIA-860M's balancing-authority code is normalised to the ISO token at normalisation**
+   (`pipeline/normalize.py::EIA_BA_ISO_TOKENS`), not at display: the proposal page, `?iso=`, the alert
+   matcher and social copy all read `proposal.iso`, so one stored value keeps them consistent
+   (`?iso=ERCOT` now finds EIA-860M ERCOT rows; the parity test runs over the stored column and needed no
+   change). Mapped: `ERCO->ERCOT`, `CISO->CAISO`, `NYIS->NYISO`, `SWPP->SPP`, `ISNE->ISONE` (the spec's
+   `Iso` token, not "ISO-NE"), `MISO`, `PJM` unchanged; a utility BA (TVA, SOCO, ...) keeps its code.
+   Codes checked against EIA's reference table (URL in the code comment). On the stored 2026-09-13
+   parquet this re-labels 1,067 of 2,341 rows (ERCO 532, CISO 218, NYIS 139, SWPP 115, ISNE 63). **The
+   stored parquet and any store built from it keep the old codes until `us.eia.860m` is next normalised**
+   (a connector run); nothing rewrites stored rows.
+7. **The asset page labels its length "Mapped route length (miles)"** and, when a PHMSA block is present,
+   says in one line that PHMSA's onshore transmission miles are the operator's whole-system report.

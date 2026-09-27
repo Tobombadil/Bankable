@@ -129,6 +129,7 @@ from services.db.models import (
 from services.ids import public_id, slugify
 from services.ingest.geocode import CountyGazetteer, default_gazetteer, geocode
 from services.ingest.lag import record_public_at
+from services.ingest.org_redirects import OrgRedirects
 from services.ingest.vintage import NOT_STATED_VINTAGE, Vintage, from_source_urls
 
 #: Default rows-per-flush for `load_dataframe`'s bulk-insert pass (Sprint 3, services/README.md
@@ -449,10 +450,15 @@ class _LoadCache:
     #: (the old code's `select(link_cls).where(getattr(link_cls, fk_name) == subject_id, ...)`).
     links_by_entity: dict[_uuid.UUID, Any]
     #: `organization.name_normalised` (exact, case-folded) -> `Organization`, over *every*
-    #: organisation regardless of `merged_into_id` — matches the old exact-match query's scope.
+    #: organisation regardless of `merged_into_id` — matches the old exact-match query's scope —
+    #: but live rows first and a merged row's spelling mapped to its survivor
+    #: (`services/ingest/org_redirects.py`, 2026-09-27): a re-run after a merge must not sponsor
+    #: new proposals by the redirect.
     org_by_exact: dict[str, Organization]
-    #: `_org_punct_key(name_canonical)` -> `Organization`, over organisations with
-    #: `merged_into_id is None` only — matches the old punctuation-match query's scope.
+    #: `_org_punct_key(name_canonical)` -> `Organization`: live organisations first, then each
+    #: merged row's spelling mapped to its survivor where no live row holds the key (before
+    #: 2026-09-27 merged rows were skipped, so a punctuation variant of an absorbed spelling
+    #: created a second copy of the organisation the merge had retired).
     org_by_punct: dict[str, Organization]
     #: `(organization_id, alias_normalised)` pairs already on file, any organisation.
     alias_keys: set[tuple[_uuid.UUID, str]]
@@ -487,11 +493,20 @@ def _build_load_cache(
     org_by_exact: dict[str, Organization] = {}
     org_by_punct: dict[str, Organization] = {}
     existing_slugs: set[str] = set()
+    redirects = OrgRedirects(session)
+    merged: list[Organization] = []
     for org in session.scalars(select(Organization)):
         existing_slugs.add(org.slug)
-        org_by_exact.setdefault(org.name_normalised, org)
         if org.merged_into_id is None:
+            org_by_exact.setdefault(org.name_normalised, org)
             org_by_punct.setdefault(_org_punct_key(org.name_canonical), org)
+        else:
+            merged.append(org)
+    # Live rows first: a redirect's spelling reaches its survivor only where no live row holds it.
+    for org in merged:
+        survivor = redirects.terminal(org)
+        org_by_exact.setdefault(org.name_normalised, survivor)
+        org_by_punct.setdefault(_org_punct_key(org.name_canonical), survivor)
 
     alias_keys: set[tuple[_uuid.UUID, str]] = {
         (organization_id, alias_normalised)
