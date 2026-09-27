@@ -1500,3 +1500,238 @@ def test_release_is_refused_503_when_the_queue_is_unreachable(client, db):
     db.expire_all()
     assert db.get(SourceRun, run.id).released_at is None, "no release is recorded that was not enqueued"
     assert _release_events(db, src) == []
+
+
+# ================================================== run now, end to end through the job (2026-09-27)
+class _CapturingTask:
+    """Stands in for the `run_connector` Procrastinate task inside `QueuedSourceRunner`: records
+    what would have been deferred instead of reaching Postgres."""
+
+    def __init__(self):
+        self.deferred = []
+
+    def configure(self, **kw):
+        return self
+
+    def defer(self, **kw):
+        self.deferred.append(kw)
+
+
+def _fake_cli(tmp_path, commands):
+    """What `python -m pipeline.connectors run` does, reduced to its contract with the job: honour
+    `--run-id` when given (a fresh id otherwise), write the run record, print the result line."""
+    import json
+    import subprocess
+    import uuid
+
+    def fake_run(cmd, **kw):
+        commands.append(cmd)
+        run_id = cmd[cmd.index("--run-id") + 1] if "--run-id" in cmd else str(uuid.uuid4())
+        trigger = cmd[cmd.index("--trigger") + 1]
+        record = {
+            "id": run_id,
+            "trigger": trigger,
+            "status": "unchanged",
+            "started_at": utcnow().isoformat(),
+            "finished_at": utcnow().isoformat(),
+            "attempt": 1,
+        }
+        path = tmp_path / f"{run_id}.json"
+        path.write_text(json.dumps(record))
+        line = {"event": "result", "status": "unchanged", "run_id": run_id, "run_path": str(path)}
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(line), stderr="")
+
+    return fake_run
+
+
+@pytest.fixture()
+def _queued_runner(monkeypatch, db_sessionmaker, tmp_path):
+    """The real `QueuedSourceRunner` with the real `run_connector` job body behind it: only the
+    queue (a capturing task), the connector subprocess (`_fake_cli`) and the job's session factory
+    (the test database) are substituted."""
+    import subprocess
+
+    from infra.scheduler import jobs
+    from services.api.admin_sources import QueuedSourceRunner
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    real_task = scheduler_app.run_connector
+    task = _CapturingTask()
+    commands = []
+    monkeypatch.setattr(scheduler_app, "run_connector", task)
+    monkeypatch.setattr(subprocess, "run", _fake_cli(tmp_path, commands))
+    monkeypatch.setattr(jobs, "build_session_factory", lambda: db_sessionmaker)
+    app.dependency_overrides[get_source_runner] = lambda: QueuedSourceRunner()
+
+    class _Ctx:
+        class job:  # noqa: N801 - mirrors procrastinate.JobContext.job
+            queue = "fetch"
+            attempts = 0
+
+    def run_job(index=-1):
+        real_task.func(_Ctx(), **task.deferred[index])
+
+    return task, commands, run_job
+
+
+def test_run_now_again_after_the_job_completed_is_accepted(client, db, _queued_runner):
+    """2026-09-27 defect: the row the route created stayed `running` because the job recorded its
+    outcome under the runner's own run id, so the 409 guard refused every later run-now."""
+    _task, _commands, run_job = _queued_runner
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+
+    first = client.post(f"/admin/v1/sources/{src.id}/run", json={"reason": "first"})
+    assert first.status_code == 202
+    run_job()
+    second = client.post(f"/admin/v1/sources/{src.id}/run", json={"reason": "second"})
+    assert second.status_code == 202, second.json()
+    run_job()
+
+    db.expire_all()
+    rows = db.query(SourceRun).filter_by(source_id=src.id).all()
+    assert len(rows) == 2, "exactly one row per run"
+    assert {r.status for r in rows} == {"unchanged"}
+    assert {public_id("run", r.id) for r in rows} == {
+        first.json()["data"]["run_id"],
+        second.json()["data"]["run_id"],
+    }
+    assert {r.trigger for r in rows} == {"manual"}
+
+
+def test_a_run_now_job_that_dies_before_reporting_closes_its_row(client, db, _queued_runner, monkeypatch):
+    """The CLI never ran (here: the interpreter could not be started). The job fails, and the row
+    the route created is closed rather than left `running`, so the next run-now is accepted."""
+    import subprocess
+
+    _task, _commands, run_job = _queued_runner
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    assert client.post(f"/admin/v1/sources/{src.id}/run", json={"reason": "first"}).status_code == 202
+
+    def no_interpreter(cmd, **kw):
+        raise OSError("exec format error")
+
+    monkeypatch.setattr(subprocess, "run", no_interpreter)
+    with pytest.raises(OSError):
+        run_job()
+    db.expire_all()
+    row = db.query(SourceRun).filter_by(source_id=src.id).one()
+    assert (row.status, row.error_class) == ("failed", "RunAbandoned")
+    assert "exec format error" in row.error
+    assert client.post(f"/admin/v1/sources/{src.id}/run", json={"reason": "again"}).status_code == 202
+
+
+def test_a_refused_run_now_closes_its_row(client, db, _queued_runner, monkeypatch):
+    """The CLI refused the run (exit 2, no result line: a gated or unregistered source)."""
+    import subprocess
+
+    _task, _commands, run_job = _queued_runner
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    assert client.post(f"/admin/v1/sources/{src.id}/run", json={"reason": "first"}).status_code == 202
+    monkeypatch.setattr(
+        subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 2, "", "not registered")
+    )
+    run_job()
+    db.expire_all()
+    row = db.query(SourceRun).filter_by(source_id=src.id).one()
+    assert (row.status, row.error_class) == ("failed", "RunAbandoned")
+    assert "refused" in row.error
+
+
+def test_the_run_now_job_carries_the_rows_id_to_the_cli(client, db, _queued_runner):
+    task, commands, run_job = _queued_runner
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    resp = client.post(f"/admin/v1/sources/{src.id}/run", json={"reason": "x", "trigger": "backfill"})
+    row = db.query(SourceRun).filter_by(source_id=src.id).one()
+    assert task.deferred == [{"source_id": src.id, "trigger": "backfill", "run_id": str(row.id)}]
+    assert resp.json()["data"]["run_id"] == public_id("run", row.id)
+    run_job()
+    assert commands[-1][-4:] == ["--run-id", str(row.id), "--trigger", "backfill"]
+
+
+def test_a_stale_running_row_is_closed_and_does_not_block_run_now(client, db):
+    from services.api.admin_sources import STALE_RUNNING_AFTER
+
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    stale = SourceRun(
+        source_id=src.id,
+        trigger="manual",
+        started_at=utcnow() - STALE_RUNNING_AFTER - dt.timedelta(minutes=1),
+        status="running",
+    )
+    db.add(stale)
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+
+    resp = client.post(f"/admin/v1/sources/{src.id}/run", json={"reason": "the last one never reported"})
+    assert resp.status_code == 202
+    db.expire_all()
+    closed = db.get(SourceRun, stale.id)
+    assert (closed.status, closed.error_class) == ("failed", "RunAbandoned")
+    assert closed.finished_at is not None and "abandoned" in closed.error
+    assert db.query(SourceRun).filter_by(source_id=src.id, status="running").count() == 1
+
+
+def test_a_recent_running_row_still_blocks_run_now_and_says_until_when(client, db):
+    from services.api.admin_sources import STALE_RUNNING_AFTER
+
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    db.add(
+        SourceRun(
+            source_id=src.id,
+            trigger="schedule",
+            started_at=utcnow() - STALE_RUNNING_AFTER + dt.timedelta(minutes=5),
+            status="running",
+        )
+    )
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    resp = client.post(f"/admin/v1/sources/{src.id}/run", json={"reason": "x"})
+    assert resp.status_code == 409
+    assert "abandoned 2 hours after it started" in resp.json()["detail"]
+
+
+def test_an_abandoned_row_is_still_completed_by_a_late_outcome(db, db_sessionmaker):
+    from infra.scheduler import jobs
+    from services.api.admin_sources import ABANDONED_ERROR_CLASS
+
+    assert ABANDONED_ERROR_CLASS == jobs.ABANDONED_ERROR_CLASS
+    lic = make_open_licence(db)
+    src = _make_source(db, lic, implemented=True)
+    row = SourceRun(
+        source_id=src.id,
+        trigger="manual",
+        started_at=utcnow() - dt.timedelta(hours=3),
+        status="failed",
+        error_class=ABANDONED_ERROR_CLASS,
+        error="abandoned",
+    )
+    db.add(row)
+    db.commit()
+    record = {"id": str(row.id), "status": "unchanged", "started_at": utcnow().isoformat()}
+    jobs.record_source_run(db_sessionmaker, src.id, record, trigger="manual")
+    db.expire_all()
+    done = db.get(SourceRun, row.id)
+    assert (done.status, done.error_class, done.error) == ("unchanged", None, None)
+    assert db.query(SourceRun).filter_by(source_id=src.id).count() == 1

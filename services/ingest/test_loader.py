@@ -1190,3 +1190,100 @@ def test_publication_field_is_explicit_and_none_is_refused(session: Session) -> 
         upsert_licence_and_source(session, dataclasses.replace(neso, publication="none"), registry.version)
     legacy = dataclasses.replace(neso, publication=None, notes="Publish derived-only until counsel resolves")
     assert _is_derived_only_override(legacy) is True
+
+
+# ------------------------------------------------------ one source_run row per fetch + load (2026-09-27)
+def _files_fixture(tmp_path, entry_id: str, ts: str, record: dict[str, Any] | None) -> Registry:
+    """A normalised frame (+ optionally the run record) where `python -m pipeline.connectors run`
+    writes them, and a registry that knows only this source."""
+    entry = open_source_entry(entry_id)
+    registry = Registry.__new__(Registry)
+    registry.path = None  # type: ignore[assignment]
+    registry.version = "2026-09-12"
+    registry.sources = {entry.id: entry}
+    row = sample_proposal_row("Q9")
+    row["record_id"] = f"{entry.id}:Q9"
+    row["source_id"] = entry.id
+    norm_dir = tmp_path / "normalized" / entry.id
+    norm_dir.mkdir(parents=True)
+    pd.DataFrame([row]).to_parquet(norm_dir / f"{ts}.parquet", index=False)
+    if record is not None:
+        run_dir = tmp_path / "runs" / entry.id
+        run_dir.mkdir(parents=True)
+        (run_dir / f"{ts}.json").write_text(json.dumps(record))
+    return registry
+
+
+_RUN_ID = "00000000-0000-4000-8000-0000000000e1"
+_RUN_RECORD: dict[str, Any] = {
+    "id": _RUN_ID,
+    "trigger": "manual",
+    "status": "ok",
+    "started_at": "2026-09-12T05:00:00+00:00",
+    "finished_at": "2026-09-12T05:00:09+00:00",
+    "rows_seen": 1,
+    "rows_new": 1,
+    "rows_changed": 0,
+    "worker_seconds": 9.0,
+    "dq_status": "pass",
+    "dq": {"status": "pass", "checks": []},
+}
+
+
+def test_a_load_after_a_recorded_fetch_attaches_to_the_fetchs_row(tmp_path) -> None:
+    """2026-09-27 defect: the scheduler recorded the fetch (`record_source_run`, row id = run
+    record id) and the loader then inserted a second row with a fresh id for the same run, so the
+    admin runs screen listed it twice and `GET /admin/v1/costs` summed its `rows_changed` twice."""
+    from infra.scheduler import jobs
+    from services.ingest.loader import load_from_files
+
+    engine = get_engine("sqlite+pysqlite:///:memory:")
+    init_db(engine)
+    factory = get_sessionmaker(engine)
+    ts = "20260912T050000Z"
+    registry = _files_fixture(tmp_path, "us.test.fetched_queue", ts, _RUN_RECORD)
+    with factory() as s:
+        upsert_licence_and_source(s, registry.get("us.test.fetched_queue"), registry.version)
+        s.commit()
+    jobs.record_source_run(factory, "us.test.fetched_queue", _RUN_RECORD, trigger="schedule")
+
+    with factory() as s:
+        result = load_from_files(s, "us.test.fetched_queue", ts, data_root=tmp_path, registry=registry)
+        s.commit()
+    with factory() as s:
+        rows = s.scalars(select(SourceRun)).all()
+        assert len(rows) == 1, [(r.id, r.trigger) for r in rows]
+        assert str(rows[0].id) == _RUN_ID == str(result.source_run_id)
+        # The fetch's facts stand: the scheduler's trigger, not the record's; its timings.
+        assert rows[0].trigger == "schedule"
+        assert float(rows[0].worker_seconds) == 9.0
+        events = s.scalars(select(Event).where(Event.run_id.is_not(None))).all()
+        assert {str(e.run_id) for e in events} <= {_RUN_ID}
+
+
+def test_a_standalone_load_writes_one_row_under_the_run_records_id_and_is_idempotent(
+    tmp_path, session: Session
+) -> None:
+    """The CLI/dev load path (`web/data_loading.py`) with no fetch row: the loader writes the row
+    itself, under the run record's id, and a second load of the same run reuses it."""
+    from services.ingest.loader import load_from_files
+
+    ts = "20260912T050000Z"
+    registry = _files_fixture(tmp_path, "us.test.standalone_queue", ts, _RUN_RECORD)
+    first = load_from_files(session, "us.test.standalone_queue", ts, data_root=tmp_path, registry=registry)
+    second = load_from_files(session, "us.test.standalone_queue", ts, data_root=tmp_path, registry=registry)
+    rows = session.scalars(select(SourceRun)).all()
+    assert len(rows) == 1
+    assert str(rows[0].id) == _RUN_ID == str(first.source_run_id) == str(second.source_run_id)
+    assert (rows[0].trigger, rows[0].status, rows[0].rows_new) == ("manual", "ok", 1)
+
+
+def test_a_standalone_load_without_a_run_record_still_records_one_run(tmp_path, session: Session) -> None:
+    from services.ingest.loader import load_from_files
+
+    ts = "20260912T050000Z"
+    registry = _files_fixture(tmp_path, "us.test.recordless_queue", ts, None)
+    result = load_from_files(session, "us.test.recordless_queue", ts, data_root=tmp_path, registry=registry)
+    rows = session.scalars(select(SourceRun)).all()
+    assert len(rows) == 1 and rows[0].id == result.source_run_id
+    assert (rows[0].trigger, rows[0].status, rows[0].rows_seen) == ("manual", "ok", 1)

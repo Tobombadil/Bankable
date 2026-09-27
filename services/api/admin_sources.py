@@ -87,6 +87,16 @@ D12. **Releasing a data-quality hold** (`POST /admin/v1/source-runs/{run_id}/rel
      gate check still runs. Idempotent: a second release of the same run writes no second audit
      event; while the job has not yet marked the run `ok` it re-enqueues it (a queueing lock per
      run keeps that to one job).
+D13. **"Run now" creates the run's one row, and the job completes it** (2026-09-27). The route
+     creates the `running` `source_run` row the panel shows at once and defers `run_connector` with
+     that row's id; the job passes it to the CLI as `--run-id`, the runner uses it as the run id,
+     and `record_source_run` completes the row in place. Before, the job recorded the run under
+     the runner's own id and never touched this row, so it stayed `running` and the 409 guard
+     below refused every later run-now of the source. A job that dies before the connector reports
+     closes the row (`failed`, `error_class = RunAbandoned`); a row that still gets nothing (the
+     worker process killed) is closed by the guard itself once it is `STALE_RUNNING_AFTER` (2 h)
+     old, and a run-now is then accepted. A late outcome still completes an abandoned row.
+     Procrastinate retries of the job are their own runs (`trigger = retry`, their own rows).
 """
 
 from __future__ import annotations
@@ -104,7 +114,7 @@ from sqlalchemy.orm import Session
 
 from services.api.audit import record_audit_event
 from services.api.auth import AuthContext, require_admin
-from services.api.common import utcnow
+from services.api.common import ensure_aware, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.pagination import clamp_limit, paginate
@@ -211,8 +221,8 @@ def _find_snapshot(db: Session, snapshot_id: str) -> Snapshot | None:
 # ---------------------------------------------------------------------------- "run now" (US-904)
 class SourceRunner(Protocol):
     """Enqueues a fetch for `source` and returns the `source_run` row the panel shows immediately.
-    The worker (a later sprint wave) updates that row when it actually runs the connector — this
-    endpoint never runs a connector inline."""
+    The worker completes that same row when it runs the connector (the job carries its id, D13) —
+    this endpoint never runs a connector inline."""
 
     def enqueue(self, db: Session, source: Source, *, trigger: str, requested_by: User) -> SourceRun: ...
 
@@ -244,10 +254,11 @@ class QueuedSourceRunner:
 
             queue = queue_for_source({"egress": source.egress, "access": source.access})
             # `trigger` travels with the job so the run is recorded as what the operator asked for
-            # (`manual`/`backfill`), not as the scheduler's default `schedule`.
+            # (`manual`/`backfill`), not as the scheduler's default `schedule`; `run_id` so the job
+            # completes this row rather than recording the run under a second one (D13).
             run_connector.configure(
                 queue=queue, lock=execution_lock_for(source.id), queueing_lock=queueing_lock_for(source.id)
-            ).defer(source_id=source.id, trigger=trigger)
+            ).defer(source_id=source.id, trigger=trigger, run_id=str(run.id))
         except Exception as exc:  # pragma: no cover - exercised via FakeSourceRunner in tests
             raise ProblemError(
                 "unavailable",
@@ -701,6 +712,43 @@ def _current_value(source: Source, field: str) -> Any:
 
 
 # ======================================================================== POST /sources/{id}/run
+#: D13: a `running` row older than this is taken to have lost its job. Its first attempt can only
+#: be `running` for the queue wait, the wait for the source's execution lock (a `load_source`
+#: holds it for up to 30 minutes, `infra/scheduler/app.py` `LOAD_TIMEOUT_S`) and the fetch itself
+#: (at most 10 minutes, `run_connector`'s timeout): about 40 minutes plus any worker backlog. Two
+#: hours is three times that, and still frees a source whose job died the same morning.
+_STALE_RUNNING_HOURS = 2
+STALE_RUNNING_AFTER = dt.timedelta(hours=_STALE_RUNNING_HOURS)
+#: Mirrors `infra.scheduler.jobs.ABANDONED_ERROR_CLASS` (the API does not import the scheduler at
+#: module level); `tests/test_api_admin_sources.py` pins the two equal.
+ABANDONED_ERROR_CLASS = "RunAbandoned"
+
+
+def _live_running_run(db: Session, source_id: str) -> SourceRun | None:
+    """The source's `running` row that may still get an outcome, if any. A `running` row older
+    than `STALE_RUNNING_AFTER` is closed here (`failed`, `error_class = RunAbandoned`) rather than
+    blocking run-now for ever; if its job does report after all, the scheduler completes the row
+    with the real outcome (`infra/scheduler/jobs.py::record_source_run`). Compared in Python, not
+    SQL, for the SQLite test database's naive datetimes (`ensure_aware`)."""
+    now = utcnow()
+    live: SourceRun | None = None
+    rows = db.scalars(
+        select(SourceRun)
+        .where(SourceRun.source_id == source_id, SourceRun.status == "running")
+        .order_by(SourceRun.started_at.desc())
+    ).all()
+    for run in rows:
+        if now - ensure_aware(run.started_at) > STALE_RUNNING_AFTER:
+            run.status = "failed"
+            run.finished_at = now
+            run.error = f"abandoned: no outcome was recorded within {_STALE_RUNNING_HOURS} hours of the start"
+            run.error_class = ABANDONED_ERROR_CLASS
+        elif live is None:
+            live = run
+    db.flush()
+    return live
+
+
 @router.post("/admin/v1/sources/{source_id}/run", status_code=202)
 def admin_run_source(
     source_id: str,
@@ -721,11 +769,18 @@ def admin_run_source(
             "Source cannot be run",
             detail="The source is paused or has no implemented connector.",
         )
-    already_running = db.scalar(
-        select(SourceRun).where(SourceRun.source_id == source.id, SourceRun.status == "running")
-    )
+    already_running = _live_running_run(db, source.id)
     if already_running is not None:
-        raise ProblemError("conflict", "A run is already in progress for this source")
+        raise ProblemError(
+            "conflict",
+            "A run is already in progress for this source",
+            detail=(
+                f"Run {public_id('run', already_running.id)} started "
+                f"{_iso_or_none(already_running.started_at)} and has not reported yet. If it never "
+                f"does, it is closed as abandoned {_STALE_RUNNING_HOURS} hours after it started and "
+                "a new run can be queued."
+            ),
+        )
 
     trigger = (body or {}).get("trigger", "manual")
     if trigger not in ("manual", "backfill"):

@@ -119,7 +119,7 @@ writes the `source_run` row and `source.health`, and — only when the run wrote
 `services.ingest.loader.load_from_files` (§3.4–§3.7 in one transaction) and defers `resolve_tick` (organisations
 and proposal clusters store-wide, §3.5), which defers `enrich_tick` (§3.6, the geocode backfill today). A daily
 `tick_resolve` is the safety net for rows loaded outside the chain. Fetch retries only transient failures
-(network, 5xx, crash, timeout) with exponential backoff — 25 s, 125 s, 625 s, 3,125 s, then dead-letter — and
+(network, 5xx, crash, timeout) with exponential backoff — 5 s, 25 s, 125 s, 625 s, then the fifth failure dead-letters — and
 records a block, a corrupt payload or a gate refusal once, for the next tick.
 
 ```mermaid

@@ -16,6 +16,12 @@ no result line, which the scheduler records as a crash and retries.
 the CLI defaults to `manual` and the scheduler passes `schedule` explicitly, so a scheduled run is
 never recorded as a manual one. An off-vocabulary value is refused before any I/O.
 
+`run_id` lets the caller name the run (2026-09-27): the admin "run now" route creates the
+`source_run` row the operator sees before the job starts, and the scheduler passes that row's id
+down through the CLI (`--run-id`), so the record, and the row the scheduler completes from it, is
+that same run rather than a second one. Without it a fresh id is generated, as before. A value
+that is not a UUID is refused before any I/O.
+
 `release_held` is the other way a run's output reaches `normalized/`: an operator accepted a
 data-quality hold (`POST /admin/v1/source-runs/{run_id}/release`), so the held frame is diffed
 against the previous normalised snapshot and written exactly as step 6 of `run` would have, the
@@ -112,6 +118,7 @@ def run(
     store: Store | None = None,
     allow_restricted: bool = False,
     trigger: str = "manual",
+    run_id: str | None = None,
     http: PoliteSession | None = None,
     raw: RawSnapshot | None = None,
     now: dt.datetime | None = None,
@@ -123,6 +130,11 @@ def run(
     """
     if trigger not in RUN_TRIGGERS:
         raise ValueError(f"trigger must be one of {RUN_TRIGGERS}, got {trigger!r}")
+    if run_id is not None:
+        try:
+            run_id = str(uuid.UUID(run_id))
+        except ValueError as e:
+            raise ValueError(f"run_id must be a UUID, got {run_id!r}") from e
     registry = registry or Registry()
     source = registry.get(source_id)
     connector = registry.instantiate(source_id, allow_restricted=allow_restricted, http=http)
@@ -135,7 +147,7 @@ def run(
 
     started = now or utcnow()
     t0 = time.monotonic()
-    run_id = str(uuid.uuid4())
+    run_id = run_id or str(uuid.uuid4())
     record: dict[str, Any] = {
         "id": run_id,
         "source_id": source_id,

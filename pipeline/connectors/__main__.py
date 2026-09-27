@@ -1,9 +1,11 @@
 """CLI: `python -m pipeline.connectors list | run <source_id>... [--all] [--allow-restricted]
-[--trigger schedule|manual|backfill|retry]`.
+[--trigger schedule|manual|backfill|retry] [--run-id <uuid>]`.
 
 Logs are structured JSON on stdout (docs/04 E-18); nothing is printed otherwise. `--trigger`
 defaults to `manual` (a human at a terminal); `infra/scheduler/app.py::run_connector` passes
 `--trigger schedule`, so the run record, and every `source_run` row read from it, says which it was.
+`--run-id` (one source only) names the run: the scheduler passes the id of the `source_run` row the
+admin "run now" route already created, so the run completes that row instead of adding another.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import json
 import logging
 import pathlib
 import sys
+import uuid
 from typing import Any
 
 from pipeline.connectors.base import GateViolation
@@ -71,6 +74,13 @@ def _setup_logging() -> logging.Logger:
     return logging.getLogger("pipeline.connectors.cli")
 
 
+def _run_id(value: str) -> str:
+    try:
+        return str(uuid.UUID(value))
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"not a UUID: {value!r}") from e
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m pipeline.connectors")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -88,6 +98,13 @@ def main(argv: list[str] | None = None) -> int:
         choices=RUN_TRIGGERS,
         default="manual",
         help="what started the run, recorded on source_run (docs/21 §4.2); the scheduler passes schedule",
+    )
+    rp.add_argument(
+        "--run-id",
+        type=_run_id,
+        default=None,
+        help="use this UUID as the run id (one source only); the scheduler passes the id of the "
+        "source_run row an admin run-now already created",
     )
     rp.add_argument(
         "--data-dir",
@@ -108,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         ids += [s["id"] for s in registry.status() if s["state"] == "implemented"]
     if not ids:
         ap.error("give source ids or --all")
+    if args.run_id is not None and len(ids) != 1:
+        ap.error("--run-id names one run: give exactly one source id")
     try:
         store = open_store(pathlib.Path(args.data_dir))
     except StoreConfigError as e:
@@ -122,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
                 store=store,
                 allow_restricted=args.allow_restricted,
                 trigger=args.trigger,
+                run_id=args.run_id,
             )
         except GateViolation as e:
             log.error("gate refused", extra={"source_id": sid, "error": str(e)})
