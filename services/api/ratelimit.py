@@ -26,6 +26,35 @@ WINDOW_SECONDS = 3600
 
 
 @dataclass(frozen=True)
+class PlanQuota:
+    """The "Bulk / export" column of docs/23 §6 for one plan: `None` means the plan has no such
+    allowance at all (a `403 forbidden_tier` on the endpoint, never an unbounded quota)."""
+
+    exports_per_day: int | None
+    export_rows_max: int | None
+    bulk_requests_per_hour: int | None
+
+
+#: docs/23 §6 / api/openapi.yaml `x-rate-limits.tiers`, keyed by the resolved entitlement. Pro:
+#: "5 exports / day, 10,000 rows each" (US-603 AC1's "10,000 default, configurable per plan" lives
+#: here, per plan). API: "20 bulk requests / hour"; the table names no export allowance for the
+#: API plan, and docs/23 §3.2 says an API plan has "everything in [Pro]", so it inherits Pro's
+#: export figures rather than getting none -- a documented reading, recorded in services/README.md.
+#: `admin` (an operator's own account) exports on Pro's figures too; bulk stays API-key-only
+#: (`read:bulk` is a key scope, docs/23 §5). Tiers absent here have neither allowance.
+PLAN_QUOTAS: dict[str, PlanQuota] = {
+    "pro": PlanQuota(exports_per_day=5, export_rows_max=10_000, bulk_requests_per_hour=None),
+    "api": PlanQuota(exports_per_day=5, export_rows_max=10_000, bulk_requests_per_hour=20),
+    "admin": PlanQuota(exports_per_day=5, export_rows_max=10_000, bulk_requests_per_hour=None),
+}
+NO_QUOTA = PlanQuota(exports_per_day=None, export_rows_max=None, bulk_requests_per_hour=None)
+
+
+def plan_quota(tier: str) -> PlanQuota:
+    return PLAN_QUOTAS.get(tier, NO_QUOTA)
+
+
+@dataclass(frozen=True)
 class RateLimitResult:
     allowed: bool
     limit: int
@@ -79,5 +108,7 @@ class InMemoryRateLimiter:
 default_limiter = InMemoryRateLimiter()
 
 
-def policy_header(tier: str, result: RateLimitResult) -> str:
-    return f'{result.limit};w={WINDOW_SECONDS};policy="{tier}-read"'
+def policy_header(tier: str, result: RateLimitResult, *, bucket: str = "read") -> str:
+    """`RateLimit-Policy` (docs/23 §6): the tier's `read` bucket by default; `/v1/bulk/*` names its
+    own `bulk` bucket (`api/openapi.yaml` bulkProposals: "`RateLimit-Policy: bulk`")."""
+    return f'{result.limit};w={WINDOW_SECONDS};policy="{tier}-{bucket}"'

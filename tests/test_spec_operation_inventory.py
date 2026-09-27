@@ -16,7 +16,10 @@ made its first version print authoritative-looking wrong numbers, and both are p
    `test_spec_enumeration_matches_the_story_coverage_checker` keeps them that way.
 
 The ground truth both pins rest on is a live request: one documented operation that is served
-(`GET /v1/assets`), one documented operation that is not (`GET /v1/bulk/proposals`).
+(`GET /v1/assets`), and one path that is neither documented nor served. Until 2026-09-27 the second
+pin was a documented operation the app did not yet serve (`GET /v1/bulk/proposals`, then
+`GET /v1/matches`); since matches, exports, bulk and documents shipped there is none, the CI step
+reports 0 missing and is blocking, and `test_ci_step_reports_nothing_missing_and_passes` pins that.
 """
 
 from __future__ import annotations
@@ -41,8 +44,8 @@ HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "tra
 
 #: Documented under `paths:` and served (a live request below proves it).
 SERVED = ("GET", "/v1/assets")
-#: Documented under `paths:` and not implemented (a live request below proves that too).
-UNIMPLEMENTED = ("GET", "/v1/bulk/proposals")
+#: Neither documented nor served (a live request below proves the second half).
+UNSERVED_PROBE = ("GET", "/v1/not-a-documented-operation")
 
 
 @pytest.fixture(scope="module")
@@ -92,7 +95,7 @@ def _ci_step_script() -> str:
 def test_the_two_pinned_operations_are_both_documented_under_paths(spec: dict) -> None:
     documented = _spec_ops(spec, "paths")
     assert SERVED in documented
-    assert UNIMPLEMENTED in documented
+    assert UNSERVED_PROBE not in documented
 
 
 def test_app_openapi_lists_exactly_what_a_live_request_proves(client: TestClient, spec: dict) -> None:
@@ -103,8 +106,8 @@ def test_app_openapi_lists_exactly_what_a_live_request_proves(client: TestClient
     assert SERVED in app_ops
     assert client.request(*SERVED).status_code == 200
 
-    assert UNIMPLEMENTED not in app_ops
-    assert client.request(*UNIMPLEMENTED).status_code == 404
+    assert UNSERVED_PROBE not in app_ops
+    assert client.request(*UNSERVED_PROBE).status_code == 404
 
 
 def test_app_routes_under_reports_what_is_served() -> None:
@@ -131,10 +134,11 @@ def test_spec_enumeration_matches_the_story_coverage_checker(spec: dict) -> None
     assert from_checker == _spec_ops(spec, "paths") | _spec_ops(spec, "webhooks")
 
 
-def test_ci_step_classifies_both_pinned_operations_correctly() -> None:
-    """End to end: run the workflow's own script and read its verdict. `bulkProposals` must be
-    reported as missing under the `bulk` area, and nothing about `/v1/assets` may appear — it is
-    served and documented, so it belongs in no problem list."""
+def test_ci_step_reports_nothing_missing_and_passes() -> None:
+    """End to end: run the workflow's own script and read its verdict. Every documented operation is
+    served (by the API or the public site), none is misfiled and none is undocumented, so the step
+    exits 0 and, being blocking since 2026-09-27, lets CI pass. `/v1/assets` and the sitemaps, served
+    and documented, appear in no problem list."""
     result = subprocess.run(  # noqa: S603 - the "untrusted input" is this repo's own workflow file
         [sys.executable, "-c", _ci_step_script()],
         cwd=REPO_ROOT,
@@ -143,10 +147,9 @@ def test_ci_step_classifies_both_pinned_operations_correctly() -> None:
         check=False,
     )
     out = result.stdout
-    listed = [line for line in out.splitlines() if "bulkProposals" in line]
-    assert listed, out
-    assert any(line.strip().endswith(f"{UNIMPLEMENTED[0]} {UNIMPLEMENTED[1]}") for line in listed), listed
-    assert any(line.startswith("  bulk (") and "missing)" in line for line in out.splitlines()), out
+    assert "MISSING FROM THE APP: 0 " in out, out
+    assert "FILED UNDER `webhooks:` BUT SERVED AS ENDPOINTS: 0" in out, out
+    assert "UNDOCUMENTED (drift — must be 0): 0" in out, out
     assert SERVED[1] not in out, "a served, documented operation must not be reported as a gap"
-    assert "UNDOCUMENTED (drift — must be 0): 0" in out
-    assert result.returncode == 1, "report-only, but non-zero while operations are still missing"
+    assert "sitemapIndex" not in out and "sitemapPage" not in out, out
+    assert result.returncode == 0, out

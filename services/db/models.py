@@ -143,6 +143,12 @@ WEBHOOK_TYPES = (
 )
 WEBHOOK_ENDPOINT_STATUSES = ("active", "paused", "disabled")
 WEBHOOK_DELIVERY_STATUSES = ("pending", "delivered", "retrying", "failed")
+#: `export` (docs/21 §4.4; api/openapi.yaml `ExportStatus`). `queued -> running -> ready | failed`,
+#: then `expired` once `expires_at` has passed and the file is gone (US-603).
+EXPORT_STATUSES = ("queued", "running", "ready", "failed", "expired")
+#: The three list resources an export can be taken of (US-603 "any filtered list"); `match` is in
+#: `SAVED_SEARCH_ENTITIES` but has no list endpoint yet, so it is not exportable either.
+EXPORT_ENTITIES = ("proposal", "opportunity", "event")
 
 
 def utcnow() -> dt.datetime:
@@ -927,6 +933,52 @@ class ApiKey(Base, TimestampMixin):
         sa.CheckConstraint(f"prefix IN {API_KEY_PREFIXES!r}", name="prefix_vocab"),
         sa.CheckConstraint(f"tier IN {API_KEY_TIERS!r}", name="tier_vocab"),
         sa.Index("ix_api_key_account_id", "account_id"),
+    )
+
+
+# ====================================================================================== export (§4.4)
+class Export(Base):
+    """docs/21 §4.4 `export`: "CSV export jobs and their audit trail (US-603 AC3)". One row per
+    export a user asked for, whether or not it succeeded -- the row *is* the per-user log metric
+    M-6 reads (`user_id`, `api_key_id`, `entity`, `query`, `row_count`, `created_at`), so a failed
+    attempt stays too, with `error` set. `query` stores the filter definition (the same
+    `SavedSearchQuery` grammar), never the result set; `object_key` is the path of the generated
+    file relative to the export store (`services/api/exports.py`: a local directory now, R2 later,
+    the same field either way). Migration `0024_export.py`."""
+
+    __tablename__ = "export"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    account_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("account.id"), nullable=False)
+    user_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("user.id"), nullable=False)
+    api_key_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("api_key.id"))
+    entity: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    query: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    tier: Mapped[str] = mapped_column(sa.Text, nullable=False, default="pro")
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="queued")
+    row_cap: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    row_count: Mapped[int | None] = mapped_column(sa.Integer)
+    truncated: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    object_key: Mapped[str | None] = mapped_column(sa.Text)
+    byte_size: Mapped[int | None] = mapped_column(sa.BigInteger)
+    sha256: Mapped[str | None] = mapped_column(sa.String(64))
+    error: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    started_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    completed_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    expires_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+
+    __table_args__ = (
+        sa.CheckConstraint(f"entity IN {EXPORT_ENTITIES!r}", name="entity_vocab"),
+        sa.CheckConstraint(f"status IN {EXPORT_STATUSES!r}", name="status_vocab"),
+        sa.CheckConstraint("row_cap > 0", name="row_cap_positive"),
+        # The daily quota (docs/23 §6 "5 exports / day") is `COUNT(*) WHERE user_id = ? AND
+        # created_at >= today`, so both columns lead the index.
+        sa.Index("ix_export_user_created", "user_id", "created_at"),
+        sa.Index("ix_export_account_id", "account_id"),
     )
 
 

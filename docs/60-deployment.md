@@ -209,6 +209,17 @@ allows. Before flipping any real environment's value, read `docs/26` §3's three
 record of what this repository can and cannot confirm about them as of 2026-09-26 — (ii), specifically, was
 not found resolved in the decisions log by the lane that last touched this setting.
 
+### 5.2 Local file stores (paths, not secrets)
+
+Two API features write or read files on local disk until the R2 object store (docs/20 §4.1) is wired
+(lane E6b, 2026-09-26). Neither variable carries a credential; both are read per request, so a change needs
+only an `api` restart.
+
+| Variable | Read by | Default | What lives there | Production note |
+|---|---|---|---|---|
+| `EXPORT_DIR` | `services/api/exports.py::export_dir` | `data/exports/` under the repository | Generated CSV exports, one `<export id>.csv` per `export` row, downloadable by their owner for 24 h (US-603) | Mount a persistent volume at the path, or exports vanish on every container replace; expired files are deleted lazily when their row is next read, so the directory needs no sweep yet. Follow-up: R2 keys with pre-signed links. |
+| `DOCUMENT_DIR` | `services/api/documents.py::document_dir` | `data/documents/` under the repository | Stored document copies keyed by `document.object_key` (US-302 AC1); only `storage_policy = stored` rows whose licence allows raw publication are ever served | Nothing writes document rows yet, so the directory can be absent; a missing file means `download_url` is `null`, never an error. |
+
 ## 6. Scheduling per source cadence
 
 `infra/scheduler/` (Procrastinate, ADR 0004) reads `data/sources.yaml`'s `cadence` field for every source

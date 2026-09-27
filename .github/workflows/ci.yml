@@ -15,15 +15,14 @@ name: ci
 #     which has a documented pre-existing bug outside this task's write scope — services/README.md
 #     "Loader fixes (2026-09-13)" section names it) and belongs with `test-web` in spirit, not
 #     `test-core`; it is left for whoever owns `web/` to un-skip.
-#   - The OpenAPI "generated == committed, byte-for-byte" check (docs/04 E-8, docs/23 §12): the
-#     hand-written api/openapi.yaml is the contract and `services.api.app` implements a subset of
-#     it (measured 2026-09-20: 125 of the 136 operations under `paths:`). A byte-for-byte diff
-#     therefore fails for coverage, not drift, until the last operation lands. The step measures
-#     the real gap on every run and stays `continue-on-error: true`; flip it off the day its
-#     output is "0 missing" with no misfiled and no undocumented operations. Its output is
-#     grouped so the gap is legible without opening the spec: 15 operations in five whole unbuilt
-#     areas — bulk (3), exports (3), matches (6), documents (1), sitemaps (2) — by operation id,
-#     with the counts in the headline and a table in the job summary.
+#   - The OpenAPI "generated == committed" check (docs/04 E-8, docs/23 §12): the hand-written
+#     api/openapi.yaml is the contract. The step compares every operation it documents under
+#     `paths:` with what the API and the public site serve. It was report-only while the app
+#     implemented a subset (125 of 136 on 2026-09-20; 15 missing in five unbuilt areas on
+#     2026-09-26). **Blocking since 2026-09-27**, when matches, exports, bulk and documents
+#     shipped and the step first printed "MISSING FROM THE APP: 0" with no misfiled and no
+#     undocumented operation: a documented endpoint that stops being served now fails CI,
+#     as does a served one the contract lacks.
 #     Two enumeration traps this step had to be corrected for, both pinned by
 #     tests/test_spec_operation_inventory.py:
 #       * the app side is `app.openapi()`, never `app.routes`. `include_router` leaves one
@@ -186,12 +185,13 @@ jobs:
       - run: python -m openapi_spec_validator api/openapi.yaml
       - run: python api/check_story_coverage.py --quiet
       - run: pytest tests/test_api_contract.py -v
-      - name: generated spec == committed spec (docs/04 E-8) — report-only until 0 operations are missing
-        continue-on-error: true # see header note: measured 125 of 136 `paths` operations on 2026-09-20
+      - name: generated spec == committed spec (docs/04 E-8)
+        # Blocking since 2026-09-27: 0 missing, 0 misfiled, 0 undocumented (see header note).
         run: |
           python - <<'PY'
           import os, sys, yaml
           from services.api.app import app
+          from web.app import app as web_app
 
           # Spec side: enumerated exactly as api/check_story_coverage.py::operations does — both
           # groups, all eight methods — so the two counters reconcile instead of quietly
@@ -216,19 +216,28 @@ jobs:
           # ~125 operations — `GET /v1/assets` answers 200 and is absent from `app.routes`.
           # `app.openapi()` walks the included routers and matches what is served;
           # tests/test_spec_operation_inventory.py pins that against live requests.
-          served = {
-              (m.upper(), p)
-              for p, item in app.openapi()["paths"].items()
-              for m in item
-              if m in HTTP_METHODS
-          }
+          def served_ops(application):
+              return {
+                  (m.upper(), p)
+                  for p, item in application.openapi()["paths"].items()
+                  for m in item
+                  if m in HTTP_METHODS
+              }
+
+          # A documented operation counts as served when EITHER app serves it: the API
+          # (`services.api.app`) or the public site (`web.app`), which serves the `/sitemap*`
+          # operations the spec files under `feed_servers`. Only the API is held to "every served
+          # operation is documented": the site's HTML pages are not API operations.
+          api_served = served_ops(app)
+          web_served = served_ops(web_app)
+          served = api_served | web_served
 
           missing = sorted(set(documented) - served)
           # Documented, but under `webhooks:` where an endpoint cannot be served or validated as
           # one: a filing error in the spec, not undocumented drift. Webhook *events* are named
           # `event.published`; an entry keyed like a URL is an endpoint in the wrong section.
           misfiled = sorted(k for k in webhooks if k[1].startswith("/") and k in served)
-          undocumented = sorted(served - set(documented) - set(webhooks))
+          undocumented = sorted(api_served - set(documented) - set(webhooks))
 
           def area(method, path):
               """The feature area a missing operation belongs to, so the gap reads as "bulk is not
@@ -251,7 +260,8 @@ jobs:
               f"spec operations: {len(documented) + len(webhooks)} "
               f"({len(documented)} under `paths`, {len(webhooks)} under `webhooks`) "
               f"— same enumeration as api/check_story_coverage.py",
-              f"app operations: {len(served)} (from app.openapi(); app.routes under-reports here)",
+              f"app operations: {len(api_served)} API + {len(set(documented) & web_served)} documented "
+              f"on the web app (from app.openapi(); app.routes under-reports here)",
               f"MISSING FROM THE APP: {len(missing)} documented endpoints in {len(by_area)} areas",
               f"FILED UNDER `webhooks:` BUT SERVED AS ENDPOINTS: {len(misfiled)} (spec defect)",
               f"UNDOCUMENTED (drift — must be 0): {len(undocumented)}",

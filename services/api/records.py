@@ -40,7 +40,7 @@ from services.api.deps import get_db
 from services.api.errors import not_found, validation_error
 from services.api.geo import build_geo_feature_collection
 from services.api.pagination import clamp_limit, paginate
-from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec
+from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec, wants_csv
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -412,6 +412,14 @@ def _proposal_licence_rows(proposals: list[Proposal], entitlement: str = "public
     return rows
 
 
+def _csv_list_response(request: Request, db: Session, ctx: AuthContext, resource: str) -> Any:
+    """Deferred import: `services.api.exports` reaches this module through
+    `services.api.resource_queries`, so importing it at module level would cycle."""
+    from services.api.exports import csv_list_response
+
+    return csv_list_response(request, db, ctx, cast("Any", resource))
+
+
 @router.get("/v1/proposals")
 def list_proposals(
     request: Request,
@@ -419,6 +427,8 @@ def list_proposals(
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
     check_allowed(request, LIST_COMMON | PROPOSAL_FILTERS)
+    if wants_csv(request):
+        return _csv_list_response(request, db, ctx, "proposal")
     limit = clamp_limit(int_param(request, "limit"))
     field, ascending = sort_spec(request, PROPOSAL_SORT_ALLOWLIST, "-last_changed")
     stmt = _proposal_query_with_filters(request, ctx.entitlement)
@@ -687,6 +697,8 @@ def list_opportunities(
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
     check_allowed(request, LIST_COMMON | OPPORTUNITY_FILTERS)
+    if wants_csv(request):
+        return _csv_list_response(request, db, ctx, "opportunity")
     limit = clamp_limit(int_param(request, "limit"))
     field, ascending = sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
     stmt = _opportunity_query_with_filters(request, db, ctx.entitlement)
