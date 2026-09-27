@@ -3676,6 +3676,32 @@ paths:
     servers: *admin_servers
     parameters:
       - $ref: '#/components/parameters/OrganizationPublicId'
+    get:
+      operationId: adminGetOrganization
+      tags: [Admin — records]
+      summary: Organization, ungated
+      description: |
+        The full row regardless of `publish_state`, with the event timeline. Admin only. This is the read the
+        admin panel uses to show and republish an organisation after a takedown, when every `/v1/organizations`
+        route answers `404` for it (migration 0022; `docs/21` §8).
+      x-tier: admin
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-905, US-907]
+      security: *sec_admin
+      responses:
+        '200':
+          description: The organization with admin fields.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrganizationDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
     patch:
       operationId: adminUpdateOrganization
       tags: [Admin — records]
@@ -3701,7 +3727,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OrganizationDetailResponse'
+                $ref: '#/components/schemas/AdminOrganizationDetailResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3815,6 +3841,10 @@ paths:
         record whose `min_reuse_class` over visible sources is `restricted` or `unknown` is refused with
         `422 gate_unmet`. An unpublished record answers `410` on every non-admin surface within one cache TTL. This
         is also how an approved intake submission becomes public after the submitter opted in (US-1002 AC3).
+        `record_type = organizations` (migration 0022) takes the same body and writes the same event; an
+        organisation has no `min_reuse_class` (no `422`) and no `published_at`/`public_at`, and once not `public`
+        it answers `404` on every `/v1/organizations` route and is dropped from every embed that would name it
+        (sponsor, issuer, asset owners, parent, subsidiaries).
       x-tier: admin
       x-status: live
       x-sprint: 2
@@ -7825,7 +7855,11 @@ components:
     # ---------- Domain entities (docs/21 §3) ----------
     OrganizationSummary:
       type: object
-      description: Embedded sponsor / issuer reference.
+      description: >-
+        Embedded sponsor / issuer / owner reference. On every non-admin surface the embed is `null` (sponsor,
+        issuer, parent) or the edge is omitted (asset owners, subsidiaries, ancestors) when the organisation's
+        `publish_state` is not `public` (migration 0022; docs/21 §8) — dropped, never rendered with the name
+        withheld, because the edge's existence is itself a disclosure.
       required: [public_id, slug, name_canonical, type, url]
       properties:
         public_id:
@@ -12156,6 +12190,33 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminOpportunity'
+    AdminOrganization:
+      description: >-
+        `Organization` plus the fields only an admin read carries: `publish_state` (migration 0022), the event
+        timeline newest first, and the last `admin_edit` event. No `overrides`: organisation edits are not pinned
+        against a pipeline (docs/21 §6.4 is about proposal/opportunity fields).
+      allOf:
+        - $ref: '#/components/schemas/Organization'
+        - type: object
+          required: [publish_state, events, last_admin_event_id]
+          properties:
+            publish_state:
+              $ref: '#/components/schemas/RecordPublishState'
+            events:
+              type: array
+              items:
+                $ref: '#/components/schemas/Event'
+            last_admin_event_id:
+              oneOf:
+                - $ref: '#/components/schemas/EventPublicId'
+                - type: 'null'
+    AdminOrganizationDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminOrganization'
     MergeRequest:
       type: object
       required: [absorb_public_id, preview]

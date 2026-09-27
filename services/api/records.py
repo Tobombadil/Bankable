@@ -58,10 +58,15 @@ from services.api.serialize import (
 from services.api.slippage import SLIP_BUCKETS, slip_filter
 from services.api.slippage import today as slip_today
 from services.api.visibility import (
+    PUBLISHABLE_REUSE_CLASSES,
     event_visibility_filter,
     location_exact_permitted,
     opportunity_visibility_filter,
+    organization_visibility_filter,
+    permitted_source_states,
     proposal_visibility_filter,
+    visible_source_link_filter,
+    visible_source_links,
 )
 from services.db.models import (
     Event,
@@ -199,7 +204,11 @@ def _apply_slip_filter(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]
     return stmt.where(slip_filter(slipped=slipped, buckets=buckets, on=slip_today()))
 
 
-def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]:
+def _apply_proposal_filters(
+    stmt: sa.Select[Any], request: Request, entitlement: str = "public"
+) -> sa.Select[Any]:
+    """`entitlement` is the caller's tier: `source_id=` and the `q=` source-record-id arm match only
+    through links that tier may see (`visible_source_link_filter`; docs/21 §8 item 3)."""
     qp = request.query_params
     if v := qp.get("kind"):
         stmt = stmt.where(Proposal.kind.in_(csv_param(v)))
@@ -213,7 +222,8 @@ def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select
         stmt = stmt.where(Proposal.iso.in_(csv_param(v)))
     if v := qp.get("source_id"):
         stmt = stmt.join(ProposalSource, ProposalSource.proposal_id == Proposal.id).where(
-            ProposalSource.source_id.in_(csv_param(v)), ProposalSource.active.is_(True)
+            ProposalSource.source_id.in_(csv_param(v)),
+            *visible_source_link_filter(ProposalSource, entitlement),
         )
     if v := qp.get("capacity_mw[gte]"):
         stmt = stmt.where(Proposal.capacity_mw >= float(v))
@@ -236,9 +246,15 @@ def _apply_proposal_filters(stmt: sa.Select[Any], request: Request) -> sa.Select
         # canonical name, and any active source record id (queue position, docket, plant-generator
         # id). Subqueries rather than joins so a proposal with several sources is not repeated.
         like = f"%{v.lower()}%"
-        sponsor_ids = select(Organization.id).where(func.lower(Organization.name_canonical).like(like))
+        # A sponsor the public tier may not see does not match either: `?q=<its name>` returning
+        # its proposals would confirm the name behind a `sponsor: null` (organisation arm,
+        # services/api/visibility.py).
+        sponsor_ids = select(Organization.id).where(
+            func.lower(Organization.name_canonical).like(like), *organization_visibility_filter()
+        )
         record_hits = select(ProposalSource.proposal_id).where(
-            ProposalSource.active.is_(True), func.lower(ProposalSource.source_record_id).like(like)
+            func.lower(ProposalSource.source_record_id).like(like),
+            *visible_source_link_filter(ProposalSource, entitlement),
         )
         stmt = stmt.where(
             sa.or_(
@@ -266,7 +282,7 @@ def _proposal_query_with_filters(request: Request, entitlement: str = "public") 
         .where(*proposal_visibility_filter(entitlement))
         .options(selectinload(Proposal.sources))
     )
-    stmt = _apply_proposal_filters(stmt, request)
+    stmt = _apply_proposal_filters(stmt, request, entitlement)
     # No default (ADR 0008): every placement grade is returned unless the caller filters
     # explicitly — a `none`-grade proposal (unknown location) belongs in list/search by design
     # (docs/21 §3.7), unlike the map, which defaults to `exact,region`.
@@ -348,7 +364,7 @@ def _proposal_geo_plottable_query(
             loc_load.contains_eager(Location.licence).load_only(Licence.id, Licence.allows_raw_publication),
         )
     )
-    stmt = _apply_proposal_filters(stmt, request)
+    stmt = _apply_proposal_filters(stmt, request, entitlement)
     # Default `exact,region` (docs/23 §3.1): a caller who never passes `placement` sees exactly
     # the pre-ADR-0008 shape (points/clusters) plus the new region features, never bare `none`
     # rows -- those have no `geom` anyway and are excluded by this query's own join already.
@@ -371,6 +387,7 @@ def _proposal_geo_totals(
         .outerjoin(Location, Location.id == Proposal.location_id)
         .where(*proposal_visibility_filter(entitlement)),
         request,
+        entitlement,
     )
     rows = db.execute(stmt).all()
     lifecycle_counts: dict[str, int] = defaultdict(int)
@@ -385,12 +402,13 @@ def _proposal_geo_totals(
     return len(rows), dict(lifecycle_counts), dict(technology_counts), unplaced
 
 
-def _proposal_licence_rows(proposals: list[Proposal]) -> list[dict[str, Any]]:
+def _proposal_licence_rows(proposals: list[Proposal], entitlement: str = "public") -> list[dict[str, Any]]:
+    """`licence_summary` credits only the links the tier may see: a gated source named in the
+    summary is the same disclosure as one listed in the Sources panel (docs/21 §8 items 3-4)."""
     rows = []
     for p in proposals:
-        for s in p.sources:
-            if s.active:
-                rows.append(licence_summary_row(s.source, s.source.licence, s.retrieved_at))
+        for s in visible_source_links(p.sources, entitlement):
+            rows.append(licence_summary_row(s.source, s.source.licence, s.retrieved_at))
     return rows
 
 
@@ -414,7 +432,7 @@ def list_proposals(
         limit=limit,
         instance=request.url.path,
     )
-    data = [serialize_proposal(p) for p in rows]
+    data = [serialize_proposal(p, entitlement=ctx.entitlement) for p in rows]
     meta = build_meta("proposal", tier=ctx.entitlement)
     if "count" in (request.query_params.get("include") or "").split(","):
         total = db.scalar(
@@ -427,7 +445,7 @@ def list_proposals(
     env = build_list_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(_proposal_licence_rows(rows)),
+        licence_summary=build_licence_summary(_proposal_licence_rows(rows, ctx.entitlement)),
         page=build_page(next_cursor, None, has_more),
     )
     return env
@@ -438,6 +456,7 @@ def _source_licence_aggregate(
     link_model: type[ProposalSource] | type[OpportunitySource],
     fk_column: InstrumentedAttribute[Any],
     id_subquery: sa.Select[Any],
+    entitlement: str = "public",
 ) -> dict[str, Any]:
     """`licence_summary` for a whole (unpaginated) result set via one `GROUP BY source_id`
     aggregate query, instead of materialising every visible `proposal_source`/`opportunity_source`
@@ -461,7 +480,13 @@ def _source_licence_aggregate(
         .select_from(link_model)
         .join(Source, Source.id == link_model.source_id)
         .join(Licence, Licence.id == Source.licence_id)
-        .where(fk_column.in_(id_subquery), link_model.active.is_(True))
+        .where(
+            fk_column.in_(id_subquery),
+            link_model.active.is_(True),
+            # The same two clauses `visible_source_links` applies row by row (docs/21 §8 item 4).
+            Source.publish_state.in_(permitted_source_states(entitlement)),
+            Licence.reuse_class.in_(PUBLISHABLE_REUSE_CLASSES),
+        )
         .group_by(Source.id, Licence.id)
     )
     rows = [tuple(row) for row in db.execute(agg_stmt).all()]
@@ -496,15 +521,18 @@ def get_proposals_geo(
         records_total=records_total,
         lifecycle_state_counts=lifecycle_counts,
         technology_counts=technology_counts,
+        entitlement=ctx.entitlement,
     )
     meta = build_meta("proposal", tier=ctx.entitlement, extra={"unplaced_count": unplaced_count})
     id_subquery = _apply_proposal_filters(
-        select(Proposal.id).where(*proposal_visibility_filter(ctx.entitlement)), request
+        select(Proposal.id).where(*proposal_visibility_filter(ctx.entitlement)), request, ctx.entitlement
     )
     # Same default as the plottable query, so the licence summary credits exactly the sources
     # behind what is actually drawn.
     id_subquery = _apply_placement_filter(id_subquery, request, default=["exact", "region"])
-    licence_summary = _source_licence_aggregate(db, ProposalSource, ProposalSource.proposal_id, id_subquery)
+    licence_summary = _source_licence_aggregate(
+        db, ProposalSource, ProposalSource.proposal_id, id_subquery, ctx.entitlement
+    )
     return build_envelope(fc, meta=meta, licence_summary=licence_summary)
 
 
@@ -520,12 +548,12 @@ def get_proposal(
     )
     if prop is None:
         raise not_found(request.url.path)
-    data = serialize_proposal(prop)
+    data = serialize_proposal(prop, entitlement=ctx.entitlement)
     meta = build_meta("proposal", tier=ctx.entitlement)
     return build_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(_proposal_licence_rows([prop])),
+        licence_summary=build_licence_summary(_proposal_licence_rows([prop], ctx.entitlement)),
         redactions=location_redactions(prop.public_id, prop.location),
     )
 
@@ -545,7 +573,8 @@ def list_proposal_sources(
         raise not_found(request.url.path)
     from services.api.serialize import provenance_row
 
-    links = [s for s in prop.sources if s.active]
+    # docs/21 §8 item 3: a link to a source this tier may not read is omitted, not greyed.
+    links = visible_source_links(prop.sources, ctx.entitlement)
     data = [provenance_row(s, s.source) for s in links]
     meta = build_meta("proposal", tier=ctx.entitlement)
     rows = [licence_summary_row(s.source, s.source.licence, s.retrieved_at) for s in links]
@@ -613,7 +642,8 @@ def _opportunity_query_with_filters(
         stmt = stmt.where(Opportunity.jurisdiction.in_(csv_param(v)))
     if v := qp.get("source_id"):
         stmt = stmt.join(OpportunitySource, OpportunitySource.opportunity_id == Opportunity.id).where(
-            OpportunitySource.source_id.in_(csv_param(v)), OpportunitySource.active.is_(True)
+            OpportunitySource.source_id.in_(csv_param(v)),
+            *visible_source_link_filter(OpportunitySource, entitlement),
         )
     if v := qp.get("due_at[from]"):
         stmt = stmt.where(Opportunity.due_at >= dt.datetime.fromisoformat(v.replace("Z", "+00:00")))
@@ -624,9 +654,12 @@ def _opportunity_query_with_filters(
     if v := qp.get("q"):
         # Same contract as proposals: title, issuer organisation name, or an active source record id.
         like = f"%{v.lower()}%"
-        issuer_ids = select(Organization.id).where(func.lower(Organization.name_canonical).like(like))
+        issuer_ids = select(Organization.id).where(
+            func.lower(Organization.name_canonical).like(like), *organization_visibility_filter()
+        )
         record_hits = select(OpportunitySource.opportunity_id).where(
-            OpportunitySource.active.is_(True), func.lower(OpportunitySource.source_record_id).like(like)
+            func.lower(OpportunitySource.source_record_id).like(like),
+            *visible_source_link_filter(OpportunitySource, entitlement),
         )
         stmt = stmt.where(
             sa.or_(
@@ -638,12 +671,12 @@ def _opportunity_query_with_filters(
     return stmt
 
 
-def _opportunity_licence_rows(items: list[Opportunity]) -> list[dict[str, Any]]:
+def _opportunity_licence_rows(items: list[Opportunity], entitlement: str = "public") -> list[dict[str, Any]]:
+    """As `_proposal_licence_rows`: only the links the tier may see."""
     rows = []
     for o in items:
-        for s in o.sources:
-            if s.active:
-                rows.append(licence_summary_row(s.source, s.source.licence, s.retrieved_at))
+        for s in visible_source_links(o.sources, entitlement):
+            rows.append(licence_summary_row(s.source, s.source.licence, s.retrieved_at))
     return rows
 
 
@@ -667,7 +700,7 @@ def list_opportunities(
         limit=limit,
         instance=request.url.path,
     )
-    data = [serialize_opportunity(o) for o in rows]
+    data = [serialize_opportunity(o, entitlement=ctx.entitlement) for o in rows]
     meta = build_meta("opportunity", tier=ctx.entitlement)
     if "count" in (request.query_params.get("include") or "").split(","):
         total = db.scalar(
@@ -680,7 +713,7 @@ def list_opportunities(
     return build_list_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(_opportunity_licence_rows(rows)),
+        licence_summary=build_licence_summary(_opportunity_licence_rows(rows, ctx.entitlement)),
         page=build_page(next_cursor, None, has_more),
     )
 
@@ -729,7 +762,9 @@ def get_opportunities_geo(
     unplaced_count = len(items)
     meta = build_meta("opportunity", tier=ctx.entitlement, extra={"unplaced_count": unplaced_count})
     return build_envelope(
-        fc, meta=meta, licence_summary=build_licence_summary(_opportunity_licence_rows(items))
+        fc,
+        meta=meta,
+        licence_summary=build_licence_summary(_opportunity_licence_rows(items, ctx.entitlement)),
     )
 
 
@@ -747,10 +782,12 @@ def get_opportunity(
     )
     if opp is None:
         raise not_found(request.url.path)
-    data = serialize_opportunity(opp)
+    data = serialize_opportunity(opp, entitlement=ctx.entitlement)
     meta = build_meta("opportunity", tier=ctx.entitlement)
     return build_envelope(
-        data, meta=meta, licence_summary=build_licence_summary(_opportunity_licence_rows([opp]))
+        data,
+        meta=meta,
+        licence_summary=build_licence_summary(_opportunity_licence_rows([opp], ctx.entitlement)),
     )
 
 
@@ -771,7 +808,7 @@ def list_opportunity_sources(
         raise not_found(request.url.path)
     from services.api.serialize import provenance_row
 
-    links = [s for s in opp.sources if s.active]
+    links = visible_source_links(opp.sources, ctx.entitlement)  # docs/21 §8 item 3
     data = [provenance_row(s, s.source) for s in links]
     meta = build_meta("opportunity", tier=ctx.entitlement)
     rows = [licence_summary_row(s.source, s.source.licence, s.retrieved_at) for s in links]

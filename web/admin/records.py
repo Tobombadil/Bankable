@@ -24,12 +24,13 @@ D3. **The opportunity edit form's `technologies` field is one comma-separated te
     into a list on submit — `AdminOpportunityUpdate.technologies` is an array of free-text tokens
     with no fixed enum in `api/openapi.yaml`, so a repeatable-add widget would need JavaScript this
     screen is not allowed to use (hard rule: "no JavaScript needed").
-D4. **Organisation records never show a publish-state form.** `PUT
-    /admin/v1/records/{record_type}/{public_id}/publish-state` refuses `record_type=organizations`
-    with `400` (`services/api/admin_records.py` decision 5: no `publish_state` column exists on
-    `organization`); rendering a form that always fails would be a worse UX than omitting it, and
-    the organisation edit form here is deliberately the minimal one the task brief asks for (name,
-    website, reason).
+D4. **Organisation records show the same publish-state form as proposals and opportunities**
+    since migration 0022 gave `organization` a `publish_state` (2026-09-26; docs/40 §6 item 2).
+    Until then the form was omitted because the API refused `record_type=organizations` with
+    `400`. The page reads `GET /admin/v1/organizations/{public_id}` -- the ungated admin read --
+    rather than `/v1/organizations/{public_id}`, because a taken-down organisation answers `404`
+    on every public route and the panel's whole job after a takedown is to show it and let an
+    operator republish it. The edit form stays the minimal one (name, website, reason).
 D5. **Resolution `defer` posts to the same `decide` endpoint with `decision=defer`** rather than
     being a no-op link, so the API's actual behaviour (no state change, candidate stays `pending`)
     is exercised through one consistent form rather than a client-side skip that never touches
@@ -415,24 +416,61 @@ async def set_opportunity_publish_state(
 
 
 # ================================================================================= organizations
+def _organization_context(
+    ctx: AdminContext, public_id: str, *, flash: str | None = None, notice: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], int]:
+    result = ctx.api.get(f"/admin/v1/organizations/{public_id}")  # D4: the ungated read
+    org = result.body.get("data") if result.status_code == 200 else None
+    context = {
+        "organization": org,
+        "notice": notice if notice is not None else (None if org is not None else problem_notice(result)),
+        "flash": flash,
+        "publish_state_values": RECORD_PUBLISH_STATES,
+        "organization_types": ORGANIZATION_TYPES,
+    }
+    return context, (200 if org is not None else result.status_code)
+
+
 @router.get("/admin/records/organizations/{public_id}", response_class=HTMLResponse)
 def organization_detail(
     public_id: str, request: Request, ctx: Annotated[AdminContext, Depends(require_operator)]
 ) -> Response:
-    result = ctx.api.get(f"/v1/organizations/{public_id}")
-    org = result.body.get("data") if result.status_code == 200 else None
+    context, status_code = _organization_context(ctx, public_id, flash=request.query_params.get("flash"))
     return render(
         request,
         "admin/records/organization_detail.html",
-        {
-            "organization": org,
-            "notice": None if org is not None else problem_notice(result),
-            "flash": request.query_params.get("flash"),
-            "organization_types": ORGANIZATION_TYPES,
-        },
+        context,
         ctx=ctx,
         nav_key="records",
-        status_code=200 if org is not None else result.status_code,
+        status_code=status_code,
+    )
+
+
+@router.post("/admin/records/organizations/{public_id}/publish-state", response_class=HTMLResponse)
+async def set_organization_publish_state(
+    public_id: str, request: Request, ctx: Annotated[AdminContext, Depends(require_operator)]
+) -> Response:
+    same_origin = require_same_origin(request)
+    if same_origin is not None:
+        return same_origin
+    form = await request.form()
+    body = {
+        "publish_state": str(form.get("publish_state", "")),
+        "takedown": str(form.get("takedown", "")) == "on",
+        "reason": str(form.get("reason", "")),
+    }
+    result = ctx.api.put(f"/admin/v1/records/organizations/{public_id}/publish-state", json=body)
+    if result.status_code == 200:
+        return _redirect(f"/admin/records/organizations/{public_id}", "Publish+state+updated")
+    # The API's own status, as the organisation edit form below answers a refused edit.
+    context, _ = _organization_context(ctx, public_id, notice=problem_notice(result))
+    return render(
+        request,
+        "admin/records/organization_detail.html",
+        context,
+        ctx=ctx,
+        nav_key="records",
+        status_code=result.status_code,
     )
 
 
@@ -453,17 +491,11 @@ async def edit_organization(
     result = ctx.api.patch(f"/admin/v1/organizations/{public_id}", json=body)
     if result.status_code == 200:
         return _redirect(f"/admin/records/organizations/{public_id}", "Organization+updated")
-    org_result = ctx.api.get(f"/v1/organizations/{public_id}")
-    org = org_result.body.get("data") if org_result.status_code == 200 else None
+    context, _ = _organization_context(ctx, public_id, notice=problem_notice(result))
     return render(
         request,
         "admin/records/organization_detail.html",
-        {
-            "organization": org,
-            "notice": problem_notice(result),
-            "flash": None,
-            "organization_types": ORGANIZATION_TYPES,
-        },
+        context,
         ctx=ctx,
         nav_key="records",
         status_code=result.status_code,

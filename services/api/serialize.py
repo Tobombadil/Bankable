@@ -282,6 +282,19 @@ def serialize_organization_summary(org: Organization) -> dict[str, Any]:
     }
 
 
+def visible_organization_summary(org: Organization | None) -> dict[str, Any] | None:
+    """The `sponsor`/`issuer` embed on a public surface: `None` when there is no organisation
+    *and* when there is one the public tier may not see (`organization.publish_state` other
+    than `public`, migration 0022). The edge is dropped rather than rendered with the name
+    withheld -- `services/api/visibility.py`'s module docstring says why. Admin detail
+    (`services/api/admin_records.py`) re-embeds the summary unconditionally."""
+    from services.api.visibility import organization_visible
+
+    if org is None or not organization_visible(org):
+        return None
+    return serialize_organization_summary(org)
+
+
 def serialize_location(loc: Location) -> dict[str, Any]:
     """Restricted-precision rule applied here, once, for every record surface that embeds a
     location (proposal list/detail, opportunities, Pro exports, nearby-proposals): an `exact` row
@@ -331,16 +344,24 @@ def location_redactions(record_public_id: str, loc: Location | None) -> list[dic
     ]
 
 
-def serialize_proposal(proposal: Proposal, *, sources: list[ProposalSource] | None = None) -> dict[str, Any]:
+def serialize_proposal(
+    proposal: Proposal, *, sources: list[ProposalSource] | None = None, entitlement: str = "public"
+) -> dict[str, Any]:
+    """`sources` is the caller's own link list and is printed as given (the admin detail passes
+    every active link, ungated). Left out, the `provenance` array is the links `entitlement` may
+    see -- a link to a gated source is omitted, not greyed (docs/21 §8 item 3;
+    `services/api/visibility.py::visible_source_links`)."""
     if sources is None:
-        sources = [s for s in proposal.sources if s.active]
+        from services.api.visibility import visible_source_links
+
+        sources = visible_source_links(proposal.sources, entitlement)
     out: dict[str, Any] = {
         "public_id": proposal.public_id,
         "slug": proposal.slug,
         "url": f"{WEB_HOST}/proposals/{proposal.slug}",
         "kind": proposal.kind,
         "name_canonical": proposal.name_canonical,
-        "sponsor": serialize_organization_summary(proposal.sponsor) if proposal.sponsor else None,
+        "sponsor": visible_organization_summary(proposal.sponsor),
         "technology": proposal.technology,
         "technology_raw": proposal.technology_raw,
         "capacity_mw": float(proposal.capacity_mw) if proposal.capacity_mw is not None else None,
@@ -371,16 +392,20 @@ def serialize_proposal(proposal: Proposal, *, sources: list[ProposalSource] | No
 
 
 def serialize_opportunity(
-    opportunity: Opportunity, *, sources: list[OpportunitySource] | None = None
+    opportunity: Opportunity, *, sources: list[OpportunitySource] | None = None, entitlement: str = "public"
 ) -> dict[str, Any]:
+    """As `serialize_proposal`: `sources` given is printed as given; left out, only the links
+    `entitlement` may see."""
     if sources is None:
-        sources = [s for s in opportunity.sources if s.active]
+        from services.api.visibility import visible_source_links
+
+        sources = visible_source_links(opportunity.sources, entitlement)
     return {
         "public_id": opportunity.public_id,
         "slug": opportunity.slug,
         "url": f"{WEB_HOST}/opportunities/{opportunity.slug}",
         "kind": opportunity.kind,
-        "issuer": serialize_organization_summary(opportunity.issuer) if opportunity.issuer else None,
+        "issuer": visible_organization_summary(opportunity.issuer),
         "title": opportunity.title,
         "summary": opportunity.summary,
         "jurisdiction": opportunity.jurisdiction,
@@ -465,10 +490,18 @@ def asset_provenance_rows(asset: Asset, *, sources: list[AssetSource] | None = N
     """Every link this asset has, primary first (`AssetSource.sources`'s own ordering) -- or, when
     none exist yet, the asset's own single quartet exactly as `serialize_asset` rendered it before
     `asset_source` existed. Never both: an asset that has been resolved should not also print its
-    own columns as a phantom extra source."""
+    own columns as a phantom extra source.
+
+    A link whose source or own licence the public tier may not see is omitted (docs/21 §8 item 3;
+    `services/api/visibility.py::provenance_visible`). If that leaves nothing, the asset's own
+    quartet stands in: it passed `asset_visibility_filter` or the asset would not be served, and a
+    record is never returned without provenance."""
+    from services.api.visibility import provenance_visible
+
     links = sources if sources is not None else asset.sources
-    if links:
-        return [asset_provenance_row(link) for link in links]
+    visible = [link for link in links if provenance_visible(link.source, link.licence)]
+    if visible:
+        return [asset_provenance_row(link) for link in visible]
     return [asset_source_row(asset)]
 
 
@@ -536,7 +569,17 @@ def serialize_asset(
     if include_geometry:
         out["geometry"] = asset_geometry(asset)
     if include_owners:
-        out["owners"] = [serialize_asset_owner(o) for o in (owners if owners is not None else asset.owners)]
+        # An edge to an organisation the public tier may not see is omitted, not rendered with the
+        # name withheld (`services/api/visibility.py`, the organisation arm); so is an edge whose
+        # own provenance names a source or licence the tier may not see (docs/21 §8 item 3).
+        from services.api.visibility import organization_visible, provenance_visible
+
+        edges = owners if owners is not None else asset.owners
+        out["owners"] = [
+            serialize_asset_owner(o)
+            for o in edges
+            if organization_visible(o.organization) and provenance_visible(o.source, o.licence)
+        ]
     return out
 
 

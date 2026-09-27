@@ -145,6 +145,7 @@ erDiagram
     text name_canonical
     text type
     jsonb ids
+    text publish_state
   }
   organization_alias {
     uuid id PK
@@ -366,7 +367,18 @@ produces a `closed` event only after the DQ partial-file check passes (`docs/20`
 | `parent_source_id` | text | Yes | FK `source` — which source stated the parent link | `global.gleif.lei` |
 | `parent_as_of` | date | Yes | The date the parent link is stated as of (migration 0015) | `2019-02-08` |
 | `parent_share_pct` | numeric(6,3) | Yes | The stake the parent holds, where a source states one (migration 0017) | `30.000` |
-| `first_seen`, `last_changed`, `publish_state`, `merged_into_id`, `search_tsv` | — | — | As §3.1 | — |
+| `publish_state` | text | No | `pending_review \| ingest_only \| api_only \| public \| unpublished`, same vocabulary and CHECK as §3.1 (migration 0022, 2026-09-26). Default and backfill `public`: every organisation was already shown on every public surface with no record-level gate, so `public` is the only default that changes nothing visible; `pending_review` would have taken every company page down in the deploy that added the column. BTREE index on the column alone. No `published_at`/`public_at` pair: nothing on an organisation is time-gated | `public` |
+| `first_seen`, `last_changed`, `merged_into_id`, `search_tsv` | — | — | As §3.1 | — |
+
+**Organisation visibility (2026-09-26).** The §5.4 predicate for an organisation is its first clause
+alone, `publish_state = 'public'`, identical on every tier: an organisation has no source link rows, no
+`min_reuse_class` and no timing pair. An organisation that fails it answers the same `404` an unknown id does
+on every `/v1/organizations` route, is absent from lists, search and the sitemap, and every edge that would
+name it is **dropped rather than shown with the name withheld**, by §8 item 3's reasoning (the existence of
+the row is itself a disclosure): `sponsor`/`issuer` embed `null`, the `asset_owner` edge is omitted, the
+parent link is `null`, the ancestor chain stops below it, and it and everything below it leave
+`subsidiaries`, the counts and every `scope=` walk. A social draft does not name it either. Admin reads
+bypass all of it. Implementation: `services/api/visibility.py`, the organisation arm.
 
 **The parent edge.** `parent_org_id` is one hop, not a chain, and the columns travel together: a company
 page may render a parent only alongside the source that stated it and the date it was stated as of. Two sources
@@ -1078,6 +1090,7 @@ happened, under which licence, and what it contained (`docs/20` §3.2, §12 lice
 | `GIN (identifiers jsonb_path_ops)` on `proposal`, `opportunity` | Exact queue-id / docket / EIA-id lookup, US-103 AC1 |
 | `GIST (geom)` on `location` | Map bounding box, US-104 |
 | `BTREE (publish_state, public_at DESC)` on `proposal`, `opportunity` | The public list query, US-101 |
+| `BTREE (publish_state)` on `organization` (migration 0022) | The organisation arm of the visibility predicate; no `public_at` to order by |
 | `BTREE (subject_type, subject_id, observed_at DESC)` on `event` | Detail-page timeline, US-202 |
 | `BTREE (seq)` on `event` | API cursor and alert watermark, US-703 AC1 |
 | `BTREE (public_at) WHERE published_at IS NOT NULL` on `event` | Public feed and RSS, US-503 |

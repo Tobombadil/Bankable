@@ -12,6 +12,12 @@ predicate function over one row instead, covering the same named subset of param
 duplicated field lists, not duplicated query-building logic. A follow-up that unifies both under
 one grammar module is a reasonable next step, not done here to keep this sprint's change surface
 to the paths the task names.
+
+**`source_id` matches only through links the owner's tier may see** (2026-09-26; docs/21 §8
+item 3): a saved search or webhook on a gated source's id must not match a record that is visible
+through another source, or the alert itself confirms the gated link exists. `entitlement` is the
+owner's tier (a Pro owner still matches an `api_only` link) and defaults to `public`, the strictest,
+so a caller that forgets it fails closed.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
+from services.api.visibility import visible_source_links
 from services.db.models import Event, Opportunity, Proposal
 
 
@@ -36,7 +43,7 @@ def _as_datetime(value: Any) -> dt.datetime | None:
     return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
 
-def proposal_matches_query(proposal: Proposal, query: dict[str, Any]) -> bool:
+def proposal_matches_query(proposal: Proposal, query: dict[str, Any], entitlement: str = "public") -> bool:
     if v := query.get("kind"):
         if proposal.kind not in _csv(v):
             return False
@@ -53,7 +60,7 @@ def proposal_matches_query(proposal: Proposal, query: dict[str, Any]) -> bool:
         if proposal.iso not in _csv(v):
             return False
     if v := query.get("source_id"):
-        active_sources = {s.source_id for s in proposal.sources if s.active}
+        active_sources = {s.source_id for s in visible_source_links(proposal.sources, entitlement)}
         if not active_sources & set(_csv(v)):
             return False
     if (v := query.get("capacity_mw[gte]")) is not None:
@@ -68,7 +75,9 @@ def proposal_matches_query(proposal: Proposal, query: dict[str, Any]) -> bool:
     return True
 
 
-def opportunity_matches_query(opportunity: Opportunity, query: dict[str, Any]) -> bool:
+def opportunity_matches_query(
+    opportunity: Opportunity, query: dict[str, Any], entitlement: str = "public"
+) -> bool:
     if v := query.get("kind"):
         if opportunity.kind not in _csv(v):
             return False
@@ -84,7 +93,7 @@ def opportunity_matches_query(opportunity: Opportunity, query: dict[str, Any]) -
         if opportunity.jurisdiction not in _csv(v):
             return False
     if v := query.get("source_id"):
-        active_sources = {s.source_id for s in opportunity.sources if s.active}
+        active_sources = {s.source_id for s in visible_source_links(opportunity.sources, entitlement)}
         if not active_sources & set(_csv(v)):
             return False
     if v := query.get("due_at[from]"):
@@ -116,11 +125,13 @@ def event_matches_query(event: Event, query: dict[str, Any]) -> bool:
     return True
 
 
-def matches_query(entity: str, row: Proposal | Opportunity | Event, query: dict[str, Any]) -> bool:
+def matches_query(
+    entity: str, row: Proposal | Opportunity | Event, query: dict[str, Any], entitlement: str = "public"
+) -> bool:
     if entity == "proposal" and isinstance(row, Proposal):
-        return proposal_matches_query(row, query)
+        return proposal_matches_query(row, query, entitlement)
     if entity == "opportunity" and isinstance(row, Opportunity):
-        return opportunity_matches_query(row, query)
+        return opportunity_matches_query(row, query, entitlement)
     if entity == "event" and isinstance(row, Event):
         return event_matches_query(row, query)
     return False

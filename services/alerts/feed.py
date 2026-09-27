@@ -27,6 +27,7 @@ from services.alerts.visibility import event_with_visible_subject_filter
 from services.api.common import WEB_HOST
 from services.api.feeds import event_provenance, link_provenance
 from services.api.serialize import build_licence_summary, licence_summary_row
+from services.api.visibility import visible_source_links
 from services.db.models import Account, Event, Opportunity, Proposal, SavedSearch
 
 from .matching import event_matches_query, matches_query
@@ -53,16 +54,22 @@ def matching_items_for_feed(
     query now")."""
     if search.entity == "proposal":
         proposal_stmt = select(Proposal).where(*_visibility_for(Proposal, account))
-        proposals = [p for p in db.scalars(proposal_stmt).all() if matches_query("proposal", p, search.query)]
+        proposals = [
+            p
+            for p in db.scalars(proposal_stmt).all()
+            if matches_query("proposal", p, search.query, account.entitlement)
+        ]
         proposals.sort(key=lambda p: p.last_changed, reverse=True)
-        return [_proposal_feed_item(p) for p in proposals[:limit]]
+        return [_proposal_feed_item(p, account.entitlement) for p in proposals[:limit]]
     if search.entity == "opportunity":
         opportunity_stmt = select(Opportunity).where(*_visibility_for(Opportunity, account))
         opportunities = [
-            o for o in db.scalars(opportunity_stmt).all() if matches_query("opportunity", o, search.query)
+            o
+            for o in db.scalars(opportunity_stmt).all()
+            if matches_query("opportunity", o, search.query, account.entitlement)
         ]
         opportunities.sort(key=lambda o: o.last_changed, reverse=True)
-        return [_opportunity_feed_item(o) for o in opportunities[:limit]]
+        return [_opportunity_feed_item(o, account.entitlement) for o in opportunities[:limit]]
     if search.entity == "event":
         # The event's own predicate *and* its subject record's (docs/50 §3.1; the same composed
         # filter the digest uses), so an event on a hidden or restricted record never feeds out.
@@ -81,8 +88,12 @@ def _visibility_for(model: type[Proposal] | type[Opportunity], account: Account)
     return opportunity_visibility_filter(account.entitlement)
 
 
-def _proposal_feed_item(p: Proposal) -> dict[str, Any]:
-    source_row = next((s for s in p.sources if s.active), None)
+def _proposal_feed_item(p: Proposal, entitlement: str) -> dict[str, Any]:
+    """`entitlement` is the feed owner's (a Pro account still sees `api_only` links): the credited
+    source and the `licence_summary` list only links that tier may read (docs/21 §8 item 3;
+    `services/api/visibility.py::visible_source_links`)."""
+    links = visible_source_links(p.sources, entitlement)
+    source_row = links[0] if links else None
     return {
         "title": f"{p.name_canonical} — {p.lifecycle_state}",
         "url": f"{WEB_HOST}/proposals/{p.slug}",
@@ -100,21 +111,19 @@ def _proposal_feed_item(p: Proposal) -> dict[str, Any]:
                 "name": p.name_canonical,
                 "url": f"{WEB_HOST}/proposals/{p.slug}",
             },
-            "provenance": link_provenance(p.sources),
+            "provenance": link_provenance(links),
             "licence_summary": build_licence_summary(
-                [
-                    licence_summary_row(s.source, s.source.licence, s.retrieved_at)
-                    for s in p.sources
-                    if s.active
-                ]
+                [licence_summary_row(s.source, s.source.licence, s.retrieved_at) for s in links]
             ),
             "data_as_of": "live",
         },
     }
 
 
-def _opportunity_feed_item(o: Opportunity) -> dict[str, Any]:
-    source_row = next((s for s in o.sources if s.active), None)
+def _opportunity_feed_item(o: Opportunity, entitlement: str) -> dict[str, Any]:
+    """As `_proposal_feed_item`: only the links the owner's tier may read."""
+    links = visible_source_links(o.sources, entitlement)
+    source_row = links[0] if links else None
     return {
         "title": f"{o.title} — {o.status}",
         "url": f"{WEB_HOST}/opportunities/{o.slug}",
@@ -132,13 +141,9 @@ def _opportunity_feed_item(o: Opportunity) -> dict[str, Any]:
                 "name": o.title,
                 "url": f"{WEB_HOST}/opportunities/{o.slug}",
             },
-            "provenance": link_provenance(o.sources),
+            "provenance": link_provenance(links),
             "licence_summary": build_licence_summary(
-                [
-                    licence_summary_row(s.source, s.source.licence, s.retrieved_at)
-                    for s in o.sources
-                    if s.active
-                ]
+                [licence_summary_row(s.source, s.source.licence, s.retrieved_at) for s in links]
             ),
             "data_as_of": "live",
         },

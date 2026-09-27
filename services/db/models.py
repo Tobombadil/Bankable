@@ -405,6 +405,22 @@ class Organization(Base, TimestampMixin):
     #: every row is NULL today; the column exists so the percentage-stake chains the next ownership
     #: dataset models do not require the edge to be rebuilt. Mirrors `asset_owner.share_pct`.
     parent_share_pct: Mapped[float | None] = mapped_column(sa.Numeric(6, 3))
+    #: Migration 0022 (2026-09-26), docs/21 §3.5, docs/40 §6 item 2: the record-level publish gate
+    #: the proposal and opportunity tables have always carried, same vocabulary
+    #: (`RECORD_PUBLISH_STATES`) and CHECK. Defaults to `public`, not `pending_review`: an
+    #: organisation is derived data (a name, a type, a country) that every public surface already
+    #: showed with no gate, so the only default that changes nothing visible is the state every
+    #: existing row was effectively in. The column exists so an organisation-level takedown is a
+    #: state change (`services/api/admin_records.py`) read by one predicate
+    #: (`services/api/visibility.py::organization_visibility_filter`) rather than a 400. There is
+    #: no `published_at`/`public_at` pair here: nothing on an organisation is time-gated
+    #: (docs/21 §5.4's paywall-by-shape amendment), so the predicate is the state alone.
+    publish_state: Mapped[str] = mapped_column(sa.Text, nullable=False, default="public")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"publish_state IN {RECORD_PUBLISH_STATES!r}", name="publish_state_vocab"),
+        sa.Index("ix_organization_publish_state", "publish_state"),
+    )
 
 
 # ====================================================================== organization_alias (§3.6)

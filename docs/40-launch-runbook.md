@@ -393,8 +393,14 @@ softened.
    5/hour bucket remain the only controls. Two pieces are still missing: the owner's Turnstile site and secret
    keys, and a public `/submit` form — `docs/30` §4.5 designs it, but no route or template under `web/` renders
    it yet, so `TURNSTILE_SITE_KEY` has no consumer until that page exists.
-2. **Organisation takedown is a 400.** `organization` has no `publish_state` column; a migration is needed
-   before an organisation-level takedown can be actioned through the admin panel ("Admin backend landed").
+2. **Organisation takedown works; it is not yet proven against Postgres.** Migration `0022` gave `organization`
+   a `publish_state` (default `public`, so nothing visible changed on deploy), and the admin panel's
+   organisation page now has the same publish-state form, reason and audit event as proposals. A taken-down
+   organisation is `404` on every `/v1/organizations` route, gone from lists, search and the sitemap, and
+   dropped (not name-withheld) from sponsor/issuer embeds, asset owner tables and the ownership tree
+   (`docs/21` §3.5). What remains: the migration has been round-tripped on SQLite only; CI's Postgres
+   `migrations` job is the first real `upgrade head`. `downgrade` refuses while any organisation is not
+   `public`, so rolling back past `0022` needs those organisations republished first (§7).
 3. **`opportunity.awarded` and `funding.*` posts never draft.** No award or funding-programme field exists in
    the store or any connector's event payload yet — this is a schema gap, not a worker bug ("Workers landed").
 4. **Playwright/axe run once, against a local stack, not a real environment** (2026-09-26, `docs/60` §11

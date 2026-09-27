@@ -50,7 +50,10 @@ _PROVENANCE_FIELDS = (
 
 
 def link_provenance(links: Iterable[ProposalSource | OpportunitySource]) -> list[dict[str, Any]]:
-    """The provenance quartet of each active source row of a proposal or opportunity."""
+    """The provenance quartet of each source row passed in. Callers pass only the rows the reader may
+    see (`services/api/visibility.py::visible_source_links`): every quartet here is printed in the
+    feed item and in its credit line, so an unfiltered list names gated sources (found 2026-09-27
+    when the feed-provenance and source-link-gating changes met)."""
     return [
         provenance_quartet(
             link.source, link.source.licence, source_url=link.source_url, retrieved_at=link.retrieved_at
