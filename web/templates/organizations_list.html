@@ -9,7 +9,7 @@
   <p>Every organisation the register names as an owner, operator, sponsor or issuer. Search by name; a company page shows what it holds, where, and which register said so.</p>
 </div>
 
-<form id="filters" class="filter-bar" method="get" action="/organizations" hx-get="/organizations" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" role="search">
+<form id="filters" class="filter-bar" method="get" action="/organizations" hx-get="/organizations" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" role="search" aria-label="Filter companies">
   <div class="filter-field">
     <label for="f-org-q">Company name</label>
     <input id="f-org-q" type="search" name="q" placeholder="e.g. Tallgrass" value="{{ filters.get('q', '') }}">
