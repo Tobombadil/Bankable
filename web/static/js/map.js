@@ -82,13 +82,17 @@
     gas_storage: { label: "Gas storage", plural: "gas storage sites", shape: "asset-ring", token: "--asset-gas-storage", line: false },
     lng_terminal: { label: "LNG terminal", plural: "LNG terminals", shape: "asset-triangle", token: "--asset-lng-terminal", line: false },
     ethanol_plant: { label: "Ethanol plant", plural: "ethanol plants", shape: "asset-hexagon", token: "--asset-ethanol", line: false },
-    rng_project: { label: "RNG project", plural: "RNG projects", shape: "asset-pentagon", token: "--asset-rng", line: false }
+    rng_project: { label: "RNG project", plural: "RNG projects", shape: "asset-pentagon", token: "--asset-rng", line: false },
+    // Grid lane G2 (2026-09-28): LBNL's FERC x HIFLD lines, one feature per line. Drawn dash-dot
+    // in its own hue so it never reads as a gas pipeline (solid) or an intrastate one (dashed):
+    // the stroke pattern carries the type, the hue is secondary (D-5).
+    transmission_line: { label: "Transmission line", plural: "transmission lines", shape: null, token: "--asset-transmission", line: true }
   };
   var ASSET_TYPE_ORDER = Object.keys(ASSET_TYPES);
   // The types with data behind them today (ethanol and RNG since the second midstream slice,
   // 2026-09-19); the checkbox list in home_map.html disables anything listed but not here
   // ("coming"). An unknown `asset_type=` value in the URL is dropped, never sent to the API.
-  var ASSET_TYPES_LIVE = ["power_plant", "gas_pipeline", "gas_processing_plant", "gas_storage", "lng_terminal", "ethanol_plant", "rng_project"];
+  var ASSET_TYPES_LIVE = ["power_plant", "gas_pipeline", "gas_processing_plant", "gas_storage", "lng_terminal", "ethanol_plant", "rng_project", "transmission_line"];
   // RNG technology families (us.epa.lmop: lfg_electricity | rng | lfg_direct_use; us.epa.agstar:
   // farm_digester) -> the words the tooltip, drawer and in-view row show. Same table as
   // web/app.py RNG_TECHNOLOGY_LABELS.
@@ -190,6 +194,12 @@
     if (s.indexOf("inter") !== -1) return "interstate";
     if (s.indexOf("gather") !== -1) return "gathering";
     return null;
+  }
+
+  // "345 kV" from a transmission line's `attributes.voltage_kv`; null when the source states none.
+  function voltageLabelOf(p) {
+    var kv = Number(attrOf(p, ["voltage_kv"]));
+    return isFinite(kv) && kv > 0 ? String(Math.round(kv * 10) / 10) + " kV" : null;
   }
 
   function statesOf(p) {
@@ -684,7 +694,9 @@
     p.color = assetColor(p);
     if (kind === "asset_line" || (f.geometry && /LineString$/.test(f.geometry.type))) {
       p.feature_kind = "asset_line";
-      p.line_class = lineClassOf(p) || "unknown";
+      // A transmission line's class is its voltage (tooltip, in-view row and drawer subtitle all
+      // print `line_class`); it is never "intrastate", so it never lands in the dashed pipeline layer.
+      p.line_class = (type === "transmission_line" ? voltageLabelOf(p) : lineClassOf(p)) || "unknown";
       return;
     }
     if (kind === "plant") p.feature_kind = "asset";
@@ -1029,7 +1041,7 @@
 
   var ASSET_LAYER_IDS = [
     "plant-clusters", "plant-cluster-count", "asset-lines-casing", "asset-lines", "asset-lines-intrastate",
-    "asset-lines-hit", "asset-line-labels", "plant-points", "plant-labels"
+    "asset-lines-transmission", "asset-lines-hit", "asset-line-labels", "plant-points", "plant-labels"
   ];
 
   function addPlantsLayers() {
@@ -1080,9 +1092,10 @@
     }, "clusters");
     // Interstate (and unclassified) pipelines solid, intrastate dashed: `line-dasharray` is not
     // data-driven in this MapLibre, hence two layers over the same source rather than one.
+    var isTransmission = ["==", ["get", "asset_type"], "transmission_line"];
     map.addLayer({
       id: "asset-lines", type: "line", source: "plants",
-      filter: ["all", isLine, ["!=", ["get", "line_class"], "intrastate"]],
+      filter: ["all", isLine, ["!=", ["get", "line_class"], "intrastate"], ["!", isTransmission]],
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": 0.85 }
     }, "clusters");
@@ -1091,6 +1104,13 @@
       filter: ["all", isLine, ["==", ["get", "line_class"], "intrastate"]],
       layout: { "line-cap": "butt", "line-join": "round" },
       paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": 0.85, "line-dasharray": [3, 2] }
+    }, "clusters");
+    // Transmission lines: dash-dot, same width ramp and casing as pipelines (docs/31 §1.6).
+    map.addLayer({
+      id: "asset-lines-transmission", type: "line", source: "plants",
+      filter: ["all", isLine, isTransmission],
+      layout: { "line-cap": "butt", "line-join": "round" },
+      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": 0.85, "line-dasharray": [4, 1.5, 1, 1.5] }
     }, "clusters");
     // Invisible, wide hit target so a hairline pipeline is still a >=24px pointer target
     // (SC 2.5.8); hover and click handlers bind to this layer, not the drawn ones.
@@ -1434,7 +1454,7 @@
       var miles = attrOf(p, ["length_miles", "miles"]);
       var diameter = attrOf(p, ["diameter_in", "diameter_inches", "diameter", "diameter_mix"]);
       var states = statesOf(p);
-      var lineClass = isLine ? lineClassOf(p) : null;
+      var lineClass = isLine ? (type === "transmission_line" ? voltageLabelOf(p) : lineClassOf(p)) : null;
       var fuel = isFuelType(type);
       var family = type === "rng_project" ? rngTechLabel(p.technology) : null;
       var subtitle = type === "power_plant"

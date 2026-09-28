@@ -1247,6 +1247,102 @@ in §6 implies, and `global.gem.trackers` points at the Integrated Power Tracker
 prose today. The same in-file notice check settles both. **Confidence: high that the pages read as described;
 no opinion on what it means for the 2026-09-12 grant.**
 
+
+### 2.19 Transmission lines and substations (HIFLD, its archives, EIA, LBNL/OEDI, NOAA) — retrieved 2026-09-28
+
+Owner decision 2026-09-28: substations and transmission lines become built-infrastructure context layers.
+DHS discontinued HIFLD Open on 2025-08-26. Every candidate was read on 2026-09-28 with the platform
+user-agent (`pipeline/connectors/http.py::user_agent`), robots.txt first; raw captures are in the lane's
+scratchpad, not committed.
+
+**EIA Energy Atlas — publishes neither layer.** The Atlas Hub catalogue
+(`atlas.eia.gov/api/search/v1/collections/all/items`, 76 items), the EIA ArcGIS org's services directory
+(`services7.arcgis.com/FGr1D95XCGALKXqM`, 79 services: RECS, shale plays, PADDs, census regions) and guessed
+`www.eia.gov/maps/map_data/*.zip` names for both layers (all 404) carry no transmission-line or substation layer.
+The EIA reuse statement of §2.11 therefore has nothing to attach to here.
+
+**DHS HIFLD, transmission lines — the data's terms are clear; no route to the bytes is.** DHS's own DCAT record
+on catalog.data.gov (identifier `MGMT-GMO-HIFLD-847169`, contact `Open Data (MGMT)`, modified 2022-10-24,
+harvested 2026-09-10):
+
+> "accessLevel": "public", … "license": "https://www.usa.gov/government-works", … "publisher": {"name": "HIFLD"},
+> "title": "Electric Power Transmission Lines"
+
+and the HIFLD item's use limitation as carried by FEMA Region 9's mirror of the canonical item (ArcGIS item
+`5c21e284847a4434924ef7aa027f166b`, "Source Item: …id=bd24d1a282c54428b024988d32578e59"):
+
+> None (Public Use). Users are advised to read the data set's metadata thoroughly to understand appropriate use
+> and data limitations
+
+The producers named in the item's credits are "ORNL, LANL, INL, NGA, HSIP, HIFLD". The canonical item now
+answers "Item does not exist or is inaccessible", the GeoPlatform service is gone, and the Hub answers 404.
+The Data Rescue Project portal records the archive but no licence for the data — "Archived Aug 26, 2025 by
+DRP, DL", "Metadata available: No" — and its "Source License" link is the portal *software's* MIT licence
+(`github.com/datarescueproject/portal/blob/main/LICENSE`, "Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software…"), not a grant over the archived data. Its only download is DataLumos
+project 240591, which answered HTTP 403 with a Cloudflare "Just a moment…" challenge (as did openicpsr.org);
+the challenge was not bypassed and DataLumos's terms are unread. HSDL's HIFLD aggregation
+(`www.hsdl.org/hifld/`, robots `Crawl-delay: 60`) says of itself "Open Public Domain" but its 136-item ArcGIS
+group carries neither layer. Third-party ArcGIS copies exist and are **not** a route: Esri's "U.S. Electric Power
+Transmission Lines (Archive)" states "This work is licensed under the Esri Master License Agreement"; a
+GeoPlatform-org user upload and a HARC copy carry no licence and no provenance statement.
+
+*Inference:* the lines layer is a US government work by DHS's own declaration, and the class is
+`public-domain`. What is missing is a copy whose route we may use; that is a separate, per-route question (the
+§2.16 pattern) and it stays open until a human reads DataLumos's terms in a browser. **Confidence: mod-high** on
+the class (DHS's DCAT is the publisher's own statement; the producers include DOE contractor laboratories, whose
+works are not automatically §105 works, so the reading rests on DHS's declaration rather than on §105 alone).
+
+**DHS HIFLD, substations — restricted by the publisher.** DHS's DCAT record for the substations layer
+(identifier `MGMT-GMO-HIFLD-546955`, modified 2023-09-11):
+
+> "accessLevel": "restricted public", … "license": "https://www.usa.gov/government-works", … "title": "Electric
+> Substations"
+
+and the DHS GMO page (`www.dhs.gov/gmo/hifld`, last updated 2025-09-04):
+
+> HIFLD Secure contains commercially licensed and FOUO (for official use only) data housed on the DHS Geospatial
+> Information Infrastructure (GII). Access requires a GII account, a profile, and an approved Data Use Agreement
+> (DUA).
+
+*Inference:* `restricted public` is the Project Open Data access level for data "available under certain use
+restrictions"; the publisher has decided this layer is not for open release, and the government-works licence
+field does not override that. Older public copies on ArcGIS Online (2022, "None (Public Use)") predate the
+restriction and are not a route. **Do not ingest from DHS or any copy, and do not derive a substation point
+layer from transmission-line endpoint names and vertices as a substitute** — that would republish, assembled,
+what the publisher restricted. **Confidence: high.**
+
+**NOAA Office for Coastal Management, "Electric Power Substations" — conflicting statements.** The data.gov
+DCAT record says `"license": "https://creativecommons.org/publicdomain/zero/1.0/"`; NOAA's InPort record
+(`www.fisheries.noaa.gov/inport/item/66139`) says "Use Constraints: For coastal and ocean planning" and names its
+lineage as "Electric_Substations … Contact Name: Department of Homeland Security … Citation URL:
+https://hifld-geoplatform.opendata.arcgis.com/datasets/electric-substations". A CC0 dedication and a purpose
+limitation cannot both be the operative term, and the layer is a 2017 coastal subset of the one DHS now
+restricts. Class `unknown`; gated. **Confidence: high that it is unclear.**
+
+**LBNL, "A Harmonized Geospatial Dataset of U.S. Transmission Lines: Linking FERC Form 1 and HIFLD, 1994-2024"
+(OEDI submission 8742) — CC BY 4.0, retrieved.** The dataset page (`data.openei.org/submissions/8742`, HTTP 200)
+shows "Publicly accessible" and links "License" to `https://creativecommons.org/licenses/by/4.0/`; LBNL's own
+DCAT record (harvested to catalog.data.gov, publisher "Lawrence Berkeley National Laboratory", modified
+2026-09-22) states `"license": "https://creativecommons.org/licenses/by/4.0/"`, `"accessLevel": "public"`. Its
+description:
+
+> … the EIA/HIFLD Electric Power Transmission Lines layer, which provides geospatial line geometry. … processed
+> the EIA/HIFLD geospatial layer into per-line records. A blocking-and-scoring record-linkage procedure matched
+> FERC records to EIA geometries using substation-name similarity, line length, and voltage.
+
+*Inference:* a named open licence permitting commercial reuse with credit, from a DOE laboratory, over inputs that
+are themselves public (HIFLD lines per DHS above; FERC Form 1 filings). Class `open-attribution`, rule `raw-ok`
+with the credit "Yin, R., Nait Belaid, Y., & Heleno, M. (2026). A Harmonized Geospatial Dataset of U.S.
+Transmission Lines: Linking FERC Form 1 and HIFLD, 1994-2024. Lawrence Berkeley National Laboratory, OEDI.
+CC BY 4.0" and a statement of changes (HIFLD-side fields only, names re-cased, coordinates rounded). One
+page is unread: the OpenEI general disclaimer the dataset page links (`openei.org/wiki/OpenEI:General_disclaimer`,
+including a "Generative AI Terms and Conditions" anchor) answered 404, as did `…/OpenEI:Disclaimers`; the
+dataset-level licence is what governs the data, but a human should read that page when it is back (browser
+task). data.openei.org answered HTTP 429 to three of five requests minutes apart (no `Retry-After`); the
+connector fetches at one request a minute. It is a *subset* (13,084 lines, the FERC-linked ones), and the
+coverage statement must say so. **Confidence: high.**
+
 ---
 
 ## 3. US scraping law
@@ -1673,6 +1769,10 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.epa.echo.icis_air` | public-domain | raw-ok | 17 U.S.C. §105; §2.12 (EPA hedge) as for the other EPA sources. Bulk file on `echo.epa.gov/files/` (robots allows it, Crawl-delay 10); the ECHO REST host `echodata.epa.gov` answers `Disallow: *` and is not used. Added 2026-09-28, survey only (no connector) | high |
 | `us.ga.epd.air_permit_advisories` | **unknown** | do not ingest; gated until the State of Georgia's reuse terms are read | Not a federal work. `epd.georgia.gov` links only accessibility and privacy pages; https://georgia.gov/privacy-and-security (read 2026-09-28) covers information submitted to the state and the Georgia Open Records Act, not reuse of published content. No reuse clause located. Added 2026-09-28 | n/a |
 | `us.tx.tceq.air_permits` | **unknown** | do not ingest; robots-excluded and terms not retrieved | `www2.tceq.texas.gov/robots.txt` and `www15.tceq.texas.gov/robots.txt` answer `User-agent: * Disallow: /` (read 2026-09-28); TCEQ site-policies page not located (404). Added 2026-09-28 | n/a |
+| `us.lbnl.ferc_hifld_transmission_lines` | open-attribution (CC BY 4.0) | raw-ok + credit "Yin, Nait Belaid & Heleno (2026), Lawrence Berkeley National Laboratory, OEDI, CC BY 4.0" and a statement of changes | §2.19 quoted (dataset page and LBNL's DCAT record); OpenEI general disclaimer 404, browser task; added 2026-09-28 | high |
+| `us.dhs.hifld.transmission_lines` | public-domain | raw-ok; no permitted route to the bytes yet (DataLumos archive behind a challenge, its terms unread; third-party copies never used) | §2.19 quoted (DHS DCAT `government-works`, `accessLevel: public`); added 2026-09-28 | mod-high |
+| `us.dhs.hifld.electric_substations` | restricted | do not ingest; never derive a substation layer from line endpoints as a substitute | §2.19 quoted (DHS DCAT `accessLevel: restricted public`; HIFLD Secure DUA); added 2026-09-28 | high |
+| `us.noaa.ocm.electric_substations` | **unknown** | do not ingest; gated until terms read | §2.19: CC0 on data.gov vs "For coastal and ocean planning" on InPort, lineage from the restricted HIFLD layer; added 2026-09-28 | n/a |
 
 **This matrix is machine-read.** `scripts/check_manifest_licences.py` (run by `tests/test_manifest_licences.py`
 under the pytest job) parses every row above whose first cell is one or more backticked `source_id`s, takes the

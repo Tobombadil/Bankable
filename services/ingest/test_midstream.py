@@ -181,7 +181,7 @@ def test_operator_edges_report_unmatched_assets_and_reject_unwired_types(session
     assert result.unmatched_asset_ids == ["rockies-express-entrega-interstate"]
     assert result.edges_written == 1
     with pytest.raises(UnsupportedAssetTypeError):
-        load_operator_edges(session, pipelines_frame(), "transmission_line")
+        load_operator_edges(session, pipelines_frame(), "substation")  # unwired: docs/13 §2.19
 
 
 def test_operator_edges_parquet_reads_a_file(session, tmp_path):

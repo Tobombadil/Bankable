@@ -22,7 +22,8 @@
   var TYPE_TOKEN = {
     gas_pipeline: "--asset-gas-pipeline", gas_processing_plant: "--asset-gas-processing",
     gas_storage: "--asset-gas-storage", lng_terminal: "--asset-lng-terminal",
-    ethanol_plant: "--asset-ethanol", rng_project: "--asset-rng"
+    ethanol_plant: "--asset-ethanol", rng_project: "--asset-rng",
+    transmission_line: "--asset-transmission"
   };
   var proposalColor = cssVar("--family-progress-text") || "#2f6480";
   function colorFor(p) {
@@ -90,9 +91,15 @@
     });
     map.addLayer({
       id: "asset-lines", type: "line", source: "asset",
-      filter: ["all", isLine, ["!=", ["get", "line_class"], "intrastate"]],
+      filter: ["all", isLine, ["!=", ["get", "line_class"], "intrastate"], ["!=", ["get", "asset_type"], "transmission_line"]],
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": ["get", "color"], "line-width": lineWidth }
+    });
+    // Transmission lines dash-dot, as on the home map (web/static/js/map.js).
+    map.addLayer({
+      id: "asset-lines-transmission", type: "line", source: "asset",
+      filter: ["all", isLine, ["==", ["get", "asset_type"], "transmission_line"]],
+      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-dasharray": [4, 1.5, 1, 1.5] }
     });
     map.addLayer({
       id: "asset-lines-intrastate", type: "line", source: "asset",
@@ -126,7 +133,7 @@
       popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
     }
     function hide() { if (popup) { popup.remove(); popup = null; } }
-    ["asset-lines", "asset-lines-intrastate", "asset-points", "nearby-proposals"].forEach(function (id) {
+    ["asset-lines", "asset-lines-intrastate", "asset-lines-transmission", "asset-points", "nearby-proposals"].forEach(function (id) {
       map.on("mouseenter", id, function (e) { map.getCanvas().style.cursor = "pointer"; show(e); });
       map.on("mousemove", id, function (e) { if (popup) popup.setLngLat(e.lngLat); });
       map.on("mouseleave", id, function () { map.getCanvas().style.cursor = ""; hide(); });

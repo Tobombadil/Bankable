@@ -480,6 +480,8 @@ def _geometry_svg(features: list[dict[str, Any]], label: str) -> str:
             cls = "mini-map__line"
             if props.get("line_class") == "intrastate":
                 cls += " mini-map__line--intrastate"
+            if props.get("asset_type") == "transmission_line":
+                cls += " mini-map__line--transmission"  # dash-dot, as on the home map
             d = " ".join(
                 "M" + " L".join(_svg_xy(project(lon, lat)) for lon, lat in _thin(part))
                 for part in line_parts
@@ -660,7 +662,27 @@ PROMOTED_ATTRIBUTE_KEYS = (
     "state_codes",
     "length_miles",
     "miles",
+    # Transmission lines (grid lane G2): voltage and the two endpoint names HIFLD gives a line.
+    "voltage_kv",
+    "sub_1",
+    "sub_2",
+    "owner",
 )
+
+
+def _voltage_text(entity: Mapping[str, Any]) -> str | None:
+    """ "345 kV" from `attributes.voltage_kv`; `None` when the source states no voltage."""
+    kv = _number(_attr(entity, "voltage_kv"))
+    if kv is None or kv <= 0:
+        return None
+    return f"{kv:g} kV"
+
+
+def _endpoints_text(entity: Mapping[str, Any]) -> str | None:
+    """ "Scriba to Fitzpatrick": the substation names HIFLD records at each end of a line, in the
+    source's order; one name alone when the other end is a tap or unnamed."""
+    ends = [str(v) for v in (_attr(entity, "sub_1"), _attr(entity, "sub_2")) if v]
+    return " to ".join(ends) if ends else None
 
 
 def _diameter_text(entity: Mapping[str, Any]) -> str | None:
@@ -882,6 +904,13 @@ def _asset_extras(entity: Mapping[str, Any]) -> dict[str, Any]:
         "line_class": _line_class(entity) if is_line else None,
         "length_miles": _number(_attr(entity, "length_miles", "miles")),
         "diameter": _diameter_text(entity) if is_line else None,
+        "voltage": _voltage_text(entity) if asset_type == "transmission_line" else None,
+        "endpoints": _endpoints_text(entity) if asset_type == "transmission_line" else None,
+        # The owner the source states for a line, shown as text: LBNL's owner strings are not yet
+        # linked to organisations (pipeline/context/lbnl_transmission.py docstring).
+        "owner_stated": _attr(entity, "owner") if asset_type == "transmission_line" else None,
+        # The noun the line-aware sentences use ("within 25 km of this pipeline's route").
+        "route_noun": "line" if asset_type == "transmission_line" else "pipeline",
         "states": _states_crossed(entity),
         "operator": operator,
         "owners": owners,

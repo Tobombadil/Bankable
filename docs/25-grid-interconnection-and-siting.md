@@ -232,9 +232,166 @@ Backfilling all four registers took 5.3 s (`link_all_points`), and an idempotent
   is outside this lane). The pages use the existing list and detail idioms only.
 - **Counsel read.** D-18, the POI name for `derived_only` registers.
 
-## 2. Substations and transmission lines
+## 2. Substations and transmission lines (lane G2, 2026-09-28)
 
-*Pending: lane G2.*
+Owner decision 2026-09-28: substations and transmission lines become built-infrastructure context layers, for
+the map and to place grid interconnection points. Outcome: **transmission lines ship, as a subset; substations do
+not, because the only national layer is restricted by its publisher.** Terms are quoted in full in
+`docs/13-legal-data-rights.md` §2.19; the manifest entries are `us.lbnl.ferc_hifld_transmission_lines`,
+`us.dhs.hifld.transmission_lines`, `us.dhs.hifld.electric_substations` and `us.noaa.ocm.electric_substations`.
+
+### 2.1 Sources and terms (read 2026-09-28, platform user-agent, robots.txt first)
+
+| Candidate | What it says | Route | Decision |
+|---|---|---|---|
+| EIA US Energy Atlas | Publishes neither layer (Hub catalogue 76 items; EIA ArcGIS org's 79 services; `www.eia.gov/maps/map_data/` guesses all 404) | — | nothing to use |
+| DHS HIFLD, transmission lines | data.gov DCAT `MGMT-GMO-HIFLD-847169`: `"license": "https://www.usa.gov/government-works"`, `"accessLevel": "public"`; item use limitation "None (Public Use)" | Canonical item and GeoPlatform service withdrawn; Data Rescue Project archive → DataLumos project 240591, **Cloudflare challenge, not bypassed**, DataLumos terms unread; HSDL's HIFLD aggregation has no line layer; `web.archive.org` resets through this egress | terms clear, route blocked: recorded `open`/`raw_ok`, `verified: blocked` |
+| Third-party ArcGIS copies of HIFLD lines | Esri "(Archive)" copy: "licensed under the Esri Master License Agreement"; GeoPlatform user upload and HARC copy: no licence, no provenance | — | never used |
+| DHS HIFLD, substations | data.gov DCAT `MGMT-GMO-HIFLD-546955`: `"accessLevel": "restricted public"`; DHS GMO: HIFLD Secure holds "commercially licensed and FOUO … data … approved Data Use Agreement" | withdrawn from HIFLD Open; no archive (DRP sitemap, HSDL group checked) | `restricted`/`none`; **do not ingest, do not derive** |
+| NOAA OCM "Electric Power Substations" (coastal, 2017) | data.gov: CC0; InPort: "Use Constraints: For coastal and ocean planning"; lineage: the HIFLD substations layer | zip not fetched | `unknown`/`none` (conflicting terms, restricted lineage) |
+| LBNL, "A Harmonized Geospatial Dataset of U.S. Transmission Lines: Linking FERC Form 1 and HIFLD, 1994-2024" (OEDI 8742) | dataset page links "License" to CC BY 4.0; LBNL's own DCAT: `"license": "https://creativecommons.org/licenses/by/4.0/"` | `data.openei.org/files/8742/…csv`, fetched after three HTTP 429s (one request a minute gets through); OpenEI general disclaimer 404 (browser task) | **used**: `attribution`/`raw_ok`, credit Yin, Nait Belaid & Heleno (2026), LBNL, OEDI, CC BY 4.0 |
+
+Substations are critical infrastructure. The rule applied: publish only what a public source itself published, at
+its precision. DHS itself restricts the substation layer, so the `substation` asset type stays empty, is not wired
+in `services/ingest/assets.py::ASSET_TYPE_SOURCE_IDS` (loading one raises), and is not listed on the home map.
+The line layer carries HIFLD's endpoint *names*; they are not assembled into a substation point layer, because
+that would republish, assembled, what the publisher restricted.
+
+### 2.2 What the transmission layer is, and is not
+
+Fetched 2026-09-28T13:55:17Z: 26,932,786 bytes, sha256 `ec066aa3…4f50a84`, Last-Modified 2026-09-22. 13,084 rows,
+one per HIFLD line (`GlobalID`), 49 states, 70–765 kV (138 kV 5,752 lines; 230 kV 3,325; 345 kV 1,422; 500 kV
+369; 765 kV 30), 146,870 geodesic route miles, 540,930 vertices (at most 200 per line). **It is a subset**: only
+the HIFLD lines LBNL linked to a FERC Form 1 respondent's line record (171 respondents, investor-owned utilities
+mostly) — roughly a fifth of HIFLD's line mileage. Co-ops, municipal systems, the federal power marketing
+administrations and most non-IOU western lines are thin or absent. The home-map legend says "lines FERC Form 1
+filers own (LBNL); not the whole grid".
+
+Only the HIFLD side of each row is published (endpoints SUB_1/SUB_2, voltage, owner, geometry). LBNL's FERC
+linkage is scored and sometimes wrong: the FERC respondent and the HIFLD owner differ on 2,151 of the 10,439 rows
+where HIFLD states an owner, and some links join different lines (GlobalID 162595, tier `low`: FERC
+"gateway"–"massac", HIFLD "pana"–"faraday"). FERC costs, conductor and structure fields are therefore dropped.
+HIFLD's STATUS is not in LBNL's file, so `status` is `unknown`. The source release vintage has nowhere to go in
+`services/ingest/vintage.py`'s vocabulary (no filename token, no shapefile member), so `source_vintage` is unset
+and the page says "no release stated"; the dataset's own modified date (2026-09-22) is in the run record.
+
+**Owners are shown, not linked.** LBNL lower-cased HIFLD's OWNER and stripped "&", "and" and legal forms
+("florida power light"). Against the 2026-09-27 dev store only 73 of 259 distinct owner strings (3,292 of 10,439
+rows) key-match an existing organisation (`pipeline.normalize.org_key`: "Florida Power & Light Co" keys to FLORIDA
+POWER AND LIGHT, LBNL's string to FLORIDA POWER LIGHT); running the generic edge loader would mint ~186 new
+organisations, most of them duplicates of utilities already held. `owner_name` is left empty (the edge loader
+writes nothing: measured 0 edges, 0 organisations), and the owner rides as `attributes.owner` (title-cased) and
+`attributes.owner_raw`. The asset page shows it as "Owner (as the source names it)".
+
+### 2.3 Loader, sizes and timings (measured 2026-09-28, this sandbox)
+
+`pipeline/context/lbnl_transmission.py` (fetch → snapshot + run record → parse → normalise →
+`data/normalized/context/us.lbnl.ferc_hifld_transmission_lines.parquet`), loaded by `web/dev_up.py` through
+`services.ingest.assets.load_assets_parquet` like every other context file.
+
+- **No dissolve.** The gas-pipeline layer dissolves 32,961 unnamed segments to 259 operator rows because a segment
+  has no identity. A transmission line has one: its endpoints, voltage and owner, which is what a reader and the
+  matcher need, and dissolving by owner would destroy all three. 13,084 rows is the scale of the `power_plant`
+  layer (14,659). The only reduction is 6-decimal coordinates (~0.1 m); LBNL already caps a line at 200 vertices.
+- Normalise: 12.9 s (13.5 s wall incl. state point-in-polygon for `states_crossed`). Parquet 8,658,026 bytes
+  (gas pipelines: 2.3 MB; budget 40 MB).
+- Load into a fresh SQLite store: assets 4.5 s, edge step 3.2 s (writes nothing). SQLite file 5.8 MB (gas only) →
+  38.5 MB (gas + transmission).
+- `/v1/assets/geo`: the line index is built once per process and cached. Cold first request 1.19 s (gas only) →
+  3.73 s (gas + transmission); each first request at a new zoom pays one simplification pass (~0.8–1.3 s more than
+  gas alone), cached after. Warm, `asset_type=transmission_line`: national (zoom 4) 0.20 s, 1,794,739 bytes, 1,500
+  features (13,032 lines in view, capped at `LINE_FEATURE_CAP`, longest kept); zoom 7 over central Texas 0.15–0.37 s,
+  1.1 MB, 925 lines; zoom 10 over Houston 0.14–0.19 s, 390 KB, 310 lines. Gas pipelines national: 0.45 s, 923 KB.
+  The national transmission payload is the largest line response on the site; vector tiles (ADR 0008 §2's "later")
+  are the fix if it matters.
+
+### 2.4 Map and pages
+
+`HOME_MAP_ASSET_TYPES` gains `("transmission_line", "Transmission lines", True)`. `web/static/js/map.js` draws it
+in its own layer, `asset-lines-transmission`: **dash-dot** (`[4, 1.5, 1, 1.5]`) so the stroke pattern tells a power
+line from a pipeline (solid interstate, dashed intrastate), in a new token `--asset-transmission` (amber `#8a6300`,
+4.94:1 on paper; dark `#e8c15f`, 9.80:1 on `--bg`), chosen far from the pipeline purple because the two line layers
+overlap everywhere at national zoom (a first magenta attempt was indistinguishable in a screenshot). The feature's
+`line_class` is its voltage ("345 kV"), shown in the tooltip, in-view row and drawer. The asset page adds Voltage,
+"Substations at the ends (as the source names them)" and "Owner (as the source names it)" rows, a dash-dot mini-map
+line (static SVG and `asset_map.js`), and says "this line's route" rather than "this pipeline's route". axe-core
+4.10.2 in Chromium against a local stack: 0 violations on `/?layers=plants&asset_type=transmission_line,gas_pipeline`,
+`/assets?asset_type=transmission_line`, and two line pages (`/assets/scriba-fitzpatrick-345-kv-us-ny`,
+`/assets/cloverdale-jacksons-ferry-765-kv-us-va`); no page errors.
+
+### 2.5 Interconnection-point matching (measurement only; nothing written to the database)
+
+`pipeline/context/poi_match.py` (pure) + `python -m pipeline.context.poi_match` →
+`data/normalized/context/poi_substation_crosswalk.parquet` (5,800 rows: one per distinct source × POI string ×
+state, matched or not; 224 KB). The node table is the **named line endpoints** of the transmission layer
+(`lbnl_transmission.endpoint_nodes`: 5,709 (name, state) nodes; 3,927 placed at the endpoint every line carrying the
+name shares, 1,782 named by one line and unplaced because LBNL's file does not say which end is SUB_1).
+
+Rules: a POI naming two places ("A - B 115kV", "to", "tap", "line", "ckt") is a line tap and is never forced onto a
+node; several places (";", ",", "&", "and", "via") is `multiple`. Names are normalised identically on both sides
+(kV figures, bus numbers, ERCOT mnemonics `WEIMAR8` → weimar, node-kind words, owner prefixes such as "SCE owned").
+Blocking by the row's state, else the ISO footprint (CAISO: CA, NV, AZ). Exact name first; an exact match at a
+voltage the node does not show is kept at score 0.8 only if the node is placed (a node's voltages are only those of
+the subset's lines ending there), otherwise rejected; fuzzy (`rapidfuzz.fuzz.ratio` ≥ 92, 3-point margin, voltage
+must not conflict) second; same-named nodes more than 3 km apart are `ambiguous`.
+
+Match rate on distinct POI strings (per ISO; "substation-kind" excludes line taps, multiples and blanks):
+
+| ISO | Distinct POIs | Substation-kind | Line tap | Multiple | Matched | Rate (all) | Rate (substation-kind) | Queue rows covered |
+|---|---|---|---|---|---|---|---|---|
+| CAISO | 1,671 | 991 | 665 | 14 | 366 (363 exact, 3 fuzzy) | 21.9% | 36.9% | 645 of 2,278 |
+| NYISO | 1,465 | 660 | 716 | 64 | 124 (119 exact, 5 fuzzy) | 8.5% | 18.8% | 156 of 1,804 |
+| ERCOT | 1,427 | 588 | 817 | 20 | 64 (61 exact, 3 fuzzy) | 4.5% | 10.9% | 84 of 1,778 |
+| NESO | 1,237 | 1,223 | 3 | 11 | 0 | 0% | 0% | 0 of 2,198 |
+
+The ceiling is the node table, not the matcher: 1,634 of the 2,239 US substation-kind POIs name nothing in the
+subset (`below_threshold`), because the lines of co-ops, munis and non-FERC owners are not in LBNL's file — ERCOT
+worst. NESO is GB; no US node can match it (the NESO GSP gazetteer already places those rows).
+
+**Precision, hand-checked on 40 matches** (random, CAISO 20 / NYISO 10 / ERCOT 10, drawn after the rules were
+final; judged on name, voltage, the queue rows' county against the node's county, and knowledge of the named
+substation): **39 correct (97.5%)**. The one error: #33, ERCOT "#80064 Chocolate Bayou 138kV" (an AEP bus, project
+in Victoria County) matched to CenterPoint's Chocolate Bayou 138 kV endpoint in Harris County — same name, different
+place; the node was unplaced (one line). An earlier 40-sample on a looser rule set found 3 errors and drove two rule
+changes: "Paris Switch" → "Parish" (fuzzy 0.909; threshold raised to 92, which also drops the correct "El Sequndo" →
+"El Segundo") and SCE "Antelope" → PG&E's 70 kV "Antelope" (exact name, voltage conflict, unplaced node; now
+rejected). Automated cross-check on the 544 of 554 matches whose queue rows state a county: the node (or, unplaced, one of
+its lines' ends) lies in a county one of the POI's projects is in for 484 (89%); a POI substation legitimately sits in a neighbouring county, so the 11% that disagree is an upper bound on the error, not an estimate of it.
+
+The 40 (✓ correct, ✗ wrong): 1 ✓ Highwind Sub 220kV Bus → Highwind CA; 2 ✓ Rector Substation 230 kV → Rector CA;
+3 ✓ Mohave Substation 500kV → Mohave NV; 4 ✓ Whirlwind 220kV → Whirlwind CA (0.8, node 500 kV); 5 ✓ Whirlwind
+Substation 500 kV → Whirlwind; 6 ✓ Red Bluff Sub 230 kV Bus → Red Bluff CA (0.8); 7 ✓ Vincent Substation → Vincent
+CA; 8 ✓ Palermo 115 kV → Palermo CA; 9 ✓ Sycamore Canyon Substation → Sycamore Canyon CA (unplaced); 10 ✓ Wilson
+Substation 230kV Bus → Wilson CA; 11 ✓ Cantua Substation 115 kV → Cantua CA (unplaced); 12 ✓ Whirlwind Sub 220kV
+bus → Whirlwind (0.8); 13 ✓ Pleasant Grove Substation 115 kV → Pleasant Grove CA; 14 ✓ Morro Bay Substation 230kV →
+Morro Bay CA; 15 ✓ Pleasant Grove Sub Station → Pleasant Grove; 16 ✓ Midway 115 kV → Midway CA; 17 ✓ Windhub
+Substation 230 kV → Windhub CA; 18 ✓ Red Bluff Substation 220kV → Red Bluff (0.8); 19 ✓ Whirlwind Substation 230 kV
+bus → Whirlwind (0.8); 20 ✓ Miguel Substation 69 kV → Miguel CA (0.8); 21 ✓ Greenbush 115 kV Substation →
+Greenbush NY; 22 ✓ Craryville 115kV → Craryville NY; 23 ✓ Millwood 345 kV Substation → Millwood NY; 24 ✓ Robinson
+Road 115 kV → Robinson Road NY; 25 ✓ Oswego 115 kV Substation → Oswego NY (0.8); 26 ✓ Coopers Corner 345 kV
+Substation → Coopers Corner NY; 27 ✓ Sithe 345kV Substation → Sithe NY; 28 ✓ Oakdale 115 kV → Oakdale NY; 29 ✓
+Sugarloaf 138 kV Substation → Sugarloaf NY; 30 ✓ Clay 345 kV Substation → Clay NY; 31 ✓ 7042 Zorn 345kV → Zorn TX;
+32 ✓ 40700 Greens Bayou 345kV → Greens Bayou TX; 33 ✗ #80064 Chocolate Bayou 138kV → Chocolate Bayou TX (Harris;
+unplaced); 34 ✓ (#170174) LOST PINES 345 kV → Lost Pine TX (fuzzy 0.947); 35 ✓ 1444 Brown 345kV → Brown TX; 36 ✓
+5475 Braunig 345kV → Braunig TX (0.8); 37 ✓ 40011 Cedar Bayou 138kV → Cedar Bayou TX; 38 ✓ 7150 Kendall 138kV →
+Kendall TX; 39 ✓ 11420 Sweetwater East 345kV → Sweetwater East TX; 40 ✓ Bus# 1048 - Tonkawa → Tonkawa TX (Scurry
+County, projects in Nolan).
+
+The crosswalk carries `node_lon`/`node_lat` for placed nodes. **Using them to place an interconnection point
+publishes a substation location derived from the line layer** — the thing §2.1 declines to publish as a layer. That
+is a decision for the owner before lane G1 wires the link (docs/00-PLAN.md decision note below); the crosswalk's
+name link alone (POI → node name → the lines that end there) does not have that problem.
+
+### 2.6 Limits and open items
+
+1. **Full-network lines** need the HIFLD archive: a human reads DataLumos's terms (project 240591) in a browser and
+   records them in `data/sources.yaml` before any connector touches it. Never a third-party ArcGIS copy.
+2. **Substations** stay empty until a source that itself publishes substations openly is found and its terms read.
+3. **Owner links** need a reviewed alias table from LBNL's 259 owner strings to existing organisations (73 already
+   key-match); then `owner_name` can be filled and the generic edge loader used.
+4. OpenEI's general disclaimer (incl. "Generative AI Terms and Conditions") answered 404 — browser task.
+5. `source_vintage` for this source is unset (no vocabulary for a dataset-page modified date).
+6. The national line payload (1.8 MB for 1,500 lines) argues for the vector-tile path ADR 0008 deferred.
 
 ## 3. Data-centre demand signals
 

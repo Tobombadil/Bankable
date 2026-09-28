@@ -93,6 +93,9 @@ HOME_MAP_ASSET_TYPES: list[tuple[str, str, bool]] = [
     ("lng_terminal", "LNG terminals", True),
     ("ethanol_plant", "Ethanol", True),
     ("rng_project", "RNG", True),
+    # Grid lane G2 (2026-09-28): LBNL's FERC x HIFLD transmission lines. `substation` is not listed:
+    # DHS restricts the only national layer (docs/13 §2.19), so there is nothing "coming" to promise.
+    ("transmission_line", "Transmission lines", True),
 ]
 
 

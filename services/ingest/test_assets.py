@@ -67,7 +67,7 @@ def test_load_assets_assigns_public_id_and_slug(session):
 
 def test_load_assets_rejects_unwired_asset_type(session):
     with pytest.raises(UnsupportedAssetTypeError):
-        load_assets(session, sample_frame(), "transmission_line")
+        load_assets(session, sample_frame(), "substation")  # transmission_line is wired since lane G2
 
 
 def test_load_assets_rejects_unknown_asset_type(session):

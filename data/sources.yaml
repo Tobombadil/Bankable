@@ -3231,6 +3231,107 @@ sources:
     The data-sets page (200, 76,350 bytes) still lists the RY2023 zip as the newest on 2026-09-25 -
     no RY2024 summary has been published - so "annual" currently means a lag of at least 21 months.
 
+# Transmission lines and substations (built-infrastructure context layers, owner decision 2026-09-28;
+# lane G2; terms read 2026-09-28 and quoted in docs/13-legal-data-rights.md section 2.19).
+- id: us.lbnl.ferc_hifld_transmission_lines
+  name: 'LBNL — A Harmonized Geospatial Dataset of U.S. Transmission Lines: Linking FERC Form 1 and HIFLD, 1994-2024 (OEDI submission 8742)'
+  jurisdiction: US
+  category: registry
+  operator: Lawrence Berkeley National Laboratory (Yin, Nait Belaid and Heleno), Open Energy Data Initiative, CC BY 4.0
+  url: https://data.openei.org/submissions/8742
+  access: bulk_file
+  auth: none
+  format: csv (one row per HIFLD line; geometry as a JSON coordinate list)
+  cadence: irregular (research dataset; issued 2026-08-03, modified 2026-09-22)
+  license: 'CC BY 4.0 — dataset page https://data.openei.org/submissions/8742 (retrieved 2026-09-28, HTTP 200) links "License" to https://creativecommons.org/licenses/by/4.0/; LBNL''s own DCAT record harvested to catalog.data.gov (identifier https://data.openei.org/submissions/8742, publisher Lawrence Berkeley National Laboratory, modified 2026-09-22T15:29:54Z) states "license": "https://creativecommons.org/licenses/by/4.0/", "accessLevel": "public". Underlying geometry is DHS HIFLD (US government works per DHS''s data.gov record, see us.dhs.hifld.transmission_lines) and FERC Form 1 (federal filings). Credit: Yin, R., Nait Belaid, Y., & Heleno, M. (2026). A Harmonized Geospatial Dataset of U.S. Transmission Lines: Linking FERC Form 1 and HIFLD, 1994-2024. Lawrence Berkeley National Laboratory, OEDI. CC BY 4.0; changes: HIFLD-side fields only, FERC-side fields dropped, names title-cased, coordinates rounded to 6 dp'
+  reuse: attribution
+  publication: raw_ok
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-28, result: ok, rows: 13084, note: 'Lane G2, measured: https://data.openei.org/files/8742/ferc_eia_transmission_lines_public.csv fetched 2026-09-28T13:55:17Z after three HTTP 429 answers (awselb/2.0, no Retry-After) on data.openei.org and openei.org minutes apart; one request a minute got through. 26,932,786 bytes, sha256 ec066aa331862de78611444f34017a75fe9cdd2c0269dd807b09321304f50a84, Last-Modified Tue, 22 Sep 2026 15:29:54 GMT, ETag "19af632-65c1409dd5368". 13,084 rows = 13,084 distinct HIFLD GlobalIDs, 54 columns, 49 states, 70-765 kV, 146,890 route miles, 540,930 vertices (at most 200 per line). data.openei.org serves no robots.txt (404); openei.org/robots.txt (200) disallows only wiki special pages and one USURDB file. The OpenEI general disclaimer linked from the dataset page (openei.org/wiki/OpenEI:General_disclaimer, including its "Generative AI Terms and Conditions" anchor) answered 404, as did openei.org/wiki/OpenEI:Disclaimers — not read; browser task. pipeline/context/lbnl_transmission.py -> data/normalized/context/us.lbnl.ferc_hifld_transmission_lines.parquet, loads as asset_type transmission_line.'}
+  notes: >-
+    The transmission_line context layer's source. A SUBSET of the national network: only the HIFLD lines LBNL
+    linked to a FERC Form 1 respondent's line record (investor-owned utilities and a few others; 171 FERC
+    respondents), about a fifth of HIFLD's line mileage, so ERCOT co-ops, municipal systems, federal power
+    marketing administrations and most of the West outside the IOUs are thin. Only the HIFLD side of each row is
+    published (endpoints SUB_1/SUB_2, voltage, owner, geometry); the FERC side (costs, conductor, structure,
+    FERC endpoint names) is dropped because LBNL's record linkage is scored and sometimes wrong (the two owner
+    names differ on 2,151 of the 10,439 rows where HIFLD states one). HIFLD's STATUS field is not in the file, so
+    status is `unknown`. The owner is shown as text (attributes.owner), not linked to an organisation: LBNL
+    stripped "&"/"and"/legal forms, so only 73 of 259 owner strings key-match the registry and linking would mint
+    ~186 duplicate utilities (docs/25 section 2). No substation layer is derived from the line endpoints (DHS classifies the HIFLD
+    substations layer `restricted public`, see us.dhs.hifld.electric_substations); endpoint names are kept on
+    each line for the interconnection-point matcher only. See docs/25 section 2 and docs/13 section 2.19.
+
+- id: us.dhs.hifld.transmission_lines
+  name: DHS HIFLD Open — Electric Power Transmission Lines (discontinued 2025-08-26; archived copies only)
+  jurisdiction: US
+  category: registry
+  operator: DHS Geospatial Management Office, HIFLD (data by ORNL, LANL, INL and NGA HSIP)
+  url: https://catalog.data.gov/dataset/electric-power-transmission-lines
+  access: bulk_file
+  auth: none (archive routes gated, see verified)
+  format: shapefile / feature service (no longer served by DHS)
+  cadence: discontinued
+  license: 'US government works — DHS''s own DCAT record on catalog.data.gov (identifier MGMT-GMO-HIFLD-847169, publisher HIFLD, contact Open Data (MGMT) edmo@hq.dhs.gov, modified 2022-10-24, last harvested 2026-09-10; retrieved 2026-09-28) states "license": "https://www.usa.gov/government-works", "accessLevel": "public". The HIFLD item''s use limitation, as copied into FEMA Region 9''s mirror of the canonical item (ArcGIS item 5c21e284847a4434924ef7aa027f166b, "Source Item: .../item.html?id=bd24d1a282c54428b024988d32578e59"): "None (Public Use). Users are advised to read the data set''s metadata thoroughly to understand appropriate use and data limitations"'
+  reuse: open
+  publication: raw_ok
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-28, result: blocked, note: 'Lane G2: terms are clear, no route to the bytes is. The canonical ArcGIS item bd24d1a282c54428b024988d32578e59 answers "Item does not exist or is inaccessible"; the GeoPlatform org''s Transmission_Lines service answers "Invalid URL"; hifld-geoplatform.hub.arcgis.com answers 404 (its robots.txt, still served, sets Crawl-delay: 60). The Data Rescue Project portal page (https://portal.datarescueproject.org/datasets/hifld-open-transmission-lines/, 200, robots.txt has no Disallow) records "Archived Aug 26, 2025 by DRP, DL", "Metadata available: No", no licence field for the data (its "Source License" link is the portal software''s MIT licence), and its only download is DataLumos project 240591 (https://www.datalumos.org/datalumos/project/240591/version/V1/view), which answered HTTP 403 with a Cloudflare "Just a moment..." challenge, as did the openicpsr.org route; not bypassed, DataLumos terms unread. HSDL''s HIFLD aggregation (https://www.hsdl.org/hifld/, robots Crawl-delay: 60; its 136-item ArcGIS group dcf8d6d48ed74814a9ae124489e30375 on npsonline.maps.arcgis.com) carries no transmission-line layer. web.archive.org reset the connection through this egress. Third-party ArcGIS copies NOT used: Esri''s "U.S. Electric Power Transmission Lines (Archive)" (item d4090758322c4d32a4cd002ffaa0aa12, last data update 2024-09-30) is licensed under the Esri Master License Agreement; a GeoPlatform-org user upload (item 8ac33965336e498cbe35cd238b3f1ee6, 52,244 features, 2023-09-05, tagged Solar) and a HARC copy (13b4728b7403404cb72b52b5367a1ad6) carry no licence and no provenance.'}
+  notes: >-
+    Recorded so the terms are on file and the route question is not re-asked. 13,084 of these lines reach the
+    platform through us.lbnl.ferc_hifld_transmission_lines (CC BY 4.0). The full layer would need the DataLumos
+    archive: a human reads DataLumos's terms in a browser and records them here before any connector fetches it.
+    Never fetch a third-party ArcGIS copy in its place. See docs/13 section 2.19.
+
+- id: us.dhs.hifld.electric_substations
+  name: DHS HIFLD — Electric Substations (restricted public)
+  jurisdiction: US
+  category: registry
+  operator: DHS Geospatial Management Office, HIFLD
+  url: https://catalog.data.gov/dataset/electric-substations-c633a
+  access: bulk_file
+  auth: HIFLD Secure (GII account, profile and approved Data Use Agreement)
+  format: point feature class
+  cadence: n/a
+  license: 'Restricted by the publisher — DHS''s DCAT record on catalog.data.gov (identifier MGMT-GMO-HIFLD-546955, publisher HIFLD, modified 2023-09-11; retrieved 2026-09-28) states "accessLevel": "restricted public" (the licence field names https://www.usa.gov/government-works, but the access level is the publisher''s statement that the layer is not for open release). DHS GMO page https://www.dhs.gov/gmo/hifld (retrieved 2026-09-28): "HIFLD Secure contains commercially licensed and FOUO (for official use only) data housed on the DHS Geospatial Information Infrastructure (GII). Access requires a GII account, a profile, and an approved Data Use Agreement (DUA)."'
+  reuse: restricted
+  publication: none
+  tier: 3
+  effort: L
+  probe: {method: GET}
+  verified: {date: 2026-09-28, result: restricted, note: 'Lane G2: not fetched. The HIFLD org''s Electric_Substations_1 service answers "Invalid URL"; the Data Rescue Project portal (sitemap read 2026-09-28) archived no HIFLD substations layer; HSDL''s HIFLD group carries none. Third-party copies of an older public release exist on ArcGIS Online (e.g. item 40201a66cef74eca84ce9da2a99ca174, "None (Public Use)", 2022; item b0c1a67de2f943af9b6d24f27647384b, no licence) and are NOT used: the publisher has since restricted the layer.'}
+  notes: >-
+    Critical infrastructure. Do not ingest, from DHS or from any copy, and do not derive a substation point layer
+    from transmission-line endpoints as a substitute (docs/13 section 2.19; decision for the owner recorded in
+    docs/25 section 2). The substation asset type stays empty until a source that itself publishes substations
+    openly is found and its terms read.
+
+- id: us.noaa.ocm.electric_substations
+  name: NOAA Office for Coastal Management — Electric Power Substations (within 20 miles of the coast, 2017)
+  jurisdiction: US (coastal counties, continental US and Puerto Rico)
+  category: registry
+  operator: NOAA Office for Coastal Management (MarineCadastre.gov)
+  url: https://www.fisheries.noaa.gov/inport/item/66139
+  access: bulk_file
+  auth: none
+  format: shapefile zip (https://marinecadastre.gov/downloads/data/mc/ElectricPowerSubstation.zip)
+  cadence: none (published 2017-07-24; "will be updated as new data becomes available")
+  license: 'UNCLEAR — the catalog.data.gov DCAT record (identifier https://data.noaa.gov/waf/NOAA/nos/ocm/iso/xml/66139.xml, retrieved 2026-09-28) states "license": "https://creativecommons.org/publicdomain/zero/1.0/", but NOAA''s own InPort record (retrieved 2026-09-28) states "Use Constraints: For coastal and ocean planning" and "Data Use Constraints: For coastal and ocean planning", and its lineage names the source as "Electric_Substations ... Contact Name: Department of Homeland Security ... Citation URL: https://hifld-geoplatform.opendata.arcgis.com/datasets/electric-substations" — the HIFLD layer DHS now classifies restricted public'
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-09-28, result: terms_conflict, note: 'Lane G2: InPort page 200 (fisheries.noaa.gov robots.txt disallows only Drupal core/profile paths); the zip was not fetched. Conflicting statements (CC0 vs a purpose-limited use constraint) and a lineage from a now-restricted layer; gated until the owner or counsel decides.'}
+  notes: >-
+    Coastal subset of the 2017 HIFLD substations layer, re-attributed by NOAA. Even if the CC0 statement governs,
+    republishing it would re-open a layer DHS has since restricted; recorded so it is not picked up by accident.
+    See docs/13 section 2.19.
+
 # ─────────────────────────────────────────────────────────────────────────────
 # J. SOCIAL DISTRIBUTION CHANNELS (outbound, not data sources — recorded for cost/feasibility)
 # ─────────────────────────────────────────────────────────────────────────────

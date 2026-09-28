@@ -183,6 +183,10 @@ _CONTEXT_ASSET_FILES: tuple[tuple[str, str], ...] = (
     ("us.eia.atlas.lng_terminals.parquet", "lng_terminal"),
     ("us.epa.lmop.parquet", "rng_project"),
     ("us.epa.agstar.parquet", "rng_project"),
+    # Grid lane G2, 2026-09-28: LBNL's FERC x HIFLD transmission lines (CC BY 4.0), one row per line.
+    # The loop's edge step writes nothing for it: the owner rides in `attributes` until LBNL's
+    # owner strings have a reviewed alias table (pipeline/context/lbnl_transmission.py docstring).
+    ("us.lbnl.ferc_hifld_transmission_lines.parquet", "transmission_line"),
 )
 
 _ETHANOL_ATLAS_FILE = "us.eia.atlas.ethanol_plants.parquet"
