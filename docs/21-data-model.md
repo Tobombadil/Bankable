@@ -953,6 +953,35 @@ omits, any property that looks like an identifier. Read as weekly counts per nam
 | `props` | jsonb | No | Small, non-identifying: `layer`, `on`, `region`, `layers` | `{"layer": "plants", "on": true}` |
 | `occurred_at` | timestamptz | No | Server time of receipt | — |
 
+### 3.24 `interconnection_point` — where a proposal connects to the grid (migration 0026, 2026-09-28)
+
+Owner decision 2026-09-28. A project **connects at** a substation bus or a tap on a line; it is not built
+there, so this is not a `location` (§3.7) and never places a record on the map. Every US ISO queue carries the
+point of interconnection only inside the raw row (`Interconnection Location`: ERCOT 1,778 rows, CAISO 2,278,
+NYISO 1,804) and the NESO TEC register as `Connection Site` (2,198). The loader parses it on every proposal
+load (`services/ingest/interconnection.py`, key rule and measurement in `docs/25` §1). One row per register
+spelling group; `proposal.interconnection_point_id` (nullable FK, indexed) links a proposal to it.
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `id` | uuid | No | Internal key | — |
+| `public_id` | text | No | `poi_…`, unique; no slug (the display spelling can change as spellings are added) | `poi_01JBQ8K2P4` |
+| `operator` | text | No | Market operator token of its proposals (`proposal.iso`), else the source's operator | `ERCOT` |
+| `name_display` | text | No | The register's own spelling; the most common one when several group | `59903 Bearkat 345kV` |
+| `name_key` | text | No | Grouping key (D-15); unique with `source_id` | `sub:bearkat\|345\|b59903` |
+| `key_rule` | text | No | Version of the rule that derived `name_key` | `2026-09-28.1` |
+| `voltage_kv` | numeric(8,3) | Yes | First voltage the text states (highest of a `275/132kV` group) | `345.000` |
+| `bus_number` | text | Yes | Bus number the text states (ERCOT PSS/E) | `59903` |
+| `kind` | text | No | `substation \| line_tap \| unknown` (CHECK) | `substation` |
+| `jurisdiction` | text | Yes | Most common jurisdiction of its proposals | `US-TX` |
+| `substation_asset_id` | uuid | Yes | FK `asset` (`asset_type = substation`), written by the substation crosswalk (lane G2); NULL until then | — |
+| `source_id`, `source_url`, `retrieved_at`, `licence_id` | — | No | The naming register's provenance quartet; `retrieved_at` is the latest retrieval of any row naming it | — |
+
+Unique: (`source_id`, `name_key`), `public_id`. Index: `operator`, `jurisdiction`; `proposal.interconnection_point_id`.
+**No aggregate is stored** (D-16): queued MW and counts are computed per request over the proposals the caller's
+tier may see. Visibility (D-17): the point's source and licence pass `source_permits`/`licence_permits` and at
+least one proposal at it is visible at the tier (`services/api/visibility.py::interconnection_point_visibility_filter`).
+
 ## 4. Operational entities
 
 These carry the pipeline's own state. They are as much a part of the product as the graph: source health,
@@ -1410,6 +1439,11 @@ attribution for a source present in the payload is a bug that fails the launch c
 | D-11 | *(2026-09-27)* One fetch plus its load is **one** `source_run` row, the one the scheduler writes for the fetch (`infra/scheduler/jobs.py::record_source_run`, under the run record's id). It is canonical because it alone carries what the readers need: the caller's trigger, the attempt, `dead_lettered`, the health update, the id a DQ-hold release looks up. The loader (`services/ingest/loader.py::_run_for_load`) attaches to that row (its events and DQ warnings point at it) and writes a row itself only when loaded standalone (CLI/dev path), under the record's id so a re-load reuses it. Measured before: every loaded run had two rows, so it appeared twice on `GET /admin/v1/source-runs` and its `rows_changed` counted twice in `GET /admin/v1/costs` | §4.2; `services/api/admin_sources.py` (runs screen, costs); `infra/scheduler/jobs.py` (health) | A reader that wanted "loaded" separately from "fetched" would need a column on the one row (e.g. `loaded_at`), not a second row |
 | D-12 | *(2026-09-27)* Admin "run now" creates the run's row and the job completes that row: the job carries the id to the CLI (`--run-id`) and `record_source_run` completes a `running` (or abandoned) row in place. A refusal or a job that fails before the connector reports closes it `failed`/`RunAbandoned` without touching health; a `running` row older than **2 hours** (`services/api/admin_sources.py` `STALE_RUNNING_AFTER`: the first attempt's queue wait + execution lock up to 30 min + fetch up to 10 min is ≈ 40 min, times three) is closed by the run-now guard instead of blocking it. Measured before: the job wrote a second row and the first stayed `running`, so every later run-now of the source was refused `409` | `services/api/admin_sources.py` D13; `infra/scheduler/app.py::run_connector` | A fetch that legitimately queues for more than 2 hours (a worker outage) has its row marked abandoned early; its real outcome still completes the row when it arrives |
 | D-13 | *(2026-09-27)* A Procrastinate retry of the fetch job is a separate run: its own row, `trigger = retry`, `attempt = job.attempts + 1` (Procrastinate's `attempts` counts attempts already made, 0 the first time); the attempt `FETCH_RETRY` will not retry is recorded `dead_lettered`. Procrastinate retries while `attempts < max_attempts`, so `max_attempts = 5` ran the job **six** times, one more failure than `docs/20` §4.2's "five failures → dead-letter". Since 2026-09-27 the policy is `max_attempts = 4`: five runs, waits 5/25/125/625 s (≈ 13 min), and attempt 5's failure is the dead letter (coordinator, matching the code to the §4.2 rule; §4.2's old list of waits, 25–3,125 s, could not come from Procrastinate's `exponential_wait ** (attempts + 1)` and was corrected) | `procrastinate.RetryStrategy.get_retry_decision` (3.9.0); `infra/scheduler/app.py` `FETCH_RETRY` | Changing `max_attempts` changes when `dead_lettered` is set and the backoff total (≈ 13 min now), nothing else |
+| D-14 | *(2026-09-28)* A grid interconnection point is its own record (§3.24), not a `location` and not a field on `proposal`: many proposals share one, it has its own page, list and totals, and a project connects at a substation without being built there. `proposal.interconnection_point_id` is a plain FK; a proposal from two registers keeps the first register's point (the second does not re-point it) | Owner decision 2026-09-28; `services/ingest/interconnection.py::link_source_points` | If proposals are fused across registers and each register's POI must be kept, the FK becomes a link table (`proposal_interconnection_point` with its own provenance); the point table is unchanged |
+| D-15 | *(2026-09-28)* A point is unique per **(`source_id`, `name_key`)**, not per ISO: one register is one naming space and its quartet gates the point exactly as it gates the proposals. The key keeps voltage and a stated bus number (a point is a bus: `Gates 230 kV` and `Gates 500 kV`, `8795 Roma` and `8796 Roma` stay apart) and sorts line endpoints. Measured on the dev store: 30 of 30 hand-checked groupings are one bus or line; with the bus number left out, 4 ERCOT substation groups and 2 line groups merged different buses (`docs/25` §1) | `docs/25` §1; `KEY_RULE_VERSION` | Misses, not false merges, are the known cost (a spelling that omits the voltage or bus stays a separate point); unifying across spellings, registers and voltages is the substation crosswalk's job (`substation_asset_id`), not this key's |
+| D-16 | *(2026-09-28)* Point totals (queued MW, counts by lifecycle bucket and technology) are **computed per request over visible proposals**, never stored. A stored total would carry a hidden proposal's capacity (§8 item 4). "Active" is the public list's default view (announced through under construction); withdrawn = withdrawn or cancelled | `services/api/interconnection_points.py`; `web/viewmodels.py::ACTIVE_PROPOSAL_STATES` (pinned equal by a test) | If the per-request aggregate becomes slow at scale, a per-tier materialised view refreshed with the visibility inputs is the path, never a column on the point |
+| D-17 | *(2026-09-28)* A point is visible only when its naming register passes `source_permits` and `licence_permits` **and** at least one proposal at it is visible at the tier; otherwise it is a 404 identical to an unknown id, and `interconnection_point_id=` on the proposal lists selects nothing, exactly as an unknown id | §8 item 3 (existence is a disclosure); `services/api/visibility.py` | None known; a PJM-named point stays dark on every non-admin tier (C-3) |
+| D-18 | *(2026-09-28)* The POI text of a `derived_only` register (CAISO, NYISO) is published as the point's name. It is a normalised place name and voltage, the same class as `name_canonical` (served verbatim for those registers), not `location.raw_place` (a project's own place string, which stays gated) | §8 field classes; `data/sources.yaml` CAISO/NYISO `publication: derived_only` | If counsel reads the POI string as raw for a `derived_only` register, `name_display` is replaced by a name rebuilt from `name_key` for those sources; the key, totals and pages are unchanged |
 
 ## 10. Corrections to `docs/20`
 

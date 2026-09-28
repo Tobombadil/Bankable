@@ -1,0 +1,54 @@
+{# The interconnection point index's rows: the repo's one list idiom (a count line, one
+   `.record-table` inside `.table-scroll`, the shared `m.pager`, the same `.empty-state`). Every
+   number is the API's, at the reader's tier; an absent value renders an em dash, never "None". #}
+{% import "_macros.html" as m %}
+<p class="result-count" aria-live="polite">
+  {%- if records -%}
+  {% if total is not none %}{{ '{:,}'.format(total) }} point{{ 's' if total != 1 }} match{{ 'es' if total == 1 }} these filters.{% else %}{{ records | length }} point{{ 's' if records | length != 1 }} on this page.{% endif %}
+  {%- else -%}
+  No interconnection points match these filters.
+  {%- endif -%}
+</p>
+{% if records %}
+<div class="table-scroll">
+<table class="record-table">
+  <caption class="visually-hidden">Grid interconnection points matching the current filters, {{ sort_caption }}.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Point</th>
+      <th scope="col">Queue</th>
+      <th scope="col">Kind</th>
+      <th scope="col" class="num">Voltage</th>
+      <th scope="col">Jurisdiction</th>
+      <th scope="col" class="num">Active MW</th>
+      <th scope="col" class="num">Active projects</th>
+      <th scope="col" class="num">Withdrawn</th>
+      <th scope="col" class="num">Built</th>
+      <th scope="col">Leading technologies</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td data-label="Point"><a class="row-link" href="{{ r.href }}">{{ r.name }}</a></td>
+      <td data-label="Queue">{{ r.iso_label or '—' }}</td>
+      <td data-label="Kind">{{ r.kind_label }}</td>
+      <td data-label="Voltage" class="num tnum">{{ r.voltage_label or '—' }}</td>
+      <td data-label="Jurisdiction">{{ r.jurisdiction or '—' }}</td>
+      <td data-label="Active MW" class="num tnum">{{ r.active_mw_label }}</td>
+      <td data-label="Active projects" class="num tnum">{{ r.totals.active_count }}</td>
+      <td data-label="Withdrawn" class="num tnum">{{ r.totals.withdrawn_count }}</td>
+      <td data-label="Built" class="num tnum">{{ r.totals.built_count }}</td>
+      <td data-label="Leading technologies">{{ r.top_technologies | join(', ') if r.top_technologies else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{{ m.pager(prev_cursor, next_cursor, querystring, "/interconnection-points") }}
+{% else %}
+<div class="empty-state">
+  <p>No interconnection points match these filters.</p>
+  <p><a href="/interconnection-points">Clear all filters</a></p>
+</div>
+{% endif %}

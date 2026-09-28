@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from services.api.auth import AuthContext, require_scope
 from services.api.deps import get_db
 from services.api.errors import ProblemError
+from services.api.interconnection_points import proposal_point_embeds
 from services.api.pagination import paginate
 from services.api.params import check_allowed, int_param
 from services.api.ratelimit import default_limiter, plan_quota, policy_header
@@ -204,13 +205,21 @@ def bulk_response(request: Request, db: Session, ctx: AuthContext, resource: Res
     licence_rows: list[dict[str, Any]] = []
     lines: list[dict[str, Any]] = []
     subjects = subject_infos(db, [r for r in rows if isinstance(r, Event)])
+    # The detail shape includes the proposal's grid interconnection point (docs/21 §3.24), batched
+    # for the page; its register's licence must allow API redistribution, like every other field.
+    points = proposal_point_embeds(
+        db, [r for r in rows if isinstance(r, Proposal)], ctx.entitlement, redistribution=True
+    )
     for row in rows:
         if isinstance(row, Event):
             lines.append(serialize_event(row, **subjects[row.subject_id]))
             if (lic := event_licence_row(row)) is not None:
                 licence_rows.append(lic)
         else:
-            lines.append(_record_line(row, redactions, licence_rows))
+            line = _record_line(row, redactions, licence_rows)
+            if isinstance(row, Proposal):
+                line["interconnection_point"] = points[row.id]
+            lines.append(line)
     meta_line = {
         "record_type": "meta",
         "page": build_page(next_cursor, None, has_more),

@@ -128,6 +128,7 @@ from services.db.models import (
 )
 from services.ids import public_id, slugify
 from services.ingest.geocode import CountyGazetteer, default_gazetteer, geocode
+from services.ingest.interconnection import LinkResult, link_source_points
 from services.ingest.lag import record_public_at
 from services.ingest.org_redirects import OrgRedirects
 from services.ingest.vintage import NOT_STATED_VINTAGE, Vintage, from_source_urls
@@ -215,6 +216,8 @@ class LoadResult:
     locations_exact_promoted: int = 0
     organizations_created: int = 0
     warnings: list[str] = field(default_factory=list)
+    #: The grid interconnection pass over this load's proposal links (`None` for opportunities).
+    interconnection: LinkResult | None = None
 
 
 def _bump_dq_status(run: SourceRun, level: str) -> None:
@@ -1432,6 +1435,12 @@ def load_dataframe(
     ctx = _prepare_load_context(session, source, kind, records_df, run)
     records, dup_naturals = _index_records(records_df)
     _upsert_records(session, ctx, records, dup_naturals, batch_size)
+    if kind == "proposal":
+        # Grid interconnection points (owner 2026-09-28; docs/21 §3.24): parsed from each active
+        # link's own raw POI text, after the links are flushed and before events, so a re-load
+        # moves a proposal whose register revised its POI. A source whose rows carry no POI field
+        # (EIA-860M) links nothing.
+        ctx.result.interconnection = link_source_points(session, source, ctx.cache.links.values())
     _load_events(session, ctx, events_df)
     return ctx.result
 

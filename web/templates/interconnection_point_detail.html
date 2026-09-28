@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ record.name }} -- Infraque{% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.kind_label | lower }} in the {{ record.iso_label or 'grid' }} interconnection queue, {{ record.active_mw_label }} MW active across {{ record.totals.active_count }} projects.{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/interconnection-points">Grid interconnection points</a> / {{ record.name }}</nav>
+<div class="detail-header">
+  <h1>{{ record.name }}</h1>
+  <span class="reuse-badge">{{ record.kind_label }}</span>
+</div>
+<p class="attribution-line">A grid interconnection point as {{ record.source_name or 'its queue' }} names it. Projects connect here; they are not necessarily built here. Totals count only the projects listed below.</p>
+
+<dl class="field-grid">
+  <div><dt>Queue</dt><dd>{{ record.iso_label or '—' }}</dd></div>
+  <div><dt>Kind</dt><dd>{{ record.kind_label }}</dd></div>
+  <div><dt>Voltage</dt><dd class="tnum">{{ record.voltage_label or '—' }}</dd></div>
+  <div><dt>Bus number</dt><dd class="mono">{{ record.bus_number or '—' }}</dd></div>
+  <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
+  <div><dt>Substation</dt><dd>{% if record.substation_asset %}<a href="/assets/{{ record.substation_asset.slug }}">{{ record.substation_asset.name }}</a>{% else %}—{% endif %}</dd></div>
+  <div><dt>Active queued (MW)</dt><dd class="tnum">{{ record.active_mw_label }} <span class="attribution-line">across {{ record.totals.active_count }} project{{ 's' if record.totals.active_count != 1 }}</span></dd></div>
+  <div><dt>Withdrawn or cancelled (MW)</dt><dd class="tnum">{{ record.withdrawn_mw_label }} <span class="attribution-line">across {{ record.totals.withdrawn_count }}</span></dd></div>
+  <div><dt>Built (MW)</dt><dd class="tnum">{{ record.built_mw_label }} <span class="attribution-line">across {{ record.totals.built_count }}</span></dd></div>
+</dl>
+
+{% if record.technologies %}
+<section aria-label="By technology">
+  {{ m.section_heading("1.", "By technology") }}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">Projects at this point by technology, largest active capacity first.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Technology</th>
+        <th scope="col" class="num">Active MW</th>
+        <th scope="col" class="num">Active projects</th>
+        <th scope="col" class="num">All projects</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in record.technologies %}
+      <tr>
+        <td data-label="Technology">{{ t.technology | replace('_', ' ') }}</td>
+        <td data-label="Active MW" class="num tnum">{{ t.active_mw_label }}</td>
+        <td data-label="Active projects" class="num tnum">{{ t.active_count }}</td>
+        <td data-label="All projects" class="num tnum">{{ t.count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+<section aria-label="Projects connecting here">
+  {{ m.section_heading("2.", "Projects connecting here") }}
+  {% if proposals_truncated %}<p class="attribution-line">Showing the first {{ proposals | length }} of {{ record.totals.proposal_count }} projects; the totals above cover all of them.</p>{% endif %}
+  {% if proposals %}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">Projects that connect at this point: active first, then built, other and withdrawn, each by capacity.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Status</th>
+        <th scope="col">Name</th>
+        <th scope="col">Technology</th>
+        <th scope="col" class="num">Capacity (MW)</th>
+        <th scope="col">Jurisdiction</th>
+        <th scope="col">Proposed online</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in proposals %}
+      <tr>
+        <td data-label="Status">{{ m.status_chip(p.lifecycle_state, p.lifecycle_family) }}</td>
+        <td data-label="Name"><a class="row-link" href="{{ p.href }}">{{ p.name_canonical }}</a></td>
+        <td data-label="Technology">{{ p.technology or '—' }}</td>
+        <td data-label="Capacity (MW)" class="num tnum">{{ p.capacity_label }}</td>
+        <td data-label="Jurisdiction">{{ p.jurisdiction or '—' }}</td>
+        <td data-label="Proposed online" class="tnum">{{ p.proposed_online_date or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p>No projects to show.</p>
+  {% endif %}
+</section>
+
+{{ m.provenance_panel(provenance_rows, number="3.") }}
+
+{{ m.attribution_line(record) }}
+{% endblock %}

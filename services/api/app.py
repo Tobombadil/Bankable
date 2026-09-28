@@ -189,6 +189,12 @@ from services.api.matches import router as matches_router  # noqa: E402
 
 app.include_router(matches_router)
 
+# Grid interconnection points (owner decision 2026-09-28; docs/21 §3.24): the list and detail of
+# the points proposals connect at, with per-tier queue totals computed over visible proposals.
+from services.api.interconnection_points import router as interconnection_points_router  # noqa: E402
+
+app.include_router(interconnection_points_router)
+
 # Lane E6b (US-603, US-703, US-302 AC1): CSV exports, the NDJSON bulk streams and document
 # metadata, each in its own module; `resource_queries.py` is the filter layer the first two and
 # this file's `list_events` share.

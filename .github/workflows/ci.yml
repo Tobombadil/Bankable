@@ -508,7 +508,7 @@ jobs:
           # axe's bundled driver was one major version ahead of the runner's Chrome on the first
           # CI run (2026-09-15: driver 153, browser 152) and refused to start a session.
           # shellcheck disable=SC2086 # $detail_urls is a space-separated URL list by design
-          npx axe http://127.0.0.1:8000/ http://127.0.0.1:8000/proposals http://127.0.0.1:8000/about $detail_urls \
+          npx axe http://127.0.0.1:8000/ http://127.0.0.1:8000/proposals http://127.0.0.1:8000/interconnection-points http://127.0.0.1:8000/about $detail_urls \
             --chromedriver-path "$CHROMEWEBDRIVER/chromedriver" \
             --exit
       - name: Lighthouse CI (D-31 budgets)

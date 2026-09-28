@@ -27,7 +27,210 @@ CLAUDE.md. OpenStreetMap substations and lines (ODbL share-alike; excluded in `d
 
 ## 1. Interconnection points
 
-*Pending: lane G1.*
+**Status:** built 2026-09-28 (lane G1), owner decision of the same day. Code: `services/ingest/interconnection.py`
+(parse, key, linking), `services/api/interconnection_points.py` (API), `web/interconnection_points.py` (pages),
+migration `0026`. Model: `docs/21` §3.24 and D-14 to D-18.
+
+### 1.1 What a point is
+
+A grid interconnection point (POI) is where a proposed project connects to the grid: a substation bus, or a tap
+on (or loop-in to) a line between two substations. A project connects there; it is not built there. So a point
+is not the project's `location` (`docs/21` §3.7) and never places a record on the map.
+
+Every US ISO queue row stores its POI only inside the raw source record, in the gridstatus column
+`Interconnection Location`. On the dev store that is ERCOT 1,778 rows (e.g. "59903 Bearkat 345kV"), CAISO 2,278
+("Birds Landing 230 kV") and NYISO 1,804 of 1,814 ("Cortland - Fenner 115kV"). The NESO TEC register stores it as
+`Connection Site` (2,198 rows). EIA-860M carries no POI. SPP, ISO-NE, MISO and PJM use the same gridstatus
+column, so their rows gain points with no code change once their licences clear; until then the loader refuses
+them (`CLAUDE.md`, PJM rows are not public).
+
+A point is a record of its own (`interconnection_point`, `poi_…` public id). It carries the provenance quartet
+of the register that names it, so attribution renders the same way it does for a proposal.
+`proposal.interconnection_point_id` links each proposal to its point. `substation_asset_id` is left NULL for
+lane G2's substation crosswalk to fill.
+
+### 1.2 The grouping key
+
+A point is unique per **(register, key)**. It is never merged across ISOs, and never across two registers of one
+ISO. The key is derived from the register's text, in this order (`KEY_RULE_VERSION = 2026-09-28.1`):
+
+1. **Clean.** Mis-decoded cp1252 dashes (`\x96`) and en or em dashes become `-`. Whitespace runs, newlines
+   included, become one space. Trailing `.,;` is dropped and case is folded. A trailing utility tag
+   ("…, ONCOR", "…; AEP") and a comma before a voltage ("Colton - Battle Hill, 115 kV") are punctuation.
+2. **Voltage.** The first `N kV` expression becomes `voltage_kv`. All spellings match: `345kV`, `345 kV`,
+   `345-kV`, `13.2kV`. In a slash group such as `275/132kV`, the highest value is used. **Voltage is part of the
+   key**, because a point is a bus: `Gates 230 kV` and `Gates 500 kV` are two points. No stated voltage is its
+   own value, so `Bellota` never merges with `Bellota 115 kV`.
+3. **Bus numbers** (ERCOT PSS/E numbering). These forms are removed from the name: a leading 3–6 digit number,
+   `#nnnn`, `bus nnnn`, `PSSE nnnn`, `(nnnn)` and `<nnnn>`. A substation's bus number becomes `bus_number` and
+   is **part of its key** when stated. Each line endpoint's bus number is part of that endpoint's key.
+4. **Kind.** `unknown` when the text names several points or describes one in prose. The markers are `;`,
+   ` and `, ` or `, `&`, a comma, a slash between words, `approx`, `located`, `mile(s)`, `between`, `system`, or
+   a length over 100 characters. `line_tap` when the text says tap, line or circuit, or joins two names with
+   `-` or ` to `. Otherwise `substation`. A NESO `Connection Site` is always a substation, because the register
+   names one site per row (e.g. "Sussex and Romney Connection Node A").
+5. **Names.** Brackets are dropped and `&` reads as `and`. Other punctuation becomes a space. Generic words are
+   removed: substation, sub, station, stn, switching, switch, switchyard, yard, sw, ss, swyd, bus, gsp,
+   existing, proposed, poi. `new` is kept, because "New Cumnock" is a place.
+6. **Lines.** The endpoints are split on `-` and ` to ` and **sorted**, so A–B is B–A. The key also keeps the
+   voltage, and the circuit designator (`#1`, `ckt 2`, `No.1`, `line 4`) when one is stated. A *tap* that names
+   one place is that substation. A *line* that names one place ("Warners 69kV line") stays a single-ended
+   `line_tap`.
+7. **`unknown`** groups only identical cleaned text.
+
+The display name is the register's own spelling. When several spellings group, the most common one is shown.
+Strings that name no place produce no point: `TBD`, a bare voltage such as `34.5kV`, `46kV line`, `Line 123975`.
+
+### 1.3 Measured on the dev store (a copy of `web/.data/dev.db`, 2026-09-28)
+
+| Register | Rows with a POI | Distinct spellings | Points | Groups merging ≥ 2 spellings | Rows with no point | Point kinds (substation / line_tap / unknown) |
+|---|---|---|---|---|---|---|
+| ERCOT | 1,778 | 1,416 | 1,248 | 142 (310 spellings) | 0 | 519 / 644 / 85 |
+| CAISO | 2,278 | 1,656 | 1,109 | 281 (828 spellings) | 0 | 589 / 455 / 65 |
+| NYISO | 1,804 | 1,441 | 1,181 | 180 (440 spellings) | 32 | 505 / 518 / 158 |
+| NESO | 2,198 | 1,237 | 1,204 | 32 (65 spellings) | 0 | 1,204 / 0 / 0 |
+
+- **Proposals linked:** 8,026 of 10,379, or 77.3%. By register: ERCOT, CAISO and NESO 100%, NYISO 97.7%
+  (1,772 of 1,814). EIA-860M is 0% because it carries no POI.
+- **Points with two or more proposals:** CAISO 366, ERCOT 362, NESO 452, NYISO 296.
+
+**False-merge check.** The false merges below were measured on the rule as first written; each change listed was
+made before the final sample was drawn.
+
+- **Exhaustive bus check.** Before bus numbers were in the key, 4 ERCOT substation groups each held two
+  different stated buses: Roma 8795 and 8796, Midlothian 1939 and 1940, Cenizo 80220 and 80223, and
+  TNCENTRY1 38431 and 38432. So did 2 line groups: Venus 1906 and 1907, and Shamburger 3103 and 3223. These are
+  false merges. With the bus in the key, 0 groups in any register hold two different stated buses.
+- **Hand check of 30 groupings.** The sample was 30 groupings that merge two or more distinct spellings, drawn
+  at random (seed 20260928): 8 ERCOT, 8 CAISO, 8 NYISO and 6 NESO. **All 30 are one bus or one line spelled
+  differently.** Examples:
+  - "WA Parish 345 kV Bus #44000" and "44000 Wa Parish 345 kV";
+  - "Mohican to Battenkill 115 kV Line #15" and "Battenkill to Mohican 115kV line#15";
+  - "Walpole 400kV Substation" and "Walpole 400kV substations";
+  - "Coalburn 400kV Substation" and "Coalburn 400/132kV".
+- **Earlier sample rounds** found three cases that the rule now handles:
+  - one false merge, Roma 8795 and 8796, which the bus rule above fixed;
+  - one ambiguous merge, "Warners 69kV line" joining the Warners substation, now a single-ended line;
+  - one latent risk, "New Cumnock" keyed as "cumnock", which is why `new` is no longer dropped.
+- **One junk point.** "Ngrid 115kV" (NYISO) names a utility, not a site. Its two identical spellings group
+  correctly, but the point means little.
+
+The cost of this conservatism is misses, not false merges. A spelling that omits the voltage or the bus number
+stays a separate point, as do "W 49th St" and "W49th St". Unifying spellings like these is the substation
+crosswalk's job.
+
+**Top 15 points by active queued MW (public tier).** All 15 are NESO points:
+
+| # | Point | Active MW | Active projects |
+|---|---|---|---|
+| 1 | Alverdiscott 400kV | 13,365.9 | 16 |
+| 2 | Creyke Beck 400kV | 9,078.4 | 7 |
+| 3 | Norwich Main 400kV | 8,354.0 | 7 |
+| 4 | Branxton 400kV | 6,976.6 | 7 |
+| 5 | Grimsby West 400kV | 6,555.0 | 7 |
+| 6 | Longside 400kV | 6,500.0 | 6 |
+| 7 | Trent Valley South Connection Node D 400kV | 6,420.0 | 4 |
+| 8 | East Claydon 400kV | 6,175.0 | 7 |
+| 9 | Navenby 400kV | 5,569.9 | 9 |
+| 10 | Birkhill Wood 400kV | 5,150.0 | 5 |
+| 11 | Cheshire Connection Node A 400kV | 5,130.0 | 4 |
+| 12 | Greens 400kV | 5,100.0 | 4 |
+| 13 | South Anglia Connection Node C 400kV | 5,074.0 | 6 |
+| 14 | Sizewell 400kV | 5,010.0 | 2 |
+| 15 | Shurton 400kV | 5,010.0 | 2 |
+
+The largest US point in each ISO:
+
+| ISO | Point | Active MW | Active projects |
+|---|---|---|---|
+| ERCOT | #3308 Pin Oak 345KV | 3,789.0 | 3 |
+| CAISO | Delaney–Colorado River 500 kV line | 3,200.0 | 1 (6 withdrawn) |
+| NYISO | East Garden City 345 kV | 1,321.0 | 1 (10 withdrawn) |
+
+**Timing.** Measured in-process on SQLite (TestClient), median of 7 runs, over 4,742 visible points:
+
+| Request | Median |
+|---|---|
+| `GET /v1/interconnection-points` (default page of 50) | 86 ms |
+| with `include=count` | 131 ms |
+| second page (cursor) | 101 ms |
+| `iso=CAISO&kind=substation` | 80 ms |
+| `sort=name&limit=200` | 128 ms |
+| detail of the top point | 49 ms |
+
+Backfilling all four registers took 5.3 s (`link_all_points`), and an idempotent re-run 3.5 s.
+
+### 1.4 Aggregation and visibility
+
+- **Totals are computed per request, at the caller's tier, over visible proposals only.** They use
+  `proposal_visibility_filter`: record `publish_state`, timing, licence class and a permitted source link. Totals
+  are never stored, because a stored total would carry a hidden proposal's capacity (`docs/21` §8 item 4). An
+  unpublished 900 MW row, or a Pro-only row that is not yet public, adds nothing to a public total. The tests
+  pin this.
+- **Buckets.** The buckets are the public list's:
+  - *active*: announced through under construction, the web list's default view (pinned equal by a test);
+  - *withdrawn*: withdrawn or cancelled;
+  - *built*;
+  - *other*: `unknown`.
+
+  Megawatts are the sum of `capacity_mw` where stated. A proposal with no capacity counts but adds no MW.
+  `by_technology` gives count, active count and active MW per technology.
+- **A point exists on a tier only when two conditions hold.** Its naming register must pass `source_permits`
+  and `licence_permits`, and at least one proposal at the point must be visible at that tier
+  (`interconnection_point_visibility_filter`). If either fails:
+  - the point is absent from the list;
+  - its detail answers the same 404 an unknown id gets;
+  - `?interconnection_point_id=` selects nothing, exactly as an unknown id does. This holds on the proposal
+    list, the map, the feed and the alert matcher.
+
+  A point whose only proposals are unpublished, and a PJM-named point beside a visible proposal, are therefore
+  both dark (D-17).
+- **`derived_only` registers (CAISO, NYISO).** The POI name is published as a normalised place name and voltage,
+  in the same class as `name_canonical`. `location.raw_place` stays gated (D-18). This is recorded as an
+  assumption for counsel.
+
+### 1.5 API and pages
+
+- **`GET /v1/interconnection-points`.**
+  - Filters: `iso`, `jurisdiction`, `kind`, `q` (name substring or exact bus number) and `min_active_mw`.
+  - Sort: `sort=-active_mw` (the default), `name` or `voltage_kv`.
+  - Paging and count: keyset cursor paging over the aggregate, and `include=count`.
+- **`GET /v1/interconnection-points/{public_id}`.** Returns the point, its `totals`, and `proposals[]`: active
+  first, then built, other and withdrawn, each by capacity, capped at 500 with `proposals_truncated`.
+- **`GET /v1/proposals/{id}`.** Now carries `interconnection_point`: id, name, url, kind, voltage, and active MW
+  and counts at the caller's tier. It is `null` when there is no point or its register is not visible.
+  `GET /v1/bulk/proposals` carries the same field, since its contract is the detail shape. It is batched per page,
+  and it is `null` there when the point's licence does not allow API redistribution.
+- **`interconnection_point_id` filter.** It applies on `GET /v1/proposals`, `/v1/proposals/geo`, the proposal
+  feed, exports, saved searches and webhooks. The alert matcher implements it (parity test).
+- All paths are documented `x-status: live` in `api/openapi.yaml`.
+- **Web pages.**
+  - `/interconnection-points` has a filter bar, a table and a pager, and is linked from the primary nav as
+    "Grid points".
+  - `/interconnection-points/{public_id}` shows the fields, totals, a technology table, the projects table and
+    the Sources panel.
+  - On a proposal page, a "Connects at" row links the point with its active MW and project count.
+  - `/proposals?interconnection_point_id=` passes the filter through.
+
+### 1.6 Limits and open items
+
+- **Misses by design.** Spelling variants that omit the voltage or the bus number, and the same substation under
+  two registers, stay separate points. The G2 crosswalk (`substation_asset_id`) is the unifying layer. The API
+  already embeds `substation_asset` when that column is set and the asset is visible.
+- **`unknown` points.** 308 of 4,742 points (6.5%) are prose or multi-point strings. They group only identical
+  text; the page labels them "Unparsed". Splitting the multi-point strings into several points is not built.
+- **Stored point facts.** `jurisdiction` and `operator` are the mode over all linked proposals at load time,
+  including proposals later unpublished. Within one register these agree (for example, every ERCOT point is
+  US-TX), but they are not recomputed per tier.
+- **Emptied points stay stored.** A point whose register revises every row away keeps its row and becomes
+  invisible. Nothing deletes it.
+- **Not built:**
+  - no sitemap entries for points;
+  - no map layer (that is lane G2's area);
+  - no events on a point.
+- **Not in CI's axe scan.** The CI axe job does not scan `/interconnection-points` yet (`.github/workflows/ci.yml`
+  is outside this lane). The pages use the existing list and detail idioms only.
+- **Counsel read.** D-18, the POI name for `derived_only` registers.
 
 ## 2. Substations and transmission lines
 
