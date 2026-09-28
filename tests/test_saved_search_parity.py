@@ -39,6 +39,7 @@ from services.api.visibility import (
 )
 from services.db.models import (
     Event,
+    InterconnectionPoint,
     Licence,
     Location,
     Opportunity,
@@ -211,6 +212,27 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     ]
     sponsors = [None, acme, hidden]
     source_sets = [[src_a], [src_b], [src_a, src_g], [src_g], [src_a, src_b]]
+    # Grid interconnection points (2026-09-28, lane G1): one named by a public register, one by the
+    # `api_only` register (visible to Pro, an unknown id to the public tier), and rows at neither.
+    points: list[InterconnectionPoint | None] = []
+    for key, src in (("a", src_a), ("g", src_g)):
+        point = InterconnectionPoint(
+            public_id="",
+            operator="ERCOT",
+            name_display=f"Point {key} 345kV",
+            name_key=f"sub:point {key}|345",
+            key_rule="test",
+            kind="substation",
+            source_id=src.id,
+            source_url=src.url,
+            retrieved_at=NOW - dt.timedelta(days=1),
+            licence_id=src.licence_id,
+        )
+        db.add(point)
+        db.flush()
+        point.public_id = public_id("poi", point.id)
+        points.append(point)
+    points.append(None)
     names = ["Alpha Solar", "Bravo Wind", "Charlie Storage", "Delta_Grid", "Echo 100% Farm"]
     storage = [None, 0.0, 99.999, 100.0, 400.0]
 
@@ -235,6 +257,7 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             location_id=(loc.id if (loc := _pick(locations, i, 5)) else None),
             proposed_online_date=_pick(dates, i),
             storage_mwh=_pick(storage, i, 3),
+            interconnection_point_id=(pt.id if (pt := _pick(points, i, 7)) else None),
             first_seen=NOW - dt.timedelta(days=i % 40, hours=1),
             last_changed=NOW - dt.timedelta(minutes=i),
         )
@@ -346,11 +369,14 @@ def store(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "opportunities": opportunities,
         "events": events,
         "orgs": {"acme": acme.public_id, "hidden": hidden.public_id},
+        "points": {"public": points[0].public_id, "gated": points[1].public_id},  # type: ignore[union-attr]
     }
 
 
 #: An organisation id that names nothing: a taken-down organisation must select exactly what this does.
 UNKNOWN_ORG = "org_does-not-exist"
+#: A point id that names nothing: a point from a register the tier may not see selects what this does.
+UNKNOWN_POINT = "poi_0000000000"
 
 
 # --------------------------------------------------------------------------------------- queries
@@ -422,6 +448,16 @@ def _proposal_queries(store: dict[str, Any]) -> list[dict[str, Any]]:
         {"last_changed[to]": middle.last_changed.isoformat()},
         {"updated_since": middle.last_changed.isoformat()},
         {"sponsor_id": acme, "storage_mwh[gte]": 50, "last_changed[to]": middle.last_changed.isoformat()},
+        # Lane G1 (2026-09-28): grid interconnection points.
+        {"interconnection_point_id": store["points"]["public"]},
+        {"interconnection_point_id": store["points"]["gated"]},
+        {"interconnection_point_id": [store["points"]["public"], store["points"]["gated"]]},
+        {"interconnection_point_id": UNKNOWN_POINT},
+        {
+            "interconnection_point_id": store["points"]["public"],
+            "state": "US-TX",
+            "lifecycle_state": "filed,built",
+        },
     ]
 
 
@@ -591,7 +627,10 @@ def test_proposal_list_and_matcher_agree(
             # A taken-down sponsor's id selects nothing, the same as an id that never existed.
             {"sponsor_id": store["orgs"]["hidden"]},
             {"sponsor_id": UNKNOWN_ORG},
+            {"interconnection_point_id": UNKNOWN_POINT},
             *([{"source_id": "us.par.gated"}] if tier == "public" else []),
+            # The `api_only` register's point is an unknown id to the public tier.
+            *([{"interconnection_point_id": store["points"]["gated"]}] if tier == "public" else []),
         ),
     )
 

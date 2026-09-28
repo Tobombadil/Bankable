@@ -21,7 +21,9 @@ record ids with SQL `LIKE` wildcards, and on events `changed_key` (any-of over `
 and inclusive `observed_at[from|to]` bounds (2026-09-27, lane E14); on proposals and opportunities
 `sponsor_id`/`issuer_id` (a hidden organisation matches no id), `storage_mwh[gte]`,
 `capacity_sought_mw[gte]`, `open_at[from|to]`, `budget_currency` and `budget_amount[gte]` (one currency,
-never across), and the `first_seen`/`last_changed` windows (2026-09-27, lane E15). `GET /v1/events` refuses
+never across), and the `first_seen`/`last_changed` windows (2026-09-27, lane E15); on proposals
+`interconnection_point_id` (a point whose register the owner's tier may not see matches no id; 2026-09-28,
+lane G1). `GET /v1/events` refuses
 `q`, so an event query never carries one that means anything. Value parsing and validation go
 through the functions the list endpoints call (`number_filter`, `instant_filter`, `date_filter`,
 `currency_values`, `budget_bound`, `placement_grades`, `slip_params`, `changed_key_values`).
@@ -69,7 +71,7 @@ from services.api.records import (
     slip_params,
 )
 from services.api.resource_queries import changed_key_values
-from services.api.visibility import organization_visible, visible_source_links
+from services.api.visibility import interconnection_point_visible, organization_visible, visible_source_links
 from services.db.models import Event, Location, Opportunity, OpportunitySource, Proposal, ProposalSource
 from services.ids import parse_public_id, public_id
 
@@ -152,6 +154,17 @@ def _org_matches(org: Any, raw: str) -> bool:
     return org is not None and organization_visible(org) and org.public_id in csv_param(raw)
 
 
+def _point_matches(point: Any, raw: str, entitlement: str) -> bool:
+    """`interconnection_point_id=` (records.py): the proposal connects at one of the named points
+    *and* that point's register is visible at the owner's tier; a point named by a gated register
+    matches no id, as in SQL."""
+    return (
+        point is not None
+        and interconnection_point_visible(point, entitlement)
+        and point.public_id in csv_param(raw)
+    )
+
+
 def _time_bounds_match(record: Proposal | Opportunity, qp: Mapping[str, str]) -> bool:
     """`first_seen[from|to]`, `last_changed[from|to]`, `updated_since`: records.py
     `RECORD_TIME_BOUNDS`, inclusive, compared as UTC instants. A saved search cannot store
@@ -210,6 +223,10 @@ def _proposal_matches(proposal: Proposal, qp: Mapping[str, str], entitlement: st
     ):
         return False
     if (v := qp.get("sponsor_id")) and not _org_matches(proposal.sponsor, v):
+        return False
+    if (v := qp.get("interconnection_point_id")) and not _point_matches(
+        proposal.interconnection_point, v, entitlement
+    ):
         return False
     if not _time_bounds_match(proposal, qp):
         return False

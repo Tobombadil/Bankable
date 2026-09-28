@@ -318,3 +318,19 @@ def test_run_matches_runs_the_matcher_in_full_mode_and_logs_its_summary(
         dev_up._run_matches(session)  # type: ignore[arg-type]
     assert calls == [{"session": session, "full": True}]
     assert "matches: mode=full added=3" in [r.getMessage() for r in caplog.records]
+
+
+def test_link_interconnection_points_runs_the_ingest_pass_and_logs_each_source(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class _Result:
+        def summary(self) -> str:
+            return "us.iso.ercot.gen_queue: 3/3 proposals linked to 2 points"
+
+    calls: list[object] = []
+    monkeypatch.setattr(dev_up, "link_all_points", lambda session: calls.append(session) or [_Result()])
+    session = object()
+    with caplog.at_level(logging.INFO, logger=dev_up.log.name):
+        dev_up._link_interconnection_points(session)  # type: ignore[arg-type]
+    assert calls == [session]
+    assert "interconnection points: us.iso.ercot.gen_queue: 3/3 proposals linked to 2 points" in caplog.text

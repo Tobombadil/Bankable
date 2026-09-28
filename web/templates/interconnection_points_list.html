@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Grid interconnection points -- Infraque{% endblock %}
+{% block meta_description %}Substations and line taps where proposed power projects connect to the grid, each with the megawatts queued there, from the interconnection queues that name them.{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / Grid interconnection points</nav>
+<div class="page-header">
+  <h1>Grid interconnection points</h1>
+  <p>Where proposed projects connect to the grid, as each interconnection queue names it: a substation bus or a tap on a line. A project connects at the point; it is not built there. Each row adds up the projects queued at that point.</p>
+</div>
+<p class="attribution-line">Totals count only projects this page may show; a project withheld under its source licence, or not yet published, is not in any number here. Spellings of one point in one queue are grouped by a documented rule; points are never merged across queues. <a href="/methodology">Methodology</a>.</p>
+
+<form id="filters" class="filter-bar" method="get" action="/interconnection-points" hx-get="/interconnection-points" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" role="search">
+  <div class="filter-field">
+    <label for="f-poi-iso">Queue</label>
+    <select id="f-poi-iso" name="iso">
+      <option value="">All</option>
+      {% for token in iso_options %}<option value="{{ token }}" {% if filters.get('iso') == token %}selected{% endif %}>{{ token }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-poi-kind">Kind</label>
+    <select id="f-poi-kind" name="kind">
+      <option value="">All</option>
+      {% for value, label in kind_labels.items() %}<option value="{{ value }}" {% if filters.get('kind') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-poi-jurisdiction">Jurisdiction</label>
+    <input id="f-poi-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX" value="{{ filters.get('jurisdiction', '') }}">
+  </div>
+  <div class="filter-field">
+    <label for="f-poi-min">Active MW at least</label>
+    <input id="f-poi-min" type="number" name="min_active_mw" min="0" step="any" value="{{ filters.get('min_active_mw', '') }}">
+  </div>
+  <div class="filter-field">
+    <label for="f-poi-q">Name or bus number</label>
+    <input id="f-poi-q" type="search" name="q" placeholder="e.g. Whirlwind" value="{{ filters.get('q', '') }}">
+  </div>
+  <div class="filter-field">
+    <label for="f-poi-sort">Sort</label>
+    <select id="f-poi-sort" name="sort">
+      {% for token, label in sorts %}<option value="{{ token }}" {% if token == sort %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="filter-bar__submit" type="submit">Apply filters</button>
+  {% if filters.get('iso') or filters.get('kind') or filters.get('jurisdiction') or filters.get('min_active_mw') or filters.get('q') %}
+  <a class="filter-bar__clear" href="/interconnection-points">Clear all</a>
+  {% endif %}
+</form>
+
+<div id="result-rows">
+  {% include "partials/_interconnection_point_rows.html" %}
+</div>
+{% endblock %}

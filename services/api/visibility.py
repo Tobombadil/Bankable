@@ -77,6 +77,7 @@ from services.db.models import (
     REUSE_CLASSES,
     Asset,
     Event,
+    InterconnectionPoint,
     Licence,
     Location,
     Opportunity,
@@ -270,6 +271,63 @@ def asset_visibility_filter(
 
 #: The name the 2026-09-18 audit item uses; same object as `asset_visibility_filter`.
 visible_asset_predicate = asset_visibility_filter
+
+
+# ------------------------------------------------------------------ interconnection points (0026)
+def interconnection_point_source_filter(entitlement: Entitlement = "public") -> list[ColumnElement[bool]]:
+    """The point's own provenance clauses (docs/21 §3.24): its source passes `source_permits` at
+    `entitlement` and the licence its quartet prints passes `licence_permits` -- the two clauses
+    `asset_visibility_filter` applies, because the point's name is that register's text. A point
+    named by a gated register (PJM, or a source an operator has not put on the surface) is
+    invisible on every non-admin surface even when a proposal at it is visible through another
+    source. Aliased so the EXISTS keeps its own FROM whatever the caller joined."""
+    lic = aliased(Licence)
+    src = aliased(Source)
+    return [
+        exists(
+            select(lic.id).where(
+                lic.id == InterconnectionPoint.licence_id, lic.reuse_class.in_(PUBLISHABLE_REUSE_CLASSES)
+            )
+        ),
+        exists(
+            select(src.id).where(
+                src.id == InterconnectionPoint.source_id,
+                src.publish_state.in_(permitted_source_states(entitlement)),
+            )
+        ),
+    ]
+
+
+def interconnection_point_visibility_filter(
+    entitlement: Entitlement = "public", now: dt.datetime | None = None
+) -> list[ColumnElement[bool]]:
+    """A point is visible at `entitlement` when its own source and licence are
+    (`interconnection_point_source_filter`) **and** at least one proposal at it is visible at the
+    same tier (`proposal_visibility_filter`, correlated on `proposal.interconnection_point_id`).
+    The second clause is what keeps a point whose only proposals are gated, unpublished, merged
+    away or not yet public off every public surface: its name alone would disclose that the
+    register holds a project there (docs/21 §8 item 3: the existence of the row is itself a
+    disclosure). Its aggregates are computed over the same visible set, never stored
+    (`services/api/interconnection_points.py`)."""
+    return [
+        *interconnection_point_source_filter(entitlement),
+        exists(
+            select(Proposal.id).where(
+                Proposal.interconnection_point_id == InterconnectionPoint.id,
+                *proposal_visibility_filter(entitlement, now),
+            )
+        ),
+    ]
+
+
+def interconnection_point_visible(point: InterconnectionPoint, entitlement: Entitlement = "public") -> bool:
+    """Python twin of `interconnection_point_source_filter` for a loaded point -- the proposal
+    detail's `interconnection_point` embed, whose own proposal already satisfies the
+    visible-proposal clause. `source_visible` reads the source's licence, and the point's own
+    `licence` must be publishable too, since that is the licence its quartet prints."""
+    return (
+        source_visible(point.source, entitlement) and point.licence.reuse_class in PUBLISHABLE_REUSE_CLASSES
+    )
 
 
 def location_exact_permitted() -> ColumnElement[bool]:

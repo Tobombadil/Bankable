@@ -42,6 +42,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from services.db.session import get_engine, get_sessionmaker, init_db
+from services.ingest.interconnection import link_all_points
 from services.match.run import run_matches
 from web.data_loading import DEFAULT_DATA_ROOT, DEFAULT_SOURCES_YAML, load_dev_database, load_test_database
 
@@ -354,6 +355,17 @@ def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
         log.info("context asset layers: no midstream/fuels parquet under %s yet, skipping", context_dir)
 
 
+def _link_interconnection_points(session: Session) -> None:
+    """Grid interconnection points (owner decision 2026-09-28; docs/21 §3.24). The loader already
+    links every proposal it loads (`services/ingest/loader.py::load_dataframe`), so on a fresh
+    `dev.db` this pass finds nothing to change; it runs anyway, through the ingest lane's own
+    `link_all_points`, so a store whose proposals arrived by any other path (the evaluation
+    fixture, an older load) shows its points too, and so the log says how many points the site
+    has. One line per source."""
+    for result in link_all_points(session):
+        log.info("interconnection points: %s", result.summary())
+
+
 def _run_matches(session: Session) -> None:
     """docs/10 US-401: compute proposal <-> opportunity matches over everything just loaded, through
     the matcher's own entry point (`services.match.run.run_matches`, full mode -- a fresh store has
@@ -452,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
             load_fixture_if_empty(session, report, sample_per_state=args.sample_per_state)
             _load_plants_context_layer(session, args.data_dir)
             _load_context_asset_layers(session, args.data_dir)  # includes owner shares + features
+            _link_interconnection_points(session)
             _run_matches(session)
             session.commit()  # belt-and-braces: correct even if either loader above also commits
         finally:

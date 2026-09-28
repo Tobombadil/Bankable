@@ -19,6 +19,7 @@
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
   <div><dt>County</dt><dd>{{ record.county or '—' }}{% if record.restricted_precision %} <span class="reuse-badge">county level (source licence)</span>{% elif record.location_precision == 'county_centroid' %} <span class="reuse-badge">county centroid</span>{% endif %}</dd></div>
   <div><dt>ISO / operator</dt><dd>{{ record.iso_label or '—' }}</dd></div>
+  <div><dt>Connects at</dt><dd>{% if connection %}<a href="{{ connection.href }}">{{ connection.name }}</a> <span class="attribution-line tnum">{{ connection.active_mw_label }} MW active across {{ connection.active_count }} project{{ 's' if connection.active_count != 1 }} queued there ({{ connection.proposal_count }} in all)</span>{% else %}—{% endif %}</dd></div>
   <div><dt>Sponsor</dt><dd>{{ record.sponsor or '—' }}</dd></div>
   <div><dt>Queue ID</dt><dd class="mono">{{ record.queue_id or '—' }}</dd></div>
   <div><dt>EIA plant / generator ID</dt><dd class="mono">{{ (record.eia_plant_id ~ ' / ' ~ record.eia_generator_id) if record.eia_plant_id else '—' }}</dd></div>

@@ -88,6 +88,8 @@ tags:
     description: Proposal ↔ opportunity matches with score and rationale (docs/21 §3.11).
   - name: Map
     description: Clustered GeoJSON for the map-first surface (docs/04 §2.2). Same filters and tier rules as the lists.
+  - name: Interconnection points
+    description: Where proposals connect to the grid, as each register names it (docs/21 §3.24), with the queue behind each point. Totals are computed per request over the proposals the caller's tier may see.
   - name: Context
     description: Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14) — existing plants under the proposals map, and its identifier-free interaction measurement (docs/21 §3.20-§3.21). Public on every tier; no proposal semantics.
   - name: Documents
@@ -307,6 +309,7 @@ paths:
         - $ref: '#/components/parameters/Slipped'
         - $ref: '#/components/parameters/SlipBucket'
         - $ref: '#/components/parameters/SponsorId'
+        - $ref: '#/components/parameters/InterconnectionPointId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
         - $ref: '#/components/parameters/CapacityMwLte'
@@ -389,6 +392,7 @@ paths:
         - $ref: '#/components/parameters/Slipped'
         - $ref: '#/components/parameters/SlipBucket'
         - $ref: '#/components/parameters/SponsorId'
+        - $ref: '#/components/parameters/InterconnectionPointId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
         - $ref: '#/components/parameters/CapacityMwLte'
@@ -1469,6 +1473,76 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
 
   # ───────────────────────────────────── Assets (docs/21 §3.22-§3.23, ADR 0008) ─────────────────────────────────────
+  /v1/interconnection-points:
+    get:
+      operationId: listInterconnectionPoints
+      tags: [Interconnection points]
+      summary: List grid interconnection points
+      description: >-
+        The substation buses and line taps proposals connect at, one row per register spelling group (docs/21 §3.24;
+        the grouping key is `services/ingest/interconnection.py`'s documented rule and never merges across ISOs or
+        registers). Each row carries `totals`: queued MW and counts by lifecycle bucket (active = announced through
+        under construction; withdrawn = withdrawn or cancelled; built; other = unknown) and by technology,
+        **computed per request over the proposals the caller's tier may see**. A point with no visible proposal is
+        absent, and a point named by a register the tier may not see (a restricted or unknown licence, PJM
+        included, or a source not on the surface) is absent even beside a visible proposal. Default sort is active
+        queued MW, largest first.
+      x-tier: public
+      x-status: live
+      x-sprint: 5
+      x-prd-stories: [US-102, US-105]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/IncludeCount'
+        - $ref: '#/components/parameters/SortInterconnectionPoints'
+        - $ref: '#/components/parameters/InterconnectionPointQ'
+        - $ref: '#/components/parameters/Iso'
+        - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/InterconnectionPointKind'
+        - $ref: '#/components/parameters/MinActiveMw'
+      responses:
+        '200':
+          description: A page of interconnection points inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterconnectionPointListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/interconnection-points/{public_id}:
+    parameters:
+      - $ref: '#/components/parameters/InterconnectionPointPublicId'
+    get:
+      operationId: getInterconnectionPoint
+      tags: [Interconnection points]
+      summary: Interconnection point detail
+      description: >-
+        The point, its `totals` at the caller's tier, and `proposals[]`: the visible proposals that connect at it,
+        active first, then built, other and withdrawn, each by capacity (at most 500; `proposals_truncated` says
+        when more exist, and `totals` always covers all of them). `404` for an unknown id and, identically, for a
+        point with no visible proposal or whose register the tier may not see.
+      x-tier: public
+      x-status: live
+      x-sprint: 5
+      x-prd-stories: [US-201, US-203]
+      security: *sec_public
+      responses:
+        '200':
+          description: The interconnection point inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterconnectionPointDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
   /v1/assets:
     get:
       operationId: listAssets
@@ -5370,6 +5444,7 @@ paths:
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
         - $ref: '#/components/parameters/SponsorId'
+        - $ref: '#/components/parameters/InterconnectionPointId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
         - $ref: '#/components/parameters/CapacityMwLte'
@@ -6340,6 +6415,62 @@ components:
         maxItems: 500
         items:
           type: string
+    InterconnectionPointId:
+      name: interconnection_point_id
+      in: query
+      description: >-
+        Proposals that connect at the named grid interconnection point(s) (`poi_…`); comma-separated for OR. A point
+        named by a register the caller's tier may not see matches nothing, exactly as an id that does not exist.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/InterconnectionPointPublicId'
+    InterconnectionPointQ:
+      name: q
+      in: query
+      description: Case-insensitive substring of the point's name as the register spells it, or its exact bus number.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+    InterconnectionPointKind:
+      name: kind
+      in: query
+      description: Point kind; comma-separated for OR.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/InterconnectionPointKind'
+    MinActiveMw:
+      name: min_active_mw
+      in: query
+      description: Points whose active queued MW (at the caller's tier) is at least this; inclusive.
+      schema:
+        type: number
+        minimum: 0
+    SortInterconnectionPoints:
+      name: sort
+      in: query
+      description: 'Allowlist: `active_mw`, `name`, `voltage_kv`; only the first field applies. Default `-active_mw`.'
+      schema:
+        type: string
+        pattern: '^-?(active_mw|name|voltage_kv)(,-?(active_mw|name|voltage_kv))*$'
+        default: '-active_mw'
+    IncludeCount:
+      name: include
+      in: query
+      description: '`count` adds `meta.total`.'
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [count]
     SponsorId:
       name: sponsor_id
       in: query
@@ -6969,6 +7100,12 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/AnyPublicIdValue'
+    InterconnectionPointPublicId:
+      name: public_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/InterconnectionPointPublicId'
     AssetPublicId:
       name: public_id
       in: path
@@ -7494,6 +7631,10 @@ components:
       type: string
       pattern: '^evt_[0-9A-HJKMNP-TV-Z]{10,26}$'
       examples: [evt_01JBQ8F0N2]
+    InterconnectionPointPublicId:
+      type: string
+      pattern: '^poi_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      examples: [poi_01JBQ8K2P4]
     MatchPublicId:
       type: string
       pattern: '^mat_[0-9A-HJKMNP-TV-Z]{10,26}$'
@@ -8388,6 +8529,14 @@ components:
           description: One entry per visible source row.
           items:
             $ref: '#/components/schemas/ProvenanceRow'
+        interconnection_point:
+          oneOf:
+            - $ref: '#/components/schemas/InterconnectionPointEmbed'
+            - type: 'null'
+          description: >-
+            Proposal detail only: the grid interconnection point the project connects at (docs/21 §3.24), with its
+            active queued MW and counts at the caller's tier; `null` when the register names none or the naming
+            register is not visible to the tier.
         field_provenance:
           $ref: '#/components/schemas/FieldProvenance'
         sources:
@@ -9874,6 +10023,153 @@ components:
               $ref: '#/components/schemas/OrganizationAssetTotals'
             scope:
               $ref: '#/components/schemas/OrganizationScopeMeta'
+    InterconnectionPointKind:
+      type: string
+      enum: [substation, line_tap, unknown]
+      description: >-
+        `substation`: a named substation bus. `line_tap`: a tap on, or loop-in to, a line between named places (or a
+        line out of one place). `unknown`: the register's text names several points or describes one in prose; it
+        groups only with identical text.
+    InterconnectionPointTotals:
+      type: object
+      description: >-
+        Aggregates over the proposals at the point that the caller's tier may see, computed per request and never
+        stored. MW sums `capacity_mw` where stated; a proposal without capacity counts but adds no MW.
+      required: [proposal_count, active_count, active_mw, withdrawn_count, withdrawn_mw, built_count, built_mw, other_count, other_mw, by_technology]
+      properties:
+        proposal_count: {type: integer, minimum: 0}
+        active_count: {type: integer, minimum: 0, description: 'Announced through under construction.'}
+        active_mw: {type: number, minimum: 0}
+        withdrawn_count: {type: integer, minimum: 0, description: 'Withdrawn or cancelled.'}
+        withdrawn_mw: {type: number, minimum: 0}
+        built_count: {type: integer, minimum: 0}
+        built_mw: {type: number, minimum: 0}
+        other_count: {type: integer, minimum: 0, description: 'Lifecycle state `unknown`.'}
+        other_mw: {type: number, minimum: 0}
+        by_technology:
+          type: array
+          description: One row per normalised technology (`unknown` where none), largest active MW first.
+          items:
+            type: object
+            required: [technology, count, active_count, active_mw]
+            properties:
+              technology: {type: string}
+              count: {type: integer, minimum: 0}
+              active_count: {type: integer, minimum: 0}
+              active_mw: {type: number, minimum: 0}
+    InterconnectionPoint:
+      type: object
+      description: >-
+        Where proposals connect to the grid, as one register names it (docs/21 §3.24). Not a placement: a project
+        connects at a substation, it is not built there. `provenance[]` is the naming register's quartet.
+      required: [public_id, url, name, iso, kind, voltage_kv, bus_number, jurisdiction, substation_asset, totals, provenance]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/InterconnectionPointPublicId'
+        url:
+          type: string
+          format: uri
+          description: Canonical page (`https://infraque.com/interconnection-points/{public_id}`).
+        name:
+          type: string
+          description: The register's own spelling (the most common one when several spellings group).
+          examples: [Birds Landing 230 kV]
+        iso:
+          type: string
+          description: The market operator token its proposals carry (`ERCOT`, `CAISO`, `NYISO`, `NESO`).
+        kind:
+          $ref: '#/components/schemas/InterconnectionPointKind'
+        voltage_kv:
+          type: [number, 'null']
+          description: The first voltage the text states (the highest of a `275/132kV` group); part of the grouping key.
+        bus_number:
+          type: [string, 'null']
+          description: The bus number the text states (ERCOT PSS/E numbering); part of the grouping key when stated.
+        jurisdiction:
+          type: [string, 'null']
+          description: ISO 3166-2 (or country) most of its proposals carry.
+        substation_asset:
+          oneOf:
+            - $ref: '#/components/schemas/InterconnectionPointAsset'
+            - type: 'null'
+          description: The substation asset the crosswalk links it to, when one exists and is visible.
+        totals:
+          $ref: '#/components/schemas/InterconnectionPointTotals'
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProvenanceQuartet'
+    InterconnectionPointAsset:
+      type: object
+      required: [public_id, slug, url, name]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/AssetPublicId'
+        slug: {type: string}
+        url: {type: string, format: uri}
+        name: {type: string}
+    InterconnectionPointProposal:
+      type: object
+      required: [public_id, slug, url, name_canonical, lifecycle_state, lifecycle_bucket, jurisdiction]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/ProposalPublicId'
+        slug: {type: string}
+        url: {type: string, format: uri}
+        name_canonical: {type: string}
+        technology: {type: [string, 'null']}
+        capacity_mw: {type: [number, 'null']}
+        lifecycle_state:
+          $ref: '#/components/schemas/LifecycleState'
+        lifecycle_bucket:
+          type: string
+          enum: [active, withdrawn, built, other]
+        jurisdiction: {type: string}
+        proposed_online_date: {type: [string, 'null'], format: date}
+    InterconnectionPointDetail:
+      allOf:
+        - $ref: '#/components/schemas/InterconnectionPoint'
+        - type: object
+          required: [proposals, proposals_truncated]
+          properties:
+            proposals:
+              type: array
+              maxItems: 500
+              items:
+                $ref: '#/components/schemas/InterconnectionPointProposal'
+            proposals_truncated:
+              type: boolean
+    InterconnectionPointEmbed:
+      type: object
+      description: The point a proposal connects at, with its totals at the caller's tier (proposal detail only).
+      required: [public_id, url, name, kind, voltage_kv, active_mw, active_count, proposal_count]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/InterconnectionPointPublicId'
+        url: {type: string, format: uri}
+        name: {type: string}
+        kind:
+          $ref: '#/components/schemas/InterconnectionPointKind'
+        voltage_kv: {type: [number, 'null']}
+        active_mw: {type: number, minimum: 0}
+        active_count: {type: integer, minimum: 0}
+        proposal_count: {type: integer, minimum: 1}
+    InterconnectionPointListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/InterconnectionPoint'
+    InterconnectionPointDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InterconnectionPointDetail'
     AssetListResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'

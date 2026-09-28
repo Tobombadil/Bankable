@@ -62,6 +62,7 @@ from services.api.slippage import today as slip_today
 from services.api.visibility import (
     PUBLISHABLE_REUSE_CLASSES,
     event_visibility_filter,
+    interconnection_point_source_filter,
     location_exact_permitted,
     opportunity_visibility_filter,
     organization_visibility_filter,
@@ -72,6 +73,7 @@ from services.api.visibility import (
 )
 from services.db.models import (
     Event,
+    InterconnectionPoint,
     Licence,
     Location,
     Opportunity,
@@ -112,6 +114,10 @@ PROPOSAL_FILTERS = {
     "first_seen[to]",
     "last_changed[from]",
     "last_changed[to]",
+    # 2026-09-28 (lane G1): proposals connecting at a grid interconnection point, by its public id
+    # (docs/21 §3.24). A point whose register the tier may not see selects nothing, exactly as an
+    # unknown id (`interconnection_point_source_filter`).
+    "interconnection_point_id",
 }
 #: Filters the list, map and feed apply that a saved search or webhook may **not** carry.
 #: `updated_since` is the incremental-sync cursor (docs/23 §7; `services/api/bulk.py`): "rows whose
@@ -424,6 +430,15 @@ def _apply_proposal_filters(
         stmt = stmt.where(Proposal.storage_mwh >= number_filter("storage_mwh[gte]", v, request.url.path))
     if v := qp.get("sponsor_id"):
         stmt = stmt.where(Proposal.sponsor_org_id.in_(visible_organization_ids(csv_param(v))))
+    if v := qp.get("interconnection_point_id"):
+        # A subquery on the point's own register clauses: an id named by a gated register selects
+        # nothing, the same empty page a made-up id gets, so the filter is no oracle for it. The
+        # "has a visible proposal" half of the point predicate is the list's own row predicate.
+        points = select(InterconnectionPoint.id).where(
+            InterconnectionPoint.public_id.in_(csv_param(v)),
+            *interconnection_point_source_filter(entitlement),
+        )
+        stmt = stmt.where(Proposal.interconnection_point_id.in_(points))
     stmt = _apply_record_time_filters(stmt, request, Proposal.first_seen, Proposal.last_changed)
     if v := qp.get("slug"):
         stmt = stmt.where(Proposal.slug == v)
@@ -762,6 +777,11 @@ def get_proposal(
     if prop is None:
         raise not_found(request.url.path)
     data = serialize_proposal(prop, entitlement=ctx.entitlement)
+    # Where the project connects (docs/21 §3.24), with its tier's queue totals; detail only, so no
+    # list or map query pays for it. Deferred import: that module imports this one.
+    from services.api.interconnection_points import proposal_point_embed
+
+    data["interconnection_point"] = proposal_point_embed(db, prop, ctx.entitlement)
     meta = build_meta("proposal", tier=ctx.entitlement)
     return build_envelope(
         data,

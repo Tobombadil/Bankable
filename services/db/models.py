@@ -531,9 +531,17 @@ class Proposal(Base, TimestampMixin):
     created_by: Mapped[str] = mapped_column(sa.Text, nullable=False, default="pipeline")
     resolution_confidence: Mapped[float | None] = mapped_column(sa.Numeric(4, 3))
     merged_into_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("proposal.id"))
+    #: Where the project connects (docs/21 §3.24, migration 0026); set by the loader from the
+    #: register's own POI text (`services/ingest/interconnection.py`). Not a placement.
+    interconnection_point_id: Mapped[_uuid.UUID | None] = mapped_column(
+        GUID(), sa.ForeignKey("interconnection_point.id")
+    )
 
     sponsor: Mapped[Organization | None] = relationship(lazy="joined")
     location: Mapped[Location | None] = relationship(lazy="joined")
+    #: `lazy="select"`: read on the detail page and by the alert matcher, never on a list or map
+    #: path, so no list query pays a join for it.
+    interconnection_point: Mapped[InterconnectionPoint | None] = relationship(lazy="select")
     sources: Mapped[list[ProposalSource]] = relationship(
         primaryjoin="Proposal.id == ProposalSource.proposal_id",
         foreign_keys="ProposalSource.proposal_id",
@@ -546,6 +554,7 @@ class Proposal(Base, TimestampMixin):
         sa.CheckConstraint(f"min_reuse_class IN {REUSE_CLASSES!r}", name="min_reuse_class_vocab"),
         sa.CheckConstraint(f"created_by IN {CREATED_BY_VALUES!r}", name="created_by_vocab"),
         sa.Index("ix_proposal_publish_public_at", "publish_state", sa.text("public_at DESC")),
+        sa.Index("ix_proposal_interconnection_point_id", "interconnection_point_id"),
     )
 
 
@@ -1611,6 +1620,60 @@ class AssetSource(Base):
 #: (`grep -rl BuiltPlant`, 2026-09-18) and every caller inside those areas was updated to `Asset` in
 #: this same change.
 BuiltPlant = Asset
+
+
+# ============================================== interconnection_point (docs/21 §3.24, migration 0026)
+#: `interconnection_point.kind`: a named substation bus, a tap on (or loop-in to) a line between
+#: two named places, or a string the parser would not read as either (several points, prose).
+INTERCONNECTION_POINT_KINDS = ("substation", "line_tap", "unknown")
+
+
+class InterconnectionPoint(Base, TimestampMixin):
+    """Where a proposal connects to the grid, as its register names it (owner decision
+    2026-09-28; docs/21 §3.24; `services/ingest/interconnection.py` has the parse and the key
+    rule). Not a placement: a project connects at a substation, it is not built there (§3.7).
+
+    One row per `(source_id, name_key)`: a point is one register's name for one bus or tap, so it
+    never spans ISOs or sources, and its provenance quartet is that register's -- its licence and
+    `source.publish_state` gate it exactly as they gate the proposals that name it. Aggregates
+    (queued MW, counts) are **never stored**: they are computed per request over the proposals the
+    caller's tier may see (`services/api/interconnection_points.py`), because a stored total would
+    carry the capacity of a proposal the tier may not see. `substation_asset_id` is written by the
+    substation crosswalk (lane G2) and NULL until then."""
+
+    __tablename__ = "interconnection_point"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    #: The market operator token the point's proposals carry in `proposal.iso` (`ERCOT`, `CAISO`,
+    #: `NYISO`, `NESO`), else the source's operator name.
+    operator: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    name_display: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    name_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: `KEY_RULE_VERSION` of the rule that derived `name_key`.
+    key_rule: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    voltage_kv: Mapped[float | None] = mapped_column(sa.Numeric(8, 3))
+    bus_number: Mapped[str | None] = mapped_column(sa.Text)
+    kind: Mapped[str] = mapped_column(sa.Text, nullable=False, default="unknown")
+    #: ISO 3166-2 (or country) most of the point's proposals carry; NULL when none states one.
+    jurisdiction: Mapped[str | None] = mapped_column(sa.Text)
+    substation_asset_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("asset.id"))
+
+    source_id: Mapped[str] = mapped_column(sa.ForeignKey("source.id"), nullable=False)
+    source_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    retrieved_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
+
+    source: Mapped[Source] = relationship(lazy="joined")
+    licence: Mapped[Licence] = relationship(lazy="joined")
+    substation_asset: Mapped[Asset | None] = relationship(lazy="select")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"kind IN {INTERCONNECTION_POINT_KINDS!r}", name="kind_vocab"),
+        sa.UniqueConstraint("source_id", "name_key", name="uq_interconnection_point_source_key"),
+        sa.Index("ix_interconnection_point_operator", "operator"),
+        sa.Index("ix_interconnection_point_jurisdiction", "jurisdiction"),
+    )
 
 
 # ================================================================== ui_event (docs/21 §3.21, 2026-09-14)

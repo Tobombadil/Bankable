@@ -130,6 +130,13 @@ from web.assets_pages import router as assets_pages_router  # noqa: E402
 
 app.include_router(assets_pages_router)
 
+# Grid interconnection points (owner decision 2026-09-28; docs/21 §3.24): `/interconnection-points`
+# and `/interconnection-points/{public_id}`, a router of their own like the two above.
+from web.interconnection_points import proposal_connection  # noqa: E402
+from web.interconnection_points import router as interconnection_points_router  # noqa: E402
+
+app.include_router(interconnection_points_router)
+
 # docs/42-backend-review-2026-09-26.md lane L3: the sitemap/robots cluster -- a closed set of
 # helpers and routes (§4.1) reached by nothing else in this module, so it moves as a whole with no
 # path-overlap risk against any route defined above or below it.
@@ -223,6 +230,9 @@ PROPOSAL_PASSTHROUGH_FILTERS = (
     "last_changed[to]",
     "updated_since",
     "slug",
+    # Grid interconnection points (2026-09-28): `/proposals?interconnection_point_id=poi_...` lists the
+    # projects queued at one point, the link the point page offers.
+    "interconnection_point_id",
 )
 #: As above for `GET /v1/opportunities`; `status` is resolved separately (`opportunity_status_param`).
 OPPORTUNITY_PASSTHROUGH_FILTERS = (
@@ -496,6 +506,7 @@ def proposal_detail(request: Request, slug: str) -> HTMLResponse:
         {
             "record": record,
             "provenance_rows": provenance_panel_rows(api, record["provenance"]),
+            "connection": proposal_connection(api, record.get("public_id")),
             "delayed": delayed_notice(request, "proposal"),
             "canonical_path": path,
             "jsonld": [
