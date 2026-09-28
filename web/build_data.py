@@ -126,6 +126,11 @@ SOURCE_POLICY: dict[str, SourcePolicy] = {
         "Find a Tender Service (Crown copyright, Open Government Licence v3)", True, "OGL v3"
     ),
     "mdb.worldbank.procnotices": SourcePolicy("World Bank", True, "World Bank Open Data, CC BY 4.0"),
+    "us.va.deq.data_center_air_sites": SourcePolicy(
+        "Virginia Department of Environmental Quality",
+        True,
+        "DEQ Terms of Use: 'GIS information is in the public domain' (sources.yaml, docs/13 §6)",
+    ),
 }
 
 PROPOSAL_SOURCE_IDS = [
@@ -134,6 +139,7 @@ PROPOSAL_SOURCE_IDS = [
     "us.iso.nyiso.gen_queue",
     "us.eia.860m",
     "gb.neso.tec_register",
+    "us.va.deq.data_center_air_sites",
 ]
 OPPORTUNITY_SOURCE_IDS = [
     "us.grants_gov.search2",

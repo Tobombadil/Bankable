@@ -70,6 +70,7 @@ _PROPOSAL_SOURCE_IDS = {
     "us.iso.nyiso.gen_queue",
     "us.eia.860m",
     "gb.neso.tec_register",
+    "us.va.deq.data_center_air_sites",
 }
 
 
