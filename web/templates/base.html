@@ -73,7 +73,7 @@
       <a href="/login">Sign in</a>
       {% endif %}
     </nav>
-    <form class="site-search" action="/search" method="get" role="search">
+    <form class="site-search" action="/search" method="get" role="search" aria-label="Site search">
       <label class="visually-hidden" for="site-search-q">Search proposals and opportunities</label>
       <input id="site-search-q" type="search" name="q" placeholder="Search by name, sponsor, queue ID&hellip;" value="{{ request.query_params.get('q', '') }}">
       <button type="submit">Search</button>
