@@ -116,6 +116,135 @@ sources:
     The connector therefore watches the EMIL catalogue for the product and emits a change event when it appears;
     the row parser is written then, against the real file.
 
+# Data-centre demand signals (2026-09-28, owner decision "track data-centre demand from public filings";
+# survey and ranking in docs/25 §3). A data centre's backup generators need a state air permit that is filed
+# before construction, so state air-permit registers are the earliest machine-readable public trace of one.
+- id: us.va.deq.data_center_air_sites
+  name: Virginia DEQ Air Sites (Daily) — sites DEQ flags as data centres
+  jurisdiction: US-VA
+  category: permit
+  operator: Virginia Department of Environmental Quality
+  url: https://gisdata.deq.virginia.gov/arcgis/rest/services/public/EDMA/MapServer/294
+  access: api
+  auth: none (public ArcGIS MapServer query endpoint, listed by the DEQ Environmental Data Hub)
+  format: json (ArcGIS REST query, WGS84 points)
+  cadence: daily
+  rate_limit_rps: 0.5
+  license: >-
+    Virginia DEQ Data and Web GIS Tools Terms of Use, https://geohub-vadeq.hub.arcgis.com/pages/terms-of-use
+    (page item 9789d10afd864dcbbd08baaddfd44802, read 2026-09-28; the map service's own description says "By
+    viewing and using this data for any purpose, you agree to DEQ's Terms of Use" and links it): "GIS
+    information is in the public domain and may be copied without permission; citation of the source is
+    suggested." Conditions in the same text: "You shall not and will not attempt to derive any personal
+    information from any Open Dataset or by combining any data from it with data from any other source";
+    no use that could "damage, disable, overburden, or impair" the hub; no obtaining information "through any
+    means not intentionally made available"; data "as is", "for reference purposes only".
+  reuse: open
+  publication: raw_ok
+  tier: 1
+  effort: S
+  probe: {method: GET, url: "https://gisdata.deq.virginia.gov/arcgis/rest/services/public/EDMA/MapServer/294?f=json"}
+  verified:
+    date: 2026-09-28
+    result: ok
+    rows: 205
+    note: >-
+      Connector run 0c7b5ae1 (python -m pipeline.connectors run, scratch data root): one query page, HTTP 200,
+      288,467 bytes, sha256 43aba64f0c1476437b3f797fa9d864ebdab82d00622e2e75d9f8db87e90b9c22, DQ pass (no
+      unmapped status, no duplicate id, provenance on every row). Layer total 4,043 air sites; 198 carry DEQ's
+      data-centre flag and 7 more name a data centre as principal product. AIR_OP_STATUS Operating 158,
+      Planned 45, Under Construction 1, Temporarily Shutdown 1 -> built 159, filed 45, under_construction 1.
+      Every row has a DEQ point (205 exact; 180 at 6 decimals, 19 at 5, 6 at 4) and a derived county (Loudoun
+      87, Fairfax 32, Prince William 32, Mecklenburg 10, Henrico 8); derived county agrees with EPA ICIS-Air's
+      county on 157 of the 160 rows that join on PLA_ICIS_ID (the 3 others sit on the Manassas city /
+      Prince William line). Loaded through services/ingest/loader.py into a scratch SQLite store: 205 load
+      proposals, publish_state public, location precision exact.
+  notes: >-
+    Credit "Virginia Department of Environmental Quality" on every record (suggested by the terms, rendered as
+    policy). Northern Virginia is the largest data-centre market in the world and DEQ is the only US air
+    agency found that flags data centres itself: layer 294 carries `PLA_DATA_CENTER_YN` on all 4,043 air
+    sites. The connector keeps the flagged rows plus the few whose DEQ principal product names a data centre;
+    Planned rows are data centres before construction. Politeness: one query page per run (under 1,000 rows),
+    0.5 rps. robots.txt on gisdata.deq.virginia.gov answers 404 (no rule); apps.deq.virginia.gov, which
+    serves the same map service, answers `Disallow: /` and is not used. The DEQ web page "Issued Air Permits
+    for Data Centers" (www.deq.virginia.gov/news-info/shortcuts/permits/air/issued-air-permits-for-data-centers)
+    answered an Akamai 403 to this environment on 2026-09-28 and is not used. Personal data: the sibling
+    "Planned Air Sites" layer (298) carries DEQ staff user names and is not queried; the connector's
+    `redact` strips such columns if they ever appear on layer 294. The per-row `Data_Disclaimer` paragraph is
+    dropped at parse: "In collaboration with various agencies and organizations, DEQ strives to deliver
+    accurate, useful, and up-to-date information. ... By accessing DEQ data, you agree to the terms and
+    conditions outlined above."
+
+- id: us.epa.echo.icis_air
+  name: EPA ECHO ICIS-Air national facility download (data-centre selection)
+  jurisdiction: US
+  category: permit
+  operator: US EPA Office of Enforcement and Compliance Assurance (ECHO)
+  url: https://echo.epa.gov/files/echodownloads/ICIS-AIR_downloads.zip
+  access: bulk_file
+  auth: none
+  format: zip of CSVs (ICIS-AIR_FACILITIES.csv, 19 columns, 280,208 rows on 2026-09-27)
+  cadence: weekly
+  rate_limit_rps: 0.1
+  license: US federal work — public domain, 17 U.S.C. §105 (docs/13 §2.12 EPA hedge applies)
+  reuse: open
+  publication: raw_ok
+  tier: 2
+  effort: M
+  probe: {method: HEAD}
+  verified: {date: 2026-09-28, result: ok, rows: 537, note: 'survey only, no connector yet. 70,252,181 bytes, Last-Modified 2026-09-27; NAICS 518210 or a "data center" facility name selects 537 facilities in 43 states (VA 144, IL 45, CO 35, GA 31, OH 24, NE 21, PA 19, IA 18, AZ 17, TX 12); AIR_OPERATING_STATUS_DESC Operating 451, Permanently Closed 38, Planned Facility 21, Under Construction 3, Temporarily Closed 2. No coordinates in this file (county name and ZIP only; points need the FRS/ECHO exporter join on REGISTRY_ID).'}
+  notes: >-
+    The national second source for data-centre air sites (docs/25 §3). Public domain and weekly, but thin
+    before construction (21 Planned + 3 Under Construction nationally, 15 of them in Georgia) and blind wherever a state does not
+    report minor sources to ICIS-Air (Texas: 12 facilities; emergency engines there are permit-by-rule with no
+    registration). `PGM_SYS_ID` equals Virginia DEQ's `PLA_ICIS_ID`, so the two join deterministically.
+    robots: echo.epa.gov allows /files/ (Crawl-delay 10, honoured by the 0.1 rps limit); echodata.epa.gov (the
+    ECHO REST API host) answers `Disallow: *` and must not be used.
+
+- id: us.ga.epd.air_permit_advisories
+  name: Georgia EPD Air Protection Branch public advisories (permit applications received)
+  jurisdiction: US-GA
+  category: permit
+  operator: Georgia Environmental Protection Division
+  url: https://epd.georgia.gov/forms-permits/air-protection-branch-forms-permits/air-permits
+  access: pdf
+  auth: none
+  format: biweekly text PDF (e.g. https://epd.georgia.gov/document/document/pa1225-3/download, 3 pages, one block per application)
+  cadence: biweekly
+  license: 'NOT RETRIEVED — no reuse clause found. epd.georgia.gov links only accessibility and privacy pages; https://georgia.gov/privacy-and-security (read 2026-09-28) covers submitted information and the Georgia Open Records Act, not reuse of published content.'
+  reuse: unknown
+  publication: none
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-09-28, result: ok, note: 'pa1225-3 PDF 200, 101,871 bytes, text layer present (County / Facility Name / Application No / Facility Address / Description of Operation / Reason for Application); one data-centre application in that issue; epd.georgia.gov robots.txt allows /document/.'}
+  notes: >-
+    The best pre-construction signal found after Virginia: each advisory lists applications received and still
+    under review, with county, address and a description that names generator counts (e.g. "seventy-six
+    emergency generators"). Gated until the State of Georgia's reuse terms are read and recorded (docs/13 §6).
+
+- id: us.tx.tceq.air_permits
+  name: TCEQ New Source Review air permits database
+  jurisdiction: US-TX
+  category: permit
+  operator: Texas Commission on Environmental Quality
+  url: https://www2.tceq.texas.gov/airperm/index.cfm
+  access: html
+  auth: none
+  format: html query application
+  cadence: daily
+  license: 'NOT RETRIEVED — TCEQ site policies page not located (www.tceq.texas.gov/site-policies/ answered 404 on 2026-09-28).'
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: L
+  probe: {method: GET, url: "https://www2.tceq.texas.gov/robots.txt"}
+  verified: {date: 2026-09-28, result: blocked, note: 'www2.tceq.texas.gov/robots.txt and www15.tceq.texas.gov/robots.txt both answer "User-agent: * / Disallow: /"; not fetched.'}
+  notes: >-
+    Not usable: the permit database is robots-excluded, and most Texas data-centre emergency engines are
+    authorised by Permit by Rule 30 TAC §106.511, which needs no registration and so leaves no record here.
+    Texas data-centre demand is better approached through ERCOT (us.iso.ercot.large_load_queue).
+
 - id: us.iso.spp.gen_queue
   name: SPP Generator Interconnection Active/Withdrawn/Completed Requests
   jurisdiction: US-SPP
@@ -3008,6 +3137,34 @@ sources:
     web/static/data/basemap_fallback.geojson as a prior version of this note assumed -- that file was read only
     for its geometry shape while building pipeline/context/regions.py, and is a separate basemap fallback with
     no region_id property, not a region-polygon source. Served by GET /v1/geo/regions.
+
+- id: us.fcc.bdc.fixed_summary
+  name: FCC Broadband Data Collection — fixed broadband Summary by Geography Type (national file; county fiber-to-the-premises availability)
+  jurisdiction: US (states, DC, Puerto Rico and territories)
+  category: registry
+  operator: Federal Communications Commission, Broadband Data Task Force
+  url: https://broadbandmap.fcc.gov/data-download/nationwide-data
+  access: api
+  auth: 'api_key: FCC user account + API token ("Manage API Access" on broadbandmap.fcc.gov, after agreeing to terms shown in a modal), sent as request headers `username` and `hash_value`; read from FCC_BDC_USERNAME / FCC_BDC_API_TOKEN, never committed. Register with a role address: the username travels in a header on every call'
+  format: 'zip of one CSV, bdc_us_fixed_broadband_summary_by_geography_<J|D><yy>_<ddmonyyyy>.csv (area_data_type, geography_type, geography_id, geography_desc, geography_desc_full, total_units, biz_res, technology, speed_02_02 … speed_1000_100)'
+  cadence: semi-annual filings (as of June 30 and December 31), each published months later and revised in place
+  license: 'US federal work — public domain (17 U.S.C. §105): the geography summaries are FCC-compiled aggregates of provider availability filings. Not retrieved (every fcc.gov and broadbandmap.fcc.gov page, including robots.txt, answered HTTP 403 Akamai "Access Denied" to this egress on 2026-09-28): the National Broadband Map terms of use and the disclaimer the FCC shows before issuing an API token (a clickwrap the account holder accepts). The location-level Broadband Serviceable Location Fabric behind total_units is licensed by CostQuest (FCC public notice DA 25-1080, quoted in docs/25 §4) and is never fetched or stored here; only the FCC''s published county aggregates are. Suggested credit: "Source: FCC National Broadband Map, Broadband Data Collection (<filing>)"; not endorsed by the FCC'
+  reuse: open
+  publication: derived_only
+  tier: 2
+  effort: M
+  connector: pipeline/context/fcc_bdc.py
+  probe: {method: GET, url: "https://broadbandmap.fcc.gov/api/public/map/listAsOfDates"}
+  verified: {date: 2026-09-28, result: needs_key, note: 'G4 lane, measured 2026-09-28 from this egress: GET https://broadbandmap.fcc.gov/api/public/map/listAsOfDates and .../downloads/listAvailabilityData/2025-06-30 answered HTTP 401 {"status":"fail","status_code":401,"message":"Unauthorized"} (server nginx/Express), i.e. reachable and token-gated; https://broadbandmap.fcc.gov/, /robots.txt, /data-download/nationwide-data, /nbm/map/api/* and www.fcc.gov (spec PDFs, robots.txt) answered HTTP 403 AkamaiGHost "Access Denied" with the project User-Agent and with a plain curl one alike, so robots.txt cannot be read (PoliteSession treats that as permissive; the connector only calls the API, honour_robots=False as for every API endpoint). docs.fcc.gov answered 200 (public notice DA 25-1080). No live file fetched: no credentials exist. Latest filing per third-party copies of the file names: D25 (as of 2025-12-31), revision bdc_us_fixed_broadband_summary_by_geography_D25_15sep2026; J25 had revisions 03feb2026 and 31mar2026 (616,080 rows, 364,890 County rows, 3,232 counties x R/B per technology). Parser verified on a synthetic fixture in the real layout (pipeline/context/fixtures/fcc_bdc_fixed_summary_sample.zip) and on a synthetic 616,080-row file (timings in docs/25 §4). Esri Living Atlas republishes the same filing as a feature service under the Esri Master License Agreement (item e1343efcefc344709057260ee57290a0, read via hub.arcgis.com 2026-09-28) — not used: repackaged, not FCC terms.'}
+  notes: >-
+    Owner decision 2026-09-28: fiber availability by area, not fiber routes (no open, current route-level
+    dataset exists; precise routes are security-sensitive — never add route geometry). Metric per county:
+    share of units in broadband-serviceable locations with fiber-to-the-premises (BDC technology code 50,
+    "Fiber" in the summaries) available, residential and business, plus the FCC unit count and the filing as
+    vintage. Summaries publish no per-county provider counts; a distinct-fiber-provider count would need the
+    per-state location-level FTTP files (tens of millions of rows) and is not built. publication derived_only
+    until the token clickwrap is read and recorded in docs/13: the county metrics publish, the source rows
+    (`raw`) do not, and each county links out to its FCC area-summary page.
 
 - id: us.epa.ghgrp
   name: EPA Greenhouse Gas Reporting Program — facility register with parent-company shares (Envirofacts pub_dim_facility; FLIGHT)

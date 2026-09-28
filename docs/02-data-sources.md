@@ -760,3 +760,23 @@ flagged `STOPPED_REPORTING_*` by EPA.
 crosswalk path) and `epa_ghgrp_2023_summary_sample.zip` (the RR sheet in full, 12 UU rows, re-zipped as EPA ships it).
 Open: the `geo_name` power-plant residue (201) would be tighter with EIA-860M's `technology` on the facility side too —
 GHGRP has no unit-level technology in `pub_dim_facility`; the "CO2 Injection" quantities are CBI and will stay so.
+
+## 13. Data-centre demand signals (2026-09-28)
+
+Owner decision 2026-09-28: track data-centre demand from public filings. The survey, ranking, record model and
+limits are in `docs/25` §3 (lane G3); this section is the catalogue view. A data centre's backup generators need a
+state air permit filed before construction, so state air-permit registers are the earliest machine-readable,
+reusable public trace of one; utility large-load disclosures are still PDFs or TSP-only (§3 gap 4).
+
+| Source id | Feeds | Access | Cadence | Reuse | Verified 2026-09-28 |
+|---|---|---|---|---|---|
+| `us.va.deq.data_center_air_sites` | supply (`kind = load`) | ArcGIS REST JSON | daily | **open** (DEQ: "GIS information is in the public domain") | ok, 205 rows (45 filed, 1 under construction, 159 built), exact points; **connector built** |
+| `us.epa.echo.icis_air` | supply (`load`), national | zip of CSV | weekly | public domain | ok, 537 data-centre facilities in 43 states (21 planned, 3 under construction); no connector yet — next build |
+| `us.ga.epd.air_permit_advisories` | supply (`load`), pre-construction | biweekly text PDF | biweekly | **unknown** — gated | PDF 200, text layer; no reuse clause found |
+| `us.tx.tceq.air_permits` | — | HTML | daily | **unknown** | robots `Disallow: /`; not fetched |
+
+Not catalogued because nothing reusable was reached: the Virginia DEQ "Issued Air Permits for Data Centers" page
+(Akamai 403 to this environment), ERCOT's large-load reporting (monthly PDF deck only; `us.iso.ercot.large_load_queue`
+watches for a data product), the Federal Permitting Dashboard's two data-centre projects (already inside
+`us.permits_dashboard`'s dataset, excluded from its sector filter), Ohio EPA eDocument (PDF search UI), and county
+zoning portals (one per county; Loudoun's hub answered 502).

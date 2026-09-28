@@ -1,0 +1,793 @@
+{
+ "layer": "https://gisdata.deq.virginia.gov/arcgis/rest/services/public/EDMA/MapServer/294",
+ "pages": [
+  {
+   "displayFieldName": "PLA_NAME",
+   "features": [
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Temporarily Shutdown",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "201 Technology Park Drive",
+      "FAC_L_CITY": "Lebanon",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "24266",
+      "OBJECTID": 1189,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "generator for data center",
+      "PLA_ICIS_ID": "VA0000005116700092",
+      "PLA_ID": 40538,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "Northrop Grumman Systems Corporation",
+      "PLA_PRINCIPAL_PRODUCT": "data center",
+      "PLA_REG_NUM": 11541,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -82.07454099989529,
+      "y": 36.90286200031772
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Planned",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "Blackwood Industrial Park",
+      "FAC_L_CITY": "Coeburn",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "24230",
+      "OBJECTID": 2741,
+      "PCL_FED_DESC": "True Minor",
+      "PCL_STATE_DESC": "True Minor",
+      "PLA_DATA_CENTER_YN": "N",
+      "PLA_DESC": "Tire pyrolysis",
+      "PLA_ICIS_ID": "VA0000005119500237",
+      "PLA_ID": 42826,
+      "PLA_NAC_CODE_PRIMARY": "325110",
+      "PLA_NAME": "Energy Enterprises of Norton Inc",
+      "PLA_PRINCIPAL_PRODUCT": "Tires",
+      "PLA_REG_NUM": 11744,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -82.7047700002263,
+      "y": 36.934459999997785
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "5978 Windswept Blvd",
+      "FAC_L_CITY": "Wise",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "24293",
+      "OBJECTID": 2618,
+      "PCL_FED_DESC": "True Minor",
+      "PCL_STATE_DESC": "True Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "7 diesel fired engine driven emergency generators",
+      "PLA_ICIS_ID": "VA0000005119511790",
+      "PLA_ID": 43375,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "DP Facilities Inc South LLC",
+      "PLA_PRINCIPAL_PRODUCT": "data center",
+      "PLA_REG_NUM": 11790,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -82.5272999996072,
+      "y": 36.97799999968725
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Planned",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "East Main St",
+      "FAC_L_CITY": "Saltville",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "24370",
+      "OBJECTID": 3535,
+      "PCL_FED_DESC": "True Minor",
+      "PCL_STATE_DESC": "True Minor",
+      "PLA_DATA_CENTER_YN": null,
+      "PLA_DESC": null,
+      "PLA_ICIS_ID": "VA0000005117311898",
+      "PLA_ID": 45123,
+      "PLA_NAC_CODE_PRIMARY": "812220",
+      "PLA_NAME": "The DR Henderson Funeral Home Inc",
+      "PLA_PRINCIPAL_PRODUCT": "Crematorium",
+      "PLA_REG_NUM": 11898,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -81.76266126479597,
+      "y": 36.8809912073576
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "101 Herbert Drive",
+      "FAC_L_CITY": "Boydton",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "23917",
+      "OBJECTID": 641,
+      "PCL_FED_DESC": "Major/Potential Major",
+      "PCL_STATE_DESC": "Major",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "data center w/diesel gens",
+      "PLA_ICIS_ID": "VA0000005111700071",
+      "PLA_ID": 42087,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "Microsoft Corporation - East Coast Data Center",
+      "PLA_PRINCIPAL_PRODUCT": "internet services",
+      "PLA_REG_NUM": 21527,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -78.37714999974828,
+      "y": 36.67657000011565
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Planned",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "8071 Lee Highway",
+      "FAC_L_CITY": "Troutville",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "24175",
+      "OBJECTID": 3556,
+      "PCL_FED_DESC": "True Minor",
+      "PCL_STATE_DESC": "True Minor",
+      "PLA_DATA_CENTER_YN": null,
+      "PLA_DESC": "Conveyor",
+      "PLA_ICIS_ID": "VA0000005102321813",
+      "PLA_ID": 45151,
+      "PLA_NAC_CODE_PRIMARY": "212319",
+      "PLA_NAME": "Alleghany Asphalt and Construction Inc",
+      "PLA_PRINCIPAL_PRODUCT": "Rental Equipment",
+      "PLA_REG_NUM": 21813,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -79.8456923999609,
+      "y": 37.44680103387075
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Planned",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "265 W Ridge Lane",
+      "FAC_L_CITY": "Appomattox",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "24522",
+      "OBJECTID": 3563,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "280 diesel engines",
+      "PLA_ICIS_ID": "VA0000005101121814",
+      "PLA_ID": 45162,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "ADP Appomattox Data Hub LLC",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 21814,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -78.85173935443828,
+      "y": 37.37586799998624
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Planned",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "International Parkway",
+      "FAC_L_CITY": "Daleville",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "24083",
+      "OBJECTID": 3836,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "Emergency diesel engines",
+      "PLA_ICIS_ID": "VA0000005102321819",
+      "PLA_ID": 45177,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "Helio Capital LLC",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 21819,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -79.91259158937444,
+      "y": 37.43939121288027
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "250 Burlington Dr",
+      "FAC_L_CITY": "Clarksville",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "23927",
+      "OBJECTID": 2070,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "data center - diesel gen",
+      "PLA_ICIS_ID": "VA0000005111700009",
+      "PLA_ID": 35047,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "TECfusions Clarksville LLC",
+      "PLA_PRINCIPAL_PRODUCT": "electronic data services",
+      "PLA_REG_NUM": 30142,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -78.5502723403435,
+      "y": 36.60128322634658
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Planned",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": null,
+      "FAC_L_CITY": "Chase City",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "23917",
+      "OBJECTID": 3353,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "80% Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "Four 500 kWe and One Hundred Ten 3000 kWe engine-generator sets",
+      "PLA_ICIS_ID": "VA0000005111753198",
+      "PLA_ID": 44888,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "Microsoft Corporation - LYH03 Datacenter",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 53198,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -78.46824972655922,
+      "y": 36.77182892373028
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Planned",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "2700 Bermuda Hundred Rd",
+      "FAC_L_CITY": "Chester",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "23836",
+      "OBJECTID": 3873,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "80% Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "108 Caterpillar 3516E Engine Generators",
+      "PLA_ICIS_ID": "VA0000005104153256",
+      "PLA_ID": 45096,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "Peanut LLC",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 53256,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -77.30489426672789,
+      "y": 37.34632173428564
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Planned",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "3250 E Willamsburg Road",
+      "FAC_L_CITY": "Sandston",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "23150",
+      "OBJECTID": 3699,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "80% Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "255 Diesel-Fired Generators",
+      "PLA_ICIS_ID": "VA0000005108753259",
+      "PLA_ID": 45105,
+      "PLA_NAC_CODE_PRIMARY": "541513",
+      "PLA_NAME": "QTS Richmond V LLC",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 53259,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -77.26252827882772,
+      "y": 37.51243311207167
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Planned",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "2840 Roxbury Rd",
+      "FAC_L_CITY": "Charles City",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "23030",
+      "OBJECTID": 3561,
+      "PCL_FED_DESC": "Major/Potential Major",
+      "PCL_STATE_DESC": "Major (T5)",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "Data Center with Simple Cycle Turbine Power Facility",
+      "PLA_ICIS_ID": "VA0000005103653261",
+      "PLA_ID": 45115,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "PointOne Richmond LLC",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 53261,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -77.15829444324947,
+      "y": 37.45028807822617
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "22001 Loudoun County Pkwy",
+      "FAC_L_CITY": "Ashburn",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20147",
+      "OBJECTID": 1814,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "Diesel Engine Driven Emergency Generator Sets",
+      "PLA_ICIS_ID": "VA0000005110700141",
+      "PLA_ID": 32993,
+      "PLA_NAC_CODE_PRIMARY": "517111",
+      "PLA_NAME": "Verizon Business Network Services, Inc.",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 72367,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.46920000033894,
+      "y": 39.013099999815076
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "7777 Infantry Ridge Rd",
+      "FAC_L_CITY": "Manassas",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20109",
+      "OBJECTID": 810,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "Diesel Engine Driven Emergency Generator Sets",
+      "PLA_ICIS_ID": "VA0000005115300143",
+      "PLA_ID": 33632,
+      "PLA_NAC_CODE_PRIMARY": "541519",
+      "PLA_NAME": "Oath, Inc.",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 72368,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.51247800013635,
+      "y": 38.80533599971555
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "11101 University Blvd",
+      "FAC_L_CITY": "Manassas",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20109",
+      "OBJECTID": 3666,
+      "PCL_FED_DESC": "True Minor",
+      "PCL_STATE_DESC": "True Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "Diesel Engine Driven Emergency Generators",
+      "PLA_ICIS_ID": "VA0000005115300144",
+      "PLA_ID": 36072,
+      "PLA_NAC_CODE_PRIMARY": "541513",
+      "PLA_NAME": "Comcast Cablevision of Virginia Incorporated",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 72374,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.52487471242965,
+      "y": 38.753226562186256
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "544 Herndon Pkwy",
+      "FAC_L_CITY": "Herndon",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20170",
+      "OBJECTID": 12,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "N",
+      "PLA_DESC": "Diesel Engine Driven Emergency Generator Sets",
+      "PLA_ICIS_ID": "VA0000005105900763",
+      "PLA_ID": 37564,
+      "PLA_NAC_CODE_PRIMARY": "541519",
+      "PLA_NAME": "Freddie Mac Corporation",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 73105,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.38171699955802,
+      "y": 38.95590400025208
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "22810 International Drive",
+      "FAC_L_CITY": "Sterling",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20166",
+      "OBJECTID": 773,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "telecommunications",
+      "PLA_ICIS_ID": "VA0000005110700814",
+      "PLA_ID": 37811,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "22810-22860 International Drive LLC",
+      "PLA_PRINCIPAL_PRODUCT": "telecommunications",
+      "PLA_REG_NUM": 73158,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.42711900026772,
+      "y": 38.98299400027964
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "45901 Nokes Blvd",
+      "FAC_L_CITY": "Sterling",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20166",
+      "OBJECTID": 1947,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "80% Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "Telecommunications/Web",
+      "PLA_ICIS_ID": "VA0000005110701042",
+      "PLA_ID": 37785,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "21110 Ridgetop Circle LLC",
+      "PLA_PRINCIPAL_PRODUCT": "Telecommunications/Web",
+      "PLA_REG_NUM": 73160,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.40975200023725,
+      "y": 39.02312100015584
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "44470 Chilum Pl",
+      "FAC_L_CITY": "Ashburn",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20147",
+      "OBJECTID": 634,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "emergency generators",
+      "PLA_ICIS_ID": "VA0000005110700820",
+      "PLA_ID": 38126,
+      "PLA_NAC_CODE_PRIMARY": "517111",
+      "PLA_NAME": "Equinix LLC",
+      "PLA_PRINCIPAL_PRODUCT": "data center",
+      "PLA_REG_NUM": 73199,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.46098299994233,
+      "y": 39.021945000059176
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "11720 Plaza America Dr",
+      "FAC_L_CITY": "Reston",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20190",
+      "OBJECTID": 2290,
+      "PCL_FED_DESC": "True Minor",
+      "PCL_STATE_DESC": "True Minor",
+      "PLA_DATA_CENTER_YN": "N",
+      "PLA_DESC": "1 Emergency Generator",
+      "PLA_ICIS_ID": "VA0000005105900858",
+      "PLA_ID": 39762,
+      "PLA_NAC_CODE_PRIMARY": "334111",
+      "PLA_NAME": "Plaza Office Realty II, LLC",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 73326,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.3501109997917,
+      "y": 38.9530599996797
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "44983 Knoll Sq",
+      "FAC_L_CITY": "Ashburn",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20147",
+      "OBJECTID": 2231,
+      "PCL_FED_DESC": "True Minor",
+      "PCL_STATE_DESC": "True Minor",
+      "PLA_DATA_CENTER_YN": "N",
+      "PLA_DESC": null,
+      "PLA_ICIS_ID": "VA0000005110701037",
+      "PLA_ID": 42334,
+      "PLA_NAC_CODE_PRIMARY": "611310",
+      "PLA_NAME": "George Washington University - VA Campus Bldg II",
+      "PLA_PRINCIPAL_PRODUCT": "Data center for computer",
+      "PLA_REG_NUM": 73950,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.44336731929174,
+      "y": 39.05486747521029
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "8250 Jones Branch Dr",
+      "FAC_L_CITY": "McLean",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "22102",
+      "OBJECTID": 1905,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "N",
+      "PLA_DESC": "Emergency Generators",
+      "PLA_ICIS_ID": "VA0000005105901116",
+      "PLA_ID": 42627,
+      "PLA_NAC_CODE_PRIMARY": "541513",
+      "PLA_NAME": "Freddie Mac Building - 8250 Jones Branch Drive",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 74020,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.22841322159077,
+      "y": 38.932169183208174
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Operating",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "10000 Godwin Drive",
+      "FAC_L_CITY": "Manassas",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20110",
+      "OBJECTID": 4005,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "80% Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "Diesel CI RICE",
+      "PLA_ICIS_ID": "VA0000005168374129",
+      "PLA_ID": 43542,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "Amazon Data Services, Inc. IAD-100 IAD-101 IAD-102 IAD-103",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 74129,
+      "STATUS_GROUP": "Active"
+     },
+     "geometry": {
+      "x": -77.50516700011113,
+      "y": 38.73576299972505
+     }
+    },
+    {
+     "attributes": {
+      "AIR_OP_STATUS": "Under Construction",
+      "Data_Disclaimer": "In collaboration with various agencies and organizations, DEQ strives to deliver accurate, useful, and up-to-date information. While every effort is made to ensure the accuracy of the data, it is possible that errors may arise from the physical sources used in developing these resources. Users should be aware of potential limitations and take responsibility for how they use the information, considering factors such as potential errors, original map scale, collection methodology, and data currency. For accurate application, users should consult relevant federal, state, or local resource management officials. Please report any errors or omissions to DEQ via email or phone. By accessing DEQ data, you agree to the terms and conditions outlined above.",
+      "FAC_L_ADDR_1": "13720 University Blvd",
+      "FAC_L_CITY": "Gainesville",
+      "FAC_L_STATE": "VA",
+      "FAC_L_ZIP5": "20155",
+      "OBJECTID": 3882,
+      "PCL_FED_DESC": "Synthetic Minor",
+      "PCL_STATE_DESC": "Synthetic Minor",
+      "PLA_DATA_CENTER_YN": "Y",
+      "PLA_DESC": "Diesel Engine Driven Generator Sets",
+      "PLA_ICIS_ID": "VA0000005115374349",
+      "PLA_ID": 45189,
+      "PLA_NAC_CODE_PRIMARY": "518210",
+      "PLA_NAME": "Amazon Data Services Inc IAD-264",
+      "PLA_PRINCIPAL_PRODUCT": "Data Center",
+      "PLA_REG_NUM": 74349,
+      "STATUS_GROUP": "Planned"
+     },
+     "geometry": {
+      "x": -77.58063110293926,
+      "y": 38.79956791292892
+     }
+    }
+   ],
+   "fieldAliases": {
+    "AIR_OP_STATUS": "AIR_OP_STATUS",
+    "Data_Disclaimer": "Data Disclaimer",
+    "FAC_L_ADDR_1": "FAC_L_ADDR_1",
+    "FAC_L_CITY": "FAC_L_CITY",
+    "FAC_L_STATE": "FAC_L_STATE",
+    "FAC_L_ZIP5": "FAC_L_ZIP5",
+    "OBJECTID": "OBJECTID",
+    "PCL_FED_DESC": "Federal Classification",
+    "PCL_STATE_DESC": "State Classification",
+    "PLA_DATA_CENTER_YN": "Data Center Y/N",
+    "PLA_DESC": "Primary Emissions Description",
+    "PLA_ICIS_ID": "Federal ID",
+    "PLA_ID": "PLA_ID",
+    "PLA_NAC_CODE_PRIMARY": "PLA_NAC_CODE_PRIMARY",
+    "PLA_NAME": "Facility Name",
+    "PLA_PRINCIPAL_PRODUCT": "Principal Product",
+    "PLA_REG_NUM": "Registration Number",
+    "STATUS_GROUP": "STATUS_GROUP"
+   },
+   "fields": [
+    {
+     "alias": "OBJECTID",
+     "name": "OBJECTID",
+     "type": "esriFieldTypeOID"
+    },
+    {
+     "alias": "PLA_ID",
+     "name": "PLA_ID",
+     "type": "esriFieldTypeDouble"
+    },
+    {
+     "alias": "Registration Number",
+     "name": "PLA_REG_NUM",
+     "type": "esriFieldTypeDouble"
+    },
+    {
+     "alias": "Facility Name",
+     "length": 150,
+     "name": "PLA_NAME",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "FAC_L_ADDR_1",
+     "length": 50,
+     "name": "FAC_L_ADDR_1",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "FAC_L_CITY",
+     "length": 40,
+     "name": "FAC_L_CITY",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "FAC_L_STATE",
+     "length": 2,
+     "name": "FAC_L_STATE",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "FAC_L_ZIP5",
+     "length": 5,
+     "name": "FAC_L_ZIP5",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "PLA_NAC_CODE_PRIMARY",
+     "length": 6,
+     "name": "PLA_NAC_CODE_PRIMARY",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "Federal ID",
+     "length": 255,
+     "name": "PLA_ICIS_ID",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "Primary Emissions Description",
+     "length": 255,
+     "name": "PLA_DESC",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "Principal Product",
+     "length": 255,
+     "name": "PLA_PRINCIPAL_PRODUCT",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "State Classification",
+     "length": 50,
+     "name": "PCL_STATE_DESC",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "Federal Classification",
+     "length": 50,
+     "name": "PCL_FED_DESC",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "STATUS_GROUP",
+     "length": 255,
+     "name": "STATUS_GROUP",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "AIR_OP_STATUS",
+     "length": 4000,
+     "name": "AIR_OP_STATUS",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "Data Center Y/N",
+     "length": 255,
+     "name": "PLA_DATA_CENTER_YN",
+     "type": "esriFieldTypeString"
+    },
+    {
+     "alias": "Data Disclaimer",
+     "length": 2000,
+     "name": "Data_Disclaimer",
+     "type": "esriFieldTypeString"
+    }
+   ],
+   "geometryType": "esriGeometryPoint",
+   "spatialReference": {
+    "latestWkid": 4326,
+    "wkid": 4326
+   }
+  }
+ ],
+ "where": "PLA_DATA_CENTER_YN = 'Y' OR UPPER(PLA_PRINCIPAL_PRODUCT) LIKE '%DATA CENT%' OR UPPER(PLA_PRINCIPAL_PRODUCT) LIKE '%DATACENT%'"
+}
