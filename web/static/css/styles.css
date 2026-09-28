@@ -83,6 +83,10 @@
   --asset-lng-terminal: #2f6a7a;
   --asset-ethanol: #7a6a2a;
   --asset-rng: #2f7a5a;
+  /* Transmission lines (grid lane G2, 2026-09-28): amber, 4.94:1 on --color-paper, chosen far from the
+     pipeline purple because the two line layers overlap everywhere at national zoom. Drawn dash-dot, so the
+     stroke pattern -- not this hue -- is what tells a power line from a pipeline (D-5). */
+  --asset-transmission: #8a6300;
 
   /* ADR 0008 region features (placement grade "region") -- one hue, not a status-family colour
      (same reasoning as the plant palette above): a highlighted county/state/country must never
@@ -175,6 +179,7 @@
   --asset-lng-terminal: #8ec6d3;
   --asset-ethanol: #cfc07a;
   --asset-rng: #8fd0b0;
+  --asset-transmission: #e8c15f; /* 9.80:1 on --bg */
 
     --region-fill: #9ab6d1;
     --region-line: #9ab6d1;
@@ -222,6 +227,7 @@
   --asset-lng-terminal: #8ec6d3;
   --asset-ethanol: #cfc07a;
   --asset-rng: #8fd0b0;
+  --asset-transmission: #e8c15f; /* 9.80:1 on --bg */
 
   --region-fill: #9ab6d1;
   --region-line: #9ab6d1;
@@ -662,6 +668,7 @@ h3 { font-size: var(--text-4); }
 }
 .mini-map svg { display: block; width: 100%; height: 100%; background: var(--map-land); }
 .mini-map__line { fill: none; stroke: var(--asset-gas-pipeline); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.mini-map__line--transmission { stroke: var(--asset-transmission); stroke-dasharray: 8 3 2 3; stroke-linecap: butt; }
 .mini-map__line--intrastate { stroke-dasharray: 6 4; }
 .mini-map__point { fill: var(--asset-gas-processing); stroke: var(--surface); stroke-width: 1; }
 .mini-map__proposal { fill: var(--family-progress-text); stroke: var(--surface); stroke-width: 1; }

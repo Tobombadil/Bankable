@@ -7,7 +7,7 @@
 {% block content %}
 <div class="page-header">
   <h1>Map</h1>
-  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO, with existing power plants and gas infrastructure as a context layer. Filters apply to the map and the list together; the URL always reflects the current view.</p>
+  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO, with existing power plants, gas infrastructure and transmission lines as a context layer. Filters apply to the map and the list together; the URL always reflects the current view.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
 {% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
@@ -148,6 +148,11 @@
       <div class="legend__group" data-legend-type="rng_project" style="color:var(--asset-rng)">
         <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.23 4.3 9.23 10.45 2.77 10.45 0.77 4.3Z" fill="currentColor"/></svg> RNG projects</span>
         <span class="legend__note">landfill gas (electricity, direct use, RNG); farm digesters at county grade are on the lists</span>
+      </div>
+      <div class="legend__group" data-legend-type="transmission_line" style="color:var(--asset-transmission)">
+        <span class="legend__group-name">Transmission lines</span>
+        <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="8 3 2 3"/></svg> 70&ndash;765 kV</span>
+        <span class="legend__note">lines FERC Form 1 filers own (LBNL); not the whole grid</span>
       </div>
     </div>
     <p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <a href="/about#sources">see About &amp; sources</a>. Full credits: <a href="/attribution">Attribution</a>.</p>

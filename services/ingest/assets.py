@@ -66,6 +66,10 @@ ASSET_TYPE_SOURCE_IDS: dict[str, tuple[str, ...]] = {
     # Fuels lane, 2026-09-19 (`pipeline/context/lmop.py`, `agstar.py`, `ethanol_*.py`).
     "rng_project": ("us.epa.lmop", "us.epa.agstar"),
     "ethanol_plant": ("us.eia.atlas.ethanol_plants", "us.eia.ethanol_capacity"),
+    # Grid lane G2, 2026-09-28 (`pipeline/context/lbnl_transmission.py`): LBNL's CC BY 4.0 copy of
+    # the HIFLD line geometry. `substation` stays unwired on purpose -- DHS restricts the only
+    # national substation layer (docs/13 §2.19), so loading one raises rather than guessing.
+    "transmission_line": ("us.lbnl.ferc_hifld_transmission_lines",),
 }
 
 
