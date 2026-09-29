@@ -85,3 +85,18 @@ def test_a_page_without_notices_is_a_parse_error():
     raw.content = json.dumps({"pages": [{"error": "bad query"}]}).encode()
     with pytest.raises(ParseError):
         c.parse(raw)
+
+
+def test_a_zero_or_negative_value_is_an_unknown_budget(parsed):
+    """TED states 0 or -1 where a notice gives no value (9 of 279 dev-snapshot notices with an
+    amount, 2026-09-13). They are unknown budgets, not the smallest ones (lane I3)."""
+    c, raw, rows, _ = parsed
+    edited = [dict(r) for r in rows]
+    edited[0].update({"estimated-value-glo": -1, "total-value": None, "estimated-value-cur-glo": "PLN"})
+    edited[1].update({"estimated-value-glo": 0, "total-value": 0, "estimated-value-cur-glo": "EUR"})
+    edited[2].update({"estimated-value-glo": 1250.5, "estimated-value-cur-glo": "EUR"})
+    df = c.normalize(edited, raw)
+    assert df["budget_amount"].isna()[0]
+    assert df["budget_amount"].isna()[1]
+    assert df.loc[2, "budget_amount"] == 1250.5
+    assert list(df.loc[:1, "budget_currency"]) == ["PLN", "EUR"]  # the stated currency is kept

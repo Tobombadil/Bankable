@@ -95,3 +95,15 @@ def test_a_page_without_notices_is_a_parse_error():
     raw.content = json.dumps({"pages": [{"error": "bad"}]}).encode()
     with pytest.raises(ParseError):
         c.parse(raw)
+
+
+def test_a_zero_or_negative_estimate_is_an_unknown_budget(parsed):
+    c, raw, rows, _ = parsed
+    edited = [dict(r) for r in rows]
+    edited[0].update({"bid_estimate_amount": "0", "bid_currency_code": "USD"})
+    edited[1].update({"bid_estimate_amount": -1, "bid_currency_code": "USD"})
+    edited[2].update({"bid_estimate_amount": "150000", "bid_currency_code": "USD"})
+    df = c.normalize(edited, raw)
+    assert df["budget_amount"].isna()[0] and df["budget_amount"].isna()[1]
+    assert df.loc[2, "budget_amount"] == 150000.0
+    assert list(df.loc[:1, "budget_currency"]) == ["USD", "USD"]

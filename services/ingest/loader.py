@@ -110,6 +110,7 @@ from pipeline.connectors.dedupe import (
     raw_disambiguator,
     split_key,
 )
+from pipeline.connectors.opportunity import known_budget
 from pipeline.connectors.registry import GATED_REUSE, PUBLISHABLE_REUSE, Registry, SourceEntry
 from pipeline.connectors.store import Store
 from services.db.models import (
@@ -905,7 +906,9 @@ def _opportunity_fields_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "jurisdiction": _row_get(row, "jurisdiction") or "US",
         "technologies": technologies,
         "capacity_sought_mw": _to_float(_row_get(row, "capacity_sought_mw")),
-        "budget_amount": _to_float(_row_get(row, "budget_amount")),
+        # Also here, not only in the connectors: parquet snapshots written before lane I3 still
+        # carry TED's 0 / -1 placeholders, and every connector's rows enter the store through here.
+        "budget_amount": known_budget(_to_float(_row_get(row, "budget_amount"))),
         "budget_currency": _row_get(row, "budget_currency"),
         "open_at": _to_date(_row_get(row, "open_at")),
         "due_at": _to_datetime(_row_get(row, "due_at")),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 from typing import Any
 
@@ -151,6 +152,21 @@ def deadline_passed(due: pd.Timestamp | None, now: dt.datetime) -> str:
 
 def technologies_str(tokens: list[str]) -> str:
     return "|".join(tokens)
+
+
+def known_budget(amount: float | int | None) -> float | None:
+    """A stated budget as a float, or `None` when it is unknown.
+
+    Zero and negative amounts are placeholders, not budgets: TED states `estimated-value-glo` as 0
+    or -1 on notices that give no value (9 of the 279 TED notices with an amount in the 2026-09-13
+    dev snapshot: 8 at 0 EUR, 1 at -1 PLN). Stored as numbers they sorted first on an ascending
+    budget sort and printed "-1 PLN". As `None` they take the API's null ordering (last, both ways)
+    and the page's dash. The notice's stated currency is left alone (docs/00 2026-09-27, lane E16:
+    one currency per budget sort), and `raw` keeps the source's own value. Lane I3, 2026-09-29."""
+    if amount is None or isinstance(amount, bool):
+        return None
+    value = float(amount)
+    return value if math.isfinite(value) and value > 0 else None
 
 
 def empty_opportunity(n: int) -> dict[str, list[Any]]:

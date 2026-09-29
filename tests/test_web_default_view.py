@@ -16,6 +16,8 @@ upsert cost (a separate, still-real gap, unaffected by the query-time fix) once 
 
 from __future__ import annotations
 
+import html
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
@@ -121,5 +123,6 @@ def test_proposal_detail_provenance_matches_the_api_envelope(web_client: TestCli
     resp = web_client.get(f"/proposals/{entity['slug']}")
     assert resp.status_code == 200
     assert provenance[0]["source_name"] in resp.text
-    assert provenance[0]["source_url"] in resp.text
+    # Rendered inside an href, so `&` in a query string appears as `&amp;` (correct HTML escaping).
+    assert html.escape(provenance[0]["source_url"]) in resp.text
     assert provenance[0]["retrieved_at"][:10] in resp.text

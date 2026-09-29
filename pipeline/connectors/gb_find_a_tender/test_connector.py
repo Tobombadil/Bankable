@@ -94,3 +94,15 @@ def test_a_page_without_releases_is_a_parse_error():
     raw.content = json.dumps({"pages": [{"detail": "error"}]}).encode()
     with pytest.raises(ParseError):
         c.parse(raw)
+
+
+def test_a_zero_or_negative_value_is_an_unknown_budget(parsed):
+    c, raw, rows, _ = parsed
+    edited = [{**r, "tender": dict(r.get("tender") or {})} for r in rows]
+    edited[0]["tender"]["value"] = {"amount": 0, "currency": "GBP"}
+    edited[1]["tender"]["value"] = {"amount": -1, "currency": "GBP"}
+    edited[2]["tender"]["value"] = {"amount": 42000, "currency": "GBP"}
+    df = c.normalize(edited, raw)
+    assert df["budget_amount"].isna()[0] and df["budget_amount"].isna()[1]
+    assert df.loc[2, "budget_amount"] == 42000.0
+    assert list(df.loc[:1, "budget_currency"]) == ["GBP", "GBP"]

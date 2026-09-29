@@ -30,6 +30,7 @@ from pipeline.connectors.opportunity import (
     classify_technologies,
     deadline_passed,
     iso2,
+    known_budget,
     technologies_str,
     to_utc,
 )
@@ -204,7 +205,7 @@ class Connector(BaseConnector):
                     techs.append(tok)
             amount = r.get("bid_estimate_amount")
             try:
-                budget = float(amount) if amount not in (None, "") else None
+                budget = known_budget(float(amount)) if amount not in (None, "") else None
             except (TypeError, ValueError):
                 budget = None
             recs.append(
