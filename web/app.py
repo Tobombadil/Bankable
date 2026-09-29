@@ -49,6 +49,7 @@ from web.page import (
 from web.regions import Region, regions_with_data
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
+    PROPOSAL_KIND_LABELS,
     WITHDRAWN_PROPOSAL_STATES,
     WORLD_BBOX,
     absence_note,
@@ -292,7 +293,13 @@ def home_map(request: Request) -> HTMLResponse:
         {
             "delayed": delayed_notice(request, "proposal"),
             "technologies": [v["value"] for v in vocab["technology"]],
-            "kinds": [v["value"] for v in vocab["proposal_kind"]],
+            "kind_options": [
+                (v["value"], PROPOSAL_KIND_LABELS.get(v["value"], v["value"])) for v in vocab["proposal_kind"]
+            ],
+            # map.js reads, keeps in the URL and forwards to `/api/proposals/geo` exactly these
+            # names (2026-09-29: it knew four by hand and `/?kind=load` drew 5,853 proposals under
+            # a notice counting 46). One list, rendered from here, so the two cannot drift.
+            "passthrough_filters": PROPOSAL_PASSTHROUGH_FILTERS,
             "include_withdrawn": include_withdrawn,
             "lifecycle_explicit": explicit,
             "filters": dict(qp),
@@ -305,6 +312,27 @@ def home_map(request: Request) -> HTMLResponse:
             "regions": regions,
             "asset_types": HOME_MAP_ASSET_TYPES,
         },
+    )
+
+
+@app.get("/api/proposals/notice", response_class=HTMLResponse)
+def proposals_notice_fragment(request: Request) -> HTMLResponse:
+    """The home map's lifecycle notice for the current filters, as the page itself renders it.
+
+    `map.js` changes filters without a reload; it fetches this after each change so the notice
+    ("Showing N active proposals ...") and the count line keep describing the same set instead of
+    the notice going on describing the filters the page loaded with. Same breakdown, same
+    template as `home_map`, so the wording lives in one place. Under `/api/`, which robots.txt
+    disallows: a fragment is not a page.
+    """
+    api = get_api(request)
+    qp = request.query_params
+    _lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
+    breakdown = lifecycle_breakdown(api, extra_filters={n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n)})
+    return templates.TemplateResponse(
+        request,
+        "_map_notice.html",
+        {"breakdown": breakdown, "include_withdrawn": include_withdrawn, "lifecycle_explicit": explicit},
     )
 
 

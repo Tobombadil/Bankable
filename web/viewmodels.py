@@ -63,6 +63,21 @@ ALL_PROPOSAL_LIFECYCLE_STATES: tuple[str, ...] = (
     )
 )
 
+#: How the map's Kind select names each `proposal_kind` token (docs/21 §3 `kind`). A token the
+#: vocabulary adds later and this map does not yet name renders as itself, never disappears.
+PROPOSAL_KIND_LABELS: dict[str, str] = {
+    "generation": "Generation",
+    "storage": "Storage",
+    "load": "Load (data centres, large loads)",
+    "transmission": "Transmission",
+    "pipeline": "Pipeline",
+    "lng": "LNG",
+    "nuclear": "Nuclear",
+    "ccs": "Carbon capture (CCS)",
+    "hydrogen": "Hydrogen",
+    "other": "Other",
+}
+
 ALL_OPPORTUNITY_STATUSES: tuple[str, ...] = (
     "unknown",
     "announced",
