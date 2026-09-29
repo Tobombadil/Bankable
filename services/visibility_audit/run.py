@@ -44,6 +44,27 @@ the name-bearing parts (`operator_name`, `attributes`, `owners`) for a withheld 
 searches `GET /v1/assets?q=` for a sample of the withheld spellings (`withheld_name_served`,
 `withheld_name_searchable`). When every organisation is public this is one query and no breach.
 
+**Grid interconnection points** (lane H2, 2026-09-29; docs/21 §3.24, D-16, D-17). A point is public
+only when its naming register passes the source and licence tests and at least one proposal at it
+is public, and every number on it is a sum over those public proposals. The store pass restates
+that without the predicate: the *clean* proposals at each point (record public and past
+`public_at`, class publishable, an active link to a source that is not gated) and the points whose
+register is not gated and which hold one. It then renders the surfaces through the builders they
+call (`services/api/interconnection_points.py`) and compares: the detail's point set
+(`interconnection_point_visibility_filter`) and the list's (`listed_points`) against the clean
+points (`point_shown_printed`, `point_listed_printed`); `point_totals` against the sum over clean
+proposals (`point_total_printed:totals:<field>`); the proposals the detail lists
+(`point_proposal_printed`) and its `recent_changes` events (`point_change_printed`); and the
+proposal-detail and bulk embeds (`proposal_point_embeds`, `point_embed_printed`,
+`point_total_printed:{proposal,bulk}_embed:<field>`). The served pass requests a sample: the list's
+first page, a hidden point's detail and web page (must be the unknown id's 404,
+`point_hidden_served`), `GET /v1/proposals?interconnection_point_id=` for it (must be the same page an
+unknown id gets, `point_oracle_served`), and the busiest clean points' API detail, one proposal's
+embed and the web page (`point_total_served`, `point_proposal_served`, `point_change_served`). Web
+pages are requested only where the `web` package is importable (`served.web_pages`); the scheduler
+image ships none. Bulk needs an API key, so its embed is checked on the store pass only. Breach
+rows carry public ids and field names, never a point's name or a megawatt figure.
+
 `m11` is the total number of breaches from both passes. The result is persisted **without a new
 table**: one append-only `event` row (docs/21 §3.10; subject type `source`, the closest existing
 vocabulary entry for a platform-wide publication check; `event_type = visibility_audit`;
@@ -70,6 +91,7 @@ import datetime as dt
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from collections.abc import Callable, Iterator, Mapping
@@ -90,6 +112,7 @@ from services.db.models import (
     AssetOwner,
     AssetSource,
     Event,
+    InterconnectionPoint,
     Licence,
     Opportunity,
     OpportunitySource,
@@ -134,6 +157,7 @@ SURFACES: tuple[str, ...] = (
     "organizations",
     "assets",
     "source_links",
+    "interconnection_points",
 )
 #: Subject types an event may be served for (`event_visibility_filter`'s subject join).
 _EVENT_SUBJECTS = ("proposal", "opportunity")
@@ -148,6 +172,7 @@ PREDICATES: dict[str, Predicate] = {
     "opportunities": visibility.opportunity_visibility_filter,
     "events": visibility.event_visibility_filter,
     "assets": visibility.asset_visibility_filter,
+    "interconnection_points": visibility.interconnection_point_visibility_filter,
 }
 
 
@@ -646,6 +671,288 @@ def _first_gated_org_source(db: Session, org_id: uuid.UUID, gated_ids: list[str]
     return None
 
 
+# ================================================================== interconnection points (H2)
+POINTS = "interconnection_points"
+#: Anonymous requests the served pass spends on points, per group (hidden points, busiest clean
+#: points). A group costs two anonymous requests per point (the web page goes through the site's own
+#: service identity and costs none), plus one list page and one unknown-id baseline -- 22 at the
+#: default, inside the public tier's hourly 60 (`services/api/ratelimit.py`) with the other groups.
+POINT_SERVED_SAMPLE = 5
+#: What the `interconnection_point_id=` filter must answer for a hidden point: this id's page.
+UNKNOWN_POINT_ID = "poi_0000000000"
+#: The scalar totals compared, and the embed's subset. MW fields are compared within
+#: `MW_TOLERANCE`: the API rounds to 3 places and SQL sums in a different order from Python.
+POINT_TOTAL_FIELDS: tuple[str, ...] = (
+    "proposal_count",
+    "active_count",
+    "active_mw",
+    "withdrawn_count",
+    "withdrawn_mw",
+    "built_count",
+    "built_mw",
+    "other_count",
+    "other_mw",
+)
+EMBED_TOTAL_FIELDS: tuple[str, ...] = ("active_mw", "active_count", "proposal_count")
+MW_TOLERANCE = 0.0015
+_POINT_CHUNK = 500
+
+
+@dataclass
+class _PointFacts:
+    """What the store pass established about points, for the served pass. In memory only: it holds
+    expected totals, which are never persisted."""
+
+    #: clean point public id -> expected scalar totals over its clean proposals.
+    expected: dict[str, dict[str, Any]]
+    #: clean point public id -> the public ids of its clean proposals.
+    clean_proposals: dict[str, frozenset[str]]
+    #: stored points that must not exist publicly, `(public_id, why)`, by public id.
+    hidden: list[tuple[str, str]]
+    #: whether the store holds any point at all (none: no point probe, no request spent).
+    any_points: bool
+    #: sources no served change event may credit, and the run's instant (an event must be public by it).
+    gated_sources: frozenset[str] = frozenset()
+    now: dt.datetime | None = None
+
+
+def _chunks(items: list[Any], size: int = _POINT_CHUNK) -> Iterator[list[Any]]:
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
+def first_total_mismatch(
+    got: Mapping[str, Any], want: Mapping[str, Any], fields: tuple[str, ...]
+) -> str | None:
+    """The first of `fields` on which a served or rendered total disagrees with the expected one
+    (a missing field disagrees), or `None`."""
+    for name in fields:
+        value, expected = got.get(name), want.get(name)
+        if value is None or expected is None or abs(float(value) - float(expected)) > MW_TOLERANCE:
+            return name
+    return None
+
+
+def _audit_interconnection_points(
+    db: Session,
+    *,
+    gated_src: Mapping[str, str],
+    gated_lic: Mapping[str, str],
+    publishable: tuple[str, ...],
+    now: dt.datetime,
+) -> tuple[int, list[Breach], _PointFacts]:
+    """The store half of the point checks (module docstring). Returns the detail surface's shown
+    count, the breaches and the facts the served pass compares against."""
+    from services.api import interconnection_points as ip
+
+    meta = {
+        row[0]: (row[1], row[2], row[3])
+        for row in db.execute(
+            select(
+                InterconnectionPoint.id,
+                InterconnectionPoint.public_id,
+                InterconnectionPoint.source_id,
+                InterconnectionPoint.licence_id,
+            )
+        ).all()
+    }
+    if not meta:
+        return 0, [], _PointFacts({}, {}, [], any_points=False)
+
+    # The clean proposals at each point, restated without the predicate (module docstring).
+    link = aliased(ProposalSource)
+    clean_link = [link.proposal_id == Proposal.id, link.active.is_(True)]
+    if gated_src:
+        clean_link.append(link.source_id.not_in(list(gated_src)))
+    rows = db.execute(
+        select(
+            Proposal.id,
+            Proposal.public_id,
+            Proposal.interconnection_point_id,
+            Proposal.lifecycle_state,
+            Proposal.technology,
+            Proposal.capacity_mw,
+        ).where(
+            Proposal.interconnection_point_id.is_not(None),
+            Proposal.publish_state == "public",
+            Proposal.public_at.is_not(None),
+            Proposal.public_at <= now,
+            Proposal.min_reuse_class.in_(publishable),
+            exists(select(link.id).where(*clean_link)),
+        )
+    ).all()
+    totals: dict[uuid.UUID, Any] = {}
+    clean_props: dict[uuid.UUID, set[uuid.UUID]] = {}
+    clean_prop_public: dict[uuid.UUID, set[str]] = {}
+    for prop_id, prop_public, point_id, state, technology, mw in rows:
+        totals.setdefault(point_id, ip.PointTotals()).add(state, technology, 1, float(mw or 0))
+        clean_props.setdefault(point_id, set()).add(prop_id)
+        clean_prop_public.setdefault(point_id, set()).add(prop_public)
+
+    def why(point_id: uuid.UUID) -> str:
+        _public, source_id, licence_id = meta[point_id]
+        if source_id in gated_src:
+            return f"register_gated:{gated_src[source_id]}"
+        if licence_id in gated_lic:
+            return gated_lic[licence_id]
+        return "no_visible_proposal"
+
+    def gated_source(point_id: uuid.UUID) -> str | None:
+        source_id = meta[point_id][1]
+        return source_id if source_id in gated_src else None
+
+    clean = {
+        pid
+        for pid in totals
+        if pid in meta and meta[pid][1] not in gated_src and meta[pid][2] not in gated_lic
+    }
+    breaches: list[Breach] = []
+
+    # The two ways a point reaches a page: the detail's predicate and the list's row set.
+    shown = set(db.scalars(select(InterconnectionPoint.id).where(*PREDICATES[POINTS]("public", now))).all())
+    listed_stmt, _agg = ip.listed_points("public")
+    listed_sub = listed_stmt.subquery()
+    listed = set(db.scalars(select(listed_sub.c.id)).all())
+    for label, surfaced in (("point_shown_printed", shown), ("point_listed_printed", listed)):
+        for pid in sorted(surfaced - clean, key=lambda i: meta[i][0]):
+            breaches.append(Breach(POINTS, meta[pid][0], gated_source(pid), f"{label}:{why(pid)}"))
+
+    rendered_ids = sorted(clean | shown | listed, key=str)
+    # Totals, through the builder the list, the detail and the embeds call.
+    rendered: dict[uuid.UUID, Any] = {}
+    listed_props: dict[uuid.UUID, set[uuid.UUID]] = {}
+    changes: dict[uuid.UUID, list[Event]] = {}
+    for chunk in _chunks(rendered_ids):
+        rendered.update(ip.point_totals(db, chunk, "public", now))
+        for point_id, prop_id in db.execute(
+            select(Proposal.interconnection_point_id, Proposal.id).where(
+                Proposal.interconnection_point_id.in_(chunk), *ip.point_proposal_filter("public", now)
+            )
+        ).all():
+            listed_props.setdefault(point_id, set()).add(prop_id)
+        changes.update(ip.recent_point_changes(db, chunk, "public", now=now))
+    for pid in sorted(clean, key=lambda i: meta[i][0]):
+        got = rendered.get(pid, ip.PointTotals()).as_dict()
+        field_name = first_total_mismatch(got, totals[pid].as_dict(), POINT_TOTAL_FIELDS)
+        if field_name:
+            breaches.append(Breach(POINTS, meta[pid][0], None, f"point_total_printed:totals:{field_name}"))
+    for pid in sorted(listed_props, key=lambda i: meta[i][0]):
+        if listed_props[pid] - clean_props.get(pid, set()):
+            breaches.append(Breach(POINTS, meta[pid][0], None, "point_proposal_printed:detail"))
+    for pid in sorted(changes, key=lambda i: meta[i][0]):
+        reason = _change_offence(changes[pid], clean_props.get(pid, set()), gated_src, gated_lic, now)
+        if reason:
+            breaches.append(Breach(POINTS, meta[pid][0], None, f"point_change_printed:{reason}"))
+
+    breaches.extend(
+        _audit_point_embeds(
+            db, ip=ip, meta=meta, clean=clean, totals=totals, why=why, gated_source=gated_source, now=now
+        )
+    )
+
+    by_public = {meta[pid][0]: pid for pid in clean}
+    facts = _PointFacts(
+        expected={pub: _scalar_totals(totals[pid].as_dict()) for pub, pid in by_public.items()},
+        clean_proposals={pub: frozenset(clean_prop_public[pid]) for pub, pid in by_public.items()},
+        hidden=sorted((meta[pid][0], why(pid)) for pid in meta if pid not in clean),
+        any_points=True,
+        gated_sources=frozenset(gated_src),
+        now=now,
+    )
+    return len(shown), breaches, facts
+
+
+def _scalar_totals(totals: Mapping[str, Any]) -> dict[str, Any]:
+    return {name: totals[name] for name in POINT_TOTAL_FIELDS}
+
+
+def _change_offence(
+    events: list[Event],
+    clean_props: set[uuid.UUID],
+    gated_src: Mapping[str, str],
+    gated_lic: Mapping[str, str],
+    now: dt.datetime,
+) -> str | None:
+    """Why one point's rendered `recent_changes` breaches, or `None`: an event whose own source or
+    licence is gated, that is not yet public, or whose subject is not a clean proposal at the
+    point."""
+    for event in events:
+        if event.source_id in gated_src:
+            return "event_source_gated"
+        if event.licence_id in gated_lic:
+            return "event_licence_gated"
+        if event.public_at is None or _aware(event.public_at) > now:
+            return "event_not_yet_public"
+        if event.subject_type != "proposal" or event.subject_id not in clean_props:
+            return "subject_not_visible"
+    return None
+
+
+def _audit_point_embeds(
+    db: Session,
+    *,
+    ip: Any,
+    meta: Mapping[uuid.UUID, tuple[str, str, str]],
+    clean: set[uuid.UUID],
+    totals: Mapping[uuid.UUID, Any],
+    why: Callable[[uuid.UUID], str],
+    gated_source: Callable[[uuid.UUID], str | None],
+    now: dt.datetime,
+) -> list[Breach]:
+    """The `interconnection_point` embed on every shown proposal that links a point, rendered
+    through `proposal_point_embeds` as the proposal detail calls it and as bulk calls it
+    (`redistribution=True`). The embed must name a clean point with the clean totals; bulk's must
+    also be absent when the point's licence forbids API redistribution. Bulk is rendered at the
+    public tier: the invariants here are the public tier's."""
+    from sqlalchemy.orm import load_only
+
+    no_redistribution = set(
+        db.scalars(select(Licence.id).where(Licence.allows_api_redistribution.is_(False))).all()
+    )
+    by_public = {value[0]: key for key, value in meta.items()}
+    proposals = list(
+        db.scalars(
+            select(Proposal)
+            .options(load_only(Proposal.id, Proposal.public_id, Proposal.interconnection_point_id))
+            .where(Proposal.interconnection_point_id.is_not(None), *PREDICATES["proposals"]("public", now))
+            .order_by(Proposal.public_id)
+        ).all()
+    )
+    breaches: list[Breach] = []
+    for chunk in _chunks(proposals):
+        for surface, redistribution in (("proposal_embed", False), ("bulk_embed", True)):
+            embeds = ip.proposal_point_embeds(db, chunk, "public", redistribution=redistribution)
+            for proposal in chunk:
+                embed = embeds.get(proposal.id)
+                if not embed:
+                    continue
+                point_id = by_public.get(str(embed.get("public_id")))
+                if point_id is None or point_id not in clean:
+                    reason = why(point_id) if point_id is not None else "unknown_point"
+                    source = gated_source(point_id) if point_id is not None else None
+                    breaches.append(
+                        Breach(POINTS, proposal.public_id, source, f"point_embed_printed:{surface}:{reason}")
+                    )
+                elif redistribution and meta[point_id][2] in no_redistribution:
+                    breaches.append(
+                        Breach(
+                            POINTS,
+                            proposal.public_id,
+                            None,
+                            f"point_embed_printed:{surface}:licence_no_api_redistribution",
+                        )
+                    )
+                elif field_name := first_total_mismatch(
+                    embed, totals[point_id].as_dict(), EMBED_TOTAL_FIELDS
+                ):
+                    breaches.append(
+                        Breach(
+                            POINTS, proposal.public_id, None, f"point_total_printed:{surface}:{field_name}"
+                        )
+                    )
+    return breaches
+
+
 def _hidden_candidates(db: Session, gated_src: Mapping[str, str], *, limit: int) -> list[_Candidate]:
     """Rows that must be hidden whatever the predicate says, for the served pass: taken-down and
     pending records, records whose *only* active evidence is gated (a mixed-provenance record is
@@ -742,6 +1049,11 @@ def audit_store(
     shown, found = _audit_assets(db, gated_src=gated_src, gated_lic=gated_lic, now=now)
     counts["assets"]["shown"] = shown
     breaches.extend(found)
+    shown, found, point_facts = _audit_interconnection_points(
+        db, gated_src=gated_src, gated_lic=gated_lic, publishable=publishable, now=now
+    )
+    counts[POINTS]["shown"] = shown
+    breaches.extend(found)
     withheld = withheld_names(db)
     hidden = _hidden_organization_ids(db) if not withheld.empty else ([], frozenset[str]())
     found, name_probes = _audit_asset_operator_names(db, now=now, withheld=withheld, hidden=hidden)
@@ -766,12 +1078,13 @@ def audit_store(
         "breach_total": len(breaches),
         "breach_cap": BREACH_CAP,
         "breaches_truncated": len(breaches) > BREACH_CAP,
-        "served": {"checked": 0, "leaks": 0, "inconclusive": 0, "checks": []},
+        "served": {"checked": 0, "leaks": 0, "inconclusive": 0, "web_pages": "not_needed", "checks": []},
         "m11": len(breaches),
         "_breaches": breaches,  # in-memory only; stripped before persisting/returning
         "_withheld": withheld,  # in-memory only: the served pass scans with the same names
         "_hidden_org_ids": hidden[1],
         "_name_probes": name_probes,  # in-memory only
+        "_points": point_facts,  # in-memory only: expected totals are never persisted
     }
 
 
@@ -821,6 +1134,12 @@ def _detail_path(surface: str, pid: str) -> str | None:
             return f"/v1/opportunities/{pid}/sources"
         if pid.startswith("asset_"):
             return f"/v1/assets/{pid}"
+    if surface == POINTS:
+        # A point breach is about the point's own page; an embed breach about the proposal's.
+        if pid.startswith("poi_"):
+            return f"/v1/interconnection-points/{pid}"
+        if pid.startswith("prop_"):
+            return f"/v1/proposals/{pid}"
     return None
 
 
@@ -892,6 +1211,8 @@ def served_pass(
             if leak and breach.reason.startswith("withheld_name_printed:"):
                 # The asset is rightly served; the leak is the name in it.
                 leak = bool(_served_name_paths(response.json().get("data") or {}, result, breach.public_id))
+            if leak and breach.surface == POINTS:
+                leak = _point_breach_served(breach, response.json().get("data") or {}, result)
             breach.served_leak = leak
             leaks += int(leak)
             checks.append(
@@ -932,6 +1253,7 @@ def served_pass(
                 breaches.append(breach)
                 result["counts"][candidate.surface]["breaches"] += 1
         leaks += _served_name_checks(client, result, already, checks, sample=sample)
+        leaks += _served_point_checks(client, result, already, checks, sample=sample)
     # A status that is neither "served" (200) nor "hidden" (404) — a 429 from the public tier's
     # hourly budget, a 5xx — proves nothing either way; it is counted so a run whose served pass
     # was starved cannot read as a clean one.
@@ -940,6 +1262,7 @@ def served_pass(
         "checked": len(checks),
         "leaks": leaks,
         "inconclusive": inconclusive,
+        "web_pages": result.pop("_web_pages", "not_needed"),
         "checks": checks,
     }
     result["breaches"] = [asdict(b) for b in breaches[:BREACH_CAP]]
@@ -1012,6 +1335,245 @@ def _served_name_checks(
         for pid, reason in offenders:
             breaches.append(Breach("assets", pid, None, reason, response.status_code, True))
             result["counts"]["assets"]["breaches"] += 1
+    return leaks
+
+
+def _point_detail_offence(data: Mapping[str, Any], facts: _PointFacts) -> str | None:
+    """Why a served point detail (or a list row, which carries the same `totals`) breaches, or
+    `None`: a point the store pass says is hidden, totals that are not the sum over clean
+    proposals, a listed proposal or a change event about a proposal that is not clean at it."""
+    public = str(data.get("public_id"))
+    want = facts.expected.get(public)
+    if want is None:
+        return "point_hidden_served:point_not_visible"
+    field_name = first_total_mismatch(data.get("totals") or {}, want, POINT_TOTAL_FIELDS)
+    if field_name:
+        return f"point_total_served:detail:{field_name}"
+    clean = facts.clean_proposals.get(public, frozenset())
+    if any(row.get("public_id") not in clean for row in data.get("proposals") or []):
+        return "point_proposal_served:detail"
+    for change in data.get("recent_changes") or []:
+        if (change.get("subject") or {}).get("public_id") not in clean:
+            return "point_change_served:subject_not_visible"
+        if (change.get("provenance") or {}).get("source_id") in facts.gated_sources:
+            return "point_change_served:event_source_gated"
+        public_at = change.get("public_at")
+        if public_at is None or (
+            facts.now is not None and _aware(dt.datetime.fromisoformat(str(public_at))) > facts.now
+        ):
+            return "point_change_served:event_not_yet_public"
+    return None
+
+
+def _embed_offence(embed: Mapping[str, Any] | None, facts: _PointFacts) -> str | None:
+    """Why a served proposal detail's `interconnection_point` breaches, or `None`."""
+    if not embed:
+        return None
+    want = facts.expected.get(str(embed.get("public_id")))
+    if want is None:
+        return "point_embed_served:proposal_embed:point_not_visible"
+    field_name = first_total_mismatch(embed, want, EMBED_TOTAL_FIELDS)
+    return f"point_total_served:proposal_embed:{field_name}" if field_name else None
+
+
+def _point_breach_served(breach: Breach, data: Mapping[str, Any], result: Mapping[str, Any]) -> bool:
+    """Whether a sampled store-pass point breach is on the served page too. The page itself is
+    rightly served for a clean point or a clean proposal; the leak is what it carries."""
+    facts: _PointFacts | None = result.get("_points")
+    if facts is None:
+        return True
+    if breach.public_id.startswith("prop_"):
+        # A bulk-only breach (the licence's redistribution flag) cannot be confirmed anonymously:
+        # the proposal detail rightly carries that embed.
+        return _embed_offence(data.get("interconnection_point"), facts) is not None
+    if breach.reason.startswith(("point_shown_printed:", "point_listed_printed:")):
+        return True
+    return _point_detail_offence(data, facts) is not None
+
+
+def _oracle_view(response: Any) -> tuple[int, Any, Any]:
+    """What the `interconnection_point_id=` filter disclosed: status, rows and paging (the `meta`
+    block carries a request id and timestamps, which differ on every request)."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.status_code, None, None
+    return response.status_code, body.get("data"), body.get("page")
+
+
+#: The active-queue figure on a point's web page (`web/templates/interconnection_point_detail.html`).
+_WEB_ACTIVE_MW = re.compile(r"<dt>Active queued \(MW\)</dt><dd[^>]*>\s*([^<\s]+)")
+
+
+def web_active_mw_label(html: str) -> str | None:
+    """The active queued MW a point's web page prints, as printed, or `None` when the page carries
+    no such field -- which the served pass counts as a disagreement, so a template change that
+    moves the figure fails the clean-store test rather than silently passing every run."""
+    match = _WEB_ACTIVE_MW.search(html)
+    return match.group(1) if match else None
+
+
+@contextmanager
+def site_client() -> Iterator[Any | None]:
+    """The public site, reading the audited store through the in-process API with the site's own
+    service identity (`web/api_client.py::build_client`; no credential, so the public tier), or
+    `None` where the `web` package is not installed -- the scheduler image ships only `services`
+    (`infra/docker/Dockerfile`). Deferred imports: `services` never imports `web` at module load.
+    Call inside `anonymous_client`, whose `get_db` override the site's API calls then share."""
+    try:
+        from web.api_client import build_client
+        from web.app import app as web_app
+    except ImportError:  # pragma: no cover - the scheduler image; the test suite always has `web`
+        yield None
+        return
+    from fastapi.testclient import TestClient
+
+    previous = web_app.state.__dict__.get("api_client")
+    web_app.state.api_client = build_client(api_base_url="")
+    try:
+        with TestClient(web_app) as client:
+            yield client
+    finally:
+        if previous is None:
+            web_app.state.__dict__.pop("api_client", None)
+        else:
+            web_app.state.api_client = previous
+
+
+def _served_point_checks(
+    client: Any,
+    result: dict[str, Any],
+    already: set[tuple[str, str]],
+    checks: list[dict[str, Any]],
+    *,
+    sample: int,
+) -> int:
+    """The served half of the point checks (module docstring). Returns the number of leaks; each
+    offending response is also a breach. Spends no request when the store holds no point."""
+    facts: _PointFacts | None = result.get("_points")
+    size = min(sample, POINT_SERVED_SAMPLE)
+    if facts is None or not facts.any_points or size <= 0:
+        return 0
+    breaches: list[Breach] = result["_breaches"]
+    leaks = 0
+
+    def record(kind: str, pub: str, path: str, status: int, reason: str | None, why: str) -> None:
+        nonlocal leaks
+        checks.append(
+            {
+                "kind": kind,
+                "surface": POINTS,
+                "public_id": pub,
+                "path": path,
+                "status": status,
+                "leak": reason is not None,
+                "why": why,
+            }
+        )
+        if reason is not None:
+            leaks += 1
+            breaches.append(Breach(POINTS, pub, None, reason, status, True))
+            result["counts"][POINTS]["breaches"] += 1
+
+    # The list's first page (its default order puts the largest queues first).
+    response = client.get("/v1/interconnection-points", params={"limit": 200})
+    rows = (response.json().get("data") or []) if response.status_code == 200 else []
+    offenders = [
+        (str(r.get("public_id")), reason) for r in rows if (reason := _point_detail_offence(r, facts))
+    ]
+    listed: list[tuple[str, str | None]] = list(offenders) or [("list", None)]
+    for pub, reason in listed:
+        listed_reason = reason.replace(":detail:", ":list:") if reason else None
+        if listed_reason and listed_reason.startswith("point_hidden_served:"):
+            listed_reason = "point_listed_served:point_not_visible"
+        record(
+            "point_totals",
+            pub,
+            "/v1/interconnection-points",
+            response.status_code,
+            listed_reason,
+            "list",
+        )
+
+    with site_client() as site:
+        result["_web_pages"] = "checked" if site is not None else "unavailable"
+        hidden = [(pub, why) for pub, why in facts.hidden if (POINTS, pub) not in already][:size]
+        if hidden:
+            baseline = _oracle_view(
+                client.get("/v1/proposals", params={"interconnection_point_id": UNKNOWN_POINT_ID})
+            )
+        for pub, why in hidden:
+            path = f"/v1/interconnection-points/{pub}"
+            response = client.get(path)
+            reason = f"point_hidden_served:{why}" if response.status_code == 200 else None
+            record("must_be_hidden", pub, path, response.status_code, reason, why)
+            response = client.get("/v1/proposals", params={"interconnection_point_id": pub})
+            reason = None if _oracle_view(response) == baseline else "point_oracle_served:proposals_filter"
+            record(
+                "point_oracle",
+                pub,
+                f"/v1/proposals?interconnection_point_id={pub}",
+                response.status_code,
+                reason,
+                why,
+            )
+            if site is not None:
+                page = site.get(f"/interconnection-points/{pub}")
+                # A 503 from the site proves nothing either way; it is counted inconclusive.
+                reason = f"point_hidden_served:web_detail:{why}" if page.status_code == 200 else None
+                record(
+                    "must_be_hidden",
+                    pub,
+                    f"/interconnection-points/{pub}",
+                    page.status_code,
+                    reason,
+                    why,
+                )
+
+        busiest = sorted(facts.expected, key=lambda pub: (-float(facts.expected[pub]["active_mw"]), pub))
+        for pub in [pub for pub in busiest if (POINTS, pub) not in already][:size]:
+            path = f"/v1/interconnection-points/{pub}"
+            response = client.get(path)
+            data = response.json().get("data") if response.status_code == 200 else None
+            record(
+                "point_totals",
+                pub,
+                path,
+                response.status_code,
+                _point_detail_offence(data or {}, facts) if data else None,
+                "detail",
+            )
+            proposal = min(facts.clean_proposals[pub])
+            response = client.get(f"/v1/proposals/{proposal}")
+            embed = (
+                (response.json().get("data") or {}).get("interconnection_point")
+                if response.status_code == 200
+                else None
+            )
+            record(
+                "point_totals",
+                proposal,
+                f"/v1/proposals/{proposal}",
+                response.status_code,
+                _embed_offence(embed, facts),
+                "proposal_embed",
+            )
+            if site is not None:
+                page = site.get(f"/interconnection-points/{pub}")
+                label = f"{float(facts.expected[pub]['active_mw']):,.1f}"
+                reason = (
+                    "point_total_served:web_detail:active_mw"
+                    if page.status_code == 200 and web_active_mw_label(page.text) != label
+                    else None
+                )
+                record(
+                    "point_totals",
+                    pub,
+                    f"/interconnection-points/{pub}",
+                    page.status_code,
+                    reason,
+                    "web_detail",
+                )
     return leaks
 
 

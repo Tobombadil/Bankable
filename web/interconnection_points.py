@@ -6,6 +6,10 @@ Every number on these pages is the API's, computed at the caller's tier over the
 see; the page adds no arithmetic of its own beyond formatting, so what it prints can never include a
 proposal the API withheld. The page says so in one line, because a total that silently omits
 unpublished rows reads as the whole queue.
+
+"Recent changes at this point" (lane H2, 2026-09-29) is the detail response's `recent_changes[]`:
+the API has already applied the events visibility rule and the point's own proposal set, so the
+page only words each event, links its proposal and credits its source.
 """
 
 from __future__ import annotations
@@ -91,6 +95,57 @@ def flatten_point(entity: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _state_words(state: Any) -> str | None:
+    return str(state).replace("_", " ") if state else None
+
+
+def change_label(event: Mapping[str, Any]) -> str:
+    """One event of `recent_changes[]` as a phrase. The before and after states are the event's
+    own `lifecycle_state` values; a status change the source recorded without a before state says
+    only where it went."""
+    event_type = str(event.get("event_type") or "")
+    before = _state_words((event.get("before") or {}).get("lifecycle_state"))
+    after = _state_words((event.get("after") or {}).get("lifecycle_state"))
+    if event_type == "created":
+        return "Entered the queue here" + (f" as {after}" if after else "")
+    if event_type == "status_change":
+        if before and after:
+            return f"Status changed from {before} to {after}"
+        return f"Status changed to {after}" if after else "Status changed"
+    return (_state_words(event_type) or "Changed").capitalize()
+
+
+def flatten_change(event: Mapping[str, Any]) -> dict[str, Any]:
+    """A `recent_changes[]` event as the template reads it: the date observed, the phrase, the
+    proposal it happened to (linked) and the source that recorded it (credited as elsewhere)."""
+    subject = event.get("subject") or {}
+    provenance = event.get("provenance") or {}
+    observed = event.get("observed_at")
+    return {
+        "id": event.get("id"),
+        "date": str(observed)[:10] if observed else None,
+        "label": change_label(event),
+        "proposal_name": subject.get("name"),
+        "proposal_href": web_relative_url(subject.get("url")),
+        "source_name": provenance.get("source_name"),
+        "source_url": provenance.get("source_url"),
+        "attribution_text": provenance.get("attribution_text"),
+    }
+
+
+def _panel_provenance(record: Mapping[str, Any], changes: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """The Sources panel's rows: the register that names the point, then any other source a listed
+    change event credits (one row per source), so every row on the page is attributed."""
+    rows: list[dict[str, Any]] = list(record.get("provenance") or [])
+    seen = {row.get("source_id") for row in rows}
+    for event in changes:
+        provenance = event.get("provenance")
+        if provenance and provenance.get("source_id") not in seen:
+            rows.append(dict(provenance))
+            seen.add(provenance.get("source_id"))
+    return rows
+
+
 def _flatten_point_proposal(row: Mapping[str, Any]) -> dict[str, Any]:
     return {
         **row,
@@ -168,6 +223,7 @@ def interconnection_point_detail(request: Request, public_id: str) -> HTMLRespon
     entity = envelope["data"]
     record = flatten_point(entity)
     proposals = [_flatten_point_proposal(p) for p in entity.get("proposals") or []]
+    changes = list(entity.get("recent_changes") or [])
     path = f"/interconnection-points/{public_id}"
     return templates.TemplateResponse(
         request,
@@ -176,7 +232,8 @@ def interconnection_point_detail(request: Request, public_id: str) -> HTMLRespon
             "record": record,
             "proposals": proposals,
             "proposals_truncated": bool(entity.get("proposals_truncated")),
-            "provenance_rows": provenance_panel_rows(api, record["provenance"]),
+            "changes": [flatten_change(e) for e in changes],
+            "provenance_rows": provenance_panel_rows(api, _panel_provenance(record, changes)),
             "canonical_path": path,
             "jsonld": [
                 breadcrumb_jsonld(

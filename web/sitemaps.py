@@ -37,7 +37,9 @@ router = APIRouter()
 #: Raised from 25 on 2026-09-19 (task item 6): 25 pages capped a resource at 5,000 URLs, which
 #: silently truncated assets (17.4k visible on today's dev load) and organisations (5.5k). 150
 #: pages of 200 (`services/api/pagination.py::MAX_LIMIT`) is 30,000 URLs per resource, which
-#: covers every resource with headroom and bounds one cold build at 600 upstream calls.
+#: covers every resource with headroom and bounds one cold build at 600 upstream calls. The fifth
+#: resource, interconnection points (2026-09-29), adds at most 150 more; 4,742 points on the dev
+#: store are 24 calls.
 SITEMAP_MAX_PAGES_PER_RESOURCE = 150
 SITEMAP_PAGE_SIZE = 200
 SITEMAP_CACHE_SECONDS = 3600
@@ -53,6 +55,7 @@ SITEMAP_STATIC_PATHS = (
     "/opportunities",
     "/assets",
     "/organizations",
+    "/interconnection-points",
     "/search",
     "/about",
     "/methodology",
@@ -62,8 +65,16 @@ SITEMAP_STATIC_PATHS = (
 
 
 def _sitemap_paths_for(
-    api: ApiClient, path: str, url_prefix: str, *, extra_params: dict[str, str] | None = None
+    api: ApiClient,
+    path: str,
+    url_prefix: str,
+    *,
+    extra_params: dict[str, str] | None = None,
+    key: str = "slug",
 ) -> list[str]:
+    """Every page of one resource's public list, as `{url_prefix}/{row[key]}`. `key` is the field
+    the detail route takes: a slug for records, assets and organisations, the `public_id` for an
+    interconnection point (which has no slug, docs/21 §3.24)."""
     paths: list[str] = []
     cursor: str | None = None
     for _ in range(SITEMAP_MAX_PAGES_PER_RESOURCE):
@@ -71,9 +82,9 @@ def _sitemap_paths_for(
         params.update(extra_params or {})
         envelope = api.get(path, params=params)
         for row in envelope["data"]:
-            slug = row.get("slug")
-            if slug:
-                paths.append(f"{url_prefix}/{slug}")
+            ident = row.get(key)
+            if ident:
+                paths.append(f"{url_prefix}/{ident}")
         page = envelope.get("page") or {}
         if not page.get("has_more"):
             break
@@ -102,22 +113,28 @@ def _render_sitemap_index_xml(base_url: str, paths: list[str]) -> str:
 def _build_sitemap_documents(api: ApiClient, base: str) -> dict[str, str]:
     """Every sitemap document this site serves, keyed by path, from one walk of every resource.
 
-    Proposals, opportunities, assets and organisations, cursor-paginated per resource and capped
-    (`SITEMAP_MAX_PAGES_PER_RESOURCE`). A resource whose list call errors is skipped rather than
-    blanking the whole sitemap. When the URLs fit one file, `/sitemap.xml` is that `<urlset>`;
-    above that it becomes a `<sitemapindex>` over `/sitemaps/{n}.xml` (`docs/23` §3.1's
-    split-by-file shape), so the protocol's 50,000-URL and 50 MB limits stay out of reach.
+    Proposals, opportunities, assets, organisations and grid interconnection points,
+    cursor-paginated per resource and capped (`SITEMAP_MAX_PAGES_PER_RESOURCE`). Points are read
+    from `GET /v1/interconnection-points` at the anonymous tier like every other resource, so a
+    point is listed only when that route lists it: its register is visible and at least one of its
+    proposals is (docs/21 D-17). A gated or emptied point is absent, exactly as it is from the
+    index page, so the sitemap is no oracle for it (lane H2, 2026-09-29). A resource whose list
+    call errors is skipped rather than blanking the whole sitemap. When the URLs fit one file,
+    `/sitemap.xml` is that `<urlset>`; above that it becomes a `<sitemapindex>` over
+    `/sitemaps/{n}.xml` (`docs/23` §3.1's split-by-file shape), so the protocol's 50,000-URL and
+    50 MB limits stay out of reach.
     """
     paths: list[str] = list(SITEMAP_STATIC_PATHS)
-    resources: list[tuple[str, str, dict[str, str]]] = [
-        ("/v1/proposals", "/proposals", {"lifecycle_state": ALL_PROPOSAL_LIFECYCLE_STATES_CSV}),
-        ("/v1/opportunities", "/opportunities", {"status": ALL_OPPORTUNITY_STATUSES_CSV}),
-        ("/v1/assets", "/assets", {}),
-        ("/v1/organizations", "/organizations", {}),
+    resources: list[tuple[str, str, dict[str, str], str]] = [
+        ("/v1/proposals", "/proposals", {"lifecycle_state": ALL_PROPOSAL_LIFECYCLE_STATES_CSV}, "slug"),
+        ("/v1/opportunities", "/opportunities", {"status": ALL_OPPORTUNITY_STATUSES_CSV}, "slug"),
+        ("/v1/assets", "/assets", {}, "slug"),
+        ("/v1/organizations", "/organizations", {}, "slug"),
+        ("/v1/interconnection-points", "/interconnection-points", {}, "public_id"),
     ]
-    for api_path, prefix, extra in resources:
+    for api_path, prefix, extra, key in resources:
         try:
-            paths += _sitemap_paths_for(api, api_path, prefix, extra_params=extra)
+            paths += _sitemap_paths_for(api, api_path, prefix, extra_params=extra, key=key)
         except (ApiError, httpx.HTTPError):
             continue  # one resource's list call failing must not blank the whole sitemap
     if len(paths) <= SITEMAP_URLS_PER_FILE:
@@ -135,7 +152,7 @@ def _build_sitemap_documents(api: ApiClient, base: str) -> dict[str, str]:
 def _sitemap_documents(request: Request) -> dict[str, str]:
     """The cached `{path: xml}` for this base URL, built on a miss.
 
-    Building costs up to 600 sequential upstream list calls (web audit 2026-09-18: an uncached
+    Building costs up to 750 sequential upstream list calls (web audit 2026-09-18: an uncached
     amplifier on a public route, and a connection reset mid-way 500ed the whole response), so the
     rendered documents are cached per base URL for an hour -- the sitemap changes daily at most.
     The cache now holds every document from one walk rather than one file's XML, so a crawler

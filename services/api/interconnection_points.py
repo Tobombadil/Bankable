@@ -1,6 +1,7 @@
 """`GET /v1/interconnection-points` and `GET /v1/interconnection-points/{public_id}` (owner
 decision 2026-09-28; docs/21 §3.24; docs/25 §1), plus the `interconnection_point` embed on the
-proposal detail.
+proposal detail. The detail's `recent_changes[]` (lane H2, 2026-09-29) is the newest change events
+of the point's visible proposals (`recent_point_changes`).
 
 A point is where a project connects to the grid, as one register names it
 (`services/ingest/interconnection.py` has the parse and the grouping key). What a reader wants from
@@ -45,23 +46,27 @@ from services.api.errors import invalid_cursor, not_found, validation_error
 from services.api.pagination import clamp_limit, decode_cursor, encode_cursor
 from services.api.params import check_allowed, csv_param, int_param
 from services.api.records import _proposal_licence_rows, number_filter
+from services.api.resource_queries import subject_infos
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
     build_list_envelope,
     build_meta,
     build_page,
+    event_licence_row,
     licence_summary_row,
     provenance_quartet,
+    serialize_event,
 )
 from services.api.visibility import (
+    event_visibility_filter,
     interconnection_point_source_filter,
     interconnection_point_visibility_filter,
     interconnection_point_visible,
     proposal_visibility_filter,
     provenance_visible,
 )
-from services.db.models import INTERCONNECTION_POINT_KINDS, InterconnectionPoint, Proposal
+from services.db.models import INTERCONNECTION_POINT_KINDS, Event, InterconnectionPoint, Proposal
 
 router = APIRouter()
 
@@ -84,6 +89,24 @@ SORTS = {"active_mw", "name", "voltage_kv"}
 DEFAULT_SORT = "-active_mw"
 #: Proposals listed on a point's detail; the totals always cover all of them.
 DETAIL_PROPOSAL_CAP = 500
+#: "Recent changes at this point" (`recent_point_changes`): the change events of the point's
+#: visible proposals that say something about the queue there -- a project entering it (`created`)
+#: and the proposal-lifecycle group of docs/21 §7.3 (the loader emits `status_change` and
+#: `withdrawn` today; the named lifecycle types are listed so a connector that emits them is shown
+#: without a code change). Field-level edits, matching and publication events are not queue news.
+RECENT_CHANGE_EVENT_TYPES: tuple[str, ...] = (
+    "created",
+    "status_change",
+    "filed",
+    "studied",
+    "permitted",
+    "contracted",
+    "built",
+    "withdrawn",
+    "cancelled",
+)
+#: Rows in `recent_changes`, newest observation first.
+RECENT_CHANGES_LIMIT = 10
 
 
 def bucket_of(lifecycle_state: str) -> str:
@@ -143,6 +166,16 @@ class PointTotals:
         }
 
 
+def point_proposal_filter(entitlement: str, now: dt.datetime | None = None) -> list[ColumnElement[bool]]:
+    """The proposals every number and list on a point is built from: linked to a point and visible
+    at `entitlement` (`proposal_visibility_filter`). The list's aggregate, `point_totals`, the
+    detail's `proposals[]` and `recent_changes`, and the proposal embeds all read through this one
+    clause list, so a total, a listed row and a change event can never disagree about which
+    proposals exist at the tier -- and the M-11 audit (`services/visibility_audit/run.py`) renders
+    the same clauses to check them."""
+    return [Proposal.interconnection_point_id.is_not(None), *proposal_visibility_filter(entitlement, now)]
+
+
 def point_totals(
     db: Session, point_ids: list[_uuid.UUID], entitlement: str, now: dt.datetime | None = None
 ) -> dict[_uuid.UUID, PointTotals]:
@@ -158,10 +191,7 @@ def point_totals(
             func.count(),
             func.coalesce(func.sum(Proposal.capacity_mw), 0),
         )
-        .where(
-            Proposal.interconnection_point_id.in_(point_ids),
-            *proposal_visibility_filter(entitlement, now),
-        )
+        .where(Proposal.interconnection_point_id.in_(point_ids), *point_proposal_filter(entitlement, now))
         .group_by(Proposal.interconnection_point_id, Proposal.lifecycle_state, Proposal.technology)
     )
     out: dict[_uuid.UUID, PointTotals] = {}
@@ -182,10 +212,25 @@ def _active_mw_aggregate(entitlement: str) -> sa.Subquery:
                 "active_mw"
             ),
         )
-        .where(Proposal.interconnection_point_id.is_not(None), *proposal_visibility_filter(entitlement))
+        .where(*point_proposal_filter(entitlement))
         .group_by(Proposal.interconnection_point_id)
         .subquery("point_agg")
     )
+
+
+def listed_points(entitlement: str) -> tuple[sa.Select[Any], sa.Subquery]:
+    """The list's row set before its filters, sort and paging: every point whose own register is
+    visible (`interconnection_point_source_filter`) joined to its visible-proposal aggregate, whose
+    inner join is the "at least one visible proposal" clause. Returns the statement (selecting the
+    point and its `active_mw`) and the aggregate. `GET /v1/interconnection-points` narrows it; the
+    sitemap walks it through that route; the M-11 audit reads it whole."""
+    agg = _active_mw_aggregate(entitlement)
+    stmt = (
+        select(InterconnectionPoint, agg.c.active_mw)
+        .join(agg, agg.c.point_id == InterconnectionPoint.id)
+        .where(*interconnection_point_source_filter(entitlement))
+    )
+    return stmt, agg
 
 
 def point_url(point: InterconnectionPoint) -> str:
@@ -257,12 +302,7 @@ def _keyset(
 
 def _list_statement(request: Request, entitlement: str) -> tuple[sa.Select[Any], ColumnElement[Any]]:
     qp = request.query_params
-    agg = _active_mw_aggregate(entitlement)
-    stmt = (
-        select(InterconnectionPoint, agg.c.active_mw)
-        .join(agg, agg.c.point_id == InterconnectionPoint.id)
-        .where(*interconnection_point_source_filter(entitlement))
-    )
+    stmt, agg = listed_points(entitlement)
     if v := qp.get("iso"):
         stmt = stmt.where(InterconnectionPoint.operator.in_(csv_param(v)))
     if v := qp.get("jurisdiction"):
@@ -366,6 +406,66 @@ def _proposal_row(p: Proposal) -> dict[str, Any]:
     }
 
 
+def recent_point_changes(
+    db: Session,
+    point_ids: list[_uuid.UUID],
+    entitlement: str,
+    *,
+    limit: int | None = None,
+    now: dt.datetime | None = None,
+) -> dict[_uuid.UUID, list[Event]]:
+    """The "Recent changes at this point" rows: for each of `point_ids`, the newest `limit` (default
+    `RECENT_CHANGES_LIMIT`) change events (`RECENT_CHANGE_EVENT_TYPES`) whose subject is a proposal
+    at the point that is visible at `entitlement`, newest observation first (`seq` breaks ties).
+
+    No new event type and no new table: these are the proposal's own `event` rows, filtered by the
+    same `event_visibility_filter` `GET /v1/events` and `GET /v1/proposals/{id}/events` use (the
+    event's own timing, licence and source, and its subject's visibility), and by
+    `point_proposal_filter` for the point link -- so an event of an unpublished, gated or
+    not-yet-public proposal is never here, and a change event can never name a proposal the point's
+    `proposals[]` withholds. A point with no such event maps to `[]`. One query for any number of
+    points; one point (the detail route) is capped in SQL."""
+    if not point_ids:
+        return {}
+    limit = RECENT_CHANGES_LIMIT if limit is None else limit
+    at_points = select(Proposal.id).where(
+        Proposal.interconnection_point_id.in_(point_ids), *point_proposal_filter(entitlement, now)
+    )
+    stmt = (
+        select(Event)
+        .where(
+            Event.subject_type == "proposal",
+            Event.subject_id.in_(at_points),
+            Event.event_type.in_(RECENT_CHANGE_EVENT_TYPES),
+            *event_visibility_filter(entitlement, now),
+        )
+        .order_by(Event.observed_at.desc(), Event.seq.desc())
+    )
+    if len(point_ids) == 1:
+        stmt = stmt.limit(limit)
+    events = list(db.scalars(stmt).all())
+    subject_points: dict[_uuid.UUID, _uuid.UUID] = {}
+    if events:
+        linked = select(Proposal.id, Proposal.interconnection_point_id).where(
+            Proposal.id.in_({e.subject_id for e in events})
+        )
+        subject_points = {pid: point_id for pid, point_id in db.execute(linked).all() if point_id is not None}
+    out: dict[_uuid.UUID, list[Event]] = {pid: [] for pid in point_ids}
+    for event in events:
+        point_id = subject_points.get(event.subject_id)
+        rows = out.get(point_id) if point_id is not None else None
+        if rows is not None and len(rows) < limit:
+            rows.append(event)
+    return out
+
+
+def serialize_recent_changes(db: Session, events: list[Event]) -> list[dict[str, Any]]:
+    """`recent_changes[]`: each event in the `Event` shape the events endpoints serve (its
+    `subject` names and links the proposal; its `provenance` is the event's own quartet)."""
+    subjects = subject_infos(db, events)
+    return [serialize_event(e, **subjects[e.subject_id]) for e in events]
+
+
 def visible_point(db: Session, public_id: str, entitlement: str) -> InterconnectionPoint | None:
     return db.scalar(
         select(InterconnectionPoint).where(
@@ -395,9 +495,7 @@ def get_interconnection_point(
     proposals = list(
         db.scalars(
             select(Proposal)
-            .where(
-                Proposal.interconnection_point_id == point.id, *proposal_visibility_filter(ctx.entitlement)
-            )
+            .where(Proposal.interconnection_point_id == point.id, *point_proposal_filter(ctx.entitlement))
             .options(selectinload(Proposal.sources))
             .order_by(order_bucket, Proposal.capacity_mw.desc().nulls_last(), Proposal.public_id)
             .limit(DETAIL_PROPOSAL_CAP + 1)
@@ -408,7 +506,13 @@ def get_interconnection_point(
     data = serialize_point(point, totals, ctx.entitlement)
     data["proposals"] = [_proposal_row(p) for p in proposals]
     data["proposals_truncated"] = truncated
-    rows = [_point_licence_row(point), *_proposal_licence_rows(proposals, ctx.entitlement)]
+    changes = recent_point_changes(db, [point.id], ctx.entitlement)[point.id]
+    data["recent_changes"] = serialize_recent_changes(db, changes)
+    rows = [
+        _point_licence_row(point),
+        *_proposal_licence_rows(proposals, ctx.entitlement),
+        *[r for e in changes if (r := event_licence_row(e)) is not None],
+    ]
     return build_envelope(
         data, meta=build_meta(tier=ctx.entitlement), licence_summary=build_licence_summary(rows)
     )

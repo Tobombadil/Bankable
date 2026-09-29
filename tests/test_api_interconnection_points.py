@@ -21,10 +21,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from services.api.conftest import make_attribution_licence, make_open_licence, make_public_source
+from services.api.conftest import make_attribution_licence, make_event, make_open_licence, make_public_source
 from services.api.ratelimit import default_limiter
 from services.api.visibility import interconnection_point_visible
-from services.db.models import InterconnectionPoint, Licence, Proposal, ProposalSource, Source
+from services.db.models import Event, InterconnectionPoint, Licence, Proposal, ProposalSource, Source
 from services.ids import public_id, slugify
 from services.ingest.interconnection import KEY_RULE_VERSION, link_all_points, link_source_points
 from tests.conftest import login, make_account, make_user
@@ -582,3 +582,108 @@ def test_the_bulk_stream_carries_the_point_as_the_detail_does(
     assert (
         client.get(f"/v1/proposals/{b1}", headers=headers).json()["data"]["interconnection_point"] is not None
     )
+
+
+# ------------------------------------------------------------------------ recent changes (lane H2)
+def _change(
+    db: Session,
+    prop: Proposal,
+    src: Source,
+    event_type: str,
+    *,
+    days_ago: float,
+    public_at: dt.datetime | None = None,
+    after: dict[str, Any] | None = None,
+) -> Event:
+    event = make_event(db, prop, src, event_type=event_type, public_at=public_at)
+    event.observed_at = NOW - dt.timedelta(days=days_ago)
+    event.idempotency_key = f"{event.idempotency_key}:{prop.public_id}:{days_ago}"
+    if after is not None:
+        event.after = after
+    db.flush()
+    return event
+
+
+def test_recent_changes_list_the_visible_proposals_queue_events_newest_first(
+    client: TestClient, db: Session, world: dict[str, Any]
+) -> None:
+    """The point's own proposals' change events, under the events endpoints' visibility: an event of
+    an unpublished or not-yet-public proposal, a not-yet-public event, an event from a gated source,
+    a field-level edit and another point's event are all absent."""
+    props = world["props"]
+    ercot, caiso, _staged, pjm = world["sources"]
+    created = _change(db, props["b1"], ercot, "created", days_ago=9, after={"lifecycle_state": "filed"})
+    status = _change(
+        db, props["b2"], ercot, "status_change", days_ago=3, after={"lifecycle_state": "studied"}
+    )
+    withdrawn = _change(
+        db, props["b3"], ercot, "withdrawn", days_ago=5, after={"lifecycle_state": "withdrawn"}
+    )
+    hidden = [
+        _change(db, props["b5"], ercot, "status_change", days_ago=1),  # unpublished proposal
+        _change(db, props["b6"], ercot, "created", days_ago=1),  # proposal not yet public
+        _change(db, props["b1"], ercot, "status_change", days_ago=1, public_at=NOW + dt.timedelta(days=2)),
+        _change(db, props["b1"], pjm, "status_change", days_ago=1),  # the event's own source is gated
+        _change(db, props["b1"], ercot, "capacity_changed", days_ago=1),  # not queue news
+        _change(db, props["c1"], caiso, "created", days_ago=1),  # another register's point
+    ]
+    db.commit()
+
+    body = _get(client, f"/v1/interconnection-points/{_point(db, props['b1']).public_id}").json()
+
+    assert_valid("InterconnectionPointDetailResponse", body)
+    changes = body["data"]["recent_changes"]
+    assert [c["id"] for c in changes] == [
+        public_id("evt", e.id) for e in (status, withdrawn, created)
+    ]  # newest observation first
+    assert not {public_id("evt", e.id) for e in hidden} & {c["id"] for c in changes}
+    listed = {p["public_id"] for p in body["data"]["proposals"]}
+    assert {c["subject"]["public_id"] for c in changes} <= listed
+    first = changes[0]
+    assert first["event_type"] == "status_change" and first["after"] == {"lifecycle_state": "studied"}
+    assert first["subject"]["url"].endswith(f"/proposals/{props['b2'].slug}")
+    assert first["provenance"]["source_id"] == ercot.id
+    assert ercot.id in {row["source_id"] for row in body["licence_summary"]["sources"]}
+    # The other register's point lists its own event only.
+    caiso_changes = _get(client, f"/v1/interconnection-points/{_point(db, props['c1']).public_id}").json()
+    assert [c["subject"]["public_id"] for c in caiso_changes["data"]["recent_changes"]] == [
+        props["c1"].public_id
+    ]
+
+
+def test_recent_changes_are_capped_and_empty_when_nothing_is_recorded(
+    client: TestClient, db: Session, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from services.api import interconnection_points
+
+    props = world["props"]
+    ercot = world["sources"][0]
+    tap = _point(db, props["t1"]).public_id
+    assert _get(client, f"/v1/interconnection-points/{tap}").json()["data"]["recent_changes"] == []
+    for n in range(4):
+        _change(db, props["b1"], ercot, "status_change", days_ago=10 - n)
+    db.commit()
+    monkeypatch.setattr(interconnection_points, "RECENT_CHANGES_LIMIT", 3)
+    changes = _get(client, f"/v1/interconnection-points/{_point(db, props['b1']).public_id}").json()["data"][
+        "recent_changes"
+    ]
+    assert len(changes) == 3
+    assert [c["observed_at"] for c in changes] == sorted((c["observed_at"] for c in changes), reverse=True)
+
+
+def test_recent_point_changes_batches_and_caps_per_point(db: Session, world: dict[str, Any]) -> None:
+    from services.api.interconnection_points import recent_point_changes
+
+    props = world["props"]
+    ercot, caiso = world["sources"][:2]
+    for n in range(3):
+        _change(db, props["b1"], ercot, "status_change", days_ago=10 - n)
+    _change(db, props["t1"], ercot, "created", days_ago=4)
+    _change(db, props["c1"], caiso, "withdrawn", days_ago=2)
+    db.commit()
+    bearkat, tap, caiso_pt, joslin = (_point(db, props[k]) for k in ("b1", "t1", "c1", "h1"))
+
+    got = recent_point_changes(db, [bearkat.id, tap.id, caiso_pt.id, joslin.id], "public", limit=2)
+
+    assert [len(got[p.id]) for p in (bearkat, tap, caiso_pt, joslin)] == [2, 1, 1, 0]
+    assert recent_point_changes(db, [], "public") == {}

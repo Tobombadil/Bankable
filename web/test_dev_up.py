@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import text
 
 from web import dev_up
 
@@ -334,3 +335,18 @@ def test_link_interconnection_points_runs_the_ingest_pass_and_logs_each_source(
         dev_up._link_interconnection_points(session)  # type: ignore[arg-type]
     assert calls == [session]
     assert "interconnection points: us.iso.ercot.gen_queue: 3/3 proposals linked to 2 points" in caplog.text
+
+
+def test_refresh_planner_statistics_writes_sqlite_statistics(tmp_path: Path) -> None:
+    """After a bulk load the planner needs row counts; without them SQLite chose the wrong index for
+    the interconnection-point predicate (M-11 audit 3.2 s -> 35 s on the dev store, 2026-09-29)."""
+    from services.db.session import get_engine, get_sessionmaker, init_db
+    from web.dev_up import refresh_planner_statistics
+
+    engine = get_engine(f"sqlite+pysqlite:///{tmp_path / 'stats.db'}")
+    init_db(engine)
+    with get_sessionmaker(engine)() as session:
+        refresh_planner_statistics(session)
+        query = text("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = {row[0] for row in session.execute(query)}
+    assert "sqlite_stat1" in tables

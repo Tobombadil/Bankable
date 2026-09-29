@@ -1524,7 +1524,9 @@ paths:
       description: >-
         The point, its `totals` at the caller's tier, and `proposals[]`: the visible proposals that connect at it,
         active first, then built, other and withdrawn, each by capacity (at most 500; `proposals_truncated` says
-        when more exist, and `totals` always covers all of them). `404` for an unknown id and, identically, for a
+        when more exist, and `totals` always covers all of them). `recent_changes[]` is the newest ten change events
+        of those proposals (a project entering the queue here, its status changes, its withdrawal), in the `Event`
+        shape and under the events endpoints' visibility rules. `404` for an unknown id and, identically, for a
         point with no visible proposal or whose register the tier may not see.
       x-tier: public
       x-status: live
@@ -10130,7 +10132,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/InterconnectionPoint'
         - type: object
-          required: [proposals, proposals_truncated]
+          required: [proposals, proposals_truncated, recent_changes]
           properties:
             proposals:
               type: array
@@ -10139,6 +10141,21 @@ components:
                 $ref: '#/components/schemas/InterconnectionPointProposal'
             proposals_truncated:
               type: boolean
+            recent_changes:
+              type: array
+              maxItems: 10
+              description: >-
+                "Recent changes at this point": the newest change events (newest `observed_at` first, `seq` breaking
+                ties) whose subject is one of the proposals the caller's tier may see at this point. Event types are
+                `created` (a project entered the queue here) and the proposal-lifecycle group of docs/21 §7.3
+                (`status_change`, `filed`, `studied`, `permitted`, `contracted`, `built`, `withdrawn`, `cancelled`);
+                field-level, matching and publication events are not listed. Each row is the stored event under the
+                same visibility rule as `GET /v1/events` (its own timing, source and licence, and its subject's
+                visibility), so no row names a proposal `proposals[]` withholds. `subject` names and links the
+                proposal; `provenance` is the event's own quartet. Empty when no such event is recorded. No new
+                event type or table: these are the proposals' own `event` rows.
+              items:
+                $ref: '#/components/schemas/Event'
     InterconnectionPointEmbed:
       type: object
       description: The point a proposal connects at, with its totals at the caller's tier (proposal detail only).
@@ -12326,16 +12343,22 @@ components:
       properties:
         surface:
           type: string
-          enum: [proposals, opportunities, events, organizations, assets, source_links]
+          enum: [proposals, opportunities, events, organizations, assets, source_links, interconnection_points]
         public_id:
           type: string
-          description: The record's public id (`prop_…`, `opp_…`, `evt_…`, `org_…`, `asset_…`).
+          description: >-
+            The record's public id (`prop_…`, `opp_…`, `evt_…`, `org_…`, `asset_…`, `poi_…`). An
+            `interconnection_points` breach about a proposal's `interconnection_point` embed names the proposal.
         source_id:
           type: [string, 'null']
           description: The offending source where the breach is about a source or a link; null for a record-state breach.
         reason:
           type: string
-          description: Machine-readable `<check>:<detail>`, e.g. `source_link_gated:register:publication=none`, `record_not_public:unpublished`, `served_hidden:publish_state=unpublished`.
+          description: >-
+            Machine-readable `<check>:<detail>`, e.g. `source_link_gated:register:publication=none`,
+            `record_not_public:unpublished`, `served_hidden:publish_state=unpublished`,
+            `point_total_printed:totals:active_mw`, `point_oracle_served:proposals_filter`. Point reasons name the
+            field that disagreed, never a point's name or a megawatt figure.
         served_status:
           type: [integer, 'null']
           description: HTTP status an anonymous request for the row received in the served pass; null when the row was outside the sample.
@@ -12349,11 +12372,14 @@ components:
       properties:
         kind:
           type: string
-          enum: [breach, must_be_hidden, withheld_name]
+          enum: [breach, must_be_hidden, withheld_name, point_oracle, point_totals]
           description: >-
-            `breach` re-requests a store-pass breach; `must_be_hidden` requests a row that must answer 404;
-            `withheld_name` requests an asset page or an asset search that must not print, or match through, the name
-            of an organisation that is not public (the asset itself is rightly served).
+            `breach` re-requests a store-pass breach; `must_be_hidden` requests a row (or a hidden interconnection
+            point's web page) that must answer 404; `withheld_name` requests an asset page or an asset search that
+            must not print, or match through, the name of an organisation that is not public (the asset itself is
+            rightly served); `point_oracle` requests the proposal list filtered to a hidden interconnection point,
+            which must answer exactly what an unknown id gets; `point_totals` requests a visible point's list row,
+            detail, a proposal's embed or its web page, whose totals and rows must be those over visible proposals.
         surface:
           type: string
         public_id:
@@ -12381,6 +12407,12 @@ components:
           type: integer
           minimum: 0
           description: Requests answered with neither 200 nor 404 (a 429, a 5xx), which prove nothing either way.
+        web_pages:
+          type: string
+          enum: [checked, unavailable, not_needed]
+          description: >-
+            Whether the public site's interconnection point pages were requested: `checked`; `unavailable` where the
+            `web` package is not installed (the scheduler image); `not_needed` when the store holds no point.
         checks:
           type: array
           items:
@@ -12436,6 +12468,8 @@ components:
             assets:
               $ref: '#/components/schemas/VisibilityAuditCounts'
             source_links:
+              $ref: '#/components/schemas/VisibilityAuditCounts'
+            interconnection_points:
               $ref: '#/components/schemas/VisibilityAuditCounts'
           additionalProperties: false
         breach_total:
