@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
-{% block meta_description %}{{ record.name }}: {{ record.technology or record.kind }} proposal, {{ record.capacity_mw ~ ' MW, ' if record.capacity_mw }}{{ record.county ~ ', ' if record.county }}{{ record.state or record.jurisdiction or '' }}.{% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.kind_label if record.technology == record.kind else (record.technology_label or record.kind_label) }} proposal, {{ record.capacity_mw ~ ' MW, ' if record.capacity_mw }}{{ record.county ~ ', ' if record.county }}{{ record.state or record.jurisdiction or '' }}.{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/proposals">Proposals</a> / {{ record.name }}</nav>
 <div class="detail-header">
@@ -12,8 +12,15 @@
 {{ m.delayed_banner(delayed) }}
 
 <dl class="field-grid">
-  <div><dt>Kind</dt><dd>{{ record.kind or '—' }}</dd></div>
-  <div><dt>Technology</dt><dd>{{ record.technology or '—' }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="visually-hidden">(source value: {{ record.technology_raw }})</span>{% endif %}</dd></div>
+  {#- When the technology token only repeats the kind (`load`/`load`, `storage`/`storage`,
+      `transmission`/`transmission`) one row says it; a second row would print the same word
+      twice. The source's own wording, when it differs, stays on the page. -#}
+  {% if record.technology and record.technology == record.kind %}
+  <div><dt>Kind</dt><dd>{{ record.kind_label }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="field-grid__source-value">source: &ldquo;{{ record.technology_raw }}&rdquo;</span>{% endif %}</dd></div>
+  {% else %}
+  <div><dt>Kind</dt><dd>{{ record.kind_label or '—' }}</dd></div>
+  <div><dt>Technology</dt><dd>{{ record.technology_label or '—' }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="visually-hidden">(source value: {{ record.technology_raw }})</span>{% endif %}</dd></div>
+  {% endif %}
   <div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}</dd></div>
   <div><dt>Storage (MWh)</dt><dd class="tnum">{{ '%.1f'|format(record.storage_mwh) if record.storage_mwh is not none else '—' }}</dd></div>
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>

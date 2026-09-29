@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.title }} -- Infraque{% endblock %}
-{% block meta_description %}{{ record.title }}: {{ record.kind }} from {{ record.issuer or 'issuer unstated' }}, due {{ record.due_at[:10] if record.due_at else 'unstated' }}.{% endblock %}
+{% block meta_description %}{{ record.title }}: {{ record.kind_label }} from {{ record.issuer or 'issuer unstated' }}, due {{ record.due_at[:10] if record.due_at else 'unstated' }}.{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/opportunities">Opportunities</a> / {{ record.title }}</nav>
 <div class="detail-header">
@@ -11,7 +11,7 @@
 {{ m.delayed_banner(delayed) }}
 
 <dl class="field-grid">
-  <div><dt>Kind</dt><dd>{{ record.kind or '—' }}</dd></div>
+  <div><dt>Kind</dt><dd>{{ record.kind_label or '—' }}</dd></div>
   <div><dt>Issuer</dt><dd>{{ record.issuer or '—' }}</dd></div>
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
   <div><dt>Technologies</dt><dd>{{ record.technologies | join(', ') if record.technologies else 'all-source' }}</dd></div>

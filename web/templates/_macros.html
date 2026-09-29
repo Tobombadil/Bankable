@@ -87,6 +87,7 @@
         {%- endif %}
       </details>
       <a class="provenance-panel__link" href="{{ row.source_url }}" rel="noopener nofollow">View at source &rarr;</a>
+      {% if row.select_basis_line %}<p class="provenance-panel__basis">{{ row.select_basis_line }}</p>{% endif %}
     </li>
     {% endfor %}
   </ul>
@@ -178,7 +179,7 @@
     <span class="meta">
       {%- set parts = [] -%}
       {%- if r.distance_km is not none %}{% set _ = parts.append('%.1f km away'|format(r.distance_km)) %}{% endif -%}
-      {%- if r.technology %}{% set _ = parts.append(r.technology) %}{% endif -%}
+      {%- if r.technology %}{% set _ = parts.append(r.technology_label or r.technology) %}{% endif -%}
       {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
       {%- if r.capacity_mw %}{% set _ = parts.append('%.1f MW'|format(r.capacity_mw)) %}{% endif -%}
       {{ parts | join(' · ') }}

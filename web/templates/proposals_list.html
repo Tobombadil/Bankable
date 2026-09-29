@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}Proposals -- Infraque{% endblock %}
-{% block meta_description %}Interconnection queue and generator proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO, filterable by technology, lifecycle state, jurisdiction and capacity.{% endblock %}
+{% block meta_description %}{{ sources_phrase }}, filterable by kind, technology, lifecycle state, jurisdiction and capacity.{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>Proposals</h1>
-  <p>Supply-side records: interconnection queue positions and planned generation/storage units, one row per source observation.</p>
+  <p>Supply-side records: interconnection queue positions, planned generation and storage units, and data-centre sites from air-permit registers. Where two sources describe one project and have been matched, it is one row.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
 {% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
@@ -15,14 +15,14 @@
     <label for="f-technology">Technology</label>
     <select id="f-technology" name="technology">
       <option value="">All</option>
-      {% for t in technologies %}<option value="{{ t }}" {% if filters.get('technology') == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+      {% for value, label in technology_options %}<option value="{{ value }}" {% if filters.get('technology') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </div>
   <div class="filter-field">
     <label for="f-kind">Kind</label>
     <select id="f-kind" name="kind">
       <option value="">All</option>
-      {% for k in kinds %}<option value="{{ k }}" {% if filters.get('kind') == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
+      {% for value, label in kind_options %}<option value="{{ value }}" {% if filters.get('kind') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </div>
   <div class="filter-field">

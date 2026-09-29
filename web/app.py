@@ -49,31 +49,31 @@ from web.page import (
 from web.regions import Region, regions_with_data
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
-    PROPOSAL_KIND_LABELS,
+    PROPOSAL_SOURCE_LABELS,
     WITHDRAWN_PROPOSAL_STATES,
     WORLD_BBOX,
     absence_note,
+    attach_select_basis,
     coverage_facts,
     flatten_asset,
     flatten_opportunity,
     flatten_organization,
     flatten_proposal,
     lifecycle_breakdown,
+    opportunity_kind_label,
     opportunity_status_param,
+    proposal_kind_label,
+    proposal_sources_phrase,
     provenance_panel_rows,
     relativize_geo_feature_urls,
     resolve_proposal_lifecycle_param,
+    technology_label,
 )
 
-_PROPOSAL_SOURCE_IDS = {
-    "us.iso.ercot.gen_queue",
-    "us.iso.caiso.gen_queue",
-    "us.iso.nyiso.gen_queue",
-    "us.eia.860m",
-    "gb.neso.tec_register",
-    "us.va.deq.data_center_air_sites",
-    "us.epa.echo.icis_air",
-}
+#: The sources whose rows are proposals. One list with the names the page copy uses
+#: (`web/viewmodels.py::PROPOSAL_SOURCE_LABELS`), so the map header and the list's meta
+#: description cannot name a different set from the one `/about` classifies.
+_PROPOSAL_SOURCE_IDS = frozenset(PROPOSAL_SOURCE_LABELS)
 
 
 def _region_context(region: Region) -> dict[str, Any]:
@@ -273,6 +273,16 @@ def _proposal_params(qp: QueryParams, *, lifecycle_csv: str) -> dict[str, str | 
     return params
 
 
+def _proposal_kind_options(vocab: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """`(value, label)` for every proposal kind: the map and the list name kinds the same way."""
+    return [(v["value"], proposal_kind_label(v["value"])) for v in vocab["proposal_kind"]]
+
+
+def _technology_options(vocab: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """`(value, label)` for every technology the store holds; only `load` reads differently."""
+    return [(v["value"], technology_label(v["value"])) for v in vocab["technology"]]
+
+
 @app.get("/", response_class=HTMLResponse)
 def home_map(request: Request) -> HTMLResponse:
     api = get_api(request)
@@ -292,10 +302,9 @@ def home_map(request: Request) -> HTMLResponse:
         "home_map.html",
         {
             "delayed": delayed_notice(request, "proposal"),
-            "technologies": [v["value"] for v in vocab["technology"]],
-            "kind_options": [
-                (v["value"], PROPOSAL_KIND_LABELS.get(v["value"], v["value"])) for v in vocab["proposal_kind"]
-            ],
+            "technology_options": _technology_options(vocab),
+            "kind_options": _proposal_kind_options(vocab),
+            "sources_phrase": proposal_sources_phrase(),
             # map.js reads, keeps in the URL and forwards to `/api/proposals/geo` exactly these
             # names (2026-09-29: it knew four by hand and `/?kind=load` drew 5,853 proposals under
             # a notice counting 46). One list, rendered from here, so the two cannot drift.
@@ -471,8 +480,9 @@ def proposals_list(request: Request) -> HTMLResponse:
         "prev_cursor": envelope["page"]["prev_cursor"],
         "querystring": querystring_without(qp, "cursor"),
         "delayed": delayed_notice(request, "proposal"),
-        "technologies": [v["value"] for v in vocab["technology"]],
-        "kinds": [v["value"] for v in vocab["proposal_kind"]],
+        "technology_options": _technology_options(vocab),
+        "kind_options": _proposal_kind_options(vocab),
+        "sources_phrase": proposal_sources_phrase(),
         # `.get`, not `[...]`: the schedule filter is a control the page can do without, and an
         # API deployed before this vocabulary landed must render the rest of the bar, not 500.
         "slip_buckets": vocab.get("slip_bucket", []),
@@ -488,7 +498,9 @@ def proposals_list(request: Request) -> HTMLResponse:
             item_list_jsonld(
                 request,
                 name="Proposals",
-                description="Interconnection queue and generator proposals matching these filters.",
+                description=(
+                    "Interconnection queue, generator and data-centre proposals matching these filters."
+                ),
                 path=canonical_path,
                 rows=[(r["name"], f"/proposals/{r['slug']}") for r in records],
                 total=(None if envelope["meta"].get("total_is_estimate") else envelope["meta"].get("total")),
@@ -537,7 +549,7 @@ def proposal_detail(request: Request, slug: str) -> HTMLResponse:
         "proposal_detail.html",
         {
             "record": record,
-            "provenance_rows": provenance_panel_rows(api, record["provenance"]),
+            "provenance_rows": attach_select_basis(record, provenance_panel_rows(api, record["provenance"])),
             "connection": proposal_connection(api, record.get("public_id")),
             "delayed": delayed_notice(request, "proposal"),
             "canonical_path": path,
@@ -577,7 +589,7 @@ def opportunities_list(request: Request) -> HTMLResponse:
         "prev_cursor": envelope["page"]["prev_cursor"],
         "querystring": querystring_without(qp, "cursor"),
         "delayed": delayed_notice(request, "opportunity"),
-        "kinds": [v["value"] for v in vocab["opportunity_kind"]],
+        "kind_options": [(v["value"], opportunity_kind_label(v["value"])) for v in vocab["opportunity_kind"]],
         "statuses": [v["value"] for v in vocab["opportunity_status"]],
         "technologies": [v["value"] for v in vocab["technology"]],
         "filters": {**dict(qp), "status": qp.get("status", "open")},

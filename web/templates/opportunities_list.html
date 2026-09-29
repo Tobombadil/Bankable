@@ -14,7 +14,7 @@
     <label for="f-kind">Kind</label>
     <select id="f-kind" name="kind">
       <option value="">All</option>
-      {% for k in kinds %}<option value="{{ k }}" {% if filters.get('kind') == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
+      {% for value, label in kind_options %}<option value="{{ value }}" {% if filters.get('kind') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </div>
   <div class="filter-field">

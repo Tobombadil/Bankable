@@ -788,6 +788,45 @@ def _get_or_create_location(
     return loc
 
 
+#: `proposal.identifiers` key for why a selecting connector kept a row, as `{source_id: basis}`
+#: (lane H6, 2026-09-29). The data-centre connectors (`us.va.deq.data_center_air_sites`,
+#: `us.epa.echo.icis_air`) put a `select_basis` token on every row's raw payload (docs/25 §3.3,
+#: §3.7); `raw` is admin-only, so without this the public page cannot say why a site counts as a
+#: data centre, and one basis (`naics_518210`) is measurably weaker than the others. Keyed by
+#: source because one merged proposal can carry both sources, each with its own reason.
+SELECT_BASIS_KEY = "select_basis"
+
+
+def _select_basis(row: Mapping[str, Any]) -> str | None:
+    """The row's `select_basis` token from its raw payload, or `None`. The substring test skips
+    the JSON parse for every source that never writes one (all but the two above)."""
+    raw_value = _row_get(row, "raw")
+    if isinstance(raw_value, str) and SELECT_BASIS_KEY not in raw_value:
+        return None
+    basis = _parse_raw(raw_value).get(SELECT_BASIS_KEY)
+    return str(basis) if basis else None
+
+
+def _keep_other_sources_basis(
+    stored: Mapping[str, Any] | None, incoming: dict[str, Any], source_id: str
+) -> dict[str, Any]:
+    """`incoming` identifiers, plus the stored `select_basis` entries of *other* sources.
+
+    An update replaces `identifiers` with what this source's row says. On a proposal that two
+    sources feed (a Virginia DEQ site merged with its ICIS-Air record), that would erase the other
+    source's basis on every load and restore it on the next. This source's own entry is always
+    the incoming one, so a basis that changes, or disappears, at its own source is followed."""
+    others = {
+        sid: basis
+        for sid, basis in (((stored or {}).get(SELECT_BASIS_KEY)) or {}).items()
+        if sid != source_id
+    }
+    if not others:
+        return incoming
+    mine = incoming.get(SELECT_BASIS_KEY) or {}
+    return {**incoming, SELECT_BASIS_KEY: {**others, **mine}}
+
+
 def _proposal_fields_from_row(row: Mapping[str, Any], source: Source) -> dict[str, Any]:
     queue_id = _row_get(row, "queue_id")
     identifiers: dict[str, Any] = {}
@@ -797,6 +836,9 @@ def _proposal_fields_from_row(row: Mapping[str, Any], source: Source) -> dict[st
         identifiers["eia_plant_id"] = str(_row_get(row, "eia_plant_id"))
     if _row_get(row, "eia_generator_id"):
         identifiers["eia_generator_id"] = str(_row_get(row, "eia_generator_id"))
+    basis = _select_basis(row)
+    if basis:
+        identifiers[SELECT_BASIS_KEY] = {source.id: basis}
 
     name = (
         _row_get(row, "name_canonical")
@@ -1141,6 +1183,13 @@ def _update_existing_entity(
             f"proposal_source/opportunity_source row {existing_link.id} points at a "
             "missing entity — this is a store consistency bug, not a data error"
         )
+    if ctx.kind == "proposal" and "identifiers" in fields:
+        fields = {
+            **fields,
+            "identifiers": _keep_other_sources_basis(
+                entity.identifiers, fields["identifiers"], ctx.source.id
+            ),
+        }
     provenance = dict(entity.field_provenance or {})
     for k, v in fields.items():
         if v is not None and (k not in provenance or getattr(entity, k, None) != v):
