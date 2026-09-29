@@ -425,6 +425,14 @@ def _mapping_or_empty(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+def _known_budget(amount: Any) -> Any:
+    """A budget of 0 or less is a source placeholder (TED's 0 / -1), shown as a dash like no budget.
+    The loader stores those as null (lane I3, 2026-09-29); this covers one that reaches the page
+    another way. The currency is left as stated."""
+    is_number = isinstance(amount, int | float) and not isinstance(amount, bool)
+    return amount if is_number and amount > 0 else None
+
+
 def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
     primary_source = _primary_provenance(entity.get("provenance") or [])
     return {
@@ -437,7 +445,7 @@ def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
         "jurisdiction": entity.get("jurisdiction"),
         "technologies": entity.get("technologies") or [],
         "capacity_sought_mw": entity.get("capacity_sought_mw"),
-        "budget_amount": entity.get("budget_amount"),
+        "budget_amount": _known_budget(entity.get("budget_amount")),
         "budget_currency": entity.get("budget_currency"),
         "open_at": entity.get("open_at"),
         "due_at": entity.get("due_at"),

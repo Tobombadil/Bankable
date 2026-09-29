@@ -28,6 +28,7 @@ from pipeline.connectors.opportunity import (
     classify_technologies,
     deadline_passed,
     iso2,
+    known_budget,
     technologies_str,
     to_utc,
 )
@@ -215,7 +216,7 @@ class Connector(BaseConnector):
                     "jurisdiction": iso2(first_text(r.get("buyer-country"))) or "EU",
                     "technologies": technologies_str(techs),
                     "capacity_sought_mw": None,
-                    "budget_amount": float(amount) if isinstance(amount, int | float) else None,
+                    "budget_amount": known_budget(amount) if isinstance(amount, int | float) else None,
                     "budget_currency": currency,
                     "open_at": to_utc(str(r.get("publication-date") or "")[:10]),
                     "due_at": due,

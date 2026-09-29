@@ -104,3 +104,26 @@ a reuse licence, so check whether it addresses data reuse at all.
 **Paste back:** `data/sources.yaml` `us.anl.rng_database` `license:`/`reuse:` — state plainly if it settles
 nothing and the RNG database page still needs its own visit.
 **Time:** ~15 min.
+
+### 8. MISO legal and reuse terms
+
+**URL:** <https://www.misoenergy.org/meet-miso/legal-and-privacy/> and
+<https://www.misoenergy.org/meet-miso/contact-us/terms-and-conditions/> (the two terms pages `docs/13` §1.7 tried);
+the data they must cover is the GI queue, <https://www.misoenergy.org/planning/resource-utilization/GI_Queue/gi-interactive-queue/>
+and its JSON endpoint `https://www.misoenergy.org/api/giqueue/getprojects`
+**Why blocked:** Cloudflare challenge. `data/sources.yaml` `us.iso.miso.gen_queue`, verified 2026-09-12:
+"403 'Just a moment...' Cloudflare challenge from datacentre IP"; its `license:` reads "page returns 403 to
+non-browser clients — terms not retrievable", and `docs/13` §1.7 found no Wayback copy. The manifest says "Do
+not attempt challenge bypass." `robots.txt` (retrieved 2026-09-12) does load, and its
+`Content-Signal: search=yes,ai-train=no,use=reference` is stated as an express reservation of rights under
+Article 4 of EU Directive 2019/790: **`ai-train=no`** means MISO content is never used for training, whatever
+the terms page says.
+**Look for:** save each page as a PDF. Then quote the operative clauses on: reuse of the queue data (not only
+written content, photographs and logos); redistribution and republication on a public site; commercial use;
+attribution wording; any separate terms for the data portal or API. Also note whether the terms say anything
+that bears on `use=reference` or on non-training uses, since `docs/13` §7 item 2 asks this.
+**Paste back:** `data/sources.yaml` `us.iso.miso.gen_queue` `license:`, `reuse:`, `publication:` and a dated
+`verified:` note (leave `reuse: unknown` / `publication: none` if the text does not settle it), and
+`docs/13-legal-data-rights.md` §6, the `us.iso.miso.gen_queue` row (Class, Publication rule, Evidence,
+Confidence), with the quoted clauses added to §1.7. Until both are updated no MISO row is published on any tier.
+**Time:** ~15 min.

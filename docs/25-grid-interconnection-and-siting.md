@@ -853,8 +853,23 @@ generators that are also ISO queue requests. NESO has none: it has no cross-sour
   one direct edge.
 
 Estimate: roughly 2–5 % of the 574 merges put a wrong record in a cluster, concentrated in the
-multi-request clusters. This is in line with the store-path precision of 0.946 recorded on 2026-09-13.
+multi-request clusters. This is in line with the store-path precision of 0.946 recorded on 2026-09-13
+(**historical**: that is the 2026-09-13 resolver; just before lane H5 the same path measured 1.000 / 0.973,
+docs/22 §22.2 "Before").
 Production's `resolve_tick` already applies the same merges. Each merge is a reversible `merged` event.
+
+**Current figures (docs/22 §22.2, measured by lane H5 on 2026-09-29 after its rules; re-run unchanged by
+lane I3 the same day).** Threshold 75, labels `data/eval/labels.csv`:
+
+| Path | Precision | Recall | tp / fp / fn / tn | Labels |
+|---|---|---|---|---|
+| Store, `python -m services.resolve.report` | 1.000 | 0.892 | 33 / 0 / 4 / 40 | 77 usable of 85 |
+| Resolver, `python pipeline/resolve.py --sweep` | 0.974 | 0.925 | 37 / 1 / 3 / 44 | 85 |
+
+Both are in-sample (A-22-H5-2). The store's 0 false positives come from 33 predicted merges, so they do not
+rule out a false-positive rate of up to about 9 % (rule of three, 3/33). Out of sample, lane H5's rules
+removed 39 wrong merges from the dev store and lost 11 correct ones, judged by hand (docs/22 §22.8). The
+2–5 % estimate above describes the resolver before those rules.
 
 **Also found.** `pipeline/resolve.py::eia_plant_rollup` selects `source_id == "eia860m"`, the short id
 of the evaluation fixture. Frames with registry ids (`us.eia.860m`, the only kind the scheduler and dev

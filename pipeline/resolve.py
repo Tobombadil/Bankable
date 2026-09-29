@@ -234,22 +234,136 @@ def _ratio(a, b, scorer: str = "token_set") -> float | None:
 PHASE_TOKEN = re.compile(r"(?<![A-Za-z0-9])(\d{1,3}|I{1,3}|IV|V|VI{1,3}|IX|X)(?![A-Za-z0-9])")
 ROMAN = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10}
 
+#: Number words read as phases (lane I3, docs/22 §22.9 A-22-H5-3). Most names that hold one use
+#: it as a word ("Two Rivers", "Nine Mile Point", "Big Five Storage", "Seventy Seven Wind"), so a
+#: number word counts only when it is not the first word, is not hyphen-joined ("Solar
+#: Three-Marion"), does not follow another number word or "Number", and either follows a
+#: generation word ("Attentive Energy Two Offshore Wind", "Unit One") or ends the name, with at most
+#: a legal or project suffix after it ("SUNSHINE FOUR", "NCBP TEN, LLC").
+PHASE_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+_PHASE_WORD_LEADS = frozenset(
+    {
+        "solar",
+        "wind",
+        "offshore",
+        "storage",
+        "battery",
+        "bess",
+        "ess",
+        "pv",
+        "energy",
+        "power",
+        "generation",
+        "station",
+        "unit",
+        "phase",
+        "ph",
+    }
+)
+_PHASE_WORD_SUFFIXES = frozenset({"llc", "inc", "lp", "project", "facility"})
+_NOT_BEFORE_PHASE_WORD = frozenset(
+    {
+        *PHASE_WORDS,
+        "number",
+        "no",
+        "twenty",
+        "thirty",
+        "forty",
+        "fifty",
+        "sixty",
+        "seventy",
+        "eighty",
+        "ninety",
+    }
+)
+_WORD = re.compile(r"[A-Za-z0-9]+")
 
-def phase_tokens(name) -> set[int]:
-    """Phase / unit numbers in a raw project name: 'Lazy U Solar 2' -> {2}, 'Solar Star III' -> {3}."""
+#: A trailing single capital letter is a phase ("Sand Hill C" beside "Sand Hill A"; "Solar Phase B")
+#: only after "Phase"/"Ph", or when the same base name occurs with a different letter in the frame
+#: (`lettered_bases`). I, V and X stay roman numerals. Alone, a letter is part of the name
+#: ("Elevate Pier S", "Queensboro B").
+_TRAILING_LETTER = re.compile(r"^(?P<base>.*?[A-Za-z0-9)][^A-Za-z0-9]*?)\s+(?P<letter>[A-HJ-UWYZ])[\s.)]*$")
+_PHASE_LEADS = frozenset({"phase", "ph"})
+
+
+def _letter_base(name: str) -> tuple[str, str] | None:
+    """(normalised base, letter) for a name ending in a lone capital letter, else `None`."""
+    m = _TRAILING_LETTER.match(name.strip())
+    if m is None:
+        return None
+    base = " ".join(_WORD.findall(m.group("base").lower()))
+    return (base, m.group("letter")) if base else None
+
+
+def lettered_bases(names) -> frozenset[str]:
+    """Normalised base names that occur with two or more different trailing letters in `names`:
+    ['Sand Hill A', 'Sand Hill B', 'SAND HILL C'] -> {'sand hill'}."""
+    seen: dict[str, set[str]] = {}
+    for name in names:
+        if name is None or (not isinstance(name, str) and pd.isna(name)):
+            continue
+        hit = _letter_base(str(name))
+        if hit is not None:
+            seen.setdefault(hit[0], set()).add(hit[1])
+    return frozenset(base for base, letters in seen.items() if len(letters) >= 2)
+
+
+def _word_phases(name: str) -> set[int]:
+    words = list(_WORD.finditer(name))
+    lowered = [w.group(0).lower() for w in words]
+    out: set[int] = set()
+    for k, w in enumerate(words):
+        number = PHASE_WORDS.get(lowered[k])
+        if number is None or k == 0 or lowered[k - 1] in _NOT_BEFORE_PHASE_WORD:
+            continue
+        start, end = w.span()
+        if name[start - 1] == "-" or name[end : end + 1] == "-":
+            continue
+        if lowered[k - 1] in _PHASE_WORD_LEADS or all(t in _PHASE_WORD_SUFFIXES for t in lowered[k + 1 :]):
+            out.add(number)
+    return out
+
+
+def phase_tokens(name, letter_bases: frozenset[str] = frozenset()) -> set[int | str]:
+    """Phase / unit numbers in a raw project name: 'Lazy U Solar 2' -> {2}, 'Solar Star III' -> {3},
+    'Attentive Energy Two Offshore Wind' -> {2}, 'Solar Phase B' -> {'B'}. A letter is kept as a
+    string so it never equals a number. `letter_bases` is `lettered_bases` of the frame the name
+    sits in; without it, only a letter after 'Phase' counts."""
     if name is None or pd.isna(name):
         return set()
-    return {ROMAN.get(t, None) or int(t) for t in PHASE_TOKEN.findall(str(name)) if t.isdigit() or t in ROMAN}
+    text = str(name)
+    out: set[int | str] = {
+        ROMAN.get(t, None) or int(t) for t in PHASE_TOKEN.findall(text) if t.isdigit() or t in ROMAN
+    }
+    out.update(_word_phases(text))
+    hit = _letter_base(text)
+    if hit is not None:
+        base, letter = hit
+        if base.rsplit(" ", 1)[-1] in _PHASE_LEADS or base in letter_bases:
+            out.add(letter)
+    return out
 
 
-def phase_key(name) -> frozenset[int]:
+def phase_key(name, letter_bases: frozenset[str] = frozenset()) -> frozenset[int | str]:
     """`phase_tokens`, with a lone phase 1 read as no number: 'Moonlight Flats Solar Power 1' and
-    'Moonlight Flats Solar' are the same first phase."""
-    tokens = phase_tokens(name)
+    'Moonlight Flats Solar' are the same first phase ('Kettle Solar One' too). A lone letter is
+    not collapsed: 'Sand Hill A' is not known to be the first phase."""
+    tokens = phase_tokens(name, letter_bases)
     return frozenset() if tokens == {1} else frozenset(tokens)
 
 
-def score_pair(left: dict, r: dict) -> dict:
+def score_pair(left: dict, r: dict, letter_bases: frozenset[str] = frozenset()) -> dict:
     comp: dict[str, float | None] = {}
     comp["name"] = _ratio(left["name_norm"], r["name_norm"], NAME_SCORER)
     comp["sponsor"] = _ratio(left["sponsor_norm"], r["sponsor_norm"], NAME_SCORER)
@@ -258,7 +372,8 @@ def score_pair(left: dict, r: dict) -> dict:
     # Rule P: numbered phases. 'Lazy U Solar 1' vs 'Lazy U Solar 2' score 88 on tokens but are
     # different interconnection requests. When both names carry phase numbers and the sets
     # disagree, halve the name score. (6 of 10 false positives at threshold 72 before this rule.)
-    pl, pr = phase_tokens(left["name_canonical"]), phase_tokens(r["name_canonical"])
+    pl = phase_tokens(left["name_canonical"], letter_bases)
+    pr = phase_tokens(r["name_canonical"], letter_bases)
     if comp["name"] is not None and pl and pr and pl != pr:
         comp["name"] *= 0.5
         flags.append("phase_conflict")
@@ -621,7 +736,12 @@ def plant_extents(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def phase_surplus(df: pd.DataFrame, matches: pd.DataFrame, eligible: pd.Series) -> pd.Series:
+def phase_surplus(
+    df: pd.DataFrame,
+    matches: pd.DataFrame,
+    eligible: pd.Series,
+    letter_bases: frozenset[str] | None = None,
+) -> pd.Series:
     """Rule Q, phase surplus (docs/22 §22). For an eligible fuzzy pair (p, q) whose phase numbers
     differ ('BONANZA SOLAR 2' vs 'Bonanza Solar and Storage Project'), refuse it when q already has
     eligible partners *from p's own source* that carry q's phase number and account for q on their
@@ -638,8 +758,9 @@ def phase_surplus(df: pd.DataFrame, matches: pd.DataFrame, eligible: pd.Series) 
     measured against the plant's storage and against storage partners, so 'Indigo Storage 2' is
     not refused because 'Indigo Solar' covers the plant's solar). q's extent is then the EIA
     plant's capacity in that family; for a hybrid or unknown p it is the plant's `plant_poi_mw`;
-    for a non-EIA q it is q's own capacity. Both orientations are checked. Returns a boolean
-    Series aligned with `matches`."""
+    for a non-EIA q it is q's own capacity. Both orientations are checked. `letter_bases` is
+    `lettered_bases` of the frame (computed from `df` when not given). Returns a boolean Series
+    aligned with `matches`."""
     fuzzy = ~matches["pass"].str.startswith("D")
     edges = matches[eligible | ~fuzzy]
     adj: dict[int, set[int]] = {}
@@ -648,11 +769,12 @@ def phase_surplus(df: pd.DataFrame, matches: pd.DataFrame, eligible: pd.Series) 
         adj.setdefault(b, set()).add(a)
 
     names, src, tech, cap = df["name_canonical"], df["source_id"], df["technology"], df["capacity_mw"]
-    phases: dict[int, frozenset[int]] = {}
+    letters = lettered_bases(names) if letter_bases is None else letter_bases
+    phases: dict[int, frozenset[int | str]] = {}
 
-    def phase(i: int) -> frozenset[int]:
+    def phase(i: int) -> frozenset[int | str]:
         if i not in phases:
-            phases[i] = phase_key(names.at[i])
+            phases[i] = phase_key(names.at[i], letters)
         return phases[i]
 
     rollup = df["is_rollup"].astype(bool) if "is_rollup" in df.columns else pd.Series(False, index=df.index)
@@ -748,7 +870,11 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
     print(f"  candidate pairs from blocking: {len(cand):,}", file=sys.stderr)
 
     recs = df.to_dict("index")
-    scored = [score_pair(recs[int(a)], recs[int(b)]) for a, b in zip(cand["li"], cand["ri"], strict=True)]
+    # Letter phases need the whole frame: 'Sand Hill C' is a phase only beside 'Sand Hill A'.
+    letters = lettered_bases(df["name_canonical"])
+    scored = [
+        score_pair(recs[int(a)], recs[int(b)], letters) for a, b in zip(cand["li"], cand["ri"], strict=True)
+    ]
     # Named columns so a frame with no candidate pairs still has them (it raised KeyError before).
     fuzzy = pd.concat([cand.reset_index(drop=True), pd.DataFrame(scored, columns=SCORE_COLUMNS)], axis=1)
     fuzzy["pass"] = "F_fuzzy:" + fuzzy["block"]
@@ -775,7 +901,7 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
         & ~matches["id_conflict"]
         & (matches["veto"] == "")
     )
-    surplus = phase_surplus(df, matches, eligible)
+    surplus = phase_surplus(df, matches, eligible, letters)
     matches.loc[surplus, "veto"] = "veto_phase_surplus"
     matches.loc[surplus, "rationale"] = matches.loc[surplus, "rationale"] + "; veto_phase_surplus"
     matches["accepted"] = matches["pass"].str.startswith("D") | (eligible & ~surplus)

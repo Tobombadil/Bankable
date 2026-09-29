@@ -2227,8 +2227,10 @@ again, and L as a soundness rule. Of K's three review clusters, one (Riverhead) 
 - **A-22-H5-2:** the thresholds (70, 4×, 0.9 with ±10 %, 2.0) were set on the dev frames and the 85 labels, so
   they are in-sample; §22.8 is the only out-of-sample evidence so far. The M-1 recalibration's 600-label held-out set (docs/00 2026-09-12) is where they get tested.
   Until then, treat the after numbers as in-sample, as §6 does.
-- **A-22-H5-3:** a lone phase "1" or "I" means the same as no number. Number words ("Two") and letters
-  ("Sand Hill C") are not phase tokens.
+- **A-22-H5-3:** a lone phase "1" or "I" means the same as no number. ~~Number words ("Two") and letters
+  ("Sand Hill C") are not phase tokens.~~ Superseded by lane I3 (2026-09-29): number words one to ten and
+  letters are phase tokens under conservative rules (`pipeline/resolve.py::phase_tokens`, `lettered_bases`).
+  The eval is unchanged at threshold 75 (37/1/3 resolver, 33/0/4 store).
 - **A-22-H5-4:** several withdrawn filings of one project (Rolling Upland, Cody Road) go to review, not merge,
   until the §7.7 and §11 decision on re-filings is made. K-v2 (count a source's re-filings once, at their largest
   MW) is the prepared change for that decision; by hand it would release Rolling Upland (1.12x) and keep Cody Road
@@ -2244,8 +2246,8 @@ again, and L as a soundness rule. Of K's three review clusters, one (Riverhead) 
   `gated`, not `implemented`, so gated reuse classes never reached the resolver. The narrower gap, a
   `publication: none` source, is now closed: the frame list uses the loader's own `load_refusal`. On the dev
   store this changed nothing (531 merges before and after).
-- Phase words ("Attentive Energy **Two** Offshore Wind") and letter phases are not parsed. The one live
-  case is a Permitting Dashboard record, which dev does not load.
+- ~~Phase words ("Attentive Energy **Two** Offshore Wind") and letter phases are not parsed.~~ Resolved by
+  lane I3; the Attentive Energy 1 / Two pair is now refused.
 - Ambiguous merges or refusals, left as they fall: Gaskell West (a 125 MW request against a 21.6 MW
   storage plant, refused by C), Quantum II and Baldy Mesa 2 (refused by Q, uncertain), High Bridge Battery with High Bridge Wind, South Ripley BESS, Callisto ID.
 - EIA generators of one plant that no loaded record ties together stay separate proposals, as before. Bonanza's

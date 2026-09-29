@@ -61,6 +61,7 @@ from services.db.models import (
     Proposal,
     ProposalSource,
 )
+from services.ingest.loader import SELECT_BASIS_KEY
 from services.resolve.models import ResolutionDecision
 
 #: docs/22 §6's chosen threshold. Re-measured with the docs/22 §22 rules on 2026-09-29: resolver
@@ -292,6 +293,51 @@ def choose_canonical(members: Sequence[ClusterMember]) -> ClusterMember:
 
 
 # --------------------------------------------------------------------------------------- proposal merge
+#: Key under the merge event's `after.surviving` for the `select_basis` entries the merge copied onto
+#: the survivor, `{source_id: basis}`. Unmerge removes exactly these source ids (lane I3).
+SELECT_BASIS_ADDED_KEY = f"{SELECT_BASIS_KEY}_added"
+
+
+def _select_basis(proposal: Proposal) -> dict[str, Any]:
+    return dict((proposal.identifiers or {}).get(SELECT_BASIS_KEY) or {})
+
+
+def _carry_select_basis(canonical: Proposal, absorbed: Proposal) -> dict[str, Any]:
+    """Copy the absorbed record's `identifiers.select_basis` entries onto the survivor, a union by
+    source id in which the survivor's own entry wins, and return the entries added.
+
+    `select_basis` is `{source_id: basis}`, written per source by the loader (lane H6; docs/25 §3.3,
+    §3.7): why a selecting connector counts the site as a data centre. Each entry belongs to one
+    source's link, and a merge moves the absorbed record's links to the survivor, so their reasons
+    move with them. Without this the survivor showed only its own reason until the absorbed
+    record's source loaded again. After the merge, the loader's `_keep_other_sources_basis` keeps
+    other sources' entries on every load and replaces the loading source's own, so a carried entry
+    is then maintained by its source like any other. Only `select_basis` is carried: the absorbed
+    row's other identifiers stay on its own (unpublished) row."""
+    mine = _select_basis(canonical)
+    added = {sid: basis for sid, basis in _select_basis(absorbed).items() if sid not in mine}
+    if added:
+        # Reassigned, not mutated, so the JSON column is marked dirty.
+        canonical.identifiers = {**(canonical.identifiers or {}), SELECT_BASIS_KEY: {**mine, **added}}
+    return added
+
+
+def _drop_select_basis(canonical: Proposal, source_ids: Sequence[str]) -> bool:
+    """Remove `source_ids` from the survivor's `select_basis` (the key itself when it empties).
+    Returns whether anything changed."""
+    current = _select_basis(canonical)
+    kept = {sid: basis for sid, basis in current.items() if sid not in set(source_ids)}
+    if kept == current:
+        return False
+    identifiers = dict(canonical.identifiers or {})
+    if kept:
+        identifiers[SELECT_BASIS_KEY] = kept
+    else:
+        identifiers.pop(SELECT_BASIS_KEY, None)
+    canonical.identifiers = identifiers
+    return True
+
+
 def merge_proposal(
     session: Session,
     *,
@@ -348,14 +394,19 @@ def merge_proposal(
 
     absorbed.merged_into_id = canonical.id
     absorbed.publish_state = "unpublished"
+    basis_added = _carry_select_basis(canonical, absorbed)
 
-    after_payload = {
+    after_payload: dict[str, Any] = {
         "surviving": {
             "source_count": canonical.source_count,
             "resolution_confidence": canonical.resolution_confidence,
             "last_changed": _json_safe(canonical.last_changed),
         }
     }
+    changed_keys = ["source_count", "resolution_confidence"]
+    if basis_added:
+        after_payload["surviving"][SELECT_BASIS_ADDED_KEY] = basis_added
+        changed_keys.append("identifiers")
 
     event = Event(
         subject_type="proposal",
@@ -364,7 +415,7 @@ def merge_proposal(
         observed_at=utcnow(),
         before=before_payload,
         after=after_payload,
-        changed_keys=["source_count", "resolution_confidence"],
+        changed_keys=changed_keys,
         actor_type=actor_type,
         confidence=confidence,
         reason=rationale,
@@ -379,7 +430,16 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
     """Reverse a `merged` proposal event exactly, from its own `before` payload alone (docs/21
     §6.3 invariant M1: "every merged event must contain enough state to execute this without
     reading any other row"). Idempotent: a second call for the same merge event returns the
-    existing `unmerged` event."""
+    existing `unmerged` event.
+
+    The survivor's `select_basis` loses exactly the source ids the merge added
+    (`after.surviving.select_basis_added`), whatever their value now is: those entries belong to
+    the links this unmerge moves back, and a reload of that source since the merge may have
+    changed the value, not the owner. The survivor's own entries and those of other merges stay.
+    Known limit: when a later merge into the same survivor brought a record of the *same* source,
+    its entry lost to the one already there and was not recorded, so it leaves with this unmerge
+    and returns on that source's next load. Events written before this field existed carry none
+    and remove nothing."""
     merge_event = session.get(Event, merge_event_id)
     if merge_event is None or merge_event.event_type != "merged" or merge_event.subject_type != "proposal":
         raise ValueError(f"{merge_event_id} is not a proposal `merged` event")
@@ -412,6 +472,10 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
     canonical.source_count = surviving["source_count"]
     canonical.resolution_confidence = surviving["resolution_confidence"]
     canonical.last_changed = dt.datetime.fromisoformat(surviving["last_changed"])
+    basis_added = ((merge_event.after or {}).get("surviving") or {}).get(SELECT_BASIS_ADDED_KEY) or {}
+    changed_keys = ["merged_into_id"]
+    if _drop_select_basis(canonical, list(basis_added)):
+        changed_keys.append("identifiers")
 
     event = Event(
         subject_type="proposal",
@@ -420,7 +484,7 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
         observed_at=utcnow(),
         before=None,
         after={"restored_proposal_id": str(absorbed.id)},
-        changed_keys=["merged_into_id"],
+        changed_keys=changed_keys,
         actor_type="user",
         reason=reason,
         reverses_event_id=merge_event.id,
