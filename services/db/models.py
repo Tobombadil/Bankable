@@ -107,6 +107,10 @@ ASSET_TYPES = (
     "substation",
     "refinery",
 )
+#: Asset types whose geometry is a line (ADR 0008 §1). Their `geom` is only a representative point,
+#: so point-matching a facility against one (GHGRP, 2026-09-29: 41 owner edges written onto
+#: generator-lead lines named after plants) is meaningless; matchers exclude them.
+LINE_ASSET_TYPES: frozenset[str] = frozenset({"gas_pipeline", "transmission_line"})
 #: The source's current operating status (docs/21 §3.22) -- never a lifecycle; assets have none.
 ASSET_STATUSES = ("operating", "standby", "retired", "unknown")
 #: `asset_owner.role` (docs/21 §3.23).

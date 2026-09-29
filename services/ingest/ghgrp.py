@@ -53,7 +53,7 @@ from pipeline.context.ghgrp import (
     load_crosswalk,
     match_facilities,
 )
-from services.db.models import Asset, AssetOwner
+from services.db.models import LINE_ASSET_TYPES, Asset, AssetOwner
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ingest.loader import upsert_licence_and_source
 from services.ingest.ownership import (
@@ -133,9 +133,11 @@ class GhgrpLoadResult:
 
 
 def assets_frame(session: Session) -> pd.DataFrame:
-    """Every asset with a point, in the shape `match_facilities` reads."""
+    """Every point asset, in the shape `match_facilities` reads. Line assets (`LINE_ASSET_TYPES`) are
+    left out: their `geom` is a representative point, and a GHGRP facility is a site, so a line named
+    after a plant ("Joppa Station 161 kV line") would otherwise take the plant's parents as owners."""
     rows: list[dict[str, Any]] = []
-    for a in session.scalars(select(Asset)):
+    for a in session.scalars(select(Asset).where(Asset.asset_type.not_in(LINE_ASSET_TYPES))):
         geom = a.geom
         lon, lat = (geom[0], geom[1]) if isinstance(geom, (tuple, list)) and len(geom) == 2 else (None, None)
         rows.append(
