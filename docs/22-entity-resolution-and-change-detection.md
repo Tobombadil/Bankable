@@ -1957,3 +1957,310 @@ clears AC3 is the thing that sets `publish: true`.
   NULL stamps for good (the event log is append-only, docs/21 §3.10); the matches themselves appear at once,
   because the match routes read the gate at request time. A timeline therefore starts showing match changes
   from the first run after the gate opens, which is the honest reading: nothing was claimed publicly before.
+
+## 22. Resolver hardening against the wrong merges of lane H4 (lane H5, 2026-09-29)
+
+**Status:** implemented and measured. The code is in `pipeline/resolve.py`, `services/resolve/merge.py` and
+`services/resolve/report.py`. The tests are `tests/test_resolve_rules.py` (16) and
+`tests/test_resolve_cluster_gate.py` (14). Lane H4 (`docs/25` §3.8) listed eight defects that let wrong
+records into dev-store clusters. This section adds four pairwise vetoes (T, N, C, Q), one whole-cluster
+check (K) and a cluster builder that uses loaded records only (L). It also fixes the EIA rollup (E).
+Deterministic passes (D1–D3) are untouched: no veto applies to a `D` pair, and a test pins this.
+Rules K and Q carry the coordinator's two loosenings of 2026-09-29 (K-v1, Q-v2), each chosen from the
+out-of-sample check in §22.8.
+
+**Every threshold in this section (70, 4×, 0.9 with ±10 %, 2.0) was set on the dev frames and the 85 eval
+labels, so it is in-sample. The out-of-sample evidence is §22.8: every dev-store record whose merge the
+rules changed, judged by hand.**
+
+### 22.1 Rules
+
+| Rule | Where | What it refuses | Constant | Why this value |
+|---|---|---|---|---|
+| **T** technology class | `score_pair` → `veto` | `load` or `transmission` against anything but itself; two different generation families (solar, wind, thermal, hydro, nuclear, geothermal); storage against thermal | `TECH_FAMILIES` | Storage *is* allowed with solar, wind and hydro, because hybrids file their halves separately (Harryoung, Cuchillas, Lupinus). Every storage-vs-thermal candidate scoring ≥ 70 in both corpora is two projects (2 of 2: "Montgomery Energy Storage" vs biomass "TBE-Montgomery LLC"; "MERCED POWER" vs "Merced BESS") |
+| **N** name floor | `score_pair` → `veto` | a pair with no sponsor component and name < 70 | `NAME_FLOOR_NO_SPONSOR = 70` | Five accepted dev pairs had name < 70. The three with no sponsor were all wrong (Dracker/Grace 67, Franklin Park 66, Desert Bell/Desert Charger 67). The two with a sponsor were right (Harryoung 62, Alina/Anila 60) |
+| **C** capacity factor | `score_pair` → `veto` | a request more than 4× the **whole** EIA plant (every generator); between two non-EIA records, a ratio above 4 either way | `CAP_VETO_FACTOR = 4` | The largest legitimate request-to-plant ratio is 2.42: CAISO 1632 "SANBORN HYBRID 3", 1,400 MW, against the 578 MW EIA plant of the same name and number. The wrong ones start at 7.1 (Somerset 706 vs 100). A request much *smaller* than the plant (a phase, or a storage add-on) is never vetoed |
+| **Q** phase surplus | `phase_surplus` after scoring | an eligible pair (p, q) whose phase numbers differ, when q already has eligible partners **from p's own source** with q's phase whose MW cover ≥ 90 % of q, counted within p's technology family, **unless p completes q**: p's MW plus the partners' within ±10 % of q (Q-v2) | `PHASE_COVER = 0.9`, `CAP_TOL = 0.10` | 0.9 and ±10 % are the band of docs/02 §5. Q-v2 keeps Sunrise Wind II (880 + 44 = the 924 MW plant) and still refuses Agricola Wind 2 (97 + 79.3 against 99). A lone "1" reads as unnumbered. With a capacity missing the rule abstains |
+| **K** coherence | `merge.gate_cluster` → review | a cluster where one source's requests **in one technology family, two or more of them** (K-v1), add up to more than 2× the cluster's EIA capacity in that family | `COHERENCE_FACTOR = 2.0` | Every sound dev cluster the check judges is ≤ 1.36 (Gonzaga); above it are 2.97 (Rolling Upland re-filings), 5.61 (Cody Road re-filings) and 10.51 (Riverhead). A family with a single request is rule C's job, so Briggs (one 336 MW storage request against 70.5 MW of EIA storage) now merges |
+| **L** loaded-only clusters | `report.build_clusters` | a record the store did not load (a gated source, or one dev does not load) bridging two loaded records; a pipeline cluster that falls apart splits into components `<id>`, `<id>#1`, … | — | Production's `_latest_proposal_frames` feeds every implemented proposal source, gated or not, and only the loader refuses gated rows. So the builder, not the frame list, is where this belongs, and it covers both cases |
+| **E** rollup on registry ids | `eia_plant_rollup`, `build_clusters` | — (a fix) | `EIA_SOURCE_IDS` | The rollup matched only the fixture's `eia860m`, so the scheduler and dev never had it. `build_clusters` now projects an edge to a rollup row onto each loaded generator it sums |
+
+Rule K counts per technology family for three reasons. ERCOT files a hybrid as two requests. EIA-860M may list
+only the storage half of a plant whose solar already runs (Duffy). A hybrid request's MW is the POI total, so it
+counts once, in whichever of its families holds the most EIA capacity. Two rows of one source with the same
+technology and MW count once, because NYISO lists a project under both its cluster id and its queue position
+("KCE NY 30" as C24-008 and 1448). Rule K judges only what `ClusterMember` carries, and since rule L the builder
+fills in MW, technology and plant id. A cluster that fails goes through the existing review path: one
+`resolution_decision` per edge, nothing merged.
+
+**Rule Q, and why the simpler forms were rejected.** Measured on the dev frames and the eval labels:
+
+| Variant | Dev pairs this rule vetoes | Eval tp/fp/fn | Legitimate patterns broken |
+|---|---|---|---|
+| **Q as shipped** (coverage ≥ 0.9, within the technology family, Q-v2) | 33 | 37/1/3 | none |
+| Q as first shipped (without Q-v2) | 34 | 37/1/3 | none; but refuses Sunrise Wind II (§22.8) |
+| Any matching-phase partner vetoes (the brief's (b), no coverage test) | 54 | 34/1/6 | Roseland II, Vast Sands II, Mulqueeney 2, Indigo Storage 2, Darden II |
+| Coverage, but blind to technology | 38 | 36/1/4 | Indigo Storage 2 |
+| Adding "capacity score 0 = veto" (the brief's (c) read literally) | 139 more than shipped | 28/1/12 | Roseland II, Mulqueeney 2, Indigo Storage 2, Darden II, Rock Island |
+
+Coverage is what separates a surplus phase from phases that add up. The other rows were measured against
+the first-shipped Q. Bonanza is surplus: "BONANZA SOLAR" 300 MW
+alone covers the 300 MW plant, so "BONANZA SOLAR 2" is refused. Roseland adds up: 254 + 254 MW against the
+500 MW plant, so both are kept. Coverage uses the plant's `plant_poi_mw`, the largest per-technology total,
+for a hybrid or unknown request, because EIA lists Bellefield 2 as 500 MW solar plus 500 MW storage behind
+one 500 MW request.
+
+**Smaller changes.** `run()` no longer raises `KeyError: 'rationale'` when blocking yields no candidate pair.
+`evaluate()` now leaves vetoed and `id_conflict` pairs out of its predictions, because until now it ignored
+`id_conflict`. No label is affected by `id_conflict`. `matches.parquet` gains a `veto` column, and every
+`rationale` names the veto that fired.
+
+### 22.2 Measured before and after
+
+Before is HEAD `dd8bdf3`. After is this lane. Every number comes from a run.
+
+**Evaluation labels** (`data/eval/labels.csv`, 85 usable, threshold 75; the store path uses the 77 labels the
+store can answer):
+
+| | Before | After |
+|---|---|---|
+| Resolver pairs, sample P / R (tp/fp/fn/tn) | 0.975 / 0.975 (39/1/1/44) | **0.974 / 0.925** (37/1/3/44) |
+| … weighted P / R | 0.961 / 0.976 | 0.958 / 0.910 |
+| Store path, `python -m services.resolve.report` (tp/fp/fn/tn) | 1.000 / 0.973 (36/0/1/40) | **1.000 / 0.892** (33/0/4/40) |
+| Resolver accepted pairs / clusters | 814 / 338 | 764 / 333 |
+| Store: proposals after resolution (of 9,563) / clusters merged (records absorbed) | 9,122 / 274 (441) | 9,156 / 271 (407) |
+| Store: clusters refused | 3 (no direct edge) | 2 (coherence: Cody Road, Rolling Upland), 15 `resolution_decision` rows |
+
+The false-positive count holds at 1 in the resolver: `isone:84`/`isone:84#5`, a D2 pair that is gated out of
+the store. It holds at 0 through the store. The precision ratio moves by 0.001 only because two true positives
+were lost. The lost labels are:
+
+- `caiso:1797` ↔ `eia860m:66908-BZPV` and `ercot:25INR0547` ↔ `eia860m:66891-245BS`, refused by rule Q.
+  **Both labels are contested (§22.7).**
+- `nyiso:0520` ↔ `eia860m:62262-GEN1`, store path only. Rule K sends the whole Rolling Upland cluster to
+  review: three withdrawn NYISO filings of 2009, 2015 and 2023 (59.9 + 72.6 + 79.8 MW) against one 71.4 MW
+  plant. Re-filings are the open product question of §7.7 and §11. Until it is settled, they go to a person
+  and are not merged.
+
+With only the two contested labels flipped (an overlay; `labels.csv` is unchanged):
+
+| | Before | After |
+|---|---|---|
+| Resolver pairs P / R (tp/fp/fn) | 0.925 / 0.974 (37/3/1) | **0.974 / 0.974** (37/1/1) |
+| Store path P / R (tp/fp/fn) | 0.944 / 0.971 (34/2/1) | **1.000 / 0.943** (33/0/2) |
+
+**Dev store** (`web/.data/dev.db` as lane H4 built it, 11,098 live proposals, data root = every source plus
+the §3.7 ICIS-Air run; `default_resolve` run on a fresh copy each time):
+
+| | Before | After |
+|---|---|---|
+| Live proposals after resolution | 10,524 | **10,567** |
+| `merged` events | 574 | **531** |
+| Loaded multi-member clusters | 416 | 407 |
+| Refused: no direct edge / id reuse / coherence | 6 / 1 / – | 0 / 1 / 3 |
+| `resolution_decision` rows | 1 | 22 |
+| Merged clusters holding ≥ 2 requests from one source (records absorbed) | 66 (189) | 49 (128) |
+| EIA plant-rollup records | 0 | 141 |
+| Resolver candidate pairs / accepted pairs | 37,717 / 836 | 38,181 / 806 |
+| `default_resolve` wall time (one run each) | 13.4 s | 13.4 s |
+
+Merges by source pair. As in §3.8 of docs/25, each absorbed record is paired with the survivor's own source:
+
+| Pair | Before | After | Δ |
+|---|---|---|---|
+| EIA-860M + ERCOT | 226 | 222 | −4 |
+| ICIS-Air + Virginia DEQ | 138 | 138 | 0 |
+| EIA-860M + EIA-860M | 82 | 75 | −7 |
+| EIA-860M + NYISO | 75 | 52 | −23 |
+| EIA-860M + CAISO | 52 | 44 | −8 |
+| EIA-860M + ICIS-Air | 1 | 0 | −1 |
+| **Total** | **574** | **531** | **−43** |
+
+### 22.3 What each rule does (ablation)
+
+Each rule was switched on alone on top of HEAD, and all rules were switched on with one left out. The table
+shows dev-store merges, with eval changes where there are any.
+
+| Rule | Alone | All but this one | Notes |
+|---|---|---|---|
+| T | 571 (−3) | 534 | Franklin Park, Pomfret (wind vs PV), Montgomery (storage vs biomass) |
+| N | 572 (−2) | 532 | Dracker/Grace |
+| C | 562 (−12) | 535 | Riverhead ×2, Somerset 706 MW, Little Falls, Manorville, Elevate Arthur Kill II, Sand Hill C vs A/B, Gaskell West |
+| Q | 553 (−21) | 527, 10 to review | Eval −2 tp (the contested labels). Without Q, rule K refuses the phase clusters whole |
+| K | 574 (0) | 544 | Needs L's member fields. Eval store −1 tp (Rolling Upland) |
+| L | 573 (−1) | 540 | Bonanza's permits bridge. The 6 no-edge refusals become separate components |
+| E | 574 (0) | 526 | Needs L's projection. Adds KEY STORAGE 1 ↔ Key Energy Storage (3 units) and ERCOT BasRanch ↔ CPV Basin Ranch (2 units) |
+| All | **531 (−43)** | — | Eval: resolver 37/1/3, store 33/0/4 |
+
+### 22.4 The eight H4 findings
+
+Each outcome was checked on the after-store by testing whether the two records share a live proposal.
+
+| # | Finding | Outcome | By |
+|---|---|---|---|
+| 1 | ICIS "FRANKLIN PARK (CHI22) DATA CENTER" with EIA 68135 solar | **fixed**: apart | T (N also fires) |
+| 2 | CAISO 1510 into EIA "Bellefield 2"; "BONANZA SOLAR 2" into the one 300 MW plant | **fixed**: 1510 and 1797 apart; 1631 and 1649 still merged with their plants | Q |
+| 3 | ERCOT 28INR0067 "Indigo Solar 3" (800 MW) in the Indigo cluster | **fixed**: apart. "Indigo solar 2" (180 MW solar, separate sponsor) is also out; Indigo Solar and Indigo Storage 1–4 stay with the plant | Q |
+| 4 | Five NYISO "Riverhead" requests with EIA "Riverhead - CVE" | **fixed**: all five apart. 0762 and 1307 are refused pairwise; the rest of the cluster (51.5 MW solar against 4.9) goes to review | C, K |
+| 5 | CAISO 294 "DRACKER SOLAR" into Grace Energy Center | **fixed**: apart; CAISO 1761 still merged with Grace | N |
+| 6 | Transitive chaining, no whole-cluster check | **fixed** as rule K. Multi-request merged clusters 66 → 49, records in them 189 → 128. Three clusters now go to review (Riverhead, Cody Road, Rolling Upland) | K |
+| 7 | Unloaded `us.permits_dashboard` bridging 7 clusters | **fixed**: 0 clusters are joined through an unloaded record. Bonanza's EIA storage generator is now its own proposal, as is every EIA generator no loaded record ties to its plant | L |
+| 8 | `eia_plant_rollup` never fires on registry ids | **fixed**: 141 rollup records on the dev frames, 16 accepted rollup edges, 5 merges only they explain | E |
+
+### 22.5 Legitimate patterns still merge
+
+These 22 record pairs were checked on the after-store, and every one shares a proposal:
+
+- Hybrids: Harryoung solar and BESS requests with the EIA plant; Cuchillas solar with BESS; Bellefield 2 and
+  Grace Energy Center EIA solar with storage.
+- Phases that add up: Roseland I and II; Mulqueeney Ranch Wind 1 and 2; Vast Sands Power I and II, each with
+  its plant.
+- Darden: CAISO 1949 with each of Darden I–IV.
+- Rock Island: ERCOT 27INR0321 with RIG1 and RIG6, and RIG1 with RIG6.
+- One-plant EIA+EIA: Darden I solar with storage; the Bellefield 2 CAISO 1631, Bonanza 1649 and Indigo Solar
+  anchors.
+
+The tests hold minimal frames for Harryoung, Rock Island, Roseland, Vast Sands, Grace and Indigo Storage 2.
+
+### 22.6 Hand-check: 15 random merges, after
+
+The sample is 15 of the 389 merged pairs outside ICIS/VA (those are exact shared-id matches), seed 20260930.
+It was drawn from the store as first shipped (527 merges). The 4 merges K-v1 and Q-v2 add back (Briggs 3,
+Sunrise Wind II 1) are judged correct in §22.8.
+
+| # | Survivor ← absorbed | Verdict |
+|---|---|---|
+| 1 | EIA 68851 Hermes Solar PV ← ERCOT 23INR0344 Hermes Solar (same LLC, 100.4 MW) | correct |
+| 2 | EIA 67650 Bear Ridge 93 MW ← NYISO 0704 Bear Ridge Solar 100 MW, Niagara | correct |
+| 3 | EIA 68485 Rexford 2 storage ← EIA 68485 Rexford 2 solar (one plant) | correct |
+| 4 | EIA 69506 Gail Mountain Solar ← ERCOT 28INR0176 (244.4 MW both) | correct |
+| 5 | EIA 66805 Lycan Solar Project ← CAISO 1643 LYCAN SOLAR (400 MW, Riverside) | correct |
+| 6 | EIA 67776 Cuchillas PV and BESS ← ERCOT 27INR0077 Cuchillas BESS (306.9 MW) | correct |
+| 7 | EIA 70200 Lucy Solar ← ERCOT 25INR0225 Lucy Solar (same LLC) | correct |
+| 8 | EIA 66896 Lupinus Solar 2 storage ← ERCOT 24INR0154 Lupinus Solar 2 | correct (numbered hybrid) |
+| 9 | EIA 69636 Main Horn Solar ← ERCOT 28INR0467 (same LLC) | correct |
+| 10 | EIA 69640 Cazadores Solar ← ERCOT 29INR0160 (300 / 301.6 MW, Duval) | correct |
+| 11 | EIA 68349 Avant Prairie ESS ← ERCOT 27INR0316 Avant Prairie BESS (same LLC) | correct |
+| 12 | EIA 69245 Nightfall Solar ← ERCOT 21INR0334 (180 / 180.9 MW, Uvalde) | correct |
+| 13 | EIA 65901 Hatchery Solar ← NYISO 0932 Hatchery Solar (20 MW, Livingston) | correct |
+| 14 | EIA 66390 MRG Goody Solar Project Hybrid storage ← ERCOT 24INR0305 MRG Goody Storage | correct |
+| 15 | EIA 68851 Hermes Solar PV ← ERCOT 24INR0365 Hermes Storage (co-located, Bell 1 LLCs) | correct by the §6 labelling rule (co-located hybrid) |
+
+15 of 15 are correct. H4's random ten found 0 clear errors among 7 correct, 1 likely and 2 uncertain; both of
+its uncertain pairs (Rough Hat 2, South Ripley BESS) are unchanged by this lane.
+
+### 22.7 Two contested labels (proposal, not applied)
+
+Both labels were made on 2026-09-12 from the pair alone. Neither labeller saw the sibling request, and both
+contradict the §6 labelling rule that "separately numbered phases are not" one record:
+
+- `caiso:1797` "BONANZA SOLAR 2" ↔ EIA "Bonanza Solar and Storage Project", labelled 1. 1797 is **withdrawn**
+  (COD 2024-12). CAISO 1649 "BONANZA SOLAR" is active, 300 MW, COD 2028-09, and matches the 300 MW EIA plant
+  (COD 2027-12) on its own.
+- `ercot:25INR0547` "Indigo solar 2" ↔ EIA 66891 storage generator, labelled 1. The request is solar, 180 MW,
+  sponsor "Indigo Solar 2". The EIA plant's solar is 150 MW, which is ERCOT 21INR0031 "Indigo Solar" under the
+  plant's own sponsor, Innovative Solar 245. The 180 MW match is with the plant's *storage*.
+
+Proposed: flip both to 0 and record why in the `rationale` column. That is the owner's call, not this lane's, so
+the file is unchanged and §22.2 reports both views.
+
+### 22.8 Recall cost on the dev store (out of sample)
+
+This is the out-of-sample evidence for the in-sample thresholds above.
+- Every record whose merge changed between HEAD and this lane was listed: 48 absorbed before and not after,
+  5 absorbed after and not before, and 66 once membership changes are counted.
+- Each was attributed to a rule by leaving one rule out at a time, and judged from the records' own fields.
+  No private aggregator or web lookup was used.
+- The per-record table and a seeded sample (21 of the 59 un-merged records, seed 20261001) are in the lane's
+  `recall_cost.md`.
+
+| Rule (final) | Wrong merges removed | Correct merges lost | Uncertain | Moved to the right cluster / gained |
+|---|---|---|---|---|
+| T | 6 | 0 | 0 | 0 |
+| N | 1 | 0 | 0 | 0 |
+| C | 12 | 0 | 2 (Gaskell West) | 1 |
+| Q (with Q-v2) | 15 (2 are the contested labels) | 0 | 3 (Quantum II ×2, Baldy Mesa 2) | 2 |
+| K (with K-v1) | 5 (Riverhead) | **10**, all in review | 1 (Cody Road 0739) | 0 |
+| L | 0 | **1** | 0 | 0 |
+| E | 0 | 0 | 0 | 7 gained, all correct |
+| **All** | **39** | **11** | **6** | **3 moved, 7 gained** |
+
+**The rules as first shipped (527 merges) lost 16 correct merges.** Two changes from this check were applied:
+- **K-v1** gives back Briggs (4 records).
+- **Q-v2** gives back Sunrise Wind II (1 record).
+
+Neither re-admits a wrong merge, and eval does not move.
+
+**The 11 correct merges still lost, and where each sits:**
+- **Review cluster 8525.0, Cody Road (6 records):** EIA 61592-WT1/WT2/WT3, NYISO 0131, 0180A and 1156.
+  These are withdrawn re-filings of the EIA plant by its own sponsor, 40.4 MW of requests against 7.2 MW
+  (x5.61). NYISO 0739 (Hecate) sits in the same cluster and is uncertain.
+- **Review cluster 5402.0, Rolling Upland (4 records):** EIA 62262-GEN1, NYISO 0322, 0520 and 1549. These are
+  three withdrawn filings of one project (x2.97); the eval label 0520–GEN1 is 1.
+- **Separate proposal (1 record):** EIA 66908-BZES, Bonanza's storage generator. It is the same plant as its
+  solar generator, which is merged with CAISO 1649. At baseline its only link was an unloaded Permitting
+  Dashboard record.
+
+The 10 in review are `resolution_decision` rows a person can accept. They wait on the re-filing decision
+(A-22-H5-4; K-v2 is held for it). The separate one needs a measured same-EIA-plant link (docs/22 §7.4).
+
+Four further sibling links were lost as collateral. Each is between two records joined only through a wrong
+one:
+- CVE 215–216 (in review with Riverhead)
+- Manorville II solar and storage
+- Elevate Arthur Kill II's two NYISO rows
+- Mill Point II's two NYISO rows
+
+**K and L still lose more correct merges than they remove wrong ones on this store.**
+- K: 5 wrong removed, 10 correct in review.
+- L: 0 wrong removed, 1 correct lost.
+
+Both are kept on the coordinator's decision: K because without it Riverhead's three wrong requests merge
+again, and L as a soundness rule. Of K's three review clusters, one (Riverhead) is really incoherent and two
+(Cody Road, Rolling Upland) are sound re-filings.
+
+### 22.9 Assumptions recorded
+
+- **A-22-H5-1:** a storage request can be one project with co-located solar, wind or hydro, but not with
+  thermal generation. This rests on 2 of 2 storage-thermal candidates being wrong, and there are no positive
+  examples.
+- **A-22-H5-2:** the thresholds (70, 4×, 0.9 with ±10 %, 2.0) were set on the dev frames and the 85 labels, so
+  they are in-sample; §22.8 is the only out-of-sample evidence so far. The M-1 recalibration's 600-label held-out set (docs/00 2026-09-12) is where they get tested.
+  Until then, treat the after numbers as in-sample, as §6 does.
+- **A-22-H5-3:** a lone phase "1" or "I" means the same as no number. Number words ("Two") and letters
+  ("Sand Hill C") are not phase tokens.
+- **A-22-H5-4:** several withdrawn filings of one project (Rolling Upland, Cody Road) go to review, not merge,
+  until the §7.7 and §11 decision on re-filings is made. K-v2 (count a source's re-filings once, at their largest
+  MW) is the prepared change for that decision; by hand it would release Rolling Upland (1.12x) and keep Cody Road
+  (2.76x) and Riverhead (4.9x) in review.
+- **A-22-H5-5:** an accepted edge to an EIA plant-rollup row stands for an edge to each generator that row sums
+  (one plant, one technology).
+
+### 22.10 Open
+
+- The two contested labels (§22.7).
+- `infra/scheduler/jobs.py::_latest_proposal_frames` says "non-gated" but does not filter on `reuse`. Gated rows
+  still reach `pipeline.resolve.run`. Rule L makes them harmless as bridges, but they still change blocking
+  group sizes (B3 skips groups over 60). Filtering in `default_resolve` is a one-line follow-up for the
+  scheduler owner.
+- Phase words ("Attentive Energy **Two** Offshore Wind") and letter phases are not parsed. The one live
+  case is a Permitting Dashboard record, which dev does not load.
+- Ambiguous merges or refusals, left as they fall: Gaskell West (a 125 MW request against a 21.6 MW
+  storage plant, refused by C), Quantum II and Baldy Mesa 2 (refused by Q, uncertain), High Bridge Battery with High Bridge Wind, South Ripley BESS, Callisto ID.
+- EIA generators of one plant that no loaded record ties together stay separate proposals, as before. Bonanza's
+  storage generator is now one of them.
+- 10 correct merges sit in review and 1 as a separate proposal (§22.8). K-v2 waits on A-22-H5-4.
+- Unchanged from §6: the Tennyson → Ulysses rename (a false negative) and `isone:84` (a D2 false positive,
+  gated).
+
+### 22.11 Commands
+
+```
+python -m services.resolve.report                     # store path on the eval pull (P/R, clusters, review)
+python pipeline/resolve.py --sweep                    # resolver sweep (writes data/eval/{matches,clusters}.parquet;
+                                                      # not regenerated by this lane)
+python -m pytest tests/test_resolve_rules.py tests/test_resolve_cluster_gate.py -q
+```
+
+The dev-store runs used a scratch copy of the H4 pre-resolution store and data root, with
+`infra.scheduler.jobs.default_resolve(factory, data_root=...)`. That is the same call `web.dev_up` makes.

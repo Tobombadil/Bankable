@@ -26,6 +26,7 @@ import pathlib
 import re
 import sys
 
+import numpy as np
 import pandas as pd
 from rapidfuzz import fuzz
 
@@ -47,6 +48,114 @@ CAP_TOL = 0.10  # +/-10% capacity band for blocking (docs/02 §5)
 #: sources citing the same one are the same facility (D3). `icis_air`: EPA ICIS-Air PGM_SYS_ID;
 #: `frs`: EPA Facility Registry Service id. Name-derived citations (`NYISO:…`) are not in here.
 SHARED_ID_NAMESPACES = frozenset({"icis_air", "frs"})
+#: EIA-860M's source id in the evaluation fixture ("eia860m") and in the registry, which is what the
+#: scheduler and the dev store pass ("us.eia.860m"). Both are one plant/generator register.
+EIA_SOURCE_IDS = frozenset({"eia860m", "us.eia.860m"})
+
+# ------------------------------------------------------------------ fuzzy vetoes (docs/22 §22)
+# A veto refuses a fuzzy pair whatever its score. Deterministic (D) pairs are never vetoed.
+
+#: Technology -> the identity families it can belong to. `load` (data centres) and `transmission`
+#: are not generation and only ever match their own kind. Two different generation families
+#: (solar vs wind, wind vs gas) are not one project. Storage is compatible with every generation
+#: family except thermal: hybrid plants file solar and storage as separate requests, while every
+#: storage-vs-thermal candidate scoring >= 70 in the evaluation and dev frames (2 of 2: 'Montgomery
+#: Energy Storage' vs biomass 'TBE-Montgomery LLC'; 'MERCED POWER' gas vs 'Merced BESS') is two
+#: projects. `unknown`, `other` and missing technology are compatible with everything.
+TECH_FAMILIES: dict[str, frozenset[str]] = {
+    "load": frozenset({"load"}),
+    "transmission": frozenset({"transmission"}),
+    "storage": frozenset({"storage"}),
+    "solar": frozenset({"solar"}),
+    "solar_thermal": frozenset({"solar"}),
+    "solar_storage": frozenset({"solar", "storage"}),
+    "wind": frozenset({"wind"}),
+    "wind_offshore": frozenset({"wind"}),
+    "wind_storage": frozenset({"wind", "storage"}),
+    "hydro": frozenset({"hydro"}),
+    "pumped_storage": frozenset({"hydro"}),
+    "nuclear": frozenset({"nuclear"}),
+    "geothermal": frozenset({"geothermal"}),
+    **{
+        t: frozenset({"thermal"})
+        for t in (
+            "gas_cc",
+            "gas_ct",
+            "gas_steam",
+            "gas_ice",
+            "gas_other",
+            "oil",
+            "coal",
+            "biomass",
+            "waste",
+            "hydrogen",
+            "fuel_cell",
+        )
+    },
+}
+NON_GENERATION = frozenset({"load", "transmission"})
+#: Without a sponsor component, name is the only identity evidence; county, capacity and COD are
+#: shared by neighbouring projects. Below this name score such a pair is refused.
+NAME_FLOOR_NO_SPONSOR = 70.0
+#: A queue request more than this many times the whole EIA plant (all its generators) is neither
+#: that plant nor a part of it. Largest legitimate ratio measured: 2.42 (CAISO 1632 "SANBORN
+#: HYBRID 3", 1,400 MW, over the 578 MW EIA plant of the same name and number). Between two
+#: non-EIA records the ratio is symmetric. A request much *smaller* than an EIA plant is not
+#: vetoed: phases and storage add-ons of one plant are exactly that.
+CAP_VETO_FACTOR = 4.0
+#: Phase surplus: the phase-matching partners must account for this share of the anchor's
+#: capacity before a differently numbered request is refused.
+PHASE_COVER = 0.9
+
+
+def tech_families(tech: object) -> frozenset[str] | None:
+    """The identity families of a technology value; None when unknown (compatible with all)."""
+    if tech is None or tech is pd.NA or (isinstance(tech, float) and pd.isna(tech)):
+        return None
+    return TECH_FAMILIES.get(str(tech))
+
+
+def tech_compatible(a: object, b: object) -> bool:
+    """False only when both technologies are known and cannot describe one project (docs/22 §22)."""
+    fa, fb = tech_families(a), tech_families(b)
+    if fa is None or fb is None:
+        return True
+    if (fa | fb) & NON_GENERATION:
+        return fa == fb
+    if fa & fb:
+        return True
+    both = fa | fb
+    return "storage" in both and "thermal" not in both
+
+
+def _num(value: object) -> float | None:
+    if value is None or value is pd.NA:
+        return None
+    try:
+        out = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return out if out == out and out > 0 else None
+
+
+def is_eia(rec: dict) -> bool:
+    plant = rec.get("eia_plant_id")
+    return rec.get("source_id") in EIA_SOURCE_IDS and plant is not None and not pd.isna(plant)
+
+
+def capacity_veto(left: dict, right: dict, factor: float = CAP_VETO_FACTOR) -> bool:
+    """Rule C. An EIA record is compared through its whole plant (`plant_mw`), because a queue
+    request may be one generator, the plant, or a complex holding the plant."""
+    lcap, rcap = _num(left.get("capacity_mw")), _num(right.get("capacity_mw"))
+    if lcap is None or rcap is None:
+        return False
+    lext = _num(left.get("plant_mw")) or lcap
+    rext = _num(right.get("plant_mw")) or rcap
+    if is_eia(left) and not is_eia(right):
+        return rcap > factor * lext
+    if is_eia(right) and not is_eia(left):
+        return lcap > factor * rext
+    return max(lcap, rcap) > factor * min(lcap, rcap)
 
 
 # ------------------------------------------------------------------ candidate generation
@@ -133,6 +242,13 @@ def phase_tokens(name) -> set[int]:
     return {ROMAN.get(t, None) or int(t) for t in PHASE_TOKEN.findall(str(name)) if t.isdigit() or t in ROMAN}
 
 
+def phase_key(name) -> frozenset[int]:
+    """`phase_tokens`, with a lone phase 1 read as no number: 'Moonlight Flats Solar Power 1' and
+    'Moonlight Flats Solar' are the same first phase."""
+    tokens = phase_tokens(name)
+    return frozenset() if tokens == {1} else frozenset(tokens)
+
+
 def score_pair(left: dict, r: dict) -> dict:
     comp: dict[str, float | None] = {}
     comp["name"] = _ratio(left["name_norm"], r["name_norm"], NAME_SCORER)
@@ -193,11 +309,22 @@ def score_pair(left: dict, r: dict) -> dict:
         score *= 0.8
         flags.append("stale_withdrawn")
 
+    # Vetoes (docs/22 §22): refuse the pair whatever its score.
+    vetoes = []
+    if not tech_compatible(left.get("technology"), r.get("technology")):
+        vetoes.append("veto_tech_class")  # Rule T: a data centre is not a solar plant
+    if comp["sponsor"] is None and comp["name"] is not None and comp["name"] < NAME_FLOOR_NO_SPONSOR:
+        vetoes.append("veto_name_floor")  # Rule N: geography + MW alone never make two named projects one
+    if capacity_veto(left, r):
+        vetoes.append("veto_capacity")  # Rule C: a request far larger than the whole plant
+    flags.extend(vetoes)
+
     bits = [
         f"{k}={comp[k]:.0f}" for k in ("name", "sponsor", "county", "capacity", "cod") if comp[k] is not None
     ]
     rationale = f"{'; '.join(bits)}; evidence={evidence:.2f}" + (f"; {','.join(flags)}" if flags else "")
     return {
+        "veto": ",".join(vetoes),
         "score": round(score, 2),
         "name_score": comp["name"],
         "sponsor_score": comp["sponsor"],
@@ -209,6 +336,21 @@ def score_pair(left: dict, r: dict) -> dict:
         "evidence": round(evidence, 2),
         "rationale": rationale,
     }
+
+
+SCORE_COLUMNS = [
+    "veto",
+    "score",
+    "name_score",
+    "sponsor_score",
+    "county_score",
+    "capacity_score",
+    "cod_score",
+    "capacity_ratio",
+    "cod_days",
+    "evidence",
+    "rationale",
+]
 
 
 def shared_ids(refs: object) -> dict[str, set[str]]:
@@ -355,14 +497,25 @@ def evaluate(matches: pd.DataFrame, labels: pd.DataFrame, thresholds) -> pd.Data
         rev = (lab["right_id"], lab["left_id"])
         row = m.loc[key] if key in m.index else (m.loc[rev] if rev in m.index else None)
         if row is None:
-            found.append((None, 0.0, 0.0, False))
+            found.append((None, 0.0, 0.0, False, False))
         else:
+            veto, conflict = row.get("veto", ""), row.get("id_conflict", False)
+            vetoed = (isinstance(veto, str) and veto != "") or (
+                isinstance(conflict, bool | np.bool_) and conflict
+            )
             found.append(
-                (row, float(row["score"]), float(row["evidence"]), bool(str(row["pass"]).startswith("D")))
+                (
+                    row,
+                    float(row["score"]),
+                    float(row["evidence"]),
+                    bool(str(row["pass"]).startswith("D")),
+                    vetoed,
+                )
             )
     labels["score"] = [f[1] for f in found]
     labels["evidence"] = [f[2] for f in found]
     labels["det"] = [f[3] for f in found]
+    labels["vetoed"] = [f[4] for f in found]
     labels["band"] = labels["score"].map(band)
     band_pop = pop["score"].map(band).value_counts()
     band_n = labels["band"].value_counts()
@@ -371,7 +524,11 @@ def evaluate(matches: pd.DataFrame, labels: pd.DataFrame, thresholds) -> pd.Data
 
     rows = []
     for t in thresholds:
-        pred = labels["det"] | ((labels["score"] >= t) & (labels["evidence"] >= MIN_EVIDENCE))
+        # A vetoed fuzzy pair is never predicted, at any threshold (docs/22 §22). The phase-surplus
+        # veto is computed at the run's own threshold, so off-threshold rows of a sweep carry it too.
+        pred = labels["det"] | (
+            (labels["score"] >= t) & (labels["evidence"] >= MIN_EVIDENCE) & ~labels["vetoed"]
+        )
         truth = labels["label"] == 1
         tp, fp = int((pred & truth).sum()), int((pred & ~truth).sum())
         fn, tn = int((~pred & truth).sum()), int((~pred & ~truth).sum())
@@ -408,11 +565,13 @@ def eia_plant_rollup(df: pd.DataFrame) -> pd.DataFrame:
     326 of 1,595 planned plants carry more than one generator, so a 300 MW queue entry can face
     three 100 MW EIA rows and fall outside the +/-10% capacity block. Add one synthetic
     plant-level record per (plant, technology) group of size > 1 so both granularities can block."""
-    e = df[(df["source_id"] == "eia860m") & df["eia_plant_id"].notna()]
-    grp = e.groupby(["eia_plant_id", "technology"], dropna=False)
+    # Both spellings of the EIA-860M source id: until 2026-09-29 only the fixture's short id was
+    # matched, so the scheduler and the dev store (registry ids) never got rollup records.
+    e = df[df["source_id"].isin(EIA_SOURCE_IDS) & df["eia_plant_id"].notna()]
+    grp = e.groupby(["source_id", "eia_plant_id", "technology"], dropna=False)
     rows = []
     order = ["announced", "filed", "permitted", "contracted", "under_construction", "built"]
-    for (pid, tech), g in grp:
+    for (src, pid, tech), g in grp:
         if len(g) < 2:
             continue
         first = g.iloc[0]
@@ -420,7 +579,7 @@ def eia_plant_rollup(df: pd.DataFrame) -> pd.DataFrame:
         rows.append(
             {
                 **first.to_dict(),
-                "record_id": f"eia860m:plant-{pid}:{tech}",
+                "record_id": f"{src}:plant-{pid}:{tech}",
                 "source_record_id": f"plant-{pid}",
                 "capacity_mw": float(g["capacity_mw"].sum()),
                 "eia_generator_id": None,
@@ -430,6 +589,134 @@ def eia_plant_rollup(df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def plant_extents(df: pd.DataFrame) -> pd.DataFrame:
+    """Per row: `plant_mw`, the whole EIA plant (every generator, every technology), and
+    `plant_poi_mw`, the largest per-technology total, which is what a hybrid's single
+    interconnection request is sized to (Bellefield 2: 500 MW solar + 500 MW storage behind one
+    500 MW request). Non-EIA rows carry their own capacity in both. Rollup rows are not counted
+    (they repeat their generators)."""
+    out = pd.DataFrame(
+        {
+            "plant_mw": df["capacity_mw"].astype("float64"),
+            "plant_poi_mw": df["capacity_mw"].astype("float64"),
+        },
+        index=df.index,
+    )
+    rollup = df["is_rollup"].astype(bool) if "is_rollup" in df.columns else pd.Series(False, index=df.index)
+    eia = df["source_id"].isin(EIA_SOURCE_IDS) & df["eia_plant_id"].notna()
+    real = df[eia & ~rollup]
+    if real.empty:
+        return out
+    cap = real["capacity_mw"].astype("float64")
+    total = cap.groupby([real["source_id"], real["eia_plant_id"]]).sum(min_count=1)
+    per_tech = cap.groupby([real["source_id"], real["eia_plant_id"], real["technology"].astype(str)]).sum(
+        min_count=1
+    )
+    poi = per_tech.groupby(level=[0, 1]).max()
+    keys = list(zip(df.loc[eia, "source_id"], df.loc[eia, "eia_plant_id"], strict=True))
+    out.loc[eia, "plant_mw"] = [total.get(k, float("nan")) for k in keys]
+    out.loc[eia, "plant_poi_mw"] = [poi.get(k, float("nan")) for k in keys]
+    return out
+
+
+def phase_surplus(df: pd.DataFrame, matches: pd.DataFrame, eligible: pd.Series) -> pd.Series:
+    """Rule Q, phase surplus (docs/22 §22). For an eligible fuzzy pair (p, q) whose phase numbers
+    differ ('BONANZA SOLAR 2' vs 'Bonanza Solar and Storage Project'), refuse it when q already has
+    eligible partners *from p's own source* that carry q's phase number and account for q on their
+    own: their MW sum to at least `PHASE_COVER` of q's extent. When a capacity needed to tell is
+    missing the rule abstains (the EIA plant 'Chokecherry and Sierra Madre Wind' holds both phases
+    that the Permitting Dashboard lists without MW). Phases that add up to a plant are kept
+    (Roseland Solar + Roseland Solar II = the 500 MW EIA plant; Vast Sands Power I + II = its two
+    440 MW turbines), because the matching phase alone does not cover it. A phase is also kept when
+    it *completes* the plant, its MW plus its partners' within +/-10 % (`CAP_TOL`) of q's extent:
+    Sunrise Wind (880 MW) covers 95 % of the 924 MW EIA plant, and Sunrise Wind II (44 MW) is the
+    rest (docs/22 §22.8, "Q-v2"). Agricola Wind 2 (97 + 79.3 against 99) is still refused.
+
+    Coverage is counted within p's technology family when p has exactly one (a storage phase is
+    measured against the plant's storage and against storage partners, so 'Indigo Storage 2' is
+    not refused because 'Indigo Solar' covers the plant's solar). q's extent is then the EIA
+    plant's capacity in that family; for a hybrid or unknown p it is the plant's `plant_poi_mw`;
+    for a non-EIA q it is q's own capacity. Both orientations are checked. Returns a boolean
+    Series aligned with `matches`."""
+    fuzzy = ~matches["pass"].str.startswith("D")
+    edges = matches[eligible | ~fuzzy]
+    adj: dict[int, set[int]] = {}
+    for a, b in zip(edges["li"].astype(int), edges["ri"].astype(int), strict=True):
+        adj.setdefault(a, set()).add(b)
+        adj.setdefault(b, set()).add(a)
+
+    names, src, tech, cap = df["name_canonical"], df["source_id"], df["technology"], df["capacity_mw"]
+    phases: dict[int, frozenset[int]] = {}
+
+    def phase(i: int) -> frozenset[int]:
+        if i not in phases:
+            phases[i] = phase_key(names.at[i])
+        return phases[i]
+
+    rollup = df["is_rollup"].astype(bool) if "is_rollup" in df.columns else pd.Series(False, index=df.index)
+    eia = df["source_id"].isin(EIA_SOURCE_IDS) & df["eia_plant_id"].notna()
+    plant_nodes: dict[tuple, list[int]] = {}
+    for i in df.index[eia]:
+        plant_nodes.setdefault((src.at[i], df.at[i, "eia_plant_id"]), []).append(int(i))
+    poi = df["plant_poi_mw"] if "plant_poi_mw" in df.columns else cap
+
+    def real_rows(i: int) -> list[int]:
+        if not rollup.at[i]:
+            return [i]
+        key = (src.at[i], df.at[i, "eia_plant_id"])
+        return [j for j in plant_nodes.get(key, []) if not rollup.at[j] and tech.at[j] == tech.at[i]]
+
+    def single_family(i: int) -> str | None:
+        fam = tech_families(tech.at[i])
+        return next(iter(fam)) if fam is not None and len(fam) == 1 else None
+
+    def in_family(i: int, family: str) -> bool:
+        fam = tech_families(tech.at[i])
+        return fam is None or family in fam
+
+    def extent(q: int, family: str | None) -> float | None:
+        if not eia.at[q]:
+            return _num(cap.at[q])
+        if family is not None:
+            gens = [
+                j
+                for j in plant_nodes[(src.at[q], df.at[q, "eia_plant_id"])]
+                if not rollup.at[j] and family in (tech_families(tech.at[j]) or frozenset())
+            ]
+            total = sum(c for c in (_num(cap.at[j]) for j in gens) if c is not None)
+            if total > 0:
+                return total
+        return _num(poi.at[q])
+
+    def surplus(p: int, q: int) -> bool:
+        anchors = plant_nodes[(src.at[q], df.at[q, "eia_plant_id"])] if eia.at[q] else [q]
+        family = single_family(p)
+        partners: set[int] = set()
+        for n in anchors:
+            for z in adj.get(n, ()):
+                if z != p and src.at[z] == src.at[p] and phase(z) == phase(q):
+                    partners.update(r for r in real_rows(z) if family is None or in_family(r, family))
+        partners.discard(p)
+        if not partners:
+            return False
+        size = extent(q, family)
+        caps = [_num(cap.at[z]) for z in partners]
+        if size is None or any(c is None for c in caps):
+            return False  # cannot show the phase is surplus without every capacity: abstain
+        covered = sum(c for c in caps if c is not None)
+        mine = _num(cap.at[p])
+        if mine is not None and abs(covered + mine - size) <= CAP_TOL * size:
+            return False  # p completes the plant: Sunrise Wind 880 + Sunrise Wind II 44 = 924 MW
+        return covered >= PHASE_COVER * size
+
+    out = pd.Series(False, index=matches.index)
+    cand = matches[eligible & fuzzy]
+    for k, a, b in zip(cand.index, cand["li"].astype(int), cand["ri"].astype(int), strict=True):
+        if phase(a) != phase(b) and (surplus(a, b) or surplus(b, a)):
+            out.at[k] = True
+    return out
 
 
 def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -446,6 +733,7 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
             df = pd.concat([df, extra], ignore_index=True)
             print(f"  EIA plant-level rollup records added: {len(extra):,}", file=sys.stderr)
     df.index = range(len(df))
+    df[["plant_mw", "plant_poi_mw"]] = plant_extents(df)
 
     det = deterministic(df)
     cand = pd.concat(
@@ -461,7 +749,8 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
 
     recs = df.to_dict("index")
     scored = [score_pair(recs[int(a)], recs[int(b)]) for a, b in zip(cand["li"], cand["ri"], strict=True)]
-    fuzzy = pd.concat([cand.reset_index(drop=True), pd.DataFrame(scored)], axis=1)
+    # Named columns so a frame with no candidate pairs still has them (it raised KeyError before).
+    fuzzy = pd.concat([cand.reset_index(drop=True), pd.DataFrame(scored, columns=SCORE_COLUMNS)], axis=1)
     fuzzy["pass"] = "F_fuzzy:" + fuzzy["block"]
     fuzzy["rationale"] = fuzzy["block"] + "; " + fuzzy["rationale"]
 
@@ -478,9 +767,18 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
         shared_id_conflict(refs.at[int(a)], refs.at[int(b)])
         for a, b in zip(matches["li"], matches["ri"], strict=True)
     ]
-    matches["accepted"] = matches["pass"].str.startswith("D") | (
-        (matches["score"] >= threshold) & (matches["evidence"] >= MIN_EVIDENCE) & ~matches["id_conflict"]
+    matches["veto"] = matches["veto"].fillna("") if "veto" in matches.columns else ""
+    eligible = (
+        ~matches["pass"].str.startswith("D")
+        & (matches["score"] >= threshold)
+        & (matches["evidence"] >= MIN_EVIDENCE)
+        & ~matches["id_conflict"]
+        & (matches["veto"] == "")
     )
+    surplus = phase_surplus(df, matches, eligible)
+    matches.loc[surplus, "veto"] = "veto_phase_surplus"
+    matches.loc[surplus, "rationale"] = matches.loc[surplus, "rationale"] + "; veto_phase_surplus"
+    matches["accepted"] = matches["pass"].str.startswith("D") | (eligible & ~surplus)
 
     accepted = matches[matches["accepted"]]
     roots = cluster(df, accepted)
@@ -538,6 +836,7 @@ def main() -> int:
         "score",
         "evidence",
         "accepted",
+        "veto",
         "cluster_id",
         "name_score",
         "sponsor_score",
