@@ -527,6 +527,49 @@ def test_default_resolve_runs_over_the_store_without_a_normalised_frame(
         raise AssertionError(report)
 
 
+def test_resolver_frames_are_only_sources_the_loader_loads(tmp_path: pathlib.Path) -> None:
+    """docs/25 §3.9: `_latest_proposal_frames` applies the loader's own refusal rule. A gated reuse
+    class (`registry.status()` already said `gated`) and a `publication: none` source (which only
+    the loader refused before) contribute no frame; a loadable one does."""
+    import pandas as pd
+    import yaml
+
+    from pipeline.connectors.registry import Registry
+    from pipeline.connectors.store import Store
+    from services.ingest.loader import load_refusal
+
+    doc = yaml.safe_load((ROOT / "data" / "sources.yaml").read_text(encoding="utf-8"))
+    loadable, gated, unpublished = (
+        "us.iso.ercot.gen_queue",
+        "us.va.deq.data_center_air_sites",
+        "us.epa.echo.icis_air",
+    )
+    for entry in doc["sources"]:
+        if entry["id"] == gated:
+            entry["reuse"] = "restricted"
+        elif entry["id"] == unpublished:
+            entry["publication"] = "none"
+    manifest = tmp_path / "sources.yaml"
+    manifest.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    registry = Registry(manifest)
+
+    store = Store(tmp_path / "data")
+    for source_id in (loadable, gated, unpublished):
+        frame = pd.DataFrame({"source_id": [source_id], "source_record_id": ["1"]})
+        path = store.write_parquet(store.normalized_path(source_id, "20260929T060000Z"), frame)
+        store.write_run(source_id, "20260929T060000Z", {"status": "ok", "outputs": {"normalized": str(path)}})
+
+    frames = jobs._latest_proposal_frames(tmp_path / "data", registry=registry)
+    seen = sorted(str(s) for f in frames for s in f["source_id"].unique())
+    if seen != [loadable]:
+        raise AssertionError(seen)
+    if load_refusal(registry.get(loadable)) is not None:
+        raise AssertionError(load_refusal(registry.get(loadable)))
+    for source_id in (gated, unpublished):
+        if not load_refusal(registry.get(source_id)):
+            raise AssertionError(f"{source_id} should be refused by the loader")
+
+
 def test_execution_lock_is_per_source_and_shared_by_fetch_and_load() -> None:
     if cadence.execution_lock_for("us.iso.ercot.gen_queue") != "source:us-iso-ercot-gen-queue":
         raise AssertionError(cadence.execution_lock_for("us.iso.ercot.gen_queue"))

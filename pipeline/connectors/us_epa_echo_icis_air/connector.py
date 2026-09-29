@@ -23,11 +23,22 @@ Fetch (politeness). Both files are on `echo.epa.gov/files/`, which robots.txt al
 of its last 64 KiB, then one ranged GET fetches only the facilities member (10.5 MB compressed of
 70 MB), checked against the directory's CRC-32; a server that ignores `Range` gets the whole zip
 read normally. Exporter: one GET of the whole zip (its single member is one deflate stream, so no
-range helps), streamed row by row and filtered to the candidates' registry ids. The stored snapshot
-is that filtered pair of tables, not the 513 MB of upstream bytes (the same choice the Virginia
-connector makes with its server-side `where`): the fetch-side pre-filter (`is_candidate`) is looser
-than the selection rule, and `parse` applies the rule, so a fixture proves it. Upstream sizes,
-Last-Modified and row totals are kept in the run record (`RawSnapshot.meta`).
+range helps), streamed to a temporary file in 1 MiB pieces and read row by row, filtered to the
+candidates' registry ids. The stored snapshot is that filtered pair of tables, not the 513 MB of
+upstream bytes (the same choice the Virginia connector makes with its server-side `where`): the
+fetch-side pre-filter (`is_candidate`) is looser than the selection rule, and `parse` applies the
+rule, so a fixture proves it. Upstream sizes, Last-Modified, ETag and row totals are kept in the run
+record (`RawSnapshot.meta`).
+
+Refresh cost (docs/25 §3.9). Both GETs are conditional on the previous run's validators
+(`If-None-Match` + `If-Modified-Since`, which echo.epa.gov answers with 304), and the ICIS tail GET
+keeps its `Range`, so a changed file costs no extra request. Both 304: the stored snapshot's bytes
+come back verbatim and the runner records the run `unchanged` (meta `upstream: unchanged`), for two
+requests and no body. ICIS changed, Exporter 304: the stored FRS rows are reused, filtered to the
+new candidates, but only when they already cover every registry id now wanted; otherwise the
+Exporter is downloaded unconditionally. ICIS 304, Exporter changed: the stored candidate table is
+reused and the Exporter downloaded. A snapshot made by other fetch code (`FETCH_VERSION`), or one
+without both files' validators, is never reused.
 
 Selection (`select_basis`, measured 2026-09-29, docs/25 §3.7). A facility is kept when it is not
 `Permanently Closed` and one of:
@@ -81,26 +92,29 @@ Terms: US federal government work, public domain (17 U.S.C. §105; docs/13 §2.1
 from __future__ import annotations
 
 import csv
-import datetime as dt
 import io
 import json
+import logging
 import pathlib
 import re
 import struct
+import tempfile
 import time
 import zipfile
 import zlib
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, ClassVar
+from typing import IO, Any, ClassVar
 
 import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot
+from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, utcnow
 from pipeline.connectors.canonical import harmonise_status, norm_county, norm_name
 from pipeline.context.geo import StateIndex
+
+log = logging.getLogger(__name__)
 
 ICIS_URL = "https://echo.epa.gov/files/echodownloads/ICIS-AIR_downloads.zip"
 ICIS_MEMBER = "ICIS-AIR_FACILITIES.csv"
@@ -369,6 +383,53 @@ def inflate_member(buf: bytes, member: ZipMember) -> bytes:
     return out
 
 
+# ------------------------------------------------------------------ conditional requests
+#: Version of what `fetch` stores: the pre-filter, the columns kept and the document layout. A stored
+#: snapshot stands in for a file that answered 304 only when this same version made it, so bump
+#: it whenever `is_candidate`, `_drop_contact`, `EXPORTER_COLUMNS` or the document shape changes.
+FETCH_VERSION = 1
+DOWNLOAD_CHUNK = 1 << 20
+
+
+def conditional_headers(validators: Mapping[str, Any] | None) -> dict[str, str]:
+    """`If-None-Match` / `If-Modified-Since` from one file's validators as a previous run recorded
+    them. echo.epa.gov (Apache) answers 304 to both, ranged or not (measured 2026-09-29, docs/25
+    §3.9); with both sent, the ETag decides (RFC 9110 §13.2.2)."""
+    out: dict[str, str] = {}
+    if isinstance(validators, Mapping):
+        if validators.get("etag"):
+            out["If-None-Match"] = str(validators["etag"])
+        if validators.get("last_modified"):
+            out["If-Modified-Since"] = str(validators["last_modified"])
+    return out
+
+
+def _not_modified_meta(url: str, resp: Any, validators: Mapping[str, Any]) -> dict[str, Any]:
+    """Meta for a file that answered 304. Apache's 304 repeats the ETag but not Last-Modified, so
+    the previous value is carried forward for the next run's `If-Modified-Since`."""
+    return {
+        "url": url,
+        "last_modified": resp.headers.get("Last-Modified") or validators.get("last_modified"),
+        "etag": resp.headers.get("ETag") or validators.get("etag"),
+        "not_modified": True,
+        "bytes_fetched": 0,
+    }
+
+
+def _carried(previous: Mapping[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """A 304 file's meta: the size and row totals the previous run measured, then this request's."""
+    keep = (
+        "zip_bytes",
+        "ranged",
+        "member_compressed",
+        "member_size",
+        "rows_total",
+        "candidates",
+        "rows_kept",
+    )
+    return {**{k: previous[k] for k in keep if k in previous}, **current}
+
+
 def _csv_rows(text_lines: Iterable[str]) -> Iterator[list[str]]:
     return csv.reader(text_lines)
 
@@ -397,17 +458,34 @@ class Connector(BaseConnector):
     )
 
     # ------------------------------------------------------------------ fetch
-    def _get(self, url: str, headers: dict[str, str] | None = None, timeout: float = 300) -> Any:
+    def _get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: float = 300,
+        not_modified: bool = False,
+    ) -> Any:
         r = self.http.get(url, honour_robots=self.honour_robots, headers=headers or {}, timeout=timeout)
-        if r.status_code not in (200, 206):
+        if r.status_code not in ((200, 206, 304) if not_modified else (200, 206)):
             raise ConnectorError(f"GET {url} -> HTTP {r.status_code}")
         return r
 
-    def _fetch_member(self, url: str, member_name: str) -> tuple[bytes, dict[str, Any]]:
+    def _fetch_member(
+        self, url: str, member_name: str, validators: dict[str, Any] | None = None
+    ) -> tuple[bytes | None, dict[str, Any]]:
         """One zip member through two ranged GETs (tail, then the member), or the whole zip when the
-        server ignores `Range`."""
-        tail = self._get(url, {"Range": f"bytes=-{TAIL_BYTES}"}, timeout=120)
-        meta: dict[str, Any] = {"url": url, "last_modified": tail.headers.get("Last-Modified")}
+        server ignores `Range`. With `validators` the tail GET is conditional: a 304 returns
+        `(None, meta)` and nothing else is fetched."""
+        cond = conditional_headers(validators)
+        tail = self._get(url, {"Range": f"bytes=-{TAIL_BYTES}", **cond}, timeout=120, not_modified=bool(cond))
+        if tail.status_code == 304:
+            return None, _not_modified_meta(url, tail, validators or {})
+        meta: dict[str, Any] = {
+            "url": url,
+            "last_modified": tail.headers.get("Last-Modified"),
+            "etag": tail.headers.get("ETag"),
+            "not_modified": False,
+        }
         if tail.status_code == 200:
             meta.update(bytes_fetched=len(tail.content), ranged=False, zip_bytes=len(tail.content))
             with zipfile.ZipFile(io.BytesIO(tail.content)) as z:
@@ -440,44 +518,131 @@ class Connector(BaseConnector):
         )
         return data, meta
 
+    def _download(
+        self, url: str, validators: dict[str, Any] | None = None
+    ) -> tuple[IO[bytes] | None, dict[str, Any]]:
+        """The whole file, streamed to a temporary file in `DOWNLOAD_CHUNK` pieces, so the 443 MB
+        Exporter never sits in memory. With `validators` the GET is conditional: a 304 returns
+        `(None, meta)`. The caller closes the file."""
+        cond = conditional_headers(validators)
+        r = self.http.get(url, honour_robots=self.honour_robots, headers=cond, timeout=600, stream=True)
+        try:
+            if r.status_code == 304 and cond:
+                return None, _not_modified_meta(url, r, validators or {})
+            if r.status_code != 200:
+                raise ConnectorError(f"GET {url} -> HTTP {r.status_code}")
+            fh = tempfile.TemporaryFile()
+            try:
+                size = 0
+                for chunk in r.iter_content(DOWNLOAD_CHUNK):
+                    fh.write(chunk)
+                    size += len(chunk)
+                expected = str(r.headers.get("Content-Length") or "")
+                if expected.isdigit() and not r.headers.get("Content-Encoding") and int(expected) != size:
+                    raise ConnectorError(f"GET {url} truncated: {size} of {expected} bytes")
+                fh.seek(0)
+            except BaseException:
+                fh.close()
+                raise
+        finally:
+            close = getattr(r, "close", None)
+            if close is not None:
+                close()
+        meta = {
+            "url": url,
+            "last_modified": r.headers.get("Last-Modified"),
+            "etag": r.headers.get("ETag"),
+            "not_modified": False,
+            "zip_bytes": size,
+            "bytes_fetched": size,
+        }
+        return fh, meta
+
+    def _reusable_previous(self) -> tuple[bytes, dict[str, Any], dict[str, Any]] | None:
+        """(bytes, document, meta) of the stored snapshot when this fetch code made it and both
+        files' validators are recorded; None means fetch everything unconditionally."""
+        prev = self.previous
+        if prev is None:
+            return None
+        meta = prev.meta
+        if meta.get("fetch_version") != FETCH_VERSION:
+            return None
+        if not all(conditional_headers(meta.get(k)) for k in ("icis", "exporter")):
+            return None
+        try:
+            content = prev.content()
+            doc = json.loads(content)
+            icis, frs = doc["icis"], doc["frs"]
+            if list(frs["columns"]) != list(EXPORTER_COLUMNS) or "REGISTRY_ID" not in icis["columns"]:
+                return None
+        except Exception as e:  # a stored object we cannot use costs one full download, no more
+            log.warning("previous snapshot not reusable: %r", e, extra={"source_id": self.source_id})
+            return None
+        return content, doc, meta
+
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()
         before = self.http.requests_made
-        icis_bytes, icis_meta = self._fetch_member(ICIS_URL, ICIS_MEMBER)
-        reader = _csv_rows(io.StringIO(icis_bytes.decode("utf-8", "replace"), newline=""))
-        header = next(reader)
-        missing = [c for c in REQUIRED_ICIS if c not in header]
-        if missing:
-            raise ParseError(f"{ICIS_MEMBER} lacks {missing}: {header}")
-        keep = _drop_contact(header)
-        icis_cols = [header[i] for i in keep]
-        icis_total = 0
-        icis_rows: list[list[str]] = []
-        for rec in reader:
-            icis_total += 1
-            row = dict(zip(header, rec, strict=False))
-            if is_candidate(row):
-                icis_rows.append([rec[i] if i < len(rec) else "" for i in keep])
-        pk = icis_cols.index("PGM_SYS_ID")
-        icis_rows.sort(key=lambda r: r[pk])
+        prev = self._reusable_previous()
+        prev_doc = prev[1] if prev else {}
+        prev_meta = prev[2] if prev else {}
+
+        icis_bytes, icis_meta = self._fetch_member(ICIS_URL, ICIS_MEMBER, prev_meta.get("icis"))
+        if icis_bytes is None:
+            # 304: the stored candidate table is what this code would cut from the same file.
+            icis_cols = list(prev_doc["icis"]["columns"])
+            icis_rows = [list(r) for r in prev_doc["icis"]["rows"]]
+            icis_total = prev_meta["icis"].get("rows_total")
+            icis_meta = _carried(prev_meta["icis"], icis_meta)
+        else:
+            reader = _csv_rows(io.StringIO(icis_bytes.decode("utf-8", "replace"), newline=""))
+            header = next(reader)
+            missing = [c for c in REQUIRED_ICIS if c not in header]
+            if missing:
+                raise ParseError(f"{ICIS_MEMBER} lacks {missing}: {header}")
+            keep = _drop_contact(header)
+            icis_cols = [header[i] for i in keep]
+            icis_total = 0
+            icis_rows = []
+            for rec in reader:
+                icis_total += 1
+                row = dict(zip(header, rec, strict=False))
+                if is_candidate(row):
+                    icis_rows.append([rec[i] if i < len(rec) else "" for i in keep])
+            pk = icis_cols.index("PGM_SYS_ID")
+            icis_rows.sort(key=lambda r: r[pk])
         wanted = {r[icis_cols.index("REGISTRY_ID")] for r in icis_rows} - {""}
 
-        exp = self._get(EXPORTER_URL, timeout=600)
-        exp_total = 0
-        exp_rows: list[list[str]] = []
-        with zipfile.ZipFile(io.BytesIO(exp.content)) as z, z.open(EXPORTER_MEMBER) as fh:
-            ereader = _csv_rows(io.TextIOWrapper(fh, encoding="utf-8", errors="replace", newline=""))
-            eheader = next(ereader)
-            absent = [c for c in EXPORTER_COLUMNS if c not in eheader]
-            if absent:
-                raise ParseError(f"{EXPORTER_MEMBER} lacks {absent}")
-            idx = [eheader.index(c) for c in EXPORTER_COLUMNS]
-            rid = eheader.index("REGISTRY_ID")
-            for rec in ereader:
-                exp_total += 1
-                if len(rec) > rid and rec[rid] in wanted:
-                    exp_rows.append([rec[i] if i < len(rec) else "" for i in idx])
-        exp_rows.sort(key=lambda r: r[0])
+        # The Exporter is asked "changed since?" only when the stored FRS rows cover every id now
+        # wanted: they were cut for the previous candidates, so a new id needs the file itself.
+        prev_wanted: set[str] = set()
+        if prev:
+            rid = list(prev_doc["icis"]["columns"]).index("REGISTRY_ID")
+            prev_wanted = {r[rid] for r in prev_doc["icis"]["rows"]} - {""}
+        covered = bool(prev) and wanted <= prev_wanted
+        fh, exp_meta = self._download(EXPORTER_URL, prev_meta.get("exporter") if covered else None)
+        if fh is None:
+            if icis_bytes is None and prev is not None:
+                return self._unchanged(prev, icis_meta, exp_meta, t0, before)
+            exp_rows = [list(r) for r in prev_doc["frs"]["rows"] if r[0] in wanted]
+            exp_total = prev_meta["exporter"].get("rows_total")
+            exp_meta = _carried(prev_meta["exporter"], exp_meta)
+        else:
+            exp_total = 0
+            exp_rows = []
+            with fh, zipfile.ZipFile(fh) as z, z.open(EXPORTER_MEMBER) as member:
+                ereader = _csv_rows(io.TextIOWrapper(member, encoding="utf-8", errors="replace", newline=""))
+                eheader = next(ereader)
+                absent = [c for c in EXPORTER_COLUMNS if c not in eheader]
+                if absent:
+                    raise ParseError(f"{EXPORTER_MEMBER} lacks {absent}")
+                idx = [eheader.index(c) for c in EXPORTER_COLUMNS]
+                rid = eheader.index("REGISTRY_ID")
+                for rec in ereader:
+                    exp_total += 1
+                    if len(rec) > rid and rec[rid] in wanted:
+                        exp_rows.append([rec[i] if i < len(rec) else "" for i in idx])
+            exp_rows.sort(key=lambda r: r[0])
         doc = {
             "icis": {"url": ICIS_URL, "member": ICIS_MEMBER, "columns": icis_cols, "rows": icis_rows},
             "frs": {
@@ -491,22 +656,47 @@ class Connector(BaseConnector):
             content=json.dumps(doc, ensure_ascii=False, sort_keys=True).encode("utf-8"),
             content_type="application/json",
             url=ICIS_URL,
-            retrieved_at=dt.datetime.now(dt.UTC),
+            retrieved_at=utcnow(),
             http_status=200,
             ext="json",
             headers={"Last-Modified": str(icis_meta.get("last_modified"))},
             elapsed_s=round(time.monotonic() - t0, 2),
             requests_made=self.http.requests_made - before,
             meta={
+                "fetch_version": FETCH_VERSION,
+                "upstream": "changed",
                 "icis": {**icis_meta, "rows_total": icis_total, "candidates": len(icis_rows)},
-                "exporter": {
-                    "url": EXPORTER_URL,
-                    "last_modified": exp.headers.get("Last-Modified"),
-                    "zip_bytes": len(exp.content),
-                    "rows_total": exp_total,
-                    "rows_kept": len(exp_rows),
-                },
+                "exporter": {**exp_meta, "rows_total": exp_total, "rows_kept": len(exp_rows)},
             },
+        )
+
+    def _unchanged(
+        self,
+        prev: tuple[bytes, dict[str, Any], dict[str, Any]],
+        icis_meta: dict[str, Any],
+        exp_meta: dict[str, Any],
+        t0: float,
+        before: int,
+    ) -> RawSnapshot:
+        """Both files answered 304: the stored bytes, verbatim, so the runner's SHA comparison
+        records the run `unchanged` (docs/20 §3.2). The meta says why and keeps the validators and
+        row totals for the next run."""
+        content, _, prev_meta = prev
+        carried = {
+            "icis": _carried(prev_meta["icis"], icis_meta),
+            "exporter": _carried(prev_meta["exporter"], exp_meta),
+        }
+        return RawSnapshot(
+            content=content,
+            content_type="application/json",
+            url=ICIS_URL,
+            retrieved_at=utcnow(),
+            http_status=304,
+            ext="json",
+            headers={"Last-Modified": str(icis_meta.get("last_modified"))},
+            elapsed_s=round(time.monotonic() - t0, 2),
+            requests_made=self.http.requests_made - before,
+            meta={"fetch_version": FETCH_VERSION, "upstream": "unchanged", **carried},
         )
 
     def redact(self, content: bytes) -> bytes:

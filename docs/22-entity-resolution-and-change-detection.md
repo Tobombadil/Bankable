@@ -2239,10 +2239,11 @@ again, and L as a soundness rule. Of K's three review clusters, one (Riverhead) 
 ### 22.10 Open
 
 - The two contested labels (§22.7).
-- `infra/scheduler/jobs.py::_latest_proposal_frames` says "non-gated" but does not filter on `reuse`. Gated rows
-  still reach `pipeline.resolve.run`. Rule L makes them harmless as bridges, but they still change blocking
-  group sizes (B3 skips groups over 60). Filtering in `default_resolve` is a one-line follow-up for the
-  scheduler owner.
+- ~~`infra/scheduler/jobs.py::_latest_proposal_frames` does not filter on `reuse`; gated rows reach
+  `pipeline.resolve.run`.~~ Corrected by lane H8 (docs/25 §3.9): `registry.status()` already marks a gated source
+  `gated`, not `implemented`, so gated reuse classes never reached the resolver. The narrower gap, a
+  `publication: none` source, is now closed: the frame list uses the loader's own `load_refusal`. On the dev
+  store this changed nothing (531 merges before and after).
 - Phase words ("Attentive Energy **Two** Offshore Wind") and letter phases are not parsed. The one live
   case is a Permitting Dashboard record, which dev does not load.
 - Ambiguous merges or refusals, left as they fall: Gaskell West (a 125 MW request against a 21.6 MW

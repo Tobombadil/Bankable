@@ -867,6 +867,99 @@ pass) never get plant-level rollup records.
 - `default_resolve` reads `Registry()` from `data/sources.yaml` and the store `SNAPSHOT_STORE` selects.
   It ignores `dev_up --sources-yaml`.
 
+### 3.9 Refresh cost and resolver inputs (lane H8, 2026-09-29)
+
+For the coordinator to merge after §3.8. It closes two items left open by lanes H1 (§3.7) and H5 (`docs/22` §22.10).
+
+#### 3.9.1 An unchanged ECHO week now costs two requests and no body
+
+**Before.** Every run of `us.epa.echo.icis_air` made two ranged GETs on the 70 MB ICIS-Air zip (64 KiB tail plus the
+10.5 MB facilities member) and one GET of the whole 443 MB ECHO Exporter, whether or not EPA had published anything new.
+`PoliteSession` read that body into memory whole. `requests` builds `.content` by joining its chunks, so the peak is
+about twice the file. Measured locally on a 200 MB body: 410 MB peak RSS whole, 28 MB streamed. At 443 MB that is roughly
+900 MB, against a 1 GB worker limit in `compose.prod.yml` and 512 MB in the base compose file.
+
+**What the server honours.** Measured 2026-09-29 18:36 UTC with the platform User-Agent and robots.txt checked
+(`/files/` allowed, `Crawl-delay: 10`, honoured at 0.1 rps). Five requests: robots.txt, two HEADs, and two conditional
+GETs. Each conditional GET also carried `Range: bytes=-65536`, so a server that ignored the condition would have sent 64 KiB,
+not the file.
+
+| File | HEAD `Last-Modified` | HEAD `ETag` | `Content-Length` | Conditional GET (`If-None-Match` + `If-Modified-Since` + `Range`) |
+|---|---|---|---|---|
+| `echo_exporter.zip` | Sun, 27 Sep 2026 10:11:26 GMT | `"1a6e8db6-65c742c25691f"` | 443,452,854 | **304**, 0 bytes; the 304 repeats `ETag` and omits `Last-Modified` |
+| `ICIS-AIR_downloads.zip` | Sun, 27 Sep 2026 10:23:36 GMT | `"42ff695-65c7457a64285"` | 70,252,181 | **304**, 0 bytes; same headers |
+
+The server is `Apache/2.4.37 (Red Hat Enterprise Linux)`. Other headers: `Accept-Ranges: bytes`, `Cache-Control: private,
+max-age=0, must-revalidate, max-age=604800`, and `Vary: Referer,Access-Control-Request-Headers`. The ETag is Apache's
+size-mtime form with no inode, so it should agree across hosts behind one name. A HEAD comparison would work too, but it
+costs a request more than a conditional GET when the file has changed, so the connector uses conditional GETs.
+
+**What the connector does now** (`pipeline/connectors/us_epa_echo_icis_air/connector.py`):
+
+- Both GETs carry `If-None-Match` and `If-Modified-Since` from the previous run record's `snapshot.meta.{icis,exporter}`,
+  which now store `etag` next to `last_modified`. The ICIS tail GET keeps its `Range`, so a changed file costs no extra
+  request.
+- **Both 304.** `fetch` returns the stored snapshot's bytes verbatim. The runner's existing SHA-256 short-circuit (§3.2
+  of `docs/20`) then records the run `unchanged`. No second path decides this. The record carries `http_status: 304` and
+  `snapshot.meta.upstream: "unchanged"`, with each file's `not_modified: true` and `bytes_fetched: 0`. The previous
+  validators and row totals are carried forward, because Apache's 304 omits `Last-Modified`. Cost: two requests plus
+  robots.txt, no body.
+- **ICIS 304, Exporter changed.** The stored candidate table is reused, and the Exporter is downloaded and filtered as
+  before.
+- **ICIS changed, Exporter 304.** The stored FRS rows are reused and filtered to the new candidates, but only when they
+  already cover every registry id now wanted. They were cut for the previous candidates, so an id they lack might exist
+  upstream. The rows are byte-identical to a full fetch, and a test pins that.
+- **ICIS changed, with a new registry id.** The Exporter is downloaded unconditionally, as today.
+- **Plumbing.** The runner hands the connector its `PreviousSnapshot` before `fetch()`
+  (`pipeline/connectors/base.py`). That is the run record `Store.last_snapshot_sha` already names, plus a loader for its
+  bytes (`Store.last_snapshot`), with the SHA-256 checked on read. A snapshot made by other fetch code (`FETCH_VERSION`,
+  which the lane H1 runs lack) is never reused. Neither is one without both files' validators, or one whose object is
+  gone; each of those costs one full fetch.
+- **Streaming.** The Exporter is streamed to a temporary file in 1 MiB pieces (`PoliteSession.get(..., stream=True)`).
+  A streamed response is scanned for a challenge only when it is labelled HTML, and `cf-mitigated` is checked either way.
+  A retried streamed response is closed first. A short body against `Content-Length` fails the run.
+
+Tests with fakes, no network: `pipeline/connectors/us_epa_echo_icis_air/test_connector.py` runs the real runner against
+`FakeEcho` (eight cases), and `tests/test_connector_http.py` covers streaming (three cases).
+
+#### 3.9.2 The resolver sees only sources the loader loads
+
+`infra/scheduler/jobs.py::_latest_proposal_frames` now asks `services.ingest.loader.load_refusal(entry)`. That is the
+loader's own refusal rule, extracted from `upsert_licence_and_source` so that one definition serves both: a gated reuse
+class, `publication: none`, a reuse class outside the posture's publishable set, or an unknown `publication` value.
+A refused source contributes no frame to `pipeline.resolve.run`. `infra/scheduler/test_loop.py` pins it: a
+`reuse: restricted` source and a `publication: none` source are both excluded, and the old code let the second through.
+
+**Correction to `docs/22` §22.10.** Gated rows did not reach the resolver through this path. `registry.status()` already
+marks a `GATED_REUSE` source `gated`, not `implemented`, and PJM has no connector. The gap was narrower. A source with an
+open reuse class and `publication: none`, or a reuse value outside both sets, would have passed. No implemented connector
+is in that state today.
+
+**Measured.** `default_resolve` ran on fresh copies of the H4 pre-resolution dev store (`h4/dev_before.db`, 11,098 live
+proposals), with the H4 data root, before and after:
+
+| | Before (7f9427e) | After |
+|---|---|---|
+| Frames (rows) | 8 sources, 11,202 | 8 sources, 11,202 |
+| Proposal clusters | 407 | 407 |
+| Proposals merged | 531 | 531 (the same 531 pairs) |
+| Decisions sent to review | 22 | 22 |
+| Live proposals after | 10,567 | 10,567 |
+| Time | 14.5 s | 13.6 s (noise) |
+
+The delta is zero, for the reason above. `us.permits_dashboard` (104 rows) stays in the frames. Its terms load
+(`open`, `raw_ok`), and production's scheduler loads it. Only the dev store leaves it out, and rule L (`docs/22` §22)
+already keeps an unloaded record from bridging clusters.
+
+#### 3.9.3 Assumptions and open items
+
+- **A-25-H8-1.** echo.epa.gov keeps answering conditional GETs as measured. If it stops, the connector falls back to a
+  full fetch every run, which is correct but costly. The `bytes_fetched` field in each run's meta shows which happened.
+- **Open.** The first production run after this change fetches everything once, because the lane H1 records carry no
+  `fetch_version` or `etag`.
+- **Open.** The streamed Exporter needs about 443 MB of temporary disk in the worker, once a week when it changes. No
+  compose volume limits `/tmp` today.
+
 ## 4. Fiber availability by area
 
 Owner decision 2026-09-28: add **fiber availability by area**, not fiber routes. No open, current,

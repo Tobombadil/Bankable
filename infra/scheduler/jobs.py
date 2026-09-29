@@ -692,18 +692,26 @@ def default_resolve(session_factory: Any, *, data_root: Path | None = None) -> d
     return report
 
 
-def _latest_proposal_frames(data_root: Path | None) -> list[Any]:
-    """The latest normalised frame of every implemented, non-gated `proposal` connector."""
+def _latest_proposal_frames(data_root: Path | None, *, registry: Any = None) -> list[Any]:
+    """The latest normalised frame of every implemented `proposal` connector whose rows the loader
+    loads. The loader's own rule decides (`services.ingest.loader.load_refusal`: reuse class,
+    `publication`, platform posture), so a source it refuses never reaches `pipeline.resolve.run`,
+    where it would still change blocking groups and fuzzy candidate sets (docs/25 §3.9)."""
     from pipeline.connectors.registry import Registry
     from pipeline.connectors.store import open_store
 
-    registry = Registry()
+    load_refusal = _load_fn("services.ingest.loader", "load_refusal")
+    registry = registry if registry is not None else Registry()
     store = open_store(data_root)
     frames = []
     for row in registry.status():
         if row.get("state") != "implemented":
             continue
         source_id = str(row["id"])
+        refusal = load_refusal(registry.get(source_id))
+        if refusal:
+            logger.info("resolve: skipping %s (%s)", source_id, refusal, extra={"source_id": source_id})
+            continue
         try:
             connector_cls = registry.connector_class(source_id)
         except Exception as exc:
