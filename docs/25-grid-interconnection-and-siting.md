@@ -499,7 +499,7 @@ market and location precision.
 | # | Source (manifest id) | URL | Format / access | Coverage (measured) | Cadence | Fields: name / operator / location / capacity | robots.txt | Terms, quoted | Verdict |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Virginia DEQ Air Sites (Daily), layer 294 (`us.va.deq.data_center_air_sites`) | https://gisdata.deq.virginia.gov/arcgis/rest/services/public/EDMA/MapServer/294 | ArcGIS REST query, JSON, WGS84 points on request | Virginia, all 4,043 air sites; DEQ's own `PLA_DATA_CENTER_YN` flag marks 198. Connector keeps 205: 45 Planned, 1 Under Construction, 159 operating or shut down | daily | facility name (company + campus code); no separate operator column; **exact point** from DEQ; no MW (free-text `PLA_DESC` sometimes counts engines); NAICS, ICIS-Air id, permit class | `gisdata.deq.virginia.gov/robots.txt` 404 (no rule). The sibling host `apps.deq.virginia.gov` answers `Disallow: /` and is not used | DEQ Data and Web GIS Tools Terms of Use, https://geohub-vadeq.hub.arcgis.com/pages/terms-of-use: "GIS information is in the public domain and may be copied without permission; citation of the source is suggested." Plus: no deriving personal information, no overburdening, "as is" | **Built.** Highest value (Northern Virginia is the largest market; DEQ flags data centres itself; Planned rows come before construction), trivial access, clear terms |
-| 2 | EPA ECHO ICIS-Air national download (`us.epa.echo.icis_air`) | https://echo.epa.gov/files/echodownloads/ICIS-AIR_downloads.zip | zip of CSV, 70 MB | national; NAICS 518210 or a "data center" name selects 537 facilities in 43 states (VA 144, IL 45, CO 35, GA 31, OH 24, TX 12); 21 Planned + 3 Under Construction (15 of those in Georgia) | weekly | name, street address, county, ZIP, NAICS, operating status; no coordinates in this file (FRS join needed); no MW | echo.epa.gov allows `/files/` (Crawl-delay 10); the REST API host `echodata.epa.gov` answers `Disallow: *` | US federal work, 17 U.S.C. §105 | **Next build.** Public domain and national. Thin before construction, and blind where states do not report minor sources. `PGM_SYS_ID` = DEQ `PLA_ICIS_ID`, so it joins to #1 deterministically |
+| 2 | EPA ECHO ICIS-Air national download (`us.epa.echo.icis_air`) | https://echo.epa.gov/files/echodownloads/ICIS-AIR_downloads.zip | zip of CSV, 70 MB | national; NAICS 518210 or a "data center" name selects 537 facilities in 43 states (VA 144, IL 45, CO 35, GA 31, OH 24, TX 12); 21 Planned + 3 Under Construction (15 of those in Georgia) | weekly | name, street address, county, ZIP, NAICS, operating status; no coordinates in this file (FRS join needed); no MW | echo.epa.gov allows `/files/` (Crawl-delay 10); the REST API host `echodata.epa.gov` answers `Disallow: *` | US federal work, 17 U.S.C. §105 | **Built 2026-09-29 (§3.7).** Public domain and national. Thin before construction, and blind where states do not report minor sources. `PGM_SYS_ID` = DEQ `PLA_ICIS_ID`, so it joins to #1 deterministically |
 | 3 | Georgia EPD Air Protection Branch public advisories (`us.ga.epd.air_permit_advisories`) | https://epd.georgia.gov/forms-permits/air-protection-branch-forms-permits/air-permits (e.g. https://epd.georgia.gov/document/document/pa1225-3/download) | text PDF, one block per application | Georgia; applications received and under review. Example: DCB Atlanta West, 76 emergency generators, Douglas County | biweekly | facility name, application no., street address, county, description (generator counts); no MW | `epd.georgia.gov` allows `/document/` | **Not found.** `epd.georgia.gov` links only accessibility and privacy pages; https://georgia.gov/privacy-and-security covers the Georgia Open Records Act, not reuse | **Gated** (`reuse: unknown`). Best pre-construction signal after Virginia; read the state's terms first |
 | 4 | Federal Permitting Dashboard (FAST-41), sectors "Data Storage and Data Management" and "High-performance computing …" | https://data.permits.performance.gov/resource/mcm3-xbid.json | Socrata | 2 projects: QTS Richmond Campus 5 (VA), PORTS Technology Campus (OH) | weekly | title, sponsor, state/county, lat/lon, milestones | Socrata API | public domain | Low volume. Already inside `us.permits_dashboard`'s dataset; its sector filter excludes these. A one-line scope change for that connector's owner, not a new source |
 | 5 | ERCOT large-load reporting (`us.iso.ercot.large_load_queue`, existing) | https://www.ercot.com/services/rq/large-load-integration | monthly PDF slide deck (aggregates, no rows) | Texas, aggregated | monthly | none per project | — | ERCOT clause 5, open | The existing watch stays. No per-project rows exist |
@@ -592,6 +592,181 @@ filed 45, under construction 1. Precision after load: 205 `exact` (`geocoder = s
 FIPS. Counties: Loudoun 87, Fairfax 32, Prince William 32, Mecklenburg 10, Henrico 8, Fauquier 5. The rows were
 loaded through `web.data_loading.load_real_normalized_sources(source_ids=[...])` into a scratch SQLite store, and
 `GET /v1/proposals?kind=load` returns them.
+
+### 3.7 National follow-on: EPA ICIS-Air (lane H1, 2026-09-29)
+
+`us.epa.echo.icis_air` (`pipeline/connectors/us_epa_echo_icis_air/`) extends §3.3 nationally. It uses the same
+record model: one `proposal` per facility, `kind = technology = load`, no MW, no sponsor. Everything below was
+measured on 2026-09-29 from this environment through the platform User-Agent. No private aggregator was opened.
+
+#### Sources, access and terms
+
+| File | Size (Last-Modified) | What it gives | Access used |
+|---|---|---|---|
+| `https://echo.epa.gov/files/echodownloads/ICIS-AIR_downloads.zip` | 70,252,181 bytes (2026-09-27), 10 CSVs | `ICIS-AIR_FACILITIES.csv`: 280,208 facilities, 19 columns, no coordinates, `REGISTRY_ID` (the FRS id) | Two ranged GETs: the zip tail (central directory), then the facilities member only (10,555,976 bytes). The member is checked against the directory's CRC-32. A server that ignores `Range` gets the whole zip read normally |
+| `https://echo.epa.gov/files/echodownloads/echo_exporter.zip` | 443,452,854 bytes (2026-09-27), one 2.14 GB CSV | 3,221,273 facilities. `FAC_LAT`/`FAC_LONG` are "from the FRS EPA Locational Reference Tables (LRT) file which represents the most accurate value for the facility", with `FAC_COLLECTION_METHOD`, `FAC_REFERENCE_POINT` and `FAC_ACCURACY_METERS` (ECHO column dictionary, `https://echo.epa.gov/system/files/echo_exporter_columns_7-16-2025_0.xlsx`) | One whole GET. The file is streamed row by row and only 10 identity and location columns are kept, for the candidates' FRS ids |
+| `https://echo.epa.gov/files/echodownloads/frs_downloads.zip` | 368,601,232 bytes (2026-09-27) | `FRS_FACILITIES.csv`: `LATITUDE_MEASURE`/`LONGITUDE_MEASURE` only (ECHO's FRS data dictionary, `https://echo.epa.gov/tools/data-downloads/frs-download-summary`) | **Rejected.** The file has no collection method or accuracy, so it cannot say which points are real |
+
+- robots: `echo.epa.gov/robots.txt` allows `/files/` and sets `Crawl-delay: 10`. The manifest's 0.1 rps is that
+  delay: 4 requests per run, 78.4 s. `echodata.epa.gov` (the ECHO REST host) answers `Disallow: *` and is never
+  used.
+- Terms: US federal work, public domain (17 U.S.C. §105; docs/13 §2.12 hedge). Manifest `reuse: open`,
+  `publication: raw_ok`.
+- Snapshot: the stored snapshot is the filtered pair of tables (633 ICIS candidates, 614 Exporter rows, 258,585
+  bytes), not the 513 MB of upstream bytes. The Virginia connector makes the same choice with its server-side
+  `where`. The fetch pre-filter (`is_candidate`: a data-centre name, or NAICS 518210/541513/541519) is looser than
+  the selection rule, and `parse` applies the rule, so the fixture tests it. Upstream sizes, Last-Modified and
+  row totals go in the run record.
+- Personal data: `ICIS-AIR_FACILITIES.csv` has no contact, person or phone column. The Exporter is read for
+  identity and location only; its demographic and compliance columns are never read. `redact` strips any
+  contact-like column if one ever appears.
+
+#### Selection rule, precision and misses
+
+A facility is kept when it is **not `Permanently Closed`** and meets one of three conditions. Each row records
+which one as `select_basis`:
+
+1. `name`: `FACILITY_NAME` matches `DATA CENTER|CENTRE`, `DATACENTER` or `DATA CTR`, or ends in `DATA CENT`
+   because ICIS cut the name at 40 characters ("CENTRA HEALTH ADMINISTRATION - DATA CENT") (162 rows).
+2. `naics_518210`: `NAICS_CODES` contains 518210 (326 rows), except in two cases. The first is a co-code in
+   211/212/213 (mining and oil and gas). The second is a name that states a non-data-centre use: headquarters,
+   BPO, paper mill, oil and gas, or a well pad / "DFM" (digital flare mitigation). Together these exclusions
+   remove 11 rows: eight flare-gas crypto-mining generator sets at Colorado and New Mexico well sites (NYDIG DFM
+   ×6, GRMR Oil and Gas, Gold State Facility), plus FDR Headquarters, Philcade/IBM BPO and Lufkin Paper Mill.
+3. `naics_541513_operator`: NAICS 541513 or 541519, plus a name that contains a colocation or hyperscale
+   operator (Equinix, Digital Realty, QTS, CyrusOne, Cologix, EdgeConneX, T5, Flexential, …) (26 rows). On its
+   own, 541513 also selects offices such as L.L. Bean, Deere & Co and an IBM environmental-affairs office.
+
+The survey's rule (NAICS 518210 or a "data center" name) selected 537. The final rule selects **514**:
+537 − 38 permanently closed − 11 excluded + 26 from the operator basis.
+
+**Precision, hand-checked.** Two random samples of 40 were drawn. The first came from the survey rule (seed
+20260929). The second came from the final rule before the well-pad exclusion was added (seed 20260929; one
+sampled row, NYDIG Surprise S9, was then excluded). Each row was judged from its name, NAICS, status and ICIS
+programme subparts. The unclear ones were looked up (web search; no aggregator):
+
+| | Data centre | Uncertain | Not a data centre |
+|---|---|---|---|
+| Survey-rule sample (40) | 36 | 2 (First Data Resources Omaha, Nalco Water Northlake) | 2 (NYDIG well pads) |
+| Final-rule sample (39 kept) | 31 | 3 (Amazon.com DK01 Littleton MA; Chicago Enterprise LLC; Innovation 2201 LLC, an office/lab building now proposed for a data-centre campus) | 5 (Northrop Grumman Fairfax and Falls Church offices, US Liability Insurance Wayne PA, Concordance Healthcare Grapevine TX, FCA US Auburn Hills) |
+| **Distinct rows under the final rule (73)** | **63 (86 %)** | 5 | 5 |
+
+By basis, among the 73 distinct rows: `name` 22 of 22, `naics_541513_operator` 2 of 2, and `naics_518210` 39 of
+49, with all 5 non-data-centres and all 5 uncertain rows in this basis. Two further lookups confirm that the
+residual class is **corporate offices and campuses with an IT room coded 518210**. IBM Dulles Station West is an
+office building with "a data center" on two floors (Stantec, `https://www.stantec.com/en/projects/united-states-projects/i/ibm-dulles-station-west`,
+and Work Design Magazine). R&R Realty Urbandale is an office developer. Pollutant class does not separate them:
+the offices are MIN, SMI and MAJ, and so are real data centres. No further rule removes them without dropping
+real data centres. The basis travels on every row so a consumer can apply its own threshold. Enterprise data
+centres (banks, insurers, hospitals, universities, state IT) are counted as data centres, as DEQ's own flag
+counts them (§3.4).
+
+**Cross-check against Virginia DEQ's own flag.** Of the 146 Virginia rows the rule selects, DEQ flags 138 as data
+centres (95 %). The other 8 are IBM Dulles Station West, Sungard Availability Services, Northrop Grumman Falls
+Church, The World Bank (Planned), First Health Services, Rockingham Memorial Hospital Data Center, Centra Health
+Administration Data Center and Edge Connex Data Center Norfolk (Planned). Most are DEQ gaps rather than rule
+errors; IBM Dulles Station West and Northrop Grumman Falls Church are offices. Of DEQ's 205 data centres, 160 appear in
+ICIS-Air, and the rule selects **138 of those 160 (86 % recall)**.
+
+**What it misses.**
+- Data centres whose ICIS record has no data-centre name and is coded outside 518210/541513/541519. Of the 22
+  DEQ data centres missed in Virginia: 6 are telecom-coded 517110/517111/517112 (Verizon, Level 3, Zayo,
+  Chantilly Technology Partners/H5, Equinix LLC, 21571 Beaumeade Circle); 6 are 541513/541519 under an owner or
+  SPV name the operator list does not know (Oath, Comcast, Freddie Mac ×2, and the Digital Realty SPVs Digital
+  Loudoun Pkwy Center N and Digital Western Lands); 2 banks (522xxx: Capital One, Bank of America Sandston); 2 real
+  estate (531xxx: New Dominion Technology Park, Captone Mission Ridge); and one each of 334111 (Plaza Office
+  Realty), 511110 (Valo Park), 541511 (Verisign), 611310 (George Washington University), 927110 and 928110
+  (Aerospace Corporation sites). The operator list only fixes named operators.
+- Data centres that are **not in ICIS-Air yet**. 45 of DEQ's 205 are Planned sites with no ICIS record. This is
+  the main reason ICIS is thin before construction: nationally 21 Planned + 3 Under Construction, 15 of them in
+  Georgia.
+- States that do not report minor sources to ICIS-Air, and sites that need no registration (Texas
+  permit-by-rule engines; Texas has 12 selected facilities).
+- Permanently closed facilities, by design.
+
+#### Placement (coordinates) and precision grades
+
+Of the 514 selected rows, 509 join to the Exporter on `REGISTRY_ID`. The other 5 have no FRS id in ICIS. A row
+gets `Latitude`/`Longitude` in `raw`, which the loader promotes to `exact`, only when FRS says the point is the
+site. That requires all three of the following:
+(a) a site-specific collection method: address match to the house number, geocoded address, digitised
+address, photo, satellite or map interpolation, classical survey, or GPS;
+(b) a stated `FAC_ACCURACY_METERS` of at most **200 m**;
+(c) a point inside the facility's own state (vendored Census state boundaries).
+Every other row carries **no coordinate at all**, only FRS's method and accuracy. The loader places it from its
+county name (county centroid) or its state (state centroid). A ZIP-code or county centroid from FRS is never
+passed off as a point.
+
+| `placement` (parse) | Rows | FRS collection method (all 514) | Rows | Precision after load (scratch SQLite) | Rows |
+|---|---|---|---|---|---|
+| `exact` | 379 | ADDRESS MATCHING-HOUSE NUMBER | 338 | `exact` | 379 |
+| `method_not_site_specific` | 122 | Zip Code Centroid | 64 | `county_centroid` | 129 |
+| `accuracy_not_stated_or_coarse` | 7 | INTERPOLATION-PHOTO | 39 | `state_centroid` | 6 |
+| `no_frs_record` | 5 | (none) | 33 | `unknown` | 0 |
+| `point_outside_state` | 1 (Wal-Mart North Data Center, Pineville MO) | ADDRESS MATCHING-OTHER 14, UNKNOWN 8, BLOCK FACE 8, INTERPOLATION-SATELLITE 4, GDT geocoding 3, GPS 1, ADDRESS MATCHING (GEOCODING) 1, INTERPOLATION-MAP 1 | 40 | | |
+
+The house-number address matches carry stated accuracies of 30 m (median) and 180 m (maximum). The FRS reference
+point is the centre of the facility for 207 selected rows and the entrance for 162. `exact` here therefore
+means a facility-level point good to a couple of hundred metres. It does not mean a surveyed building footprint.
+
+County: for an exact point, the county is the one the point falls in, so point and county never disagree.
+Otherwise it is ICIS-Air's `COUNTY_NAME`, with "Undetermined" and blank read as missing. The two agree on 365 of
+the 376 exact rows that carry an ICIS county. The 11 that disagree include the Manassas city / Prince William
+line and ICIS entries that name the wrong county: Microsoft MKE 3B at Mount Pleasant, WI is "Richland" in ICIS
+but the point is in Racine County.
+
+#### De-duplication with Virginia
+
+DEQ's `PLA_ICIS_ID` equals ICIS-Air's `PGM_SYS_ID`. Both connectors emit `cross_refs` `icis_air:<id>`, and ICIS
+also emits `frs:<REGISTRY_ID>`. Two changes in `pipeline/resolve.py` make the scheduler's `resolve_tick`
+(`infra/scheduler/jobs.py::default_resolve` → `pipeline.resolve.run` → `services/resolve/merge.py`) merge the
+overlap. Both are keyed on an explicit `SHARED_ID_NAMESPACES = {icis_air, frs}`, so name-derived citations
+(`NYISO:…`) are untouched and the evaluation set's numbers do not move:
+- **D3, shared registry id**: records of two sources that cite the same `icis_air:`/`frs:` id pair
+  deterministically (score 100). The group must be unambiguous: one record per source. A source that repeats the
+  id is left to review.
+- **Id-conflict veto**: a fuzzy pair whose sides cite *different* ids in the same namespace is never accepted.
+  Without it, the name-token block (B3) merged neighbouring campuses of one operator on name + county alone.
+  Examples are "Microsoft Corp - LVL Data Center" with "Microsoft Corp - AVC17 Datacenter", and CyrusOne NVA14
+  with CyrusOne Kincora. Measured on the real frames, this produced clusters of 3, 4, 5, 7, 9 and 17 members.
+  With the veto, 306 pairs are refused (101 of them above the threshold of 75).
+
+Verified on the real data. Both connectors were run live into a scratch data root (ICIS 514 rows; Virginia 205
+rows, re-run the same day) and loaded through `web.data_loading.load_real_normalized_sources` into a scratch
+SQLite store, which gave 719 live proposals. `default_resolve` was then run over the same data root: 138
+clusters, 138 merges, 0 review decisions, **581 live proposals**. All 138 Virginia facilities present in both
+sources sit on exactly one proposal. No proposal has more than two source links. Every cluster has two members:
+one DEQ record and one ICIS record with the same id. The survivor follows `choose_canonical`, which picks the
+most recently retrieved record, and keeps both source links. ICIS adds 8 Virginia facilities DEQ does not flag,
+listed above.
+
+#### Run, 2026-09-29
+
+`python -m pipeline.connectors run us.epa.echo.icis_air --data-dir <scratch>`: run `768140bc`, status ok, DQ
+**pass** (no unmapped status, no duplicate id, provenance quartet on every row), 514 rows, snapshot sha256
+`96782ebd…8d55`. This is the second live run of the day: the first, `84c2398a`, gave 513 rows and missed the
+truncated Centra Health name, which led to the rule fix above.
+
+- By state (42): VA 146, IL 49, GA 30, OH 24, CO 21, NJ 19, PA 19, NE 19, AZ 17, IA 16, MN 13, MD 12, TX 12, IN 10,
+  MO 9, NC 9, TN 9, OK 9, MA 7, NH 7, NM 6, KS 5, NV 5, DE 5, MI 4, WY 4, AL 3, WI 3, SC 3, and 1–2 each in AR, WA,
+  NY, CA, KY, MS, CT, FL, ME, ID, OR, UT, SD.
+- Lifecycle, from `AIR_OPERATING_STATUS_DESC` via `status_map.yaml`: built 466 (Operating 464, Temporarily Closed
+  2), unknown 24 (blank status), filed 21 (Planned Facility; GA 15, VA 2, NM 2, NE 2), under_construction 3
+  (Woodland Caribou IN, Valara Holdings HPC SC, Amazon IAD-264 VA). Seasonal is mapped but does not occur in the
+  selection. Permanently Closed is never selected.
+
+#### Limits and open items
+
+- Precision of the `naics_518210` basis is about 80–90 % (offices with an IT room). The basis is on every row, but
+  the public page does not yet show it.
+- The web dev loader (`web/data_loading.py`) and `web/build_data.py` do not run the resolver. Until a
+  `resolve_tick` runs, the dev store and the static build show the 138 Virginia overlaps twice. This is true of
+  every multi-source overlap today, not only this one.
+- The Exporter costs 443 MB a week because its single deflate stream cannot be ranged. Two cheaper options are a
+  conditional GET on Last-Modified and a streaming download path in `PoliteSession`, which today reads the whole
+  body because its challenge check touches `.content`.
+- Georgia's 15 Planned sites are the richest pre-construction signal outside Virginia. The Georgia EPD
+  advisories (§3.2 #3) remain gated on terms.
 
 ## 4. Fiber availability by area
 

@@ -1,0 +1,28 @@
+# us.epa.echo.icis_air: ICIS-Air AIR_OPERATING_STATUS_DESC -> proposal lifecycle (docs/21 §7.1).
+# `field: Status` is the literal pipeline.normalize.harmonise_status recognises; the connector passes the raw
+# AIR_OPERATING_STATUS_DESC under ctx["status_raw"]. Values measured 2026-09-29 over all 280,208 rows of
+# ICIS-AIR_FACILITIES.csv: Operating 184,117, Permanently Closed 77,945, blank 12,529, Temporarily Closed 3,993,
+# Planned Facility 758, Under Construction 536, Seasonal 330. Permanently Closed rows are never selected (the
+# connector's select_basis drops them), so the value is deliberately absent here: should one reach this map it is
+# unmapped -> unknown + a DQ vocabulary warning, never coerced. Blank -> unknown (rule `.blank`).
+version: 1
+updated: 2026-09-29
+canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
+sources:
+  epa_icis_air:
+    field: Status
+    map:
+      Planned Facility: filed
+      Under Construction: under_construction
+      Operating: built
+      Temporarily Closed: built
+      Seasonal: built
+    caveats:
+      - Planned Facility maps to filed, as Virginia DEQ's Planned does. ICIS-Air records the facility once the
+        state or local agency enters it; the status does not say whether a permit has been issued.
+      - Temporarily Closed and Seasonal are states of a built facility; the raw value stays in status_raw.
+      - Permanently Closed is outside the selection, so a tracked facility that closes becomes a `removed` event
+        (docs/20 §3.3). Its last lifecycle state tells a closed built site (built -> removed) from a plan that
+        never proceeded (filed / under_construction -> removed); neither is recorded as `cancelled`.
+      - ICIS-Air carries the status the delegated state or local agency last entered. Several states rarely
+        update minor-source statuses, so `built` can lag an actual closure and `filed` can lag construction.

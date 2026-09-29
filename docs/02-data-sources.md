@@ -771,7 +771,7 @@ reusable public trace of one; utility large-load disclosures are still PDFs or T
 | Source id | Feeds | Access | Cadence | Reuse | Verified 2026-09-28 |
 |---|---|---|---|---|---|
 | `us.va.deq.data_center_air_sites` | supply (`kind = load`) | ArcGIS REST JSON | daily | **open** (DEQ: "GIS information is in the public domain") | ok, 205 rows (45 filed, 1 under construction, 159 built), exact points; **connector built** |
-| `us.epa.echo.icis_air` | supply (`load`), national | zip of CSV | weekly | public domain | ok, 537 data-centre facilities in 43 states (21 planned, 3 under construction); no connector yet — next build |
+| `us.epa.echo.icis_air` | supply (`load`), national | zip of CSV | weekly | public domain | ok, 537 data-centre facilities in 43 states (21 planned, 3 under construction); **connector built** 2026-09-29: 514 rows in 42 states after the selection rule (docs/25 §3.7) |
 | `us.ga.epd.air_permit_advisories` | supply (`load`), pre-construction | biweekly text PDF | biweekly | **unknown** — gated | PDF 200, text layer; no reuse clause found |
 | `us.tx.tceq.air_permits` | — | HTML | daily | **unknown** | robots `Disallow: /`; not fetched |
 

@@ -131,6 +131,9 @@ SOURCE_POLICY: dict[str, SourcePolicy] = {
         True,
         "DEQ Terms of Use: 'GIS information is in the public domain' (sources.yaml, docs/13 §6)",
     ),
+    "us.epa.echo.icis_air": SourcePolicy(
+        "U.S. EPA ECHO (ICIS-Air, Facility Registry Service)", True, "US federal public domain work"
+    ),
 }
 
 PROPOSAL_SOURCE_IDS = [
@@ -140,6 +143,7 @@ PROPOSAL_SOURCE_IDS = [
     "us.eia.860m",
     "gb.neso.tec_register",
     "us.va.deq.data_center_air_sites",
+    "us.epa.echo.icis_air",
 ]
 OPPORTUNITY_SOURCE_IDS = [
     "us.grants_gov.search2",
