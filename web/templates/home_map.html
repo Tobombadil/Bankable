@@ -7,7 +7,7 @@
 {% block content %}
 <div class="page-header">
   <h1>Map</h1>
-  <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO, with existing power plants, gas infrastructure and transmission lines as a context layer. Filters apply to the map and the list together; the URL always reflects the current view.</p>
+  <p>{{ sources_phrase }}, with existing power plants, gas infrastructure and transmission lines as a context layer. Filters apply to the map and the list together; the URL always reflects the current view.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
 <div id="map-notice">{% include "_map_notice.html" %}</div>
@@ -21,7 +21,7 @@
     <label for="mf-technology">Technology</label>
     <select id="mf-technology" name="technology">
       <option value="">All</option>
-      {% for t in technologies %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      {% for value, label in technology_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
     </select>
   </div>
   <div class="filter-field">

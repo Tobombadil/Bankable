@@ -78,6 +78,129 @@ PROPOSAL_KIND_LABELS: dict[str, str] = {
     "other": "Other",
 }
 
+#: How a page names each `opportunity_kind` token (docs/21 §3.3 `kind`). Same rule as above: a
+#: token this map does not name renders as itself.
+OPPORTUNITY_KIND_LABELS: dict[str, str] = {
+    "rfp": "Request for proposals (RFP)",
+    "foa": "Funding opportunity (FOA)",
+    "tender": "Tender",
+    "auction": "Auction",
+    "loan_program": "Loan programme",
+    "procurement_notice": "Procurement notice",
+    "program": "Programme",
+}
+
+
+def proposal_kind_label(token: str | None) -> str | None:
+    """The reader-facing name of a proposal `kind`; an unmapped token reads as itself."""
+    if not token:
+        return token
+    return PROPOSAL_KIND_LABELS.get(token, token)
+
+
+def opportunity_kind_label(token: str | None) -> str | None:
+    """The reader-facing name of an opportunity `kind`; an unmapped token reads as itself."""
+    if not token:
+        return token
+    return OPPORTUNITY_KIND_LABELS.get(token, token)
+
+
+def technology_label(value: str | None) -> str | None:
+    """The reader-facing name of a proposal `technology` value.
+
+    Only `load` is relabelled: the data-centre and large-load connectors set `technology` to the
+    same value as `kind`, and a bare "load" in a Technology column reads as a typo. It gets a
+    short label rather than the kind's, because the kind label wraps every row of the list's
+    Technology column onto two lines; the Kind select beside it carries the long form. Every other
+    value is printed as it always was, so no existing column changes under a reader.
+    """
+    if value == "load":
+        return TECHNOLOGY_LOAD_LABEL
+    return value
+
+
+TECHNOLOGY_LOAD_LABEL = "Large load"
+
+
+#: Every source whose rows are proposals, in the order a page names them, with the short name a
+#: sentence uses and the group it belongs to. `data/sources.yaml`'s `name` is a register title
+#: (50 to 90 characters) and its `operator` a full agency name, so neither fits a sentence; the
+#: ids are the manifest's. `web/app.py::_PROPOSAL_SOURCE_IDS` is these keys, and
+#: `web/test_data_centre_presentation.py` pins them to the list the dev loader loads
+#: (`web/build_data.py::PROPOSAL_SOURCE_IDS`), so adding a source without naming it fails a test
+#: instead of leaving the copy stale.
+PROPOSAL_SOURCE_LABELS: dict[str, tuple[str, Literal["queue", "data_centre"]]] = {
+    "us.iso.ercot.gen_queue": ("ERCOT", "queue"),
+    "us.iso.caiso.gen_queue": ("CAISO", "queue"),
+    "us.iso.nyiso.gen_queue": ("NYISO", "queue"),
+    "us.eia.860m": ("EIA-860M", "queue"),
+    "gb.neso.tec_register": ("NESO", "queue"),
+    "us.va.deq.data_center_air_sites": ("Virginia DEQ", "data_centre"),
+    "us.epa.echo.icis_air": ("EPA ICIS-Air", "data_centre"),
+}
+
+
+def _join_names(names: list[str]) -> str:
+    if len(names) <= 1:
+        return "".join(names)
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def proposal_sources_phrase() -> str:
+    """ "Interconnection queue and generator proposals from ERCOT, …, and data-centre sites from
+    Virginia DEQ and EPA ICIS-Air": the one sentence fragment the map header and the list's meta
+    description share, built from `PROPOSAL_SOURCE_LABELS` so it cannot fall behind it again."""
+    queues = [label for label, group in PROPOSAL_SOURCE_LABELS.values() if group == "queue"]
+    data_centres = [label for label, group in PROPOSAL_SOURCE_LABELS.values() if group == "data_centre"]
+    parts = []
+    if queues:
+        parts.append(f"Interconnection queue and generator proposals from {_join_names(queues)}")
+    if data_centres:
+        parts.append(f"data-centre sites from {_join_names(data_centres)}")
+    return ", and ".join(parts)
+
+
+#: Why a data-centre connector kept a row (`select_basis` on the row, carried by the loader to
+#: `proposal.identifiers.select_basis` as `{source_id: basis}`). Worded from docs/25 §3.3 and
+#: §3.7. `naics_518210` carries its measured weakness in the sentence itself: in the hand check
+#: 39 of 49 rows on that basis were data centres and the residual class is offices with a server
+#: room. A basis token not listed here renders nothing rather than an unqualified claim.
+SELECT_BASIS_TEXT: dict[str, str] = {
+    "name": "the facility name says data centre",
+    "naics_518210": (
+        "its industry code is NAICS 518210 (data processing and hosting). Some sites with this code "
+        "are offices with a server room: 39 of 49 checked by hand were data centres"
+    ),
+    "naics_541513_operator": (
+        "its industry code is computer services (NAICS 541513 or 541519) and its name includes a "
+        "known data-centre operator"
+    ),
+    "deq_flag": "Virginia DEQ flags it as a data centre",
+    "principal_product": "Virginia DEQ's record gives its principal product as a data centre",
+}
+
+
+def select_basis_line(basis: str | None) -> str | None:
+    """One sentence for a source row, or `None` when there is no basis or no wording for it."""
+    text = SELECT_BASIS_TEXT.get(basis or "")
+    return f"Selected as a data centre because {text}." if text else None
+
+
+def attach_select_basis(record: Mapping[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Give each provenance row the sentence saying why that source counts this record as a
+    data centre. Only for `kind == load`, and only on rows the page already shows, so a gated
+    source's basis can never surface: the rows are the visible provenance, and a basis whose
+    source has no row here is dropped."""
+    if record.get("kind") != "load":
+        return rows
+    basis_by_source = record.get("select_basis") or {}
+    for row in rows:
+        line = select_basis_line(basis_by_source.get(row.get("source_id")))
+        if line:
+            row["select_basis_line"] = line
+    return rows
+
+
 ALL_OPPORTUNITY_STATUSES: tuple[str, ...] = (
     "unknown",
     "announced",
@@ -214,8 +337,11 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
         "slug": entity["slug"],
         "name": entity["name_canonical"],
         "kind": entity.get("kind"),
+        "kind_label": proposal_kind_label(entity.get("kind")),
         "technology": entity.get("technology"),
+        "technology_label": technology_label(entity.get("technology")),
         "technology_raw": entity.get("technology_raw"),
+        "select_basis": _mapping_or_empty(identifiers.get("select_basis")),
         "capacity_mw": entity.get("capacity_mw"),
         "storage_mwh": entity.get("storage_mwh"),
         "jurisdiction": entity.get("jurisdiction"),
@@ -247,6 +373,10 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _mapping_or_empty(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
 def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
     primary_source = _primary_provenance(entity.get("provenance") or [])
     return {
@@ -254,6 +384,7 @@ def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
         "slug": entity["slug"],
         "title": entity["title"],
         "kind": entity.get("kind"),
+        "kind_label": opportunity_kind_label(entity.get("kind")),
         "issuer": (entity.get("issuer") or {}).get("name_canonical"),
         "jurisdiction": entity.get("jurisdiction"),
         "technologies": entity.get("technologies") or [],
