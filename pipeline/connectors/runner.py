@@ -206,6 +206,13 @@ def run(
         return result
 
     # 1. fetch ------------------------------------------------------------
+    if raw is None:
+        # The snapshot step 2 compares against, handed over first so a connector that can ask
+        # upstream "changed since?" returns these same bytes on a 304 (docs/20 §3.2).
+        try:
+            connector.previous = st.last_snapshot(source_id)
+        except StoreError as e:
+            log.warning("previous snapshot unavailable", extra={"source_id": source_id, "error": repr(e)})
     try:
         snap = raw or connector.fetch()
     except (HttpBlocked, BlockedError) as e:

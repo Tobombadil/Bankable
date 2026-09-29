@@ -253,6 +253,33 @@ def _assert_not_gated(entry: SourceEntry) -> None:
         )
 
 
+def _assert_loadable(entry: SourceEntry) -> None:
+    """Every refusal the manifest entry alone decides, before any row is written: a gated reuse
+    class, `publication: none`, a reuse class outside the posture's publishable set, or a
+    `publication` value outside `PUBLICATION_VALUES`."""
+    _assert_not_gated(entry)
+    if entry.publication == "none":
+        raise GateRefused(f"{entry.id}: publication=none publishes nothing (docs/21 §8)")
+    # Affirmative membership in the posture's publishable set (`services/posture.py`), not
+    # mere absence from the gated set: an unrecognised value fails closed here.
+    if entry.reuse not in PUBLISHABLE_REUSE:
+        raise GateRefused(f"{entry.id}: reuse={entry.reuse!r} is not publishable")
+    if entry.publication is not None and entry.publication not in PUBLICATION_VALUES:
+        raise GateRefused(f"{entry.id}: publication={entry.publication!r} not in {PUBLICATION_VALUES}")
+
+
+def load_refusal(entry: SourceEntry) -> str | None:
+    """Why this loader would refuse every row of `entry`, or None when it loads them. The one
+    definition of "a source the store loads" for callers that must not see what it would refuse,
+    such as the scheduler's resolution step (`infra/scheduler/jobs.py::_latest_proposal_frames`,
+    docs/25 §3.9)."""
+    try:
+        _assert_loadable(entry)
+    except GateRefused as exc:
+        return str(exc)
+    return None
+
+
 def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_version: str) -> Source:
     """Mirror one `data/sources.yaml` entry into `licence` + `source` (docs/21 §4.1).
 
@@ -260,14 +287,8 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
     `_assert_not_gated`), and this function refuses a second time on the licence row it is about
     to write, so a bug in the caller cannot silently widen the gate.
     """
-    _assert_not_gated(entry)
-    if entry.publication == "none":
-        raise GateRefused(f"{entry.id}: publication=none publishes nothing (docs/21 §8)")
+    _assert_loadable(entry)
     licence_id = entry.licence_id
-    # Affirmative membership in the posture's publishable set (`services/posture.py`), not
-    # mere absence from the gated set: an unrecognised value fails closed here.
-    if entry.reuse not in PUBLISHABLE_REUSE:
-        raise GateRefused(f"{entry.id}: reuse={entry.reuse!r} is not publishable")
 
     licence = session.get(Licence, licence_id)
     now = utcnow()

@@ -145,6 +145,55 @@ def test_a_challenge_page_is_blocked_not_bypassed():
         ps.get("https://api.example.invalid/x", honour_robots=False)
 
 
+# ---------------------------------------------------------------- streamed downloads (docs/25 §3.9)
+class UnreadResponse(StubResponse):
+    """A streamed response that counts reads of its body and whether it was closed."""
+
+    def __init__(self, status: int, body: bytes, headers: dict[str, str]) -> None:
+        super().__init__(status, body, headers)
+        self._body = body
+        self.reads = 0
+        self.closed = False
+
+    @property  # type: ignore[override]
+    def content(self) -> bytes:
+        self.reads += 1
+        return self._body
+
+    @content.setter
+    def content(self, value: bytes) -> None:
+        self._body = value
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_a_streamed_download_is_not_read_for_the_challenge_check():
+    big = UnreadResponse(200, b"PK\x03\x04" + b"\0" * 100, {"Content-Type": "application/zip"})
+    ps, _, _ = session([big])
+    assert ps.get("https://files.example.invalid/big.zip", honour_robots=False, stream=True) is big
+    assert big.reads == 0 and not big.closed
+
+
+def test_a_streamed_challenge_is_still_blocked():
+    page = UnreadResponse(200, b"<html><title>Just a moment...</title>", {"Content-Type": "text/html"})
+    ps, _, _ = session([page])
+    with pytest.raises(HttpBlocked):
+        ps.get("https://files.example.invalid/big.zip", honour_robots=False, stream=True)
+    flagged = UnreadResponse(403, b"", {"cf-mitigated": "challenge", "Content-Type": "application/zip"})
+    ps, _, _ = session([flagged])
+    with pytest.raises(HttpBlocked):
+        ps.get("https://files.example.invalid/big.zip", honour_robots=False, stream=True)
+
+
+def test_a_streamed_retry_closes_the_unread_response_first():
+    busy = UnreadResponse(503, b"", {"Content-Type": "application/zip"})
+    ok = UnreadResponse(200, b"PK", {"Content-Type": "application/zip"})
+    ps, stub, _ = session([busy, ok])
+    assert ps.get("https://files.example.invalid/big.zip", honour_robots=False, stream=True) is ok
+    assert busy.closed and len(stub.calls) == 2
+
+
 # ---------------------------------------------------------------- rate limits
 def test_per_host_rate_limit_sleeps_between_requests():
     ps, _, slept = session([StubResponse(), StubResponse()], rate_limits={"api.example.invalid": 0.5})

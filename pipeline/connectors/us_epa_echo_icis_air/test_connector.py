@@ -4,26 +4,41 @@ Fixture `tests/fixtures/epa_icis_air_data_centers.json` is the connector's own s
 (ICIS-AIR_FACILITIES.csv pre-filtered to 632 candidates, ECHO Exporter rows for their FRS ids)
 trimmed to 35 facilities and their 34 FRS rows: every selection basis, every lifecycle value, every
 placement outcome, the rows each exclusion exists for, and seven Virginia facilities that are also
-in the Virginia DEQ fixture. No value is edited. No network.
+in the Virginia DEQ fixture. No value is edited. No network: the fetch tests at the end run the
+connector against `FakeEcho`, two zips built from the same rows.
 """
 
 from __future__ import annotations
 
+import csv
+import datetime as dt
 import io
 import json
+import re
 import zipfile
 import zlib
+from email.utils import formatdate
+from typing import Any
 
 import pandas as pd
 import pytest
 
-from conftest import connector_for, snapshot
+from conftest import connector_for, fixture_path, snapshot
 from pipeline import resolve
 from pipeline.connectors.base import ParseError
+from pipeline.connectors.http import PoliteSession
+from pipeline.connectors.runner import run
+from pipeline.connectors.store import Store
+from pipeline.connectors.us_epa_echo_icis_air import connector as connector_module
 from pipeline.connectors.us_epa_echo_icis_air.connector import (
     DFR_URL,
+    EXPORTER_MEMBER,
+    EXPORTER_URL,
+    FETCH_VERSION,
+    ICIS_MEMBER,
     ICIS_URL,
     central_directory,
+    conditional_headers,
     inflate_member,
     is_candidate,
     placement_for,
@@ -233,3 +248,280 @@ def test_layout_change_and_bad_payload_are_parse_errors():
     raw.content = json.dumps({"pages": []}).encode()
     with pytest.raises(ParseError):
         c.parse(raw)
+
+
+# ------------------------------------------------------------------ fetch: conditional GETs (docs/25 §3.9)
+# `FakeEcho` answers the way echo.epa.gov (Apache) was measured to on 2026-09-29: an ETag and
+# Last-Modified on every 200/206, `Range` honoured, and a 304 carrying only the ETag when
+# `If-None-Match` (or, without it, `If-Modified-Since`) matches, whether or not `Range` is also sent.
+# The two zips are built from the recorded fixture's rows plus rows the pre-filter must drop.
+ROBOTS = b"User-agent: *\nCrawl-delay: 10\nAllow: /files/\n"
+
+
+class FakeResponse:
+    def __init__(self, status: int, body: bytes, headers: dict[str, str]) -> None:
+        self.status_code = status
+        self.content = body
+        self.text = body.decode("utf-8", "replace")
+        self.headers = headers
+        self.closed = False
+
+    def iter_content(self, chunk_size: int) -> Any:
+        for i in range(0, len(self.content), chunk_size):
+            yield self.content[i : i + chunk_size]
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeEcho:
+    """The two bulk zips on echo.epa.gov/files/, with validators that change on every `put`."""
+
+    def __init__(self, files: dict[str, bytes]) -> None:
+        self.files: dict[str, tuple[bytes, str, str]] = {}
+        self.version = 0
+        for url, body in files.items():
+            self.put(url, body)
+        self.headers: dict[str, str] = {}
+        self.calls: list[tuple[str, str, dict[str, str], bool]] = []
+        self.body_bytes = 0
+
+    def put(self, url: str, body: bytes) -> None:
+        self.version += 1
+        etag = f'"{len(body):x}-{self.version:x}"'
+        self.files[url] = (body, etag, formatdate(1_790_000_000 + self.version * 86_400, usegmt=True))
+
+    def reset(self) -> None:
+        self.calls.clear()
+        self.body_bytes = 0
+
+    def request(
+        self, method: str, url: str, headers: dict[str, str] | None = None, **kw: Any
+    ) -> FakeResponse:
+        sent = dict(headers or {})
+        self.calls.append((method, url, sent, bool(kw.get("stream"))))
+        if url.endswith("/robots.txt"):
+            return FakeResponse(200, ROBOTS, {"Content-Type": "text/plain"})
+        body, etag, modified = self.files[url]
+        inm, ims = sent.get("If-None-Match"), sent.get("If-Modified-Since")
+        if (inm is not None and inm == etag) or (inm is None and ims is not None and ims == modified):
+            return FakeResponse(304, b"", {"ETag": etag})
+        base = {
+            "ETag": etag,
+            "Last-Modified": modified,
+            "Accept-Ranges": "bytes",
+            "Content-Type": "application/zip",
+        }
+        m = re.fullmatch(r"bytes=(\d*)-(\d*)", sent.get("Range", ""))
+        if m:
+            first, last = m.groups()
+            if first == "":
+                start, end = max(0, len(body) - int(last)), len(body) - 1
+            else:
+                start, end = int(first), min(len(body) - 1, int(last)) if last else len(body) - 1
+            part = body[start : end + 1]
+            self.body_bytes += len(part)
+            headers_out = {**base, "Content-Range": f"bytes {start}-{end}/{len(body)}"}
+            return FakeResponse(206, part, {**headers_out, "Content-Length": str(len(part))})
+        self.body_bytes += len(body)
+        return FakeResponse(200, body, {**base, "Content-Length": str(len(body))})
+
+    def get(self, url: str, **kw: Any) -> FakeResponse:
+        return self.request("GET", url, **kw)
+
+    def gets(self, url: str) -> list[dict[str, str]]:
+        return [h for m, u, h, _ in self.calls if m == "GET" and u == url]
+
+
+# ------------------------------------------------------------------ upstream files from the fixture
+UPSTREAM = json.loads(fixture_path(FIXTURE).read_text(encoding="utf-8"))
+ICIS_COLS: list[str] = UPSTREAM["icis"]["columns"]
+FRS_COLS: list[str] = UPSTREAM["frs"]["columns"]
+
+
+def _csv(columns: list[str], rows: list[list[str]]) -> bytes:
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(columns)
+    w.writerows(rows)
+    return buf.getvalue().encode("utf-8")
+
+
+def _zip(members: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        for name, data in members.items():
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+def icis_zip(rows: list[list[str]]) -> bytes:
+    """The fixture's candidates plus a facility the pre-filter drops, and a second member."""
+    other = ["XX0000000000000001", "110000000001", "FUNERAL HOME", *[""] * (len(ICIS_COLS) - 3)]
+    return _zip({ICIS_MEMBER: _csv(ICIS_COLS, [*rows, other]), "ICIS-AIR_PROGRAMS.csv": b"x" * 5000})
+
+
+def exporter_zip(rows: list[list[str]]) -> bytes:
+    """The fixture's FRS rows (with one extra upstream column) plus one no candidate cites."""
+    cols = [*FRS_COLS, "FAC_NAME"]
+    extra = ["999999999999", "TX", "HARRIS", "29.7", "-95.3", "", "", "", "", "", "SOMEWHERE"]
+    return _zip({EXPORTER_MEMBER: _csv(cols, [[*r, "N"] for r in rows] + [extra])})
+
+
+@pytest.fixture()
+def clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One day per fetch, so each run's snapshot has its own timestamped key."""
+    days = iter(range(1, 100))
+    start = dt.datetime(2026, 9, 29, 6, 0, tzinfo=dt.UTC)
+    monkeypatch.setattr(connector_module, "utcnow", lambda: start + dt.timedelta(days=next(days)))
+
+
+@pytest.fixture()
+def echo(clock: None) -> FakeEcho:
+    return FakeEcho(
+        {
+            ICIS_URL: icis_zip([list(r) for r in UPSTREAM["icis"]["rows"]]),
+            EXPORTER_URL: exporter_zip([list(r) for r in UPSTREAM["frs"]["rows"]]),
+        }
+    )
+
+
+def _fetch_run(registry: Any, store: Store, echo: FakeEcho) -> Any:
+    echo.reset()
+    http = PoliteSession(session=echo, sleep=lambda _s: None)  # type: ignore[arg-type]
+    return run(SOURCE_ID, registry=registry, store=store, http=http)
+
+
+def _snapshot_doc(store: Store, result: Any) -> dict[str, Any]:
+    return dict(json.loads(result.paths["snapshot"].read_bytes()))
+
+
+# ------------------------------------------------------------------ tests
+def test_first_run_fetches_both_files_and_records_their_validators(registry, tmp_path, echo):
+    first = _fetch_run(registry, Store(tmp_path), echo)
+    assert first.status == "ok"
+    meta = first.run["snapshot"]["meta"]
+    assert meta["fetch_version"] == FETCH_VERSION and meta["upstream"] == "changed"
+    for key, url in (("icis", ICIS_URL), ("exporter", EXPORTER_URL)):
+        _, etag, modified = echo.files[url]
+        assert meta[key]["etag"] == etag and meta[key]["last_modified"] == modified
+        assert meta[key]["not_modified"] is False
+    # nothing to compare against: no conditional header goes out
+    assert not any("If-None-Match" in h or "If-Modified-Since" in h for _, _, h, _ in echo.calls)
+    # the Exporter is streamed, never read whole into memory
+    assert [s for m, u, _, s in echo.calls if u == EXPORTER_URL] == [True]
+    assert meta["icis"]["candidates"] == 35 and meta["icis"]["rows_total"] == 36
+    assert meta["exporter"]["rows_kept"] == 34 and meta["exporter"]["rows_total"] == 35
+    assert first.run["rows_fetched"] == 25
+
+
+def test_unchanged_upstream_is_an_unchanged_run_that_downloads_nothing(registry, tmp_path, echo):
+    store = Store(tmp_path)
+    first = _fetch_run(registry, store, echo)
+    second = _fetch_run(registry, store, echo)
+    assert second.status == "unchanged"
+    assert set(second.paths) == {"run"}  # no snapshot, parquet or events written
+    record = second.run
+    assert record["snapshot"]["sha256"] == first.run["snapshot"]["sha256"]
+    assert record["http_status"] == 304
+    meta = record["snapshot"]["meta"]
+    assert meta["upstream"] == "unchanged"
+    assert meta["icis"]["not_modified"] is True and meta["exporter"]["not_modified"] is True
+    assert meta["icis"]["bytes_fetched"] == 0 and meta["exporter"]["bytes_fetched"] == 0
+    # validators and totals carried forward for the next run (Apache's 304 omits Last-Modified)
+    assert meta["icis"]["last_modified"] == first.run["snapshot"]["meta"]["icis"]["last_modified"]
+    assert meta["exporter"]["rows_total"] == 35 and meta["icis"]["candidates"] == 35
+    # one conditional GET per file, each carrying the first run's validators; no body bytes
+    assert echo.body_bytes == 0
+    icis_gets, exp_gets = echo.gets(ICIS_URL), echo.gets(EXPORTER_URL)
+    assert len(icis_gets) == 1 and len(exp_gets) == 1
+    assert icis_gets[0]["If-None-Match"] == echo.files[ICIS_URL][1]
+    assert icis_gets[0]["Range"].startswith("bytes=-")
+    assert exp_gets[0] == conditional_headers(first.run["snapshot"]["meta"]["exporter"])
+    assert record["snapshot"]["requests_made"] == 3  # robots.txt (once per session) + two conditional GETs
+    # a third run still has validators to send (read from the unchanged run's own record)
+    third = _fetch_run(registry, store, echo)
+    assert third.status == "unchanged" and echo.body_bytes == 0
+
+
+def test_a_changed_exporter_reuses_the_stored_icis_table(registry, tmp_path, echo):
+    store = Store(tmp_path)
+    first = _fetch_run(registry, store, echo)
+    frs = [list(r) for r in UPSTREAM["frs"]["rows"]]
+    frs[0][3] = "36.60999"  # one facility's FRS latitude moves
+    echo.put(EXPORTER_URL, exporter_zip(frs))
+    second = _fetch_run(registry, store, echo)
+    assert second.status == "ok"
+    meta = second.run["snapshot"]["meta"]
+    assert meta["upstream"] == "changed"
+    assert meta["icis"]["not_modified"] is True and meta["exporter"]["not_modified"] is False
+    assert len(echo.gets(ICIS_URL)) == 1  # the 304 tail only; no member range
+    before, after = _snapshot_doc(store, first), _snapshot_doc(store, second)
+    assert after["icis"] == before["icis"]
+    assert after["frs"]["rows"][0][3] == "36.60999"
+
+
+def test_a_changed_icis_file_whose_ids_are_covered_skips_the_exporter(registry, tmp_path, echo):
+    store = Store(tmp_path)
+    _fetch_run(registry, store, echo)
+    rows = [list(r) for r in UPSTREAM["icis"]["rows"]]
+    status = ICIS_COLS.index("AIR_OPERATING_STATUS_DESC")
+    rows[0][status] = "Planned Facility"
+    rows = rows[1:] + rows[:1]  # and the file's row order changes
+    echo.put(ICIS_URL, icis_zip(rows))
+    second = _fetch_run(registry, store, echo)
+    assert second.status == "ok"
+    meta = second.run["snapshot"]["meta"]
+    assert meta["exporter"]["not_modified"] is True and meta["icis"]["not_modified"] is False
+    assert echo.gets(EXPORTER_URL)[0].get("If-None-Match") == echo.files[EXPORTER_URL][1]
+    assert second.run["rows_changed"] == 1
+    # byte for byte what a fetch with no stored snapshot builds from the same two files
+    fresh = _fetch_run(registry, Store(tmp_path / "fresh"), echo)
+    assert fresh.run["snapshot"]["sha256"] == second.run["snapshot"]["sha256"]
+
+
+def test_a_new_registry_id_downloads_the_exporter_unconditionally(registry, tmp_path, echo):
+    store = Store(tmp_path)
+    _fetch_run(registry, store, echo)
+    rows = [list(r) for r in UPSTREAM["icis"]["rows"]]
+    new = list(rows[0])
+    new[0], new[1], new[2] = "TX0000000000000999", "999999999999", "NEW HYPERSCALE DATA CENTER"
+    echo.put(ICIS_URL, icis_zip([*rows, new]))
+    second = _fetch_run(registry, store, echo)
+    assert second.status == "ok"
+    exp_gets = echo.gets(EXPORTER_URL)
+    assert len(exp_gets) == 1 and not conditional_headers({"etag": exp_gets[0].get("If-None-Match")})
+    doc = _snapshot_doc(store, second)
+    assert "999999999999" in {r[0] for r in doc["frs"]["rows"]}
+    assert second.run["snapshot"]["meta"]["exporter"]["not_modified"] is False
+
+
+def test_a_snapshot_from_other_fetch_code_is_not_reused(registry, tmp_path, echo):
+    store = Store(tmp_path)
+    first = _fetch_run(registry, store, echo)
+    path = first.paths["run"]
+    record = json.loads(path.read_text())
+    record["snapshot"]["meta"].pop("fetch_version")  # as the lane H1 runs recorded it
+    store.write_run(SOURCE_ID, path.stem, record)
+    second = _fetch_run(registry, store, echo)
+    assert not any("If-None-Match" in h or "If-Modified-Since" in h for _, _, h, _ in echo.calls)
+    assert second.status == "unchanged"  # same bytes, found the old way: by downloading them
+
+
+def test_a_missing_stored_object_falls_back_to_a_full_fetch(registry, tmp_path, echo):
+    store = Store(tmp_path)
+    first = _fetch_run(registry, store, echo)
+    first.paths["snapshot"].unlink()
+    assert store.last_snapshot(SOURCE_ID) is None
+    second = _fetch_run(registry, store, echo)
+    assert not any("If-None-Match" in h for _, _, h, _ in echo.calls)
+    assert second.status == "unchanged" and echo.body_bytes > 0
+
+
+def test_conditional_headers():
+    assert conditional_headers(None) == {}
+    assert conditional_headers({"etag": None, "last_modified": ""}) == {}
+    assert conditional_headers({"etag": '"a-1"', "last_modified": "Sun, 27 Sep 2026 10:11:26 GMT"}) == {
+        "If-None-Match": '"a-1"',
+        "If-Modified-Since": "Sun, 27 Sep 2026 10:11:26 GMT",
+    }

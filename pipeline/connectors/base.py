@@ -19,6 +19,7 @@ import datetime as dt
 import hashlib
 import json
 import pathlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
@@ -167,6 +168,40 @@ class RawSnapshot:
         )
 
 
+@dataclass
+class PreviousSnapshot:
+    """The stored snapshot this run's bytes will be compared against (`Store.last_snapshot`, the
+    same one `Store.last_snapshot_sha` names), handed to the connector before `fetch()`.
+
+    `record` is the latest run record that produced or matched it, so its `snapshot.meta` carries
+    whatever validators the connector kept last time (`Last-Modified`, `ETag`). A connector that
+    asks upstream with a conditional request and hears 304 returns `content()` unchanged; the
+    runner's own SHA comparison then records the run `unchanged` (docs/20 §3.2). Nothing else
+    about an unchanged run differs from a byte-identical re-download."""
+
+    record: dict[str, Any]
+    load: Callable[[], bytes]
+    _content: bytes | None = field(default=None, repr=False)
+
+    @property
+    def sha256(self) -> str:
+        return str((self.record.get("snapshot") or {}).get("sha256") or "")
+
+    @property
+    def meta(self) -> dict[str, Any]:
+        meta = (self.record.get("snapshot") or {}).get("meta")
+        return meta if isinstance(meta, dict) else {}
+
+    def content(self) -> bytes:
+        """The stored bytes, read once and checked against the recorded SHA-256."""
+        if self._content is None:
+            body = self.load()
+            if hashlib.sha256(body).hexdigest() != self.sha256:
+                raise ConnectorError("stored snapshot does not match its recorded sha256")
+            self._content = body
+        return self._content
+
+
 def utcnow() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
@@ -239,6 +274,9 @@ class Connector:
         self.source = source
         self.http = http or PoliteSession(rate_limits={source.host: source.max_rps})
         self._status_map: dict[str, Any] | None = None
+        #: Set by the runner before `fetch()` (`PreviousSnapshot`); None on a first run, a replay,
+        #: or when the stored object is gone. Only a connector that makes conditional requests reads it.
+        self.previous: PreviousSnapshot | None = None
 
     # ------------------------------------------------------------------ contract
     def fetch(self) -> RawSnapshot:

@@ -28,6 +28,7 @@ behind by a run that crashed before its record is never read as a result (docs/2
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import io
 import json
 import os
@@ -36,7 +37,7 @@ from typing import Any
 
 import pandas as pd
 
-from pipeline.connectors.base import json_default, to_parquet_safe
+from pipeline.connectors.base import PreviousSnapshot, json_default, to_parquet_safe
 from pipeline.connectors.objectstore import LocalBackend, ObjectBackend, backend_from_env
 from pipeline.connectors.registry import ROOT
 
@@ -167,11 +168,38 @@ class Store:
     def successful_runs(self, source_id: str) -> list[dict[str, Any]]:
         return [r for r in self.runs(source_id) if r.get("status") in ("ok", "unchanged")]
 
-    def last_snapshot_sha(self, source_id: str) -> str | None:
-        for r in reversed(self.runs(source_id)):
+    def _last_snapshot_entry(self, source_id: str) -> tuple[str, dict[str, Any]] | None:
+        """The latest run whose snapshot the next run is compared against: `ok`, `unchanged` or
+        `partial`, with a recorded SHA-256."""
+        for ts, r in reversed(self._run_entries(source_id)):
             sha = (r.get("snapshot") or {}).get("sha256")
             if sha and r.get("status") in ("ok", "unchanged", "partial"):
-                return str(sha)
+                return ts, r
+        return None
+
+    def last_snapshot_sha(self, source_id: str) -> str | None:
+        entry = self._last_snapshot_entry(source_id)
+        return str(entry[1]["snapshot"]["sha256"]) if entry else None
+
+    def last_snapshot(self, source_id: str) -> PreviousSnapshot | None:
+        """The snapshot `last_snapshot_sha` names: the latest such run record (an `unchanged` run's
+        record included, since it carries the validators that run saw) and a loader for the stored
+        bytes, which the newest run that wrote an object with that SHA-256 holds. None when there is
+        no such run or the object is gone; the connector then fetches unconditionally."""
+        entry = self._last_snapshot_entry(source_id)
+        if entry is None:
+            return None
+        record = entry[1]
+        sha = record["snapshot"]["sha256"]
+        for ts, r in reversed(self._run_entries(source_id)):
+            snap = r.get("snapshot") or {}
+            if snap.get("sha256") != sha or not snap.get("object_key"):
+                continue
+            # The object sits under the run's own `ts`; its extension is the one the run recorded.
+            ext = str(snap["object_key"]).rsplit("/", 1)[-1].rpartition(".")[2]
+            path = self.snapshot_path(source_id, ts, ext)
+            if ext and self.exists(path):
+                return PreviousSnapshot(record=record, load=functools.partial(self.read_bytes, path))
         return None
 
     def previous_normalized(self, source_id: str) -> tuple[pd.DataFrame | None, str | None]:

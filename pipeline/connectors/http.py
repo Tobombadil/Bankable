@@ -15,6 +15,9 @@
 - No CAPTCHA solving, no challenge bypass: a Cloudflare interstitial is reported as blocked
   (`HttpBlocked`) whatever status it arrives with — 200, 403 (`cf-mitigated: challenge`) or 503 —
   and is never retried.
+- `stream=True` leaves a large body unread for the caller to copy in chunks (the 443 MB ECHO
+  Exporter, docs/25 §3.9). Its challenge check reads the body only when the server labels it HTML,
+  since an interstitial is a small HTML page; `cf-mitigated` is checked either way.
 """
 
 from __future__ import annotations
@@ -86,6 +89,14 @@ def is_challenge(status_code: int, headers: Any, content: bytes) -> bool:
         return False
     head = content[:4000]
     return any(m in head for m in CHALLENGE_MARKERS)
+
+
+def _challenge_body(resp: Any, stream: bool) -> bytes:
+    """What `is_challenge` scans: the whole body, or for a streamed response only an HTML one."""
+    if not stream:
+        return bytes(resp.content)
+    ctype = str(resp.headers.get("Content-Type") or "").lower()
+    return bytes(resp.content) if "html" in ctype else b""
 
 
 class HttpBlocked(Exception):
@@ -167,6 +178,7 @@ class PoliteSession:
             raise HttpBlocked(f"robots.txt disallows {url}")
         host = urlsplit(url).netloc
         kwargs.setdefault("timeout", self.timeout)
+        stream = bool(kwargs.get("stream"))
         last_error: str = ""
         for attempt in range(1, self.max_attempts + 1):
             self._wait_for_host(host)
@@ -177,13 +189,15 @@ class PoliteSession:
                 last_error = repr(e)[:300]
                 resp = None
             if resp is not None:
-                if is_challenge(resp.status_code, resp.headers, resp.content):
+                if is_challenge(resp.status_code, resp.headers, _challenge_body(resp, stream)):
                     # A challenge is a block signal, not a transient error: no retry, no bypass.
                     raise HttpBlocked(f"challenge page from {host} (HTTP {resp.status_code})")
                 if resp.status_code < 400 or resp.status_code not in RETRY_STATUSES:
                     return resp
                 last_error = f"HTTP {resp.status_code}"
                 retry_after = resp.headers.get("Retry-After")
+                if stream and hasattr(resp, "close"):
+                    resp.close()  # release the unread connection before the retry
             else:
                 retry_after = None
             if attempt == self.max_attempts:
