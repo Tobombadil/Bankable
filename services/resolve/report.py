@@ -155,53 +155,121 @@ def build_clusters(
     link_index: dict[tuple[str, str], _uuid.UUID],
 ) -> tuple[dict[str, list[merge_mod.ClusterMember]], dict[str, list[merge_mod.ClusterEdge]]]:
     """Turn `pipeline.resolve.run()`'s output into per-cluster `ClusterMember`/`ClusterEdge`
-    lists, restricted to records that were actually loaded into the store. `df`'s index is the
-    contract `run()` uses for `li`/`ri` and for its own copy of `clusters`; real (non-rollup) rows
-    occupy indices `0..len(df)-1` exactly as read from `normalized_path` (`run()` appends the
-    synthetic EIA plant-rollup rows after them and only then resets the index) -- rollup rows are
-    never loaded into the store as their own proposal, so indices `>= len(df)` are dropped here,
-    not resolved."""
+    lists over records that are actually loaded into the store. `df`'s index is the contract
+    `run()` uses for `li`/`ri`: real rows occupy `0..len(df)-1` exactly as read, and `run()` appends
+    the synthetic EIA plant-rollup rows after them (their fields are in `clusters`).
+
+    Clusters are rebuilt here as connected components over accepted edges *between loaded
+    records* (docs/22 §22 rule L). `run()`'s own union-find also walks through records the store
+    never loaded (a source the dev store does not load, such as `us.permits_dashboard`, or a
+    licence-gated one), and such a record must not bridge two loaded ones: 7 dev-store clusters
+    were joined only that way on 2026-09-29. A rollup row is not such a bridge: it *is* its
+    generators (one EIA plant, one technology), so an edge to it is projected onto each loaded
+    generator it sums. A pipeline cluster that falls into several loaded components yields one
+    entry per component: the first keeps the cluster id, the others get `<id>#<n>`."""
     n_real = len(df)
 
     def proposal_for_index(i: int) -> _uuid.UUID | None:
         if i >= n_real:
             return None
         row = df.iloc[i]
-        short = str(row["source_id"])
-        registry_id = loaded_sources.get(short)
+        registry_id = loaded_sources.get(str(row["source_id"]))
         if registry_id is None:
             return None
         return link_index.get((registry_id, str(row["source_record_id"])))
 
-    members: dict[str, list[merge_mod.ClusterMember]] = defaultdict(list)
-    for i in clusters.index:
-        if i >= n_real:
-            continue
+    generators: dict[tuple[str, str, str], list[int]] = defaultdict(list)
+    eia_rows = df[df["source_id"].isin(resolve_module.EIA_SOURCE_IDS) & df["eia_plant_id"].notna()]
+    for i, src, plant, tech in zip(
+        eia_rows.index, eia_rows["source_id"], eia_rows["eia_plant_id"], eia_rows["technology"], strict=True
+    ):
+        generators[(str(src), str(plant), str(tech))].append(int(i))
+
+    def real_rows(i: int) -> list[int]:
+        if i < n_real:
+            return [i]
+        if i not in clusters.index:
+            return []
         row = clusters.loc[i]
-        pid = proposal_for_index(int(i))
-        if pid is None:
-            continue
-        queue_id = row.get("queue_id")
-        eia_id = row.get("eia_plant_id")
-        member = merge_mod.ClusterMember(
-            proposal_id=pid,
-            source_id=loaded_sources[str(row["source_id"])],
-            queue_id=(str(queue_id) if pd.notna(queue_id) and queue_id else None),
-            has_eia_id=bool(pd.notna(eia_id) and eia_id),
-            retrieved_at=_parse_retrieved_at(row["retrieved_at"]),
+        return generators.get((str(row["source_id"]), str(row["eia_plant_id"]), str(row["technology"])), [])
+
+    # Accepted edges projected onto loaded proposals; the best score per unordered pair.
+    best: dict[tuple[_uuid.UUID, _uuid.UUID], tuple[float, str, str, int]] = {}
+    first_row: dict[_uuid.UUID, int] = {}
+    accepted = matches[matches["accepted"]]
+    for li, ri, score, rationale, cid in zip(
+        accepted["li"].astype(int),
+        accepted["ri"].astype(int),
+        accepted["score"].astype(float),
+        accepted["rationale"].astype(str),
+        accepted["cluster_id"],
+        strict=True,
+    ):
+        via = "; via EIA plant rollup" if li >= n_real or ri >= n_real else ""
+        for a in real_rows(li):
+            for b in real_rows(ri):
+                pa, pb = proposal_for_index(a), proposal_for_index(b)
+                if pa is None or pb is None or pa == pb:
+                    continue
+                first_row[pa] = min(first_row.get(pa, a), a)
+                first_row[pb] = min(first_row.get(pb, b), b)
+                key = (pa, pb) if str(pa) < str(pb) else (pb, pa)
+                if key not in best or score > best[key][0]:
+                    best[key] = (score, rationale + via, str(cid), min(a, b))
+
+    parent: dict[_uuid.UUID, _uuid.UUID] = {}
+
+    def find(x: _uuid.UUID) -> _uuid.UUID:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for pa, pb in best:
+        ra, rb = find(pa), find(pb)
+        if ra != rb:
+            parent[max(ra, rb, key=str)] = min(ra, rb, key=str)
+
+    # Name each component after its pipeline cluster; order the components deterministically.
+    comp_cluster: dict[_uuid.UUID, str] = {}
+    comp_first: dict[_uuid.UUID, int] = {}
+    for (pa, _), (_, _, cid, row_i) in best.items():
+        root = find(pa)
+        comp_cluster.setdefault(root, cid)
+        comp_first[root] = min(comp_first.get(root, row_i), row_i)
+    keys: dict[_uuid.UUID, str] = {}
+    seen: dict[str, int] = defaultdict(int)
+    for root in sorted(comp_first, key=lambda r: comp_first[r]):
+        cid = comp_cluster[root]
+        keys[root] = cid if seen[cid] == 0 else f"{cid}#{seen[cid]}"
+        seen[cid] += 1
+
+    members: dict[str, list[merge_mod.ClusterMember]] = defaultdict(list)
+    for pid in sorted(first_row, key=lambda p: first_row[p]):
+        row = df.iloc[first_row[pid]]
+        queue_id, eia_id, cap, tech = (
+            row.get("queue_id"),
+            row.get("eia_plant_id"),
+            row.get("capacity_mw"),
+            row.get("technology"),
         )
-        members[str(row["cluster_id"])].append(member)
+        members[keys[find(pid)]].append(
+            merge_mod.ClusterMember(
+                proposal_id=pid,
+                source_id=loaded_sources[str(row["source_id"])],
+                queue_id=(str(queue_id) if pd.notna(queue_id) and queue_id else None),
+                has_eia_id=bool(pd.notna(eia_id) and eia_id),
+                retrieved_at=_parse_retrieved_at(row["retrieved_at"]),
+                capacity_mw=(float(cap) if pd.notna(cap) and float(cap) > 0 else None),
+                technology=(str(tech) if pd.notna(tech) and tech else None),
+                eia_plant_id=(str(eia_id) if pd.notna(eia_id) and eia_id else None),
+            )
+        )
 
     edges: dict[str, list[merge_mod.ClusterEdge]] = defaultdict(list)
-    accepted = matches[matches["accepted"]]
-    for _, row in accepted.iterrows():
-        li, ri = int(row["li"]), int(row["ri"])
-        lpid, rpid = proposal_for_index(li), proposal_for_index(ri)
-        if lpid is None or rpid is None:
-            continue
-        edges[str(row["cluster_id"])].append(
-            merge_mod.ClusterEdge(lpid, rpid, float(row["score"]), str(row["rationale"]))
-        )
+    for (pa, pb), (score, rationale, _, _) in best.items():
+        edges[keys[find(pa)]].append(merge_mod.ClusterEdge(pa, pb, score, rationale))
     return members, edges
 
 

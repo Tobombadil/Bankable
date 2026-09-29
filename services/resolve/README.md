@@ -69,6 +69,11 @@ A cluster is merged only if **both** hold, independently re-checked here rather 
    data (below).
 2. **No id-reuse conflict**: no source's queue id is shared, inside the cluster, by more than one
    distinct store record.
+3. **Coherent capacity** (2026-09-29, `docs/22` §22 rule K): no source's two or more requests in
+   the cluster add up, within one technology family holding two or more of them, to more than
+   `COHERENCE_FACTOR` (2.0) times the cluster's EIA capacity in that family. Since the same date `report.build_clusters` builds
+   clusters from edges between loaded records only (rule L), so the "no direct edge" refusal
+   below no longer arises from `build_clusters`.
 
 **On the id-reuse guard's wording.** The task specifies refusing "two records from the same
 source with different queue ids." Read literally, that refuses 73 of the 281 loadable

@@ -9,7 +9,8 @@ then calls the functions here.
 Three things happen at the confidence gate (task step 2), and only these three:
 
 1. A cluster whose minimum pairwise score is >= `MERGE_SCORE_THRESHOLD` (docs/22 §6's chosen
-   threshold, 75) *and* that does not trip `id_reuse_conflict` is merged: `merge_proposal` is
+   threshold, 75) *and* that trips neither `id_reuse_conflict` nor `coherence_conflict` (docs/22
+   §22: one source's requests adding up to far more than the EIA plant) is merged: `merge_proposal` is
    called once per absorbed member, each call writing one `merged` event and never deleting a row
    (docs/21 §6.3 invariant M1).
 2. Anything below the gate is filed as a `resolution_decision` row per candidate pair
@@ -51,6 +52,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeline.normalize import org_key
+from pipeline.resolve import tech_families
 from services.db.models import (
     AssetOwner,
     Event,
@@ -61,7 +63,8 @@ from services.db.models import (
 )
 from services.resolve.models import ResolutionDecision
 
-#: docs/22 §6's chosen threshold (precision 0.927 / recall 0.950 sample; 0.915/0.946 weighted; n=85).
+#: docs/22 §6's chosen threshold. Re-measured with the docs/22 §22 rules on 2026-09-29: resolver
+#: 0.974 / 0.925 sample (0.958 / 0.910 weighted, n=85); through the store 1.000 / 0.892 (77 usable).
 MERGE_SCORE_THRESHOLD = 75.0
 
 _UUID_COLUMNS = frozenset(
@@ -128,6 +131,10 @@ class ClusterMember:
     queue_id: str | None
     has_eia_id: bool
     retrieved_at: dt.datetime
+    # Read by the coherence check only; a member without them is never counted there.
+    capacity_mw: float | None = None
+    technology: str | None = None
+    eia_plant_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -166,10 +173,92 @@ def id_reuse_conflict(members: Sequence[ClusterMember]) -> tuple[bool, str | Non
     return False, None
 
 
+#: docs/22 §22 rule K. One source's requests in a cluster may add up to at most this multiple of
+#: the cluster's EIA capacity in the same technology family. Measured on the 2026-09-29 dev store:
+#: every sound cluster the check judges is at or below 1.36 (Gonzaga); above are 2.97 (three
+#: withdrawn Rolling Upland re-filings), 5.61 (Cody Road re-filings) and 10.51 (Riverhead). 2.0
+#: sits in that gap. In-sample; docs/22 §22.8 is the out-of-sample check.
+COHERENCE_FACTOR = 2.0
+
+
+def coherence_ratio(members: Sequence[ClusterMember]) -> tuple[float, str | None]:
+    """The largest (one source's requests in one technology family) / (the cluster's EIA capacity
+    in that family), over families holding two or more of one source's requests; 0.0 when nothing
+    can be judged. `coherence_conflict` compares it with `COHERENCE_FACTOR`.
+
+    A family with a single request is not judged here: one request against one plant is rule C's
+    job (docs/22 §22.8, "K-v1"). Briggs files one solar and one storage request with ERCOT; its
+    336 MW storage request against the plant's 70.5 MW storage generator is one request, compared
+    pairwise with the whole 375.5 MW plant, and the cluster merges.
+
+    Counted per family because ERCOT files a hybrid's solar and storage as two requests and EIA
+    lists them as two generators (Harryoung: 190 + 190 against 190 + 190), and a family the EIA
+    side does not hold is not judged (EIA-860M may list only the storage half of a plant whose
+    solar already operates: Duffy). A hybrid request counts once, in whichever of its families
+    holds the most EIA capacity (its MW is the point-of-interconnection total, not either half);
+    a request of unknown technology counts in the EIA side's largest family. Two rows of one
+    source with the same technology and MW count once (NYISO lists a project under its cluster id
+    and its queue position: 'KCE NY 30' as C24-008 and 1448). A request without MW is not counted."""
+    eia_cap: dict[str, float] = {}
+    for m in members:
+        if m.eia_plant_id and m.capacity_mw:
+            for fam in tech_families(m.technology) or ():
+                eia_cap[fam] = eia_cap.get(fam, 0.0) + float(m.capacity_mw)
+    if not eia_cap:
+        return 0.0, None
+    dominant = max(sorted(eia_cap), key=lambda f: eia_cap[f])
+
+    by_source: dict[str, dict[tuple[str | None, float], ClusterMember]] = {}
+    for m in members:
+        if m.eia_plant_id or not m.capacity_mw:
+            continue
+        by_source.setdefault(m.source_id, {})[(m.technology, round(float(m.capacity_mw), 1))] = m
+    worst, detail = 0.0, None
+    for source_id in sorted(by_source):
+        requests = by_source[source_id]
+        if len(requests) < 2:
+            continue
+        per_family: dict[str, float] = {}
+        count: dict[str, int] = {}
+        for m in requests.values():
+            fams = tech_families(m.technology)
+            present = [dominant] if fams is None else sorted(f for f in fams if f in eia_cap)
+            if not present:
+                continue
+            target = max(present, key=lambda f: eia_cap[f])
+            per_family[target] = per_family.get(target, 0.0) + float(m.capacity_mw or 0.0)
+            count[target] = count.get(target, 0) + 1
+        for fam in sorted(per_family):
+            if count[fam] < 2:
+                continue
+            ratio = per_family[fam] / eia_cap[fam]
+            if ratio > worst:
+                worst = ratio
+                detail = (
+                    f"{source_id}: {count[fam]} requests total {per_family[fam]:.1f} MW {fam} "
+                    f"against {eia_cap[fam]:.1f} MW in the EIA plant"
+                )
+    return worst, detail
+
+
+def coherence_conflict(
+    members: Sequence[ClusterMember], *, factor: float = COHERENCE_FACTOR
+) -> tuple[bool, str | None]:
+    """Whole-cluster check (docs/22 §22 rule K). Union-find accepts a cluster pair by pair, so a
+    town name can chain several requests onto one small plant (Riverhead). A cluster that holds
+    an EIA plant and two or more requests from one other source is refused when those requests,
+    in one technology family, add up to more than `factor` times the cluster's EIA capacity in
+    that family (`coherence_ratio`). It goes to review, not to merge."""
+    ratio, detail = coherence_ratio(members)
+    if ratio > factor:
+        return True, f"{detail} (x{ratio:.2f}, limit x{factor:g})"
+    return False, None
+
+
 def gate_cluster(
     members: Sequence[ClusterMember], min_score: float, *, threshold: float = MERGE_SCORE_THRESHOLD
 ) -> tuple[bool, str]:
-    """The confidence gate (task step 2): both conditions must hold for a cluster to be merged."""
+    """The confidence gate (task step 2): every condition must hold for a cluster to be merged."""
     if len(members) < 2:
         return False, "singleton after filtering to loaded records"
     if min_score < threshold:
@@ -177,7 +266,10 @@ def gate_cluster(
     conflict, detail = id_reuse_conflict(members)
     if conflict:
         return False, f"id-reuse guard: {detail}"
-    return True, "min pairwise score >= threshold and no id-reuse conflict"
+    incoherent, detail = coherence_conflict(members)
+    if incoherent:
+        return False, f"coherence check: {detail}"
+    return True, "min pairwise score >= threshold, no id-reuse conflict, coherent capacity"
 
 
 def choose_canonical(members: Sequence[ClusterMember]) -> ClusterMember:

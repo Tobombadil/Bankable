@@ -267,8 +267,9 @@ Put "check the nightly run" on the weekly list until an alert route exists (§7.
 ### 4.4 Resolution and coverage QA
 
 - Merges are reversible events; `resolution_decision` rows short-circuit later automation; clusters the resolver
-  cannot decide route to human review (3 on the 2026-09-13 load). The measured bar is precision/recall
-  0.946/0.946 on the usable labels; the 600-label held-out set of the M-1 recalibration and `data/eval/reports/
+  cannot decide route to human review (4 clusters on the 2026-09-29 dev store: 3 by the coherence check, 1 by
+  the id-reuse guard). The measured bar through the store is precision/recall 1.000/0.892 on the 77 usable labels
+  (re-measured 2026-09-29, `docs/22` §22); the 600-label held-out set of the M-1 recalibration and `data/eval/reports/
   <version>.md` (DA-9) do not exist. **Weekly:** count of open `resolution_dispute` tasks and unmerge events.
 - Coverage is derived, not written: `GET /v1/coverage` and the `/coverage` page (86 registered / 16 with rows /
   19 withheld on the 2026-09-21 load; 119 manifest entries today). **Weekly:** read the three counts and the
