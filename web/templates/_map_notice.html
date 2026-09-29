@@ -1,0 +1,6 @@
+{#- The home map's lifecycle notice: rendered inside `#map-notice` by `home_map` and again, for
+    the filters map.js has just applied, by `/api/proposals/notice` -- one template for both, so the
+    wording cannot drift between first paint and a filter change. Nothing when the link names its
+    own `lifecycle_state` (the page then says nothing it did not choose). -#}
+{% import "_macros.html" as m %}
+{%- if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif -%}

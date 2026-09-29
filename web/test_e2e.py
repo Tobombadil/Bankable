@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import functools
 import http.server
+import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -20,6 +22,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from playwright.sync_api import Route, sync_playwright
@@ -40,7 +43,10 @@ def _launch_kwargs() -> dict[str, Any]:
     return {"executable_path": CHROMIUM_PATH} if os.path.exists(CHROMIUM_PATH) else {}
 
 
-BASE_URL = "http://127.0.0.1:8799"
+# Overridable so two checkouts on one machine can run this suite at once without one server
+# answering the other's browser (`E2E_PORT=8811`); 8799 otherwise, as before.
+E2E_PORT = int(os.environ.get("E2E_PORT") or "8799")
+BASE_URL = f"http://127.0.0.1:{E2E_PORT}"
 # The committed reference screenshots in web/screenshots/ are refreshed only on request
 # (`E2E_REFRESH_SCREENSHOTS=1`, run against the real normalized data). Every other run,
 # including CI on the eval fixture, writes to the git-ignored web/.data/ tree so a test run
@@ -315,8 +321,8 @@ def server() -> object:
     database_url = _ensure_db_loaded(DB_PATH)
     env = dict(os.environ, DATABASE_URL=database_url, WEB_DEV_PREVIEW="1", MAP_TILE_URL=FAKE_PMTILES_URL)
     env.pop("API_BASE_URL", None)  # in-process API mount, backed by the same SQLite file
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", "8799"],
+    proc = subprocess.Popen(  # noqa: S603 -- fixed argv; the port is an int parsed above
+        [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", str(E2E_PORT)],
         cwd=REPO_ROOT,
         env=env,
         stdout=subprocess.PIPE,
@@ -438,6 +444,77 @@ def _check_desktop_and_narrow(browser: object) -> None:
     narrow.screenshot(path=str(SCREENSHOT_DIR / "detail-400px.png"), full_page=True)
     page.close()
     narrow.close()
+
+
+_COUNT_READY = "() => /match these filters/.test(document.getElementById('map-result-count').textContent)"
+
+
+def _geo_records(query: str) -> int:
+    with urllib.request.urlopen(f"{BASE_URL}/api/proposals/geo?{query}", timeout=30) as r:  # noqa: S310 -- localhost only
+        return int(json.load(r)["data"]["totals"]["records"])
+
+
+def _notice_active_count(page: Any) -> int:
+    match = re.search(r"Showing (\d+) active proposals", page.inner_text("#map-notice"))
+    assert match, page.inner_text("#map-notice")
+    return int(match.group(1))
+
+
+def test_map_keeps_and_forwards_a_linked_kind_filter(server: object) -> None:
+    """2026-09-29: `/?kind=load` drew every proposal (5,853) under a notice counting 46, because
+    map.js forwarded four filters by hand, and `writeFilters` then rewrote the URL without `kind`.
+    The page now hands map.js the passthrough names; this walks the real page: the geo request
+    carries the linked filter, the count line is the API's own total for that query and agrees
+    with the server notice, the URL still names the filter once map.js has rewritten it, and the
+    Kind select drives the same round trip (notice included) after a change."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.route(
+                "**/api/ui-events",
+                lambda route: route.fulfill(status=202, content_type="application/json", body="{}"),
+            )
+            with page.expect_response(lambda r: "/api/proposals/geo?" in r.url, timeout=30000) as geo_info:
+                page.goto(BASE_URL + "/?kind=load")
+            page.wait_for_selector("#map canvas", timeout=10000)
+            page.wait_for_function("() => window.__map && window.__map.isStyleLoaded()", timeout=15000)
+            page.wait_for_function(_COUNT_READY, timeout=15000)
+
+            geo = geo_info.value
+            assert parse_qs(urlsplit(geo.url).query).get("kind") == ["load"], geo.url
+            shown = int(page.inner_text("#map-result-count").split()[0])
+            assert shown == geo.json()["data"]["totals"]["records"]
+            # The same query asked independently of the page, and the unfiltered total beside it:
+            # the count is the filtered answer, not the everything-answer it used to show.
+            api_load = _geo_records("kind=load&placement=exact,region&bbox=-179,-85,179,85&zoom=3")
+            api_all = _geo_records("placement=exact,region&bbox=-179,-85,179,85&zoom=3")
+            assert shown == api_load
+            assert api_load < api_all
+            assert _notice_active_count(page) == shown  # the server breakdown says the same
+            assert page.eval_on_selector("#mf-kind", "el => el.value") == "load"
+            assert parse_qs(urlsplit(page.url).query).get("kind") == ["load"], page.url
+
+            # The control: picking another kind refetches with it, rewrites the URL with it and
+            # re-renders the notice for it.
+            def _generation_geo(r: Any) -> bool:
+                return "/api/proposals/geo?" in r.url and "kind=generation" in r.url
+
+            with (
+                page.expect_response(_generation_geo) as geo2,
+                page.expect_response(lambda r: "/api/proposals/notice?" in r.url) as notice_info,
+            ):
+                page.select_option("#mf-kind", "generation")
+            generation = geo2.value.json()["data"]["totals"]["records"]
+            assert "kind=generation" in notice_info.value.url
+            count_js = "document.getElementById('map-result-count').textContent"
+            notice_js = "document.getElementById('map-notice').textContent"
+            page.wait_for_function(f"() => {count_js}.startsWith('{generation} ')")
+            page.wait_for_function(f"() => {notice_js}.includes('Showing {generation} active')")
+            assert parse_qs(urlsplit(page.url).query).get("kind") == ["generation"], page.url
+        finally:
+            browser.close()
 
 
 # ============================================================================================

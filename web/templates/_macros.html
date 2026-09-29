@@ -49,7 +49,8 @@
 {% macro active_states_notice(breakdown, include_withdrawn) -%}
 <p class="view-notice" role="status">
   {%- if include_withdrawn -%}
-  Showing every lifecycle state: {{ breakdown.total }} proposals, including {{ breakdown.withdrawn }} withdrawn or cancelled.
+  Showing {{ breakdown.active + breakdown.withdrawn }} proposals, including {{ breakdown.withdrawn }} withdrawn or cancelled
+  {%- if breakdown.other %} ({{ breakdown.other }} built or unknown-state proposals are outside this view){% endif -%}.
   {%- else -%}
   Showing {{ breakdown.active }} active proposals (announced through under construction).
   {{ breakdown.withdrawn }} withdrawn/cancelled {{ 'is' if breakdown.withdrawn == 1 else 'are' }} hidden by default so the map isn&rsquo;t dominated by dead projects

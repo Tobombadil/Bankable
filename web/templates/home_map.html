@@ -10,14 +10,25 @@
   <p>Proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO, with existing power plants, gas infrastructure and transmission lines as a context layer. Filters apply to the map and the list together; the URL always reflects the current view.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
-{% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
+<div id="map-notice">{% include "_map_notice.html" %}</div>
 
-<form id="map-filters" class="filter-bar" aria-label="Map filters">
+{# `data-passthrough`: every proposal filter the site passes through (web/app.py
+   PROPOSAL_PASSTHROUGH_FILTERS). map.js keeps each one in the URL and forwards it to
+   `/api/proposals/geo`, whether or not a control below sets it, so `/?state=US-VA` narrows the
+   map exactly as it narrows `/proposals`; a name not listed here is never forwarded. #}
+<form id="map-filters" class="filter-bar" aria-label="Map filters" data-passthrough="{{ passthrough_filters|join(',') }}">
   <div class="filter-field">
     <label for="mf-technology">Technology</label>
     <select id="mf-technology" name="technology">
       <option value="">All</option>
       {% for t in technologies %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="mf-kind">Kind</label>
+    <select id="mf-kind" name="kind">
+      <option value="">All</option>
+      {% for value, label in kind_options %}<option value="{{ value }}"{% if filters.get('kind') == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </div>
   <div class="filter-field">

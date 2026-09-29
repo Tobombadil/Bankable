@@ -325,6 +325,43 @@
     sendUiEvent("map.basemap_failed", {});
   }
 
+  // Proposal filters the site passes through (web/app.py PROPOSAL_PASSTHROUGH_FILTERS, rendered
+  // into the form's `data-passthrough`, so this file keeps no second, drifting list). Four have a
+  // control on this page; every other one is read from the URL, kept in it and forwarded to the
+  // geo request untouched, so `/?state=US-VA` narrows the map exactly as `/proposals?state=US-VA`
+  // narrows the list (2026-09-29: only four were known here and `/?kind=load` drew 5,853
+  // proposals under a notice counting 46, then rewrote the URL without `kind`). `lifecycle_state`
+  // sits outside that tuple because the server resolves it (web/viewmodels.py
+  // resolve_proposal_lifecycle_param) and is kept the same way. Anything else is not forwarded.
+  var FORM_CONTROLLED_FILTERS = ["technology", "kind", "jurisdiction", "placement"];
+  var PASSTHROUGH_FILTERS = (document.getElementById("map-filters").getAttribute("data-passthrough") || "")
+    .split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  var URL_ONLY_FILTERS = PASSTHROUGH_FILTERS.filter(function (name) {
+    return FORM_CONTROLLED_FILTERS.indexOf(name) === -1;
+  }).concat(["lifecycle_state"]);
+
+  function readUrlOnlyFilters(params) {
+    var out = {};
+    URL_ONLY_FILTERS.forEach(function (name) {
+      var value = params.get(name);
+      if (value) out[name] = value;
+    });
+    return out;
+  }
+
+  // The proposal filters (not the layers, region or placement) as query parameters: the URL, the
+  // geo request and the notice fragment all carry exactly this set.
+  function appendProposalFilters(params, filters) {
+    if (filters.technology) params.set("technology", filters.technology);
+    if (filters.kind) params.set("kind", filters.kind);
+    if (filters.jurisdiction) params.set("jurisdiction", filters.jurisdiction);
+    if (filters.include_withdrawn) params.set("include_withdrawn", "1");
+    var urlOnly = filters.url_only || {};
+    URL_ONLY_FILTERS.forEach(function (name) {
+      if (urlOnly[name]) params.set(name, urlOnly[name]);
+    });
+  }
+
   // ADR 0008 placement grades: the three checkboxes' allowed values, in the fixed order the URL
   // and the API's `placement` csv both use.
   var PLACEMENT_GRADES = ["exact", "region", "none"];
@@ -350,8 +387,10 @@
     var layersParam = params.get("layers") || "";
     return {
       technology: params.get("technology") || "",
+      kind: params.get("kind") || "",
       jurisdiction: params.get("jurisdiction") || "",
       include_withdrawn: params.get("include_withdrawn") === "1",
+      url_only: readUrlOnlyFilters(params),
       layers: layersParam ? layersParam.split(",").filter(Boolean) : [],
       region: params.get("region") || "",
       plant_technology: PLANT_FAMILY_CLASSES[params.get("plant_technology") || ""] ? params.get("plant_technology") : "",
@@ -362,9 +401,7 @@
 
   function writeFilters(filters) {
     var params = new URLSearchParams();
-    if (filters.technology) params.set("technology", filters.technology);
-    if (filters.jurisdiction) params.set("jurisdiction", filters.jurisdiction);
-    if (filters.include_withdrawn) params.set("include_withdrawn", "1");
+    appendProposalFilters(params, filters);
     if (filters.layers && filters.layers.length) params.set("layers", filters.layers.join(","));
     if (filters.region) params.set("region", filters.region);
     if (filters.plant_technology) params.set("plant_technology", filters.plant_technology);
@@ -395,15 +432,23 @@
     var params = new URLSearchParams();
     params.set("bbox", bbox.join(","));
     params.set("zoom", String(zoom));
-    if (filters.technology) params.set("technology", filters.technology);
-    if (filters.jurisdiction) params.set("jurisdiction", filters.jurisdiction);
-    if (filters.include_withdrawn) params.set("include_withdrawn", "1");
+    appendProposalFilters(params, filters);
     // ADR 0008 placement grades (docs/23 §3.1): csv of exact|region|none, API default
     // "exact,region" -- sent explicitly rather than relying on that default so the map always
     // requests exactly what the three checkboxes show, including when "none" is checked (its
     // only visible effect: `totals.unplaced` is then populated, see `render()`'s unplaced note).
     params.set("placement", (filters.placement && filters.placement.length ? filters.placement : DEFAULT_PLACEMENT).join(","));
     return "/api/proposals/geo?" + params.toString();
+  }
+
+  // The lifecycle notice above the filters, re-rendered by the server (web/app.py
+  // proposals_notice_fragment) for the filters just applied, so it and the count line describe
+  // the same set after a change as they do on first paint.
+  function noticeUrl(filters) {
+    var params = new URLSearchParams();
+    appendProposalFilters(params, filters);
+    params.set("placement", (filters.placement && filters.placement.length ? filters.placement : DEFAULT_PLACEMENT).join(","));
+    return "/api/proposals/notice?" + params.toString();
   }
 
   // ADR 0008 task item 2 + midstream slice: the existing-assets fetch points at `/v1/assets/geo`
@@ -499,6 +544,7 @@
 
   var filters = readFilters();
   document.getElementById("mf-technology").value = filters.technology;
+  document.getElementById("mf-kind").value = filters.kind;
   document.getElementById("mf-jurisdiction").value = filters.jurisdiction;
   document.getElementById("mf-include-withdrawn").checked = filters.include_withdrawn;
   var plantsToggle = document.getElementById("mf-layer-plants");
@@ -1283,6 +1329,19 @@
   function hideTooltip() { if (tooltip) { tooltip.remove(); tooltip = null; } }
 
   // ---- filters ----
+  // Only the latest response is applied, so a slow answer for an earlier filter set can never
+  // overwrite the notice for the current one. A failed fetch leaves the last notice standing.
+  var noticeEl = document.getElementById("map-notice");
+  var noticeSeq = 0;
+  function refreshNotice() {
+    if (!noticeEl) return;
+    var seq = ++noticeSeq;
+    fetch(noticeUrl(filters))
+      .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+      .then(function (html) { if (seq === noticeSeq) noticeEl.innerHTML = html; })
+      .catch(function () { /* keep the last-known notice (docs/31 §6 error state) */ });
+  }
+
   function currentPlacement() {
     return PLACEMENT_GRADES.filter(function (grade) { return placementCheckboxes[grade].checked; });
   }
@@ -1291,8 +1350,10 @@
     var picked = currentAssetTypes();
     filters = {
       technology: document.getElementById("mf-technology").value,
+      kind: document.getElementById("mf-kind").value,
       jurisdiction: document.getElementById("mf-jurisdiction").value,
       include_withdrawn: document.getElementById("mf-include-withdrawn").checked,
+      url_only: filters.url_only,
       layers: filters.layers,
       region: filters.region,
       plant_technology: plantTypeSelect.value,
@@ -1303,6 +1364,7 @@
     syncAssetControls();
     if (map.getLayer("plant-points")) setPlantsLayerVisible(plantsToggle.checked);
     refetch();
+    refreshNotice();
   }
   plantTypeSelect.addEventListener("change", applyFilters);
   assetTypeBoxes.forEach(function (box) {
@@ -1312,6 +1374,7 @@
     });
   });
   document.getElementById("mf-technology").addEventListener("change", applyFilters);
+  document.getElementById("mf-kind").addEventListener("change", applyFilters);
   document.getElementById("mf-jurisdiction").addEventListener("change", applyFilters);
   document.getElementById("mf-include-withdrawn").addEventListener("change", applyFilters);
   plantsToggle.addEventListener("change", function () {
@@ -1335,8 +1398,12 @@
   });
   document.getElementById("mf-clear").addEventListener("click", function () {
     document.getElementById("mf-technology").value = "";
+    document.getElementById("mf-kind").value = "";
     document.getElementById("mf-jurisdiction").value = "";
     document.getElementById("mf-include-withdrawn").checked = false;
+    // "Clear all" also drops the filters that arrived in the link with no control on this page:
+    // left in place they would go on narrowing the map with nothing on screen saying so.
+    filters.url_only = {};
     plantTypeSelect.value = "";
     assetTypeBoxes.forEach(function (box) { box.checked = !box.disabled && ASSET_TYPES_LIVE.indexOf(box.value) !== -1; });
     placementCheckboxes.exact.checked = true;
