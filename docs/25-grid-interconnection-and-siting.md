@@ -768,6 +768,105 @@ truncated Centra Health name, which led to the rule fix above.
 - Georgia's 15 Planned sites are the richest pre-construction signal outside Virginia. The Georgia EPD
   advisories (§3.2 #3) remain gated on terms.
 
+### 3.8 Dev and static builds run resolution (lane H4, 2026-09-29)
+
+§3.7 left one item open: the dev store did not run the resolver, so every cross-source overlap showed
+twice. `python -m web.dev_up` now runs the scheduler's own resolution step after the load. That step is
+`infra/scheduler/jobs.py::default_resolve`, the body of `resolve_tick`. `--no-resolve` skips it.
+
+**Order.** The steps run as: load the sources (or the committed fixture), load the context layers,
+resolve, link interconnection points, compute matches, then `ANALYZE`. Resolution runs before the
+point and match passes so that both see only surviving proposals. `ANALYZE` stays last.
+`web/dev_up.py::build_store` holds this sequence and `main` calls it.
+
+**Seam.** `web.dev_up` imports `default_resolve` lazily from `infra.scheduler.jobs`. It adds no rule of
+its own. `infra` is not a root package in `infra/importlinter.ini`, and the `services.resolve` and
+`pipeline.resolve` imports stay inside `default_resolve`. So the `web-reads-through-the-api` contract
+is not widened: it still has 4 contracts kept, 0 broken, and no new ignore line. The resolver reads the
+same frames the dev loader loaded: the latest `ok` run per implemented proposal source under
+`--data-dir`. On the measured root, all seven proposal sources resolve to the same file.
+
+**Schema fix.** A fresh dev store had no `resolution_decision` table. The model is declared in
+`services/resolve/models.py`, and `init_db` imported only `services.db.models`. Until now the API
+server created the table at startup, after the load, which is why no dev load had failed on it. The
+first cluster the gate files for review raised `no such table`. `services/db/session.py::init_db` now
+imports both modules. Postgres is unaffected, because migration 0005 creates the table there.
+
+**Static build.** `web/build_data.py` reads parquet directly and does not resolve. It is not given a
+dedupe, because nothing serves its output. `web/app.py` reads only the API, and the only reader of
+`proposals.geojson` / `stats.json` is `web/test_build_data.py`.
+
+#### Measured (scratch copy of the dev data root plus the §3.7 ICIS-Air run, 2026-09-29)
+
+The data root was every `data/normalized/*` source, plus `us.epa.echo.icis_air` run `768140bc` (514
+rows). Timings are from one run each on this sandbox.
+
+| | Value |
+|---|---|
+| Full `dev_up` load, before (no resolution) | 162 s |
+| Full `dev_up` load, with resolution | 165 s |
+| `default_resolve` alone on the loaded store | 13.2 s (13.8 s inside the load) |
+| Live proposals, before → after | **11,098 → 10,524** (−574) |
+| Resolver clusters / merged / refused | 416 / 409 / 7 (6 bridged only through an unloaded record, 1 filed for review) |
+| Organisations merged | 0 |
+| Virginia DEQ + ICIS-Air proposals | 719 → 581, as in §3.7 |
+
+Merges by source pair. Each row is one `merged` event, with the absorbed record paired to the survivor's
+own source:
+
+| Pair | Merges |
+|---|---|
+| EIA-860M + ERCOT | 226 |
+| ICIS-Air + Virginia DEQ (shared `icis_air:` id) | 138 |
+| EIA-860M + EIA-860M (generators of one plant that match the same queue request) | 82 |
+| EIA-860M + NYISO | 75 |
+| EIA-860M + CAISO | 52 |
+| EIA-860M + ICIS-Air | 1 (wrong, below) |
+
+So 436 of the 574 were pre-existing overlaps that the dev store had shown twice, mostly EIA-860M
+generators that are also ISO queue requests. NESO has none: it has no cross-source counterpart.
+
+**Hand-check.** Ten merged pairs outside ICIS/VA were drawn at random (seed 20260929, from 666 merged edges):
+7 correct, 1 likely correct (Gonzaga Wind Farm 76 MW / Gonzaga Ridge 58 MW, same Merced wind site),
+2 uncertain, 0 clearly wrong. The uncertain two are "ROUGH HAT 2" (200 MW) against the 400 MW EIA plant
+"Rough Hat", and "South Ripley BESS" (20 MW storage) against "South Ripley Solar" (270 MW).
+
+**Wrong merges, found by targeted checks.** The resolver was not tuned in this lane; these are findings.
+- A data centre merged with solar: "FRANKLIN PARK (CHI22) DATA CENTER" (ICIS, load) with "Franklin Park
+  2-SLCHI802" (EIA, 1.2 MW solar, Prologis), Cook County. The evidence was name 66 and county 100. No
+  technology-class guard exists.
+- One side carries a phase number and the other does not. "BELLEFIELD SOLAR FARM" (CAISO 1510) merged
+  into EIA plant "Bellefield 2" together with CAISO 1631 "BELLEFIELD 2". "BONANZA SOLAR" and
+  "BONANZA SOLAR 2" (300 MW each) both merged into the one 300 MW EIA plant.
+- A capacity score of 0 is not a veto. "Indigo Solar 3" (ERCOT, 800 MW) merged into the 150/180 MW EIA
+  plant "Indigo Solar & Storage", in a 9-record cluster with six other Indigo requests.
+- A town name plus a county: five NYISO "Riverhead" requests (7.5–100 MW, solar and storage) merged with
+  a 4–5 MW EIA "Riverhead - CVE".
+- A B2 county block at score 76.7: "DRACKER SOLAR" (built, 485 MW) merged into "Grace Energy Center".
+- Transitive chaining: the resolver unions every accepted pair, and nothing checks that a cluster holds
+  together as a whole. 66 of the 409 merged clusters hold two or more requests from one ISO queue, and
+  they absorb 189 of the 574 records. In a random 10 of those 66, 8 were sound and 2 had one wrong
+  member (Bellefield, Dracker). The sound ones were hybrid solar and storage requests of one EIA
+  plant, and phases that add up to the plant.
+- In dev only: 7 clusters join loaded records only through a record that is not loaded
+  (`us.permits_dashboard`). `apply_cluster` refuses 6 of them. One, Bonanza, merged because it also had
+  one direct edge.
+
+Estimate: roughly 2–5 % of the 574 merges put a wrong record in a cluster, concentrated in the
+multi-request clusters. This is in line with the store-path precision of 0.946 recorded on 2026-09-13.
+Production's `resolve_tick` already applies the same merges. Each merge is a reversible `merged` event.
+
+**Also found.** `pipeline/resolve.py::eia_plant_rollup` selects `source_id == "eia860m"`, the short id
+of the evaluation fixture. Frames with registry ids (`us.eia.860m`, the only kind the scheduler and dev
+pass) never get plant-level rollup records.
+
+#### Open
+
+- The resolver's precision items listed above are for a resolver lane: a technology-class guard, an
+  asymmetric phase token, a capacity-0 veto, a cluster-coherence check, and the registry-id rollup.
+- `default_resolve` reads `Registry()` from `data/sources.yaml` and the store `SNAPSHOT_STORE` selects.
+  It ignores `dev_up --sources-yaml`.
+
 ## 4. Fiber availability by area
 
 Owner decision 2026-09-28: add **fiber availability by area**, not fiber routes. No open, current,

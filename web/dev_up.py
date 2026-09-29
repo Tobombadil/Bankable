@@ -16,6 +16,7 @@ want to pay.
                                         # records carry none -- see web/data_loading.py)
     python -m web.dev_up --sample 200    # cap each source to 200 rows/lifecycle-state, for fast iteration
     python -m web.dev_up --skip-load     # reuse whatever is already in --db
+    python -m web.dev_up --no-resolve    # skip cross-source resolution (docs/25 §3.8): overlaps show twice
 
 For an in-process run with no second server at all (what `pytest` uses by default, and a fine
 way to run `uvicorn web.app:app --reload` locally), leave `API_BASE_URL` unset and skip this
@@ -64,6 +65,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "(docs/00-PLAN.md task item 5). Labelled in the UI whenever this is on.",
     )
     parser.add_argument("--skip-load", action="store_true", help="Reuse the database at --db as-is.")
+    parser.add_argument(
+        "--no-resolve",
+        dest="resolve",
+        action="store_false",
+        help="Skip cross-source resolution after the load, so a record two sources both carry shows "
+        "once per source (docs/25 §3.8). Resolution runs by default, as the scheduler's resolve_tick "
+        "does in production.",
+    )
     parser.add_argument(
         "--sample",
         dest="sample_per_state",
@@ -370,6 +379,68 @@ def _link_interconnection_points(session: Session) -> None:
         log.info("interconnection points: %s", result.summary())
 
 
+def _resolve_clusters(session: Session, engine: Engine, data_dir: Path) -> None:
+    """Cross-source resolution (docs/25 §3.8): the scheduler's own `resolve_tick` body,
+    `infra.scheduler.jobs.default_resolve`, over this store and the same data root the load read.
+    It resolves organisations, then merges proposal clusters (the 138 Virginia DEQ / EPA ICIS-Air
+    facilities that cite one `icis_air:` id, and EIA-860M generators that are also ISO queue
+    requests). Reused rather than re-implemented, so the dev store matches what production shows.
+
+    The import is from `infra`, which `infra/importlinter.ini` does not list as a root package; the
+    `services.resolve` and `pipeline.resolve` imports stay inside `default_resolve`, so the
+    `web-reads-through-the-api` contract is not widened. `default_resolve` opens its own session,
+    so this one commits first (releasing SQLite's write lock) and expires everything afterwards:
+    the session does not expire on commit, and the steps after this one must see `merged_into_id`."""
+    from infra.scheduler.jobs import default_resolve
+
+    session.commit()
+    started = time.monotonic()
+    report = default_resolve(get_sessionmaker(engine), data_root=data_dir)
+    session.expire_all()
+    log.info("resolution: %s in %.1fs", report, time.monotonic() - started)
+
+
+def build_store(
+    database_url: str,
+    *,
+    data_dir: Path,
+    sources_yaml: Path,
+    preview: bool = False,
+    sample_per_state: int | None = None,
+    resolve: bool = True,
+) -> dict[str, Any]:
+    """Create the schema at `database_url` and load everything the site serves, in order: the
+    connector output (or the committed fixture), the context layers, cross-source resolution
+    (unless `resolve` is false), interconnection points, matches, then `ANALYZE` last. Resolution
+    runs before the point and match passes so both see only surviving proposals. Returns the
+    load report."""
+    engine = get_engine(database_url)
+    init_db(engine)
+    session: Session = get_sessionmaker(engine)()
+    try:
+        report = load_dev_database(
+            session,
+            data_root=data_dir,
+            sources_yaml=sources_yaml,
+            preview=preview,
+            sample_per_state=sample_per_state,
+        )
+        load_fixture_if_empty(session, report, sample_per_state=sample_per_state)
+        _load_plants_context_layer(session, data_dir)
+        _load_context_asset_layers(session, data_dir)  # includes owner shares + features
+        if resolve:
+            _resolve_clusters(session, engine, data_dir)
+        else:
+            log.info("resolution: skipped (--no-resolve)")
+        _link_interconnection_points(session)
+        _run_matches(session)
+        session.commit()  # belt-and-braces: correct even if either loader above also commits
+        refresh_planner_statistics(session)
+    finally:
+        session.close()
+    return report
+
+
 def refresh_planner_statistics(session: Session) -> None:
     """`ANALYZE` after a bulk load, so the query planner has row counts to choose indexes from.
     Without statistics SQLite picked `ix_proposal_publish_public_at` over the interconnection-point
@@ -464,26 +535,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.db.exists():
             log.info("rebuilding %s from scratch (a full load follows)", args.db)
             args.db.unlink()
-        engine = get_engine(database_url)
-        init_db(engine)
-        session: Session = get_sessionmaker(engine)()
-        try:
-            report = load_dev_database(
-                session,
-                data_root=args.data_dir,
-                sources_yaml=args.sources_yaml,
-                preview=args.preview,
-                sample_per_state=args.sample_per_state,
-            )
-            load_fixture_if_empty(session, report, sample_per_state=args.sample_per_state)
-            _load_plants_context_layer(session, args.data_dir)
-            _load_context_asset_layers(session, args.data_dir)  # includes owner shares + features
-            _link_interconnection_points(session)
-            _run_matches(session)
-            session.commit()  # belt-and-braces: correct even if either loader above also commits
-            refresh_planner_statistics(session)
-        finally:
-            session.close()
+        report = build_store(
+            database_url,
+            data_dir=args.data_dir,
+            sources_yaml=args.sources_yaml,
+            preview=args.preview,
+            sample_per_state=args.sample_per_state,
+            resolve=args.resolve,
+        )
         log.info("loaded: %s", report)
     else:
         # Reuse is the whole point of --skip-load, so the stale-schema case cannot be fixed by

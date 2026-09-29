@@ -54,7 +54,10 @@ def init_db(engine: Engine) -> None:
     """Create every table from the ORM metadata. Test/dev convenience only — the canonical,
     reviewable schema change process for Postgres is the Alembic migration under
     services/db/migrations/versions (docs/04 E-11)."""
-    import services.db.models  # noqa: F401 — registers tables on Base.metadata
+    # Both imports register tables on Base.metadata: `resolution_decision` (migration 0005) is declared in
+    # services/resolve/models.py, and without it a fresh dev store had no review queue for the resolver.
+    import services.db.models
+    import services.resolve.models  # noqa: F401
 
     Base.metadata.create_all(engine)
 
