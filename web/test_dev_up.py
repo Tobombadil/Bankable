@@ -350,3 +350,126 @@ def test_refresh_planner_statistics_writes_sqlite_statistics(tmp_path: Path) -> 
         query = text("SELECT name FROM sqlite_master WHERE type='table'")
         tables = {row[0] for row in session.execute(query)}
     assert "sqlite_stat1" in tables
+
+
+# ------------------------------------------------------------ cross-source resolution (docs/25 §3.8)
+_VA = "us.va.deq.data_center_air_sites"
+_ICIS = "us.epa.echo.icis_air"
+#: One facility both recorded fixtures carry: DEQ's PLA_ICIS_ID 74349 is ICIS-Air's PGM_SYS_ID
+#: VA0000005115374349, so both rows cite `icis_air:VA0000005115374349`.
+_SHARED = {_VA: "74349", _ICIS: "VA0000005115374349"}
+
+
+def _two_source_data_root(root: Path) -> Path:
+    """A data root holding one normalised row per source for the shared facility, each with the run
+    record the connector runner writes, parsed from the committed fixtures (no network)."""
+    import json
+
+    from conftest import connector_for, snapshot
+    from pipeline.connectors.us_epa_echo_icis_air.connector import ICIS_URL
+    from pipeline.connectors.us_va_deq_data_center_air_sites.connector import LAYER_URL
+
+    fixtures = {
+        _VA: ("va_deq_air_sites_data_centers.json", LAYER_URL),
+        _ICIS: ("epa_icis_air_data_centers.json", ICIS_URL),
+    }
+    ts = "20260929T120000Z"
+    for index, (source_id, (fixture, url)) in enumerate(fixtures.items()):
+        connector = connector_for(source_id)
+        raw = snapshot(fixture, url, "application/json")
+        frame = connector.normalize(connector.parse(raw), raw)
+        frame = frame[frame["source_record_id"] == _SHARED[source_id]].reset_index(drop=True)
+        assert len(frame) == 1 and f"icis_air:{_SHARED[_ICIS]}" in str(frame.at[0, "cross_refs"])
+        parquet = root / "normalized" / source_id / f"{ts}.parquet"
+        parquet.parent.mkdir(parents=True)
+        frame.to_parquet(parquet, index=False)
+        run = root / "runs" / source_id / f"{ts}.json"
+        run.parent.mkdir(parents=True)
+        run_record = {
+            "id": f"00000000-0000-4000-8000-00000000000{index}",
+            "status": "ok",
+            "outputs": {"normalized": str(parquet)},
+        }
+        run.write_text(json.dumps(run_record))
+    return root
+
+
+def _live_proposals(db: Path) -> list[tuple[str, ...]]:
+    """Per live proposal (not merged into another), the sorted source ids of its active links."""
+    from sqlalchemy import select
+
+    from services.db.models import Proposal, ProposalSource
+    from services.db.session import get_engine, get_sessionmaker
+
+    with get_sessionmaker(get_engine(f"sqlite+pysqlite:///{db}"))() as session:
+        rows = session.execute(
+            select(Proposal.id, ProposalSource.source_id)
+            .join(ProposalSource, ProposalSource.proposal_id == Proposal.id)
+            .where(Proposal.merged_into_id.is_(None), ProposalSource.active.is_(True))
+        ).all()
+    by_proposal: dict[object, list[str]] = {}
+    for proposal_id, source_id in rows:
+        by_proposal.setdefault(proposal_id, []).append(source_id)
+    return sorted(tuple(sorted(sources)) for sources in by_proposal.values())
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        ([], [(_ICIS, _VA)]),  # one proposal carrying both sources
+        (["--no-resolve"], [(_ICIS,), (_VA,)]),  # one proposal per source
+    ],
+)
+def test_build_store_resolves_a_shared_registry_id_to_one_proposal(
+    tmp_path: Path, argv: list[str], expected: list[tuple[str, ...]]
+) -> None:
+    from sqlalchemy import inspect as sa_inspect
+
+    from services.db.session import get_engine
+
+    """The dev store runs the scheduler's resolution after the load (docs/25 §3.8): a facility that
+    Virginia DEQ and EPA ICIS-Air both cite by one `icis_air:` id is one proposal with both source
+    links, and `--no-resolve` leaves it as two."""
+    data_root = _two_source_data_root(tmp_path / "data")
+    args = dev_up._parse_args(["--data-dir", str(data_root), "--db", str(tmp_path / "dev.db"), *argv])
+    report = dev_up.build_store(
+        f"sqlite+pysqlite:///{args.db}",
+        data_dir=args.data_dir,
+        sources_yaml=args.sources_yaml,
+        resolve=args.resolve,
+    )
+    assert report["sources"][_VA] == "loaded" and report["sources"][_ICIS] == "loaded"
+    assert _live_proposals(args.db) == expected
+    # The gate files a below-threshold cluster into `resolution_decision`, so the store must have it
+    # before the API server's own startup would create it.
+    engine = get_engine(f"sqlite+pysqlite:///{args.db}")
+    assert "resolution_decision" in sa_inspect(engine).get_table_names()
+
+
+def test_build_store_resolves_after_the_loads_and_before_points_matches_and_analyze(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Resolution runs once every loader has written its rows, and before the interconnection-point
+    and match passes, so both see only surviving proposals; `ANALYZE` stays last."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        dev_up, "load_dev_database", lambda session, **kw: calls.append("load") or {"sources": {}}
+    )
+    monkeypatch.setattr(dev_up, "load_fixture_if_empty", lambda *a, **kw: calls.append("fixture"))
+    monkeypatch.setattr(dev_up, "_load_plants_context_layer", lambda *a: calls.append("plants"))
+    monkeypatch.setattr(dev_up, "_load_context_asset_layers", lambda *a: calls.append("context"))
+    monkeypatch.setattr(dev_up, "_resolve_clusters", lambda *a: calls.append("resolve"))
+    monkeypatch.setattr(dev_up, "_link_interconnection_points", lambda *a: calls.append("points"))
+    monkeypatch.setattr(dev_up, "_run_matches", lambda *a: calls.append("matches"))
+    monkeypatch.setattr(dev_up, "refresh_planner_statistics", lambda *a: calls.append("analyze"))
+    url = f"sqlite+pysqlite:///{tmp_path / 'order.db'}"
+    dev_up.build_store(url, data_dir=tmp_path, sources_yaml=dev_up.DEFAULT_SOURCES_YAML)
+    assert calls == ["load", "fixture", "plants", "context", "resolve", "points", "matches", "analyze"]
+    calls.clear()
+    dev_up.build_store(url, data_dir=tmp_path, sources_yaml=dev_up.DEFAULT_SOURCES_YAML, resolve=False)
+    assert calls == ["load", "fixture", "plants", "context", "points", "matches", "analyze"]
+
+
+def test_no_resolve_flag_defaults_to_resolving() -> None:
+    assert dev_up._parse_args([]).resolve is True
+    assert dev_up._parse_args(["--no-resolve"]).resolve is False
