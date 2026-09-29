@@ -232,6 +232,88 @@ Backfilling all four registers took 5.3 s (`link_all_points`), and an idempotent
   is outside this lane). The pages use the existing list and detail idioms only.
 - **Counsel read.** D-18, the POI name for `derived_only` registers.
 
+### 1.7 Sitemap, M-11 coverage and recent changes (lane H2, 2026-09-29)
+
+**Sitemap.** `/interconnection-points` and every point detail page are in the sitemap (`web/sitemaps.py`). The
+sitemap reads `GET /v1/interconnection-points` at the anonymous tier, like the other resources, so it lists a
+point only when that list does. The list admits a point only when its register passes `source_permits` and
+`licence_permits` and at least one of its proposals is visible (`listed_points`). A gated or emptied point is
+therefore absent, and the sitemap cannot be used to test whether a point id exists. Rows are keyed by
+`public_id`, because a point has no slug. A test pins the sitemap's point set to the set that
+`interconnection_point_visibility_filter` admits, so it is not checked against a hand-written list.
+
+**M-11 audit.** `services/visibility_audit/run.py` covers points on both passes. The counts gain an
+`interconnection_points` surface.
+
+- *Store pass.* The audit states the rule independently of the predicate. A *clean* proposal is public, past
+  `public_at`, of a publishable class, and has an active link to an ungated source. A *clean* point has an
+  ungated register and licence and at least one clean proposal. The audit renders the surfaces through the
+  builders they call and compares each result with that rule:
+  - the detail's point set (`point_shown_printed`) and the list's (`point_listed_printed`);
+  - `point_totals`, against the sum over clean proposals (`point_total_printed:totals:<field>`);
+  - the detail's proposal rows (`point_proposal_printed`) and its `recent_changes` (`point_change_printed`);
+  - the proposal-detail and bulk embeds (`point_embed_printed`, `point_total_printed:{proposal,bulk}_embed:<field>`).
+- *Served pass.* The audit sends real anonymous requests:
+  - the list's first page;
+  - for up to 5 hidden points, the API detail and the web page, which must be the unknown id's 404
+    (`point_hidden_served`);
+  - `GET /v1/proposals?interconnection_point_id=` for each of those points, which must return exactly the page an
+    unknown id gets (`point_oracle_served`);
+  - for the 5 busiest clean points, the API detail, one proposal's embed and the web page's active MW
+    (`point_total_served`, `point_proposal_served`, `point_change_served`).
+- *Budget.* Points cost at most 22 anonymous requests. Web pages go through the site's service identity.
+- *Persisted row.* Breach rows carry public ids and field names only. They never carry a point's name or a
+  megawatt figure (tested).
+
+**Recent changes at this point.** `GET /v1/interconnection-points/{id}` carries `recent_changes[]`. It holds the
+newest 10 change events (by `observed_at`, then `seq`) whose subject is one of the point's visible proposals.
+
+- The event types are `created` and the proposal-lifecycle group of `docs/21` §7.3. The loader emits `created`,
+  `status_change` and `withdrawn` today.
+- Each event is in the `Event` shape.
+- Events are filtered by the same `event_visibility_filter` as `GET /v1/events`, and by `point_proposal_filter`,
+  the one clause list that all point numbers use. No row can name a proposal that `proposals[]` withholds.
+- The field adds no event type and no table.
+- The page has a "Recent changes at this point" table with four columns: date observed, change, linked project
+  and credited source. Each event's source joins the Sources panel. When the table is empty, the page says so in
+  one line.
+
+### Measured (copies of `web/.data/dev.db` in the lane's scratch space, 2026-09-29)
+
+| Measure | Result |
+|---|---|
+| Sitemap point URLs | 4,742, equal to the stored points and to the predicate's set (sitemap: an index plus 3 files, 54,421 URLs) |
+| Audit on the dev store | `m11 = 0`; points shown 4,742; 16 served point checks, 0 leaks, 0 inconclusive; `web_pages = checked` |
+| Points with change events on the dev store | 0 of 4,742 (see below) |
+| Recent changes after one perturbed ERCOT snapshot | 84 points with rows; API detail median 57–67 ms on 3 points; audit `m11 = 0` |
+
+- **No events on the dev store.** The queue registers have one snapshot each. The store's 369 events come from
+  EIA-860M and matching, and none of their proposals carries a POI.
+- **Perturbed snapshot.** This run uses synthetic changes applied through real code. `pipeline/diff.py::perturb`
+  (seed 20260929) was applied to the real ERCOT snapshot, the result was diffed by `diff_snapshots`, and it was
+  loaded through `load_dataframe` into a second scratch copy. That produced 105 events, of which 85 are
+  queue-news types.
+- **Rendered rows.** Three points were rendered with their rows:
+  - "Tap 345kV 39950 TNP ONE PLANT - 3400 TWIN OAK Ckt 2": 2 rows, "Entered the queue here as studied";
+  - "60400 Lynx 138kV": 1 row, "Withdrawn";
+  - "44200 Hillje 345kV": 1 row, "Entered the queue here as built".
+- **Axe.** The page is axe-clean at 1440 and 390 px, both with rows and in the empty state.
+
+### Limits and open items
+
+- **The audit takes about 35 s on the SQLite dev copy, against 3 s before.** Almost all of that time is one
+  query. It evaluates `interconnection_point_visibility_filter` over every point, and SQLite takes 26 s because
+  the dev store has no `ANALYZE` statistics. Without them the planner uses `ix_proposal_publish_public_at` for the
+  correlated EXISTS instead of `ix_proposal_interconnection_point_id`. After `ANALYZE` on a throwaway copy, the
+  same query takes 0.21 s. Postgres is expected to plan it on the FK index; this was not measured here. Running
+  `ANALYZE` after `web/dev_up.py` loads the store would fix the dev case. That is outside this lane.
+- **No web-page probes in the nightly job.** The scheduler image (`infra/docker/Dockerfile`) copies `services`
+  but not `web`, so the nightly audit reports `served.web_pages = unavailable` and makes none. The API probes and
+  the store pass still run. Web probes run in the test suite and wherever `web` is installed.
+- **Bulk's embed is checked on the store pass only.** Bulk needs an API key, and the served pass is anonymous.
+- **The proposal-list oracle check is served-only.** It covers the proposal list alone. The map, feed, export
+  and alert matcher share the same clause and are pinned by the existing parity tests, not by the audit.
+
 ## 2. Substations and transmission lines (lane G2, 2026-09-28)
 
 Owner decision 2026-09-28: substations and transmission lines become built-infrastructure context layers, for

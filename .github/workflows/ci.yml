@@ -485,21 +485,25 @@ jobs:
         run: |
           npm install --no-save @axe-core/cli
           # Detail pages are looked up, not hard-coded: slugs come from whatever dev_up loaded. The
-          # API (dev_up's :8001) names the first proposal and the first asset; a load with no
+          # API (dev_up's :8001) names the first proposal, the first asset and the first grid
+          # interconnection point (keyed by `public_id`: a point has no slug); a load with no
           # proposal fails this step loudly rather than silently scanning no detail page (until
           # 2026-09-27 the step said "detail" and scanned /about instead).
           detail_urls="$(python - <<'PY'
           import json, sys, urllib.request
-          def first_slug(path):
+          def first_slug(path, key="slug"):
               with urllib.request.urlopen(f"http://127.0.0.1:8001{path}?limit=1", timeout=30) as r:
                   rows = json.load(r)["data"]
-              return rows[0]["slug"] if rows else None
+              return rows[0][key] if rows else None
           proposal, asset = first_slug("/v1/proposals"), first_slug("/v1/assets")
+          point = first_slug("/v1/interconnection-points", key="public_id")
           if proposal is None:
               sys.exit("no proposal loaded: there is no detail page to scan")
           urls = [f"http://127.0.0.1:8000/proposals/{proposal}"]
           if asset is not None:
               urls.append(f"http://127.0.0.1:8000/assets/{asset}")
+          if point is not None:
+              urls.append(f"http://127.0.0.1:8000/interconnection-points/{point}")
           print(" ".join(urls))
           PY
           )"

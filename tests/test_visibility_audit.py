@@ -44,8 +44,9 @@ from services.api.conftest import (
     make_visible_opportunity,
     make_visible_proposal,
 )
-from services.db.models import Event, Licence, Proposal, ProposalSource, Source
+from services.db.models import Event, InterconnectionPoint, Licence, Proposal, ProposalSource, Source
 from services.db.session import get_engine, get_sessionmaker, init_db
+from services.ids import public_id
 from services.visibility_audit import run
 from tests.conftest import login, make_account, make_user
 from tests.test_api_contract import assert_valid
@@ -832,3 +833,327 @@ def test_withheld_name_paths_reads_raw_strings_on_an_edge_to_a_public_organisati
         ],
     }
     assert run.withheld_name_paths(shape, withheld, operator_edge=False) == ["owners[0].owner_name_raw"]
+
+
+# ================================================================ interconnection points (lane H2)
+POINTS = run.POINTS
+VISIBLE_POINT_NAME = "59903 Bearkat 345kV"
+HIDDEN_POINT_NAME = "8140 Joslin 138kV"
+GATED_POINT_NAME = "Gated Sub 500kV"
+
+
+def _poi(db: Session, source: Source, name: str, key: str) -> InterconnectionPoint:
+    point = InterconnectionPoint(
+        public_id="",
+        operator="ERCOT",
+        name_display=name,
+        name_key=key,
+        key_rule="test",
+        kind="substation",
+        source_id=source.id,
+        source_url=source.url,
+        retrieved_at=dt.datetime.now(UTC),
+        licence_id=source.licence_id,
+    )
+    db.add(point)
+    db.flush()
+    point.public_id = public_id("poi", point.id)
+    db.flush()
+    return point
+
+
+def _at(
+    db: Session,
+    source: Source,
+    point: InterconnectionPoint,
+    suffix: str,
+    *,
+    mw: float,
+    lifecycle: str = "filed",
+    publish_state: str = "public",
+) -> Proposal:
+    prop = make_visible_proposal(db, source, public_id_suffix=suffix, lifecycle_state=lifecycle)
+    prop.capacity_mw = mw
+    prop.publish_state = publish_state
+    prop.interconnection_point_id = point.id
+    db.flush()
+    return prop
+
+
+def seed_points(db: Session) -> dict[str, Any]:
+    """The clean store plus three points: a visible one (active 100 MW, withdrawn 30 MW, and a
+    taken-down 900 MW row that no total may include), one whose only project is taken down, and one
+    named by the gated PJM register beside a visible project. Change events: a visible one, one on
+    the taken-down project, and one credited to the gated register -- only the first may be shown."""
+    seeded = seed_clean_store(db)
+    ercot, pjm = seeded["ercot"], seeded["pjm"]
+    visible = _poi(db, ercot, VISIBLE_POINT_NAME, "sub:bearkat|345|b59903")
+    emptied = _poi(db, ercot, HIDDEN_POINT_NAME, "sub:joslin|138|b8140")
+    gated = _poi(db, pjm, GATED_POINT_NAME, "sub:gated|500")
+    a1 = _at(db, ercot, visible, "21", mw=100.0)
+    a2 = _at(db, ercot, visible, "22", mw=30.0, lifecycle="withdrawn")
+    a3 = _at(db, ercot, visible, "23", mw=900.0, publish_state="unpublished")
+    h1 = _at(db, ercot, emptied, "24", mw=400.0, publish_state="unpublished")
+    g1 = _at(db, ercot, gated, "25", mw=40.0)
+    shown_event = make_event(db, a1, ercot, event_type="created")
+    make_event(db, a3, ercot, event_type="status_change")
+    gated_event = make_event(db, a1, pjm, event_type="status_change")
+    gated_event.idempotency_key += ":gated"
+    db.flush()
+    return {
+        **seeded,
+        "visible": visible,
+        "emptied": emptied,
+        "gated": gated,
+        "a1": a1,
+        "a2": a2,
+        "a3": a3,
+        "h1": h1,
+        "g1": g1,
+        "shown_event": shown_event,
+    }
+
+
+def _point_breaches(result: dict[str, Any]) -> list[dict[str, Any]]:
+    return _breaches(result, POINTS)
+
+
+def test_a_clean_store_with_points_yields_m11_zero_and_probes_every_point_surface(
+    db: Session, db_sessionmaker: sessionmaker[Session], spec: dict[str, Any]
+) -> None:
+    seeded = seed_points(db)
+    db.commit()
+
+    result = run.run_audit(db_sessionmaker)
+
+    assert result["m11"] == 0, result["breaches"]
+    assert result["counts"][POINTS] == {"shown": 1, "breaches": 0}
+    served = result["served"]
+    assert served["leaks"] == 0 and served["inconclusive"] == 0
+    assert served["web_pages"] == "checked"
+    points = [c for c in served["checks"] if c["surface"] == POINTS]
+    by_kind: dict[str, set[tuple[str, str]]] = {}
+    for check in points:
+        by_kind.setdefault(check["kind"], set()).add((check["public_id"], check["path"]))
+    emptied, gated, visible = (seeded[k].public_id for k in ("emptied", "gated", "visible"))
+    for hidden in (emptied, gated):
+        assert (hidden, f"/v1/interconnection-points/{hidden}") in by_kind["must_be_hidden"]
+        assert (hidden, f"/interconnection-points/{hidden}") in by_kind["must_be_hidden"]
+        assert (hidden, f"/v1/proposals?interconnection_point_id={hidden}") in by_kind["point_oracle"]
+    assert {
+        ("list", "/v1/interconnection-points"),
+        (visible, f"/v1/interconnection-points/{visible}"),
+        (visible, f"/interconnection-points/{visible}"),
+        (seeded["a1"].public_id, f"/v1/proposals/{seeded['a1'].public_id}"),
+    } <= by_kind["point_totals"]
+    assert all(c["status"] == (404 if c["kind"] == "must_be_hidden" else 200) for c in points)
+    # The persisted row names no point and prints no queue figure; the expected totals stay in memory.
+    stored = db.scalars(select(Event).where(Event.event_type == run.EVENT_TYPE)).one()
+    text = json.dumps(stored.after)
+    for secret in (VISIBLE_POINT_NAME, HIDDEN_POINT_NAME, GATED_POINT_NAME, "900.0", "400.0", "100.0"):
+        assert secret not in text
+    assert not any(k.startswith("_") for k in result)
+    assert_valid(
+        spec,
+        "VisibilityAudit",
+        result | {"id": result["event_id"], "seq": 1, "recorded_at": result["run_at"]},
+    )
+
+
+def _regressed_point_proposals(entitlement: str = "public", now: dt.datetime | None = None) -> list[Any]:
+    """The proposal predicate as the point builders would see it after losing its record-state
+    clause: a taken-down project's capacity reaches the totals and its point reaches the list."""
+    return _regressed_proposal_predicate(entitlement, now)
+
+
+def test_point_totals_that_count_a_taken_down_project_are_a_breach_on_both_passes(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import services.api.interconnection_points as points_module
+
+    seeded = seed_points(db)
+    db.commit()
+    monkeypatch.setattr(points_module, "proposal_visibility_filter", _regressed_point_proposals)
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    found = _point_breaches(result)
+    by_reason: dict[str, set[str]] = {}
+    for b in found:
+        by_reason.setdefault(b["reason"], set()).add(b["public_id"])
+    visible, emptied = seeded["visible"].public_id, seeded["emptied"].public_id
+    # Store pass: the list, the totals, the detail's proposal rows and both embeds.
+    assert by_reason["point_total_printed:totals:proposal_count"] == {visible}
+    assert by_reason["point_listed_printed:no_visible_proposal"] == {emptied}
+    assert by_reason["point_proposal_printed:detail"] == {visible, emptied}
+    embedded = {seeded["a1"].public_id, seeded["a2"].public_id}
+    assert by_reason["point_total_printed:proposal_embed:active_mw"] == embedded
+    assert by_reason["point_total_printed:bulk_embed:active_mw"] == embedded
+    # Served pass: the real app prints the inflated total on the detail, the embed and the list.
+    served_total = next(b for b in found if b["reason"] == "point_total_printed:totals:proposal_count")
+    assert served_total["served_status"] == 200 and served_total["served_leak"] is True
+    assert all(
+        b["served_leak"] is True
+        for b in found
+        if b["reason"].startswith("point_total_printed:proposal_embed:")
+    )
+    assert by_reason["point_listed_served:point_not_visible"] == {emptied}
+    assert by_reason["point_total_served:list:proposal_count"] == {visible}
+    assert result["counts"][POINTS]["breaches"] == len(found) == result["m11"]
+
+
+def _regressed_point_predicate(entitlement: str = "public", now: dt.datetime | None = None) -> list[Any]:
+    """The point predicate with its "at least one visible proposal" clause lost."""
+    from services.api.visibility import interconnection_point_source_filter
+
+    return interconnection_point_source_filter(entitlement)
+
+
+def test_a_point_with_no_visible_project_is_found_when_the_predicate_regresses(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import services.api.interconnection_points as points_module
+
+    seeded = seed_points(db)
+    db.commit()
+    monkeypatch.setitem(run.PREDICATES, POINTS, _regressed_point_predicate)
+    monkeypatch.setattr(points_module, "interconnection_point_visibility_filter", _regressed_point_predicate)
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    found = {b["reason"]: b for b in _point_breaches(result)}
+    breach = found["point_shown_printed:no_visible_proposal"]
+    assert breach["public_id"] == seeded["emptied"].public_id
+    # The served pass asks the real app, which serves the emptied point's detail: its name would
+    # tell a reader the register holds a project there.
+    assert breach["served_status"] == 200 and breach["served_leak"] is True
+    # The gated register's point stays dark: the register clause alone still holds it.
+    assert not any(b["public_id"] == seeded["gated"].public_id for b in _point_breaches(result))
+    assert result["counts"][POINTS]["shown"] == 2
+    assert result["m11"] >= 1
+
+
+def test_a_proposal_filter_that_selects_a_gated_point_is_an_oracle_breach(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`?interconnection_point_id=` with the register clause lost: the gated point's id now selects
+    its visible project, a different page from an unknown id's, which says the id exists."""
+    seeded = seed_points(db)
+    db.commit()
+    monkeypatch.setattr(
+        records_module, "interconnection_point_source_filter", lambda entitlement="public": []
+    )
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    oracle = [b for b in _point_breaches(result) if b["reason"] == "point_oracle_served:proposals_filter"]
+    assert [b["public_id"] for b in oracle] == [seeded["gated"].public_id]
+    assert oracle[0]["served_status"] == 200 and oracle[0]["served_leak"] is True
+    checks = [c for c in result["served"]["checks"] if c["kind"] == "point_oracle"]
+    assert {c["public_id"]: c["leak"] for c in checks} == {
+        seeded["emptied"].public_id: False,  # its project is taken down, so the page is empty anyway
+        seeded["gated"].public_id: True,
+    }
+    assert result["m11"] == 1
+
+
+def test_recent_changes_that_credit_a_gated_source_are_a_breach_on_both_passes(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import services.api.interconnection_points as points_module
+
+    seeded = seed_points(db)
+    db.commit()
+    monkeypatch.setattr(points_module, "event_visibility_filter", lambda entitlement="public", now=None: [])
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    found = [b for b in _point_breaches(result) if b["reason"].startswith("point_change_")]
+    assert [(b["public_id"], b["reason"]) for b in found] == [
+        (seeded["visible"].public_id, "point_change_printed:event_source_gated")
+    ]
+    assert found[0]["served_status"] == 200 and found[0]["served_leak"] is True
+    assert result["m11"] == 1
+
+
+def test_a_web_page_that_prints_a_hidden_total_is_a_breach(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The site adds no arithmetic of its own; if it did, the served pass would see its page
+    disagree with the API's clean total."""
+    import web.interconnection_points as web_points
+
+    seeded = seed_points(db)
+    db.commit()
+    real = web_points.flatten_point
+
+    def inflated(entity: Any) -> dict[str, Any]:
+        record = real(entity)
+        record["active_mw_label"] = "1,000.0"
+        return record
+
+    monkeypatch.setattr(web_points, "flatten_point", inflated)
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    found = [b for b in _point_breaches(result) if b["reason"] == "point_total_served:web_detail:active_mw"]
+    assert [b["public_id"] for b in found] == [seeded["visible"].public_id]
+    assert result["m11"] == 1
+
+
+def test_point_helpers() -> None:
+    assert run._detail_path(POINTS, "poi_x") == "/v1/interconnection-points/poi_x"
+    assert run._detail_path(POINTS, "prop_x") == "/v1/proposals/prop_x"
+    assert run._detail_path(POINTS, "evt_x") is None
+    want = {"active_mw": 100.0, "active_count": 1, "proposal_count": 2}
+    assert (
+        run.first_total_mismatch(
+            {"active_mw": 100.0004, "active_count": 1, "proposal_count": 2}, want, run.EMBED_TOTAL_FIELDS
+        )
+        is None
+    )
+    assert (
+        run.first_total_mismatch({"active_mw": 100.0, "active_count": 1}, want, run.EMBED_TOTAL_FIELDS)
+        == "proposal_count"
+    )
+    assert (
+        run.first_total_mismatch(
+            {"active_mw": 101.0, "active_count": 1, "proposal_count": 2}, want, run.EMBED_TOTAL_FIELDS
+        )
+        == "active_mw"
+    )
+    page = (
+        '<dl><div><dt>Active queued (MW)</dt><dd class="tnum">1,300.5 <span>across 2</span></dd></div></dl>'
+    )
+    assert run.web_active_mw_label(page) == "1,300.5"
+    assert run.web_active_mw_label("<p>no field</p>") is None
+
+
+def test_a_bulk_embed_that_ignores_the_redistribution_flag_is_a_store_breach(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bulk needs an API key, so the served pass cannot ask for it; the store pass renders bulk's
+    embed through the builder and catches it. The proposal detail rightly carries the same embed, so
+    the sampled re-request reads `served_leak = False` rather than inventing a leak."""
+    import services.api.interconnection_points as points_module
+
+    seeded = seed_points(db)
+    no_api = make_open_licence(db, id_="open-no-api")
+    no_api.allows_api_redistribution = False
+    seeded["visible"].licence_id = no_api.id
+    db.commit()
+    real = points_module.proposal_point_embeds
+
+    def forgetful(db: Session, proposals: Any, entitlement: str, *, redistribution: bool = False) -> Any:
+        return real(db, proposals, entitlement)
+
+    monkeypatch.setattr(points_module, "proposal_point_embeds", forgetful)
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    found = _point_breaches(result)
+    assert {(b["public_id"], b["reason"]) for b in found} == {
+        (seeded[k].public_id, "point_embed_printed:bulk_embed:licence_no_api_redistribution")
+        for k in ("a1", "a2")
+    }
+    assert all(b["served_status"] == 200 and b["served_leak"] is False for b in found)

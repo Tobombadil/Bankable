@@ -37,7 +37,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
@@ -370,6 +370,16 @@ def _link_interconnection_points(session: Session) -> None:
         log.info("interconnection points: %s", result.summary())
 
 
+def refresh_planner_statistics(session: Session) -> None:
+    """`ANALYZE` after a bulk load, so the query planner has row counts to choose indexes from.
+    Without statistics SQLite picked `ix_proposal_publish_public_at` over the interconnection-point
+    index for the point visibility predicate: the M-11 audit went from 3.2 s to about 35 s on the
+    dev store (lane H2, 2026-09-29; 0.21 s for that query after `ANALYZE`). Postgres's autovacuum
+    does this on its own; running it here as well is harmless."""
+    session.execute(text("ANALYZE"))
+    session.commit()
+
+
 def _run_matches(session: Session) -> None:
     """docs/10 US-401: compute proposal <-> opportunity matches over everything just loaded, through
     the matcher's own entry point (`services.match.run.run_matches`, full mode -- a fresh store has
@@ -471,6 +481,7 @@ def main(argv: list[str] | None = None) -> int:
             _link_interconnection_points(session)
             _run_matches(session)
             session.commit()  # belt-and-braces: correct even if either loader above also commits
+            refresh_planner_statistics(session)
         finally:
             session.close()
         log.info("loaded: %s", report)

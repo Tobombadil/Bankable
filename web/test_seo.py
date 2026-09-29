@@ -635,6 +635,8 @@ def test_sitemap_includes_assets_and_organizations(web_client: TestClient) -> No
                 "/v1/opportunities": _page([{"slug": "opp-a"}]),
                 "/v1/assets": _page([{"slug": "asset-a"}]),
                 "/v1/organizations": _page([{"slug": "org-a"}]),
+                # A point has no slug; its page is keyed by `public_id` (docs/21 §3.24).
+                "/v1/interconnection-points": _page([{"public_id": "poi_a", "slug": "ignored"}]),
             }
         )
     )
@@ -642,8 +644,15 @@ def test_sitemap_includes_assets_and_organizations(web_client: TestClient) -> No
     body = web_client.get("/sitemap.xml").text
 
     assert "<urlset" in body
-    for loc in ("/assets/asset-a", "/organizations/org-a", "/proposals/prop-a", "/opportunities/opp-a"):
+    for loc in (
+        "/assets/asset-a",
+        "/organizations/org-a",
+        "/proposals/prop-a",
+        "/opportunities/opp-a",
+        "/interconnection-points/poi_a",
+    ):
         assert f"<loc>http://testserver{loc}</loc>" in body
+    assert "/interconnection-points/ignored" not in body
     # The index pages themselves are listed, so a crawler has a path to every record page.
     assert "<loc>http://testserver/assets</loc>" in body
     assert "<loc>http://testserver/organizations</loc>" in body

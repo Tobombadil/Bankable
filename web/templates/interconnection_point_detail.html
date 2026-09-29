@@ -87,7 +87,38 @@
   {% endif %}
 </section>
 
-{{ m.provenance_panel(provenance_rows, number="3.") }}
+<section aria-label="Recent changes at this point">
+  {{ m.section_heading("3.", "Recent changes at this point") }}
+  {% if changes %}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">The newest recorded changes to the projects listed above, most recent first.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Observed</th>
+        <th scope="col">Change</th>
+        <th scope="col">Project</th>
+        <th scope="col">Source</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in changes %}
+      <tr>
+        <td data-label="Observed" class="tnum">{% if c.date %}<time datetime="{{ c.date }}">{{ c.date }}</time>{% else %}—{% endif %}</td>
+        <td data-label="Change">{{ c.label }}</td>
+        <td data-label="Project">{% if c.proposal_href %}<a class="row-link" href="{{ c.proposal_href }}">{{ c.proposal_name }}</a>{% else %}{{ c.proposal_name or '—' }}{% endif %}</td>
+        <td data-label="Source">{% if c.source_url %}<a href="{{ c.source_url }}" rel="noopener nofollow">{{ c.source_name or c.attribution_text }}</a>{% else %}{{ c.source_name or '—' }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p>No change events are recorded for the projects listed here yet.</p>
+  {% endif %}
+</section>
+
+{{ m.provenance_panel(provenance_rows, number="4.") }}
 
 {{ m.attribution_line(record) }}
 {% endblock %}
