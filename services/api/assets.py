@@ -122,10 +122,10 @@ router = APIRouter()
 #: never drifts from `services/api/context_routes.py`'s identical constant.
 TECHNOLOGY_VOCAB: frozenset[str] = frozenset({tech for _, tech, _ in TECH_RULES} | {"unknown", "other"})
 
-#: Asset types whose rows are expected to carry `geom_line` (ADR 0008 §1's line types). Drawing is
-#: decided per row by the presence of `geom_line`, not by type: a pipeline row loaded with only a
-#: representative point is drawn as a point (honest: "roughly here"), never as a fabricated line.
-LINE_ASSET_TYPES: frozenset[str] = frozenset({"gas_pipeline", "transmission_line"})
+# `LINE_ASSET_TYPES` (services/db/models.py) are the types whose rows are expected to carry
+# `geom_line` (ADR 0008 §1). Drawing is decided per row by the presence of `geom_line`, not by type:
+# a pipeline row loaded with only a representative point is drawn as a point (honest: "roughly
+# here"), never as a fabricated line.
 
 #: Most `asset_line` features one response carries. With `SPLIT_THRESHOLD` (500) individual point
 #: markers the total stays within `AssetGeoFeatureCollection.features.maxItems` (2,000; docs/04

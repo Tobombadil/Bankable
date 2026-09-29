@@ -221,3 +221,34 @@ def test_empty_frame_writes_nothing(session: Session) -> None:
     _seed(session)
     result, matches = load_ghgrp(session, pd.DataFrame(columns=["ghgrp_facility_id", "lon"]))
     assert result.facilities_seen == 0 and result.edges_written == 0 and matches.empty
+
+
+def test_a_line_asset_is_never_a_ghgrp_candidate(session: Session) -> None:
+    """A GHGRP facility is a site; a line's `geom` is only a representative point. Before
+    2026-09-29 a generator lead named after its plant ("Joppa Station 161 kV line") took the plant's
+    parents as owners (41 edges on the dev store). Here the only asset near the Ferndale emitter,
+    under the plant's own name, is a transmission line: it must stay unmatched and edge-free."""
+    load_assets(
+        session,
+        pd.DataFrame(
+            [
+                {
+                    "source_asset_id": "line-1",
+                    "name": "Ferndale Generating Station 230 kV line",
+                    "lon": -122.6855,
+                    "lat": 48.8287,
+                    "state_code": "US-WA",
+                    "country": "US",
+                    "technology": None,
+                    "source_url": "https://data.openei.org/submissions/8742",
+                    "retrieved_at": "2026-09-28T12:00:00Z",
+                }
+            ]
+        ),
+        "transmission_line",
+    )
+    result, matches = load_ghgrp(session, _facilities().iloc[[0]].reset_index(drop=True))
+    assert result.matched_geo_name == 0
+    assert "transmission_line" not in result.matched_by_asset_type
+    assert matches.empty or "line-1" not in set(matches["source_asset_id"])
+    assert list(session.scalars(select(AssetOwner).where(AssetOwner.source_id == "us.epa.ghgrp"))) == []
