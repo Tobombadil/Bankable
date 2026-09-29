@@ -176,14 +176,18 @@ sources:
     conditions outlined above."
 
 - id: us.epa.echo.icis_air
-  name: EPA ECHO ICIS-Air national facility download (data-centre selection)
+  name: EPA ECHO ICIS-Air national facility download (data-centre selection, placed through FRS)
   jurisdiction: US
   category: permit
   operator: US EPA Office of Enforcement and Compliance Assurance (ECHO)
   url: https://echo.epa.gov/files/echodownloads/ICIS-AIR_downloads.zip
   access: bulk_file
   auth: none
-  format: zip of CSVs (ICIS-AIR_FACILITIES.csv, 19 columns, 280,208 rows on 2026-09-27)
+  format: >-
+    zip of CSVs; the connector reads only ICIS-AIR_FACILITIES.csv (19 columns, 280,208 rows) by HTTP range
+    (central directory, then the one member), and joins ECHO_EXPORTER.csv from
+    https://echo.epa.gov/files/echodownloads/echo_exporter.zip (443,452,854 bytes, 3,221,273 facilities) on
+    REGISTRY_ID for the FRS coordinate, collection method and accuracy
   cadence: weekly
   rate_limit_rps: 0.1
   license: US federal work — public domain, 17 U.S.C. §105 (docs/13 §2.12 EPA hedge applies)
@@ -192,14 +196,38 @@ sources:
   tier: 2
   effort: M
   probe: {method: HEAD}
-  verified: {date: 2026-09-28, result: ok, rows: 537, note: 'survey only, no connector yet. 70,252,181 bytes, Last-Modified 2026-09-27; NAICS 518210 or a "data center" facility name selects 537 facilities in 43 states (VA 144, IL 45, CO 35, GA 31, OH 24, NE 21, PA 19, IA 18, AZ 17, TX 12); AIR_OPERATING_STATUS_DESC Operating 451, Permanently Closed 38, Planned Facility 21, Under Construction 3, Temporarily Closed 2. No coordinates in this file (county name and ZIP only; points need the FRS/ECHO exporter join on REGISTRY_ID).'}
+  verified:
+    date: 2026-09-29
+    result: ok
+    rows: 514
+    note: >-
+      Connector run 768140bc (python -m pipeline.connectors run, scratch data root): 4 requests to echo.epa.gov
+      (robots.txt, ICIS zip tail, ICIS facilities member 10,555,976 bytes of the 70,252,181-byte zip, whole
+      Exporter zip), 78.4 s, stored snapshot 258,585 bytes, sha256
+      96782ebdbaf593200922986984570ac3a6451f5cb2467899c005b6f535668d55, DQ pass (no unmapped status, no
+      duplicate id, provenance on every row). Upstream Last-Modified 2026-09-27 (ICIS) and 2026-09-27
+      (Exporter). 633 candidates -> 514 data-centre facilities in 42 states (VA 146, IL 49, GA 30, OH 24, CO 21,
+      NJ 19, PA 19, NE 19, AZ 17, IA 16); basis naics_518210 326, name 162, naics_541513_operator 26.
+      Lifecycle built 466, unknown (blank status) 24, filed 21 (GA 15), under_construction 3. FRS join 509 of
+      514 (5 have no REGISTRY_ID); placement exact 379, county centroid 129, state centroid 6 after load.
+      Loaded with the Virginia connector into a scratch SQLite store and resolved with
+      infra/scheduler/jobs.py::default_resolve: 719 proposals -> 581, 138 Virginia facilities in both sources,
+      each on exactly one proposal, no proposal with more than two links.
   notes: >-
-    The national second source for data-centre air sites (docs/25 §3). Public domain and weekly, but thin
-    before construction (21 Planned + 3 Under Construction nationally, 15 of them in Georgia) and blind wherever a state does not
-    report minor sources to ICIS-Air (Texas: 12 facilities; emergency engines there are permit-by-rule with no
-    registration). `PGM_SYS_ID` equals Virginia DEQ's `PLA_ICIS_ID`, so the two join deterministically.
-    robots: echo.epa.gov allows /files/ (Crawl-delay 10, honoured by the 0.1 rps limit); echodata.epa.gov (the
-    ECHO REST API host) answers `Disallow: *` and must not be used.
+    The national second source for data-centre air sites (docs/25 §3.7). Selection (connector docstring):
+    not Permanently Closed and a data-centre name, or NAICS 518210 without an extraction co-code or a
+    non-data-centre name, or NAICS 541513/541519 with a named data-centre operator. Hand-checked precision
+    63 of 73 distinct sampled rows judged data centres, 5 uncertain, 5 offices (all NAICS 518210 basis); recall
+    against Virginia DEQ's own flag 138 of the 160 DEQ data centres present in ICIS-Air (45 more DEQ
+    Planned sites are not in ICIS-Air at all). Thin before construction and blind wherever a state does not
+    report minor sources (Texas: 12 facilities; permit-by-rule engines have no registration). Coordinates:
+    only FRS points with a site-specific collection method, a stated accuracy of at most 200 m and a point
+    inside the stated state become exact; ZIP-centroid and other coarse FRS points are never passed on.
+    `PGM_SYS_ID` equals Virginia DEQ's `PLA_ICIS_ID`; both connectors emit `icis_air:<id>` and
+    pipeline/resolve.py pairs them (D3). robots: echo.epa.gov allows /files/ (Crawl-delay 10, honoured by the
+    0.1 rps limit); echodata.epa.gov (the ECHO REST API host) answers `Disallow: *` and is never used. The
+    FRS national download (frs_downloads.zip, 368,601,232 bytes) was measured and rejected: FRS_FACILITIES.csv
+    has latitude/longitude but no collection method or accuracy.
 
 - id: us.ga.epd.air_permit_advisories
   name: Georgia EPD Air Protection Branch public advisories (permit applications received)

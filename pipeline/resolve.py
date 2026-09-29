@@ -4,7 +4,8 @@
 Passes, in the order docs/02 §5 gives:
   D1  EIA plant id + generator id equal on both sides          (deterministic)
   D2  queue id + ISO equal on both sides                       (deterministic, within-source dupes)
-  D3  cross-reference queue id embedded in the other side's project name (deterministic)
+  D3  cross-reference queue id embedded in the other side's project name, or the same
+      facility-registry id (ICIS-Air, FRS) cited by both sides           (deterministic)
   B1  block: state + technology + capacity +/-10%              (candidate generation)
   B2  block: state + county   + capacity +/-10%                (candidate generation)
   F   fuzzy score over name / sponsor / county / capacity / COD, tunable threshold
@@ -42,6 +43,10 @@ ISO_SOURCES = ["caiso", "ercot", "spp", "nyiso", "isone"]
 WEIGHTS = {"name": 0.40, "sponsor": 0.25, "county": 0.20, "capacity": 0.10, "cod": 0.05}
 MIN_EVIDENCE = 0.50
 CAP_TOL = 0.10  # +/-10% capacity band for blocking (docs/02 §5)
+#: `cross_refs` namespaces that are facility-registry identifiers (one id = one facility), so two
+#: sources citing the same one are the same facility (D3). `icis_air`: EPA ICIS-Air PGM_SYS_ID;
+#: `frs`: EPA Facility Registry Service id. Name-derived citations (`NYISO:…`) are not in here.
+SHARED_ID_NAMESPACES = frozenset({"icis_air", "frs"})
 
 
 # ------------------------------------------------------------------ candidate generation
@@ -206,6 +211,24 @@ def score_pair(left: dict, r: dict) -> dict:
     }
 
 
+def shared_ids(refs: object) -> dict[str, set[str]]:
+    """`cross_refs` tokens in `SHARED_ID_NAMESPACES`, by namespace."""
+    out: dict[str, set[str]] = {}
+    if refs is None or (isinstance(refs, float) and pd.isna(refs)) or refs is pd.NA:
+        return out
+    for ref in str(refs).split("|"):
+        ns, _, value = ref.strip().partition(":")
+        if ns in SHARED_ID_NAMESPACES and value:
+            out.setdefault(ns, set()).add(value)
+    return out
+
+
+def shared_id_conflict(left_refs: object, right_refs: object) -> bool:
+    """True when both sides cite a facility-registry id in the same namespace and share none."""
+    left, right = shared_ids(left_refs), shared_ids(right_refs)
+    return any(ns in right and not (ids & right[ns]) for ns, ids in left.items())
+
+
 # ------------------------------------------------------------------ deterministic passes
 def deterministic(df: pd.DataFrame) -> pd.DataFrame:
     out = []
@@ -254,6 +277,22 @@ def deterministic(df: pd.DataFrame) -> pd.DataFrame:
             for j in lookup.get(ref, []):
                 if j != i and df.at[i, "source_id"] != df.at[j, "source_id"]:
                     out.append((min(i, j), max(i, j), "D3_xref", 100.0, f"project name cites {ref}"))
+
+    # D3 (shared registry id) - records of different sources that cite the same facility-registry
+    # identifier (`SHARED_ID_NAMESPACES`), e.g. Virginia DEQ's `icis_air:<PLA_ICIS_ID>` and EPA
+    # ICIS-Air's own `icis_air:<PGM_SYS_ID>`. Only an unambiguous group pairs: one record per
+    # source; a source that repeats the id (two registrations of one campus) leaves it to review.
+    by_ref: dict[str, list[int]] = {}
+    for i, refs in df["cross_refs"].dropna().items():
+        for ref in {r.strip() for r in str(refs).split("|") if r.strip()}:
+            if ref.split(":", 1)[0] in SHARED_ID_NAMESPACES:
+                by_ref.setdefault(ref, []).append(i)
+    for ref, idx in by_ref.items():
+        sources = df.loc[idx, "source_id"]
+        if len(idx) < 2 or sources.nunique() < 2 or sources.duplicated().any():
+            continue
+        for a, b in itertools.combinations(sorted(idx), 2):
+            out.append((a, b, "D3_xref", 100.0, f"both cite {ref}"))
 
     cols = ["li", "ri", "pass", "score", "rationale"]
     res = pd.DataFrame(out, columns=cols)
@@ -430,8 +469,17 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
     matches = pd.concat([det, fuzzy.drop(columns=["block"])], ignore_index=True, sort=False)
     matches = matches.sort_values("score", ascending=False).drop_duplicates(subset=["li", "ri"])
 
+    # A fuzzy pair whose two sides cite *different* ids in the same facility-registry namespace
+    # is two facilities (one operator's neighbouring campuses score 75-82 on name + county alone:
+    # "Microsoft Corp - LVL Data Center" vs "Microsoft Corp - AVC17 Datacenter"), so it is never
+    # accepted, whatever its score.
+    refs = df["cross_refs"]
+    matches["id_conflict"] = [
+        shared_id_conflict(refs.at[int(a)], refs.at[int(b)])
+        for a, b in zip(matches["li"], matches["ri"], strict=True)
+    ]
     matches["accepted"] = matches["pass"].str.startswith("D") | (
-        (matches["score"] >= threshold) & (matches["evidence"] >= MIN_EVIDENCE)
+        (matches["score"] >= threshold) & (matches["evidence"] >= MIN_EVIDENCE) & ~matches["id_conflict"]
     )
 
     accepted = matches[matches["accepted"]]
