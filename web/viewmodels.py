@@ -9,6 +9,7 @@ predicate. This module only relabels and regroups fields the API already returne
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -105,21 +106,31 @@ def opportunity_kind_label(token: str | None) -> str | None:
     return OPPORTUNITY_KIND_LABELS.get(token, token)
 
 
-def technology_label(value: str | None) -> str | None:
-    """The reader-facing name of a proposal `technology` value.
-
-    Only `load` is relabelled: the data-centre and large-load connectors set `technology` to the
-    same value as `kind`, and a bare "load" in a Technology column reads as a typo. It gets a
-    short label rather than the kind's, because the kind label wraps every row of the list's
-    Technology column onto two lines; the Kind select beside it carries the long form. Every other
-    value is printed as it always was, so no existing column changes under a reader.
-    """
-    if value == "load":
-        return TECHNOLOGY_LOAD_LABEL
-    return value
-
-
 TECHNOLOGY_LOAD_LABEL = "Large load"
+
+#: The proposal `technology` values that read differently from their token. Only `load` is
+#: relabelled: the data-centre and large-load connectors set `technology` to the same value as
+#: `kind`, and a bare "load" in a Technology column reads as a typo. It gets a short label rather
+#: than the kind's, because the kind label wraps every row of the list's Technology column onto two
+#: lines; the Kind select beside it carries the long form. Every other value is printed as it
+#: always was, so no existing column changes under a reader. The map page hands this same dict to
+#: `map.js` (`map_labels_json`), so the in-view list and the drawer say what the list says.
+TECHNOLOGY_LABELS: dict[str, str] = {"load": TECHNOLOGY_LOAD_LABEL}
+
+
+def technology_label(value: str | None) -> str | None:
+    """The reader-facing name of a proposal `technology` value; see `TECHNOLOGY_LABELS`."""
+    if not value:
+        return value
+    return TECHNOLOGY_LABELS.get(value, value)
+
+
+def map_labels_json() -> str:
+    """The label maps `map.js` reads from the map page's `#map-labels` JSON script tag, so the
+    browser names a token exactly as the server does without a hand-kept copy of the words.
+    `</` is escaped for the same reason as `web/page.py::_mini_map`: it is the only sequence that
+    can end a `<script type="application/json">` early."""
+    return json.dumps({"technology": TECHNOLOGY_LABELS}, separators=(",", ":")).replace("</", "<\\/")
 
 
 #: Every source whose rows are proposals, in the order a page names them, with the short name a
@@ -138,6 +149,42 @@ PROPOSAL_SOURCE_LABELS: dict[str, tuple[str, Literal["queue", "data_centre"]]] =
     "us.va.deq.data_center_air_sites": ("Virginia DEQ", "data_centre"),
     "us.epa.echo.icis_air": ("EPA ICIS-Air", "data_centre"),
 }
+
+
+#: The short name a list's Source column prints for each opportunity source (the ids are
+#: `web/build_data.py::OPPORTUNITY_SOURCE_IDS`, pinned by `web/test_source_labels.py`). Each is the
+#: short form `data/sources.yaml`'s own `name` for that source already contains, not a new name.
+OPPORTUNITY_SOURCE_LABELS: dict[str, str] = {
+    "us.grants_gov.search2": "Grants.gov",
+    "eu.ted.api": "TED",
+    "gb.find_a_tender": "Find a Tender",
+    "mdb.worldbank.procnotices": "World Bank",
+}
+
+#: The same for the asset registries the dev loader loads (`web/dev_up.py`); `us.eia.860m` is
+#: named once, in `PROPOSAL_SOURCE_LABELS`, because it feeds both. Same rule: every word is in the
+#: source's `data/sources.yaml` `name`, and `web/test_source_labels.py` checks that it is.
+ASSET_SOURCE_LABELS: dict[str, str] = {
+    "us.eia.atlas.gas_pipelines": "EIA Energy Atlas",
+    "us.eia.atlas.gas_processing_plants": "EIA Energy Atlas",
+    "us.eia.atlas.gas_storage": "EIA Energy Atlas",
+    "us.eia.atlas.lng_terminals": "EIA Energy Atlas",
+    "us.eia.atlas.ethanol_plants": "EIA Energy Atlas",
+    "us.eia.ethanol_capacity": "EIA ethanol capacity",
+    "us.epa.lmop": "EPA LMOP",
+    "us.epa.agstar": "EPA AgSTAR",
+    "us.lbnl.ferc_hifld_transmission_lines": "LBNL",
+}
+
+
+def source_label(source_id: str | None) -> str | None:
+    """The short name a list's Source column prints for `source_id`, or `None` for a source no
+    map names -- the template then prints the id itself rather than a guessed name."""
+    if not source_id:
+        return None
+    if source_id in PROPOSAL_SOURCE_LABELS:
+        return PROPOSAL_SOURCE_LABELS[source_id][0]
+    return OPPORTUNITY_SOURCE_LABELS.get(source_id) or ASSET_SOURCE_LABELS.get(source_id)
 
 
 def _join_names(names: list[str]) -> str:
@@ -363,6 +410,7 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
         "slip": slip_display(entity.get("schedule_slip")),
         "source_count": entity.get("source_count"),
         "source_id": primary_source.get("source_id"),
+        "source_label": source_label(primary_source.get("source_id")),
         "source_name": primary_source.get("source_name"),
         "source_url": primary_source.get("source_url"),
         "retrieved_at": primary_source.get("retrieved_at"),
@@ -398,6 +446,7 @@ def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
         "status_raw": entity.get("status_raw"),
         "summary": entity.get("summary"),
         "source_id": primary_source.get("source_id"),
+        "source_label": source_label(primary_source.get("source_id")),
         "source_name": primary_source.get("source_name"),
         "source_url": primary_source.get("source_url"),
         "retrieved_at": primary_source.get("retrieved_at"),
@@ -448,6 +497,7 @@ def flatten_asset(entity: Mapping[str, Any]) -> dict[str, Any]:
         "attributes": entity.get("attributes") or {},
         "owners": owners,
         "source_id": primary_source.get("source_id"),
+        "source_label": source_label(primary_source.get("source_id")),
         "source_name": primary_source.get("source_name"),
         "source_url": primary_source.get("source_url"),
         "retrieved_at": primary_source.get("retrieved_at"),

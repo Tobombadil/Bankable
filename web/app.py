@@ -60,6 +60,7 @@ from web.viewmodels import (
     flatten_organization,
     flatten_proposal,
     lifecycle_breakdown,
+    map_labels_json,
     opportunity_kind_label,
     opportunity_status_param,
     proposal_kind_label,
@@ -309,6 +310,9 @@ def home_map(request: Request) -> HTMLResponse:
             # names (2026-09-29: it knew four by hand and `/?kind=load` drew 5,853 proposals under
             # a notice counting 46). One list, rendered from here, so the two cannot drift.
             "passthrough_filters": PROPOSAL_PASSTHROUGH_FILTERS,
+            # The words map.js prints for a token (in-view list, drawer): the server's own maps,
+            # rendered into `#map-labels`, so the browser never keeps a copy of them.
+            "map_labels_json": map_labels_json(),
             "include_withdrawn": include_withdrawn,
             "lifecycle_explicit": explicit,
             "filters": dict(qp),

@@ -22,7 +22,7 @@
       <td data-label="Issuer">{{ r.issuer or '—' }}</td>
       <td data-label="Technologies">{{ r.technologies | join(', ') if r.technologies else 'all-source' }}</td>
       <td data-label="Due">{{ r.due_at[:10] if r.due_at else '—' }}</td>
-      <td data-label="Source" class="mono"><a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_id }}</a></td>
+      <td data-label="Source"{% if not r.source_label %} class="mono"{% endif %}><a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a></td>
     </tr>
     {% endfor %}
   </tbody>
