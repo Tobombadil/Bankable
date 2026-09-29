@@ -177,6 +177,9 @@
   </aside>
 </div>
 
+{# The server's label maps (`web/viewmodels.py::map_labels_json`): map.js names a technology
+   token in the in-view list and the drawer from these, exactly as the proposal list does. #}
+<script type="application/json" id="map-labels">{{ map_labels_json | safe }}</script>
 <template id="in-view-item-template">
   <li>
     <span class="chip-slot"></span>

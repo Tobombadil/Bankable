@@ -29,6 +29,7 @@ from playwright.sync_api import Route, sync_playwright
 
 from services.db.session import get_engine, get_sessionmaker, init_db
 from web.data_loading import load_dev_database, load_test_database
+from web.viewmodels import TECHNOLOGY_LABELS, technology_label
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHROMIUM_PATH = "/opt/pw-browsers/chromium"
@@ -513,6 +514,78 @@ def test_map_keeps_and_forwards_a_linked_kind_filter(server: object) -> None:
             page.wait_for_function(f"() => {count_js}.startsWith('{generation} ')")
             page.wait_for_function(f"() => {notice_js}.includes('Showing {generation} active')")
             assert parse_qs(urlsplit(page.url).query).get("kind") == ["generation"], page.url
+        finally:
+            browser.close()
+
+
+def _in_view_feature(name: str, technology: str | None, lon: float) -> dict[str, Any]:
+    return {
+        "type": "Feature",
+        "id": f"prop_{name}",
+        "geometry": {"type": "Point", "coordinates": [lon, 38.95]},
+        "properties": {
+            "feature_kind": "proposal",
+            "public_id": f"prop_{name}",
+            "name": name,
+            "url": f"/proposals/{name}",
+            "kind": "load" if technology == "load" else "generation",
+            "technology": technology,
+            "lifecycle_state": "filed",
+            "capacity_mw": 12.0,
+            "county_name": "Loudoun",
+            "state_code": "US-VA",
+            "precision": "exact",
+            "provenance": [],
+        },
+    }
+
+
+def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) -> None:
+    """Lane H7: the in-view row printed the bare token ("load · US-VA"). It now prints the label
+    the proposal list prints, read from the `#map-labels` tag the server renders from
+    `web/viewmodels.py::TECHNOLOGY_LABELS`; a token with no label, and an absent one, read as
+    before. The geo answer is fixed here so the rows do not depend on which sources are loaded."""
+    features = [
+        _in_view_feature("dc-one", "load", -77.5),
+        _in_view_feature("solar-one", "solar", -77.4),
+        _in_view_feature("blank-one", None, -77.3),
+    ]
+    envelope = {
+        "data": {
+            "type": "FeatureCollection",
+            "features": features,
+            "totals": {"records": 3, "clustered": False},
+        },
+        "meta": {},
+    }
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.route(
+                "**/api/ui-events",
+                lambda route: route.fulfill(status=202, content_type="application/json", body="{}"),
+            )
+            page.route(
+                "**/api/proposals/geo?**",
+                lambda route: route.fulfill(
+                    status=200, content_type="application/json", body=json.dumps(envelope)
+                ),
+            )
+            page.goto(BASE_URL + "/?kind=load")
+            assert json.loads(page.inner_text("#map-labels")) == {"technology": TECHNOLOGY_LABELS}
+            page.wait_for_function(
+                "() => document.querySelectorAll('#in-view-items .meta').length === 3", timeout=15000
+            )
+            by_name = {
+                name: page.inner_text(f"#in-view-items li:has(a[href='/proposals/{name}']) .meta")
+                for name in ("dc-one", "solar-one", "blank-one")
+            }
+            assert by_name["dc-one"] == f"{technology_label('load')} · US-VA · 12.0 MW"
+            assert by_name["dc-one"].startswith(TECHNOLOGY_LABELS["load"])
+            assert by_name["solar-one"] == "solar · US-VA · 12.0 MW"
+            assert by_name["blank-one"] == "— · US-VA · 12.0 MW"
         finally:
             browser.close()
 

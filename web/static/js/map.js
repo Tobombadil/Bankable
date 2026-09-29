@@ -22,7 +22,9 @@
   var TECH_LABEL = {
     solar: "SOL", wind: "WND", storage: "BES", wind_storage: "W+S",
     gas: "GAS", nuclear: "NUC", hydro: "HYD", transmission: "TRN",
-    geothermal: "GEO", hydrogen: "H2", coal: "COL", other: "OTH"
+    geothermal: "GEO", hydrogen: "H2", coal: "COL", other: "OTH",
+    // Marker badge for kind/technology `load`; the slice(0, 3) fallback printed "LOA".
+    load: "LL"
   };
   // docs/00-PLAN.md 2026-09-14/15 owner decision + task item 2: EIA-860M technology values
   // mapped down to the seven token families the legend and marker fill use. Anything not listed
@@ -145,6 +147,20 @@
   function plantFamilyOf(tech) {
     if (!tech) return "other";
     return PLANT_TECH_FAMILY[String(tech).toLowerCase()] || "other";
+  }
+
+  // The words the server prints for a token (`#map-labels`, rendered from
+  // web/viewmodels.py::map_labels_json), so the in-view list and the drawer name a technology
+  // exactly as the proposal list does. No copy of the words lives here: a missing or unreadable
+  // tag leaves every token printed as itself, which is the server's own fallback too.
+  var SERVER_LABELS = (function () {
+    var el = document.getElementById("map-labels");
+    try { return (el && JSON.parse(el.textContent)) || {}; } catch (e) { return {}; }
+  })();
+  function technologyName(tech) {
+    if (!tech) return null;
+    var names = SERVER_LABELS.technology || {};
+    return Object.prototype.hasOwnProperty.call(names, tech) ? names[tech] : tech;
   }
 
   function techLabel(tech) {
@@ -889,7 +905,7 @@
           a.parentNode.insertBefore(units, a.nextSibling);
           a.parentNode.insertBefore(document.createTextNode(" "), units);
         }
-        var meta = (p.technology || "—") + " · " + (p.state_code || p.county_name || "—") +
+        var meta = (technologyName(p.technology) || "—") + " · " + (p.state_code || p.county_name || "—") +
           (g.capacity_mw ? " · " + g.capacity_mw.toFixed(1) + " MW" : "");
         node.querySelector(".meta").textContent = meta;
         listEl.appendChild(node);
@@ -1498,7 +1514,7 @@
       body.innerHTML =
         "<h2>" + esc(p.name) + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
         "<dl class=\"drawer-fields\">" +
-        "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + esc(p.technology || "—") + "</dd></div>" +
+        "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + esc(technologyName(p.technology) || "—") + "</dd></div>" +
         "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : "—") + "</dd></div>" +
         "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + esc(p.county_name || "—") + ", " + esc(p.state_code || "—") +
         (p.precision_note ? " (" + esc(p.precision_note) + ")" : "") + "</dd></div>" +

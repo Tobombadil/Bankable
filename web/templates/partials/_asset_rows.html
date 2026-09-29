@@ -41,7 +41,7 @@
       <td data-label="Length (miles)" class="num tnum">{% if r.length_miles is not none %}{{ '{:,.0f}'.format(r.length_miles) }}{% else %}—{% endif %}</td>
       <td data-label="Location">{{ r.states or r.state or r.country or '—' }}</td>
       <td data-label="Operator">{% if r.operator.slug %}<a href="/organizations/{{ r.operator.slug }}">{{ r.operator.name }}</a>{% else %}{{ r.operator.name or '—' }}{% endif %}</td>
-      <td data-label="Source" class="mono">{% if r.source_url %}<a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_id }}</a>{% else %}{{ r.source_id or '—' }}{% endif %}</td>
+      <td data-label="Source"{% if not r.source_label %} class="mono"{% endif %}>{% if r.source_url %}<a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a>{% else %}{{ r.source_label or r.source_id or '—' }}{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>
