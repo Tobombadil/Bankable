@@ -448,8 +448,9 @@ def load_status_map(path: pathlib.Path = STATUS_MAP_PATH) -> dict:
 def harmonise_status(source_id: str, ctx: dict, status_map: dict) -> tuple[str, str]:
     """Return (canonical_state, rule_id).
 
-    `ctx` carries the normalised status inputs for one row: status_raw, status_original,
-    ia_status, project_status, ia_signed, approved_for_energization. Refine rules are tried
+    `ctx` carries the normalised status inputs for one row (`iso_status_contexts`): status_raw,
+    status_original, ia_status, project_status, ia_signed, approved_for_energization,
+    approved_for_synchronization. Refine rules are tried
     in file order and the first whose every condition matches wins; otherwise the base map on
     the source's `field` value applies; otherwise `unknown`.
     """
@@ -486,23 +487,44 @@ def _identity_hash(text: str) -> str:
     return hashlib.sha1(text.encode()).hexdigest()[:12]  # noqa: S324
 
 
-def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict, retrieved_at: str) -> pd.DataFrame:
-    iso, url, licence = SOURCE_META[source_id]
+def _present(col: pd.Series) -> pd.Series:
+    return col.notna().map({True: "yes", False: "no"})
+
+
+def iso_status_contexts(df: pd.DataFrame) -> pd.DataFrame:
+    """One `harmonise_status` context per row of a gridstatus-shaped ISO queue frame.
+
+    The ERCOT milestone dates (`IA Signed`, `Approved for Energization`, `Approved for
+    Synchronization`) become "yes"/"no". gridstatus's own ERCOT `Status` is derived from the first
+    of them alone (Completed = IA signed), so the ERCOT rules key on the dates, not on it
+    (docs/22 §3, 2026-09-30)."""
     n = len(df)
     get = lambda c: df[c] if c in df.columns else _blank(n)  # noqa: E731
-
-    ctxs = pd.DataFrame(
+    return pd.DataFrame(
         {
             "status_raw": get("Status").astype("object"),
             "status_original": get("Status (Original)").astype("object"),
             "ia_status": get("Interconnection Agreement Status").astype("object"),
             "project_status": get("Project Status").astype("object"),
-            "ia_signed": get("IA Signed").notna().map({True: "yes", False: "no"}),
-            "approved_for_energization": get("Approved for Energization")
-            .notna()
-            .map({True: "yes", False: "no"}),
+            "ia_signed": _present(get("IA Signed")),
+            "approved_for_energization": _present(get("Approved for Energization")),
+            "approved_for_synchronization": _present(get("Approved for Synchronization")),
         }
     )
+
+
+def harmonise_iso_frame(df: pd.DataFrame, source_id: str, status_map: dict) -> list[tuple[str, str]]:
+    """(canonical_state, rule_id) for every row of a gridstatus-shaped ISO queue frame."""
+    ctxs = iso_status_contexts(df)
+    return [harmonise_status(source_id, r, status_map) for r in ctxs.to_dict("records")]
+
+
+def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict, retrieved_at: str) -> pd.DataFrame:
+    iso, url, licence = SOURCE_META[source_id]
+    n = len(df)
+    get = lambda c: df[c] if c in df.columns else _blank(n)  # noqa: E731
+
+    ctxs = iso_status_contexts(df)
     harmonised = [harmonise_status(source_id, r, status_map) for r in ctxs.to_dict("records")]
 
     tech = [classify_tech(v) for v in get("Generation Type")]

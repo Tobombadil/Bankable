@@ -288,6 +288,15 @@ class Connector:
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
         raise NotImplementedError
 
+    def restate_status(self, df: pd.DataFrame) -> pd.DataFrame | None:
+        """`lifecycle_state` and `status_rule` for each row of a previously stored normalised frame
+        of this source, recomputed from the row's own `raw` payload under the *current* status map
+        (index-aligned with `df`). The runner diffs against the restated frame, so a status-map
+        correction is a silent reclassification recorded on the run, never a `status_change`
+        event (docs/22 §8). Default None: this connector cannot restate, and the stored states
+        are diffed as they are."""
+        return None
+
     def redact(self, content: bytes) -> bytes:
         """Strip contact identifiers before the snapshot is stored; default: nothing to strip."""
         return content

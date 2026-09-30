@@ -5,12 +5,13 @@ bytes we fetched politely instead, so its parser runs unchanged on recorded fixt
 from __future__ import annotations
 
 import io
+import json
 from typing import Any
 
 import pandas as pd
 
 from pipeline.connectors.base import Connector, ParseError, RawSnapshot
-from pipeline.connectors.canonical import normalize_iso
+from pipeline.connectors.canonical import harmonise_iso_frame, normalize_iso
 
 XLSX_MAGIC = b"PK"
 
@@ -35,3 +36,17 @@ def normalize_iso_rows(
     df = normalize_iso(pd.DataFrame(rows), key, connector.status_map, raw.retrieved_at_iso)
     df = df.drop(columns=["source_url"])  # finalize stamps the fetched file URL
     return connector.finalize(df, rows, raw)
+
+
+def restate_iso_status(connector: Connector, key: str, df: pd.DataFrame) -> pd.DataFrame | None:
+    """`Connector.restate_status` for a gridstatus-wrapped queue: re-harmonise each stored row's
+    own `raw` payload (the parser's row, kept by `finalize`) under the connector's current status
+    map. None when the frame carries no `raw` column, so the caller diffs it as stored."""
+    if "raw" not in df.columns:
+        return None
+    rows = [json.loads(r) if isinstance(r, str) and r else {} for r in df["raw"]]
+    harmonised = harmonise_iso_frame(pd.DataFrame(rows, index=df.index), key, connector.status_map)
+    return pd.DataFrame(
+        {"lifecycle_state": [s for s, _ in harmonised], "status_rule": [r for _, r in harmonised]},
+        index=df.index,
+    )
