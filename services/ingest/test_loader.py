@@ -435,7 +435,9 @@ def test_load_from_files_reads_parquet_and_run_json(tmp_path, session: Session) 
     norm_dir.mkdir(parents=True)
     df.to_parquet(norm_dir / "20260912T050000Z.parquet", index=False)
 
-    result = load_from_files(session, entry.id, "20260912T050000Z", data_root=tmp_path, registry=registry)
+    result = load_from_files(
+        session, entry.id, "20260912T050000Z", data_root=tmp_path, registry=registry, kind="proposal"
+    )
     assert result.proposals_created == 1
     src = session.get(Source, entry.id)
     assert src is not None
@@ -1248,7 +1250,9 @@ def test_a_load_after_a_recorded_fetch_attaches_to_the_fetchs_row(tmp_path) -> N
     jobs.record_source_run(factory, "us.test.fetched_queue", _RUN_RECORD, trigger="schedule")
 
     with factory() as s:
-        result = load_from_files(s, "us.test.fetched_queue", ts, data_root=tmp_path, registry=registry)
+        result = load_from_files(
+            s, "us.test.fetched_queue", ts, data_root=tmp_path, registry=registry, kind="proposal"
+        )
         s.commit()
     with factory() as s:
         rows = s.scalars(select(SourceRun)).all()
@@ -1270,8 +1274,12 @@ def test_a_standalone_load_writes_one_row_under_the_run_records_id_and_is_idempo
 
     ts = "20260912T050000Z"
     registry = _files_fixture(tmp_path, "us.test.standalone_queue", ts, _RUN_RECORD)
-    first = load_from_files(session, "us.test.standalone_queue", ts, data_root=tmp_path, registry=registry)
-    second = load_from_files(session, "us.test.standalone_queue", ts, data_root=tmp_path, registry=registry)
+    first = load_from_files(
+        session, "us.test.standalone_queue", ts, data_root=tmp_path, registry=registry, kind="proposal"
+    )
+    second = load_from_files(
+        session, "us.test.standalone_queue", ts, data_root=tmp_path, registry=registry, kind="proposal"
+    )
     rows = session.scalars(select(SourceRun)).all()
     assert len(rows) == 1
     assert str(rows[0].id) == _RUN_ID == str(first.source_run_id) == str(second.source_run_id)
@@ -1283,7 +1291,9 @@ def test_a_standalone_load_without_a_run_record_still_records_one_run(tmp_path, 
 
     ts = "20260912T050000Z"
     registry = _files_fixture(tmp_path, "us.test.recordless_queue", ts, None)
-    result = load_from_files(session, "us.test.recordless_queue", ts, data_root=tmp_path, registry=registry)
+    result = load_from_files(
+        session, "us.test.recordless_queue", ts, data_root=tmp_path, registry=registry, kind="proposal"
+    )
     rows = session.scalars(select(SourceRun)).all()
     assert len(rows) == 1 and rows[0].id == result.source_run_id
     assert (rows[0].trigger, rows[0].status, rows[0].rows_seen) == ("manual", "ok", 1)
