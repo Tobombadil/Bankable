@@ -332,6 +332,20 @@ jobs:
         # "Postgres vs Sqlite" caveat: "It has not been executed against a live database"). If this
         # job is red on the first run after this workflow lands, that is the migration being
         # proven, not this workflow being wrong.
+      # The application on Postgres (audit A1/A2/A5, 2026-09-30). Until this step nothing ran the
+      # app against Postgres: `POSTGIS_TEST_URL` was set nowhere, so the PostGIS tests always
+      # skipped, and three public routes answered 500 on Postgres while SQLite passed. This step
+      # reuses the database the migration step just left at head, so it adds no service
+      # container and no install. `tests/test_postgres.py` runs the Postgres-only branches (the
+      # asset and plant map layers, organisation nearby-proposals), concurrent event writers and
+      # migration 0027, and compares list bodies with SQLite's; `test_types_postgis.py` round-trips
+      # the geography types. Measured locally on Postgres 16 + PostGIS 3.4 (2026-09-30): 14 tests,
+      # 5.9 s of tests and 9.8 s wall with imports, so the job grows by well under a minute. The
+      # job keeps its name so a required-check rule that names it still matches.
+      - name: app on Postgres (tests/test_postgres.py, services/db/test_types_postgis.py)
+        env:
+          POSTGIS_TEST_URL: postgresql+psycopg://infraque:infraque-ci-only@localhost:5432/infraque_ci
+        run: pytest tests/test_postgres.py services/db/test_types_postgis.py -q -o addopts="" -p no:warnings
 
   security:
     name: gitleaks + pip-audit
