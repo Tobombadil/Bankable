@@ -257,7 +257,17 @@ def _close_pending(run_id: str | None, error: str) -> None:
 
 
 def _defer_load(source_id: str, ts: str) -> None:
-    """Enqueue `load_source` for one run's snapshot token under the per-source execution lock."""
+    """Enqueue `load_source` for one run's snapshot token under the per-source execution lock.
+
+    Only for a source whose connector the generic loader loads (`proposal`/`opportunity`,
+    `jobs.load_kind_refusal`): a `document` source is fetched and diffed, and no load is queued
+    for it, because the generic loader would only refuse its frame (2026-09-30, lane FX2)."""
+    refusal = jobs.load_kind_refusal(source_id)
+    if refusal:
+        logger.info(
+            "skipped: no generic load for this source", extra={"source_id": source_id, "reason": refusal}
+        )
+        return
     try:
         load_source.configure(
             lock=execution_lock_for(source_id), queueing_lock=f"load:{safe_id(source_id)}"

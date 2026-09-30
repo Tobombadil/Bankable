@@ -539,7 +539,8 @@ def load_source_job(
 ) -> dict[str, Any]:
     """Body of `load_source`: `services.ingest.loader.load_from_files` for one run's parquet
     (the same call `web/data_loading.py` makes), committed as one transaction. A gate refusal
-    is logged and returned, never raised — there is nothing to retry."""
+    or a kind refusal (a `document` source: `services.ingest.loader.KindRefused`) is logged and
+    returned, never raised — there is nothing to retry."""
     load = _load if _load is not None else _load_fn("services.ingest.loader", "load_from_files")
     from pipeline.connectors import store as store_module
     from services.db.session import session_scope
@@ -556,11 +557,27 @@ def load_source_job(
             if type(exc).__name__ == "GateRefused":
                 logger.warning("load refused", extra={"source_id": source_id, "error": str(exc)})
                 return {"source_id": source_id, "ts": ts, "skipped": "gate refused"}
+            if type(exc).__name__ == "KindRefused":
+                logger.warning("load refused", extra={"source_id": source_id, "error": str(exc)})
+                return {"source_id": source_id, "ts": ts, "skipped": "kind refused"}
             raise
     data = _result_to_dict(result)
     data.update(source_id=source_id, ts=ts)
     _log_report("load_source", data)
     return data
+
+
+def load_kind_refusal(source_id: str, *, registry: Any = None) -> str | None:
+    """Why the generic `load_source` would refuse `source_id` by its connector's kind, or None
+    when it loads it (`services.ingest.loader.kind_refusal`, the loader's own rule). The scheduler
+    asks before it queues a load, so a `document` source (FERC eLibrary every 15 minutes, EIA-860
+    and GHGRP once a year) is fetched, snapshotted and diffed but never queued for a load that
+    would only be refused (2026-09-30, lane FX2)."""
+    from pipeline.connectors.registry import Registry
+
+    kind_refusal = _load_fn("services.ingest.loader", "kind_refusal")
+    refusal = kind_refusal(registry if registry is not None else Registry(), source_id)
+    return str(refusal) if refusal else None
 
 
 class HoldReleaseRefused(RuntimeError):
