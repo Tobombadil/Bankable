@@ -316,14 +316,29 @@ def _point_index_where() -> list[Any]:
 
 
 def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
+    """Every visible point asset as `(id, lon, lat, ...)`, in `asset.id` order on both dialects.
+    The order is the order of the individual features and clusters in `/v1/assets/geo`, and of the
+    floating-point sums behind each cluster's centroid; without it the two backends returned the
+    same features in different orders (audit A2, 2026-09-30)."""
     rows: list[AssetIndexRow] = []
     if _is_postgres(db):
+        # `ST_X`/`ST_Y` exist for `geometry` only; `asset.geom` is `geography(Point,4326)`, so
+        # the point is cast first (same SRID, no reprojection). Without the cast Postgres raised
+        # `function st_x(geography) does not exist` and both map layers answered 500 (audit A1,
+        # 2026-09-30; pinned by tests/test_postgres.py).
+        from geoalchemy2 import Geometry
+
+        point = sa.cast(Asset.geom, Geometry(geometry_type="POINT", srid=4326))
         id_col = sa.cast(Asset.id, sa.Text)
-        lon_col = sa.func.ST_X(Asset.geom)
-        lat_col = sa.func.ST_Y(Asset.geom)
-        stmt = select(
-            id_col, lon_col, lat_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country
-        ).where(*_point_index_where())
+        lon_col = sa.func.ST_X(point)
+        lat_col = sa.func.ST_Y(point)
+        stmt = (
+            select(
+                id_col, lon_col, lat_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country
+            )
+            .where(*_point_index_where())
+            .order_by(Asset.id)
+        )
         for asset_id, lon, lat, asset_type, technology, capacity_mw, country in db.execute(stmt).all():
             rows.append(
                 AssetIndexRow(
@@ -340,9 +355,11 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
 
     id_col = sa.cast(Asset.id, sa.Text)
     geom_col = sa.cast(Asset.geom, sa.Text)
-    stmt = select(
-        id_col, geom_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country
-    ).where(*_point_index_where())
+    stmt = (
+        select(id_col, geom_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country)
+        .where(*_point_index_where())
+        .order_by(Asset.id)
+    )
     for asset_id, geom_text, asset_type, technology, capacity_mw, country in db.execute(stmt).all():
         if geom_text is None:  # pragma: no cover - excluded by the WHERE clause; defensive only
             continue
@@ -924,6 +941,9 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
         technologies,
         countries,
     ).group_by(Source.id, Licence.id)
+    # Explicit, because a `GROUP BY` promises no order: SQLite returned the groups by key and
+    # Postgres by hash, so `licence_summary.sources` differed between the backends (audit A2).
+    agg_stmt = agg_stmt.order_by(Source.id, Licence.id)
     if org_asset_ids is not None:
         agg_stmt = agg_stmt.where(sa.cast(Asset.id, sa.Text).in_(sorted(org_asset_ids)))
     licence_rows = [tuple(row) for row in db.execute(agg_stmt).all()]
@@ -1152,18 +1172,25 @@ _Candidate = tuple[float, float, Proposal]
 def _location_in_bbox_clause(db: Session, bbox: Bbox) -> Any:
     """SQL half of the candidate cut: the location's stored point inside `bbox`. On SQLite
     `location.geom` is the JSON text `{"lon": ..., "lat": ...}` (`services/db/types.py::
-    GeographyPoint`), so `json_extract` reads it; on Postgres it is a geography, so the clause is
-    `ST_Intersects` against the envelope (GiST-indexed, docs/21 §5.2). Both are over-approximations
-    of the radius that `_within_radius` then measures exactly, so neither changes a result -- only
-    how many rows are loaded (measured 2026-09-19 on a 10,000-proposal fixture: 2.1 s to load every
-    exact row versus ~100 ms for the bbox cut plus the distance loop). The Postgres branch is not
-    exercised by the SQLite test target."""
+    GeographyPoint`), so `json_extract` reads it; on Postgres it is a geography, cast to geometry
+    and tested with `&&` against the planar envelope. Both are the same lon/lat box, inclusive at
+    the edges, and an over-approximation of the radius that `_within_radius` then measures exactly,
+    so neither changes a result -- only how many rows are loaded (measured 2026-09-19 on a
+    10,000-proposal fixture: 2.1 s to load every exact row versus ~100 ms for the bbox cut plus the
+    distance loop).
+
+    Until 2026-09-30 the Postgres branch was `ST_Intersects(geom, envelope::geography)`. A
+    geography envelope's edges are great-circle arcs, which bow poleward, so it is not the lon/lat
+    box and not an over-approximation: on the audit store it dropped 43 exact points along the
+    southern edge of a -105..-80 x 29..42 box, and one organisation's nearby-proposals counted
+    1,356 where SQLite counted 1,358. The planar test measured 2.6-3.5 ms over 11,094 locations
+    without an index, against 13-31 ms for the geography one. `tests/test_postgres.py` pins it."""
     min_lon, min_lat, max_lon, max_lat = bbox
     if _is_postgres(db):
-        from geoalchemy2 import Geography
+        from geoalchemy2 import Geometry
 
-        envelope = sa.cast(sa.func.ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat, 4326), Geography)
-        return sa.func.ST_Intersects(Location.geom, envelope)
+        envelope = sa.func.ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat, 4326)
+        return sa.cast(Location.geom, Geometry(geometry_type="POINT", srid=4326)).op("&&")(envelope)
     lon = sa.cast(sa.func.json_extract(Location.geom, "$.lon"), sa.Float)
     lat = sa.cast(sa.func.json_extract(Location.geom, "$.lat"), sa.Float)
     return sa.and_(lon >= min_lon, lon <= max_lon, lat >= min_lat, lat <= max_lat)
@@ -1540,23 +1567,40 @@ def list_organization_nearby_proposals(
     technologies = _technology_filter_values(request)
     org_scope_result = org_scope(db, org, scope_from_request(request))
 
-    stmt = (
-        select(Asset)
-        .join(AssetOwner, AssetOwner.asset_id == Asset.id)
+    # Each asset once, in the order of its first qualifying `asset_owner` edge. `DISTINCT` with
+    # `ORDER BY asset_owner.id` said the same thing, and SQLite accepted it, but Postgres refuses
+    # an ORDER BY term outside a DISTINCT select list, so the route answered 500 there (audit A1,
+    # 2026-09-30). `min(asset_owner.id)` is not an option either: Postgres 16 has no `min(uuid)`.
+    # A window numbers each asset's edges instead, and only the first one is kept. Both dialects
+    # order a uuid the same way (bytes on Postgres, the lower-case hex text on SQLite).
+    edges = (
+        select(
+            AssetOwner.asset_id.label("asset_id"),
+            AssetOwner.id.label("edge_id"),
+            sa.func.row_number()
+            .over(partition_by=AssetOwner.asset_id, order_by=AssetOwner.id)
+            .label("edge_rank"),
+        )
+        .join(Asset, AssetOwner.asset_id == Asset.id)
         .where(
             AssetOwner.organization_id.in_(org_scope_result.ids),
             sa.or_(Asset.geom.is_not(None), Asset.geom_line.is_not(None)),
             asset_geometry_permitted(),
             *asset_visibility_filter(),
         )
-        .order_by(AssetOwner.id)
-        .distinct()
-        .limit(ORG_NEARBY_ASSET_CAP)
     )
     if roles is not None:
-        stmt = stmt.where(AssetOwner.role.in_(roles))
+        edges = edges.where(AssetOwner.role.in_(roles))
     if asset_types is not None:
-        stmt = stmt.where(Asset.asset_type.in_(asset_types))
+        edges = edges.where(Asset.asset_type.in_(asset_types))
+    first_edges = edges.subquery("first_edges")
+    stmt = (
+        select(Asset)
+        .join(first_edges, first_edges.c.asset_id == Asset.id)
+        .where(first_edges.c.edge_rank == 1)
+        .order_by(first_edges.c.edge_id)
+        .limit(ORG_NEARBY_ASSET_CAP)
+    )
     assets = list(db.scalars(stmt).all())
     line_parts = _line_parts_by_id(db, assets)
 

@@ -16,6 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+from services.api.common import iso
 from services.db.models import Location, Proposal
 from services.ingest.geocode import geocode
 
@@ -247,7 +248,9 @@ def _record_feature(
             "precision": placement.precision,
             "precision_reason": reason,
             "precision_note": precision_note(placement.precision, reason),
-            "last_changed": p.last_changed.isoformat(),
+            # `iso()`, as on every other surface: RFC 3339 with `Z` on both backends. A bare
+            # `isoformat()` gave `+00:00` on Postgres and no offset at all on SQLite (audit A2).
+            "last_changed": iso(p.last_changed),
             "provenance": [provenance_row(s, s.source) for s in visible_source_links(p.sources, entitlement)],
         },
     }
