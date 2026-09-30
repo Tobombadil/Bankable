@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 from conftest import connector_for, snapshot
@@ -45,10 +46,29 @@ def test_record_id_is_the_queue_id_and_unique(parsed):
 
 
 def test_status_harmonisation_uses_the_ercot_rules(parsed):
-    _, _, _, df = parsed
-    assert set(df["lifecycle_state"]) <= {"studied", "built", "under_construction"}
-    assert (df.loc[df["status_raw"] == "Completed", "lifecycle_state"] == "built").all()
+    _, _, rows, df = parsed
+    assert set(df["lifecycle_state"]) <= {"studied", "contracted", "under_construction", "built"}
     assert df["status_rule"].str.startswith("ercot.").all()
+    # The fixture's 25 rows: 2 Active with no milestone, 4 with only an IA, 19 synchronised.
+    assert df["lifecycle_state"].value_counts().to_dict() == {"built": 19, "contracted": 4, "studied": 2}
+    # built only where ERCOT approved synchronisation; "Completed" alone (IA signed) is contracted
+    synced = [pd.notna(r.get("Approved for Synchronization")) for r in rows]
+    assert ((df["lifecycle_state"] == "built") == pd.Series(synced)).all()
+    ia_only = (df["status_raw"] == "Completed") & (df["status_rule"] == "ercot.ia_signed")
+    assert (df.loc[ia_only, "lifecycle_state"] == "contracted").all() and ia_only.sum() == 4
+    # status_raw stays gridstatus's label, never the canonical state
+    assert set(df["status_raw"]) == {"Completed", "Active"}
+
+
+def test_restate_status_reads_each_stored_rows_raw_payload(parsed):
+    c, _, _, df = parsed
+    stored = df.copy()
+    stored.loc[stored["status_raw"] == "Completed", "lifecycle_state"] = "built"  # the pre-2026-09-30 map
+    restated = c.restate_status(stored)
+    assert restated is not None
+    assert list(restated.index) == list(stored.index)
+    assert (restated["lifecycle_state"] == df["lifecycle_state"]).all()
+    assert (restated["status_rule"] == df["status_rule"]).all()
 
 
 def test_raw_payload_is_kept_per_row(parsed):

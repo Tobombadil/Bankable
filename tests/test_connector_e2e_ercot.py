@@ -125,6 +125,81 @@ def test_a_changed_snapshot_produces_change_events(day1, registry, store):
     assert (events["observed_at"] == "2026-09-13T06:00:00Z").all()
 
 
+def _store_under_the_pre_correction_map(day1) -> None:
+    """Rewrite day 1's normalised frame as the status map before 2026-09-30 produced it:
+    gridstatus's "Completed" (IA signed) read as built."""
+    path = day1.paths["normalized"]
+    df = pd.read_parquet(path)
+    completed = df["status_raw"] == "Completed"
+    df.loc[completed, "lifecycle_state"] = "built"
+    df.loc[completed, "status_rule"] = "ercot.map"
+    df.to_parquet(path, index=False)
+
+
+def _energise_16inr0049(ws) -> None:
+    """A real milestone change: 16INR0049 (IA signed, sheet row 37) is approved for energisation."""
+    assert ws.cell(37, 1).value == "16INR0049" and ws.cell(31, 29).value == "Approved for Energization"
+    ws.cell(37, 29).value = dt.date(2026, 9, 1)
+
+
+def test_a_status_map_correction_is_reclassified_without_status_change_events(day1, registry, store):
+    # docs/22 §8.1: the previous snapshot is restated under the current map before the diff, so
+    # the 4 IA-only rows stored as built are reclassified silently, and only the real change on
+    # 16INR0049 is published, with its before-state in the current vocabulary.
+    _store_under_the_pre_correction_map(day1)
+    raw2 = snapshot("ercot_gis_report.xlsx", URL, retrieved_at=DAY2)
+    raw2.content = edited_workbook(_energise_16inr0049)
+    second = run(SOURCE_ID, registry=registry, store=store, raw=raw2)
+
+    assert second.status == "ok" and second.run["dq_status"] == "pass"
+    assert second.run["rows_reclassified"] == 4
+    assert second.run["reclassified"] == {"rows": 4, "transitions": {"built->contracted": 4}}
+    checks = {c["check"]: c for c in second.run["dq"]["checks"]}
+    assert checks["status_reclassified"]["level"] == "info"
+    assert checks["status_reclassified"]["data"]["transitions"] == {"built->contracted": 4}
+    events = pd.read_parquet(second.paths["events"])
+    assert events[["event_type", "record_id", "before", "after"]].to_dict("records") == [
+        {
+            "event_type": "status_change",
+            "record_id": f"{SOURCE_ID}:16INR0049",
+            "before": "contracted",
+            "after": "under_construction",
+        }
+    ]
+    assert second.run["events_emitted"] == 1 and second.run["rows_changed"] == 1
+    stored = pd.read_parquet(second.paths["normalized"])
+    assert stored["lifecycle_state"].value_counts().to_dict() == {
+        "built": 19,
+        "contracted": 3,
+        "studied": 2,
+        "under_construction": 1,
+    }
+
+
+def test_without_restatement_the_same_correction_would_flood_status_changes(
+    day1, registry, store, monkeypatch
+):
+    # The counterfactual the restatement exists for: diffing against the frame as stored turns the
+    # mapping correction into one status_change per reclassified row.
+    from pipeline.connectors.us_iso_ercot_gen_queue.connector import Connector as ErcotConnector
+
+    monkeypatch.setattr(ErcotConnector, "restate_status", lambda self, df: None)
+    _store_under_the_pre_correction_map(day1)
+    raw2 = snapshot("ercot_gis_report.xlsx", URL, retrieved_at=DAY2)
+    raw2.content = edited_workbook(_energise_16inr0049)
+    second = run(SOURCE_ID, registry=registry, store=store, raw=raw2)
+
+    events = pd.read_parquet(second.paths["events"])
+    assert set(events["event_type"]) == {"status_change"}
+    # 3 rows the source did not touch, published as built -> contracted, and the real change
+    # reported from the wrong before-state (built -> under_construction).
+    assert (events["before"] + "->" + events["after"]).value_counts().to_dict() == {
+        "built->contracted": 3,
+        "built->under_construction": 1,
+    }
+    assert second.run["rows_reclassified"] == 0
+
+
 def test_the_run_fails_closed_on_an_unreadable_payload(registry, store):
     raw = snapshot("ercot_gis_report.xlsx", URL, retrieved_at=DAY1)
     raw.content = b"<html>maintenance</html>"

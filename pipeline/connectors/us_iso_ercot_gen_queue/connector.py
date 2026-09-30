@@ -18,7 +18,7 @@ import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot
-from pipeline.connectors.iso_queue import gridstatus_rows, normalize_iso_rows
+from pipeline.connectors.iso_queue import gridstatus_rows, normalize_iso_rows, restate_iso_status
 
 DOC_LIST = "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"
 DOWNLOAD = "https://www.ercot.com/misdownload/servlets/mirDownload?doclookupId={doc_id}"
@@ -44,8 +44,11 @@ class Connector(BaseConnector):
         "Status",
         "Capacity (MW)",
         "Generation Type",
+        # The three milestone dates decide the lifecycle state (pipeline/status_map.yaml `ercot`);
+        # losing one would silently move rows between states, so its removal holds the run.
         "IA Signed",
         "Approved for Energization",
+        "Approved for Synchronization",
     )
 
     def fetch(self) -> RawSnapshot:
@@ -82,3 +85,6 @@ class Connector(BaseConnector):
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
         return normalize_iso_rows(self, "ercot", rows, raw)
+
+    def restate_status(self, df: pd.DataFrame) -> pd.DataFrame | None:
+        return restate_iso_status(self, "ercot", df)

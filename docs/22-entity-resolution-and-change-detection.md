@@ -80,9 +80,10 @@ Refine rules run first, in file order; then the base map; else `unknown` with `s
 | | ACTIVE + IA "Filed Unexecuted" (1) | permitted | `caiso.active_ia_filed` |
 | | COMPLETED | built | |
 | | WITHDRAWN | withdrawn | 65 withdrawn rows carry an executed IA → `status_conflict` |
-| ERCOT | Active | studied | base |
-| | Active + Approved for Energization (2) | under_construction | `ercot.energized` |
-| | Completed | built | 580/580 coincide with a signed IA date |
+| ERCOT | Approved for Synchronization present (117: 111 Completed, 6 Active) | built | `ercot.synchronized`; keyed on ERCOT's milestone dates, not gridstatus's Status (§3.1) |
+| | Approved for Energization present, not synchronised (4) | under_construction | `ercot.energized` |
+| | IA Signed present, neither later milestone (465) | contracted | `ercot.ia_signed`; gridstatus calls these "Completed" |
+| | none of the three (1,192) | studied | base (`Active`) |
 | | *(withdrawal)* | — | **not representable**: withdrawn projects vanish from the file; only a `removed` diff event can show it |
 | SPP | WITHDRAWN | withdrawn | keyed on **Status (Original)**, not gridstatus's harmonised Status |
 | | TERMINATED (47) | cancelled | |
@@ -102,12 +103,67 @@ Refine rules run first, in file order; then the base map; else `unknown` with `s
 | | (U) ≤50% built (498), (V) >50% (367), (TS) complete, pre-COD (152) | under_construction | (TS) is **not** built: no COD yet |
 | | *(completion)* | — | a unit leaves the Planned sheet on COD; only a `removed` event shows it |
 
-Result, 14,388 rows: withdrawn 7,889 · studied 1,815 · built 1,674 · under_construction 1,022 · announced 688 ·
-contracted 580 · filed 395 · permitted 242 · cancelled 47 · unknown 36. `status_conflict` = 325 rows.
+Result, 14,388 rows (re-run 2026-09-30 with the §3.1 ERCOT rules): withdrawn 7,889 · studied 1,811 · built 1,211 ·
+contracted 1,045 · under_construction 1,024 · announced 688 · filed 395 · permitted 242 · cancelled 47 · unknown 36.
+`status_conflict` = 325 rows. (Before §3.1: studied 1,815 · built 1,674 · contracted 580 · under_construction 1,022.)
 
 The one number that matters most: **327 SPP rows (49.5% of what gridstatus calls "Completed" for SPP) have an
 executed IA but no commercial operation**. Any product that reuses gridstatus's status as-is overstates SPP
 completions by half.
+
+### 3.1 ERCOT: the lifecycle keys on ERCOT's milestone dates (2026-09-30, lane FX1)
+
+**The defect (audit F1).** ERCOT's GIS report has no status column. gridstatus 0.36.0 derives one
+(`ercot.py:1573-1581`): `Completed` whenever `IA Signed` is non-null, `Active` otherwise. The map read
+`Completed` as `built`, so every project with only a signed interconnection agreement was published as built.
+On the audit's store copy that is 352 live ERCOT proposals, 90,020.3 MW, 347 of them with a projected COD after
+2026-09-30 (re-measured here on a copy of `audit/data_scientist/store.db`; same numbers). The Siete page read
+"Observed as built" above a 2029 COD. The `ercot.energized` rule required `Active`, so it caught 2 rows.
+
+**The rule now** (`pipeline/status_map.yaml` `ercot`, version 3). Refine rules, latest milestone first:
+`Approved for Synchronization` → built (`ercot.synchronized`); `Approved for Energization` → under_construction
+(`ercot.energized`); `IA Signed` → contracted (`ercot.ia_signed`, the vocabulary's state for an executed
+agreement, `data/vocabulary/lifecycle_states.yaml`); none → studied (base map, `Active`). The base map's
+`Completed` entry is now `contracted`, reachable only if gridstatus ever labels a row Completed without an IA
+date. `pipeline/normalize.py::iso_status_contexts` passes `approved_for_synchronization` into the rule context
+(it was the one milestone that did not reach it), and the connector lists the column in `key_source_columns`,
+so its disappearance holds the run. `status_raw` keeps gridstatus's `Completed`/`Active` unaltered, and
+`status_rule` names the milestone that decided the state.
+
+**Why synchronisation is built.** `Approved for Synchronization` equals the report's own `Actual Completion Date`
+on all 117 rows that carry either (2026-09-12 pull). It precedes a formal commercial-operation declaration, so an
+ERCOT `built` row is grid-synchronised; the caveat says so. Six `Active` rows are synchronised with no IA date
+(repowers, two CPS rotor replacements, one SLF addition, all under an existing agreement) and are built.
+
+**Measured on the stored ERCOT frames** (1,778 rows; the 2026-09-12 eval pull and the stored
+`normalized/us.iso.ercot.gen_queue/20260913T202528Z.parquet` give identical counts):
+
+| gridstatus Status | Before | After |
+|---|---|---|
+| Completed (580) | built 580 | built 111 · under_construction 4 · contracted 465 |
+| Active (1,198) | studied 1,196 · under_construction 2 | studied 1,192 · built 6 |
+| MW | built 136,974.0 · under_construction 128.4 | built 20,471.7 · under_construction 719.0 · contracted 115,965.2 |
+
+The 580 Completed rows split 111 / 4 / 465, exactly as the audit predicted. The six Active rows are the only
+difference from its figure, and the audit counted Completed rows only. 469 of the 580 have an IA and no
+synchronisation approval (116,684 MW; 464 with a projected COD after 2026-09-30).
+
+**Downstream, measured.**
+- Grid points: loading the stored frame and then the corrected one into an empty store and reading
+  `services.api.interconnection_points.point_totals` over ERCOT's 1,248 points gives active 301,112.5 MW
+  (1,198 proposals) → 417,614.8 MW (1,661), built 136,974.0 MW (580) → 20,471.7 MW (117). On the audit's
+  multi-source store copy, with a survivor's state changed only where it was its ERCOT row's own: live
+  `iso=ERCOT` active 369.8 → 459.7 GW (the audit's 369.8 reproduced), at ERCOT-operated points 328.6 → 418.4 GW,
+  built 103.3 → 13.5 GW, 358 proposals changed.
+- Resolver (§22 methods, threshold 75): tp/fp/fn/tn 37/1/3/44 before and after, the same 764 accepted pairs and
+  identical scores on all 59,743 pairs. Store path (`services.resolve.report`): 33/0/4/40 before and after,
+  output byte-identical. Only the resolver's informational "ACTIVE ISO records" count moves (2,401 → 2,864).
+- Matching: `data/match_rules.yaml` excludes `built`, so 469 ERCOT rows become eligible and 6 leave.
+
+**Not changed here.** The public page prints `status_raw` as "source status: \"Completed\"" next to a
+contracted state; that text is gridstatus's label and reads as completion. The rendering belongs to the
+frontend lane. `data/vocabulary/lifecycle_states.yaml`'s `studied` note names ERCOT's energisation approval as
+its refine column; IA signed and synchronisation now also apply.
 
 ## 4. Entity resolution (`pipeline/resolve.py`)
 
@@ -281,6 +337,37 @@ removed                30        30  True
 
 The first run recovered 56/60 capacity changes: a +20 % edit on records ≤ 2.5 MW sits under the 0.5 MW floor.
 The perturbation now applies max(+20 %, +1 MW); the floor itself is kept, it is the point of the rule.
+
+### 8.1 A status-map correction is a reclassification, not a change event (2026-09-30, lane FX1)
+
+The diff compares the new frame with the stored one, and the stored one was harmonised under the map in force
+when it was written. A corrected map therefore looks like a real-world change on every row it moves. Replaying
+the stored 2026-09-13 ERCOT report through the runner, against the stored normalised frame, with the §3.1 rules:
+**475 `status_change` events** (465 built→contracted, 4 built→under_construction, 4 studied→built,
+2 under_construction→built). Loaded into an empty store after the stored frame, they become 475 `event` rows,
+and `status_change` events feed `proposal.status_changed` social drafts, CRM signals and alert matching. No mechanism for silent reclassification existed: the loader writes every
+field it is given without an event (`_update_existing_entity`), and all events come from the runner's diff.
+
+**Mechanism added.** `Connector.restate_status(df)` returns each stored row's `lifecycle_state`/`status_rule`
+recomputed from its own `raw` payload under the current map (default `None`: cannot restate, diff as stored).
+The ERCOT connector implements it through `pipeline/connectors/iso_queue.py::restate_iso_status`, which runs the
+same `iso_status_contexts` → `harmonise_status` path as normalisation. The runner restates the previous frame
+right after key alignment, in `run` and `release_held`, and diffs against that. The same replay then emits
+**0 events**; the run record carries `rows_reclassified: 475` and
+`reclassified.transitions`, and the DQ block gains an `info` check `status_reclassified` (persisted on
+`source_run.dq`, visible on the admin runs screen; the DQ status stays `pass`). The loader updates the 475
+proposals' `lifecycle_state` as an ordinary field write, restamping `field_provenance.lifecycle_state`.
+
+A real change in the same run is still published, with its before-state in the current vocabulary:
+`tests/test_connector_e2e_ercot.py` energises one IA-only row while correcting the map and gets exactly one
+event, contracted → under_construction, where the unrestated diff gives four (three spurious, and the real one
+reported as built → under_construction).
+
+**Limits.** (i) The runner short-circuits on an unchanged snapshot SHA, so a map change reaches the store with
+the next ERCOT report that differs (monthly), not on the next scheduled tick; there is no force-renormalise
+flag. (ii) Only connectors that implement `restate_status` are covered; the other gridstatus queues (CAISO,
+NYISO) can opt in with the same one-line override. (iii) A stored frame without a `raw` column is diffed as
+stored.
 
 ## 9. What an LLM adjudication step would add, and what it costs
 

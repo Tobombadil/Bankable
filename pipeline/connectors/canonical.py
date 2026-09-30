@@ -33,6 +33,14 @@ def harmonise_status(source_key: str, ctx: dict[str, Any], status_map: dict[str,
     return result
 
 
+def harmonise_iso_frame(
+    df: pd.DataFrame, source_key: str, status_map: dict[str, Any]
+) -> list[tuple[str, str]]:
+    """(canonical state, rule id) for every row of a gridstatus-shaped ISO queue frame."""
+    result: list[tuple[str, str]] = _n.harmonise_iso_frame(df, source_key, status_map)
+    return result
+
+
 def norm_name(value: Any) -> str | None:
     result: str | None = _n.norm_name(value)
     return result

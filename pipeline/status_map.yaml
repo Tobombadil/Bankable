@@ -4,8 +4,8 @@
 # contracted -> built -> withdrawn/cancelled) plus one documented extension, `under_construction`,
 # which sits between `contracted` and `built`. EIA-860M distinguishes it explicitly and collapsing
 # it into either neighbour would lose the single most commercially useful signal in the file.
-version: 2
-updated: 2026-09-12
+version: 3
+updated: 2026-09-30
 
 canonical_states:
   - announced          # sponsor has declared intent; no regulatory process started
@@ -22,7 +22,8 @@ canonical_states:
 # `field` names the raw column each base mapping keys off.
 # `refine` rules are evaluated in order BEFORE the base map; first match wins.
 # Rule condition fields are the normalised inputs built by pipeline/normalize.py:
-#   status_raw, status_original, ia_status, project_status, ia_signed ("yes"/"no")
+#   status_raw, status_original, ia_status, project_status, and the presence flags ("yes"/"no")
+#   ia_signed, approved_for_energization, approved_for_synchronization
 sources:
 
   caiso:
@@ -49,21 +50,55 @@ sources:
       - CAISO publishes no sponsor/interconnecting-entity column, so no sponsor key exists here.
 
   ercot:
+    # ERCOT's GIS report has no status column. gridstatus derives `Status` from one milestone date:
+    # Completed = "IA Signed" is non-null, Active = it is null (gridstatus 0.36.0 ercot.py:1573-1581).
+    # So the lifecycle is keyed on ERCOT's own milestone dates, latest first; `status_raw` keeps
+    # gridstatus's label unaltered and `status_rule` names the milestone that decided the state.
     field: Status
     map:
       Active: studied
-      Completed: built
+      Completed: contracted  # reached only if gridstatus ever labels a row Completed without an IA date
     refine:
+      - id: ercot.synchronized
+        when: {approved_for_synchronization: "yes"}
+        then: built
+        note: >-
+          "Approved for Synchronization" is the latest milestone in the report and equals the
+          report's own "Actual Completion Date" on every row that has either (117/117, 2026-09-12
+          pull). Applies to Active rows too: 6 repowers, rotor replacements and an SLF addition
+          are synchronised under an existing agreement and carry no "IA Signed" date.
       - id: ercot.energized
-        when: {status_raw: Active, approved_for_energization: "yes"}
+        when: {approved_for_energization: "yes"}
         then: under_construction
         note: ERCOT approves energisation only once plant is physically being commissioned.
+      - id: ercot.ia_signed
+        when: {ia_signed: "yes"}
+        then: contracted
+        note: >-
+          An interconnection agreement is signed and neither energisation nor synchronisation is
+          approved. This is every row gridstatus labels "Completed" that has not reached either
+          later milestone (465 of 580, 2026-09-12 pull).
     caveats:
       - >-
         ERCOT's GIS report carries no withdrawn rows at all: withdrawn projects are dropped from
         the file. Withdrawal in ERCOT is therefore only observable as a `removed` diff event
         (pipeline/diff.py), never as a status value. This is the clearest case for snapshot diffing.
-      - Status=Completed is exactly coextensive with a non-null "IA Signed" date (580/580).
+      - >-
+        Milestone used, per state: built = "Approved for Synchronization" present; under_construction
+        = "Approved for Energization" present, not synchronised; contracted = "IA Signed" present,
+        neither later milestone; studied = none of the three. `status_raw` is gridstatus's
+        "Completed"/"Active", which means IA signed / not signed and nothing more; it is kept as
+        the parser emitted it, never rewritten to the canonical state.
+      - >-
+        Until 2026-09-30 "Completed" mapped to built, so every row with an IA but no
+        synchronisation approval was published as built: 469 of 580 "Completed" rows in the
+        2026-09-12 pull (116,684 MW; 464 with a projected COD after 2026-09-30). The correction is a reclassification, not a real-world change:
+        the runner restates the previous snapshot under the current map before diffing
+        (`Connector.restate_status`), so it emits no status_change events.
+      - >-
+        Synchronisation approval precedes the formal commercial-operation declaration. ERCOT's
+        report calls it the completion date, and the register follows it; a built ERCOT row is
+        grid-synchronised, not necessarily declared commercial.
 
   spp:
     # gridstatus's harmonised SPP `Status` collapses three distinct states into "Completed";
