@@ -49,7 +49,7 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import pandas as pd
 from sqlalchemy import select
@@ -58,7 +58,14 @@ from sqlalchemy.orm import Session
 from pipeline.connectors.registry import Registry
 from services.api.common import ensure_aware
 from services.db.models import Event, Opportunity, OpportunitySource, Proposal, ProposalSource
-from services.ingest.loader import GateRefused, load_dataframe, load_from_files, upsert_licence_and_source
+from services.ingest.loader import (
+    GateRefused,
+    KindRefused,
+    generic_load_kind,
+    load_dataframe,
+    load_from_files,
+    upsert_licence_and_source,
+)
 from web.build_data import EVAL_SHORT_ID_MAP, OPPORTUNITY_SOURCE_IDS, PROPOSAL_SOURCE_IDS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -104,7 +111,7 @@ def load_real_normalized_sources(
                 load_from_files(session, source_id, path.stem, data_root=data_root, registry=registry)
             else:
                 _load_sampled_parquet(session, source_id, path, registry, sample_per_state)
-        except GateRefused as exc:
+        except (GateRefused, KindRefused) as exc:
             status[source_id] = f"skipped: {exc}"
             continue
         status[source_id] = "loaded"
@@ -115,10 +122,11 @@ def load_real_normalized_sources(
 def _load_sampled_parquet(
     session: Session, source_id: str, path: Path, registry: Registry, sample_per_state: int
 ) -> None:
+    # The connector's declared kind, as `load_from_files` decides it (a `document` frame also
+    # carries `lifecycle_state`, so the columns cannot say; 2026-09-30, lane FX2).
+    kind = generic_load_kind(registry, source_id)
     frame = pd.read_parquet(path)
-    state_column = "lifecycle_state" if "lifecycle_state" in frame.columns else "status"
-    is_proposal = state_column == "lifecycle_state"
-    kind: Literal["proposal", "opportunity"] = "proposal" if is_proposal else "opportunity"
+    state_column = "lifecycle_state" if kind == "proposal" else "status"
     sampled = _stratified_sample(frame, per_state=sample_per_state, column=state_column)
     entry = registry.get(source_id)
     source = upsert_licence_and_source(session, entry, registry.version)

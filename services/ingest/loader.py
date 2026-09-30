@@ -12,6 +12,15 @@ connector already refuses to write publishable parquet for such a source (`runne
 `QuarantineStore`), and this loader refuses to read it back in regardless of where the file came
 from, so a gated source can never reach the public store by either path alone failing open.
 
+Kind (2026-09-30, lane FX2): a run loads as `proposal` or `opportunity` because its connector
+class says so (`Connector.kind`), never because of the columns its frame happens to carry. This
+loader writes those two kinds only. Any other kind is refused with `KindRefused` before a file is
+read: `document` frames (FERC eLibrary filings; the EIA-860 ownership and GHGRP context sources,
+which load through `services/ingest/ownership.py` and `services/ingest/ghgrp.py` from their own
+parquet) carry a constant `lifecycle_state`, and until this change the loader read that column as
+"this is a proposal frame" and published every filing as an "Untitled" proposal. Nothing writes
+`document` rows yet (`services/api/documents.py`), so refusal is the only correct answer here.
+
 Simplifications this sprint (no upstream producer yet — recorded here, not silently dropped):
   - **No cross-source fusion.** `pipeline/resolve.py` (entity resolution across sources) is a
     later, data-scientist-owned stage. Each `(source_id, source_record_id)` becomes its own
@@ -111,7 +120,13 @@ from pipeline.connectors.dedupe import (
     split_key,
 )
 from pipeline.connectors.opportunity import known_budget
-from pipeline.connectors.registry import GATED_REUSE, PUBLISHABLE_REUSE, Registry, SourceEntry
+from pipeline.connectors.registry import (
+    GATED_REUSE,
+    PUBLISHABLE_REUSE,
+    RegistrationError,
+    Registry,
+    SourceEntry,
+)
 from pipeline.connectors.store import Store
 from services.db.models import (
     Event,
@@ -185,6 +200,9 @@ def _is_derived_only_override(entry: SourceEntry) -> bool:
 
 Kind = Literal["proposal", "opportunity"]
 
+#: The connector kinds this loader writes (`pipeline.connectors.base.Kind` also has `document`).
+GENERIC_LOAD_KINDS: tuple[Kind, ...] = ("proposal", "opportunity")
+
 #: pipeline/diff.py event_type -> docs/21 §7.3 event_type vocabulary.
 DIFF_EVENT_TYPE_MAP: dict[str, str] = {
     "new": "created",
@@ -198,6 +216,59 @@ DIFF_EVENT_TYPE_MAP: dict[str, str] = {
 
 class GateRefused(Exception):
     """The source's registry reuse class is `restricted` or `unknown` (docs/21 §8, CLAUDE.md)."""
+
+
+class KindRefused(Exception):
+    """The source's connector declares a kind this loader does not write (module docstring,
+    "Kind"), or no connector declares one and the caller did not name it."""
+
+
+def connector_kind(registry: Registry, source_id: str) -> str | None:
+    """The `kind` the source's connector class declares, or None when the source has no connector
+    class (a manifest-only entry, a private aggregator, a test fixture)."""
+    try:
+        cls = registry.connector_class(source_id)
+    except RegistrationError:
+        return None
+    kind = getattr(cls, "kind", None)
+    return str(kind) if kind is not None else None
+
+
+def generic_load_kind(registry: Registry, source_id: str, requested: Kind | None = None) -> Kind:
+    """The kind `load_from_files` loads `source_id` as, or `KindRefused`.
+
+    The connector class decides. `requested` is accepted only where it agrees with that class, or
+    where no connector class exists (a fixture source in a test): it can name a kind, never
+    override one. Every refusal is logged with its reason."""
+    declared = connector_kind(registry, source_id)
+    reason: str | None = None
+    kind: str | None = declared if declared is not None else requested
+    if declared is not None and requested is not None and requested != declared:
+        reason = f"{source_id}: its connector declares kind={declared!r}, the caller asked for {requested!r}"
+    elif kind is None:
+        reason = f"{source_id}: no connector class declares a kind and none was given"
+    elif kind not in GENERIC_LOAD_KINDS:
+        reason = (
+            f"{source_id}: connector kind={kind!r}; the generic loader writes only "
+            f"{'/'.join(GENERIC_LOAD_KINDS)} rows, never a {kind} frame as proposals"
+        )
+    if reason is not None:
+        log.warning("load refused: %s", reason, extra={"source_id": source_id, "kind": declared})
+        raise KindRefused(reason)
+    if kind == "proposal":
+        return "proposal"
+    return "opportunity"
+
+
+def kind_refusal(registry: Registry, source_id: str) -> str | None:
+    """Why `load_from_files` would refuse `source_id` by kind, or None when it loads it. The
+    scheduler asks this before it queues a load (`infra/scheduler/app.py::_defer_load`)."""
+    declared = connector_kind(registry, source_id)
+    if declared is None:
+        return f"{source_id}: no connector class declares a kind"
+    if declared not in GENERIC_LOAD_KINDS:
+        return f"{source_id}: connector kind={declared!r} is not loaded by the generic loader"
+    return None
 
 
 def utcnow() -> dt.datetime:
@@ -219,6 +290,8 @@ class LoadResult:
     warnings: list[str] = field(default_factory=list)
     #: The grid interconnection pass over this load's proposal links (`None` for opportunities).
     interconnection: LinkResult | None = None
+    #: What this load wrote, `proposal` or `opportunity`: the connector's declared kind.
+    kind: str | None = None
 
 
 def _bump_dq_status(run: SourceRun, level: str) -> None:
@@ -1505,7 +1578,10 @@ def load_dataframe(
     An orchestrator over four steps (module phase map, docs/42 §5): `_prepare_load_context`,
     `_index_records`, `_upsert_records`, `_load_events` -- the last two sharing `_LoadContext`.
     """
+    if kind not in GENERIC_LOAD_KINDS:
+        raise KindRefused(f"{source.id}: load_dataframe writes only {GENERIC_LOAD_KINDS}, not {kind!r}")
     ctx = _prepare_load_context(session, source, kind, records_df, run)
+    ctx.result.kind = kind
     records, dup_naturals = _index_records(records_df)
     _upsert_records(session, ctx, records, dup_naturals, batch_size)
     if kind == "proposal":
@@ -1526,6 +1602,7 @@ def load_from_files(
     data_root: pathlib.Path = pathlib.Path("data"),
     registry: Registry | None = None,
     store: Store | None = None,
+    kind: Kind | None = None,
 ) -> LoadResult:
     """Read `data/normalized/<source_id>/<ts>.parquet` (+ the matching `events/` file and, if
     present, the `runs/<source_id>/<ts>.json` record) and load them (docs/20 §3.2, §3.7).
@@ -1537,12 +1614,17 @@ def load_from_files(
     Raises `GateRefused` before touching any file if the source's registry entry is gated —
     independent of whatever the connector run already did (module docstring).
 
+    The kind is the connector class's own (`generic_load_kind`); `kind` may name it only for a
+    source with no connector class. A `document` source, or any kind but proposal/opportunity,
+    raises `KindRefused` before any file is read (module docstring, "Kind").
+
     One `source_run` row per run (2026-09-27, `_run_for_load`): the load attaches to the row the
     scheduler recorded for the fetch, and writes one itself only when loaded standalone.
     """
     registry = registry or Registry()
     entry = registry.get(source_id)
     _assert_not_gated(entry)
+    load_kind = generic_load_kind(registry, source_id, kind)
 
     store = store if store is not None else Store(data_root)
     normalized_path = store.normalized_path(source_id, ts)
@@ -1558,12 +1640,7 @@ def load_from_files(
     source = upsert_licence_and_source(session, entry, registry.version)
     run = _run_for_load(session, source, run_record, records_df, events_df, entry.egress)
 
-    # Proposal frames carry `lifecycle_state`; opportunity frames carry `status` + `title`
-    # instead (pipeline.connectors.base PROPOSAL_COLUMNS vs OPPORTUNITY_COLUMNS) — a cheap,
-    # reliable discriminator without needing the caller to pass `kind` explicitly.
-    kind: Kind = "proposal" if "lifecycle_state" in records_df.columns else "opportunity"
-
-    result = load_dataframe(session, source, kind, records_df, events_df, run=run)
+    result = load_dataframe(session, source, load_kind, records_df, events_df, run=run)
     result.source_run_id = run.id
     return result
 

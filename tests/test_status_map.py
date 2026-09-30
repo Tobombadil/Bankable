@@ -3,11 +3,13 @@
 import pathlib
 import sys
 
+import pandas as pd
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from pipeline.normalize import (
     classify_tech,
+    harmonise_iso_frame,
     harmonise_status,
     load_status_map,
     norm_county,
@@ -58,7 +60,7 @@ def test_all_six_sources_present():
             "under_construction",
             "ercot.energized",
         ),
-        ("ercot", {"status_raw": "Completed", "ia_signed": "yes"}, "built", "ercot.map"),
+        ("ercot", {"status_raw": "Completed", "ia_signed": "yes"}, "contracted", "ercot.ia_signed"),
         ("nyiso", {"status_raw": "Withdrawn"}, "withdrawn", "nyiso.map"),
         ("nyiso", {"status_raw": "Completed"}, "built", "nyiso.map"),
         (
@@ -116,6 +118,67 @@ def test_all_six_sources_present():
 )
 def test_harmonise(src, ctx, expected, rule):
     assert harmonise_status(src, ctx, SM) == (expected, rule)
+
+
+# ERCOT (docs/22 §3, 2026-09-30). gridstatus derives `Status` from "IA Signed" alone
+# (Completed = signed), so the lifecycle keys on the three milestone dates, latest first. Every
+# combination of the three, under the Status gridstatus would give it.
+ERCOT_MILESTONES = [
+    # ia_signed, energised, synchronised -> state, rule
+    (False, False, False, "studied", "ercot.map"),
+    (True, False, False, "contracted", "ercot.ia_signed"),
+    (False, True, False, "under_construction", "ercot.energized"),
+    (True, True, False, "under_construction", "ercot.energized"),
+    (False, False, True, "built", "ercot.synchronized"),
+    (True, False, True, "built", "ercot.synchronized"),
+    (False, True, True, "built", "ercot.synchronized"),
+    (True, True, True, "built", "ercot.synchronized"),
+]
+
+
+@pytest.mark.parametrize("ia,energised,synchronised,expected,rule", ERCOT_MILESTONES)
+def test_ercot_lifecycle_follows_the_latest_milestone(ia, energised, synchronised, expected, rule):
+    yn = {True: "yes", False: "no"}
+    ctx = {
+        "status_raw": "Completed" if ia else "Active",
+        "ia_signed": yn[ia],
+        "approved_for_energization": yn[energised],
+        "approved_for_synchronization": yn[synchronised],
+    }
+    assert harmonise_status("ercot", ctx, SM) == (expected, rule)
+
+
+def _ercot_frame(ia, energised, synchronised):
+    """One gridstatus-shaped ERCOT row: dates where a milestone is reached, null where not."""
+    date = pd.Timestamp("2025-06-30")
+    return pd.DataFrame(
+        {
+            "Status": ["Completed" if ia else "Active"],
+            "IA Signed": [date if ia else pd.NaT],
+            "Approved for Energization": [date if energised else pd.NaT],
+            "Approved for Synchronization": [date if synchronised else pd.NaT],
+        }
+    )
+
+
+@pytest.mark.parametrize("ia,energised,synchronised,expected,rule", ERCOT_MILESTONES)
+def test_ercot_milestone_dates_reach_the_rules_from_source_columns(
+    ia, energised, synchronised, expected, rule
+):
+    # The same table through the column -> context step the connector runs (`iso_status_contexts`),
+    # so a milestone column that stopped reaching the rules would fail here.
+    assert harmonise_iso_frame(_ercot_frame(ia, energised, synchronised), "ercot", SM) == [(expected, rule)]
+
+
+def test_ercot_ia_signed_only_is_never_built():
+    # Regression (audit F1, 2026-09-30): gridstatus labels every IA-signed row "Completed" and the
+    # map used to read that as built, publishing 469 rows with a signed agreement and no
+    # synchronisation approval as built. Whatever gridstatus calls it, IA-only is contracted.
+    for status in ("Completed", "Active", None):
+        ctx = {"status_raw": status, "ia_signed": "yes", "approved_for_synchronization": "no"}
+        assert harmonise_status("ercot", ctx, SM)[0] != "built"
+    assert harmonise_iso_frame(_ercot_frame(True, False, False), "ercot", SM)[0][0] == "contracted"
+    assert SM["sources"]["ercot"]["map"]["Completed"] != "built"
 
 
 @pytest.mark.parametrize(

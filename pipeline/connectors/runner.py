@@ -22,6 +22,13 @@ down through the CLI (`--run-id`), so the record, and the row the scheduler comp
 that same run rather than a second one. Without it a fresh id is generated, as before. A value
 that is not a UUID is refused before any I/O.
 
+A status-map correction is not a real-world change (2026-09-30, docs/22 §8.1). Before the diff, the
+previous normalised snapshot is restated under the current status map from each row's own `raw`
+payload (`Connector.restate_status`), so the diff sees only what the source changed. Rows the new
+map places differently are counted on the run record (`reclassified`) and as an `info` DQ check
+(`status_reclassified`, persisted on `source_run.dq`), and emit no `status_change` event; the
+loader then writes the corrected state onto the stored record as an ordinary field update.
+
 `release_held` is the other way a run's output reaches `normalized/`: an operator accepted a
 data-quality hold (`POST /admin/v1/source-runs/{run_id}/release`), so the held frame is diffed
 against the previous normalised snapshot and written exactly as step 6 of `run` would have, the
@@ -44,13 +51,14 @@ import pandas as pd
 
 from pipeline.connectors.base import (
     BlockedError,
+    Connector,
     ConnectorError,
     GateViolation,
     RawSnapshot,
     utcnow,
 )
 from pipeline.connectors.dedupe import align_previous_keys
-from pipeline.connectors.dq import DQResult, run_gates
+from pipeline.connectors.dq import Check, DQResult, run_gates
 from pipeline.connectors.http import HttpBlocked, HttpFailed, PoliteSession
 from pipeline.connectors.objectstore import StoreError
 from pipeline.connectors.registry import Registry
@@ -101,6 +109,48 @@ def _discard(st: Store, paths: list[pathlib.Path], source_id: str, run_id: str) 
                 extra={"source_id": source_id, "run_id": run_id, "path": st.locate(path)},
                 exc_info=True,
             )
+
+
+def _restate_previous(connector: Connector, prev_df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """The previous snapshot as the current status map reads it (`Connector.restate_status`), and
+    the reclassification summary for the run record: how many stored rows change state, by
+    `before->after` transition. Diffing against the restated frame is what keeps a status-map
+    correction from being published as a real-world `status_change` (module docstring)."""
+    summary: dict[str, Any] = {"rows": 0, "transitions": {}}
+    if "lifecycle_state" not in prev_df.columns:
+        return prev_df, summary
+    restated = connector.restate_status(prev_df)
+    if restated is None:
+        return prev_df, summary
+    before = prev_df["lifecycle_state"].astype("string").fillna("").to_numpy()
+    after = restated["lifecycle_state"].astype("string").fillna("").to_numpy()
+    changed = before != after
+    if not changed.any():
+        return prev_df, summary
+    out = prev_df.copy()
+    out["lifecycle_state"] = out["lifecycle_state"].astype("object")
+    out.loc[changed, "lifecycle_state"] = restated["lifecycle_state"].to_numpy()[changed]
+    if "status_rule" in out.columns and "status_rule" in restated.columns:
+        out["status_rule"] = out["status_rule"].astype("object")
+        out.loc[changed, "status_rule"] = restated["status_rule"].to_numpy()[changed]
+    pairs = pd.Series([f"{b}->{a}" for b, a in zip(before[changed], after[changed], strict=True)])
+    transitions = {str(k): int(v) for k, v in pairs.value_counts().items()}
+    summary = {"rows": int(changed.sum()), "transitions": transitions}
+    log.info(
+        "previous snapshot restated under the current status map",
+        extra={"source_id": connector.source_id, "rows": summary["rows"]},
+    )
+    return out, summary
+
+
+def _reclassified_check(summary: dict[str, Any]) -> Check:
+    return Check(
+        "status_reclassified",
+        "info",
+        f"{summary['rows']} stored rows restated under the current status map; no status_change "
+        "events emitted for them",
+        {"rows": summary["rows"], "transitions": summary["transitions"]},
+    )
 
 
 def _source_columns(rows: list[dict[str, Any]]) -> list[str]:
@@ -171,6 +221,7 @@ def run(
         "rows_changed": 0,
         "rows_gone": 0,
         "events_emitted": 0,
+        "rows_reclassified": 0,
         "model_calls": 0,
         "cost_usd": 0.0,
         "worker_seconds": 0.0,
@@ -281,6 +332,9 @@ def run(
         # Legacy positional `#N` keys, and unique <-> duplicated transitions, are matched to the
         # current content keys before anything is compared (pipeline/connectors/dedupe.py).
         prev_df = align_previous_keys(prev_df, df)
+        prev_df, reclassified = _restate_previous(connector, prev_df)
+        record["rows_reclassified"] = reclassified["rows"]
+        record["reclassified"] = reclassified
     if connector.snapshot_mode == "incremental" and prev_df is not None:
         keep = prev_df[~prev_df["record_id"].isin(df["record_id"])]
         df = pd.concat([keep[df.columns.intersection(keep.columns)], df], ignore_index=True)
@@ -298,6 +352,8 @@ def run(
         duplicates_resolved=int(df.attrs.get("duplicates_resolved", 0)),
         rows_fetched=record["rows_fetched"],
     )
+    if record["rows_reclassified"]:
+        dq.checks.append(_reclassified_check(record["reclassified"]))
     result.dq = dq
     record["dq_status"] = dq.dq_status
     record["dq"] = dq.to_dict()
@@ -447,6 +503,9 @@ def release_held(
     prev_df, prev_run_id = st.previous_normalized(source_id)
     if prev_df is not None:
         prev_df = align_previous_keys(prev_df, df)
+        prev_df, reclassified = _restate_previous(registry.instantiate(source_id), prev_df)
+        record["rows_reclassified"] = reclassified["rows"]
+        record["reclassified"] = reclassified
     observed_at = str((record.get("snapshot") or {}).get("retrieved_at") or record.get("started_at"))
     record.setdefault("outputs", {})
     result = RunResult(run=record, records=df)
