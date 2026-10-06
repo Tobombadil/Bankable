@@ -29,6 +29,7 @@ from playwright.sync_api import Route, sync_playwright
 
 from services.db.session import get_engine, get_sessionmaker, init_db
 from web.data_loading import load_dev_database, load_test_database
+from web.retirement import ASSET_STATUS_LABELS
 from web.viewmodels import TECHNOLOGY_LABELS, technology_label
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -574,7 +575,9 @@ def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) 
                 ),
             )
             page.goto(BASE_URL + "/?kind=load")
-            assert json.loads(page.inner_text("#map-labels")) == {"technology": TECHNOLOGY_LABELS}
+            labels = json.loads(page.inner_text("#map-labels"))
+            # Lane R1 added the asset status words beside the technology ones.
+            assert labels == {"technology": TECHNOLOGY_LABELS, "asset_status": ASSET_STATUS_LABELS}
             page.wait_for_function(
                 "() => document.querySelectorAll('#in-view-items .meta').length === 3", timeout=15000
             )

@@ -18,6 +18,10 @@ to run at any point after the loaders, and a source whose parquet is absent is r
   two inputs) on `power_plant`, joined `Plant Id` == `asset.source_asset_id`.
 * `us.epa.rfs_public_data` -> `attributes.rfs` (D codes, pathway count) on `ethanol_plant` and
   `rng_project`, joined facility name + state, then company name + state.
+* `us.eia.860.plants` (EIA-860 Schedule 2, `pipeline/context/eia860_plants.py`; lane R1,
+  2026-10-06) -> `attributes.grid` (NERC region, balancing authority, transmission or distribution
+  system owner, grid voltages in kV, report year) on `power_plant`, joined `Plant Code` ==
+  `asset.source_asset_id`.
 
 **Idempotent.** Every run recomputes each block from the parquet and compares it with what the row
 already carries; an unchanged row is counted as `unchanged` and its `last_changed` is not touched.
@@ -76,6 +80,9 @@ ALIASES_PATH = _REPO_ROOT / "data" / "vendored" / "organizations" / "external_op
 PHMSA_SOURCE_ID = "us.phmsa.pipeline_operator_reports"
 EIA923_SOURCE_ID = "us.eia.form923"
 RFS_SOURCE_ID = "us.epa.rfs_public_data"
+#: The parquet stem `pipeline/context/eia860_plants.py` writes (source id `us.eia.860`).
+EIA860_PLANTS_FILE = "us.eia.860.plants"
+GRID_KEY = "grid"
 
 #: `asset.attributes` key per block. The EIA-923 features are flat, year-suffixed keys (docs/21
 #: §3.22's own example: `{"heat_rate_btu_kwh": 7150, "capacity_factor_2025": 0.41}`); PHMSA and RFS
@@ -521,6 +528,52 @@ def apply_eia923(session: Session, frame: pd.DataFrame, *, now: dt.datetime) -> 
     return result
 
 
+# --------------------------------------------------------------------------- EIA-860 Schedule 2
+def apply_eia860_plants(session: Session, frame: pd.DataFrame, *, now: dt.datetime) -> dict[str, Any]:
+    """`attributes.grid` on `power_plant` assets, joined on the EIA plant id (lane R1). A plant the
+    annual file does not list (most plants retired before its report year) keeps no block: the
+    page then says the grid fields are not stated, never a guess."""
+    assets = {
+        a.source_asset_id: a for a in session.scalars(select(Asset).where(Asset.asset_type == "power_plant"))
+    }
+    result: dict[str, Any] = {
+        "status": "ok",
+        "rows": len(frame),
+        "assets_total": len(assets),
+        "assets_matched": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "with_grid_voltage": 0,
+        "rows_without_an_asset": 0,
+    }
+    for record in frame.to_dict("records"):
+        row = {str(k): v for k, v in record.items()}
+        asset = assets.get(str(_clean(row.get("plant_id")) or ""))
+        if asset is None:
+            result["rows_without_an_asset"] += 1
+            continue
+        voltages = [float(v) for v in (_json_field(row.get("grid_voltage_kv")) or [])]
+        year = _clean(row.get("report_year"))
+        payload = {
+            "nerc_region": _clean(row.get("nerc_region")),
+            "balancing_authority_code": _clean(row.get("balancing_authority_code")),
+            "balancing_authority_name": _clean(row.get("balancing_authority_name")),
+            "transmission_owner": _clean(row.get("transmission_owner")),
+            "grid_voltage_kv": voltages,
+            "report_year": int(year) if year is not None else None,
+            "source_id": "us.eia.860",
+        }
+        result["assets_matched"] += 1
+        if voltages:
+            result["with_grid_voltage"] += 1
+        if _set_block(asset, GRID_KEY, payload, now):
+            result["updated"] += 1
+        else:
+            result["unchanged"] += 1
+    result["match_rate"] = round(result["assets_matched"] / len(assets), 3) if assets else 0.0
+    return result
+
+
 # ------------------------------------------------------------------------------------------ RFS
 def apply_rfs(session: Session, frame: pd.DataFrame, *, now: dt.datetime) -> dict[str, Any]:
     """`attributes.rfs` on `ethanol_plant` and `rng_project` assets, matched on facility name +
@@ -632,6 +685,7 @@ def apply_context_features(session: Session, data_root: pathlib.Path) -> dict[st
         (PHMSA_SOURCE_ID, "phmsa"),
         (EIA923_SOURCE_ID, "eia923"),
         (RFS_SOURCE_ID, "rfs"),
+        (EIA860_PLANTS_FILE, "eia860_plants"),
     ):
         frame = _read_parquet(context_dir, source_id)
         if frame is None:
@@ -648,6 +702,8 @@ def apply_context_features(session: Session, data_root: pathlib.Path) -> dict[st
             )
         elif key == "eia923":
             report[key] = apply_eia923(session, frame, now=now)
+        elif key == "eia860_plants":
+            report[key] = apply_eia860_plants(session, frame, now=now)
         else:
             report[key] = apply_rfs(session, frame, now=now)
         report[key]["parquet"] = frame.attrs.get("path")

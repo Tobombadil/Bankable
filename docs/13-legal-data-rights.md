@@ -1679,7 +1679,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.iso.miso.gen_queue` | **unknown** | link-out-only; do not publish | §1.7 not retrieved | n/a |
 | `us.lbnl.queued_up` | **unknown** (CC BY unverified) | derived-only, credit LBNL + GridTracker | §2.1 not retrieved | low |
 | `us.gridtracker.interconnection_fyi` | restricted | do not ingest at all | ToS + hot-news §3.4 | high |
-| `us.eia.860m` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted | high |
+| `us.eia.860m`, `us.eia.860m.retirements` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted (the retirements id is the same workbook's Operating and Retired sheets, added 2026-10-06 by lane R1) | high |
 | `us.eia.api` | public-domain | raw-ok | 17 U.S.C. §105 | high |
 | `us.eia.form923` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted, applied at §2.15 (robots-disallowed `archive/`; final-release rule); added 2026-09-19 by the features lane | high |
 | `us.oasis.non_iso_queues` | unknown (per-utility) | derived-only; read per-utility terms before each connector | not retrieved | low |

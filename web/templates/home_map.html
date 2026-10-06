@@ -47,6 +47,14 @@
       Existing assets
     </label>
   </div>
+  {# Lane R1 (owner, 2026-10-06): retired and retiring power plants, a powered-land signal. Its own
+     layer and its own styling (hollow rings, by status), never drawn as an operating plant. #}
+  <div class="filter-field filter-field--checkbox">
+    <label for="mf-layer-retired">
+      <input id="mf-layer-retired" type="checkbox" name="layer_retired" value="1">
+      Retired &amp; retiring plants
+    </label>
+  </div>
   {# Existing-asset types (docs/00-PLAN.md 2026-09-19, option (a)): one checkbox per type so
      pipelines, plants, ethanol and RNG can be drawn together; a type listed without data behind
      it yet would be disabled "(coming)", never silently absent. map.js reads/writes `asset_type=`
@@ -165,6 +173,14 @@
         <span class="legend__group-name">Transmission lines</span>
         <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="8 3 2 3"/></svg> 70&ndash;765 kV</span>
         <span class="legend__note">lines FERC Form 1 filers own (LBNL); not the whole grid</span>
+      </div>
+    </div>
+    <div class="legend legend--retired" id="retired-legend" aria-hidden="true" hidden>
+      <div class="legend__group">
+        <span class="legend__group-name">Retired &amp; retiring plants</span>
+        <span class="legend__item" style="color:var(--asset-retiring)"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg> Retiring (most capacity scheduled to retire)</span>
+        <span class="legend__item" style="color:var(--asset-retired)"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.3 3.3 8.7 8.7M8.7 3.3 3.3 8.7" stroke="currentColor" stroke-width="1.6"/></svg> Retired</span>
+        <span class="legend__note">EIA-860M; larger rings are larger plants. A retired site may keep its grid connection.</span>
       </div>
     </div>
     <p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <a href="/about#sources">see About &amp; sources</a>. Full credits: <a href="/attribution">Attribution</a>.</p>

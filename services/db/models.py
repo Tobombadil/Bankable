@@ -112,7 +112,18 @@ ASSET_TYPES = (
 #: generator-lead lines named after plants) is meaningless; matchers exclude them.
 LINE_ASSET_TYPES: frozenset[str] = frozenset({"gas_pipeline", "transmission_line"})
 #: The source's current operating status (docs/21 §3.22) -- never a lifecycle; assets have none.
-ASSET_STATUSES = ("operating", "standby", "retired", "unknown")
+#: `retiring` (migration 0027, lane R1): still in service, with most of its nameplate scheduled to
+#: retire on a date the owner has reported (`pipeline/context/retirements.py` states the rule).
+ASSET_STATUSES = ("operating", "standby", "retiring", "retired", "unknown")
+#: `event.event_type` values on `subject_type = "asset"` rows (lane R1, 2026-10-06): a power plant's
+#: retirement news, written by `services/ingest/retirements.py` from the EIA-860M generator diff.
+ASSET_EVENT_TYPES = (
+    "retirement_planned",
+    "retirement_date_changed",
+    "retirement_cancelled",
+    "retired",
+    "returned_to_service",
+)
 #: `asset_owner.role` (docs/21 §3.23).
 ASSET_OWNER_ROLES = ("owner", "operator")
 
@@ -1500,6 +1511,10 @@ class Asset(Base):
     capacity_unit: Mapped[str | None] = mapped_column(sa.Text)
     commissioned_year: Mapped[int | None] = mapped_column(sa.Integer)
     unit_count: Mapped[int | None] = mapped_column(sa.Integer)
+    #: The year a `retired` plant finished retiring, else the year its next unit is scheduled to
+    #: retire, else NULL (migration 0030; `pipeline/context/retirements.py`). The detail is in
+    #: `attributes["retirement"]`; this column exists so the year can be filtered and sorted on.
+    retirement_year: Mapped[int | None] = mapped_column(sa.Integer)
     geom: Mapped[Any | None] = mapped_column(GeographyPoint())
     geom_line: Mapped[Any | None] = mapped_column(GeographyLine())
     attributes: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
@@ -1544,6 +1559,7 @@ class Asset(Base):
         sa.UniqueConstraint("source_id", "source_asset_id", name="uq_asset_source_record"),
         sa.Index("ix_asset_asset_type", "asset_type"),
         sa.Index("ix_asset_state_code", "state_code"),
+        sa.Index("ix_asset_retirement_year", "retirement_year"),
         sa.Index("ix_asset_geom", "geom", postgresql_using="gist"),
     )
 

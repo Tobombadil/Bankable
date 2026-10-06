@@ -225,6 +225,37 @@ def event_visibility_filter(
     ]
 
 
+def asset_event_visibility_filter(
+    entitlement: Entitlement = "public", now: dt.datetime | None = None
+) -> list[ColumnElement[bool]]:
+    """The event half of what an asset page may print from `event` (lane R1): the event's own
+    timing, licence and source clauses, exactly as `event_visibility_filter` states them. The
+    subject half is the caller's: the one asset whose page is being built, already resolved through
+    `asset_visibility_filter`. `event_visibility_filter` itself stays closed to asset subjects, so
+    these rows never reach the global feed, alerts or webhooks."""
+    now = now or dt.datetime.now(dt.UTC)
+    timing = (
+        [Event.public_at.is_not(None), Event.public_at <= now]
+        if entitlement == "public"
+        else [Event.published_at.is_not(None), Event.published_at <= now]
+    )
+    return [
+        *timing,
+        Event.subject_type == "asset",
+        exists(
+            select(Licence.id).where(
+                Licence.id == Event.licence_id, Licence.reuse_class.in_(PUBLISHABLE_REUSE_CLASSES)
+            )
+        ),
+        exists(
+            select(Source.id).where(
+                Source.id == Event.source_id,
+                Source.publish_state.in_(_PERMITTED_SOURCE_STATES.get(entitlement, ("public",))),
+            )
+        ),
+    ]
+
+
 def proposal_public_filter(now: dt.datetime | None = None) -> list[ColumnElement[bool]]:
     return proposal_visibility_filter("public", now)
 

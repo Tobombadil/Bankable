@@ -7,6 +7,12 @@ existing fleet drawn as context beneath the proposals map, not a proposal source
 Plant ID here, not per generator -- a plant's units are summed and split by raw technology label
 (`services/db/models.py::BuiltPlant` docstring).
 
+Since lane R1 (2026-10-06) the same workbook's "Retired" sheet is read too: a plant whose every
+generator has retired becomes a row of its own (status `retired`), and every row carries the plant
+status (`operating` | `retiring` | `retired`), `retirement_year` and `attributes.retirement`
+derived by `pipeline/context/retirements.py`, plus `attributes.balancing_authority_code`. One EIA
+plant id is one `power_plant` asset whichever of the three it is.
+
 `capacity()`/`classify_tech()`/`SOURCE_META` are the same untyped Phase 2 prototype functions
 `pipeline/normalize.py` gives the ISO/EIA connectors (`pipeline/connectors/canonical.py` is the
 typed seam for the connector layer; this module is its own such seam for the context layer, same
@@ -27,6 +33,14 @@ from typing import Any
 import pandas as pd
 
 from pipeline.connectors.base import ParseError, to_parquet_safe
+from pipeline.context.retirements import (
+    GeneratorSheets,
+    PlantRetirement,
+    load_generator_status_map,
+    parse_generator_sheets,
+    records_from_sheets,
+    summarise_plants,
+)
 from pipeline.normalize import SOURCE_META, capacity, classify_tech
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -82,11 +96,87 @@ def parse_operating_sheet(content: bytes) -> pd.DataFrame:
     return df[df["Plant ID"].notna()].reset_index(drop=True)
 
 
+def _plant_row(
+    plant_id: Any,
+    g: pd.DataFrame,
+    *,
+    url: str,
+    retrieved_at: str,
+    retirement: PlantRetirement | None,
+) -> dict[str, Any]:
+    """One `power_plant` row from a plant's generator rows (Operating rows, or the Retired rows of
+    a plant with nothing left in service: both sheets carry the same identity, capacity,
+    technology, year and coordinate columns)."""
+    # `capacity()` treats a reported 0/NaN nameplate as missing, not a zero-MW unit (the same
+    # rule `pipeline/normalize.py::capacity` documents for ERCOT/NYISO's co-located additions).
+    nameplate = [capacity(v) for v in g["Nameplate Capacity (MW)"]]
+    valid = [v for v in nameplate if v is not None]
+    cap_total = round(sum(valid), 3) if valid else None
+
+    tech_totals: dict[str, float] = {}
+    for raw_tech, mw in zip(g["Technology"], nameplate, strict=True):
+        if raw_tech is None or (isinstance(raw_tech, float) and pd.isna(raw_tech)):
+            continue
+        label = str(raw_tech).strip()
+        if not label:
+            continue
+        tech_totals[label] = tech_totals.get(label, 0.0) + (mw or 0.0)
+    tech_totals = {label: round(mw, 3) for label, mw in tech_totals.items()}
+
+    dominant_label = max(tech_totals, key=lambda label: tech_totals[label]) if tech_totals else None
+    technology, _kind = classify_tech(dominant_label) if dominant_label else ("unknown", "other")
+
+    years = pd.to_numeric(g["Operating Year"], errors="coerce").dropna()
+    earliest_year = int(years.min()) if len(years) else None
+
+    point = _valid_point(_first_non_null(g["Latitude"]), _first_non_null(g["Longitude"]))
+    lon, lat = point if point is not None else (None, None)
+
+    state = _first_non_null(g["Plant State"])
+    county = _first_non_null(g["County"])
+    entity_name = _first_non_null(g["Entity Name"])
+    plant_name = _first_non_null(g["Plant Name"])
+    source_plant_id = str(int(plant_id))
+    ba = _first_non_null(g["Balancing Authority Code"]) if "Balancing Authority Code" in g.columns else None
+
+    attributes: dict[str, Any] = {}
+    if ba is not None and str(ba).strip():
+        attributes["balancing_authority_code"] = str(ba).strip()
+    if retirement is not None and retirement.block is not None:
+        attributes["retirement"] = retirement.block
+
+    return {
+        "source_id": SOURCE_ID,
+        "source_plant_id": source_plant_id,
+        "name": str(plant_name).strip() if plant_name else f"EIA Plant {source_plant_id}",
+        "operator_name": str(entity_name).strip() if entity_name else None,
+        "technology": technology,
+        "technology_raw": dominant_label,
+        "technologies": tech_totals,
+        "capacity_mw": cap_total,
+        "generator_count": len(g),
+        "earliest_operating_year": earliest_year,
+        "lon": lon,
+        "lat": lat,
+        "state_code": f"US-{str(state).strip().upper()}" if state else None,
+        "county_name": str(county).strip() if county else None,
+        "country": "US",
+        "status": retirement.status if retirement is not None else "operating",
+        "retirement_year": retirement.retirement_year if retirement is not None else None,
+        "attributes": attributes,
+        "source_url": url,
+        "retrieved_at": retrieved_at,
+        "licence": LICENCE,
+    }
+
+
 def aggregate_plants(
     df: pd.DataFrame,
     *,
     retrieved_at: str,
     source_url: str | None = None,
+    retired: pd.DataFrame | None = None,
+    as_of: str | None = None,
 ) -> pd.DataFrame:
     """One row per Plant ID, columns exactly as `services/db/models.py::BuiltPlant` expects.
 
@@ -94,66 +184,37 @@ def aggregate_plants(
     (the workbook URL, which only the caller -- the snapshot or the run record -- knows); it
     defaults to the EIA-860M index URL, the same fallback `SOURCE_META["eia860m"]` gives
     `pipeline/normalize.py`'s ISO/EIA connectors when a per-row URL isn't available.
+
+    `retired` is the same workbook's Retired sheet (lane R1, 2026-10-06). With it, a plant whose
+    every generator has retired is a row too (status `retired`, its capacity and technology split
+    the retired units'), and every plant carries the status, `retirement_year` and
+    `attributes.retirement` block `pipeline/context/retirements.py` derives from both sheets, so
+    one plant is one record whether it is operating, retiring or retired. Without it every row is
+    still classified from the Operating sheet's planned-retirement columns.
     """
     url = source_url or INDEX_URL
+    retired = retired if retired is not None else df.iloc[0:0]
+    sheets = GeneratorSheets(operating=df, retired=retired, as_of=as_of)
+    summaries = summarise_plants(records_from_sheets(sheets, load_generator_status_map()), as_of=as_of)
     rows: list[dict[str, Any]] = []
-
     for plant_id, g in df.groupby("Plant ID", sort=False):
-        # `capacity()` treats a reported 0/NaN nameplate as missing, not a zero-MW unit (the same
-        # rule `pipeline/normalize.py::capacity` documents for ERCOT/NYISO's co-located additions).
-        nameplate = [capacity(v) for v in g["Nameplate Capacity (MW)"]]
-        valid = [v for v in nameplate if v is not None]
-        cap_total = round(sum(valid), 3) if valid else None
-
-        tech_totals: dict[str, float] = {}
-        for raw_tech, mw in zip(g["Technology"], nameplate, strict=True):
-            if raw_tech is None or (isinstance(raw_tech, float) and pd.isna(raw_tech)):
-                continue
-            label = str(raw_tech).strip()
-            if not label:
-                continue
-            tech_totals[label] = tech_totals.get(label, 0.0) + (mw or 0.0)
-        tech_totals = {label: round(mw, 3) for label, mw in tech_totals.items()}
-
-        dominant_label = max(tech_totals, key=lambda label: tech_totals[label]) if tech_totals else None
-        technology, _kind = classify_tech(dominant_label) if dominant_label else ("unknown", "other")
-
-        years = pd.to_numeric(g["Operating Year"], errors="coerce").dropna()
-        earliest_year = int(years.min()) if len(years) else None
-
-        point = _valid_point(_first_non_null(g["Latitude"]), _first_non_null(g["Longitude"]))
-        lon, lat = point if point is not None else (None, None)
-
-        state = _first_non_null(g["Plant State"])
-        county = _first_non_null(g["County"])
-        entity_name = _first_non_null(g["Entity Name"])
-        plant_name = _first_non_null(g["Plant Name"])
-        source_plant_id = str(int(plant_id))
-
+        pid = str(int(plant_id))
         rows.append(
-            {
-                "source_id": SOURCE_ID,
-                "source_plant_id": source_plant_id,
-                "name": str(plant_name).strip() if plant_name else f"EIA Plant {source_plant_id}",
-                "operator_name": str(entity_name).strip() if entity_name else None,
-                "technology": technology,
-                "technology_raw": dominant_label,
-                "technologies": tech_totals,
-                "capacity_mw": cap_total,
-                "generator_count": len(g),
-                "earliest_operating_year": earliest_year,
-                "lon": lon,
-                "lat": lat,
-                "state_code": f"US-{str(state).strip().upper()}" if state else None,
-                "county_name": str(county).strip() if county else None,
-                "country": "US",
-                "source_url": url,
-                "retrieved_at": retrieved_at,
-                "licence": LICENCE,
-            }
+            _plant_row(plant_id, g, url=url, retrieved_at=retrieved_at, retirement=summaries.get(pid))
         )
-
-    return pd.DataFrame(rows)
+    in_operating = {str(int(p)) for p in df["Plant ID"].dropna().unique()}
+    if len(retired):
+        for plant_id, g in retired.groupby("Plant ID", sort=False):
+            pid = str(int(plant_id))
+            if pid in in_operating:
+                continue
+            rows.append(
+                _plant_row(plant_id, g, url=url, retrieved_at=retrieved_at, retirement=summaries.get(pid))
+            )
+    out = pd.DataFrame(rows)
+    if "retirement_year" in out.columns:
+        out["retirement_year"] = out["retirement_year"].astype("Int64")
+    return out
 
 
 def _latest_snapshot() -> pathlib.Path:
@@ -206,8 +267,14 @@ def main(argv: list[str] | None = None) -> None:
     workbook_path = args.workbook or _latest_snapshot()
     retrieved_at, source_url = _snapshot_metadata(workbook_path)
 
-    sheet = parse_operating_sheet(workbook_path.read_bytes())
-    plants = aggregate_plants(sheet, retrieved_at=retrieved_at, source_url=source_url)
+    sheets = parse_generator_sheets(workbook_path.read_bytes())
+    plants = aggregate_plants(
+        sheets.operating,
+        retrieved_at=retrieved_at,
+        source_url=source_url,
+        retired=sheets.retired,
+        as_of=sheets.as_of,
+    )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     to_parquet_safe(plants).to_parquet(args.out, index=False)
@@ -219,6 +286,9 @@ def main(argv: list[str] | None = None) -> None:
         "with_coordinates": with_coords,
         "without_coordinates": len(plants) - with_coords,
         "by_technology": by_technology,
+        "by_status": plants["status"].value_counts().to_dict(),
+        "dropped_without_plant_id": sheets.dropped_without_plant_id,
+        "as_of": sheets.as_of,
         "elapsed_s": round(time.monotonic() - t0, 2),
     }
     print(json.dumps(summary))  # noqa: T201 — CLI summary line, same convention as web/build_data.py

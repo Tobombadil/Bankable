@@ -107,7 +107,7 @@ import re
 import uuid as _uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 from sqlalchemy import select
@@ -148,6 +148,9 @@ from services.ingest.interconnection import LinkResult, link_source_points
 from services.ingest.lag import record_public_at
 from services.ingest.org_redirects import OrgRedirects
 from services.ingest.vintage import NOT_STATED_VINTAGE, Vintage, from_source_urls
+
+if TYPE_CHECKING:  # the retirement loader imports this module; annotation only, no cycle at run time
+    from services.ingest.retirements import RetirementLoadResult
 
 #: Default rows-per-flush for `load_dataframe`'s bulk-insert pass (Sprint 3, services/README.md
 #: "Bulk-insert pass (Sprint 3)"): every id used inside one call (`proposal`/`organization`/
@@ -260,9 +263,32 @@ def generic_load_kind(registry: Registry, source_id: str, requested: Kind | None
     return "opportunity"
 
 
+#: Sources whose run output is not proposals or opportunities but has a loader of its own, which
+#: `load_from_files` hands the run to (same arguments, same gate first). The scheduler queues their
+#: loads like any other (`kind_refusal` answers None), and the generic kind rule still refuses to
+#: load their frames as proposals (`generic_load_kind`). `module:function`, imported on use.
+SPECIALISED_LOADERS: dict[str, str] = {
+    # Lane R1 (2026-10-06): generator retirements -> power_plant assets and their events.
+    "us.eia.860m.retirements": "services.ingest.retirements:load_retirement_run",
+}
+
+
+def specialised_loader(source_id: str) -> Any | None:
+    """The loader function `SPECIALISED_LOADERS` names for `source_id`, or None."""
+    target = SPECIALISED_LOADERS.get(source_id)
+    if target is None:
+        return None
+    module_name, _, function_name = target.partition(":")
+    import importlib
+
+    return getattr(importlib.import_module(module_name), function_name)
+
+
 def kind_refusal(registry: Registry, source_id: str) -> str | None:
     """Why `load_from_files` would refuse `source_id` by kind, or None when it loads it. The
     scheduler asks this before it queues a load (`infra/scheduler/app.py::_defer_load`)."""
+    if source_id in SPECIALISED_LOADERS:
+        return None
     declared = connector_kind(registry, source_id)
     if declared is None:
         return f"{source_id}: no connector class declares a kind"
@@ -1603,7 +1629,7 @@ def load_from_files(
     registry: Registry | None = None,
     store: Store | None = None,
     kind: Kind | None = None,
-) -> LoadResult:
+) -> LoadResult | RetirementLoadResult:
     """Read `data/normalized/<source_id>/<ts>.parquet` (+ the matching `events/` file and, if
     present, the `runs/<source_id>/<ts>.json` record) and load them (docs/20 §3.2, §3.7).
 
@@ -1616,7 +1642,8 @@ def load_from_files(
 
     The kind is the connector class's own (`generic_load_kind`); `kind` may name it only for a
     source with no connector class. A `document` source, or any kind but proposal/opportunity,
-    raises `KindRefused` before any file is read (module docstring, "Kind").
+    raises `KindRefused` before any file is read (module docstring, "Kind") -- unless
+    `SPECIALISED_LOADERS` names a loader of its own for it, which then loads the run instead.
 
     One `source_run` row per run (2026-09-27, `_run_for_load`): the load attaches to the row the
     scheduler recorded for the fetch, and writes one itself only when loaded standalone.
@@ -1624,6 +1651,12 @@ def load_from_files(
     registry = registry or Registry()
     entry = registry.get(source_id)
     _assert_not_gated(entry)
+    special = specialised_loader(source_id)
+    if special is not None:
+        special_result: LoadResult | RetirementLoadResult = special(
+            session, source_id, ts, data_root=data_root, registry=registry, store=store
+        )
+        return special_result
     load_kind = generic_load_kind(registry, source_id, kind)
 
     store = store if store is not None else Store(data_root)

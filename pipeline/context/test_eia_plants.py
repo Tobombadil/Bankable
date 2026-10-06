@@ -196,3 +196,46 @@ def test_provenance_columns(plants):
     assert row["retrieved_at"] == "2026-09-15T00:00:00Z"
     assert row["licence"] == "public-domain"
     assert row["country"] == "US"
+
+
+# ---------------------------------------------------------------- lane R1: retired and retiring
+def test_retired_and_retiring_plants_from_the_recorded_workbook():
+    """The recorded trim of the August 2026 workbook (tests/fixtures/eia860m_operating_retired.xlsx):
+    one row per plant across both sheets, with the plant status rule of
+    pipeline/context/retirements.py applied."""
+    from conftest import fixture_path
+    from pipeline.context.retirements import parse_generator_sheets
+
+    sheets = parse_generator_sheets(fixture_path("eia860m_operating_retired.xlsx").read_bytes())
+    out = aggregate_plants(
+        sheets.operating, retrieved_at="2026-09-27T15:15:28Z", retired=sheets.retired, as_of=sheets.as_of
+    )
+    rows = {r["source_plant_id"]: r for r in out.to_dict("records")}
+    assert len(out) == len(set(out["source_plant_id"])) == 9
+    # Fully retired: Rush Island and Homer City exist only on the Retired sheet.
+    for pid, year in (("6155", 2024), ("3122", 2024)):
+        assert rows[pid]["status"] == "retired" and rows[pid]["retirement_year"] == year
+    homer = rows["3122"]
+    assert homer["capacity_mw"] == pytest.approx(2012.0)
+    assert homer["lon"] is not None and homer["attributes"]["retirement"]["first_retired"] == "2023-07"
+    # Every unit scheduled (Rockport, La Cygne), or most of the MW (Merrimack's two coal units).
+    assert rows["6166"]["status"] == "retiring" and rows["6166"]["retirement_year"] == 2028
+    assert rows["1241"]["status"] == "retiring" and rows["1241"]["retirement_year"] == 2032
+    assert rows["2364"]["status"] == "retiring"
+    assert rows["2364"]["attributes"]["retirement"]["status_rule"] == "majority_mw_retiring"
+    # A minority of the MW (Cardinal unit 3, 650 of 1,880 MW): operating, but the date is kept.
+    cardinal = rows["2828"]
+    assert cardinal["status"] == "operating" and cardinal["retirement_year"] == 2028
+    assert cardinal["attributes"]["retirement"]["retiring_mw"] == pytest.approx(650.0)
+    # A unit retired in 1985 does not make Dresden anything but operating, and dates nothing.
+    assert rows["869"]["status"] == "operating" and pd.isna(rows["869"]["retirement_year"])
+    assert rows["869"]["attributes"]["retirement"]["retired_units"] == 1
+    # No retirement at all: no block, and the balancing authority is carried for every plant.
+    assert "retirement" not in rows["145"]["attributes"]
+    assert rows["145"]["attributes"]["balancing_authority_code"]
+    assert rows["6166"]["attributes"]["retirement"]["as_of"] == "2026-08"
+
+
+def test_without_a_retired_sheet_the_operating_rows_still_classify(plants):
+    assert set(plants["status"]) == {"operating"}
+    assert plants["retirement_year"].isna().all()

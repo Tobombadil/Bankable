@@ -1,0 +1,51 @@
+# us.eia.860m.retirements: EIA-860M generator inventory -> generator state (lane R1, 2026-10-06).
+#
+# Not a proposal lifecycle map. A generator on the Operating or Retired sheet is existing (or
+# formerly existing) infrastructure, so its state comes from the asset vocabulary
+# (services/db/models.py ASSET_STATUSES: operating, standby, retiring, retired, unknown), not from
+# the lifecycle the proposal maps in pipeline/status_map.yaml use. That is why this file is not named
+# `status_map.yaml`: services/api/lifecycle.py publishes every file of that name as a lifecycle
+# mapping on /methodology, and these states are not lifecycle states.
+#
+# `field: Status` is the literal pipeline.normalize.harmonise_status recognises: the connector
+# passes the Operating sheet's Status column under ctx["status_raw"], and for a Retired-sheet row
+# the constant "(RE) Retired" (Form EIA-860's own code; the Retired sheet has no Status column).
+# ctx also carries `sheet` (Operating | Retired) and `planned_retirement` (yes | no: the row
+# states a Planned Retirement Year). Values measured on the August 2026 workbook (28,377 Operating
+# rows, 7,336 Retired rows): OP 26,126, SB 1,497, OS 538, OA 216; 531 generators carry a planned
+# retirement year. Anything else is unmapped -> unknown + a DQ vocabulary warning, never coerced.
+version: 1
+updated: 2026-10-06
+canonical_states: [operating, standby, retiring, retired, unknown]
+sources:
+  eia860m_generators:
+    field: Status
+    refine:
+      - id: eia860m_generators.planned_retirement
+        when: {sheet: Operating, planned_retirement: "yes"}
+        then: retiring
+        note: >-
+          An in-service generator (any of OP, SB, OS, OA) whose owner has reported a planned
+          retirement year to EIA. It is still in service; `retiring` says a date has been filed,
+          not that the unit has stopped. The date may move or be withdrawn, and each move is an
+          event (services/ingest/retirements.py).
+    map:
+      "(OP) Operating": operating
+      "(SB) Standby/Backup: available for service but not normally used": standby
+      "(OS) Out of service and NOT expected to return to service in next calendar year": standby
+      "(OA) Out of service but expected to return to service in next calendar year": standby
+      "(RE) Retired": retired
+    caveats:
+      - >-
+        OS and OA are out of service but not retired, so they map to `standby`, the asset word for
+        "exists, not running". The plant-level asset status counts operating and standby units
+        alike as in service (pipeline/context/retirements.py), so this does not change any plant's
+        status on its own.
+      - >-
+        The Retired sheet covers retirements from 2002 onwards plus a short appendix of earlier
+        nuclear retirements. Twelve appendix rows carry no plant id and are dropped by the parser;
+        the rest load like any retired generator.
+      - >-
+        A generator leaving the Operating sheet for the Retired sheet keeps its record id
+        (`<Plant ID>-<Generator ID>`), so retirement is a status change in the diff, not a
+        removal plus an addition.

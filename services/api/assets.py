@@ -48,10 +48,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, load_only, selectinload
 
 from pipeline.normalize import TECH_RULES
-from services.api.common import WEB_HOST
+from services.api.common import WEB_HOST, iso
 from services.api.deps import get_db
 from services.api.errors import not_found, validation_error
 from services.api.geo import SPLIT_THRESHOLD, _in_bbox, effective_placement
+from services.api.interconnection_points import point_url
 from services.api.lines import (
     Bbox,
     Parts,
@@ -82,6 +83,7 @@ from services.api.serialize import (
     build_list_envelope,
     build_meta,
     build_page,
+    event_licence_row,
     licence_summary_from_source_aggregates,
     licence_summary_row,
     provenance_quartet,
@@ -92,9 +94,11 @@ from services.api.serialize import (
 )
 from services.api.visibility import (
     PUBLISHABLE_REUSE_CLASSES,
+    asset_event_visibility_filter,
     asset_geometry_permitted,
     asset_geometry_visible,
     asset_visibility_filter,
+    interconnection_point_visibility_filter,
     location_exact_permitted,
     organization_visibility_filter,
     organization_visible,
@@ -105,10 +109,14 @@ from services.api.visibility import (
 from services.api.withheld_names import NONE as NO_WITHHELD_NAMES
 from services.api.withheld_names import WithheldNames, withheld_names
 from services.db.models import (
+    ASSET_EVENT_TYPES,
     ASSET_OWNER_ROLES,
+    ASSET_STATUSES,
     ASSET_TYPES,
     Asset,
     AssetOwner,
+    Event,
+    InterconnectionPoint,
     Licence,
     Location,
     Organization,
@@ -172,7 +180,11 @@ def stated_length_miles(attributes: dict[str, Any] | None) -> float | None:
 ORG_NEARBY_ASSET_CAP = 200
 
 
-ASSET_SORT_ALLOWLIST = {"last_changed", "first_seen", "name", "capacity_mw"}
+ASSET_SORT_ALLOWLIST = {"last_changed", "first_seen", "name", "capacity_mw", "retirement_year"}
+
+#: `retirement_year[gte]` / `[lte]` bounds a caller may ask for (lane R1); outside this is a 400,
+#: not an empty page, because no EIA date is that far out (the latest planned year is 2072).
+RETIREMENT_YEAR_RANGE = (1900, 2100)
 
 _ASSET_DETAIL_COLUMNS = (
     Asset.id,
@@ -190,6 +202,7 @@ _ASSET_DETAIL_COLUMNS = (
     Asset.capacity_unit,
     Asset.commissioned_year,
     Asset.unit_count,
+    Asset.retirement_year,
     Asset.geom,
     Asset.attributes,
     Asset.state_code,
@@ -223,6 +236,8 @@ class AssetIndexRow:
     technology: str | None
     capacity_mw: float | None
     country: str
+    #: `asset.status`, so `GET /v1/assets/geo?status=` filters the cached index without SQL (R1).
+    status: str = "operating"
 
 
 @dataclass(frozen=True, slots=True)
@@ -334,12 +349,21 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
         lat_col = sa.func.ST_Y(point)
         stmt = (
             select(
-                id_col, lon_col, lat_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country
+                id_col,
+                lon_col,
+                lat_col,
+                Asset.asset_type,
+                Asset.technology,
+                Asset.capacity_mw,
+                Asset.country,
+                Asset.status,
             )
             .where(*_point_index_where())
             .order_by(Asset.id)
         )
-        for asset_id, lon, lat, asset_type, technology, capacity_mw, country in db.execute(stmt).all():
+        for asset_id, lon, lat, asset_type, technology, capacity_mw, country, status in db.execute(
+            stmt
+        ).all():
             rows.append(
                 AssetIndexRow(
                     id=asset_id,
@@ -349,6 +373,7 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
                     technology=technology,
                     capacity_mw=float(capacity_mw) if capacity_mw is not None else None,
                     country=country,
+                    status=status,
                 )
             )
         return tuple(rows)
@@ -356,11 +381,19 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
     id_col = sa.cast(Asset.id, sa.Text)
     geom_col = sa.cast(Asset.geom, sa.Text)
     stmt = (
-        select(id_col, geom_col, Asset.asset_type, Asset.technology, Asset.capacity_mw, Asset.country)
+        select(
+            id_col,
+            geom_col,
+            Asset.asset_type,
+            Asset.technology,
+            Asset.capacity_mw,
+            Asset.country,
+            Asset.status,
+        )
         .where(*_point_index_where())
         .order_by(Asset.id)
     )
-    for asset_id, geom_text, asset_type, technology, capacity_mw, country in db.execute(stmt).all():
+    for asset_id, geom_text, asset_type, technology, capacity_mw, country, status in db.execute(stmt).all():
         if geom_text is None:  # pragma: no cover - excluded by the WHERE clause; defensive only
             continue
         geom = json.loads(geom_text)
@@ -373,6 +406,7 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
                 technology=technology,
                 capacity_mw=float(capacity_mw) if capacity_mw is not None else None,
                 country=country,
+                status=status,
             )
         )
     return tuple(rows)
@@ -486,8 +520,12 @@ def _filter_index(
     asset_types: list[str] | None,
     technologies: list[str] | None,
     countries: list[str] | None,
+    statuses: list[str] | None = None,
 ) -> list[AssetIndexRow]:
     rows: list[AssetIndexRow] = list(index)
+    if statuses is not None:
+        status_set = set(statuses)
+        rows = [r for r in rows if r.status in status_set]
     if asset_types is not None:
         type_set = set(asset_types)
         rows = [r for r in rows if r.asset_type in type_set]
@@ -505,6 +543,7 @@ def _filter_line_index(
     asset_types: list[str] | None,
     technologies: list[str] | None,
     countries: list[str] | None,
+    statuses: list[str] | None = None,
 ) -> list[LineIndexRow]:
     """Lines carry no `technology` (pipelines and transmission have none in the vocabulary), so a
     `technology` filter excludes every line -- the same result `Asset.technology IN (...)` gives
@@ -518,6 +557,9 @@ def _filter_line_index(
     if countries is not None:
         country_set = set(countries)
         rows = [r for r in rows if r.country in country_set]
+    if statuses is not None:
+        status_set = set(statuses)
+        rows = [r for r in rows if r.status in status_set]
     return rows
 
 
@@ -541,6 +583,7 @@ def _asset_feature(asset: Asset, lon: float, lat: float, withheld: WithheldNames
             "capacity_mw": float(asset.capacity_mw) if asset.capacity_mw is not None else None,
             "unit_count": asset.unit_count,
             "commissioned_year": asset.commissioned_year,
+            "retirement_year": asset.retirement_year,
             "state_code": asset.state_code,
             "county_name": asset.county_name,
             "source": asset_source_row(asset),
@@ -796,6 +839,29 @@ def _country_filter_values(request: Request) -> list[str] | None:
     return [c.upper() for c in (csv_param(v) or [])]
 
 
+def _status_filter_values(request: Request) -> list[str] | None:
+    """`status=retired,retiring` (lane R1): csv of `ASSET_STATUSES`; an unknown value is a 400."""
+    v = request.query_params.get("status")
+    if not v:
+        return None
+    statuses = csv_param(v) or []
+    unknown = [s for s in statuses if s not in ASSET_STATUSES]
+    if unknown:
+        raise validation_error("status", f"unknown status value(s): {', '.join(unknown)}", request.url.path)
+    return statuses
+
+
+def _retirement_year_bound(request: Request, name: str) -> int | None:
+    value = int_param(request, name)
+    if value is not None and not (RETIREMENT_YEAR_RANGE[0] <= value <= RETIREMENT_YEAR_RANGE[1]):
+        raise validation_error(
+            name,
+            f"{name} must be between {RETIREMENT_YEAR_RANGE[0]} and {RETIREMENT_YEAR_RANGE[1]}",
+            request.url.path,
+        )
+    return value
+
+
 def _role_filter_values(request: Request) -> list[str] | None:
     v = request.query_params.get("role")
     if not v:
@@ -812,7 +878,10 @@ def _apply_sql_filters(
     asset_types: list[str] | None,
     technologies: list[str] | None,
     countries: list[str] | None,
+    statuses: list[str] | None = None,
 ) -> sa.Select[Any]:
+    if statuses is not None:
+        stmt = stmt.where(Asset.status.in_(statuses))
     if asset_types is not None:
         stmt = stmt.where(Asset.asset_type.in_(asset_types))
     if technologies is not None:
@@ -870,6 +939,7 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
     asset_types = [forced_asset_type] if forced_asset_type else _asset_type_filter_values(request)
     technologies = _technology_filter_values(request)
     countries = _country_filter_values(request)
+    statuses = _status_filter_values(request)
     org_asset_ids = (
         _organization_asset_ids(db, org_filter, scope_from_request(request))
         if org_filter is not None
@@ -878,9 +948,9 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
 
     key = _asset_index_cache_key(db)
     index = _get_asset_index(db)
-    filtered = _filter_index(index, asset_types, technologies, countries)
+    filtered = _filter_index(index, asset_types, technologies, countries, statuses)
     line_cache = _get_line_index(db, key)
-    filtered_lines = _filter_line_index(line_cache.rows, asset_types, technologies, countries)
+    filtered_lines = _filter_line_index(line_cache.rows, asset_types, technologies, countries, statuses)
     if org_asset_ids is not None:
         filtered = [row for row in filtered if row.id in org_asset_ids]
         filtered_lines = [row for row in filtered_lines if row.id in org_asset_ids]
@@ -940,6 +1010,7 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
         asset_types,
         technologies,
         countries,
+        statuses,
     ).group_by(Source.id, Licence.id)
     # Explicit, because a `GROUP BY` promises no order: SQLite returned the groups by key and
     # Postgres by hash, so `licence_summary.sources` differed between the backends (audit A2).
@@ -966,6 +1037,7 @@ def get_assets_geo(request: Request, db: Annotated[Session, Depends(get_db)]) ->
             "organization",
             "scope",
             "include_subsidiaries",
+            "status",
         },
     )
     return _asset_geo_impl(request, db, forced_asset_type=None)
@@ -999,6 +1071,13 @@ def _asset_query_with_filters(
         stmt = stmt.where(Asset.technology.in_(csv_param(v)))
     if v := qp.get("state"):
         stmt = stmt.where(Asset.state_code.in_(csv_param(v)))
+    if (statuses := _status_filter_values(request)) is not None:
+        stmt = stmt.where(Asset.status.in_(statuses))
+    # A plant with no retirement date matches no bound (lane R1): the column is NULL for it.
+    if (year := _retirement_year_bound(request, "retirement_year[gte]")) is not None:
+        stmt = stmt.where(Asset.retirement_year >= year)
+    if (year := _retirement_year_bound(request, "retirement_year[lte]")) is not None:
+        stmt = stmt.where(Asset.retirement_year <= year)
     if v := qp.get("organization"):
         org_ids = csv_param(v)
         owner_asset_ids = (
@@ -1042,7 +1121,20 @@ def _asset_sort_spec(request: Request) -> tuple[str, bool]:
 def list_assets(request: Request, db: Annotated[Session, Depends(get_db)]) -> Any:
     check_allowed(
         request,
-        {"limit", "cursor", "sort", "q", "asset_type", "technology", "state", "organization", "slug"},
+        {
+            "limit",
+            "cursor",
+            "sort",
+            "q",
+            "asset_type",
+            "technology",
+            "state",
+            "organization",
+            "slug",
+            "status",
+            "retirement_year[gte]",
+            "retirement_year[lte]",
+        },
     )
     limit = clamp_limit(int_param(request, "limit"))
     field, ascending = _asset_sort_spec(request)
@@ -1120,12 +1212,68 @@ def get_asset(public_id: str, request: Request, db: Annotated[Session, Depends(g
     data = serialize_asset(asset, withheld=withheld_names(db), owners=owners)
     data["geometry"] = asset_geometry(asset, parts=parts)
     data["length_miles"] = asset_length_miles(asset, parts=parts)
+    changes = asset_retirement_changes(db, asset)
+    data["retirement_changes"] = [row for row, _event in changes]
     meta = build_meta(lag_days=0, tier="public")
-    licence_row = licence_summary_row(asset.source, asset.licence, asset.retrieved_at)
-    licence_summary = build_licence_summary([licence_row])
+    licence_rows = [licence_summary_row(asset.source, asset.licence, asset.retrieved_at)]
+    licence_rows += [row for _row, event in changes if (row := event_licence_row(event)) is not None]
+    licence_summary = build_licence_summary(licence_rows)
     return build_envelope(
         data, meta=meta, licence_summary=licence_summary, redactions=asset_geometry_redactions(asset)
     )
+
+
+# ------------------------------------------------------------------------- retirement news (lane R1)
+#: Newest retirement events an asset page carries.
+RETIREMENT_CHANGES_LIMIT = 20
+
+
+def asset_retirement_changes(
+    db: Session, asset: Asset, now: dt.datetime | None = None
+) -> list[tuple[dict[str, Any], Event]]:
+    """`(row, event)` for the asset's own retirement events (`services/ingest/retirements.py`),
+    newest observation first. The caller has already resolved the asset through
+    `asset_visibility_filter`; the event clauses are `asset_event_visibility_filter`'s. Empty for
+    every asset type but `power_plant`, which is the only one that has any."""
+    if asset.asset_type != "power_plant":
+        return []
+    stmt = (
+        select(Event)
+        .where(
+            Event.subject_id == asset.id,
+            Event.event_type.in_(ASSET_EVENT_TYPES),
+            *asset_event_visibility_filter("public", now),
+        )
+        .order_by(Event.observed_at.desc(), Event.seq.desc())
+        .limit(RETIREMENT_CHANGES_LIMIT)
+    )
+    out: list[tuple[dict[str, Any], Event]] = []
+    for event in db.scalars(stmt).all():
+        after = event.after or {}
+        out.append(
+            (
+                {
+                    "event_type": event.event_type,
+                    "observed_at": iso(event.observed_at),
+                    "summary": event.reason,
+                    "units": list(after.get("units") or []),
+                    "capacity_mw": after.get("capacity_mw"),
+                    "plant_status": after.get("plant_status"),
+                    "provenance": provenance_quartet(
+                        event.source,
+                        event.licence,
+                        source_url=event.source_url or "",
+                        retrieved_at=event.retrieved_at,
+                    )
+                    if event.source is not None
+                    and event.licence is not None
+                    and event.retrieved_at is not None
+                    else None,
+                },
+                event,
+            )
+        )
+    return out
 
 
 # --------------------------------------------------------------------------------- nearby proposals
@@ -1302,6 +1450,116 @@ def list_nearby_proposals(public_id: str, request: Request, db: Annotated[Sessio
         licence_summary=build_licence_summary(_nearby_licence_rows([p for _, p in page])),
         page=build_page(None, None, len(within) > limit),
     )
+
+
+# ------------------------------------------------------------------------- nearby grid (lane R1)
+#: Most transmission lines and interconnection points `GET /v1/assets/{id}/nearby-grid` returns.
+NEARBY_GRID_LIMIT = 10
+
+
+@router.get("/v1/assets/{public_id}/nearby-grid")
+def get_nearby_grid(public_id: str, request: Request, db: Annotated[Session, Depends(get_db)]) -> Any:
+    """The grid around a point asset, for the powered-land question "what is this site connected
+    to?" (lane R1). Two lists, both reusing the nearby machinery above, nearest first:
+
+    * `transmission_lines`: line assets of type `transmission_line` (the LBNL subset, docs/25 §2)
+      within `radius_km` of the asset's point, measured to the nearest point of the line
+      (`point_to_parts_km`), from the same cached line index the map draws.
+    * `interconnection_points`: the points named by the exact-grade, publicly visible proposals
+      within `radius_km` (the `nearby-proposals` candidate set), each with how many of those
+      proposals name it and the nearest one's distance. A point has no coordinates of its own
+      (docs/25 §1.1), so this is "queue requests near here connect at", never a located substation.
+
+    Empty, with the geometry redaction, when the asset's geometry is withheld or absent."""
+    check_allowed(request, {"radius_km"})
+    asset = db.scalar(select(Asset).where(Asset.public_id == public_id, *asset_visibility_filter()))
+    if asset is None:
+        raise not_found(request.url.path)
+    radius_km = _radius_km_param(request)
+    meta = build_meta(lag_days=0, tier="public")
+    data: dict[str, Any] = {"radius_km": radius_km, "transmission_lines": [], "interconnection_points": []}
+    point = asset.geom if asset_geometry_visible(asset) and asset.geom_line is None else None
+    if point is None or not isinstance(point, (list, tuple)):
+        return build_envelope(
+            data,
+            meta=meta,
+            licence_summary=build_licence_summary([]),
+            redactions=asset_geometry_redactions(asset),
+        )
+    lon, lat = float(point[0]), float(point[1])
+    parts: Parts = (((lon, lat),),)
+    bbox = _padded_bbox(parts, radius_km)
+    licence_rows: list[dict[str, Any]] = []
+
+    cache = _get_line_index(db, _asset_index_cache_key(db))
+    near_lines: list[tuple[float, LineIndexRow]] = []
+    for row in cache.rows:
+        if row.asset_type != "transmission_line" or not bbox_overlaps(row.bbox, bbox):
+            continue
+        distance = point_to_parts_km(lon, lat, row.parts)
+        if distance <= radius_km:
+            near_lines.append((distance, row))
+    near_lines.sort(key=lambda pair: pair[0])
+    shown_lines = near_lines[:NEARBY_GRID_LIMIT]
+    line_sources = {
+        s.id: s
+        for s in db.scalars(select(Source).where(Source.id.in_({r.source_id for _, r in shown_lines}))).all()
+    }
+    line_licences = {
+        lic.id: lic
+        for lic in db.scalars(
+            select(Licence).where(Licence.id.in_({r.licence_id for _, r in shown_lines}))
+        ).all()
+    }
+    for distance, row in shown_lines:
+        kv = row.attributes.get("voltage_kv")
+        data["transmission_lines"].append(
+            {
+                "public_id": row.public_id,
+                "slug": row.slug,
+                "url": f"{WEB_HOST}/assets/{row.slug}",
+                "name": row.name,
+                "voltage_kv": float(kv)
+                if isinstance(kv, (int, float)) and not isinstance(kv, bool)
+                else None,
+                "distance_km": round(distance, 3),
+            }
+        )
+        if row.source_id in line_sources and row.licence_id in line_licences:
+            licence_rows.append(
+                licence_summary_row(
+                    line_sources[row.source_id], line_licences[row.licence_id], row.retrieved_at
+                )
+            )
+
+    within = _within_radius(parts, _exact_proposal_candidates(db, bbox), radius_km)
+    by_point: dict[Any, list[float]] = defaultdict(list)
+    for distance, proposal in within:
+        if proposal.interconnection_point_id is not None:
+            by_point[proposal.interconnection_point_id].append(distance)
+    if by_point:
+        points = db.scalars(
+            select(InterconnectionPoint).where(
+                InterconnectionPoint.id.in_(list(by_point)),
+                *interconnection_point_visibility_filter("public"),
+            )
+        ).all()
+        ranked = sorted(points, key=lambda p: min(by_point[p.id]))[:NEARBY_GRID_LIMIT]
+        for p in ranked:
+            data["interconnection_points"].append(
+                {
+                    "public_id": p.public_id,
+                    "url": point_url(p),
+                    "name": p.name_display,
+                    "iso": p.operator,
+                    "kind": p.kind,
+                    "voltage_kv": float(p.voltage_kv) if p.voltage_kv is not None else None,
+                    "proposals_nearby": len(by_point[p.id]),
+                    "nearest_proposal_km": round(min(by_point[p.id]), 3),
+                }
+            )
+            licence_rows.append(licence_summary_row(p.source, p.licence, p.retrieved_at))
+    return build_envelope(data, meta=meta, licence_summary=build_licence_summary(licence_rows))
 
 
 # ---------------------------------------------------------------------- organization -> assets

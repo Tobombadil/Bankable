@@ -87,6 +87,11 @@
      pipeline purple because the two line layers overlap everywhere at national zoom. Drawn dash-dot, so the
      stroke pattern -- not this hue -- is what tells a power line from a pipeline (D-5). */
   --asset-transmission: #8a6300;
+  /* Retired and retiring plants (lane R1, 2026-10-06): hollow rings, so a retired site never reads as
+     an operating plant's filled square. Magenta and burnt orange, far from every plant-family hue;
+     the ring's centre mark (cross or dot) carries the status, the hue is secondary (D-5). */
+  --asset-retired: #7a2e5c;
+  --asset-retiring: #a3480a;
 
   /* ADR 0008 region features (placement grade "region") -- one hue, not a status-family colour
      (same reasoning as the plant palette above): a highlighted county/state/country must never
@@ -180,6 +185,8 @@
   --asset-ethanol: #cfc07a;
   --asset-rng: #8fd0b0;
   --asset-transmission: #e8c15f; /* 9.80:1 on --bg */
+  --asset-retired: #e7a3c9;
+  --asset-retiring: #f2a66b;
 
     --region-fill: #9ab6d1;
     --region-line: #9ab6d1;
@@ -228,6 +235,8 @@
   --asset-ethanol: #cfc07a;
   --asset-rng: #8fd0b0;
   --asset-transmission: #e8c15f; /* 9.80:1 on --bg */
+  --asset-retired: #e7a3c9;
+  --asset-retiring: #f2a66b;
 
   --region-fill: #9ab6d1;
   --region-line: #9ab6d1;
@@ -938,3 +947,10 @@ h3 { font-size: var(--text-4); }
 }
 .field--choices input[type="radio"] { width: 1.15rem; height: 1.15rem; }
 .field input[type="text"] { width: 100%; }
+/* ---------- Retired and retiring plants (lane R1) ---------- */
+.row-status { color: var(--text-muted); font-size: 0.875em; }
+.retirement__subhead { font-size: 1rem; margin: var(--space-5, 1.5rem) 0 var(--space-2, 0.5rem); }
+.retirement__list-intro { margin: var(--space-3, 0.75rem) 0 var(--space-1, 0.25rem); }
+.retirement__note { border-left: 3px solid var(--asset-retiring); padding-left: var(--space-3, 0.75rem); max-width: 72ch; }
+.retirement .record-table caption { text-align: left; font-weight: 600; padding-bottom: var(--space-1, 0.25rem); }
+

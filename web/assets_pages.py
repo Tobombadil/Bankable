@@ -59,6 +59,7 @@ from web.page import (
     querystring_without,
     templates,
 )
+from web.retirement import retirement_view
 from web.viewmodels import (
     WORLD_BBOX,
     asset_count_note,
@@ -76,7 +77,16 @@ router = APIRouter()
 #: vocabulary and one URL grammar across list, map and feed). `technology` is deliberately not
 #: exposed as a control -- its vocabulary is plant-shaped and means nothing for a pipeline -- but
 #: it is forwarded when present so a link from the map keeps working.
-ASSET_INDEX_FILTERS = ("asset_type", "state", "q", "technology")
+ASSET_INDEX_FILTERS = (
+    "asset_type",
+    "state",
+    "q",
+    "technology",
+    # Lane R1: `/assets?asset_type=power_plant&status=retired,retiring` is the retired-plant index.
+    "status",
+    "retirement_year[gte]",
+    "retirement_year[lte]",
+)
 #: `sort=` tokens `services/api/assets.py::ASSET_SORT_ALLOWLIST` accepts, with the words the
 #: control shows. Capacity descending is the default: the biggest thing is the most interesting
 #: row on an index of infrastructure. Length is *not* an API sort field, so a pipeline's mileage
@@ -239,6 +249,23 @@ def _resolve_asset_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | None:
     return entities[0] if entities else None
 
 
+def _retirement_section(
+    api: ApiClient, entity: Mapping[str, Any], record: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """Lane R1: the Retirement section of a power plant that has retired or scheduled units, with
+    the grid around it (`GET /v1/assets/{id}/nearby-grid`). A failed grid call drops only the grid
+    lists; the dates and capacities come from the asset itself."""
+    if retirement_view(entity) is None:
+        return None
+    grid: dict[str, Any] | None = None
+    if record.get("geometry") is not None:
+        try:
+            grid = api.get(f"/v1/assets/{record['public_id']}/nearby-grid").get("data")
+        except ApiError:
+            grid = None
+    return retirement_view(entity, grid)
+
+
 @router.get("/assets/{slug}", response_class=HTMLResponse)
 def asset_detail(request: Request, slug: str) -> HTMLResponse:
     """ADR 0008 asset page: identity, attributes, owners and nearby exact-grade proposals."""
@@ -274,6 +301,11 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
         nearby = []
     # One list row per project, not per EIA-860M generator unit; the map keeps every unit's dot.
     nearby = group_nearby_proposals(nearby)
+    retirement = _retirement_section(api, entity, record)
+    # The Retirement section prints these two blocks in words; the Attributes table must not print
+    # them again as raw keys and tokens (`majority_mw_retiring`, `2028-12`).
+    hidden = ("retirement", "grid") if retirement is not None else ("retirement",)
+    record["promoted_attributes"] = [*record.get("promoted_attributes", []), *hidden]
     tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
     tile_mode = _tile_mode(tile_url)
     placed = sum(1 for f in features if f["properties"]["kind"] == "proposal")
@@ -291,6 +323,7 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
         "asset_detail.html",
         {
             "record": record,
+            "retirement": retirement,
             "nearby_proposals": nearby,
             "provenance_rows": provenance_panel_rows(api, record["provenance"]),
             "mini_map": mini_map,

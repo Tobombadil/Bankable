@@ -95,6 +95,11 @@
   // 2026-09-19); the checkbox list in home_map.html disables anything listed but not here
   // ("coming"). An unknown `asset_type=` value in the URL is dropped, never sent to the API.
   var ASSET_TYPES_LIVE = ["power_plant", "gas_pipeline", "gas_processing_plant", "gas_storage", "lng_terminal", "ethanol_plant", "rng_project", "transmission_line"];
+  // Lane R1 (2026-10-06): power plants that have retired, or will, have their own layer. The
+  // existing-assets request asks for every other plant status, so a retired plant is never drawn
+  // as an operating one; a retiring plant is still in service and shows in both.
+  var EXISTING_PLANT_STATUSES = ["operating", "standby", "retiring", "unknown"];
+  var RETIRED_LAYER_STATUSES = ["retired", "retiring"];
   // RNG technology families (us.epa.lmop: lfg_electricity | rng | lfg_direct_use; us.epa.agstar:
   // farm_digester) -> the words the tooltip, drawer and in-view row show. Same table as
   // web/app.py RNG_TECHNOLOGY_LABELS.
@@ -157,6 +162,21 @@
     var el = document.getElementById("map-labels");
     try { return (el && JSON.parse(el.textContent)) || {}; } catch (e) { return {}; }
   })();
+  function statusName(status) {
+    if (!status) return null;
+    var names = SERVER_LABELS.asset_status || {};
+    return Object.prototype.hasOwnProperty.call(names, status) ? names[status] : String(status).replace(/_/g, " ");
+  }
+  // "Retired 2024" / "Retiring from 2028" / "Retirement scheduled 2030" from a feature's status and
+  // `retirement_year` (geo features carry no attributes); null when the plant has no year.
+  function retirementPhrase(p) {
+    var year = yearOf(p.retirement_year);
+    if (!year) return null;
+    if (p.status === "retired") return "Retired " + year;
+    if (p.status === "retiring") return "Retiring from " + year;
+    return "Unit retirement scheduled " + year;
+  }
+
   function technologyName(tech) {
     if (!tech) return null;
     var names = SERVER_LABELS.technology || {};
@@ -479,19 +499,32 @@
   function assetsGeoUrls(filters, bbox, zoom) {
     var types = filters.asset_types && filters.asset_types.length ? filters.asset_types : ASSET_TYPES_LIVE;
     var family = filters.plant_technology && PLANT_FAMILY_CLASSES[filters.plant_technology] ? filters.plant_technology : "";
-    function url(typeList, technologyCsv) {
+    function url(typeList, technologyCsv, statusCsv) {
       var params = new URLSearchParams();
       params.set("bbox", bbox.join(","));
       params.set("zoom", String(zoom));
       params.set("asset_type", typeList.join(","));
       if (technologyCsv) params.set("technology", technologyCsv);
+      if (statusCsv) params.set("status", statusCsv);
       return "/api/assets/geo?" + params.toString();
     }
-    if (!family || types.indexOf("power_plant") === -1) return [url(types, "")];
+    if (types.indexOf("power_plant") === -1) return [url(types, "", "")];
+    // Power plants always go on a request of their own: the status filter (no retired plants
+    // here, lane R1) and a plant-type family apply to plants only.
     var others = types.filter(function (t) { return t !== "power_plant"; });
-    var urls = [url(["power_plant"], PLANT_FAMILY_CLASSES[family].join(","))];
-    if (others.length) urls.push(url(others, ""));
+    var urls = [url(["power_plant"], family ? PLANT_FAMILY_CLASSES[family].join(",") : "", EXISTING_PLANT_STATUSES.join(","))];
+    if (others.length) urls.push(url(others, "", ""));
     return urls;
+  }
+
+  // The "Retired & retiring plants" layer (lane R1): power plants of those two statuses only.
+  function retiredGeoUrl(bbox, zoom) {
+    var params = new URLSearchParams();
+    params.set("bbox", bbox.join(","));
+    params.set("zoom", String(zoom));
+    params.set("asset_type", "power_plant");
+    params.set("status", RETIRED_LAYER_STATUSES.join(","));
+    return "/api/assets/geo?" + params.toString();
   }
 
   // `/api/geo/regions` (ADR 0008): batched per level, cached for the page's session -- a region
@@ -569,6 +602,15 @@
   document.getElementById("mf-include-withdrawn").checked = filters.include_withdrawn;
   var plantsToggle = document.getElementById("mf-layer-plants");
   plantsToggle.checked = filters.layers.indexOf("plants") !== -1;
+  var retiredToggle = document.getElementById("mf-layer-retired");
+  retiredToggle.checked = filters.layers.indexOf("retired") !== -1;
+  var retiredLegend = document.getElementById("retired-legend");
+  // `layers=` is a csv of independent layers ("plants", "retired"); turning one on or off keeps the other.
+  function setLayerOn(name, on) {
+    var kept = (filters.layers || []).filter(function (l) { return l !== name; });
+    if (on) kept.push(name);
+    filters.layers = kept;
+  }
   var plantTypeSelect = document.getElementById("mf-plant-technology");
   var plantTypeField = document.getElementById("mf-plant-technology-field");
   var assetTypesField = document.getElementById("mf-asset-types");
@@ -666,6 +708,9 @@
   var latestAssets = { type: "FeatureCollection", features: [], totals: {} };
   var latestPlantsTotal = 0;
   var latestAssetsClustered = false;
+  var latestRetired = { type: "FeatureCollection", features: [] };
+  var latestRetiredTotal = 0;
+  var latestRetiredClustered = false;
 
   function currentBbox() {
     var b = map.getBounds();
@@ -744,6 +789,46 @@
         // docs/31 §6 error state: keep the last-known view rather than blanking it.
       });
     if (plantsToggle.checked) refetchAssets();
+    if (retiredToggle.checked) refetchRetired();
+  }
+
+  // Lane R1: hue by status, ring shape by status (a dot for retiring, a cross for retired), size
+  // by nameplate MW so the big sites read first. Clusters take the retired hue.
+  var retiredColors = {
+    retired: cssVar("--asset-retired") || "#7a2e5c",
+    retiring: cssVar("--asset-retiring") || "#a3480a"
+  };
+  function decorateRetiredFeature(f) {
+    var p = f.properties;
+    if (p.feature_kind === "asset_cluster" || p.feature_kind === "plant_cluster") {
+      p.color = retiredColors.retired;
+      return;
+    }
+    if (p.feature_kind === "plant") p.feature_kind = "asset";
+    p.asset_type = "power_plant";
+    p.color = retiredColors[p.status] || retiredColors.retired;
+    p.icon = p.status === "retiring" ? "retiring-dot" : "retired-crossed";
+    var mw = Number(p.capacity_mw) || 0;
+    p.ring_size = mw >= 1000 ? 1.0 : mw >= 250 ? 0.8 : mw >= 50 ? 0.62 : 0.5;
+  }
+
+  var retiredFetchSeq = 0;
+  function refetchRetired() {
+    var seq = ++retiredFetchSeq;
+    fetch(retiredGeoUrl(currentBbox(), currentZoom()))
+      .then(function (r) { return r.json(); })
+      .then(function (envelope) {
+        if (seq !== retiredFetchSeq) return;
+        var fc = envelope.data || {};
+        var features = (fc.features || []).filter(function (f) { return f.properties.feature_kind !== "asset_line"; });
+        features.forEach(decorateRetiredFeature);
+        latestRetired = { type: "FeatureCollection", features: features };
+        latestRetiredTotal = assetsInView(features);
+        latestRetiredClustered = !!(fc.totals || {}).clustered;
+        if (map.getSource("retired-plants")) map.getSource("retired-plants").setData(latestRetired);
+        render();
+      })
+      .catch(function () { /* keep the last-known layer (docs/31 §6 error state) */ });
   }
 
   // Annotates one asset feature in place with what the layers and the in-view list read:
@@ -984,6 +1069,49 @@
       });
     }
 
+    // Lane R1: retired and retiring plants in view, one row each, the status in words.
+    if (retiredToggle.checked) {
+      var retiredIndividual = latestRetired.features.filter(function (f) { return f.properties.feature_kind === "asset"; });
+      if (latestRetiredClustered || retiredIndividual.length) {
+        appendGroupName("Retired & retiring plants (" + latestRetiredTotal + ")");
+      }
+      if (latestRetiredClustered) {
+        var rcl = document.createElement("li");
+        rcl.textContent = "Zoom in to list retired and retiring plants individually; " + latestRetiredTotal + " are grouped in clusters above.";
+        listEl.appendChild(rcl);
+      }
+      retiredIndividual.slice(0, IN_VIEW_ASSET_LIMIT).forEach(function (f) {
+        var p = f.properties;
+        var item = document.createElement("li");
+        var kind = document.createElement("span");
+        kind.className = "in-view-list__kind";
+        kind.textContent = statusName(p.status) || "Plant";
+        item.appendChild(kind);
+        var pageUrl = assetPageUrl(p);
+        var a = document.createElement(pageUrl ? "a" : "strong");
+        if (pageUrl) { a.className = "name-link"; a.href = pageUrl; }
+        a.textContent = p.name || p.public_id || "Unnamed plant";
+        item.appendChild(a);
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "details-btn";
+        btn.textContent = "Details";
+        btn.setAttribute("aria-label", "Details for " + (p.name || "this plant"));
+        btn.addEventListener("click", function () { openAssetDrawer(p); });
+        item.appendChild(btn);
+        var meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = [
+          p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : null,
+          PLANT_FAMILY_NAME[plantFamilyOf(p.technology)] || null,
+          retirementPhrase(p),
+          p.state_code || null
+        ].filter(Boolean).join(" · ");
+        item.appendChild(meta);
+        listEl.appendChild(item);
+      });
+    }
+
     // Task item 2: "Live region adds 'N existing plants in view'" -- appended as a second
     // sentence so the proposals count (the accessible path's primary content) is never dropped
     // when the assets layer is on.
@@ -992,6 +1120,7 @@
       var lines = latestAssets.features.filter(function (f) { return f.properties.feature_kind === "asset_line"; }).length;
       liveText += " " + latestPlantsTotal + " existing assets in view" + (lines ? " (" + lines + " pipeline" + (lines === 1 ? "" : "s") + ")" : "") + ".";
     }
+    if (retiredToggle.checked) liveText += " " + latestRetiredTotal + " retired or retiring plants in view.";
     liveRegion.textContent = liveText;
 
     // ADR 0008: "none" grade (no usable location) is counted only in `totals.unplaced`, never
@@ -1089,6 +1218,25 @@
       }
       ctx.closePath();
       ctx.fill();
+    }
+    // Lane R1: hollow rings for retired (crossed) and retiring (centre dot) plants.
+    if (shape === "retired-crossed" || shape === "retiring-dot") {
+      ctx.lineWidth = Math.max(2, size / 7);
+      ctx.beginPath();
+      ctx.arc(c, c, r - ctx.lineWidth / 2, 0, Math.PI * 2);
+      ctx.stroke();
+      if (shape === "retiring-dot") {
+        ctx.beginPath();
+        ctx.arc(c, c, size / 7, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        var k = r * 0.55;
+        ctx.beginPath();
+        ctx.moveTo(c - k, c - k); ctx.lineTo(c + k, c + k);
+        ctx.moveTo(c + k, c - k); ctx.lineTo(c - k, c + k);
+        ctx.stroke();
+      }
+      return ctx.getImageData(0, 0, size, size);
     }
     if (shape === "asset-diamond") polygon(4, 0);
     else if (shape === "asset-triangle") polygon(3, -Math.PI / 2);
@@ -1231,6 +1379,69 @@
     });
   }
 
+  var RETIRED_LAYER_IDS = ["retired-clusters", "retired-cluster-count", "retired-points", "retired-labels"];
+
+  // Lane R1: its own source and layers, added after the existing-assets layers and still below
+  // every proposals layer (same `addLayer(..., "clusters")` stacking rule as `addPlantsLayers`).
+  function addRetiredLayers() {
+    map.addImage("retired-crossed", buildShapeIcon("retired-crossed", 24), { sdf: true });
+    map.addImage("retiring-dot", buildShapeIcon("retiring-dot", 24), { sdf: true });
+    map.addSource("retired-plants", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    var isCluster = ["any", ["==", ["get", "feature_kind"], "asset_cluster"], ["==", ["get", "feature_kind"], "plant_cluster"]];
+    var isPoint = ["all", ["==", ["geometry-type"], "Point"], ["!", isCluster]];
+    map.addLayer({
+      id: "retired-clusters", type: "circle", source: "retired-plants",
+      filter: isCluster,
+      paint: {
+        "circle-radius": ["step", ["get", "count"], 10, 10, 14, 50, 18],
+        "circle-color": mapColors.land,
+        "circle-opacity": 0.85,
+        "circle-stroke-width": 2,
+        "circle-stroke-color": ["get", "color"]
+      }
+    }, "clusters");
+    map.addLayer({
+      id: "retired-cluster-count", type: "symbol", source: "retired-plants",
+      filter: isCluster,
+      layout: { "text-field": ["get", "count"], "text-size": 10, "text-font": ["Noto Sans Medium"] },
+      paint: { "text-color": ["get", "color"] }
+    }, "clusters");
+    map.addLayer({
+      id: "retired-points", type: "symbol", source: "retired-plants",
+      filter: isPoint,
+      layout: {
+        "icon-image": ["coalesce", ["get", "icon"], "retired-crossed"],
+        "icon-size": ["coalesce", ["get", "ring_size"], 0.6],
+        "icon-allow-overlap": true
+      },
+      paint: { "icon-color": ["get", "color"], "icon-opacity": 0.95 }
+    }, "clusters");
+    map.addLayer({
+      id: "retired-labels", type: "symbol", source: "retired-plants", minzoom: 8,
+      filter: isPoint,
+      layout: {
+        "text-field": ["coalesce", ["get", "name"], ""], "text-size": 9, "text-font": ["Noto Sans Medium"],
+        "text-anchor": "top", "text-offset": [0, 0.9], "text-allow-overlap": false
+      },
+      paint: { "text-color": ["get", "color"], "text-halo-color": mapColors.land, "text-halo-width": 1.2 }
+    }, "clusters");
+    map.on("click", "retired-points", function (e) { openAssetDrawer(e.features[0].properties); });
+    map.on("mouseenter", "retired-points", function (e) { map.getCanvas().style.cursor = "pointer"; showAssetTooltip(e, e.features[0].geometry.coordinates); });
+    map.on("mouseleave", "retired-points", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
+    map.on("click", "retired-clusters", function (e) {
+      var f = e.features[0];
+      map.easeTo({ center: f.geometry.coordinates, zoom: f.properties.expands_to_zoom || (map.getZoom() + 2), duration: motionMs(600) });
+    });
+  }
+
+  function setRetiredLayerVisible(on) {
+    RETIRED_LAYER_IDS.forEach(function (id) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    });
+    retiredLegend.hidden = !on;
+    retiredLegend.setAttribute("aria-hidden", on ? "false" : "true");
+  }
+
   function setPlantsLayerVisible(on) {
     var picked = on ? filters.asset_types : [];
     ASSET_LAYER_IDS.forEach(function (id) {
@@ -1275,6 +1486,8 @@
     addRegionLayers();
     addPlantsLayers();
     setPlantsLayerVisible(plantsToggle.checked);
+    addRetiredLayers();
+    setRetiredLayerVisible(retiredToggle.checked);
     map.addLayer({
       id: "cluster-count", type: "symbol", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "cluster"],
@@ -1334,7 +1547,9 @@
   function showAssetTooltip(e, lngLat) {
     var p = e.features[0].properties;
     var family = p.asset_type === "rng_project" ? rngTechLabel(p.technology) : null;
+    var retirement = p.status === "retired" || p.status === "retiring" ? retirementPhrase(p) || statusName(p.status) : null;
     var html = "<strong>" + esc(p.name || "Unnamed asset") + "</strong><br>" + esc(assetTypeLabel(p.asset_type)) +
+      (retirement ? " &middot; " + esc(retirement) : "") +
       (family ? " &middot; " + esc(family) : "") +
       (p.line_class && p.line_class !== "unknown" ? " &middot; " + esc(p.line_class) : "") +
       (p.operator_name ? "<br>Operator: " + esc(p.operator_name) : "");
@@ -1399,13 +1614,23 @@
   document.getElementById("mf-include-withdrawn").addEventListener("change", applyFilters);
   plantsToggle.addEventListener("change", function () {
     var on = plantsToggle.checked;
-    filters.layers = on ? ["plants"] : [];
+    setLayerOn("plants", on);
     writeFilters(filters);
     syncAssetControls();
     if (map.getLayer("plant-points")) setPlantsLayerVisible(on);
     else { plantsLegend.hidden = !on; }
     sendUiEvent("map.layer_toggled", { layer: "plants", on: on });
     if (on) refetchAssets();
+    render();
+  });
+  retiredToggle.addEventListener("change", function () {
+    var on = retiredToggle.checked;
+    setLayerOn("retired", on);
+    writeFilters(filters);
+    if (map.getLayer("retired-points")) setRetiredLayerVisible(on);
+    else { retiredLegend.hidden = !on; }
+    sendUiEvent("map.layer_toggled", { layer: "retired", on: on });
+    if (on) refetchRetired();
     render();
   });
   // Task item 1: one `map.layer_toggled` beacon per checkbox change, `layer: "placement"` --
@@ -1560,11 +1785,12 @@
           row("States", states ? esc(states) : null);
       body.innerHTML =
         "<h2>" + esc(p.name || "Unnamed asset") + "</h2>" +
-        "<p class=\"reuse-badge\">Existing asset &middot; " + subtitle + "</p>" +
+        "<p class=\"reuse-badge\">" + (p.status === "retired" ? "Retired plant" : "Existing asset") + " &middot; " + subtitle + "</p>" +
         "<dl class=\"drawer-fields\">" +
         row("Operator", p.operator_name ? esc(p.operator_name) : null) +
         typeRows +
-        row("Status", p.status ? esc(String(p.status).replace(/_/g, " ")) : null) +
+        row("Status", p.status ? esc(statusName(p.status)) : null) +
+        row(p.status === "retired" ? "Retired" : "Retirement scheduled", p.retirement_year ? esc(yearOf(p.retirement_year)) : null, true) +
         (fuel ? "" : row("First operating year", commissionedYear ? esc(commissionedYear) : null, true)) +
         row("Location", location || null) +
         "</dl>" +
