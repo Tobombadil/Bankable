@@ -32,6 +32,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from web.viewmodels import source_label
+
 #: The URL control for how far down the tree a company page reads.
 SCOPE_PARAM = "scope"
 
@@ -102,7 +104,9 @@ class Claim:
         page prints nothing."""
         if not (self.source_id or self.as_of):
             return ""
-        where = f" from {self.source_id}" if self.source_id else ""
+        # The register's name, never its id ("curated.organization_parents" reached readers until
+        # 2026-10-06); an id no map names reads as "its source" rather than as itself.
+        where = f" from {source_label(self.source_id) or 'its source'}" if self.source_id else ""
         if self.as_of:
             return f"Ownership stated as of {self.as_of}{where}."
         return f"Ownership link recorded{where}; no date stated by the source."

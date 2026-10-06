@@ -14,8 +14,9 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from services.api.common import WEB_HOST
+from web import labels
 from web.api_client import ApiClient, ApiError
-from web.retirement import ASSET_STATUS_LABELS, asset_status_label
+from web.retirement import asset_status_label
 
 Family = Literal["neutral", "progress", "committed", "success", "danger"]
 
@@ -65,65 +66,18 @@ ALL_PROPOSAL_LIFECYCLE_STATES: tuple[str, ...] = (
     )
 )
 
-#: How the map's Kind select names each `proposal_kind` token (docs/21 §3 `kind`). A token the
-#: vocabulary adds later and this map does not yet name renders as itself, never disappears.
-PROPOSAL_KIND_LABELS: dict[str, str] = {
-    "generation": "Generation",
-    "storage": "Storage",
-    "load": "Load (data centres, large loads)",
-    "transmission": "Transmission",
-    "pipeline": "Pipeline",
-    "lng": "LNG",
-    "nuclear": "Nuclear",
-    "ccs": "Carbon capture (CCS)",
-    "hydrogen": "Hydrogen",
-    "other": "Other",
-}
-
-#: How a page names each `opportunity_kind` token (docs/21 §3.3 `kind`). Same rule as above: a
-#: token this map does not name renders as itself.
-OPPORTUNITY_KIND_LABELS: dict[str, str] = {
-    "rfp": "Request for proposals (RFP)",
-    "foa": "Funding opportunity (FOA)",
-    "tender": "Tender",
-    "auction": "Auction",
-    "loan_program": "Loan programme",
-    "procurement_notice": "Procurement notice",
-    "program": "Programme",
-}
-
-
-def proposal_kind_label(token: str | None) -> str | None:
-    """The reader-facing name of a proposal `kind`; an unmapped token reads as itself."""
-    if not token:
-        return token
-    return PROPOSAL_KIND_LABELS.get(token, token)
-
-
-def opportunity_kind_label(token: str | None) -> str | None:
-    """The reader-facing name of an opportunity `kind`; an unmapped token reads as itself."""
-    if not token:
-        return token
-    return OPPORTUNITY_KIND_LABELS.get(token, token)
-
-
-TECHNOLOGY_LOAD_LABEL = "Large load"
-
-#: The proposal `technology` values that read differently from their token. Only `load` is
-#: relabelled: the data-centre and large-load connectors set `technology` to the same value as
-#: `kind`, and a bare "load" in a Technology column reads as a typo. It gets a short label rather
-#: than the kind's, because the kind label wraps every row of the list's Technology column onto two
-#: lines; the Kind select beside it carries the long form. Every other value is printed as it
-#: always was, so no existing column changes under a reader. The map page hands this same dict to
-#: `map.js` (`map_labels_json`), so the in-view list and the drawer say what the list says.
-TECHNOLOGY_LABELS: dict[str, str] = {"load": TECHNOLOGY_LOAD_LABEL}
-
-
-def technology_label(value: str | None) -> str | None:
-    """The reader-facing name of a proposal `technology` value; see `TECHNOLOGY_LABELS`."""
-    if not value:
-        return value
-    return TECHNOLOGY_LABELS.get(value, value)
+# Reader-facing words for every vocabulary token live in `web/labels.py` (audit 2026-09-30, F1/D-7);
+# the names below are re-exported because pages, tests and `map.js` (via `map_labels_json`) have
+# always imported them from here.
+TECHNOLOGY_LABELS = labels.TECHNOLOGY_LABELS
+TECHNOLOGY_LOAD_LABEL = labels.TECHNOLOGY_LOAD_LABEL
+PROPOSAL_KIND_LABELS = labels.PROPOSAL_KIND_LABELS
+OPPORTUNITY_KIND_LABELS = labels.OPPORTUNITY_KIND_LABELS
+LIFECYCLE_LABELS = labels.LIFECYCLE_LABELS
+technology_label = labels.technology_label
+proposal_kind_label = labels.proposal_kind_label
+opportunity_kind_label = labels.opportunity_kind_label
+lifecycle_label = labels.lifecycle_label
 
 
 def map_labels_json() -> str:
@@ -131,8 +85,7 @@ def map_labels_json() -> str:
     browser names a token exactly as the server does without a hand-kept copy of the words.
     `</` is escaped for the same reason as `web/page.py::_mini_map`: it is the only sequence that
     can end a `<script type="application/json">` early."""
-    labels = {"technology": TECHNOLOGY_LABELS, "asset_status": ASSET_STATUS_LABELS}
-    return json.dumps(labels, separators=(",", ":")).replace("</", "<\\/")
+    return json.dumps(labels.map_labels(), separators=(",", ":")).replace("</", "<\\/")
 
 
 #: Every source whose rows are proposals, in the order a page names them, with the short name a
@@ -179,6 +132,18 @@ ASSET_SOURCE_LABELS: dict[str, str] = {
 }
 
 
+#: The registers an ownership claim on a company page cites (`organization.parent_source_id`), as
+#: the sentence "Ownership stated as of ... from {label}" reads. The curated table is the
+#: companies' own published statements (data/sources.yaml `curated.organization_parents`), and is
+#: named as that rather than by its table name (audit 2026-09-30, F1).
+OWNERSHIP_SOURCE_LABELS: dict[str, str] = {
+    "curated.organization_parents": "the companies' own published statements",
+    "global.gleif.lei": "GLEIF",
+    "us.eia.860": "EIA-860",
+    "us.epa.ghgrp": "EPA GHGRP",
+}
+
+
 def source_label(source_id: str | None) -> str | None:
     """The short name a list's Source column prints for `source_id`, or `None` for a source no
     map names -- the template then prints the id itself rather than a guessed name."""
@@ -186,7 +151,11 @@ def source_label(source_id: str | None) -> str | None:
         return None
     if source_id in PROPOSAL_SOURCE_LABELS:
         return PROPOSAL_SOURCE_LABELS[source_id][0]
-    return OPPORTUNITY_SOURCE_LABELS.get(source_id) or ASSET_SOURCE_LABELS.get(source_id)
+    return (
+        OPPORTUNITY_SOURCE_LABELS.get(source_id)
+        or ASSET_SOURCE_LABELS.get(source_id)
+        or OWNERSHIP_SOURCE_LABELS.get(source_id)
+    )
 
 
 def _join_names(names: list[str]) -> str:

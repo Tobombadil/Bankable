@@ -29,7 +29,7 @@
     {% for r in records %}
     <tr>
       <td data-label="Company"><a class="row-link" href="{{ r.href }}">{{ r.name }}</a></td>
-      <td data-label="Type">{% if r.descriptor %}<span class="reuse-badge">{{ r.descriptor }}</span>{% elif r.type %}{{ r.type | replace('_', ' ') }}{% else %}—{% endif %}</td>
+      <td data-label="Type">{% if r.descriptor %}<span class="reuse-badge">{{ r.descriptor }}</span>{% elif r.type %}{{ r.type | organization_type_label }}{% else %}—{% endif %}</td>
       <td data-label="Holds">{% if r.summary_parts %}{{ r.summary_parts | join(' · ') }}{% else %}—{% endif %}</td>
       <td data-label="Assets" class="num tnum">{% if r.asset_total is not none %}{{ '{:,}'.format(r.asset_total) }}{% else %}—{% endif %}</td>
       <td data-label="Country">{{ r.country or '—' }}</td>

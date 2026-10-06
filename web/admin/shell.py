@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from web import labels
 from web.api_client import ApiClient, ApiResult
 from web.assets import ASSET_VERSION
 from web.auth import _csrf_rejection, _is_same_origin, get_api
@@ -28,6 +29,7 @@ ADMIN_ROLES = frozenset({"operator", "owner", "legal"})
 
 _WEB_ROOT = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(_WEB_ROOT / "templates"))
+labels.install(templates.env)
 
 #: docs/30-design-ia.md §1.3 nav order: Sources → Records → Resolution/Extraction → Tasks → Posts →
 #: Users/Customers → Keys/Costs/Audit. Each entry is (href, label, key); a page passes `nav_key`.

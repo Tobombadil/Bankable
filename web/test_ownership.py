@@ -160,7 +160,7 @@ def test_scope_links_are_three_plain_urls_and_vanish_for_a_leaf():
 def test_a_dated_claim_says_when_and_an_undated_one_says_that_it_is_undated():
     dated = Claim(name="X", href=None, public_id=None, source_id="global.gleif.lei", as_of="2024-06-30")
     assert dated.dated is True
-    assert dated.note == "Ownership stated as of 2024-06-30 from global.gleif.lei."
+    assert dated.note == "Ownership stated as of 2024-06-30 from GLEIF."  # the register by name, not id
 
     undated = Claim(name="X", href=None, public_id=None, source_id="curated.organization_parents", as_of=None)
     assert undated.dated is False
@@ -365,7 +365,7 @@ def test_the_page_renders_the_ownership_chain_as_breadcrumb_links(web_client: Te
     assert '<a href="/organizations/tallgrass-energy"' in crumbs
     assert crumbs.index("blackstone-infrastructure") < crumbs.index("tallgrass-energy")
     # The date sits on the company the link is about, not on the company it names.
-    assert 'title="Ownership stated as of 2024-02-29 from global.gleif.lei."' in crumbs
+    assert 'title="Ownership stated as of 2024-02-29 from GLEIF."' in crumbs
 
 
 def test_the_page_says_when_an_ownership_claim_carries_no_date(web_client: TestClient) -> None:

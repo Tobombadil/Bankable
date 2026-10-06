@@ -11100,6 +11100,9 @@ components:
           description: Optional; stored on the task only.
         captcha_token:
           type: string
+          description: >-
+            Cloudflare Turnstile response token. Required and verified when verification is enabled
+            (same rule as `IntakeProposalRequest.captcha_token`); optional otherwise.
     ReportAcceptedResponse:
       type: object
       required: [task_id, privacy_notice_url]

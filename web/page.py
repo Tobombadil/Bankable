@@ -29,6 +29,7 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import QueryParams
 
 from services.posture import DEFAULT_POSTURE
+from web import labels
 from web.api_client import ApiClient, ApiError, build_client
 from web.assets import ASSET_VERSION
 from web.viewmodels import ALL_OPPORTUNITY_STATUSES
@@ -264,6 +265,7 @@ def is_htmx(request: Request) -> bool:
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
 templates.env.globals["asset_version"] = ASSET_VERSION
+labels.install(templates.env)
 
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
 
@@ -699,7 +701,8 @@ def _asset_feature(record: Mapping[str, Any], geometry: Mapping[str, Any]) -> di
 
 
 def _proposal_feature(record: Mapping[str, Any], geometry: Mapping[str, Any]) -> dict[str, Any]:
-    bits = [b for b in (record.get("technology"), record.get("state") or record.get("jurisdiction")) if b]
+    technology = record.get("technology_label") or labels.technology_label(record.get("technology"))
+    bits = [b for b in (technology, record.get("state") or record.get("jurisdiction")) if b]
     if record.get("capacity_mw"):
         bits.append(f"{float(record['capacity_mw']):.1f} MW")
     if record.get("distance_km") is not None:
@@ -763,10 +766,7 @@ FUEL_ASSET_TYPES = {"ethanol_plant", "rng_project"}
 #: `asset.technology` values the RNG loaders emit (us.epa.lmop `lfg_electricity|rng|lfg_direct_use`,
 #: us.epa.agstar `farm_digester`) -> the words the page, drawer and search row show.
 RNG_TECHNOLOGY_LABELS: dict[str, str] = {
-    "lfg_electricity": "Landfill gas to electricity",
-    "lfg_direct_use": "Landfill gas direct use",
-    "rng": "Renewable natural gas",
-    "farm_digester": "Farm digester",
+    t: labels.TECHNOLOGY_LABELS[t] for t in ("lfg_electricity", "lfg_direct_use", "rng", "farm_digester")
 }
 #: AgSTAR livestock head counts in `attributes` (one column per animal type); a non-zero count
 #: is the digester's feedstock when the source carries no feedstock text.
@@ -919,7 +919,7 @@ def _fuel_fields(entity: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[
             "lfg_energy_project_type",
             "project_type",
         )
-        add("Technology", RNG_TECHNOLOGY_LABELS.get(technology) or (technology.replace("_", " ") or None))
+        add("Technology", labels.technology_label(technology))
         add(
             "Rated capacity", _quantity(_attr(entity, "rated_mw", "capacity_mw"), "MW"), "rated_mw", tnum=True
         )
@@ -1024,9 +1024,14 @@ def _asset_extras(entity: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "promoted_attributes": promoted,
         "type_label": _type_label(asset_type),
-        # RNG: the family word ("Landfill gas to electricity") wherever a one-liner names the
-        # technology (header badge, search row, mini-map subtitle); other types keep the class.
-        "technology_label": RNG_TECHNOLOGY_LABELS.get(technology) if asset_type == "rng_project" else None,
+        # The technology in words wherever a one-liner names it (header badge, list and search
+        # rows, mini-map subtitle): "Gas, combined cycle", "Landfill gas to electricity", "Salt
+        # dome". A line's class is printed separately (`line_class`), so a pipeline's own
+        # `technology` (its interstate/intrastate class) is not repeated here.
+        # An ethanol plant's technology is "ethanol", which only repeats its type.
+        "technology_label": (
+            None if is_line or asset_type == "ethanol_plant" else labels.technology_label(technology)
+        ),
         "fuel_fields": fuel_rows,
         "is_fuel": asset_type in FUEL_ASSET_TYPES,
         "is_line": is_line,

@@ -21,7 +21,7 @@
     <label for="f-status">Status</label>
     <select id="f-status" name="status">
       <option value="all" {% if filters.get('status') == 'all' %}selected{% endif %}>All</option>
-      {% for s in statuses %}<option value="{{ s }}" {% if filters.get('status') == s %}selected{% endif %}>{{ s | replace('_',' ') }}</option>{% endfor %}
+      {% for s in statuses %}<option value="{{ s }}" {% if filters.get('status') == s %}selected{% endif %}>{{ s | lifecycle_label }}</option>{% endfor %}
     </select>
   </div>
   <div class="filter-field">
@@ -32,7 +32,7 @@
     <label for="f-technology">Technology</label>
     <select id="f-technology" name="technologies">
       <option value="">All</option>
-      {% for t in technologies %}<option value="{{ t }}" {% if filters.get('technologies') == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+      {% for t in technologies %}<option value="{{ t }}" {% if filters.get('technologies') == t %}selected{% endif %}>{{ t | technology_label }}</option>{% endfor %}
     </select>
   </div>
   <button class="filter-bar__submit" type="submit">Apply filters</button>

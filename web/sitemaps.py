@@ -10,6 +10,7 @@ back from here without a cycle.
 
 from __future__ import annotations
 
+import logging
 import time
 from html import escape
 
@@ -24,6 +25,7 @@ from web.viewmodels import ALL_PROPOSAL_LIFECYCLE_STATES
 ALL_PROPOSAL_LIFECYCLE_STATES_CSV = ",".join(ALL_PROPOSAL_LIFECYCLE_STATES)
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 #: docs/23 §3.1 "Detail pages visible on the public tier only; regenerated hourly with the
@@ -31,16 +33,15 @@ router = APIRouter()
 #: this route's own logic: every call here reads the live API, which already applies the delay
 #: and tier gating itself (the same visibility predicate every other page in this module reads
 #: through), so the sitemap is honest on every request with no separate cache of its own.
-#: "capped at a sensible page count" (task brief): 25 pages of 200 rows is 5,000 URLs per
-#: resource, generous for this data set's actual size (docs/adr/0008 ~7,700 active proposals) while
-#: bounding one request's worst case to 100 upstream calls total across the four resources.
-#: Raised from 25 on 2026-09-19 (task item 6): 25 pages capped a resource at 5,000 URLs, which
-#: silently truncated assets (17.4k visible on today's dev load) and organisations (5.5k). 150
-#: pages of 200 (`services/api/pagination.py::MAX_LIMIT`) is 30,000 URLs per resource, which
-#: covers every resource with headroom and bounds one cold build at 600 upstream calls. The fifth
-#: resource, interconnection points (2026-09-29), adds at most 150 more; 4,742 points on the dev
-#: store are 24 calls.
-SITEMAP_MAX_PAGES_PER_RESOURCE = 150
+#:
+#: History of the per-resource bound: 25 pages (5,000 URLs) until 2026-09-19, then 150 pages
+#: (30,000 URLs), which the 2026-09-30 audit (frontend F12) measured cutting `/assets` off at
+#: exactly 30,000 of 30,955 rows -- and every new asset source widens that gap (transmission lines
+#: alone added 13,084). The walk now runs every resource to its last page. This number is only a
+#: guard against a pagination bug looping for ever: 5,000 pages of 200 is a million URLs per
+#: resource, forty sitemap files, far above any register this site holds; reaching it is logged as
+#: an error naming the resource, never silently truncated.
+SITEMAP_MAX_PAGES_PER_RESOURCE = 5_000
 SITEMAP_PAGE_SIZE = 200
 SITEMAP_CACHE_SECONDS = 3600
 #: The sitemaps protocol caps one file at 50,000 URLs and 50 MB uncompressed. 25,000 URLs is half
@@ -91,6 +92,13 @@ def _sitemap_paths_for(
         cursor = page.get("next_cursor")
         if cursor is None:
             break
+    else:
+        log.error(
+            "sitemap_resource_truncated path=%s pages=%d urls=%d: the guard was reached with more pages left",
+            path,
+            SITEMAP_MAX_PAGES_PER_RESOURCE,
+            len(paths),
+        )
     return paths
 
 
@@ -114,7 +122,8 @@ def _build_sitemap_documents(api: ApiClient, base: str) -> dict[str, str]:
     """Every sitemap document this site serves, keyed by path, from one walk of every resource.
 
     Proposals, opportunities, assets, organisations and grid interconnection points,
-    cursor-paginated per resource and capped (`SITEMAP_MAX_PAGES_PER_RESOURCE`). Points are read
+    cursor-paginated per resource to the last page (`SITEMAP_MAX_PAGES_PER_RESOURCE` is a loop
+    guard, not a cap). Points are read
     from `GET /v1/interconnection-points` at the anonymous tier like every other resource, so a
     point is listed only when that route lists it: its register is visible and at least one of its
     proposals is (docs/21 D-17). A gated or emptied point is absent, exactly as it is from the
@@ -152,11 +161,12 @@ def _build_sitemap_documents(api: ApiClient, base: str) -> dict[str, str]:
 def _sitemap_documents(request: Request) -> dict[str, str]:
     """The cached `{path: xml}` for this base URL, built on a miss.
 
-    Building costs up to 750 sequential upstream list calls (web audit 2026-09-18: an uncached
-    amplifier on a public route, and a connection reset mid-way 500ed the whole response), so the
-    rendered documents are cached per base URL for an hour -- the sitemap changes daily at most.
-    The cache now holds every document from one walk rather than one file's XML, so a crawler
-    fetching the index and then twenty child sitemaps still costs one walk, not twenty-one."""
+    Building costs one sequential upstream list call per 200 URLs (about 280 on the 2026-10-06 dev
+    store), an uncached amplifier on a public route where a connection reset mid-way 500ed the
+    whole response (web audit 2026-09-18), so the rendered documents are cached per base URL for
+    an hour -- the sitemap changes daily at most. The cache holds every document from one walk
+    rather than one file's XML, so a crawler fetching the index and then twenty child sitemaps
+    still costs one walk, not twenty-one."""
     base = str(request.base_url).rstrip("/")
     cache: dict[str, tuple[float, dict[str, str]]] = request.app.state.__dict__.setdefault(
         "sitemap_cache", {}
@@ -205,6 +215,7 @@ ROBOTS_DISALLOW = (
     "/unsubscribe",
     "/health",
     "/search?",
+    "/report",
 )
 
 

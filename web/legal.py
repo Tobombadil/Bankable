@@ -35,6 +35,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from services.api.common import DOMAIN
+from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
 from web.viewmodels import footer_build as vm_footer_build
@@ -43,6 +44,7 @@ router = APIRouter()
 
 _WEB_ROOT = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(_WEB_ROOT / "templates"))
+labels.install(templates.env)
 templates.env.globals["asset_version"] = ASSET_VERSION
 
 #: CAN-SPAM/CASL/GDPR all require a real physical postal address in outbound mail and/or the

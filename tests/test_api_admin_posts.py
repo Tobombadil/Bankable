@@ -1346,3 +1346,46 @@ def test_create_report_replays_on_same_idempotency_key(client, db):
     assert second.status_code == 202
     assert first.json()["task_id"] == second.json()["task_id"]
     assert db.query(Task).filter_by(type="report").count() == 1
+
+
+def _report_body(public_id: str, **extra: str) -> dict[str, str]:
+    return {
+        "public_id": public_id,
+        "issue_type": "wrong_status",
+        "description": "Withdrawn last month.",
+        **extra,
+    }
+
+
+def test_report_captcha_required_and_verified_when_enabled(client, db, monkeypatch):
+    proposal, _event = _seed_event(db)
+    db.commit()
+    seen = _turnstile(monkeypatch, {"success": False, "error-codes": ["invalid-input-response"]})
+
+    missing = client.post("/v1/reports", json=_report_body(proposal.public_id))
+    assert missing.status_code == 400
+    assert missing.json()["errors"] == [{"field": "captcha_token", "message": "captcha_token is required"}]
+
+    failed = client.post("/v1/reports", json=_report_body(proposal.public_id, captcha_token="bad"))
+    assert failed.status_code == 400
+    assert failed.json()["errors"] == [{"field": "captcha_token", "message": "captcha verification failed"}]
+    assert len(seen) == 1
+    assert db.query(Task).filter_by(type="report").count() == 0
+
+
+def test_report_captcha_verified_ok_is_accepted(client, db, monkeypatch):
+    proposal, _event = _seed_event(db)
+    db.commit()
+    seen = _turnstile(monkeypatch, {"success": True})
+    resp = client.post("/v1/reports", json=_report_body(proposal.public_id, captcha_token="ok"))
+    assert resp.status_code == 202, resp.json()
+    assert len(seen) == 1
+
+
+def test_report_captcha_optional_when_verification_is_off(client, db, monkeypatch):
+    proposal, _event = _seed_event(db)
+    db.commit()
+    seen = _turnstile(monkeypatch, {"success": False}, secret=None)
+    resp = client.post("/v1/reports", json=_report_body(proposal.public_id))
+    assert resp.status_code == 202, resp.json()
+    assert seen == []

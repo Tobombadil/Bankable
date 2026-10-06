@@ -43,6 +43,7 @@
   --map-land: #f1eee4;
   --map-water: #e5edf0;
   --map-border: #d2d9dc;
+  --map-flavor: light;
 
   /* existing-plants context layer (docs/00-PLAN.md 2026-09-14/15 owner decision; map task item
      2) -- desaturated versions of hues a reader already associates with each technology from
@@ -164,6 +165,7 @@
     --map-land: #182c40;
     --map-water: #0f2032;
     --map-border: #2a3f54;
+    --map-flavor: dark;
 
     --plant-solar: #c9b877;
     --plant-wind: #9ab6d1;
@@ -214,6 +216,7 @@
   --map-land: #182c40;
   --map-water: #0f2032;
   --map-border: #2a3f54;
+  --map-flavor: dark;
 
   --plant-solar: #c9b877;
   --plant-wind: #9ab6d1;
@@ -954,3 +957,35 @@ h3 { font-size: var(--text-4); }
 .retirement__note { border-left: 3px solid var(--asset-retiring); padding-left: var(--space-3, 0.75rem); max-width: 72ch; }
 .retirement .record-table caption { text-align: left; font-weight: 600; padding-bottom: var(--space-1, 0.25rem); }
 
+
+/* ---------- 2026-10-06 UX lane (audit 2026-09-30) ---------- */
+/* Loader caveats under an asset's Attributes table (web/labels.py `data_notes`). */
+.attribute-notes { margin-top: var(--space-3); font-size: var(--text-1); color: var(--text-muted); }
+.attribute-notes summary { cursor: pointer; color: var(--text); }
+.attribute-notes ul { margin: var(--space-2) 0 0; padding-inline-start: var(--space-5); }
+.attribute-notes li { padding: var(--space-1) 0; max-width: 80ch; }
+/* The map drawer's licence class beside its source (D-13) and the licence's own credit line. */
+.drawer-source__licence { color: var(--text); }
+.drawer-source__credit { display: inline-block; margin-top: var(--space-1); }
+/* "Report a problem" (designer D-6): a disclosure with a short form, docs/31 §6 states. */
+.report-problem { margin: var(--space-6) 0 var(--space-4); border-top: 1px solid var(--border); padding-top: var(--space-4); }
+.report-problem > summary { cursor: pointer; font-weight: 600; color: var(--link); }
+.report-problem form { display: grid; gap: var(--space-3); max-width: 40rem; margin-top: var(--space-3); }
+.report-problem fieldset { border: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.report-problem legend { font-weight: 600; margin-bottom: var(--space-1); padding: 0; }
+.report-problem label { display: flex; gap: var(--space-2); align-items: flex-start; }
+.report-problem .field { display: grid; gap: var(--space-1); }
+.report-problem .field label { display: block; font-weight: 600; }
+.report-problem textarea, .report-problem input[type="email"] {
+  font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-2); padding: var(--space-2); width: 100%; box-sizing: border-box;
+}
+.report-problem textarea { min-height: 7rem; }
+.report-problem .field-hint { font-size: var(--text-1); color: var(--text-muted); margin: 0; }
+.report-problem .form-error { color: var(--family-danger-text); font-weight: 600; margin: 0; }
+.report-problem button[type="submit"] {
+  font: inherit; justify-self: start; min-height: 2.5rem; padding: 0 var(--space-4); cursor: pointer;
+  border: 1px solid var(--text); border-radius: var(--radius-2); background: var(--text); color: var(--bg);
+}
+.report-problem__trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.report-problem__status { margin: var(--space-3) 0 0; }

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{#- The no-JavaScript landing for `POST /report` (web/reports.py): the same fragment the record page
+    shows, on a page of its own, with the way back to the record. -#}
+{% block title %}Report a problem -- Infraque{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Report a problem</h1>
+  <p>About <a href="{{ report.return_path }}">{{ report.record_name or 'this record' }}</a>.</p>
+</div>
+{% include "partials/_report_problem.html" %}
+<p><a href="{{ report.return_path }}">&larr; Back to the record</a></p>
+{% endblock %}

@@ -39,7 +39,7 @@
     <tbody>
       {% for t in record.technologies %}
       <tr>
-        <td data-label="Technology">{{ t.technology | replace('_', ' ') }}</td>
+        <td data-label="Technology">{{ t.technology | technology_label }}</td>
         <td data-label="Active MW" class="num tnum">{{ t.active_mw_label }}</td>
         <td data-label="Active projects" class="num tnum">{{ t.active_count }}</td>
         <td data-label="All projects" class="num tnum">{{ t.count }}</td>
@@ -73,7 +73,7 @@
       <tr>
         <td data-label="Status">{{ m.status_chip(p.lifecycle_state, p.lifecycle_family) }}</td>
         <td data-label="Name"><a class="row-link" href="{{ p.href }}">{{ p.name_canonical }}</a></td>
-        <td data-label="Technology">{{ p.technology or '—' }}</td>
+        <td data-label="Technology">{{ (p.technology | technology_label) or '—' }}</td>
         <td data-label="Capacity (MW)" class="num tnum">{{ p.capacity_label }}</td>
         <td data-label="Jurisdiction">{{ p.jurisdiction or '—' }}</td>
         <td data-label="Proposed online" class="tnum">{{ p.proposed_online_date or '—' }}</td>

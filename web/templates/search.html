@@ -15,7 +15,7 @@
 <ul class="in-view-list">
   {% for r in proposals %}
   <li>{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
-    <span class="meta">{{ r.technology or '—' }} &middot; {{ r.state or r.jurisdiction or '—' }}{% if r.capacity_mw %} &middot; {{ '%.1f'|format(r.capacity_mw) }} MW{% endif %}</span>
+    <span class="meta">{{ (r.technology | technology_label) if r.technology else '—' }} &middot; {{ r.state or r.jurisdiction or '—' }}{% if r.capacity_mw %} &middot; {{ '%.1f'|format(r.capacity_mw) }} MW{% endif %}</span>
   </li>
   {% endfor %}
 </ul>
@@ -56,7 +56,7 @@
 <ul class="in-view-list">
   {% for r in organizations %}
   <li><a href="/organizations/{{ r.slug or r.public_id }}">{{ r.name }}</a>
-    <span class="meta">{{ (r.type or '—') | replace('_', ' ') }}{% if r.jurisdiction %} &middot; {{ r.jurisdiction }}{% endif %}</span>
+    <span class="meta">{{ (r.type | organization_type_label) if r.type else '—' }}{% if r.jurisdiction %} &middot; {{ r.jurisdiction }}{% endif %}</span>
   </li>
   {% endfor %}
 </ul>

@@ -316,7 +316,7 @@ def test_asset_detail_renders_identity_attributes_owners_and_provenance(web_clie
     body = resp.text
     assert "Roscoe Wind Farm" in body
     assert "781.5" in body  # capacity
-    assert "capacity factor 2025" in body  # attributes table, underscore replaced
+    assert "Capacity factor, 2025" in body  # attributes table, key in words (web/labels.py)
     assert "NextEra Energy Resources" in body
     assert 'href="/organizations/org_01JBQ8C4X1"' in body
     assert "50.0%" in body  # share
@@ -799,7 +799,7 @@ def test_asset_detail_reads_the_owner_organisation_embed(web_client: TestClient)
     body = web_client.get("/assets/rockies-express-pipeline").text
 
     assert body.count("Tallgrass Energy") >= 2  # operator field + owners table
-    assert '<td data-label="Role">operator</td>' in body
+    assert '<td data-label="Role">Operator</td>' in body
 
 
 def _tallgrass_org(**overrides: Any) -> dict[str, Any]:
@@ -1125,7 +1125,7 @@ def test_search_resolves_a_pipeline_operator_and_a_pipeline_asset(web_client: Te
     assert resp.status_code == 200
     body = resp.text
     assert 'href="/organizations/tallgrass-energy"' in body and "Tallgrass Energy" in body
-    assert "pipeline operator" in body
+    assert "Pipeline operator" in body
     assert 'href="/assets/rockies-express-pipeline"' in body and "Rockies Express Pipeline" in body
     assert "Gas pipeline · Tallgrass Energy · CO, WY" in body
     assert "1 asset, 1 organisation" in body
@@ -1473,8 +1473,8 @@ def test_asset_detail_rng_landfill_project_promotes_project_fields(web_client: T
         "RNG project" in badge and "Renewable natural gas" in badge and "Operating" in badge
     )  # the status label, not the token (lane R1)
     # Unconsumed landfill numbers stay in the Attributes table.
-    assert "landfill waste in place tons" in body and "5743184" in body
-    assert "lfg flow to project mmscfd" not in body
+    assert "Waste in place (tons)" in body and "5,743,184" in body
+    assert "Landfill gas flow to project" not in body
     assert ">None<" not in body
 
 
@@ -1512,7 +1512,7 @@ def test_asset_detail_rng_digester_promotes_digester_type_feedstock_and_years(we
     assert "Project type" not in rows and "Host landfill" not in rows and "Operator" not in rows
     # Herd-count columns are consumed by the Feedstock row; the kWh figure is not, so it stays.
     assert ">dairy<" not in body and ">swine<" not in body
-    assert "electricity generated kwh yr" in body
+    assert "Electricity generated (kWh/yr)" in body
     assert 'id="asset-map"' not in body  # county grade -> no geometry -> no map section
     assert ">None<" not in body and "None</" not in body
 
@@ -1768,7 +1768,7 @@ def test_organization_detail_shows_descriptor_for_other_typed_holder_and_keeps_r
     header = body.split('<div class="detail-header">')[1].split("</div>")[0]
     assert 'id="org-descriptor">Ethanol producer</span>' in header
     assert ">other<" not in header
-    assert "<dt>Type</dt><dd>other</dd>" in body  # the raw type stays in the fields table
+    assert "<dt>Type</dt><dd>Other</dd>" in body  # the stored type stays in the fields table, in words
     summary = body.split('id="org-summary">')[1].split("</p>")[0]
     assert summary == "Operates 1 ethanol plant"
     assert ">None<" not in body
@@ -1780,7 +1780,7 @@ def test_organization_detail_keeps_a_real_type_badge(web_client: TestClient) -> 
     body = web_client.get("/organizations/tallgrass-energy").text
 
     header = body.split('<div class="detail-header">')[1].split("</div>")[0]
-    assert 'id="org-descriptor"' not in header and ">pipeline operator<" in header
+    assert 'id="org-descriptor"' not in header and ">Pipeline operator<" in header
 
 
 def test_organization_detail_two_part_descriptor_counts_rows_without_asset_counts(
@@ -1893,20 +1893,25 @@ def test_asset_detail_proxy_relays_api_error_status(web_client: TestClient) -> N
 
 def test_map_script_enables_ethanol_and_rng_with_fuel_rows_and_unit_grouping() -> None:
     """No JS harness (see `test_map_js_reads_placement_from_url_and_writes_it_back`): the shipped
-    script lists both fuel types as live, carries the RNG family words, the fuel drawer rows and
+    script lists both fuel types as live, names RNG families from the server table, the fuel drawer rows and
     their detail enrichment, the tooltip family line, and the in-view unit grouping."""
     from pathlib import Path
 
     source = (Path(__file__).parent / "static" / "js" / "map.js").read_text()
     live = source.split("var ASSET_TYPES_LIVE = [")[1].split("]")[0]
     assert '"ethanol_plant"' in live and '"rng_project"' in live
-    for word in (
-        "Landfill gas to electricity",
-        "Landfill gas direct use",
-        "Renewable natural gas",
-        "Farm digester",
+    # The RNG family words come from the server's technology table (`#map-labels`), not a copy.
+    from web.labels import TECHNOLOGY_LABELS
+
+    for token, word in (
+        ("lfg_electricity", "Landfill gas to electricity"),
+        ("lfg_direct_use", "Landfill gas direct use"),
+        ("rng", "Renewable natural gas"),
+        ("farm_digester", "Farm digester"),
     ):
-        assert word in source, word
+        assert TECHNOLOGY_LABELS[token] == word
+        assert word not in source, word
+    assert "return technologyName(technology);" in source
     for label in (
         "Nameplate capacity",
         "Capacity as of",
@@ -1976,22 +1981,22 @@ def test_asset_detail_renders_nested_mapping_attributes_as_rows_not_reprs(web_cl
     # Never a Python repr of a dict or a list, never "None".
     assert "{'" not in body and "['" not in body and "{&#39;" not in body and "[&#39;" not in body
     assert ">None<" not in body and "None</" not in body
-    # The mapping keys render as humanised nested rows inside the value cell.
+    # The mapping keys render as labelled nested rows inside the value cell (web/labels.py).
     assert 'class="record-table__nested"' in table and 'class="attr-nested"' in table
-    assert "<dt>capacity value</dt><dd>us.eia.ethanol_capacity</dd>" in table
-    assert "<dt>atlas operator name</dt><dd>Absolute Energy, L.L.C.</dd>" in table
-    assert "<dt>d codes</dt><dd>D6, D3</dd>" in table
-    assert "<dt>pathway count</dt><dd>3</dd>" in table
-    assert "<dt>first registered year</dt><dd>2010</dd>" in table
-    assert "<dt>co processing</dt><dd>No</dd>" in table
-    # None and empty entries leave no row behind.
-    assert "dropped" not in table and "feature flags" not in table and "source url" not in table
+    # `sources` is the merge's field -> source-id bookkeeping; the Sources panel names the sources.
+    assert "us.eia.ethanol_capacity" not in table and "capacity value" not in table.lower()
+    assert "<dt>RIN D-codes</dt><dd>D6, D3</dd>" in table
+    assert "<dt>Approved pathways</dt><dd>3</dd>" in table
+    assert "<dt>First registered</dt><dd>2010</dd>" in table
+    assert "<dt>Co-processing</dt><dd>No</dd>" in table
+    # None and empty entries leave no row behind; internal keys never render.
+    assert "dropped" not in table and "eature flags" not in table and "ource url" not in table
     # A list of mappings is one nested block per item, each with Yes/No booleans.
     assert table.count('class="attr-nested__item"') == 2
-    assert "<dt>scheme</dt><dd>ISCC</dd>" in table and "<dt>current</dt><dd>Yes</dd>" in table
-    assert "<dt>scheme</dt><dd>RSB</dd>" in table and "<dt>current</dt><dd>No</dd>" in table
+    assert "<dt>Scheme</dt><dd>ISCC</dd>" in table and "<dt>Current</dt><dd>Yes</dd>" in table
+    assert "<dt>Scheme</dt><dd>RSB</dd>" in table and "<dt>Current</dt><dd>No</dd>" in table
     # The promoted ethanol keys still leave the generic table; the header row is unchanged.
-    assert "nameplate capacity mmgal yr" not in table and "as of year" not in table
+    assert "Nameplate capacity (MMgal/yr)" not in table and "As of year" not in table
     assert '<th scope="col">Attribute</th>' in table
 
 

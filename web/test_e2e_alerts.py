@@ -109,11 +109,11 @@ def test_register_save_list_pause_resume_delete(
 
         page.get_by_role("button", name="Pause Storage in US-TX").click()
         page.wait_for_url("**/alerts?done=paused")
-        assert "paused" in page.locator(".alert-card .chip").inner_text()
+        assert "Paused" in page.locator(".alert-card .chip").inner_text()  # chips print words
         _shot(page, f"{label}-04-alerts-paused")
         page.get_by_role("button", name="Resume Storage in US-TX").click()
         page.wait_for_url("**/alerts?done=resumed")
-        assert "active" in page.locator(".alert-card .chip").inner_text()
+        assert "Active" in page.locator(".alert-card .chip").inner_text()
 
         page.get_by_role("button", name="Delete Storage in US-TX").click()
         page.wait_for_url("**/alerts?done=deleted")

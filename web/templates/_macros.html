@@ -1,7 +1,7 @@
 {% macro status_chip(state, family, raw=None) -%}
 <span class="chip chip--{{ family }}">
   <svg class="chip__icon" aria-hidden="true" width="12" height="12"><use href="#icon-{{ family }}"></use></svg>
-  <span class="chip__label">{{ state | replace('_', ' ') }}</span>
+  <span class="chip__label">{{ state | lifecycle_label }}</span>
   {%- if raw and raw != state %}<span class="visually-hidden"> (source status: {{ raw }})</span>{% endif -%}
 </span>
 {%- endmacro %}
@@ -91,7 +91,7 @@
       <details class="provenance-panel__details">
         <summary>
           <span class="provenance-panel__name">{{ row.source_name }}</span>
-          <span class="provenance-panel__licence reuse-badge">{{ row.reuse_class }}</span>
+          <span class="provenance-panel__licence reuse-badge">{{ row.reuse_class | reuse_class_label }}</span>
           <span class="provenance-panel__date tnum">retrieved {{ row.retrieved_at[:10] if row.retrieved_at else 'unknown' }}</span>
         </summary>
         {% if row.attribution_text %}<p class="provenance-panel__credit">{{ row.attribution_text }}{% if row.licence_url %} &middot; <a href="{{ row.licence_url }}" rel="noopener nofollow">licence</a>{% endif %}</p>{% endif %}
@@ -116,15 +116,15 @@
    than field by named field the way field-grid does for the fixed proposal/opportunity shape. #}
 {#- One attribute value, of whatever shape the bag holds (2026-09-26, ethanol page screenshots:
    the `rfs` enrichment block and the `sources` map the asset_source merge writes had been
-   printed as a Python dict repr). A mapping renders as nested key/value rows, keys humanised
-   the same way as the top-level ones and None or empty entries skipped; a list of mappings as one nested
+   printed as a Python dict repr). A mapping renders as nested key/value rows, keys already
+   labelled like the top-level ones and None or empty entries skipped; a list of mappings as one nested
    block per item; a list of scalars joined; a boolean as Yes/No; anything else as its text.
    Never a repr, never "None". Recursive, so a block inside a block still renders as rows. -#}
 {% macro attribute_value(value) -%}
 {%- if value is mapping -%}
 <dl class="attr-nested">
 {%- for k, v in value.items() if v is not none and (v is string or v is not iterable or v | length) %}
-  <dt>{{ k | replace('_', ' ') }}</dt><dd>{{ attribute_value(v) }}</dd>
+  <dt>{{ k }}</dt><dd>{{ attribute_value(v) }}</dd>
 {%- endfor %}
 </dl>
 {%- elif value is iterable and value is not string -%}
@@ -145,11 +145,13 @@
 {%- endif -%}
 {%- endmacro %}
 
-{#- `omit`: attribute keys already promoted to a named field on the page (a pipeline's length,
-   diameter, class, states), so the bag does not repeat them. A None or empty value is skipped. A value
+{#- `attributes` arrives already labelled (web/labels.py `labelled_attributes`: reader words for every
+   key, internal matching keys dropped, promoted fields omitted); `omit` remains for a caller that
+   passes a raw bag. `notes` are the loaders' caveats in words (`data_notes`), shown under the table
+   in a disclosure so a missing figure is explained where it is missing. A None or empty value is skipped. A value
    cell holding a nested block drops the `num` right-alignment (a key/value grid reads left to
    right) and, at 400px, stacks under its data-label instead of sharing the row with it. -#}
-{% macro attributes_table(attributes, omit=[]) -%}
+{% macro attributes_table(attributes, omit=[], notes=[]) -%}
 {% set shown = [] %}
 {% for key, value in (attributes or {}).items() if key not in omit and value is not none and (value is string or value is not iterable or value | length) %}{% set _ = shown.append((key, value)) %}{% endfor %}
 {% if shown %}
@@ -160,13 +162,19 @@
   <tbody>
   {% for key, value in shown %}
   {%- set nested = value is mapping or (value is iterable and value is not string and (value | select('mapping') | list)) %}
-  <tr><td data-label="Attribute">{{ key | replace('_', ' ') }}</td><td data-label="Value" class="{% if nested %}record-table__nested{% else %}num tnum{% endif %}">{{ attribute_value(value) }}</td></tr>
+  <tr><td data-label="Attribute">{{ key }}</td><td data-label="Value" class="{% if nested %}record-table__nested{% else %}num tnum{% endif %}">{{ attribute_value(value) }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
 {% else %}
 <p class="provenance-panel__empty">No attributes recorded for this asset.</p>
+{% endif %}
+{% if notes %}
+<details class="attribute-notes">
+  <summary>Data notes ({{ notes | length }})</summary>
+  <ul>{% for note in notes %}<li>{{ note }}</li>{% endfor %}</ul>
+</details>
 {% endif %}
 {%- endmacro %}
 
@@ -193,7 +201,7 @@
     <span class="meta">
       {%- set parts = [] -%}
       {%- if r.distance_km is not none %}{% set _ = parts.append('%.1f km away'|format(r.distance_km)) %}{% endif -%}
-      {%- if r.technology %}{% set _ = parts.append(r.technology_label or r.technology) %}{% endif -%}
+      {%- if r.technology %}{% set _ = parts.append(r.technology_label or (r.technology | technology_label)) %}{% endif -%}
       {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
       {%- if r.capacity_mw %}{% set _ = parts.append('%.1f MW'|format(r.capacity_mw)) %}{% endif -%}
       {{ parts | join(' · ') }}

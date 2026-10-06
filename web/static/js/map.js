@@ -66,10 +66,7 @@
     solar: "SOL", wind: "WND", gas: "GAS", oil: "OIL", coal: "COL", nuclear: "NUC",
     hydro: "HYD", storage: "BES", biomass: "BIO", geothermal: "GEO", other: "OTH"
   };
-  var PLANT_FAMILY_NAME = {
-    solar: "Solar", wind: "Wind", gas: "Gas", oil: "Oil", coal: "Coal", nuclear: "Nuclear",
-    hydro: "Hydro", storage: "Storage", biomass: "Biomass / waste", geothermal: "Geothermal", other: "Other"
-  };
+  // Family names come from the server (`#map-labels` `plant_family`, web/labels.py), read below.
 
   // ---- existing-asset types (docs/00-PLAN.md 2026-09-19 owner decision, option (a)) ----
   // One row per `asset.asset_type` the map can draw (services/db/models.py ASSET_TYPES names).
@@ -100,13 +97,8 @@
   // as an operating one; a retiring plant is still in service and shows in both.
   var EXISTING_PLANT_STATUSES = ["operating", "standby", "retiring", "unknown"];
   var RETIRED_LAYER_STATUSES = ["retired", "retiring"];
-  // RNG technology families (us.epa.lmop: lfg_electricity | rng | lfg_direct_use; us.epa.agstar:
-  // farm_digester) -> the words the tooltip, drawer and in-view row show. Same table as
-  // web/app.py RNG_TECHNOLOGY_LABELS.
-  var RNG_TECH_LABEL = {
-    lfg_electricity: "Landfill gas to electricity", lfg_direct_use: "Landfill gas direct use",
-    rng: "Renewable natural gas", farm_digester: "Farm digester"
-  };
+  // RNG technology families (us.epa.lmop, us.epa.agstar) are named by the server's technology
+  // table (`#map-labels`, web/labels.py), like every other technology.
   var FUEL_ASSET_TYPES = ["ethanol_plant", "rng_project"];
   var CAPACITY_UNIT_LABEL = { "mmgal/yr": "MMgal/yr", mmscfd: "MMscf/d", "cu-ft/day": "cu ft/day" };
   var AGSTAR_HERD_KEYS = ["dairy", "swine", "cattle", "poultry"];
@@ -177,11 +169,20 @@
     return "Unit retirement scheduled " + year;
   }
 
-  function technologyName(tech) {
-    if (!tech) return null;
-    var names = SERVER_LABELS.technology || {};
-    return Object.prototype.hasOwnProperty.call(names, tech) ? names[tech] : tech;
+  // A token no server table names still reads as words, never as itself (web/labels.py `humanise`).
+  function humanise(token) {
+    var text = String(token).replace(/_/g, " ").trim();
+    return text.charAt(0).toUpperCase() + text.slice(1);
   }
+  function serverName(table, token) {
+    if (token == null || token === "") return null;
+    var names = SERVER_LABELS[table] || {};
+    return Object.prototype.hasOwnProperty.call(names, token) ? names[token] : humanise(token);
+  }
+  function technologyName(tech) { return serverName("technology", tech); }
+  var PLANT_FAMILY_NAME = SERVER_LABELS.plant_family || {};
+  function lifecycleName(state) { return serverName("lifecycle", state || "unknown"); }
+  function reuseClassName(cls) { return serverName("reuse_class", cls); }
 
   function techLabel(tech) {
     if (!tech) return "?";
@@ -269,7 +270,7 @@
   }
   function rngTechLabel(technology) {
     if (!technology) return null;
-    return RNG_TECH_LABEL[technology] || String(technology).replace(/_/g, " ");
+    return technologyName(technology);
   }
   function isFuelType(type) { return FUEL_ASSET_TYPES.indexOf(type) !== -1; }
   // The promoted rows for an ethanol plant or RNG project, `[label, value, numeric]`, from the
@@ -578,7 +579,7 @@
     return (
       '<span class="chip chip--' + esc(family) + '">' +
       '<svg class="chip__icon" aria-hidden="true" width="12" height="12"><use href="#icon-' + esc(family) + '"></use></svg>' +
-      '<span class="chip__label">' + esc((label || "unknown").replace(/_/g, " ")) + "</span></span>"
+      '<span class="chip__label">' + esc(lifecycleName(label)) + "</span></span>"
     );
   }
   // The asset's own page: a `slug` when the feature carries one, else the API's `url` (already
@@ -723,6 +724,7 @@
   var liveRegion = document.getElementById("map-live-region");
   var template = document.getElementById("in-view-item-template");
   var unplacedNote = document.getElementById("unplaced-note");
+  var linesNote = document.getElementById("lines-note");
   var plantsLegend = document.getElementById("plants-legend");
 
   // ADR 0008 region features: rebuilds the "regions" source from the region-kind features in the
@@ -756,10 +758,20 @@
     map.getSource("regions").setData({ type: "FeatureCollection", features: out });
   }
 
+  // Audit 2026-09-30 F3: a slow answer for an earlier viewport or filter set used to land after
+  // the current one and redraw the map, the list and the count for a view no longer on screen.
+  // Each request now carries a sequence number and only the newest is applied, as the assets and
+  // notice fetches already did; the superseded request is also aborted where the browser can.
+  var proposalsFetchSeq = 0;
+  var proposalsAbort = null;
   function refetch() {
-    fetch(geoUrl(filters, currentBbox(), currentZoom()))
+    var seq = ++proposalsFetchSeq;
+    if (proposalsAbort) proposalsAbort.abort();
+    proposalsAbort = typeof AbortController === "function" ? new AbortController() : null;
+    fetch(geoUrl(filters, currentBbox(), currentZoom()), proposalsAbort ? { signal: proposalsAbort.signal } : undefined)
       .then(function (r) { return r.json(); })
       .then(function (envelope) {
+        if (seq !== proposalsFetchSeq) return; // a newer request owns the view
         var fc = envelope.data;
         var pointFeatures = [];
         var regionFeatures = [];
@@ -778,6 +790,7 @@
         });
         latestCollection = fc;
         latestMeta = envelope.meta || {};
+        updateLifecycleLegend((fc.totals || {}).lifecycle_state_counts || {});
         latestRegionFeatures = regionFeatures;
         if (map.getSource("proposals")) {
           map.getSource("proposals").setData({ type: "FeatureCollection", features: pointFeatures });
@@ -884,12 +897,24 @@
         var features = [];
         var records = 0;
         var clustered = false;
+        var lineCount = 0;
+        var linesShown = 0;
         collections.forEach(function (fc) {
           (fc.features || []).forEach(function (f) { decorateAssetFeature(f); features.push(f); });
-          records += (fc.totals || {}).records || 0;
-          if ((fc.totals || {}).clustered) clustered = true;
+          var t = fc.totals || {};
+          records += t.records || 0;
+          if (t.clustered) clustered = true;
+          // `/v1/assets/geo` keeps only the longest LINE_FEATURE_CAP lines in a viewport and says
+          // so in `line_count` / `lines_shown` (services/api/assets.py); F4: say it on the page.
+          if (t.line_count != null) {
+            lineCount += Number(t.line_count) || 0;
+            linesShown += Number(t.lines_shown != null ? t.lines_shown : t.line_count) || 0;
+          }
         });
-        latestAssets = { type: "FeatureCollection", features: features, totals: { records: records, clustered: clustered } };
+        latestAssets = {
+          type: "FeatureCollection", features: features,
+          totals: { records: records, clustered: clustered, line_count: lineCount, lines_shown: linesShown }
+        };
         // `totals.records` from `/v1/assets/geo` is the dataset-wide total for the type filter --
         // it does not narrow to the bbox (measured 2026-09-19: 1536 for a viewport holding one
         // asset), unlike the proposals geo endpoint's. "In view" must mean in view, so the count
@@ -953,6 +978,38 @@
     return out;
   }
 
+  // Designer D-2: the status key lists only the families the filters can draw.
+  var lifecycleLegendItems = Array.prototype.slice.call(document.querySelectorAll("[data-legend-family]"));
+  function updateLifecycleLegend(counts) {
+    var present = {};
+    Object.keys(counts).forEach(function (state) { if (Number(counts[state]) > 0) present[familyOf(state)] = true; });
+    lifecycleLegendItems.forEach(function (item) { item.hidden = !present[item.getAttribute("data-legend-family")]; });
+  }
+  function plural(n, noun) { return fmtCount(n) + " " + noun + (n === 1 || /more$/.test(noun) ? "" : "s"); }
+  function fmtCount(n) { return Number(n || 0).toLocaleString("en-US"); }
+  // US state postal codes by FIPS prefix, so a county reads "Douglas County, GA" rather than
+  // "Douglas (county)": there are 30 Douglas counties (designer D-14).
+  var STATE_BY_FIPS = {
+    "01": "AL", "02": "AK", "04": "AZ", "05": "AR", "06": "CA", "08": "CO", "09": "CT", "10": "DE", "11": "DC",
+    "12": "FL", "13": "GA", "15": "HI", "16": "ID", "17": "IL", "18": "IN", "19": "IA", "20": "KS", "21": "KY",
+    "22": "LA", "23": "ME", "24": "MD", "25": "MA", "26": "MI", "27": "MN", "28": "MS", "29": "MO", "30": "MT",
+    "31": "NE", "32": "NV", "33": "NH", "34": "NJ", "35": "NM", "36": "NY", "37": "NC", "38": "ND", "39": "OH",
+    "40": "OK", "41": "OR", "42": "PA", "44": "RI", "45": "SC", "46": "SD", "47": "TN", "48": "TX", "49": "UT",
+    "50": "VT", "51": "VA", "53": "WA", "54": "WV", "55": "WI", "56": "WY", "72": "PR"
+  };
+  function regionName(p) {
+    var name = p.name || String(p.region_id || "Unnamed region");
+    var id = String(p.region_id || "");
+    if (p.region_level === "county" && /^\d{5}$/.test(id)) {
+      var st = STATE_BY_FIPS[id.slice(0, 2)];
+      var noun = st === "LA" ? "Parish" : st === "AK" ? "" : "County";
+      var already = /\b(County|Parish|Borough|Census Area|Municipality|city)$/i.test(name);
+      return name + (noun && !already ? " " + noun : "") + (st ? ", " + st : "");
+    }
+    if (p.region_level === "state") return name;
+    return name + " (" + humanise(p.region_level || "region").toLowerCase() + ")";
+  }
+
   function appendGroupName(text) {
     var li = document.createElement("li");
     li.className = "in-view-list__group-name";
@@ -997,6 +1054,13 @@
         var meta = (technologyName(p.technology) || "—") + " · " + (p.state_code || p.county_name || "—") +
           (g.capacity_mw ? " · " + g.capacity_mw.toFixed(1) + " MW" : "");
         node.querySelector(".meta").textContent = meta;
+        // D-13: the drawer (sources, licence) was reachable only by clicking a dot on the canvas.
+        // Every proposal row now has the same Details button the asset rows have.
+        var details = node.querySelector(".details-btn");
+        if (details) {
+          details.setAttribute("aria-label", "Details for " + (p.name || "this proposal"));
+          details.addEventListener("click", function () { openDrawer(p); });
+        }
         listEl.appendChild(node);
       });
     }
@@ -1010,7 +1074,7 @@
         var item = document.createElement("li");
         var a = document.createElement("a");
         a.href = regionListUrl(p);
-        a.textContent = (p.name || p.region_id) + " (" + String(p.region_level || "region") + ")";
+        a.textContent = regionName(p);
         item.appendChild(a);
         var meta = document.createElement("span");
         meta.className = "meta";
@@ -1112,15 +1176,47 @@
       });
     }
 
-    // Task item 2: "Live region adds 'N existing plants in view'" -- appended as a second
-    // sentence so the proposals count (the accessible path's primary content) is never dropped
-    // when the assets layer is on.
-    var liveText = (totals.records || 0) + " proposals in view.";
+    // What the live region says is what the view holds (audit 2026-09-30 F4). `totals.records`
+    // counts every proposal matching the filters anywhere, so it stays on the count line above
+    // ("match these filters"); "in view" is counted from the features drawn: a cluster stands
+    // for its `count`, a point for one, and region-placed proposals are named separately.
+    var proposalsInView = 0;
+    latestCollection.features.forEach(function (f) {
+      var kind = f.properties.feature_kind;
+      if (kind === "cluster") proposalsInView += Number(f.properties.count) || 0;
+      else if (kind === "proposal") proposalsInView += 1;
+    });
+    var regionPlaced = 0;
+    latestRegionFeatures.forEach(function (f) { regionPlaced += Number(f.properties.count) || 0; });
+    var liveText = plural(proposalsInView, "proposal") + " in view";
+    if (regionPlaced) liveText += ", and " + plural(regionPlaced, "more") + " placed by county or region";
+    liveText += ".";
+    var linesNoteText = "";
     if (plantsToggle.checked) {
-      var lines = latestAssets.features.filter(function (f) { return f.properties.feature_kind === "asset_line"; }).length;
-      liveText += " " + latestPlantsTotal + " existing assets in view" + (lines ? " (" + lines + " pipeline" + (lines === 1 ? "" : "s") + ")" : "") + ".";
+      var linesByType = {};
+      latestAssets.features.forEach(function (f) {
+        if (f.properties.feature_kind !== "asset_line") return;
+        var type = assetTypeOf(f.properties);
+        linesByType[type] = (linesByType[type] || 0) + 1;
+      });
+      // Each line type by its own name: a transmission line is not a pipeline.
+      var lineParts = Object.keys(linesByType).map(function (type) {
+        var n = linesByType[type];
+        return n + " " + (n === 1 ? ASSET_TYPES[type].label.toLowerCase() : ASSET_TYPES[type].plural);
+      });
+      liveText += " " + plural(latestPlantsTotal, "existing asset") + " in view" + (lineParts.length ? " (" + lineParts.join(", ") + ")" : "") + ".";
+      var lt = latestAssets.totals || {};
+      if (lt.line_count && lt.lines_shown != null && lt.lines_shown < lt.line_count) {
+        linesNoteText = "Showing the longest " + fmtCount(lt.lines_shown) + " of " + fmtCount(lt.line_count) +
+          " lines in this view; zoom in to see them all.";
+        liveText += " " + linesNoteText;
+      }
     }
-    if (retiredToggle.checked) liveText += " " + latestRetiredTotal + " retired or retiring plants in view.";
+    if (linesNote) {
+      linesNote.hidden = !linesNoteText;
+      linesNote.textContent = linesNoteText;
+    }
+    if (retiredToggle.checked) liveText += " " + plural(latestRetiredTotal, "retired or retiring plant") + " in view.";
     liveRegion.textContent = liveText;
 
     // ADR 0008: "none" grade (no usable location) is counted only in `totals.unplaced`, never
@@ -1251,6 +1347,55 @@
       ctx.fillRect(0, 0, size, size);
     }
     return ctx.getImageData(0, 0, size, size);
+  }
+
+  // The five family glyphs as canvas paths in the 12-unit box of base.html's `#icon-*` symbols.
+  function drawFamilyGlyph(ctx, family, scale, ox, oy, color) {
+    ctx.save();
+    ctx.translate(ox, oy);
+    ctx.scale(scale, scale);
+    ctx.strokeStyle = color; ctx.fillStyle = color;
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath();
+    if (family === "neutral") {
+      ctx.lineWidth = 1.8; ctx.arc(6, 6, 4.3, 0, Math.PI * 2); ctx.stroke();
+    } else if (family === "progress") {
+      ctx.lineWidth = 0.9; ctx.arc(6, 6, 4.3, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(6, 1.7); ctx.arc(6, 6, 4.3, -Math.PI / 2, Math.PI / 2); ctx.closePath(); ctx.fill();
+    } else if (family === "committed") {
+      ctx.fillRect(2.2, 2.2, 7.6, 7.6);
+    } else if (family === "success") {
+      ctx.lineWidth = 2; ctx.moveTo(2.2, 6.3); ctx.lineTo(4.6, 8.7); ctx.lineTo(9.8, 3.3); ctx.stroke();
+    } else {
+      ctx.lineWidth = 1.5; ctx.moveTo(6, 1.2); ctx.lineTo(10.9, 10.4); ctx.lineTo(1.1, 10.4); ctx.closePath(); ctx.stroke();
+      ctx.beginPath(); ctx.lineWidth = 1.4; ctx.moveTo(6, 4.6); ctx.lineTo(6, 7.1); ctx.stroke();
+      ctx.beginPath(); ctx.arc(6, 8.7, 0.75, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  function familyImage(size, paint) {
+    var ratio = 2;
+    var canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size * ratio;
+    var ctx = canvas.getContext("2d");
+    ctx.scale(ratio, ratio);
+    paint(ctx);
+    return { image: ctx.getImageData(0, 0, size * ratio, size * ratio), ratio: ratio };
+  }
+  function addFamilyImages() {
+    FAMILIES.forEach(function (family) {
+      var text = colors[family];
+      var fill = cssVar("--family-" + family + "-fill") || mapColors.land;
+      var marker = familyImage(20, function (ctx) {
+        ctx.beginPath(); ctx.arc(10, 10, 8.6, 0, Math.PI * 2);
+        ctx.fillStyle = fill; ctx.fill();
+        ctx.lineWidth = 1.6; ctx.strokeStyle = text; ctx.stroke();
+        drawFamilyGlyph(ctx, family, 1.0, 4, 4, text);
+      });
+      map.addImage("family-marker-" + family, marker.image, { pixelRatio: marker.ratio });
+      var glyph = familyImage(12, function (ctx) { drawFamilyGlyph(ctx, family, 1.0, 0, 0, text); });
+      map.addImage("family-glyph-" + family, glyph.image, { pixelRatio: glyph.ratio });
+    });
   }
 
   var ASSET_LAYER_IDS = [
@@ -1488,27 +1633,47 @@
     setPlantsLayerVisible(plantsToggle.checked);
     addRetiredLayers();
     setRetiredLayerVisible(retiredToggle.checked);
+    // Designer D-2 / docs/31 §5.1: lifecycle is carried by shape as well as hue, the same five
+    // glyphs the status chips and the legend use (`#icon-*` in base.html). A cluster shows its
+    // dominant family's glyph above the count; a point is a small chip: the family's pale fill,
+    // a family-coloured ring and the glyph (frontend F11: no white text on a pale dark-mode
+    // fill any more; every pair here is a chip pair, >= 6:1 in both themes).
+    addFamilyImages();
     map.addLayer({
       id: "cluster-count", type: "symbol", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "cluster"],
-      layout: { "text-field": ["get", "count"], "text-size": 12, "text-font": ["Noto Sans Medium"] },
+      layout: {
+        "text-field": ["get", "count"], "text-size": 12, "text-font": ["Noto Sans Medium"],
+        "text-anchor": "top", "text-offset": [0, -0.15],
+        "icon-image": ["concat", "family-glyph-", ["get", "family"]], "icon-anchor": "bottom", "icon-offset": [0, 1],
+        "icon-allow-overlap": true, "text-allow-overlap": true, "icon-ignore-placement": true
+      },
       paint: { "text-color": colorExpr }
     });
+    // Licence-limited precision (D-9) keeps its own mark: a second, wider ring round the chip.
     map.addLayer({
-      id: "points", type: "circle", source: "proposals",
-      filter: ["==", ["get", "feature_kind"], "proposal"],
-      paint: {
-        "circle-color": colorExpr,
-        "circle-radius": 7,
-        "circle-stroke-width": ["case", ["==", ["get", "precision_reason"], "licence"], 2, 1],
-        "circle-stroke-color": "#ffffff"
-      }
+      id: "points-precision", type: "circle", source: "proposals",
+      filter: ["all", ["==", ["get", "feature_kind"], "proposal"], ["==", ["get", "precision_reason"], "licence"]],
+      paint: { "circle-radius": 11, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 1, "circle-stroke-color": colorExpr }
     });
     map.addLayer({
-      id: "point-labels", type: "symbol", source: "proposals",
+      id: "points", type: "symbol", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "proposal"],
-      layout: { "text-field": ["get", "tech_label"], "text-size": 8, "text-font": ["Noto Sans Medium"] },
-      paint: { "text-color": "#ffffff" }
+      layout: {
+        "icon-image": ["concat", "family-marker-", ["get", "family"]],
+        "icon-allow-overlap": true, "icon-ignore-placement": true
+      }
+    });
+    // The technology badge reads once the dots are apart (z9+), beside the marker in body text
+    // colour on a land-coloured halo, never inside it.
+    map.addLayer({
+      id: "point-labels", type: "symbol", source: "proposals", minzoom: 9,
+      filter: ["==", ["get", "feature_kind"], "proposal"],
+      layout: {
+        "text-field": ["get", "tech_label"], "text-size": 9, "text-font": ["Noto Sans Medium"],
+        "text-anchor": "left", "text-offset": [0.9, 0], "text-optional": true
+      },
+      paint: { "text-color": cssVar("--text") || "#16324f", "text-halo-color": mapColors.land, "text-halo-width": 1.4 }
     });
 
     map.on("click", "clusters", function (e) {
@@ -1532,7 +1697,7 @@
     var f = e.features[0];
     var p = f.properties;
     var counts = propObj(p.lifecycle_state_counts) || {};
-    var lines = Object.keys(counts).sort().map(function (k) { return esc(k.replace(/_/g, " ")) + " " + Number(counts[k] || 0); });
+    var lines = Object.keys(counts).sort().map(function (k) { return esc(lifecycleName(k)) + " " + Number(counts[k] || 0); });
     hideTooltip();
     tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
       .setLngLat(f.geometry.coordinates)
@@ -1704,8 +1869,11 @@
     el.id = "map-drawer";
     el.className = "map-drawer";
     el.setAttribute("role", "dialog");
-    el.setAttribute("aria-modal", "true");
     el.setAttribute("aria-label", "Record detail");
+    // Closed, the drawer is out of the page entirely (audit 2026-09-30 F5): `hidden` takes it out
+    // of the tab order and the accessibility tree, and `aria-modal` is set only while it is open,
+    // so a screen reader never meets a modal dialog that is not on screen.
+    el.hidden = true;
     el.innerHTML = '<button type="button" id="drawer-close" class="map-drawer__close" aria-label="Close">&times; Close</button><div id="drawer-body"></div>';
     document.body.appendChild(el);
     var body = el.querySelector("#drawer-body");
@@ -1723,21 +1891,42 @@
     // Open/close duration comes from CSS (docs/31 §1.5 --motion-base/--motion-fast): adding
     // `is-open` transitions in at 200ms, removing it transitions out at 150ms (the base rule's own
     // duration) -- see the .map-drawer / .map-drawer.is-open rule in styles.css.
-    function open() { el.classList.add("is-open"); closeBtn.focus(); }
+    var hideTimer = null;
+    function open() {
+      window.clearTimeout(hideTimer);
+      el.hidden = false;
+      el.removeAttribute("inert");
+      el.setAttribute("aria-modal", "true");
+      void el.offsetWidth; // start the slide-in from the closed position, not from `hidden`
+      el.classList.add("is-open");
+      closeBtn.focus();
+    }
     function close() {
+      if (el.hidden) return;
       el.classList.remove("is-open");
-      if (lastFocused) lastFocused.focus();
+      el.removeAttribute("aria-modal");
+      // Inert at once (nothing in it can take focus while it slides out), hidden once the 150ms
+      // close transition has run; instant under reduced motion.
+      el.setAttribute("inert", "");
+      hideTimer = window.setTimeout(function () { el.hidden = true; }, motionMs(160));
+      if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
+      else map.getCanvas().focus();
     }
     function row(label, valueHtml, numeric) {
       if (valueHtml == null || valueHtml === "") return "";
       return "<div class=\"drawer-fields__row\"><dt>" + esc(label) + "</dt><dd" + (numeric ? " class=\"tnum\"" : "") + ">" + valueHtml + "</dd></div>";
     }
+    // D-13 / docs/31 §5.8: the drawer's source line names the licence class beside the source,
+    // as the record page's Sources panel does: "EIA-860M · Open licence · retrieved 2026-09-27".
     function sourceHtml(source) {
       if (!source) return "";
+      var licence = reuseClassName(source.reuse_class);
       return "<p class=\"drawer-source\"><span class=\"drawer-source__label\">Source</span>" +
-        "<a href=\"" + safeUrl(source.source_url) + "\" rel=\"noopener nofollow\">" + esc(source.source_name) + "</a>, retrieved " +
-        "<span class=\"tnum\">" + esc(source.retrieved_at ? String(source.retrieved_at).slice(0, 10) : "unknown") + "</span>" +
-        (source.licence_name ? " &middot; " + esc(source.licence_name) : "") + "</p>";
+        "<a href=\"" + safeUrl(source.source_url) + "\" rel=\"noopener nofollow\">" + esc(source.source_name) + "</a>" +
+        (licence ? " &middot; <span class=\"drawer-source__licence\">" + esc(licence) + "</span>" : "") +
+        (source.licence_name ? " &middot; " + esc(source.licence_name) : "") +
+        " &middot; retrieved <span class=\"tnum\">" + esc(source.retrieved_at ? String(source.retrieved_at).slice(0, 10) : "unknown") + "</span>" +
+        (source.attribution_text ? "<br><span class=\"drawer-source__credit\">" + esc(source.attribution_text) + "</span>" : "") + "</p>";
     }
     function render(p, source) {
       body.innerHTML =
@@ -1759,7 +1948,7 @@
       var isLine = p.feature_kind === "asset_line";
       var techs = propObj(p.technologies) || {};
       var techRows = Object.keys(techs).sort().map(function (k) {
-        return row(k.replace(/_/g, " "), Number(techs[k]).toFixed(1) + " MW", true);
+        return row(technologyName(k), Number(techs[k]).toFixed(1) + " MW", true);
       }).join("");
       var source = propObj(p.source);
       var commissionedYear = p.commissioned_year || p.earliest_operating_year;
@@ -1778,7 +1967,7 @@
       // technology / capacity / first-year rows, as on the asset page.
       var typeRows = fuel
         ? fuelRows(p).map(function (r) { return row(r[0], esc(r[1]), r[2]); }).join("")
-        : (type === "power_plant" ? (techRows || row("Technology", p.technology ? esc(p.technology) : null)) : row("Technology", p.technology ? esc(p.technology) : null)) +
+        : (type === "power_plant" ? (techRows || row("Technology", p.technology ? esc(technologyName(p.technology)) : null)) : row("Technology", p.technology ? esc(technologyName(p.technology)) : null)) +
           row("Capacity", p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : null, true) +
           row("Length", miles != null && fmtNumber(miles, 0) ? fmtNumber(miles, 0) + " miles" : null, true) +
           row("Diameter", diameter != null ? esc(typeof diameter === "number" ? fmtNumber(diameter, 1) + " in" : String(diameter)) : null, true) +

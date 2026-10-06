@@ -1028,6 +1028,12 @@ def create_report(request: Request, body: dict[str, Any], db: Annotated[Session,
     instance = request.url.path
     _enforce_intake_rate_limit(request, instance)
     _reject_honeypot(body, instance)
+    # Same Turnstile rule as intake when verification is on (TURNSTILE_SECRET_KEY set): the token is
+    # required and verified, failing closed. With it off the token stays optional, as the spec says.
+    if captcha.enabled():
+        if not body.get("captcha_token"):
+            raise validation_error("captcha_token", "captcha_token is required", instance)
+        _verify_captcha(request, body, instance)
 
     public_id_value = _require_field(body, "public_id", instance)
     issue_type = body.get("issue_type")

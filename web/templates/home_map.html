@@ -4,6 +4,9 @@
 {% block extra_head %}
 <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
 {% endblock %}
+{#- D-13 / docs/30 D-14: the in-view list is the map's keyboard and screen-reader equivalent, so a
+    second skip link goes straight to it past the filters and the canvas. -#}
+{% block skip_links %}<a class="skip-link" href="#in-view-list">Skip to results in view</a>{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>Map</h1>
@@ -72,32 +75,22 @@
     <label for="mf-plant-technology">Plant type</label>
     <select id="mf-plant-technology" name="plant_technology">
       <option value="">All types</option>
-      <option value="solar">Solar</option>
-      <option value="wind">Wind</option>
-      <option value="gas">Gas</option>
-      <option value="oil">Oil</option>
-      <option value="coal">Coal</option>
-      <option value="nuclear">Nuclear</option>
-      <option value="hydro">Hydro</option>
-      <option value="storage">Storage</option>
-      <option value="biomass">Biomass / waste</option>
-      <option value="geothermal">Geothermal</option>
-      <option value="other">Other</option>
+      {% for value, label in plant_families %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
     </select>
   </div>
   <fieldset class="filter-field filter-field--placement">
-    <legend>Placement</legend>
+    <legend>Show proposals located</legend>
     <label for="mf-placement-exact">
       <input id="mf-placement-exact" type="checkbox" name="placement_exact" value="1" checked>
-      Exact
+      At a site
     </label>
     <label for="mf-placement-region">
       <input id="mf-placement-region" type="checkbox" name="placement_region" value="1" checked>
-      Region
+      By county or state
     </label>
     <label for="mf-placement-none">
       <input id="mf-placement-none" type="checkbox" name="placement_none" value="1">
-      None
+      Count those with no location
     </label>
   </fieldset>
   <button class="filter-bar__submit" type="button" id="mf-clear">Clear all</button>
@@ -122,12 +115,18 @@
     </div>
     {% endif %}
     <div id="map" role="application" aria-label="Map of proposal locations. Use the in-view list for a keyboard- and screen-reader-accessible equivalent." data-tile-url="{{ tile_url or '' }}" data-tile-mode="{{ tile_mode }}"></div>
-    <div class="legend" aria-hidden="true">
-      <span class="legend__item" style="color:var(--family-neutral-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-neutral"></use></svg> Neutral</span>
-      <span class="legend__item" style="color:var(--family-progress-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-progress"></use></svg> Progress</span>
-      <span class="legend__item" style="color:var(--family-committed-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-committed"></use></svg> Committed</span>
-      <span class="legend__item" style="color:var(--family-success-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-success"></use></svg> Success</span>
-      <span class="legend__item" style="color:var(--family-danger-text)"><svg class="legend__icon" width="12" height="12"><use href="#icon-danger"></use></svg> Danger</span>
+    {#- Designer D-2: the legend names only marks the map draws -- each proposal and each cluster
+        carries its family's glyph (map.js `addFamilyImages`), the same glyph as the status chips --
+        in reader words for the states in each family, and it is no longer hidden from assistive
+        technology. map.js hides a row whose family has no proposal under the current filters. -#}
+    <div class="legend legend--lifecycle" id="lifecycle-legend" role="group" aria-label="Proposal status key">
+      <span class="legend__group-name">Proposal status</span>
+      <span class="legend__item" data-legend-family="neutral" style="color:var(--family-neutral-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-neutral"></use></svg> Announced, or status unknown</span>
+      <span class="legend__item" data-legend-family="progress" style="color:var(--family-progress-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-progress"></use></svg> In process: filed, studied, permitted, under construction</span>
+      <span class="legend__item" data-legend-family="committed" style="color:var(--family-committed-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-committed"></use></svg> Contracted</span>
+      <span class="legend__item" data-legend-family="success" style="color:var(--family-success-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-success"></use></svg> Built</span>
+      <span class="legend__item" data-legend-family="danger" style="color:var(--family-danger-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-danger"></use></svg> Withdrawn or cancelled</span>
+      <span class="legend__note">A ring with a number is a cluster, showing its most common status.</span>
     </div>
     {# One legend group per existing-asset type; map.js hides the groups whose type is not
        checked, so the legend only ever names what is drawn (docs/31 §1.6). Shape + label carry
@@ -135,17 +134,7 @@
     <div class="legend legend--plants legend--assets" id="plants-legend" aria-hidden="true" hidden>
       <div class="legend__group" data-legend-type="power_plant">
         <span class="legend__group-name">Power plants</span>
-        <span class="legend__item" style="color:var(--plant-solar)">&#9632; Solar</span>
-        <span class="legend__item" style="color:var(--plant-wind)">&#9632; Wind</span>
-        <span class="legend__item" style="color:var(--plant-gas)">&#9632; Gas</span>
-        <span class="legend__item" style="color:var(--plant-oil)">&#9632; Oil</span>
-        <span class="legend__item" style="color:var(--plant-coal)">&#9632; Coal</span>
-        <span class="legend__item" style="color:var(--plant-nuclear)">&#9632; Nuclear</span>
-        <span class="legend__item" style="color:var(--plant-hydro)">&#9632; Hydro</span>
-        <span class="legend__item" style="color:var(--plant-storage)">&#9632; Storage</span>
-        <span class="legend__item" style="color:var(--plant-biomass)">&#9632; Biomass / waste</span>
-        <span class="legend__item" style="color:var(--plant-geothermal)">&#9632; Geothermal</span>
-        <span class="legend__item" style="color:var(--plant-other)">&#9632; Other</span>
+        {% for value, label in plant_families %}<span class="legend__item" style="color:var(--plant-{{ value }})">&#9632; {{ label }}</span>{% endfor %}
       </div>
       <div class="legend__group" data-legend-type="gas_pipeline" style="color:var(--asset-gas-pipeline)">
         <span class="legend__group-name">Gas pipelines</span>
@@ -190,6 +179,7 @@
     <h2>In view</h2>
     <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
     <ul class="in-view-list" id="in-view-items"></ul>
+    <p id="lines-note" class="in-view-list__unplaced" hidden></p>
     <p id="unplaced-note" class="in-view-list__unplaced" hidden></p>
   </aside>
 </div>
@@ -201,6 +191,7 @@
   <li>
     <span class="chip-slot"></span>
     <a href="#" class="name-link"></a>
+    <button type="button" class="details-btn">Details</button>
     <span class="meta"></span>
   </li>
 </template>

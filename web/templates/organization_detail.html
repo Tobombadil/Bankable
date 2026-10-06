@@ -3,7 +3,7 @@
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
 {#- `descriptor` before the raw type: an organisation whose stored `type` is `other` would
     otherwise describe itself to a search engine as "Tallgrass Energy: other". -#}
-{% block meta_description %}{{ record.name }}{% if descriptor %}: {{ descriptor | lower }}{% elif record.type and record.type != 'other' %}: {{ record.type | replace('_', ' ') }}{% endif %}{% if summary_parts %}. {{ summary_parts | join('; ') }}{% endif %}{% if record.jurisdiction %} ({{ record.jurisdiction }}){% endif %}.{% endblock %}
+{% block meta_description %}{{ record.name }}{% if descriptor %}: {{ descriptor | lower }}{% elif record.type and record.type != 'other' %}: {{ record.type | organization_type_label | lower }}{% endif %}{% if summary_parts %}. {{ summary_parts | join('; ') }}{% endif %}{% if record.jurisdiction %} ({{ record.jurisdiction }}){% endif %}.{% endblock %}
 {% block extra_head %}
 {% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
 {% endblock %}
@@ -17,14 +17,14 @@
   {# `descriptor` (web/app.py::org_descriptor) replaces a meaningless "other" with what the
      organisation holds -- "Ethanol producer", "Gas pipeline operator and Power plant owner"; the
      raw type stays in the fields table below. #}
-  {% if descriptor %}<span class="reuse-badge" id="org-descriptor">{{ descriptor }}</span>{% elif record.type %}<span class="reuse-badge">{{ record.type | replace('_', ' ') }}</span>{% endif %}
+  {% if descriptor %}<span class="reuse-badge" id="org-descriptor">{{ descriptor }}</span>{% elif record.type %}<span class="reuse-badge">{{ record.type | organization_type_label }}</span>{% endif %}
 </div>
 {# "Operates 3 gas pipelines · Owns 12 power plants": one clause per (role, type) group, from the
    API's `asset_counts` where it sends them, else counted over the rows on this page. #}
 {% if summary_parts %}<p class="org-summary" id="org-summary">{{ summary_parts | join(' · ') }}</p>{% endif %}
 
 <dl class="field-grid">
-  {% if record.type %}<div><dt>Type</dt><dd>{{ record.type | replace('_', ' ') }}</dd></div>{% endif %}
+  {% if record.type %}<div><dt>Type</dt><dd>{{ record.type | organization_type_label }}</dd></div>{% endif %}
   {% if record.country %}<div><dt>Country</dt><dd>{{ record.country }}</dd></div>{% endif %}
   {% if record.jurisdiction %}<div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction }}</dd></div>{% endif %}
   {% if record.website %}<div><dt>Website</dt><dd><a href="{{ record.website }}" rel="noopener">{{ record.website }}</a></dd></div>{% endif %}
@@ -94,7 +94,7 @@
   {% if record.descendant_count and record.descendant_count > record.subsidiary_count %}<p class="attribution-line" id="descendant-count">Direct subsidiaries. {{ record.descendant_count }} companies sit below this one in total, across {{ group_view.depth if group_view else 0 }} levels.</p>{% endif %}
   <ul class="org-links">
     {% for s in subsidiaries %}
-    <li><a class="row-link" href="/organizations/{{ s.slug or s.public_id }}">{{ s.name or s.public_id }}</a>{% if s.type %} <span class="reuse-badge">{{ s.type | replace('_', ' ') }}</span>{% endif %}</li>
+    <li><a class="row-link" href="/organizations/{{ s.slug or s.public_id }}">{{ s.name or s.public_id }}</a>{% if s.type %} <span class="reuse-badge">{{ s.type | organization_type_label }}</span>{% endif %}</li>
     {% endfor %}
   </ul>
 </section>
@@ -138,7 +138,7 @@
 
 <section aria-label="Nearby proposals" id="nearby">
   {{ m.section_heading("2.", "Proposals near these assets") }}
-  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of any asset this organisation owns or operates, nearest first, each with the asset it is closest to (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
+  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of any asset this organisation owns or operates, nearest first, each with the asset it is closest to. Only proposals with a site location are matched to assets; those placed only by county or state are not.</p>
   {# The narrowing is stated before the list, in body text, with both numbers and the reason, and
      undone by the link beside it. A shortened list with no explanation reads as thin coverage --
      the one outcome worse than no filter at all (owner brief, 2026-09-20). #}
@@ -160,7 +160,7 @@
       <select id="f-nearby-technology" name="{{ nearby_param }}">
         {% if nearby_filter.default_available %}<option value="" {% if nearby_filter.mode == 'default' %}selected{% endif %}>Relevant to this company</option>{% endif %}
         <option value="all" {% if nearby_filter.mode in ('off', 'none') %}selected{% endif %}>All technologies</option>
-        {% for t in nearby_technologies %}<option value="{{ t }}" {% if nearby_filter.selected == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        {% for t in nearby_technologies %}<option value="{{ t }}" {% if nearby_filter.selected == t %}selected{% endif %}>{{ t | technology_label }}</option>{% endfor %}
       </select>
     </div>
     <button class="filter-bar__submit" type="submit">Apply</button>
@@ -183,7 +183,7 @@
     <li>{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
       <span class="meta">
         {%- set parts = [] -%}
-        {%- if r.technology %}{% set _ = parts.append(r.technology) %}{% endif -%}
+        {%- if r.technology %}{% set _ = parts.append(r.technology | technology_label) %}{% endif -%}
         {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
         {%- if r.capacity_mw %}{% set _ = parts.append('%.1f MW'|format(r.capacity_mw)) %}{% endif -%}
         {%- if group_view and group_view.is_group and r.sponsor %}{% set _ = parts.append(r.sponsor) %}{% endif -%}

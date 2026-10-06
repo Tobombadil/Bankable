@@ -133,7 +133,7 @@ services/api/__init__.py                                                        
 services/api/admin_audit_routes.py                                                        36      0      2      0   100%
 services/api/admin_intake.py                                                             287     34     70     15    85%
 services/api/admin_people.py                                                             430     20    168     21    93%
-services/api/admin_posts.py                                                              486      0    180      1    99%
+services/api/admin_posts.py                                                              490      0    184      1    99%
 services/api/admin_records.py                                                            610     22    250     26    94%
 services/api/admin_sources.py                                                            540     17    198      8    97%
 services/api/alert_plan.py                                                                56      0      8      0   100%
@@ -324,4 +324,4 @@ services/test_posture.py                                                        
 services/visibility_audit/__init__.py                                                      0      0      0      0   100%
 services/visibility_audit/run.py                                                         885     61    372     55    90%
 ------------------------------------------------------------------------------------------------------------------------
-TOTAL                                                                                  42308   2968   9322   1065    91%
+TOTAL                                                                                  42312   2968   9326   1065    91%
