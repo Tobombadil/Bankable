@@ -22,6 +22,9 @@ What it pins:
   (`UniqueViolation event_seq_key` before), and migration 0027's sequence repair.
 - A handful of list endpoints return the same body on both backends, and every timestamp in them
   carries an offset on both.
+- Watermark readers (webhook enqueue, saved-search alerts, social drafts, `/v1/events?since=`) do
+  not pass a seq an open transaction commits after a higher one (backend audit F5, 2026-10-06), and
+  migration 0032's horizon trigger is installed with the reader's constants.
 
 Known differences, documented rather than asserted equal:
 - Coordinates: a point bound to PostGIS is written as 7-decimal EWKT (`services/db/types.py::
@@ -60,6 +63,7 @@ from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
 from services.db.base import Base
 from services.db.models import (
+    Account,
     Asset,
     AssetOwner,
     Event,
@@ -70,7 +74,10 @@ from services.db.models import (
     Organization,
     Proposal,
     ProposalSource,
+    SavedSearch,
     Source,
+    WebhookDelivery,
+    WebhookEndpoint,
 )
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id
@@ -842,3 +849,215 @@ def test_migration_0027_on_an_empty_event_table_starts_at_one(
         s.add(e)
         s.commit()
         assert e.seq == 1
+
+
+# ------------------------------------------- F5: watermark readers and a seq that commits late
+HORIZON_PROPOSAL = 7000
+
+
+def _horizon_world(maker: sessionmaker[Session]) -> dict[str, Any]:
+    """A visible proposal with one committed event, an API-tier webhook endpoint and a saved search
+    over events, both at watermark 0."""
+    from tests.conftest import make_account, make_user
+
+    with maker() as s:
+        src = _source(s, _licence(s))
+        s.flush()
+        _proposal(s, src, HORIZON_PROPOSAL, geom=(-97.7, 30.3), sponsor=None)
+        account = make_account(s, entitlement="api")
+        user = make_user(s, account)
+        endpoint = WebhookEndpoint(
+            public_id=f"whe_horizon_{uuid.uuid4().hex[:8]}",
+            account_id=account.id,
+            created_by_user_id=user.id,
+            url="https://example.com/hook",
+            types=["event.published"],
+            entity="event",
+            query={},
+            secret="s",
+            watermark_seq=0,
+        )
+        search = SavedSearch(
+            public_id=f"ss_horizon_{uuid.uuid4().hex[:8]}",
+            user_id=user.id,
+            account_id=account.id,
+            name="every event",
+            entity="event",
+            query={},
+            query_hash="0" * 64,
+            delivery_mode="immediate",
+            channels=["email"],
+            watermark_seq=0,
+        )
+        s.add_all([endpoint, search])
+        s.commit()
+        return {"source": src.id, "licence": src.licence_id, "endpoint": endpoint.id, "search": search.id}
+
+
+def _visible_event(world: dict[str, Any], key: str) -> Event:
+    return Event(
+        subject_type="proposal",
+        subject_id=_uid(HORIZON_PROPOSAL),
+        event_type="status_change",
+        observed_at=FIXED,
+        source_id=world["source"],
+        source_url="https://example.org/queue",
+        retrieved_at=FIXED,
+        licence_id=world["licence"],
+        before={"lifecycle_state": "filed"},
+        after={"lifecycle_state": "studied"},
+        changed_keys=["lifecycle_state"],
+        public_at=FIXED,
+        published_at=FIXED,
+        idempotency_key=f"pg-horizon:{key}",
+    )
+
+
+def _read_watermarks(maker: sessionmaker[Session], world: dict[str, Any]) -> dict[str, Any]:
+    """Runs every seq-watermark reader once (webhook enqueue, saved-search alerts, social drafts)."""
+    from services.alerts.evaluate import evaluate_saved_search
+    from services.alerts.webhooks import enqueue_new_deliveries
+    from services.social.worker import draft_posts_tick
+
+    with maker() as s:
+        enqueue_new_deliveries(s)
+        search = s.get(SavedSearch, world["search"])
+        assert search is not None
+        account = s.get(Account, search.account_id)
+        assert account is not None
+        alerted = [item.event_seq for item in evaluate_saved_search(s, search, account)]
+        s.commit()
+        endpoint = s.get(WebhookEndpoint, world["endpoint"])
+        assert endpoint is not None
+        state: dict[str, Any] = {
+            "webhook": endpoint.watermark_seq,
+            "delivered": sorted(s.scalars(sa.select(WebhookDelivery.event_seq)).all()),
+            "alert": search.watermark_seq,
+            "alerted": alerted,
+        }
+    state["social"] = draft_posts_tick(maker).watermark_seq
+    return state
+
+
+def _event_seqs_since(maker: sessionmaker[Session], since: int) -> list[int]:
+    with _client(maker) as client:
+        body = _get(client, f"/v1/events?since={since}&sort=seq&limit=50")
+    return [row["seq"] for row in body["data"]]
+
+
+def test_watermark_readers_do_not_skip_an_event_that_commits_after_a_higher_seq(
+    pg: sessionmaker[Session],
+) -> None:
+    """Transaction A takes a seq, B takes the next one and commits, and the readers run while A is
+    still open. Before 2026-10-06 every reader moved to B's seq, and A's event, committed a moment
+    later, was never delivered, alerted, drafted or listed after `since`."""
+    world = _horizon_world(pg)
+    first = _read_watermarks(pg, world)
+    history = first["webhook"]
+    assert history == first["alert"] == first["social"] >= 1
+
+    writer_a = pg()
+    try:
+        late = _visible_event(world, "a")
+        writer_a.add(late)
+        writer_a.flush()  # A holds `late.seq`, uncommitted
+        with pg() as writer_b:
+            early = _visible_event(world, "b")
+            writer_b.add(early)
+            writer_b.commit()
+            early_seq = early.seq
+        assert early_seq > late.seq
+
+        during = _read_watermarks(pg, world)
+        assert during["webhook"] < late.seq, during
+        assert during["alert"] < late.seq, during
+        assert during["social"] < late.seq, during
+        assert early_seq not in during["delivered"]
+        assert _event_seqs_since(pg, history) == []
+        writer_a.commit()
+        late_seq = late.seq
+    finally:
+        writer_a.close()
+
+    after = _read_watermarks(pg, world)
+    assert {late_seq, early_seq} <= set(after["delivered"])
+    assert sorted(after["delivered"]) == sorted(set(after["delivered"]))  # each event once
+    assert after["alerted"] == [late_seq, early_seq]
+    assert after["webhook"] == after["alert"] == after["social"] == early_seq
+    assert _event_seqs_since(pg, history) == [late_seq, early_seq]
+
+
+def test_stable_event_seq_tracks_open_writers_and_savepoints(
+    pg: sessionmaker[Session], pg_engine: sa.Engine
+) -> None:
+    from services.db.event_horizon import stable_event_seq
+
+    with pg() as s:
+        for i in range(3):
+            s.add(_event(i, f"pg-horizon-history-{i}"))
+        s.commit()
+    with pg() as reader:
+        assert stable_event_seq(reader) == 3
+
+    a = pg()
+    try:
+        a.add(_event(10, "pg-horizon-open"))
+        a.flush()
+        with pg() as b:
+            b.add(_event(11, "pg-horizon-other"))
+            b.commit()
+        with pg() as reader:
+            assert stable_event_seq(reader) == 3  # A advertised 3 before it took 4
+        # A savepoint that rolls back drops the advertisement with its rows; the next insert
+        # advertises again, from the sequence's current value.
+        nested = a.begin_nested()
+        a.add(_event(12, "pg-horizon-nested"))
+        a.flush()
+        nested.rollback()
+        with pg() as reader:
+            assert stable_event_seq(reader) == 3
+        a.commit()
+    finally:
+        a.close()
+    with pg() as reader:
+        assert stable_event_seq(reader) == 6  # 4 (A), 5 (B), 6 (rolled back, a gap)
+
+    c = pg()
+    try:
+        nested = c.begin_nested()
+        c.add(_event(20, "pg-horizon-nested-only"))
+        c.flush()
+        nested.rollback()  # the only insert rolled back: lock and flag go together
+        with pg() as reader:
+            assert stable_event_seq(reader) == 7
+        c.add(_event(21, "pg-horizon-after-nested"))
+        c.flush()  # takes 8, advertised as 7
+        with pg() as reader:
+            assert stable_event_seq(reader) == 7
+        c.rollback()
+    finally:
+        c.close()
+
+
+def test_event_horizon_trigger_is_installed_with_the_reader_constants(pg_engine: sa.Engine) -> None:
+    from services.db import event_horizon
+
+    migration_path = MIGRATIONS_DIR / "versions" / "0032_event_horizon_load_marker_subscription_order.py"
+    spec = importlib.util.spec_from_file_location("migration_0032", migration_path)
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert (migration.LOCK_NAMESPACE, migration.SEQ_BITS) == (
+        event_horizon.LOCK_NAMESPACE,
+        event_horizon.SEQ_BITS,
+    )
+    assert migration.EXPECTED_SEQUENCE == f"public.{event_horizon.SEQUENCE}"
+    with pg_engine.connect() as conn:
+        trigger = conn.execute(
+            sa.text("SELECT tgtype FROM pg_trigger WHERE tgname = 'event_seq_horizon' AND NOT tgisinternal")
+        ).scalar()
+        cache = conn.execute(
+            sa.text("SELECT seqcache FROM pg_sequence WHERE seqrelid = 'public.event_seq_seq'::regclass")
+        ).scalar()
+    assert trigger is not None  # BEFORE, statement-level, INSERT
+    assert cache == 1

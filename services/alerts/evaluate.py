@@ -67,6 +67,7 @@ from services.alerts.suppression import is_suppressed
 from services.alerts.visibility import event_with_visible_subject_filter
 from services.api.common import WEB_HOST
 from services.api.visibility import gated_opportunity, gated_proposal
+from services.db.event_horizon import stable_event_seq
 from services.db.models import Account, Alert, Event, Opportunity, Proposal, SavedSearch, User
 from services.ids import public_id
 from services.social.textgate import reject_bare_none
@@ -200,22 +201,28 @@ def _attribution(event: Event) -> str | None:
     return event.source.attribution_text or event.source.licence.attribution_text
 
 
-def _new_events_for_search(db: Session, search: SavedSearch, account: Account) -> list[Event]:
+def _new_events_for_search(db: Session, search: SavedSearch, account: Account, head: int) -> list[Event]:
     subject_type = {"proposal": "proposal", "opportunity": "opportunity"}.get(search.entity)
     stmt = select(Event).where(
-        Event.seq > search.watermark_seq, *event_with_visible_subject_filter(account.entitlement)
+        Event.seq > search.watermark_seq,
+        Event.seq <= head,
+        *event_with_visible_subject_filter(account.entitlement),
     )
     if subject_type is not None:
         stmt = stmt.where(Event.subject_type == subject_type)
     return list(db.scalars(stmt.order_by(Event.seq.asc())).all())
 
 
-def evaluate_saved_search(db: Session, search: SavedSearch, account: Account) -> list[MatchedItem]:
+def evaluate_saved_search(
+    db: Session, search: SavedSearch, account: Account, *, head: int | None = None
+) -> list[MatchedItem]:
     """Matches new events since `search.watermark_seq` and advances the watermark to the highest
     `seq` considered — whether or not it matched, so a non-matching flood of events is never
     rescanned (mirrors `docs/21` §3.10's `idempotency_key` "makes re-runs free" spirit for this
-    job)."""
-    events = _new_events_for_search(db, search, account)
+    job). Only events at or below `head` are considered: `stable_event_seq`, below every seq an
+    open transaction may still commit, so a late-committing event is never passed (backend audit
+    2026-09-30 F5; `services/db/event_horizon.py`). A cycle computes it once for every search."""
+    events = _new_events_for_search(db, search, account, stable_event_seq(db) if head is None else head)
     matched: list[MatchedItem] = []
     highest_seq = search.watermark_seq
     seen_subjects: set[_uuid.UUID] = set()
@@ -324,6 +331,8 @@ def run_alert_cycle(db: Session, *, email_port: Any, now: dt.datetime | None = N
     # watermark moves — the next cycle picks the same events up once the environment is fixed.
     identity = sender_identity(strict=strict_for(email_port))
     created: list[Alert] = []
+    # One bound for the cycle, read before any search reads events (`services/db/event_horizon.py`).
+    head = stable_event_seq(db)
     searches = list(db.scalars(select(SavedSearch).where(SavedSearch.status == "active")).all())
     for search in searches:
         account = db.get(Account, search.account_id)
@@ -333,7 +342,7 @@ def run_alert_cycle(db: Session, *, email_port: Any, now: dt.datetime | None = N
         if not is_due(search, now):
             continue
         window_start = search.last_run_at or (now - dt.timedelta(days=1))
-        items = evaluate_saved_search(db, search, account)
+        items = evaluate_saved_search(db, search, account, head=head)
         search.last_run_at = now
         search.last_match_count = len(items)
         if not items:

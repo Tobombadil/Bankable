@@ -50,10 +50,15 @@ read `GET /v1/account` or the dashboard for the true current default.
   named in the page's table, and none of these three is named there.
 - Webhook delivery retries (`stripe-webhooks.html`, quoted): "Stripe attempts to deliver events to
   your destination for up to three days with an exponential back off in live mode... We retry
-  event deliveries created in a sandbox three times over the course of a few hours." This is why
-  `services/billing/router.py`'s webhook handler never answers a per-change failure with a 5xx —
-  Stripe's own retry loop would just resend the same delivery for up to three days over a problem
-  a retry cannot fix (a downstream lookup failure already logged and counted).
+  event deliveries created in a sandbox three times over the course of a few hours." Since
+  2026-10-06 (backend audit 2026-09-30 F4) `services/billing/router.py` relies on that loop: a
+  change that fails to store rolls back the whole delivery and answers `503 unavailable`, and a
+  provider outage while reading the event answers `503 sor_unavailable`, so Stripe sends it again.
+  Before, both were logged and acknowledged with 200, and the change was lost. A 200 still answers
+  what a retry cannot fix: no matching account, a provider refusal (`SorRejected`), an event
+  already applied (idempotent on the event id), and an event created before the one last applied
+  to its subscription (`subscription.last_event_at`; Stripe does not deliver in order, so a late
+  `active` used to undo a newer `canceled`).
 
 This adapter's own retry policy (independent of the numbers above, since none of them cover the
 three endpoints it actually calls): `429` → honour `Retry-After` (seconds), up to 3 retries, then

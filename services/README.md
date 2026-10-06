@@ -251,7 +251,10 @@ are architecture changes; all are bounded follow-ups.
    prefer that default over the ORM-side assignment (documented in `services/db/models.py`'s
    `Event.seq` docstring, including the one operational caveat: events must be flushed one at a
    time, not batched into a single multi-row INSERT, for the listener's `MAX()` read to be
-   correct).
+   correct). *Superseded 2026-09-30/2026-10-06:* on Postgres the identity assigns `seq` (migration
+   0027) and the listener runs on SQLite only; watermark readers stop at `stable_event_seq`, below
+   every seq an open transaction may still commit (migration 0032, `services/db/event_horizon.py`,
+   docs/21 §3.10 "Reading `seq` in order").
 10. **Rate-limit headers are static**, per the task brief ("rate-limit headers (static values for
     now)") — `RateLimit-Limit: 60`, `RateLimit-Remaining: 59` on every response, not a real
     sliding-window counter. `docs/23` §6's actual per-tier/per-key limits are a follow-up once

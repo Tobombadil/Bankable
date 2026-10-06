@@ -47,15 +47,35 @@ def _find_account(db: Session, change: EntitlementChange) -> Account | None:
     return account
 
 
-def _upsert_subscription_mirror(
-    db: Session, account: Account, change: EntitlementChange, *, now: dt.datetime
-) -> Subscription:
+def _aware(value: dt.datetime) -> dt.datetime:
+    # SQLite returns a stored instant naive; every instant this module writes is UTC.
+    return value if value.tzinfo is not None else value.replace(tzinfo=dt.UTC)
+
+
+def _mirror_row(db: Session, change: EntitlementChange) -> Subscription | None:
     state = change.subscription
-    row = db.scalar(
+    return db.scalar(
         select(Subscription).where(
             Subscription.sor_kind == state.sor_kind, Subscription.sor_ref == state.sor_ref
         )
     )
+
+
+def is_older_than_applied(row: Subscription | None, change: EntitlementChange) -> bool:
+    """Whether `change` was created before the event last applied to its subscription (backend
+    audit 2026-09-30 F4). Stripe does not deliver events in order, and each carries the subscription
+    as it was when the event was created, so applying an older one would restore an older state: a
+    late `active` after a newer `canceled` re-granted Pro. Equal times are applied (Stripe's
+    `created` has one-second resolution, so their order is unknown); the last one delivered wins."""
+    if row is None or row.last_event_at is None:
+        return False
+    return _aware(change.occurred_at) < _aware(row.last_event_at)
+
+
+def _upsert_subscription_mirror(
+    db: Session, account: Account, change: EntitlementChange, *, now: dt.datetime, row: Subscription | None
+) -> Subscription:
+    state = change.subscription
     if row is None:
         row = Subscription(
             public_id="",
@@ -73,6 +93,7 @@ def _upsert_subscription_mirror(
             currency=state.currency,
             mirrored_at=now,
             drift_flag=False,
+            last_event_at=change.occurred_at,
         )
         db.add(row)
         db.flush()
@@ -93,6 +114,7 @@ def _upsert_subscription_mirror(
         row.currency = state.currency
         row.mirrored_at = now
         row.drift_flag = False
+        row.last_event_at = change.occurred_at
     db.flush()
     return row
 
@@ -102,10 +124,12 @@ def apply_entitlement_change(
 ) -> Account | None:
     """Idempotent on `change.event_ref` (an `Event` row with `idempotency_key =
     f"billing:{change.event_ref}"` already existing means this webhook was already applied — a
-    replayed Stripe delivery is a no-op, not a double-apply). Returns `None` — logging a warning,
-    never raising — when no account matches, so the webhook route can still answer Stripe with a
-    200 (docs/23 §8: Stripe retries on anything but 2xx, and there is nothing a retry would fix
-    here)."""
+    replayed Stripe delivery is a no-op, not a double-apply). Returns `None` — logging, never
+    raising — when nothing is applied and a retry would not change that, so the webhook route can
+    still answer Stripe with a 200 (docs/23 §8: Stripe retries on anything but 2xx): no account
+    matches, or the change is older than the event last applied to its subscription
+    (`is_older_than_applied`). A database failure raises, and the route answers non-2xx so Stripe
+    delivers the event again."""
     resolved_now = now if now is not None else utcnow()
     account = _find_account(db, change)
     if account is None:
@@ -122,7 +146,17 @@ def apply_entitlement_change(
     if already_applied is not None:
         return account
 
-    _upsert_subscription_mirror(db, account, change, now=resolved_now)
+    row = _mirror_row(db, change)
+    if is_older_than_applied(row, change):
+        logger.info(
+            "billing entitlement change %s ignored: created %s, before the last applied event (%s)",
+            change.event_ref,
+            change.occurred_at.isoformat(),
+            row.last_event_at.isoformat() if row is not None and row.last_event_at is not None else None,
+        )
+        return None
+
+    _upsert_subscription_mirror(db, account, change, now=resolved_now, row=row)
 
     before_entitlement = account.entitlement
     if account.entitlement == "admin":
@@ -199,4 +233,4 @@ def apply_entitlement_change(
     return account
 
 
-__all__ = ["apply_entitlement_change"]
+__all__ = ["apply_entitlement_change", "is_older_than_applied"]

@@ -159,10 +159,17 @@ class InMemoryBilling:
         )
         self.subscriptions[state.sor_ref] = state
         entitlement = entitlement_for(state.plan_tier, state.status)
+        # As the Stripe adapter does: the event's own `created`, so tests can deliver out of order.
+        created = payload.get("created")
+        occurred_at = (
+            dt.datetime.fromtimestamp(int(created), dt.UTC)
+            if created is not None
+            else dt.datetime.now(dt.UTC)
+        )
         return [
             EntitlementChange(
                 event_ref=event_id,
-                occurred_at=dt.datetime.now(dt.UTC),
+                occurred_at=occurred_at,
                 billing_ref=state.billing_ref,
                 subscription=state,
                 entitlement=entitlement,

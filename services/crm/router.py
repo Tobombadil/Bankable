@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from services.api.audit import record_audit_event
 from services.api.auth import AuthContext, require_admin
 from services.api.common import WEB_HOST, iso, normalise_domain, utcnow
-from services.api.deps import get_db
+from services.api.deps import get_db, read_raw_body
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.serialize import build_envelope, build_licence_summary, build_meta
 from services.db.models import Account, Match, Opportunity, Proposal
@@ -64,8 +64,9 @@ def _first_sentence(text: str) -> str:
 
 # ------------------------------------------------------------------------ inbound Attio webhook
 @router.post("/webhooks/attio", status_code=200)
-async def receive_attio_webhook(
+def receive_attio_webhook(
     request: Request,
+    raw_body: Annotated[bytes, Depends(read_raw_body)],
     db: Annotated[Session, Depends(get_db)],
     port: Annotated[CrmPort, Depends(get_crm_port)],
 ) -> dict[str, int]:
@@ -73,8 +74,11 @@ async def receive_attio_webhook(
     credential (docs/34 §5). `applied` counts changes that actually caused a platform-side write:
     today only `company.updated` can (refreshing a cached `account.name`); `lead_signal.updated`
     is logged but never increments it until the admin-panel wave adds the task table that
-    `handled` would close (services/crm/README.md "deferred")."""
-    raw_body = await request.body()
+    `handled` would close (services/crm/README.md "deferred").
+
+    A plain `def`: FastAPI runs it in its threadpool, so the adapter's HTTP calls (30 s timeout, up
+    to 15 s of 429 back-off) and the synchronous session no longer block the event loop (backend
+    audit 2026-09-30 F7). The body is read on the loop by `read_raw_body`."""
     try:
         changes = port.parse_webhook(body=raw_body, headers=dict(request.headers))
     except WebhookRejected as exc:
@@ -97,6 +101,7 @@ async def receive_attio_webhook(
                 logger.info("attio_lead_signal_webhook_received sor_ref=%s", change.sor_ref)
     except SorUnavailable as exc:
         logger.warning("attio_webhook_sor_unavailable error=%s", exc)
+        db.rollback()  # nothing from a partly applied delivery is kept; Attio delivers it again
         raise ProblemError(
             "sor_unavailable",
             "CRM adapter unavailable",

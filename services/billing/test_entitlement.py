@@ -276,3 +276,63 @@ def test_unknown_account_returns_none(session: Session) -> None:
     result = apply_entitlement_change(session, change)
     assert result is None
     assert session.query(Subscription).count() == 0
+
+
+# ------------------------------------------------------- ordering (backend audit 2026-09-30 F4)
+T0 = dt.datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+
+
+def _at(state: SubscriptionState, event_ref: str, when: dt.datetime) -> EntitlementChange:
+    return EntitlementChange(
+        event_ref=event_ref,
+        occurred_at=when,
+        billing_ref=state.billing_ref,
+        subscription=state,
+        entitlement=entitlement_for(state.plan_tier, state.status),
+    )
+
+
+def test_an_older_event_delivered_late_does_not_undo_a_newer_one(session: Session) -> None:
+    """The audit's reproduction: `canceled` at t+5 min, then the older `active` at t. Before, the
+    account ended on `pro`."""
+    account = make_account(session, billing_ref="cus_test_1")
+    session.commit()
+    canceled = _at(make_state(status="canceled"), "evt_2_canceled", T0 + dt.timedelta(minutes=5))
+    active = _at(make_state(status="active"), "evt_1_active", T0)
+
+    assert apply_entitlement_change(session, canceled) is account
+    assert apply_entitlement_change(session, active) is None
+    assert account.entitlement == "public"
+    row = session.query(Subscription).one()
+    assert row.status == "canceled"
+    assert row.last_event_at is not None and row.last_event_at.replace(tzinfo=UTC) == T0 + dt.timedelta(
+        minutes=5
+    )
+    assert session.query(Event).filter(Event.idempotency_key == "billing:evt_1_active").count() == 0
+
+
+def test_events_in_order_and_at_the_same_second_are_applied(session: Session) -> None:
+    account = make_account(session, billing_ref="cus_test_1")
+    session.commit()
+    apply_entitlement_change(session, _at(make_state(status="active"), "evt_1", T0))
+    apply_entitlement_change(
+        session, _at(make_state(status="past_due"), "evt_2", T0 + dt.timedelta(seconds=1))
+    )
+    assert session.query(Subscription).one().status == "past_due"
+    # Same `created` second: order unknown, the last delivered is applied.
+    apply_entitlement_change(
+        session, _at(make_state(status="canceled"), "evt_3", T0 + dt.timedelta(seconds=1))
+    )
+    assert session.query(Subscription).one().status == "canceled"
+    assert account.entitlement == "public"
+
+
+def test_a_row_written_before_ordering_was_recorded_accepts_the_next_event(session: Session) -> None:
+    make_account(session, billing_ref="cus_test_1")
+    session.commit()
+    apply_entitlement_change(session, _at(make_state(status="active"), "evt_1", T0))
+    row = session.query(Subscription).one()
+    row.last_event_at = None  # as migrated: the column is new
+    session.flush()
+    apply_entitlement_change(session, _at(make_state(status="canceled"), "evt_0", T0 - dt.timedelta(days=1)))
+    assert row.status == "canceled" and row.last_event_at is not None
