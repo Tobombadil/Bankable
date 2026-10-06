@@ -61,6 +61,9 @@
       {%- for item in tier.includes %}
       <li>{{ item }}</li>
       {%- endfor %}
+      {%- if tier.id == 'free' and free_alerts %}
+      <li>Email alerts on up to <span class="tnum">{{ free_alerts.cap }}</span> saved searches, as a daily or weekly digest, free while the platform operates as a noncommercial service. <a href="/alerts">Set one up</a></li>
+      {%- endif %}
     </ul>
 
     {%- if selected_plan == tier.id %}

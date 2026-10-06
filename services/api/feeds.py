@@ -30,6 +30,7 @@ from collections.abc import Iterable
 from typing import Any
 from xml.sax.saxutils import escape
 
+from services.api.alert_plan import free_alerts_active
 from services.api.common import WEB_HOST, iso
 from services.api.serialize import provenance_quartet
 from services.db.models import Event, OpportunitySource, ProposalSource
@@ -102,6 +103,11 @@ def feed_title(resource: str, kind: Kind, *, live: bool = False) -> str:
     # US-604's disclosure rule is "say what is actually true of this feed", so the title says live.
     # What Pro adds to the same items is delivery -- alerts and webhooks -- not freshness.
     del kind  # nothing about the title depends on the subject's kind any more
+    if free_alerts_active():
+        # Owner decision 2026-09-30: under the noncommercial posture email alerts are free to a
+        # registered reader and the paid tiers are not on sale, so the title points there and
+        # names no paid tier (content audit F8: "alerts and API in Pro" was false in every feed).
+        return f"{resource} — Public feed, live — free email alerts at {WEB_HOST}/alerts"
     return f"{resource} — Public feed, live — alerts and API in Pro"
 
 

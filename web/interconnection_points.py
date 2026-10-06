@@ -24,6 +24,7 @@ from web.api_client import ApiError, ApiNotFound
 from web.page import (
     breadcrumb_jsonld,
     canonical_query,
+    count_page_view,
     get_api,
     is_htmx,
     item_list_jsonld,
@@ -225,7 +226,7 @@ def interconnection_point_detail(request: Request, public_id: str) -> HTMLRespon
     proposals = [_flatten_point_proposal(p) for p in entity.get("proposals") or []]
     changes = list(entity.get("recent_changes") or [])
     path = f"/interconnection-points/{public_id}"
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "interconnection_point_detail.html",
         {
@@ -247,6 +248,7 @@ def interconnection_point_detail(request: Request, public_id: str) -> HTMLRespon
             ],
         },
     )
+    return count_page_view(request, response, "point")
 
 
 def proposal_connection(api: Any, proposal_public_id: str | None) -> dict[str, Any] | None:

@@ -25,8 +25,19 @@ same composed filter (`services/alerts/webhooks.py`, `services/alerts/feed.py`).
 
 **Sending** (`services/alerts/mail.py`): every email goes through `deliver` with
 `List-Unsubscribe`/`List-Unsubscribe-Post` headers, a legal-sender postal line and the
-delayed-data notice in the body; the recipient is checked against the suppression store first;
+data notice in the body; the recipient is checked against the suppression store first;
 and the rendered body is refused if it carries a bare `None` token (`services/social/textgate.py`).
+
+**What a line says** (owner decision 2026-09-30; content audit F7): every item names its record,
+says what changed (`status filed → permitted`, `capacity 100 MW → 150 MW`, `new record`) and gives
+the record's size, technology and place, then links to the record's own page. An `entity = event`
+search resolves the event's subject the way a proposal search does; before, it printed
+`proposal: status_change — https://infraque.com` with neither the name nor a working link.
+
+**Cadence** (`is_due`): `daily` and `weekly` are digests, evaluated once per day or week (less one
+scheduler tick of slack, so a tick landing a few seconds early does not slip a whole period);
+`immediate` is evaluated on every tick, as every mode was before. Between digests the watermark does
+not move, so the next digest carries everything since the last one.
 """
 
 from __future__ import annotations
@@ -35,6 +46,7 @@ import datetime as dt
 import uuid as _uuid
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -58,7 +70,13 @@ from services.db.models import Account, Alert, Event, Opportunity, Proposal, Sav
 from services.ids import public_id
 from services.social.textgate import reject_bare_none
 
-DIGEST_TEMPLATE_ID = "digest.email.v2"
+DIGEST_TEMPLATE_ID = "digest.email.v3"
+#: Lines listed in one digest; the rest are counted and linked, so a broad search after a monthly
+#: register release (EIA-860M: ~300 events in one load) is still a readable email.
+DIGEST_MAX_ITEMS = 50
+#: One scheduler tick (`infra/scheduler/app.py` runs `alert_tick` every 15 minutes).
+_CADENCE_SLACK = dt.timedelta(minutes=15)
+_CADENCE: dict[str, dt.timedelta] = {"daily": dt.timedelta(days=1), "weekly": dt.timedelta(days=7)}
 
 
 @dataclass
@@ -69,6 +87,93 @@ class MatchedItem:
     source_name: str | None
     attribution_text: str | None
     event_seq: int
+    #: What the triggering event changed, in words (`describe_change`).
+    change: str | None = None
+    #: Size, technology and place of the record (`describe_subject`).
+    context: str | None = None
+
+
+def is_due(search: SavedSearch, now: dt.datetime) -> bool:
+    """Whether this cycle evaluates `search` (module docstring, "Cadence")."""
+    period = _CADENCE.get(search.delivery_mode)
+    if period is None or search.last_run_at is None:
+        return True
+    last = search.last_run_at if search.last_run_at.tzinfo else search.last_run_at.replace(tzinfo=dt.UTC)
+    return now - last >= period - _CADENCE_SLACK
+
+
+#: Words for the fields the change detector emits (`pipeline/diff.py`: `lifecycle_state`,
+#: `capacity_mw`, `proposed_cod`); any other key prints with its underscores as spaces.
+_FIELD_LABELS = {
+    "lifecycle_state": "status",
+    "status": "status",
+    "capacity_mw": "capacity",
+    "proposed_cod": "target online date",
+    "proposed_online_date": "target online date",
+    "due_at": "due date",
+}
+_DATE_FIELDS = frozenset({"proposed_cod", "proposed_online_date", "due_at"})
+
+
+def _fmt_value(key: str, value: Any) -> str:
+    if key.endswith("_mw") and isinstance(value, int | float) and not isinstance(value, bool):
+        number = float(value)
+        return f"{number:,.0f} MW" if number.is_integer() else f"{number:,.1f} MW"
+    text = str(value)
+    if key in _DATE_FIELDS and len(text) >= 10 and text[4] == "-":
+        return text[:10]
+    return text.replace("_", " ")
+
+
+def describe_change(event: Event) -> str:
+    """`status announced → filed`, `capacity 100 MW → 150 MW`, `new record`, `withdrawn`. Built only
+    from the event row's own `before`/`after`/`changed_keys` (docs/21 §3.10)."""
+    if event.event_type == "created":
+        return "new record"
+    before = event.before or {}
+    after = event.after or {}
+    keys = list(event.changed_keys or []) or sorted(set(before) | set(after))
+    parts: list[str] = []
+    for key in keys:
+        label = _FIELD_LABELS.get(key, key.replace("_", " "))
+        b, a = before.get(key), after.get(key)
+        if b is not None and a is not None:
+            parts.append(f"{label} {_fmt_value(key, b)} → {_fmt_value(key, a)}")
+        elif a is not None:
+            parts.append(f"{label} now {_fmt_value(key, a)}")
+        elif b is not None:
+            parts.append(f"{label} {_fmt_value(key, b)} no longer reported")
+    if event.event_type == "withdrawn" and not parts:
+        parts.append("withdrawn")
+    return "; ".join(parts) or event.event_type.replace("_", " ")
+
+
+def _technology_words(value: str | None) -> str | None:
+    if not value:
+        return None
+    return "large load" if value == "load" else value.replace("_", " ")
+
+
+def describe_subject(subject: Proposal | Opportunity) -> str:
+    """`101 MW bess li ion, US-TX` for a proposal; `solar, wind, US-CA, due 2026-11-01` for an
+    opportunity. Fields that are not recorded are left out, never printed as blanks."""
+    parts: list[str] = []
+    if isinstance(subject, Proposal):
+        size = (
+            _fmt_value("capacity_mw", float(subject.capacity_mw)) if subject.capacity_mw is not None else None
+        )
+        head = " ".join(p for p in (size, _technology_words(subject.technology)) if p)
+        if head:
+            parts.append(head)
+        parts.append(subject.jurisdiction)
+    else:
+        techs = ", ".join(t for t in (_technology_words(t) for t in subject.technologies or []) if t)
+        if techs:
+            parts.append(techs)
+        parts.append(subject.jurisdiction)
+        if subject.due_at is not None:
+            parts.append(f"due {subject.due_at.date().isoformat()}")
+    return ", ".join(p for p in parts if p)
 
 
 def _subject_and_attribution(db: Session, event: Event) -> tuple[Proposal | Opportunity | None, str, str]:
@@ -83,6 +188,12 @@ def _subject_and_attribution(db: Session, event: Event) -> tuple[Proposal | Oppo
             return None, "", WEB_HOST
         return o, o.title, f"{WEB_HOST}/opportunities/{o.slug}"
     return None, event.event_type, WEB_HOST
+
+
+def _attribution(event: Event) -> str | None:
+    if event.source is None or event.licence is None:
+        return None
+    return event.source.attribution_text or event.source.licence.attribution_text
 
 
 def _new_events_for_search(db: Session, search: SavedSearch, account: Account) -> list[Event]:
@@ -109,20 +220,19 @@ def evaluate_saved_search(db: Session, search: SavedSearch, account: Account) ->
         if search.entity == "event":
             if not event_matches_query(event, search.query):
                 continue
-            source_name = event.source.name if event.source else None
-            attribution = (
-                (event.source.attribution_text or event.source.licence.attribution_text)
-                if event.source and event.licence
-                else None
-            )
+            subject, name, url = _subject_and_attribution(db, event)
             matched.append(
                 MatchedItem(
                     kind="event",
-                    name=f"{event.subject_type}: {event.event_type}",
-                    url=WEB_HOST,
-                    source_name=source_name,
-                    attribution_text=attribution,
+                    # The visibility filter above already requires a visible proposal or
+                    # opportunity subject; the fallback only names an event on any other subject.
+                    name=name if subject is not None else event.subject_type.replace("_", " "),
+                    url=url,
+                    source_name=event.source.name if event.source else None,
+                    attribution_text=_attribution(event),
                     event_seq=event.seq,
+                    change=describe_change(event),
+                    context=describe_subject(subject) if subject is not None else None,
                 )
             )
             continue
@@ -131,20 +241,16 @@ def evaluate_saved_search(db: Session, search: SavedSearch, account: Account) ->
             continue
         if not matches_query(search.entity, subject, search.query, account.entitlement):
             continue
-        source_name = event.source.name if event.source else None
-        attribution = (
-            (event.source.attribution_text or event.source.licence.attribution_text)
-            if event.source and event.licence
-            else None
-        )
         matched.append(
             MatchedItem(
                 kind=search.entity,
                 name=name,
                 url=url,
-                source_name=source_name,
-                attribution_text=attribution,
+                source_name=event.source.name if event.source else None,
+                attribution_text=_attribution(event),
                 event_seq=event.seq,
+                change=describe_change(event),
+                context=describe_subject(subject),
             )
         )
         seen_subjects.add(subject.id)
@@ -170,9 +276,15 @@ def render_digest_body(
     strict one. The finished text is refused if any field rendered as a bare `None`."""
     identity = identity or sender_identity(strict=False)
     lines = [f'Saved search "{search.name}": {len(items)} new match(es).', ""]
-    for item in items:
+    for item in items[:DIGEST_MAX_ITEMS]:
         credit = item.attribution_text or item.source_name or "the platform"
-        lines.append(f"- {item.name} — {item.url} (source: {credit})")
+        head = f"- {item.name}: {item.change}" if item.change else f"- {item.name}"
+        if item.context:
+            head = f"{head} ({item.context})"
+        lines.append(head)
+        lines.append(f"  {item.url} (source: {credit})")
+    if len(items) > DIGEST_MAX_ITEMS:
+        lines.append(f"- and {len(items) - DIGEST_MAX_ITEMS} more: {results_url(search)}")
     lines.append("")
     lines.append(
         f"You are receiving this because you subscribed at {WEB_HOST}. Data derived from public "
@@ -180,9 +292,17 @@ def render_digest_body(
     )
     lines.append(delayed_data_notice(entitlement))
     lines.append(f"Unsubscribe (one click): {WEB_HOST}/unsubscribe?token={unsubscribe_token}")
-    lines.append(f"Manage this saved search: {WEB_HOST}/account/saved-searches")
+    lines.append(f"Manage your alerts: {WEB_HOST}/alerts")
     lines.append(f"Sent by {product_name()} <{FROM_ADDRESS}> on behalf of {identity.postal_line}")
     return reject_bare_none("\n".join(lines), template_id=DIGEST_TEMPLATE_ID)
+
+
+def results_url(search: SavedSearch) -> str:
+    """The public list page showing this search's records (the site's list pages take the API's
+    filter names verbatim, `web/app.py::PROPOSAL_PASSTHROUGH_FILTERS`)."""
+    path = {"proposal": "/proposals", "opportunity": "/opportunities"}.get(search.entity, "/proposals")
+    query = urlencode({k: v for k, v in (search.query or {}).items() if v is not None and v != ""})
+    return f"{WEB_HOST}{path}" + (f"?{query}" if query else "")
 
 
 def run_alert_cycle(db: Session, *, email_port: Any, now: dt.datetime | None = None) -> list[Alert]:
@@ -205,6 +325,8 @@ def run_alert_cycle(db: Session, *, email_port: Any, now: dt.datetime | None = N
         account = db.get(Account, search.account_id)
         user = db.get(User, search.user_id)
         if account is None or user is None:
+            continue
+        if not is_due(search, now):
             continue
         window_start = search.last_run_at or (now - dt.timedelta(days=1))
         items = evaluate_saved_search(db, search, account)
@@ -271,9 +393,14 @@ def run_alert_cycle(db: Session, *, email_port: Any, now: dt.datetime | None = N
 
 
 __all__ = [
+    "DIGEST_MAX_ITEMS",
     "DIGEST_TEMPLATE_ID",
     "MatchedItem",
+    "describe_change",
+    "describe_subject",
     "evaluate_saved_search",
+    "is_due",
     "render_digest_body",
+    "results_url",
     "run_alert_cycle",
 ]

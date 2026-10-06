@@ -30,12 +30,21 @@
 </p>
 {%- else %}
 <p class="delayed-notice" role="status">
-  <span class="stamp-label">Live</span> Every record and every change event is published as soon as it is ingested. <a href="/about#tiers">Alerts and API in Pro &rarr;</a>
+  <span class="stamp-label">Live</span> Every record and every change event is published as soon as it is ingested.
+  {%- if delayed.free_alerts %} <a href="/alerts">Free email alerts &rarr;</a>{% else %} <a href="/about#tiers">Alerts and API in Pro &rarr;</a>{% endif %}
 </p>
 {%- endif %}
 {%- if delayed.preview_active %}
 <p class="preview-banner" role="status"><span class="stamp-label">Dev preview</span> The publish delay was bypassed for this data. Since records carry no delay, this now changes nothing except for rows loaded before that decision; the notice above still states the real configured lag either way.</p>
 {%- endif %}
+{%- endmacro %}
+
+{#- "Save this search as an alert" (owner decision 2026-09-30; docs/30 §4.3): a link to
+    `/alerts/new` carrying the view's filters (`web/page.py::save_alert_href`). Rendered inside the
+    list partials so an htmx filter change re-renders it with the new filters. -#}
+{% macro save_alert(href, free_alerts, id=None) -%}
+<p class="save-alert"><a{% if id %} id="{{ id }}"{% endif %} href="{{ href }}">Save this search as an alert</a>
+  {%- if free_alerts %} <span class="save-alert__hint">Free: a daily or weekly email of what changed.</span>{% endif %}</p>
 {%- endmacro %}
 
 {% macro attribution_line(record) -%}

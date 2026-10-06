@@ -85,7 +85,7 @@ from fastapi.templating import Jinja2Templates
 from services.api.common import DOMAIN
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
-from web.page import get_platform_posture
+from web.page import get_free_alerts, get_platform_posture
 from web.viewmodels import footer_build as vm_footer_build
 
 router = APIRouter()
@@ -360,6 +360,9 @@ def _context(
         # print verbatim, the same rule `/about` and `/methodology` follow.
         "posture": posture,
         "paid_tiers_inactive": posture is not None and posture["value"] == "noncommercial",
+        # Owner decision 2026-09-30: under the noncommercial posture the Free tier includes email
+        # alerts, capped; the figure and cadences are the API's (`GET /v1/health` `free_alerts`).
+        "free_alerts": get_free_alerts(request),
         "signed_in": me is not None,
         "tier": tier,
         # `admin` is a manual grant, never derived from billing (docs/21 §3.13), so it is not a

@@ -11,6 +11,9 @@
   <div><dt>Entitlement</dt><dd>{{ me.tier }}</dd></div>
   <div><dt>Email</dt><dd>{{ me.user.email }}</dd></div>
   <div><dt>Email status</dt><dd>{{ 'Verified' if me.user.email_verified_at else 'Not verified' }}</dd></div>
+  {%- if me.alert_plan %}
+  <div><dt>Alerts</dt><dd><span class="tnum">{{ me.saved_search_quota.used }}</span> of <span class="tnum">{{ me.saved_search_quota.limit }}</span>{% if me.alert_plan.basis == 'free' %} (free){% endif %}. <a href="/alerts">Manage alerts</a></dd></div>
+  {%- endif %}
 </dl>
 
 {% if resend_body %}
@@ -33,6 +36,16 @@
   </div>
 </form>
 {% endif %}
+
+{% if others_signed_out is defined and others_signed_out is not none %}
+<p class="notice" role="status">Signed out of <span class="tnum">{{ others_signed_out }}</span> other session{{ '' if others_signed_out == 1 else 's' }}.</p>
+{% endif %}
+<form class="auth-form" method="post" action="/account/sign-out-others">
+  <div class="form-actions">
+    <button type="submit">Sign out of other sessions</button>
+  </div>
+  <p class="field-hint">Ends every other browser or device signed in as you; this one stays signed in.</p>
+</form>
 
 <form class="auth-form" method="post" action="/logout">
   <div class="form-actions">

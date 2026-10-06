@@ -434,6 +434,10 @@
     window.history.replaceState(null, "", url);
     var listLink = document.getElementById("mf-view-list");
     if (listLink) listLink.href = "/proposals" + (qs ? "?" + qs : "");
+    // "Save this search as an alert" carries the current view too (web/alerts.py drops the map's
+    // own default placement and the layer/asset keys, which are not proposal filters).
+    var alertLink = document.getElementById("mf-save-alert");
+    if (alertLink) alertLink.href = "/alerts/new?entity=proposal&origin=map" + (qs ? "&" + qs : "");
     // Task item 5: the header "Sign in" link carries the current view (chiefly `layers`) as
     // `next` so a sign-up started from the map still knows which layers were on when
     // `web/auth.py::register_submit` posts `auth.registered {layers}` after the round trip.

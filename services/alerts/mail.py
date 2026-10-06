@@ -14,7 +14,8 @@ email can be sent lawfully"; docs/13-legal-outreach-and-social.md §1 CAN-SPAM, 
    render as visible placeholders; in production (`ENVIRONMENT=production`, alias `APP_ENV`) or
    whenever a port would really send, a missing value makes `sender_identity` raise, log and
    count instead of sending an unlawful message.
-3. The delayed-data notice, which the digest body renders from the account's entitlement.
+3. The data notice (`delayed_data_notice`), which states the lag the store applies (none since
+   2026-09-21) and, for a free account under the noncommercial posture, that the alert is free.
 
 `services.api.auth.EmailPort.send` has no `headers` parameter and `services/api/auth.py` is not
 this module's to change, so this module carries its own `AlertMailer` protocol (the same call
@@ -32,9 +33,11 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import quote
 
+from services.api.alert_plan import free_alerts_active
 from services.api.audit import is_production
 from services.api.auth import SentEmail
 from services.api.common import API_HOST, DOMAIN, WEB_HOST
+from services.ingest.lag import RECORD_LAG_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -129,18 +132,27 @@ def unsubscribe_headers(token: str) -> dict[str, str]:
     }
 
 
-def delayed_data_notice(entitlement: str) -> str:
-    """docs/32 §2.2's footer plus the tier statement the audit found missing: a reader must be
-    able to tell whether what they are looking at is live or delayed."""
-    if entitlement in ("pro", "api", "admin"):
-        return (
-            "Data notice: this digest is sent at your account's live tier. The public site "
-            f"({WEB_HOST}) runs behind the live tier, so items here may not yet appear there."
+def delayed_data_notice(entitlement: str, *, lag_days: int = RECORD_LAG_DAYS) -> str:
+    """docs/32 §2.2's footer plus the tier statement: a reader must be able to tell whether what
+    they are looking at is live or delayed. Keyed on the lag the store actually applies
+    (`services/ingest/lag.py::RECORD_LAG_DAYS`), the way the social templates key theirs, not on the
+    reader's tier: since 2026-09-21 nothing is delayed on any tier, and the earlier wording ("the
+    public site runs behind the live tier"; "you are on the delayed public tier") was false in every
+    send (content audit F8). A free account under the noncommercial posture is told its alert is
+    free for that reason, so the day-30 posture decision is not a surprise to anyone receiving one."""
+    if lag_days > 0:
+        notice = (
+            f"Data notice: the public site ({WEB_HOST}) shows records {lag_days} days after they are "
+            "ingested; this digest may list items that are not there yet."
         )
-    return (
-        "Data notice: your account is on the delayed public tier. Items in this digest are "
-        "published on the public schedule and may lag the live tier; live alerts are a paid feature."
-    )
+    else:
+        notice = (
+            "Data notice: every record and change event is published on the public site "
+            f"({WEB_HOST}) as soon as it is ingested, so everything in this digest is already there."
+        )
+    if entitlement == "public" and free_alerts_active():
+        notice += " This alert is free while the platform operates as a noncommercial service."
+    return notice
 
 
 @dataclass(frozen=True)

@@ -50,6 +50,7 @@ from web.page import (
     _type_label,
     breadcrumb_jsonld,
     canonical_query,
+    count_page_view,
     get_api,
     group_nearby_proposals,
     is_htmx,
@@ -285,7 +286,7 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
     )
     mini_map = _mini_map(features, label=f"Map of {record['name']}", caption=caption)
     path = f"/assets/{record['slug']}"
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "asset_detail.html",
         {
@@ -301,6 +302,7 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
             ],
         },
     )
+    return count_page_view(request, response, "asset")
 
 
 @router.get("/assets/by-id/{public_id}")

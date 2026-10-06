@@ -1,7 +1,8 @@
 # Platform posture: noncommercial for now, and the machinery that makes the switch a flip
 
-Phase 2 architecture/data doc. Owner: backend-developer (posture lane). Status: v2, 2026-09-26 (§3 precondition
-(i) landed; (ii) withdrawn). Companion to `13-legal-data-rights.md` §0/§6 (the `noncommercial` class),
+Phase 2 architecture/data doc. Owner: backend-developer (posture lane). Status: v3, 2026-09-30 (§7: free capped
+email alerts for registered readers under the noncommercial posture; v2, 2026-09-26: §3 precondition (i) landed,
+(ii) withdrawn). Companion to `13-legal-data-rights.md` §0/§6 (the `noncommercial` class),
 `21-data-model.md` §3.19/§8 (the vocabulary and the gating table) and the `docs/00-PLAN.md` decisions log (two
 rows dated 2026-09-25: the Texas lane's records the owner's decision and what it settles for
 `us.tx.rrc.class_vi`; this lane's records the machinery below and the three preconditions — plus the 2026-09-26
@@ -186,6 +187,16 @@ table above — and no admin route accepts the field, which `tests/test_platform
    tag from rows that are still held. There is no need to downgrade at all: the class in the vocabulary is
    harmless under `commercial`.
 
+**Free alerts at the switch back (added 2026-09-30, §7).** Step 1 turns free alerts off at once: a free
+account can no longer create, list, pause or delete a saved search (`403 forbidden_tier`, as before §7), the
+feed titles and the site's banner go back to "Alerts and API in Pro", and `/v1/health` reports
+`free_alerts.active = false`. It does **not** stop the digests of saved searches free accounts already hold:
+the alert cycle has never checked the owner's entitlement (a Pro account downgraded by an admin keeps
+receiving its digests today), and changing that is a commercial-posture behaviour change this lane was told
+not to make. So the switch back has one more owner decision, recorded here rather than automated: pause
+those searches (they are the `saved_search` rows whose account's `entitlement = 'public'`), or keep them
+running for the readers who signed up while they were free.
+
 Switching *to* `noncommercial` is the same first step in the other direction, taken only after precondition (i)
 is met and recorded in the decisions log; steps 3–5 have no forward counterpart, because widening admits rows
 that were never ingested rather than un-hiding held ones (a `noncommercial` source loads on its next run).
@@ -247,7 +258,80 @@ This sentence comes from `services/posture.py::posture_statement`, not from this
 prose (§1), and it only appears once a process actually starts with `PLATFORM_POSTURE=noncommercial` in its
 environment — not merely because the example file or the register say so.
 
-## 7. Tests that pin this document
+## 7. Free email alerts for registered readers (owner decision, 2026-09-30)
+
+**The decision.** Stay noncommercial. Registered users get free email alerts with a cap and a web page to
+manage them. Paid tiers stay inactive. The posture is decided again at day 30, from alert activation and
+customer conversations. Evidence the lane worked from: the 2026-09-30 audit (PM-1, PM-4, PM-5; content F4, F7,
+F8; sales F3, F8): a registered reader got `403 forbidden_tier` on `POST /v1/saved-searches`, no page offered
+alerts, and nothing counted the page views the day-30 rate needs.
+
+**The rule** (`services/api/alert_plan.py`, the one place it is written):
+
+| Caller | Plan | Saved searches | Delivery | Channels |
+|---|---|---|---|---|
+| `pro`, `api`, `admin` entitlement, either posture | `paid` (unchanged) | 25 (US-501) | immediate, daily, weekly | email, private RSS |
+| `public` entitlement, signed-in session, `noncommercial` posture | `free` | `FREE_ALERT_CAP` (default 10) | daily or weekly digest | email |
+| `public` under `commercial`; a `public` API key under either | none: `403 forbidden_tier`, exactly as before | — | — | — |
+
+- **One constant.** "Free alerts are on" is `not services.billing.router.PAID_TIERS_ACTIVE`, the constant §3
+  precondition (i) computes once at import from `PLATFORM_POSTURE`, read at call time. No second setting: a
+  deployment cannot have free alerts without paid tiers being off, or the reverse. The saved-search and
+  alert-history routes use `require_alert_access()`, which admits a caller with a plan and otherwise returns
+  `require_entitlement("pro")`'s own answer, so the `commercial` posture is byte-for-byte what it was.
+- **The cap** is enforced server-side on create, counting every saved search the user holds (a paused one
+  counts): `403 forbidden_tier`, title "Free alert limit reached", detail naming the cap and the way out
+  (delete one). `FREE_ALERT_CAP` is read once at import; a non-integer or negative value falls back to 10.
+- **Cadence.** Immediate delivery (US-502 AC1, "within 15 minutes") and the private RSS feed stay paid shapes,
+  not on sale. The free plan's two cadences are the ones the alert cycle now honours: `daily` and `weekly`
+  searches are evaluated once per day or week (less one 15-minute tick of slack), where before every mode was
+  evaluated on every tick, so a "daily digest" could arrive every 15 minutes (`services/alerts/evaluate.py::
+  is_due`). That fix applies to paid alerts too; it is what their modes always said.
+- **Verified email.** Creating a free alert needs `user.email_verified_at`: the alert writes to that address
+  every day or week, and an unverified address may be someone else's. Reading, pausing and deleting do not, so an
+  account can always stop what it started.
+- **A new alert starts now.** `watermark_seq` is set to the newest `event.seq` at creation, so the first
+  digest carries changes after the alert was saved, not every matching event ever recorded (paid alerts too).
+
+**The seat limit applies to paid accounts only** (PM-4). A free account was locked to one device for up to 30
+days (`403 seat_limit`, "add a seat", impossible under this posture). The smaller sound rule is keyed on the
+entitlement, not the posture: `services/api/auth_routes.py::SEAT_LIMITED_ENTITLEMENTS = {pro, api}`. A seat
+is a unit of a paid subscription under either posture; a posture rule would still lock free readers out under
+`commercial` and would release paying accounts from their seat count under `noncommercial`. A paid user
+whose lost browser still holds the seat can now get back in (QA-5): sign in with "Sign me out everywhere
+else" (`sign_out_other_sessions`, after the password is checked, and only the user's own sessions), use
+"Sign out of other sessions" on `/account`, or reset the password by email (`/forgot-password`; a signed
+one-hour link bound to the current password hash, so it works once; resetting revokes every session). An
+admin "revoke sessions" action is still open.
+
+**Saved-search input is validated** (QA-6): a key the operation does not take (`{"paused": true}`), a
+`status`, `delivery_mode` or channel outside its vocabulary, a non-list or empty `channels`, and a blank or
+over-long `name` are each `400 validation_error` naming the field, never a silent 200 or a database 500;
+pausing is `{"status": "paused"}`, and the alert cycle skips a paused search. 400, not 422, because
+`validation_error` is the API's code for a bad parameter (docs/23 §8) and no route answers 422 for it.
+
+**What the reader sees.** `/alerts` lists, pauses, resumes and deletes alerts (docs/30 §5.4; docs/31 §5.10);
+`/alerts/new` shows the filters a view would watch and saves it; every list page and the map carry "Save this
+search as an alert"; an anonymous reader gets a sign-in prompt that returns to the same page. Under
+`noncommercial` the notice on every list and record page and the RSS feed titles point to free email alerts
+instead of "Alerts and API in Pro" (no API mention); the Free tier on `/pricing` lists the alerts; alert emails
+name the record, say what changed (`status filed → permitted`, `capacity 100 MW → 150 MW`, size, technology,
+place) and link to the record's page; the email's data notice no longer claims the public site runs behind a
+live tier (nothing is delayed since 2026-09-21), and a free account's digest says the alert is free while the
+platform operates as a noncommercial service. The site reads the offer from `GET /v1/health` `free_alerts`
+(`active`, `cap`, `delivery_modes`), never from its own configuration.
+
+**Measurement** (PM-5, sales F8). `page.viewed {page_type: proposal | company | asset | point}` is a new
+`ui_event` name (migration **0029**, revising lane P2's 0028; P2 took 0027 and 0028 in parallel and
+the coordinator rebases at integration). The site's server records it after rendering one of those four pages, as a
+background task with its own service identity; the API accepts it only from that identity, so no visitor can
+post it, and the site's relay (`/api/ui-events`) forwards only the map's own counters. No cookie, IP, user
+agent, referrer or path is sent or stored; crawlers, link unfurlers and prefetches are not counted (the user
+agent is read to decide that and dropped). `alert.created` was already written on every create. The admin
+Engagement page shows, per ISO week, views by page type and alerts created per 100 views, overall and per type.
+Views are page loads, not unique readers: uniqueness needs an identifier, which this design refuses.
+
+## 8. Tests that pin this document
 
 - `services/test_posture.py` — the helper at 100%: default, both values, garbage fails closed, the sentence.
 - `tests/test_visibility_predicate.py` — the gate module executed under both postures and a typo; the licence

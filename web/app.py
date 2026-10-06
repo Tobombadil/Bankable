@@ -28,6 +28,8 @@ from web.auth import router as auth_router
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
     ASSET_TYPE_LABELS,
+    OPPORTUNITY_PASSTHROUGH_FILTERS,
+    PROPOSAL_PASSTHROUGH_FILTERS,
     WEB_ROOT,
     _asset_extras,
     _basemap_attribution,
@@ -35,7 +37,9 @@ from web.page import (
     _type_label,
     breadcrumb_jsonld,
     canonical_query,
+    count_page_view,
     get_api,
+    get_free_alerts,
     get_lag_days,
     get_platform_posture,
     is_htmx,
@@ -43,6 +47,7 @@ from web.page import (
     item_list_jsonld,
     not_found_response,
     querystring_without,
+    save_alert_href,
     templates,
     unavailable_response,
 )
@@ -120,6 +125,11 @@ app.include_router(legal_router)
 from web.pricing import router as pricing_router  # noqa: E402
 
 app.include_router(pricing_router)
+# Owner decision 2026-09-30: `/alerts` -- save a view as an email alert; list, pause, resume and
+# delete alerts (own router in web/alerts.py, over `/v1/saved-searches`).
+from web.alerts import router as alerts_router  # noqa: E402
+
+app.include_router(alerts_router)
 # docs/42-backend-review-2026-09-26.md lane L2: `/organizations` and `/organizations/{ident}`,
 # moved out of this module into their own router. `web/page.py` holds the `templates` instance (and
 # the other page plumbing) both this module and `web/organizations.py` import, since a page router
@@ -203,67 +213,12 @@ def delayed_notice(request: Request, kind: str) -> dict[str, Any]:
         "lag_days": lag_days,
         "data_as_of": data_as_of,
         "preview_active": is_preview_active(request),
+        # Owner decision 2026-09-30: under the noncommercial posture the notice's call to action is
+        # the free alerts page, not the paid tiers (`get_free_alerts`, read from `/v1/health`).
+        "free_alerts": get_free_alerts(request),
     }
 
 
-PROPOSAL_PASSTHROUGH_FILTERS = (
-    "technology",
-    "jurisdiction",
-    "kind",
-    "capacity_mw[gte]",
-    "capacity_mw[lte]",
-    "q",
-    # ADR 0008 placement grades (docs/23 §3.1): both on `/proposals/geo` (the map) and on
-    # `/proposals` (the list) -- a region-polygon click lands on `/proposals?county_fips=...`.
-    "placement",
-    "county_fips",
-    # Schedule slippage (services/api/slippage.py, docs/22 §18). Passed straight through, so an
-    # unknown `slip_bucket` token surfaces the API's own 400 rather than a second, divergent
-    # allowlist here.
-    "slipped",
-    "slip_bucket",
-    # Every other filter the API list takes, so a shared or hand-written link such as
-    # `/proposals?state=US-TX` narrows the page exactly as `GET /v1/proposals?state=US-TX` does
-    # instead of silently showing everything (2026-09-27: `state` was dropped here, 2,077 rows for
-    # 806). No form control sets these; they are passed through for links. Pinned against the
-    # API's own filter set by `web/test_list_filter_passthrough.py`.
-    "iso",
-    "state",
-    "source_id",
-    "sponsor_id",
-    "storage_mwh[gte]",
-    "first_seen[from]",
-    "first_seen[to]",
-    "last_changed[from]",
-    "last_changed[to]",
-    "updated_since",
-    "slug",
-    # Grid interconnection points (2026-09-28): `/proposals?interconnection_point_id=poi_...` lists the
-    # projects queued at one point, the link the point page offers.
-    "interconnection_point_id",
-)
-#: As above for `GET /v1/opportunities`; `status` is resolved separately (`opportunity_status_param`).
-OPPORTUNITY_PASSTHROUGH_FILTERS = (
-    "kind",
-    "jurisdiction",
-    "technologies",
-    "q",
-    "source_id",
-    "issuer_id",
-    "due_at[from]",
-    "due_at[to]",
-    "open_at[from]",
-    "open_at[to]",
-    "capacity_sought_mw[gte]",
-    "budget_currency",
-    "budget_amount[gte]",
-    "first_seen[from]",
-    "first_seen[to]",
-    "last_changed[from]",
-    "last_changed[to]",
-    "updated_since",
-    "slug",
-)
 #: The filters `lifecycle_breakdown` forwards to `/v1/proposals/geo`, so the "Showing N active
 #: proposals" line counts the same set the list shows (before 2026-09-27 it forwarded only
 #: technology, jurisdiction and kind: `?q=solar&state=US-TX` listed 651 and announced 1,743).
@@ -318,6 +273,7 @@ def home_map(request: Request) -> HTMLResponse:
             "include_withdrawn": include_withdrawn,
             "lifecycle_explicit": explicit,
             "filters": dict(qp),
+            "save_alert_href": save_alert_href("proposal", qp, origin="map"),
             "breakdown": breakdown,
             "active_states": ACTIVE_PROPOSAL_STATES,
             "withdrawn_states": WITHDRAWN_PROPOSAL_STATES,
@@ -437,6 +393,10 @@ def geo_regions_proxy(request: Request) -> JSONResponse:
     return JSONResponse(envelope)
 
 
+#: The counters `map.js` sends (`services/db/models.py::UI_EVENT_NAMES`, the `map.*` names).
+BROWSER_UI_EVENTS = frozenset({"map.layer_toggled", "map.region_jumped", "map.basemap_failed"})
+
+
 @app.post("/api/ui-events")
 async def ui_events_proxy(request: Request) -> JSONResponse:
     """Same-origin proxy for `POST /v1/ui-events` (task contract): forwards only `name`/`props`
@@ -444,14 +404,19 @@ async def ui_events_proxy(request: Request) -> JSONResponse:
     already carries at the transport level) and always answers 202, whether or not the API call
     behind it succeeds -- measurement must never be able to break the map page. `map.js` posts
     here with `navigator.sendBeacon` (a `Blob`, so the request may arrive without a JSON
-    content-type; Starlette's `Request.json()` parses the body regardless)."""
+    content-type; Starlette's `Request.json()` parses the body regardless).
+
+    Only the map's own events are relayed (`BROWSER_UI_EVENTS`). This relay calls the API with the
+    site's service identity, so relaying `page.viewed` would let any visitor inflate the page-view
+    count the API accepts only from the site; `auth.registered` and `alert.created` are recorded by
+    the servers that see the registration and the saved search, never by a browser (2026-09-30)."""
     try:
         body = await request.json()
     except Exception:
         body = {}
     name = body.get("name") if isinstance(body, dict) else None
     props = body.get("props") if isinstance(body, dict) and isinstance(body.get("props"), dict) else {}
-    if isinstance(name, str) and name:
+    if isinstance(name, str) and name in BROWSER_UI_EVENTS:
         api = get_api(request)
         try:
             api.post("/v1/ui-events", json={"name": name, "props": props})
@@ -485,6 +450,7 @@ def proposals_list(request: Request) -> HTMLResponse:
         "next_cursor": envelope["page"]["next_cursor"],
         "prev_cursor": envelope["page"]["prev_cursor"],
         "querystring": querystring_without(qp, "cursor"),
+        "save_alert_href": save_alert_href("proposal", qp),
         "delayed": delayed_notice(request, "proposal"),
         "technology_options": _technology_options(vocab),
         "kind_options": _proposal_kind_options(vocab),
@@ -550,7 +516,7 @@ def proposal_detail(request: Request, slug: str) -> HTMLResponse:
         return not_found_response(request, "proposal")
     record = flatten_proposal(entity)
     path = f"/proposals/{record['slug']}"
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "proposal_detail.html",
         {
@@ -566,6 +532,7 @@ def proposal_detail(request: Request, slug: str) -> HTMLResponse:
             ],
         },
     )
+    return count_page_view(request, response, "proposal")
 
 
 @app.get("/opportunities", response_class=HTMLResponse)
@@ -594,6 +561,7 @@ def opportunities_list(request: Request) -> HTMLResponse:
         "next_cursor": envelope["page"]["next_cursor"],
         "prev_cursor": envelope["page"]["prev_cursor"],
         "querystring": querystring_without(qp, "cursor"),
+        "save_alert_href": save_alert_href("opportunity", qp),
         "delayed": delayed_notice(request, "opportunity"),
         "kind_options": [(v["value"], opportunity_kind_label(v["value"])) for v in vocab["opportunity_kind"]],
         "statuses": [v["value"] for v in vocab["opportunity_status"]],
@@ -727,7 +695,12 @@ def about(request: Request) -> HTMLResponse:
     response = templates.TemplateResponse(
         request,
         "about.html",
-        {"sources": sources, "lag_days": get_lag_days(request), "posture": posture},
+        {
+            "sources": sources,
+            "lag_days": get_lag_days(request),
+            "posture": posture,
+            "free_alerts": get_free_alerts(request),
+        },
     )
     if posture is not None and posture.get("available") is False:
         response.headers["Cache-Control"] = "no-store"  # a cache must not keep the degraded version

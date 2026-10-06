@@ -1,5 +1,6 @@
 {% import "_macros.html" as m %}
 <p class="result-count" aria-live="polite">{{ total }} opportunit{{ 'y' if total == 1 else 'ies' }} match{{ 'es' if total == 1 }} these filters.</p>
+{% if save_alert_href %}{{ m.save_alert(save_alert_href, delayed.free_alerts if delayed else None) }}{% endif %}
 {% if records %}
 <div class="table-scroll">
 <table class="record-table">

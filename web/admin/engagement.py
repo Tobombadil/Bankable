@@ -6,6 +6,13 @@ often a regional quick view was used, how many times the basemap failed to load 
 done-check says this must stay at zero after the deploy), how many registrations arrived from a
 page with the layer on, and how many alerts were created.
 
+**Alert activation** (owner decisions 2026-09-18 (8) and 2026-09-30; PM-5, sales F8): the day-30
+posture decision reads alerts created per view of a proposal, company, asset or grid-point page.
+`page.viewed` rows carry only `page_type` (`services/api/ui_events.py`), and `alert.created` carries
+nothing, so an alert cannot be attributed to the page type it came from without an identifier the
+design refuses. The table therefore divides the week's alerts by the week's views, overall and per
+page type, and says so in its caption; views are page loads, not unique readers.
+
 Reads only `GET /admin/v1/ui-events/summary` through `ctx.api`; renders through the shell. No
 totals are invented here: the API returns one row per (week, name) and this module pivots them
 into a week × name grid so a reader can compare columns. Missing cells are shown as 0 because a
@@ -31,6 +38,14 @@ COLUMNS: tuple[tuple[str, str], ...] = (
     ("map.basemap_failed", "Basemap failures"),
     ("auth.registered", "Registrations"),
     ("alert.created", "Alerts created"),
+    ("page.viewed", "Detail page views"),
+)
+#: `page.viewed`'s page types, in display order (`services/db/models.py::PAGE_VIEW_TYPES`).
+PAGE_TYPES: tuple[tuple[str, str], ...] = (
+    ("proposal", "Proposal"),
+    ("company", "Company"),
+    ("asset", "Asset"),
+    ("point", "Grid point"),
 )
 DEFAULT_WEEKS = 8
 MAX_WEEKS = 52
@@ -45,18 +60,50 @@ def pivot_weeks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not week:
             continue
         cells = weeks.setdefault(week, {"week": week, "cells": {}})["cells"]
-        cells[str(r.get("name"))] = {
+        name = str(r.get("name"))
+        cells[name] = {
             "count": int(r.get("count") or 0),
             "count_on": r.get("count_on"),
             "count_off": r.get("count_off"),
         }
+        if name == "page.viewed":
+            raw = r.get("by_page_type")
+            by_type: dict[str, Any] = raw if isinstance(raw, dict) else {}
+            cells[name]["by_page_type"] = {t: int(by_type.get(t) or 0) for t, _label in PAGE_TYPES}
     out: list[dict[str, Any]] = []
     for week in sorted(weeks, reverse=True):
         cells = weeks[week]["cells"]
         for name, _label in COLUMNS:
             cells.setdefault(name, {"count": 0, "count_on": None, "count_off": None})
+        cells["page.viewed"].setdefault("by_page_type", dict.fromkeys(dict(PAGE_TYPES), 0))
         out.append(weeks[week])
     return out
+
+
+def per_hundred(alerts: int, views: int) -> str | None:
+    """Alerts per 100 views to one decimal, or `None` when there were no views (never a fabricated 0)."""
+    return f"{100 * alerts / views:.1f}" if views else None
+
+
+def activation_rows(grid: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per week: alerts created, views by page type and in all, and alerts per 100 views of each."""
+    rows: list[dict[str, Any]] = []
+    for week in grid:
+        alerts = int(week["cells"]["alert.created"]["count"])
+        views = week["cells"]["page.viewed"]["by_page_type"]
+        total = int(week["cells"]["page.viewed"]["count"])
+        rows.append(
+            {
+                "week": week["week"],
+                "alerts": alerts,
+                "total": {"views": total, "rate": per_hundred(alerts, total)},
+                "types": [
+                    {"label": label, "views": views.get(t, 0), "rate": per_hundred(alerts, views.get(t, 0))}
+                    for t, label in PAGE_TYPES
+                ],
+            }
+        )
+    return rows
 
 
 def _weeks_param(raw: str | None) -> int:
@@ -75,7 +122,14 @@ def get_engagement(request: Request, ctx: Annotated[AdminContext, Depends(requir
         return render(
             request,
             "admin/engagement/index.html",
-            {"notice": problem_notice(result), "weeks": weeks, "grid": [], "columns": COLUMNS},
+            {
+                "notice": problem_notice(result),
+                "weeks": weeks,
+                "grid": [],
+                "columns": COLUMNS,
+                "activation": [],
+                "page_types": PAGE_TYPES,
+            },
             ctx=ctx,
             nav_key="engagement",
             status_code=result.status_code,
@@ -85,7 +139,13 @@ def get_engagement(request: Request, ctx: Annotated[AdminContext, Depends(requir
     return render(
         request,
         "admin/engagement/index.html",
-        {"weeks": weeks, "grid": grid, "columns": COLUMNS},
+        {
+            "weeks": weeks,
+            "grid": grid,
+            "columns": COLUMNS,
+            "activation": activation_rows(grid),
+            "page_types": PAGE_TYPES,
+        },
         ctx=ctx,
         nav_key="engagement",
     )

@@ -36,6 +36,32 @@
     </tbody>
   </table>
 </div>
+
+<h2>Alert activation</h2>
+<p>Alerts created per 100 views of the detail pages the owner's day-30 posture decision reads (proposal, company, asset, grid point). A view is one page load by a browser that is not a known crawler; there is no unique-visitor count, because that needs an identifier. Alerts are not attributed to the page type they came from, so each type's figure is the week's alerts divided by that type's views, not a per-page conversion.</p>
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <caption class="visually-hidden">Weekly alerts created and detail-page views, with alerts per 100 views</caption>
+    <thead>
+      <tr>
+        <th scope="col">Week</th>
+        <th scope="col" class="num">Alerts created</th>
+        <th scope="col" class="num">All detail views (alerts per 100)</th>
+        {% for _type, label in page_types %}<th scope="col" class="num">{{ label }} views (alerts per 100)</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in activation %}
+      <tr>
+        <td class="mono">{{ row.week }}</td>
+        <td class="num">{{ row.alerts }}</td>
+        <td class="num">{{ row.total.views }} <span class="admin-muted">({{ row.total.rate if row.total.rate is not none else 'no views' }})</span></td>
+        {% for t in row.types %}<td class="num">{{ t.views }} <span class="admin-muted">({{ t.rate if t.rate is not none else 'no views' }})</span></td>{% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% else %}
 <p class="admin-empty">No interaction counts in the last {{ weeks }} week{{ "" if weeks == 1 else "s" }}. That is the expected state before the map is public; after launch a run of zeros here means the beacon is not reaching the API.</p>
 {% endif %}
