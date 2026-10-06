@@ -531,7 +531,6 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
     surviving = before["surviving"]
     canonical.source_count = surviving["source_count"]
     canonical.resolution_confidence = surviving["resolution_confidence"]
-    canonical.last_changed = dt.datetime.fromisoformat(surviving["last_changed"])
     basis_added = ((merge_event.after or {}).get("surviving") or {}).get(SELECT_BASIS_ADDED_KEY) or {}
     changed_keys = ["merged_into_id"]
     if _drop_select_basis(canonical, list(basis_added)):
@@ -539,6 +538,10 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
     carried = surviving.get(OVERRIDES_CARRIED_KEY) or {}
     if _uncarry_overrides(canonical, carried):
         changed_keys.extend(k for k in sorted(carried) if k not in changed_keys)
+    # The restore above put both rows' sync columns back to their pre-merge values; the unmerge is
+    # itself a change, so both move forward or `updated_since` and bulk sync never see it (backend
+    # audit 2026-09-30 F6).
+    canonical.last_changed = absorbed.last_changed = canonical.updated_at = absorbed.updated_at = utcnow()
 
     event = Event(
         subject_type="proposal",
@@ -935,7 +938,8 @@ def unmerge_organization(session: Session, merge_event_id: _uuid.UUID, *, reason
     surviving = before["surviving"]
     if "parent" in surviving:
         _restore_parent(canonical, surviving["parent"])
-    canonical.last_changed = dt.datetime.fromisoformat(surviving["last_changed"])
+    # As for proposals: the unmerge is a change to both rows (backend audit 2026-09-30 F6).
+    canonical.last_changed = absorbed.last_changed = canonical.updated_at = absorbed.updated_at = utcnow()
 
     event = Event(
         subject_type="organization",

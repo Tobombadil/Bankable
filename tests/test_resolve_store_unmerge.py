@@ -8,6 +8,7 @@ here at unit-test scale (no import between the two test modules, on purpose).
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -19,6 +20,15 @@ from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id, slugify
 from services.ingest.loader import upsert_licence_and_source
 from services.resolve import merge as merge_mod
+
+#: Unmerge restores every field except the two sync columns, which it moves forward because the
+#: unmerge is itself a change (backend audit 2026-09-30 F6); `tests/test_resolve_unmerge_sync.py`.
+_SYNC_COLUMNS = ("last_changed", "updated_at")
+
+
+def _state(row: Any) -> dict[str, Any]:
+    return {k: v for k, v in merge_mod.serialize_row(row).items() if k not in _SYNC_COLUMNS}
+
 
 UTC = dt.UTC
 
@@ -118,7 +128,7 @@ def test_unmerge_proposal_round_trip(session: Session) -> None:
 
     # snapshot everything about `absorbed` before the merge so the round trip can be checked
     # field-by-field, not just "some row exists again"
-    before_snapshot = merge_mod.serialize_row(absorbed)
+    before_snapshot = _state(absorbed)
     absorbed_id = absorbed.id
     absorbed_link_id = absorbed_link.id
 
@@ -143,7 +153,7 @@ def test_unmerge_proposal_round_trip(session: Session) -> None:
     # exact restoration -- every field of the absorbed row, not just merged_into_id
     restored = session.get(Proposal, absorbed_id)
     assert restored is not None
-    after_snapshot = merge_mod.serialize_row(restored)
+    after_snapshot = _state(restored)
     assert after_snapshot == before_snapshot
 
     # proposal_source moved back
@@ -228,7 +238,7 @@ def test_unmerge_organization_round_trip(session: Session) -> None:
     absorbed = make_organization(session, "ACME POWER, LLC")
     proposal, _ = make_proposal(session, src, source_record_id="Q1", sponsor=absorbed)
 
-    before_snapshot = merge_mod.serialize_row(absorbed)
+    before_snapshot = _state(absorbed)
     absorbed_id = absorbed.id
 
     merge_event = merge_mod.merge_organization(
@@ -242,7 +252,7 @@ def test_unmerge_organization_round_trip(session: Session) -> None:
 
     restored = session.get(Organization, absorbed_id)
     assert restored is not None
-    assert merge_mod.serialize_row(restored) == before_snapshot
+    assert _state(restored) == before_snapshot
 
     session.refresh(proposal)
     assert proposal.sponsor_org_id == absorbed_id  # sponsor re-pointed back

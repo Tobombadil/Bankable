@@ -19,11 +19,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.alerts.matching import event_matches_query, matches_query
 from services.alerts.visibility import event_with_visible_subject_filter
+from services.api.common import ensure_aware
 from services.api.visibility import gated_opportunity, gated_proposal
 from services.db.models import Account, Event, Opportunity, Proposal, WebhookDelivery, WebhookEndpoint
 from services.ids import public_id
@@ -120,10 +121,15 @@ def event_visible_for_endpoint(db: Session, endpoint: WebhookEndpoint, event: Ev
     return db.scalar(stmt) is not None
 
 
-def _event_matches_endpoint(db: Session, endpoint: WebhookEndpoint, event: Event) -> bool:
+def _event_matches_endpoint(
+    db: Session, endpoint: WebhookEndpoint, event: Event, *, visibility_checked: bool = False
+) -> bool:
+    """`visibility_checked` is for a caller whose candidate query already applied
+    `event_with_visible_subject_filter` at the endpoint's tier, so the check is not repeated per
+    event; every other caller has it evaluated here."""
     if webhook_type_for_event(event) not in endpoint.types:
         return False
-    if not event_visible_for_endpoint(db, endpoint, event):
+    if not visibility_checked and not event_visible_for_endpoint(db, endpoint, event):
         return False
     if endpoint.entity == "event":
         return event_matches_query(event, endpoint.query)
@@ -141,31 +147,95 @@ def _event_matches_endpoint(db: Session, endpoint: WebhookEndpoint, event: Event
     )
 
 
+def _new_delivery(db: Session, endpoint: WebhookEndpoint, event: Event) -> WebhookDelivery:
+    delivery = WebhookDelivery(
+        public_id="",
+        webhook_endpoint_id=endpoint.id,
+        type=webhook_type_for_event(event),
+        event_id=event.id,
+        event_seq=event.seq,
+        attempt=1,
+        status="pending",
+    )
+    db.add(delivery)
+    db.flush()
+    delivery.public_id = public_id("whd", delivery.id)
+    db.flush()
+    return delivery
+
+
+#: Events considered per endpoint per tick. A backlog larger than this drains over several ticks,
+#: oldest first, each tick's batch committed with its watermark.
+ENQUEUE_BATCH_SIZE = 1000
+
+
+def enqueue_new_deliveries(db: Session, *, batch_size: int = ENQUEUE_BATCH_SIZE) -> int:
+    """The alert tick's enqueue step (backend audit 2026-09-30 F2: before it, nothing in production
+    created a delivery for a real change). For every active endpoint: lock its row, read the events
+    above its `watermark_seq` that are visible at its owner's tier (the same predicate a GET on that
+    key applies, `event_with_visible_subject_filter`), create one `pending` delivery per event its
+    `types`/`entity`/`query` match, and advance the watermark. The caller commits once, so the
+    deliveries and the watermark move together: a tick that fails leaves both unchanged and the next
+    one does the same work again; a tick that commits is never repeated for those events. The
+    endpoint's row lock (`FOR UPDATE`; a no-op on SQLite) makes a second, concurrent tick wait and
+    then read the advanced watermark rather than enqueue the same events twice.
+
+    The watermark passes events that are not visible or do not match, as a saved search's does:
+    a record hidden when its change was recorded is not announced later. Returns the number of
+    deliveries created. The payload is built at delivery time from the served view
+    (`attempt_delivery`, `_event_payload`), which also re-checks visibility."""
+    head = db.scalar(select(func.max(Event.seq))) or 0
+    endpoint_ids = list(
+        db.scalars(
+            select(WebhookEndpoint.id).where(WebhookEndpoint.status == "active").order_by(WebhookEndpoint.id)
+        ).all()
+    )
+    created = 0
+    for endpoint_id in endpoint_ids:
+        endpoint = db.scalar(
+            select(WebhookEndpoint)
+            .where(WebhookEndpoint.id == endpoint_id, WebhookEndpoint.status == "active")
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if endpoint is None or endpoint.watermark_seq >= head:
+            continue
+        entitlement = _endpoint_entitlement(db, endpoint)
+        events = list(
+            db.scalars(
+                select(Event)
+                .where(
+                    Event.seq > endpoint.watermark_seq,
+                    Event.seq <= head,
+                    *event_with_visible_subject_filter(entitlement),
+                )
+                .order_by(Event.seq.asc())
+                .limit(batch_size)
+            ).all()
+        )
+        for event in events:
+            if _event_matches_endpoint(db, endpoint, event, visibility_checked=True):
+                _new_delivery(db, endpoint, event)
+                created += 1
+        # A full batch stops at its last event; a short one has seen everything up to `head`.
+        endpoint.watermark_seq = events[-1].seq if len(events) == batch_size else head
+        db.flush()
+    return created
+
+
 def enqueue_deliveries_for_event(db: Session, event: Event) -> list[WebhookDelivery]:
     """One `WebhookDelivery` row (`status = "pending"`, `attempt = 1`) per active endpoint on the
     event's account whose `types`/`query` match and for which the event *and its subject record*
     pass the visibility predicate at the endpoint's tier (`event_visible_for_endpoint`) — "the
     payload is tier-filtered and licence-gated exactly like a GET on the same key" (docs/23 §9.1),
-    enforced here rather than left to the caller (docs/50 §3.1)."""
+    enforced here rather than left to the caller (docs/50 §3.1). It does not move any endpoint's
+    watermark; the scheduled path is `enqueue_new_deliveries`."""
     endpoints = list(db.scalars(select(WebhookEndpoint).where(WebhookEndpoint.status == "active")).all())
     created = []
     for endpoint in endpoints:
         if not _event_matches_endpoint(db, endpoint, event):
             continue
-        delivery = WebhookDelivery(
-            public_id="",
-            webhook_endpoint_id=endpoint.id,
-            type=webhook_type_for_event(event),
-            event_id=event.id,
-            event_seq=event.seq,
-            attempt=1,
-            status="pending",
-        )
-        db.add(delivery)
-        db.flush()
-        delivery.public_id = public_id("whd", delivery.id)
-        db.flush()
-        created.append(delivery)
+        created.append(_new_delivery(db, endpoint, event))
     return created
 
 
@@ -291,20 +361,7 @@ def replay_from_seq(db: Session, endpoint: WebhookEndpoint, *, since_seq: int) -
     for event in events:
         if not _event_matches_endpoint(db, endpoint, event):
             continue
-        delivery = WebhookDelivery(
-            public_id="",
-            webhook_endpoint_id=endpoint.id,
-            type=webhook_type_for_event(event),
-            event_id=event.id,
-            event_seq=event.seq,
-            attempt=1,
-            status="pending",
-        )
-        db.add(delivery)
-        db.flush()
-        delivery.public_id = public_id("whd", delivery.id)
-        db.flush()
-        created.append(delivery)
+        created.append(_new_delivery(db, endpoint, event))
     return created
 
 
@@ -314,24 +371,31 @@ def deliver_pending(
     transport: Transport,
     secret_for: Callable[[WebhookEndpoint], str],
     now: dt.datetime | None = None,
+    after_attempt: Callable[[WebhookDelivery], None] | None = None,
 ) -> list[WebhookDelivery]:
     """One worker tick (no Procrastinate integration this sprint — a scheduled job calling this
     on an interval is the intended production shape, documented as an open decision in
     services/README.md): every `pending` delivery is attempted; every `retrying` delivery whose
     `next_attempt_at` has arrived is retried. `secret_for` looks up the endpoint's signing secret
     (never stored in the delivery row itself, matching `api_key.key_hash`'s "the secret is never
-    stored" pattern — only its hash is)."""
+    stored" pattern — only its hash is). `after_attempt` runs after each attempt; the worker
+    commits there, so a delivery already posted is recorded before the next one is tried and a
+    later failure in the tick cannot send it again."""
     now = now or dt.datetime.now(dt.UTC)
     stmt = select(WebhookDelivery).where(WebhookDelivery.status.in_(("pending", "retrying")))
     due = []
     for delivery in db.scalars(stmt).all():
         if delivery.status == "retrying":
-            if delivery.next_attempt_at is None or delivery.next_attempt_at > now:
+            # SQLite returns the stored instant naive (`ensure_aware`); comparing it with an aware
+            # `now` raised, and the whole delivery step failed on the dev store.
+            if delivery.next_attempt_at is None or ensure_aware(delivery.next_attempt_at) > now:
                 continue
             retry_delivery(delivery)
         due.append(delivery)
     for delivery in due:
         attempt_delivery(db, delivery, transport=transport, secret=secret_for(delivery.endpoint), now=now)
+        if after_attempt is not None:
+            after_attempt(delivery)
     return due
 
 

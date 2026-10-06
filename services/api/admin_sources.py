@@ -41,10 +41,9 @@ D5. **A licence reclassification (`reuse_class` changes) creates a new `Licence`
     at fetch time. Every `Source` currently pointing at the old licence id is repointed to the new
     one (future fetches and gate checks use the new classification); the new id is
     `{old_id}-{reuse_class}`, de-duplicated with a numeric suffix on collision.
-D6. **No idempotency-key replay is implemented** for the `Idempotency-Key` header on any operation
-    here, matching every other write endpoint in this codebase today (`services/api/pro.py` accepts
-    the same header on `api/openapi.yaml` operations without implementing replay either) — recorded
-    as an existing, pre-sprint gap rather than one introduced here.
+D6. **`Idempotency-Key` replay is app-wide**, not per route: since 2026-10-06 (backend audit F12)
+    `services/api/idempotency.py` stores the response of every mutating call that carries the
+    header and replays it for 24 hours, for these operations as for every other one.
 D7. **There is no lag to edit, and no `relag` job to enqueue.** `PATCH .../sources/{id}` carried
     `lag_days`/`lag_overrides` until 2026-09-21, when the owner dropped the ISO change-event delay
     and its knob with it (`services/ingest/lag.py`, migration `0019`): nothing is time-delayed on
@@ -118,7 +117,7 @@ from services.api.common import ensure_aware, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.pagination import clamp_limit, paginate
-from services.api.params import check_allowed, csv_param, int_param
+from services.api.params import check_allowed, csv_param, int_param, since_seq
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -1397,9 +1396,9 @@ def admin_list_audit(
     limit = clamp_limit(int_param(request, "limit"))
     stmt = select(Event).where(Event.actor_type == "user")
     if v := qp.get("since"):
-        try:
-            stmt = stmt.where(Event.seq > int(v))
-        except ValueError:
+        if (seq := since_seq(v, path)) is not None:
+            stmt = stmt.where(Event.seq > seq)
+        else:
             stmt = stmt.where(Event.observed_at > _parse_dt(v, "since", path))
     if v := qp.get("actor_user_id"):
         user = db.scalar(select(User).where(User.public_id == v))

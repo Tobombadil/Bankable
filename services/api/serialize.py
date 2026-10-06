@@ -13,7 +13,7 @@ import datetime as dt
 from collections.abc import Callable
 from typing import Any
 
-from services.api.common import TERMS_URL, WEB_HOST, iso, utcnow
+from services.api.common import TERMS_URL, WEB_HOST, current_request_id, iso, utcnow
 from services.api.lines import (
     DETAIL_ZOOM,
     Parts,
@@ -83,7 +83,7 @@ def build_meta(
         "lag_days": lag_days,
         "data_as_of": iso(data_as_of),
         "generated_at": iso(now),
-        "request_id": "req_" + now.strftime("%Y%m%d%H%M%S%f")[-16:].lower(),
+        "request_id": current_request_id(),
         "terms_url": TERMS_URL,
     }
     if extra:

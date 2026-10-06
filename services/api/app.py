@@ -29,14 +29,21 @@ from services.api.alert_plan import free_alerts_summary
 from services.api.auth import AuthContext, get_auth_context, meter_credentialed_request
 from services.api.build_info import build_info, data_as_of
 from services.api.client_ip import is_internal_request, rate_limit_address
-from services.api.common import API_HOST, WEB_HOST, new_request_id, utcnow
+from services.api.common import API_HOST, WEB_HOST, utcnow
 from services.api.coverage import coverage, source_vintages
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
 from services.api.feeds import event_provenance, link_provenance, render_json_feed, render_rss
+from services.api.idempotency import IdempotentReplay, idempotency_guard, replay_handler
 from services.api.lifecycle import vocabulary as lifecycle_vocabulary
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec, wants_csv
+from services.api.request_context import (
+    CommitBeforeResponseMiddleware,
+    RequestContextMiddleware,
+    request_id_of,
+    unhandled_exception_handler,
+)
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -87,9 +94,16 @@ app = FastAPI(
     description="Public tier only (Sprint 2 backend brief). See api/openapi.yaml for the full contract.",
     # Every route resolves a presented credential, so only a valid one exempts a request from the
     # public bucket (backend audit 2026-09-30 F8; `services/api/auth.py::meter_credentialed_request`).
-    dependencies=[Depends(meter_credentialed_request)],
+    # `Idempotency-Key` on mutating calls (backend audit 2026-09-30 F12; services/api/idempotency.py).
+    dependencies=[Depends(meter_credentialed_request), Depends(idempotency_guard)],
 )
 app.add_exception_handler(ProblemError, problem_exception_handler)
+app.add_exception_handler(IdempotentReplay, replay_handler)
+# Any other exception is a 500 problem+json carrying the request id (backend audit 2026-09-30 F13).
+app.add_exception_handler(Exception, unhandled_exception_handler)
+# Innermost on purpose (added first): commits the request's sessions when the route emits its status
+# line, before anything reaches the client (backend audit 2026-09-30 F3; services/api/request_context.py).
+app.add_middleware(CommitBeforeResponseMiddleware)
 # Response compression (2026-09-19, line layer): a national `GET /v1/assets/geo` over the 3,000-line
 # synthetic pipeline fixture is ~1.3 MB of JSON and ~200 KB gzipped, because a GeoJSON feature list
 # repeats keys and provenance quartets that compress ~6:1. Every response over 1 KB is compressed
@@ -214,6 +228,7 @@ from services.api.resource_queries import (  # noqa: E402
     EVENT_SORT_ALLOWLIST,
     event_query_with_filters,
     event_subject_jurisdiction_filter,
+    subject_infos,
 )
 from services.api.resource_queries import subject_info as _subject_info  # noqa: E402
 
@@ -224,7 +239,8 @@ app.include_router(documents_router)
 
 @app.middleware("http")
 async def standard_headers(request: Request, call_next: Any) -> Response:
-    """`X-Request-Id` on every response, plus real per-tier rate-limit headers (docs/23 §1, §6).
+    """Real per-tier rate-limit headers and cache headers (docs/23 §1, §6); `X-Request-Id` is
+    stamped by `RequestContextMiddleware` (services/api/request_context.py).
 
     Sprint 2 shipped static placeholder values here ("rate-limit headers (static values for
     now)"); this sprint (Pro tier and alerts, task item 2: "real per-tier token buckets") replaces
@@ -261,7 +277,7 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
                     "RateLimit-Remaining": "0",
                     "RateLimit-Reset": str(result.reset_seconds),
                     "RateLimit-Policy": policy_header("public", result),
-                    "X-Request-Id": new_request_id(),
+                    "X-Request-Id": request_id_of(request),
                 },
                 content={
                     "type": f"{API_HOST}/errors/rate_limited",
@@ -269,7 +285,7 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
                     "status": 429,
                     "code": "rate_limited",
                     "detail": f"More than {result.limit} requests in the current window.",
-                    "request_id": new_request_id(),
+                    "request_id": request_id_of(request),
                     "instance": request.url.path,
                 },
             )
@@ -284,7 +300,6 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
         # numbers go on every response, not only on the routes that set them (docs/23 §6, US-702).
         for name, value in getattr(request.state, "credential_rate_limit", {}).items():
             response.headers.setdefault(name, value)
-    response.headers["X-Request-Id"] = new_request_id()
     if request.url.path.startswith("/v1/") and request.method == "GET":
         # A response produced for a credential (valid or not) is never shareable: `/v1/me`, live
         # Pro rows and saved searches must not land in a CDN or proxy cache (API audit 2026-09-18,
@@ -293,6 +308,10 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
         response.headers["Cache-Control"] = "private, no-store" if credentialed else "public, max-age=300"
         response.headers["Vary"] = "Authorization, Cookie"
     return response
+
+
+# Outermost (added last): one id per request, in `X-Request-Id`, `meta.request_id` and problem bodies.
+app.add_middleware(RequestContextMiddleware)
 
 
 # ------------------------------------------------------------------------------------ organizations
@@ -543,7 +562,9 @@ def list_events(
         limit=limit,
         instance=request.url.path,
     )
-    data = [serialize_event(e, **_subject_info(db, e, ctx.entitlement)) for e in rows]
+    # One batched lookup per page, not a `db.get` per event (backend audit 2026-09-30 F11).
+    infos = subject_infos(db, rows, ctx.entitlement)
+    data = [serialize_event(e, **infos[e.subject_id]) for e in rows]
     # `meta.lag_days` is a completeness claim about the feed, not about the rows that happened to
     # land on this page. Since 2026-09-21 it is `0` on every tier including the public one: the
     # ISO change-event delay is gone (owner; `services/ingest/lag.py`), so there is no withheld
@@ -1088,9 +1109,10 @@ def feed_events(format: str, request: Request, db: Session = Depends(get_db)) ->
         # (`resource_queries.event_subject_jurisdiction_filter`).
         stmt = stmt.where(event_subject_jurisdiction_filter(csv_param(v)))
     rows = list(db.scalars(stmt.order_by(Event.seq.desc()).limit(50)).all())
+    infos = subject_infos(db, rows, "public")
     items = []
     for e in rows:
-        info = _subject_info(db, e, "public")
+        info = infos[e.subject_id]
         items.append(
             {
                 "title": f"{info['subject_name']}: {e.event_type}",

@@ -44,8 +44,8 @@ from services.api.auth import AuthContext, require_admin, revoke_session
 from services.api.common import iso, normalise_domain, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
-from services.api.pagination import DEFAULT_LIMIT, clamp_limit, paginate
-from services.api.params import check_allowed, csv_param
+from services.api.pagination import clamp_limit, paginate
+from services.api.params import check_allowed, csv_param, int_param
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -297,8 +297,7 @@ def admin_list_users(
             )
         stmt = stmt.where(User.account_id == account.id)
 
-    limit_raw = request.query_params.get("limit")
-    limit = clamp_limit(int(limit_raw)) if limit_raw is not None else DEFAULT_LIMIT
+    limit = clamp_limit(int_param(request, "limit"))
     cursor = request.query_params.get("cursor")
     rows, next_cursor, has_more = paginate(
         db,
@@ -510,8 +509,7 @@ def admin_list_tasks(
             )
         stmt = stmt.where(Task.subject_id == decoded)
 
-    limit_raw = request.query_params.get("limit")
-    limit = clamp_limit(int(limit_raw)) if limit_raw is not None else DEFAULT_LIMIT
+    limit = clamp_limit(int_param(request, "limit"))
     cursor = request.query_params.get("cursor")
     rows, next_cursor, has_more = paginate(
         db,
@@ -773,8 +771,7 @@ def admin_list_customers(
     if status_filter := request.query_params.get("status"):
         stmt = stmt.where(Account.status.in_(csv_param(status_filter)))
 
-    limit_raw = request.query_params.get("limit")
-    limit = clamp_limit(int(limit_raw)) if limit_raw is not None else DEFAULT_LIMIT
+    limit = clamp_limit(int_param(request, "limit"))
     cursor = request.query_params.get("cursor")
     rows, next_cursor, has_more = paginate(
         db,

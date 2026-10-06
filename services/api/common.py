@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import secrets
+from contextvars import ContextVar
 from urllib.parse import urlparse
 
 DOMAIN = "infraque.com"
@@ -24,6 +25,17 @@ def new_request_id() -> str:
     """`^req_[0-9a-z]{6,32}$` (api/openapi.yaml `X-Request-Id`)."""
     body = "".join(secrets.choice(_REQUEST_ID_ALPHABET) for _ in range(16))
     return f"req_{body}"
+
+
+#: The id of the request being served, set once per request by
+#: `services/api/request_context.py::RequestContextMiddleware` (backend audit 2026-09-30 F13).
+REQUEST_ID: ContextVar[str | None] = ContextVar("request_id", default=None)
+
+
+def current_request_id() -> str:
+    """The request's one id, as the `X-Request-Id` header, `meta.request_id` and problem bodies
+    all carry it (docs/23 §1). Outside a request (a worker building an envelope) a fresh id."""
+    return REQUEST_ID.get() or new_request_id()
 
 
 def utcnow() -> dt.datetime:

@@ -27,6 +27,15 @@ from services.ids import public_id, slugify
 from services.ingest.loader import SELECT_BASIS_KEY, load_dataframe, upsert_licence_and_source
 from services.resolve import merge as merge_mod
 
+#: Unmerge restores every field except the two sync columns, which it moves forward because the
+#: unmerge is itself a change (backend audit 2026-09-30 F6); `tests/test_resolve_unmerge_sync.py`.
+_SYNC_COLUMNS = ("last_changed", "updated_at")
+
+
+def _state(row: Any) -> dict[str, Any]:
+    return {k: v for k, v in merge_mod.serialize_row(row).items() if k not in _SYNC_COLUMNS}
+
+
 UTC = dt.UTC
 DEQ = "us.test.va_deq"
 ICIS = "us.test.icis_air"
@@ -161,7 +170,7 @@ def test_unmerge_restores_both_rows_exactly(session: Session) -> None:
         session, icis, source_record_id="I1", identifiers={SELECT_BASIS_KEY: {ICIS: "name"}}
     )
     survivor_before = json.loads(json.dumps(survivor.identifiers))
-    absorbed_before = merge_mod.serialize_row(absorbed)
+    absorbed_before = _state(absorbed)
 
     event = merge_mod.merge_proposal(
         session, canonical=survivor, absorbed=absorbed, score=100.0, rationale="d3"
@@ -174,7 +183,7 @@ def test_unmerge_restores_both_rows_exactly(session: Session) -> None:
     # No refresh: SQLite drops timezones on read-back, so the existing round-trip test in
     # tests/test_resolve_store_unmerge.py compares the in-session rows too.
     assert survivor.identifiers == survivor_before
-    assert merge_mod.serialize_row(absorbed) == absorbed_before
+    assert _state(absorbed) == absorbed_before
 
 
 def test_unmerging_one_absorbed_record_keeps_the_others_basis(session: Session) -> None:

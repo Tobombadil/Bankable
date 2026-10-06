@@ -2,16 +2,22 @@
 type `alert`; task brief: "the scheduled alert cycle and delivery worker" that `infra/scheduler/`
 calls on an interval — this module owns only the function it calls, never the schedule itself).
 
-A tick is two independent halves, each in its own session/transaction, so a failure in one never
-blocks the other (task brief):
+A tick is three independent steps, each in its own session/transaction, so a failure in one never
+blocks the others (task brief):
 
 1. **Alerts.** `services.alerts.evaluate.run_alert_cycle` already evaluates *every* active
    `SavedSearch` in one call — it holds the loop, the per-search watermark advance, and (for the
    `email` channel) the synchronous send through the given `EmailPort`. This half just opens a
    session, calls it once, counts what it returned, and commits.
-2. **Webhook deliveries.** `services.alerts.webhooks.deliver_pending` likewise already finds every
+2. **Webhook enqueue.** `services.alerts.webhooks.enqueue_new_deliveries` creates a `pending`
+   delivery for every visible, matching event above each active endpoint's `watermark_seq` and
+   advances the watermark, in one transaction (backend audit 2026-09-30 F2: before this step
+   existed, no production path created a delivery for a real change).
+3. **Webhook deliveries.** `services.alerts.webhooks.deliver_pending` likewise already finds every
    `pending`/due-`retrying` `WebhookDelivery` and attempts each one through the given `Transport`.
-   This half opens a second session, calls it once, counts the outcome, and commits.
+   This half opens its own session and commits after each attempt, so a posted delivery is
+   recorded before the next is tried. Delivery is at least once: a crash between the POST and that
+   commit sends it again on the next tick, with the same delivery id for the receiver to dedupe.
 
 See `services/alerts/README.md` for the numbered decisions this module makes (why there is no
 separate "send queued alerts" step, how idempotency holds across two ticks, the `HttpxTransport`
@@ -35,7 +41,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from services.alerts.evaluate import run_alert_cycle
 from services.alerts.mail import AlertMailer, ResendAlertMailer, refused_send_count
-from services.alerts.webhooks import Transport, deliver_pending
+from services.alerts.webhooks import Transport, deliver_pending, enqueue_new_deliveries
 from services.db.models import SavedSearch, WebhookEndpoint
 from services.db.session import get_engine, get_sessionmaker, init_db
 
@@ -128,6 +134,8 @@ class AlertTickReport:
     #: Sends this process has refused for a missing legal sender line (`SENDER_LEGAL_NAME` /
     #: `SENDER_POSTAL_ADDRESS`, `services/alerts/mail.py`), cumulative since process start.
     emails_refused: int = 0
+    #: Deliveries created this tick for events above the endpoints' watermarks.
+    deliveries_enqueued: int = 0
 
 
 def _run_alert_half(
@@ -163,6 +171,22 @@ def _run_alert_half(
     return searches_evaluated, alerts_created, emails_sent
 
 
+def _run_enqueue_step(session_factory: sessionmaker[Session], *, errors: list[str]) -> int:
+    """Transaction 2: enqueue deliveries for new events and advance each endpoint's watermark
+    together. Returns the number of deliveries created; on any exception, rolls back (so neither
+    the deliveries nor the watermarks move) and appends to `errors`."""
+    with session_factory() as session:
+        try:
+            created = enqueue_new_deliveries(session)
+            session.commit()
+            return created
+        except Exception as exc:  # every exception is caught so the tick never dies (task brief)
+            session.rollback()
+            logger.exception("webhook_enqueue_failed error_type=%s", type(exc).__name__)
+            errors.append(f"webhook_enqueue: {type(exc).__name__}: {exc}")
+            return 0
+
+
 def _run_delivery_half(
     session_factory: sessionmaker[Session],
     *,
@@ -180,7 +204,13 @@ def _run_delivery_half(
     deliveries_failed = 0
     with session_factory() as session:
         try:
-            due = deliver_pending(session, transport=transport, secret_for=_secret_for, now=now)
+            due = deliver_pending(
+                session,
+                transport=transport,
+                secret_for=_secret_for,
+                now=now,
+                after_attempt=lambda _delivery: session.commit(),
+            )
             deliveries_attempted = len(due)
             deliveries_delivered = sum(1 for delivery in due if delivery.status == "delivered")
             deliveries_failed = deliveries_attempted - deliveries_delivered
@@ -199,8 +229,8 @@ def run_alert_tick(
     transport: Transport | None = None,
     now: dt.datetime | None = None,
 ) -> AlertTickReport:
-    """One tick: the alert half, then the webhook-delivery half, each in its own transaction
-    (module docstring). `email_port` defaults to a process-wide `ResendAlertMailer()` (dry-run
+    """One tick: the alert half, the webhook enqueue, then the webhook-delivery half, each in its
+    own transaction (module docstring). `email_port` defaults to a process-wide `ResendAlertMailer()` (dry-run
     without `RESEND_API_KEY`); `transport` defaults to a fresh `HttpxTransport()`, closed at the
     end of this call when this function is the one that built it (an injected transport is the
     caller's to close)."""
@@ -213,6 +243,7 @@ def run_alert_tick(
     searches_evaluated, alerts_created, emails_sent = _run_alert_half(
         session_factory, email_port=effective_email_port, now=started_at, errors=errors
     )
+    deliveries_enqueued = _run_enqueue_step(session_factory, errors=errors)
     try:
         deliveries_attempted, deliveries_delivered, deliveries_failed = _run_delivery_half(
             session_factory, transport=effective_transport, now=started_at, errors=errors
@@ -224,10 +255,12 @@ def run_alert_tick(
     finished_at = dt.datetime.now(dt.UTC)
     logger.info(
         "alert_tick_completed searches_evaluated=%d alerts_created=%d emails_sent=%d "
-        "deliveries_attempted=%d deliveries_delivered=%d deliveries_failed=%d errors=%d",
+        "deliveries_enqueued=%d deliveries_attempted=%d deliveries_delivered=%d deliveries_failed=%d "
+        "errors=%d",
         searches_evaluated,
         alerts_created,
         emails_sent,
+        deliveries_enqueued,
         deliveries_attempted,
         deliveries_delivered,
         deliveries_failed,
@@ -244,6 +277,7 @@ def run_alert_tick(
         deliveries_failed=deliveries_failed,
         errors=tuple(errors),
         emails_refused=refused_send_count(),
+        deliveries_enqueued=deliveries_enqueued,
     )
 
 
@@ -255,6 +289,7 @@ def _format_report(report: AlertTickReport) -> str:
         f"searches_evaluated={report.searches_evaluated} "
         f"alerts_created={report.alerts_created} "
         f"emails_sent={report.emails_sent} "
+        f"deliveries_enqueued={report.deliveries_enqueued} "
         f"deliveries_attempted={report.deliveries_attempted} "
         f"deliveries_delivered={report.deliveries_delivered} "
         f"deliveries_failed={report.deliveries_failed} "
