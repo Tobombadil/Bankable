@@ -18,13 +18,14 @@ import re
 from collections.abc import Iterable, Mapping
 from html import escape
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, cast
 from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
+from starlette.background import BackgroundTask
 from starlette.datastructures import QueryParams
 
 from services.posture import DEFAULT_POSTURE
@@ -122,6 +123,134 @@ def get_platform_posture(request: Request) -> dict[str, Any] | None:
     if not isinstance(posture, str) or not isinstance(statement, str):
         return None
     return {"value": posture, "statement": statement, "available": True}
+
+
+# ---- List filters, shared by the list pages (`web/app.py`) and the alerts pages (`web/alerts.py`) ----
+# Moved here from `web/app.py` unchanged (2026-09-30) so `web/alerts.py` can turn a list view into a
+# saved-search query without importing `web/app.py` back; `web/app.py` imports them from here.
+#: The proposal filters the list and the map pass through to `GET /v1/proposals` verbatim.
+PROPOSAL_PASSTHROUGH_FILTERS = (
+    "technology",
+    "jurisdiction",
+    "kind",
+    "capacity_mw[gte]",
+    "capacity_mw[lte]",
+    "q",
+    # ADR 0008 placement grades (docs/23 §3.1): both on `/proposals/geo` (the map) and on
+    # `/proposals` (the list) -- a region-polygon click lands on `/proposals?county_fips=...`.
+    "placement",
+    "county_fips",
+    # Schedule slippage (services/api/slippage.py, docs/22 §18). Passed straight through, so an
+    # unknown `slip_bucket` token surfaces the API's own 400 rather than a second, divergent
+    # allowlist here.
+    "slipped",
+    "slip_bucket",
+    # Every other filter the API list takes, so a shared or hand-written link such as
+    # `/proposals?state=US-TX` narrows the page exactly as `GET /v1/proposals?state=US-TX` does
+    # instead of silently showing everything (2026-09-27: `state` was dropped here, 2,077 rows for
+    # 806). No form control sets these; they are passed through for links. Pinned against the
+    # API's own filter set by `web/test_list_filter_passthrough.py`.
+    "iso",
+    "state",
+    "source_id",
+    "sponsor_id",
+    "storage_mwh[gte]",
+    "first_seen[from]",
+    "first_seen[to]",
+    "last_changed[from]",
+    "last_changed[to]",
+    "updated_since",
+    "slug",
+    # Grid interconnection points (2026-09-28): `/proposals?interconnection_point_id=poi_...` lists the
+    # projects queued at one point, the link the point page offers.
+    "interconnection_point_id",
+)
+#: As above for `GET /v1/opportunities`; `status` is resolved separately (`opportunity_status_param`).
+OPPORTUNITY_PASSTHROUGH_FILTERS = (
+    "kind",
+    "jurisdiction",
+    "technologies",
+    "q",
+    "source_id",
+    "issuer_id",
+    "due_at[from]",
+    "due_at[to]",
+    "open_at[from]",
+    "open_at[to]",
+    "capacity_sought_mw[gte]",
+    "budget_currency",
+    "budget_amount[gte]",
+    "first_seen[from]",
+    "first_seen[to]",
+    "last_changed[from]",
+    "last_changed[to]",
+    "updated_since",
+    "slug",
+)
+
+
+def save_alert_href(entity: str, params: QueryParams, *, origin: str | None = None) -> str:
+    """The "Save this search as an alert" link for a list or map view: `/alerts/new` carrying the
+    view's own query string (minus the page cursor), properly encoded. `web/alerts.py` turns it into
+    a saved-search query with the same passthrough lists the list pages use."""
+    kept: list[tuple[str, str]] = [("entity", entity)]
+    if origin:
+        kept.append(("origin", origin))
+    kept.extend((k, v) for k, v in params.multi_items() if k not in ("cursor", "entity", "origin") and v)
+    return "/alerts/new?" + urlencode(kept)
+
+
+def get_free_alerts(request: Request) -> dict[str, Any] | None:
+    """`GET /v1/health`'s `free_alerts` (`services/api/alert_plan.py`): whether a registered reader
+    may hold free email alerts, the cap and the cadences. Read per request, like
+    `get_platform_posture` and for the same reason (the setting lives on the API host), and cached
+    on `request.state` so one page asks once. `None` when the API cannot say, in which case pages
+    fall back to their pre-2026-09-30 wording rather than promise something the API may refuse."""
+    cached = getattr(request.state, "free_alerts", False)
+    if cached is not False:
+        return cast("dict[str, Any] | None", cached)
+    try:
+        value = get_api(request).get("/v1/health").get("free_alerts")
+    except API_UNAVAILABLE:
+        value = None
+    result = value if isinstance(value, dict) and value.get("active") else None
+    request.state.free_alerts = result
+    return result
+
+
+#: User agents that are not a reader: search and social crawlers, link unfurlers, uptime probes,
+#: headless browsers and HTTP libraries. Read only to decide whether to count, never stored.
+_NOT_A_READER = re.compile(
+    r"bot|crawl|spider|slurp|preview|headless|lighthouse|monitor|pingdom|curl|wget|python|httpx|"
+    r"go-http|java/|okhttp|facebookexternalhit|embedly|scrapy|feedfetcher|validator",
+    re.IGNORECASE,
+)
+
+
+def _post_page_view(api: ApiClient, page_type: str) -> None:
+    try:
+        api.post("/v1/ui-events", json={"name": "page.viewed", "props": {"page_type": page_type}})
+    except Exception:  # noqa: S110 -- measurement must never surface an error
+        pass
+
+
+_R = TypeVar("_R", bound=Response)
+
+
+def count_page_view(request: Request, response: _R, page_type: str) -> _R:
+    """Counts one view of a proposal, company, asset or grid-point page (owner decision 2026-09-30;
+    PM-5): first-party and aggregate only. The site's server records `page.viewed {page_type}` with
+    its own service identity after the response is sent (a background task, so the page never
+    waits on it and never fails for it). Nothing about the reader is sent or stored: no cookie, IP,
+    user agent, referrer or path. Crawlers, prefetches and HEAD requests are not counted."""
+    if request.method != "GET":
+        return response
+    agent = request.headers.get("user-agent", "")
+    purpose = (request.headers.get("purpose") or request.headers.get("sec-purpose") or "").lower()
+    if not agent or _NOT_A_READER.search(agent) or "prefetch" in purpose:
+        return response
+    response.background = BackgroundTask(_post_page_view, get_api(request), page_type)
+    return response
 
 
 def is_htmx(request: Request) -> bool:

@@ -11,7 +11,9 @@
 
 <section id="tiers">
   {{ m.section_heading("1.", "Tiers") }}
-  <p>The free tier shows every record, undelayed: a proposal or an opportunity is public the moment it is ingested. What the paid tier buys is shape, not freshness: alerts, the API and &mdash; once built &mdash; exports and watchlists. The Pro surfaces are live in the API; this public site does not expose them yet.</p>
+  <p>The free tier shows every record, undelayed: a proposal or an opportunity is public the moment it is ingested. What the paid tier buys is shape, not freshness: alerts, the API and &mdash; once built &mdash; exports and watchlists.
+  {%- if free_alerts %} While the platform operates as a noncommercial service the paid tiers are not offered, and email alerts are free to any registered reader: up to <span class="tnum">{{ free_alerts.cap }}</span> saved searches, each a daily or weekly digest. <a href="/alerts">Set up an alert</a>.
+  {%- else %} Saved searches and alerts are managed at <a href="/alerts">Alerts</a>; the API is reached with a key.{% endif %}</p>
   {%- if posture %}
   {#- The sentence is the API's (`GET /v1/health` `posture_statement`), derived from the
       PLATFORM_POSTURE setting; nothing about the posture is typed into this template. -#}

@@ -630,3 +630,65 @@ def read_verification_token(token: str) -> tuple[str, str] | None:
         return payload["uid"], payload["email"]
     except (BadSignature, KeyError, TypeError, ValueError):
         return None
+
+
+# ------------------------------------------------------- lockout recovery (QA-5, lane A1, 2026-09-30)
+# A lost cookie or a forgotten password had no way back: no reset, no "sign out other sessions"
+# (QA audit 2026-09-30, finding QA-5). Both reuse the machinery above -- the same signing secret
+# with its own salt, and the same `EmailPort` -- rather than adding a token table.
+
+_PASSWORD_RESET_SALT = "password-reset"  # noqa: S105 -- an itsdangerous salt (a namespace), not a secret
+PASSWORD_RESET_MAX_AGE_SECONDS = 3600
+
+
+def password_fingerprint(user: User) -> str:
+    """A short digest of the user's current password hash. Carried in the reset token, so the token
+    stops working the moment the password changes: single use, with no server-side token state."""
+    return hashlib.sha256((user.password_hash or "").encode()).hexdigest()[:16]
+
+
+def _password_reset_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(session_secret(), salt=_PASSWORD_RESET_SALT)
+
+
+def make_password_reset_token(user: User) -> str:
+    return _password_reset_serializer().dumps({"uid": user.public_id, "fp": password_fingerprint(user)})
+
+
+def read_password_reset_token(token: str) -> tuple[str, str] | None:
+    """`(uid, fingerprint)` for a valid token younger than `PASSWORD_RESET_MAX_AGE_SECONDS`, else `None`."""
+    try:
+        payload = _password_reset_serializer().loads(token, max_age=PASSWORD_RESET_MAX_AGE_SECONDS)
+        return str(payload["uid"]), str(payload["fp"])
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return None
+
+
+def send_password_reset_email(email_port: EmailPort, user: User, *, url: str) -> SentEmail:
+    """Sent only because the account holder asked for it on the sign-in page; dry-run (recorded,
+    never sent) whenever `RESEND_API_KEY` is unset."""
+    return email_port.send(
+        to=user.email or "",
+        subject="Reset your password",
+        body=(
+            f"Someone asked to reset the password for this address. To choose a new one, open:\n{url}\n\n"
+            "The link works once and for one hour. If you did not ask, ignore this email; your password "
+            "is unchanged."
+        ),
+    )
+
+
+def revoke_user_sessions(db: Session, user: User, *, keep: UserSession | None = None) -> int:
+    """Revokes every live session of `user` except `keep`; returns how many were revoked."""
+    now = dt.datetime.now(dt.UTC)
+    rows = db.scalars(
+        select(UserSession).where(UserSession.user_id == user.id, UserSession.revoked_at.is_(None))
+    ).all()
+    count = 0
+    for row in rows:
+        if keep is not None and row.id == keep.id:
+            continue
+        row.revoked_at = now
+        count += 1
+    db.flush()
+    return count

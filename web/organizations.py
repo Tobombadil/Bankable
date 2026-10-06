@@ -48,6 +48,7 @@ from web.page import (
     breadcrumb_jsonld,
     canonical_query,
     canonical_url,
+    count_page_view,
     get_api,
     group_nearby_proposals,
     is_htmx,
@@ -853,4 +854,4 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
         return not_found_response(request, "organisation")
     fetch = _organization_fetch(api, request, entity)
     compose = _organization_compose(request, api, entity, fetch)
-    return _organization_render(request, api, entity, fetch, compose)
+    return count_page_view(request, _organization_render(request, api, entity, fetch, compose), "company")

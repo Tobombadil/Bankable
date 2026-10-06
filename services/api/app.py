@@ -24,6 +24,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 from starlette.middleware.gzip import GZipMiddleware
 
+from services.api.alert_plan import free_alerts_summary
 from services.api.auth import AuthContext, get_auth_context, meter_credentialed_request
 from services.api.build_info import build_info, data_as_of
 from services.api.client_ip import is_internal_request, rate_limit_address
@@ -981,6 +982,10 @@ def get_health(
         # a secret.
         "posture": PLATFORM_POSTURE,
         "posture_statement": posture_statement(PLATFORM_POSTURE),
+        # Owner decision 2026-09-30 (`services/api/alert_plan.py`): whether a registered reader may
+        # hold free email alerts, the cap and the cadences, from the constant the saved-search
+        # routes enforce. The public site reads this to say so; it cannot read the API's setting.
+        "free_alerts": free_alerts_summary(),
     }
     return data
 

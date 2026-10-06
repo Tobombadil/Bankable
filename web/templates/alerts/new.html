@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Save an alert -- Infraque{% endblock %}
+{% block robots %}noindex, nofollow{% endblock %}
+{% block meta_description %}Save an Infraque search as an email alert.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Save this search as an alert</h1>
+  <p>You will get an email when a record in this view is added or changes: a new record, a status change, a capacity or date change. <a href="{{ back_href }}">Back to the results</a>.</p>
+</div>
+
+{%- if error %}
+<div class="notice notice--error" role="alert">
+  <p class="notice__title">{{ error.title }}</p>
+  {%- if error.detail %}<p>{{ error.detail }}</p>{% endif %}
+  {%- if error.request_id %}<p class="notice__ref">Reference <code class="tnum">{{ error.request_id }}</code></p>{% endif %}
+</div>
+{%- endif %}
+
+{%- if not plan %}
+<div class="notice" role="status">
+  <p class="notice__title">Email alerts are part of the paid plans.</p>
+  <p>The results stay free to read, and every list has an RSS feed. <a href="/pricing">See what the plans include</a>.</p>
+</div>
+{%- elif needs_verification %}
+<div class="notice" role="status">
+  <p class="notice__title">Verify your email address first.</p>
+  <p>Alerts go to your account's address, so it has to be confirmed before the first one is saved. Follow the link in the verification email, then come back to this page.</p>
+  <form method="post" action="/account/resend" class="inline-form">
+    <div class="form-actions"><button type="submit">Resend verification email</button></div>
+  </form>
+</div>
+{%- elif at_quota %}
+<div class="notice" role="status">
+  <p class="notice__title">You have used all <span class="tnum">{{ limit }}</span> of your alerts.</p>
+  <p><a href="/alerts">Delete one</a> to save this search.</p>
+</div>
+{%- endif %}
+
+<section aria-labelledby="alert-filters-heading">
+  <h2 id="alert-filters-heading" class="alert-section-heading">{{ entity_label }} this alert watches</h2>
+  {%- if filters %}
+  <dl class="alert-card__filters">
+    {%- for label, value in filters %}
+    <div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
+    {%- endfor %}
+  </dl>
+  {%- else %}
+  <p>Every {{ entity_label | lower }} record: no filters are set.</p>
+  {%- endif %}
+</section>
+
+{%- if plan and not needs_verification and not at_quota %}
+<form class="auth-form" method="post" action="/alerts" novalidate>
+  <input type="hidden" name="entity" value="{{ entity }}">
+  <input type="hidden" name="query" value="{{ query_encoded }}">
+  <div class="field">
+    <label for="alert-name">Name</label>
+    <input id="alert-name" name="name" type="text" maxlength="120" required value="{{ name }}"{% if error and error.field_errors and error.field_errors.name %} aria-invalid="true" aria-describedby="alert-name-error"{% endif %}>
+    {%- if error and error.field_errors and error.field_errors.name %}<p class="field__error" id="alert-name-error">{{ error.field_errors.name }}</p>{% endif %}
+  </div>
+  <fieldset class="field field--choices">
+    <legend>Email me</legend>
+    {%- for value, label in mode_options %}
+    <label for="alert-mode-{{ value }}"><input id="alert-mode-{{ value }}" type="radio" name="delivery_mode" value="{{ value }}"{% if value == delivery_mode %} checked{% endif %}> {{ label }}</label>
+    {%- endfor %}
+    {%- if error and error.field_errors and error.field_errors.delivery_mode %}<p class="field__error">{{ error.field_errors.delivery_mode }}</p>{% endif %}
+  </fieldset>
+  {%- if free %}
+  <p class="field-hint">Free while Infraque operates as a noncommercial service: up to <span class="tnum">{{ limit }}</span> alerts, <span class="tnum">{{ used }}</span> used.</p>
+  {%- endif %}
+  <div class="form-actions">
+    <button type="submit">Save alert</button>
+  </div>
+</form>
+{%- endif %}
+{% endblock %}

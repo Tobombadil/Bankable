@@ -25,7 +25,24 @@ response, RFC 9457 problem bodies via the app-wide exception handler. Mounted on
    docstring: SQLite round-trips `DateTime(timezone=True)` as naive) rather than filtering
    `expires_at` in SQL, which would behave differently across the SQLite test target and a real
    Postgres deployment.
-4. `dev_verification_url` is included in `register`/`resend-verification` responses only when the
+4. **The seat limit applies to paid accounts only** (owner decision 2026-09-30; audit PM-4). A
+   seat is a unit of a paid subscription (US-602 is a Pro-subscriber story; `account.seats` is the
+   subscription mirror's count). A free account has no seat to buy under either posture, so
+   counting its sessions against `seats = 1` only ever locked a registered reader to one device
+   for up to 30 days, with "add a seat" as the remedy. `SEAT_LIMITED_ENTITLEMENTS` is the paid
+   set; `admin` is a manual operator grant, not a subscription, and is not seat-limited either.
+   Keyed on the entitlement rather than on the posture: a posture rule would still lock free
+   readers out under `commercial` and would release paying accounts from their seat count
+   under `noncommercial`, and neither is what a seat means.
+5. **Lockout recovery** (QA-5, 2026-09-30). `POST /v1/auth/login` takes `sign_out_other_sessions:
+   true`: after the password is verified, the user's own other sessions are revoked before the seat
+   check, so a paid user whose old browser still holds the seat can get back in (other users'
+   sessions on the account are never touched). `POST /v1/auth/sessions/revoke-others` does the same
+   from a signed-in session. `POST /v1/auth/password-reset/request` always answers `202`, whether or
+   not the address has an account (no enumeration), and emails a signed one-hour link bound to the
+   current password hash (`services/api/auth.py::make_password_reset_token`), so it works once;
+   `POST /v1/auth/password-reset` sets the new password and revokes every session of that user.
+6. `dev_verification_url` is included in `register`/`resend-verification` responses only when the
    process-wide `EmailPort` is a dry-run `ResendEmailAdapter` (no `RESEND_API_KEY` configured) —
    documented on the field in `api/fragments/auth.yaml`, never present against a real provider.
 """
@@ -47,12 +64,18 @@ from services.api.auth import (
     authenticate_user,
     create_session,
     get_auth_context,
+    hash_password,
     iter_client_ip_prefix,
+    make_password_reset_token,
     make_verification_token,
+    password_fingerprint,
+    read_password_reset_token,
     read_verification_token,
     register_user,
     resolve_session_row,
     revoke_session,
+    revoke_user_sessions,
+    send_password_reset_email,
     send_verification_email,
 )
 from services.api.common import WEB_HOST, utcnow
@@ -76,8 +99,11 @@ SESSION_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 3600  # matches services/api/auth.py 
 _REGISTER_LIMIT = 10
 _LOGIN_LIMIT = 20
 _RESEND_LIMIT = 5
+_RESET_LIMIT = 5
 _MIN_PASSWORD_LENGTH = 12
 _MAX_EMAIL_LENGTH = 254
+#: Entitlements whose logins count against `account.seats` (module docstring, decision 4).
+SEAT_LIMITED_ENTITLEMENTS = frozenset({"pro", "api"})
 
 
 # ------------------------------------------------------------------------------------ email port
@@ -263,19 +289,22 @@ def login(
     if account is None:  # pragma: no cover - every active user has an account row
         raise ProblemError("unauthenticated", "Invalid email or password", instance=request.url.path)
 
-    active_sessions = _active_session_count(db, account)
-    if active_sessions >= account.seats:
-        raise ProblemError(
-            "seat_limit",
-            "Seat limit reached",
-            detail=(
-                f"This account has {account.seats} seat"
-                f"{'s' if account.seats != 1 else ''} and {active_sessions} active "
-                f"session{'s' if active_sessions != 1 else ''}. Sign out another session or add a "
-                "seat."
-            ),
-            instance=request.url.path,
-        )
+    if body.get("sign_out_other_sessions") is True:
+        revoke_user_sessions(db, user)
+    if account.entitlement in SEAT_LIMITED_ENTITLEMENTS:
+        active_sessions = _active_session_count(db, account)
+        if active_sessions >= account.seats:
+            raise ProblemError(
+                "seat_limit",
+                "Seat limit reached",
+                detail=(
+                    f"This account has {account.seats} seat"
+                    f"{'s' if account.seats != 1 else ''} and {active_sessions} active "
+                    f"session{'s' if active_sessions != 1 else ''}. Sign out another session, sign in "
+                    "again with sign_out_other_sessions to end your own other sessions, or add a seat."
+                ),
+                instance=request.url.path,
+            )
 
     ip_prefix = iter_client_ip_prefix(request)
     _row, cookie_value = create_session(db, user, ip_prefix=ip_prefix)
@@ -371,3 +400,85 @@ def resend_verification(
     if getattr(email_port, "dry_run", False):
         data["dev_verification_url"] = _verification_url(token)
     return data
+
+
+# ---------------------------------------------------------------- lockout recovery (decision 5)
+@router.post("/v1/auth/sessions/revoke-others")
+def revoke_other_sessions(
+    db: Annotated[Session, Depends(get_db)],
+    session: Annotated[str | None, Cookie()] = None,
+) -> Any:
+    row = resolve_session_row(db, session) if session else None
+    if row is None:
+        raise ProblemError("unauthenticated", "A signed-in session is required")
+    user = db.get(User, row.user_id)
+    if user is None:  # pragma: no cover - a session row always names its user
+        raise ProblemError("unauthenticated", "A signed-in session is required")
+    return {"revoked": revoke_user_sessions(db, user, keep=row)}
+
+
+def _reset_url(token: str) -> str:
+    return f"{WEB_HOST}/reset-password?token={token}"
+
+
+@router.post("/v1/auth/password-reset/request", status_code=202)
+def request_password_reset(
+    body: dict[str, Any],
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    email_port: Annotated[EmailPort, Depends(get_email_port)],
+) -> Any:
+    email = str(body.get("email") or "")
+    if _email_error(email):
+        raise ProblemError(
+            "validation_error",
+            "Invalid request",
+            errors=[{"field": "email", "message": _email_error(email) or ""}],
+            instance=request.url.path,
+        )
+    _rate_limit(f"auth-reset:{_client_ip_key(request)}", limit=_RESET_LIMIT)
+    data: dict[str, Any] = {"reset_requested": True}
+    user = db.scalar(select(User).where(User.email == email.lower(), User.status == "active"))
+    if user is not None and user.password_hash:
+        url = _reset_url(make_password_reset_token(user))
+        send_password_reset_email(email_port, user, url=url)
+        if getattr(email_port, "dry_run", False):
+            data["dev_reset_url"] = url
+    return data
+
+
+@router.post("/v1/auth/password-reset")
+def reset_password(
+    body: dict[str, Any],
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> Any:
+    _rate_limit(f"auth-reset:{_client_ip_key(request)}", limit=_RESET_LIMIT)
+    invalid = ProblemError(
+        "validation_error",
+        "Invalid request",
+        detail="This reset link is invalid, expired or already used. Ask for a new one.",
+        errors=[{"field": "token", "message": "invalid, expired or already used"}],
+        instance=request.url.path,
+    )
+    token = str(body.get("token") or "")
+    result = read_password_reset_token(token) if token else None
+    if result is None:
+        raise invalid
+    uid, fingerprint = result
+    user = db.scalar(select(User).where(User.public_id == uid, User.status == "active"))
+    if user is None or password_fingerprint(user) != fingerprint:
+        raise invalid
+    password = str(body.get("password") or "")
+    password_err = _password_error(password)
+    if password_err:
+        raise ProblemError(
+            "validation_error",
+            "Invalid request",
+            errors=[{"field": "password", "message": password_err}],
+            instance=request.url.path,
+        )
+    user.password_hash = hash_password(password)
+    revoked = revoke_user_sessions(db, user)
+    db.flush()
+    return {"password_reset": True, "sessions_revoked": revoked}

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from services.alerts.feed import generate_rss_token, matching_items_for_feed
 from services.alerts.webhooks import create_test_delivery, replay_from_seq
+from services.api.alert_plan import SAVED_SEARCH_QUOTA, AlertPlan, alert_plan_for, require_alert_access
 from services.api.audit import record_audit_event
 from services.api.auth import (
     AuthContext,
@@ -62,9 +63,13 @@ from services.api.serialize import (
 from services.billing.router import subscriptions_for_account
 from services.db.models import (
     ACCOUNT_ENTITLEMENTS,
+    ALERT_CHANNELS,
+    SAVED_SEARCH_DELIVERY_MODES,
+    SAVED_SEARCH_STATUSES,
     Account,
     Alert,
     ApiKey,
+    Event,
     Organization,
     SavedSearch,
     UiEvent,
@@ -81,7 +86,6 @@ router = APIRouter()
 #: YAML parse at import time for a value that only changes with a deliberate licence revision.
 API_LICENCE_VERSION = "api-licence-1.0"
 API_LICENCE_URL = "https://infraque.com/legal/api-licence"
-SAVED_SEARCH_QUOTA = 25
 MAX_API_KEYS_PER_USER = 5
 MAX_WEBHOOKS_PER_ACCOUNT = 10
 
@@ -122,6 +126,7 @@ def get_me(
     # (`ratelimit.PLAN_QUOTAS`, lane E6b); before those routes existed they were `None` here. Bulk
     # is a key scope, so a session reads `None` for it whatever the plan.
     quota = plan_quota(ctx.entitlement)
+    plan = alert_plan_for(ctx)
     data: dict[str, Any] = {
         "user": serialize_user(me_user, account_public_id=account.public_id),
         "account": serialize_account(account),
@@ -136,12 +141,15 @@ def get_me(
             "daily_cap": None,
         },
         "saved_search_quota": {
-            "limit": SAVED_SEARCH_QUOTA,
+            "limit": plan.quota if plan is not None else SAVED_SEARCH_QUOTA,
             "used": db.scalar(
                 select(func.count()).select_from(SavedSearch).where(SavedSearch.user_id == me_user.id)
             )
             or 0,
         },
+        # What this caller may hold (`services/api/alert_plan.py`): `null` when saved searches are
+        # not available to it at all, so a page can say so rather than offer a form that 403s.
+        "alert_plan": plan.as_dict() if plan is not None else None,
         "api_licence": {"current_version": API_LICENCE_VERSION, "url": API_LICENCE_URL},
     }
     if ctx.api_key is not None:
@@ -243,6 +251,119 @@ def validate_saved_search_query(db: Session, entity: str, query: dict[str, Any],
         event_query_with_filters(request, db, "public")
 
 
+def _plan(ctx: AuthContext, instance: str) -> AlertPlan:
+    """The caller's plan. `require_alert_access` has already refused anyone without one; this only
+    turns the `Optional` into a value for the type checker (and fails closed if that ever changed)."""
+    plan = alert_plan_for(ctx)
+    if plan is None:  # pragma: no cover - unreachable behind require_alert_access
+        raise ProblemError("forbidden_tier", "Insufficient entitlement", instance=instance)
+    return plan
+
+
+#: `api/openapi.yaml` `SavedSearchCreate` / `SavedSearchUpdate`: the only keys each body may carry.
+_CREATE_FIELDS = frozenset({"name", "entity", "query", "delivery_mode", "channels"})
+_UPDATE_FIELDS = frozenset({"name", "query", "delivery_mode", "channels", "status"})
+_NAME_MAX_LENGTH = 120
+
+
+def _field_error(field: str, message: str, instance: str) -> ProblemError:
+    return validation_error(field, message, instance)
+
+
+def validate_saved_search_body(
+    plan: AlertPlan, body: dict[str, Any], *, creating: bool, instance: str
+) -> None:
+    """The create/update body against its schema, then against the caller's plan (QA-6, 2026-09-30).
+
+    Before, `PATCH` copied known keys unchecked and ignored the rest: `{"paused": true}` answered 200
+    and the search kept alerting; an off-vocabulary `status` or `delivery_mode` reached the database
+    CHECK and answered 500; `{"channels": "email"}` was stored as five one-letter channels. Now a
+    key the operation does not take, a value outside the vocabulary, a non-list or empty `channels`,
+    and an empty or over-long `name` are each `400 validation_error` naming the field (docs/23 §8's
+    code for a bad parameter; this API has no 422 for it). Then the plan: a delivery mode or channel
+    the caller's plan does not carry is `403 forbidden_tier`, naming what it does carry."""
+    allowed = _CREATE_FIELDS if creating else _UPDATE_FIELDS
+    for key in body:
+        if key not in allowed:
+            hint = ' To pause, send {"status": "paused"}.' if key == "paused" else ""
+            raise _field_error(
+                key, f"not a field of this operation; allowed: {', '.join(sorted(allowed))}.{hint}", instance
+            )
+    if not creating and not body:
+        raise _field_error("body", "give at least one field to change", instance)
+    if creating or "name" in body:
+        name = body.get("name")
+        if not isinstance(name, str) or not name.strip() or len(name) > _NAME_MAX_LENGTH:
+            raise _field_error("name", f"must be a string of 1 to {_NAME_MAX_LENGTH} characters", instance)
+    if creating and body.get("entity") not in SAVED_SEARCH_ENTITIES:
+        raise _field_error("entity", f"must be one of {', '.join(SAVED_SEARCH_ENTITIES)}", instance)
+    if (creating or "query" in body) and not isinstance(body.get("query"), dict):
+        raise _field_error("query", "must be an object of list filters", instance)
+    delivery_mode = body.get("delivery_mode")
+    if "delivery_mode" in body and delivery_mode not in SAVED_SEARCH_DELIVERY_MODES:
+        raise _field_error(
+            "delivery_mode", f"must be one of {', '.join(SAVED_SEARCH_DELIVERY_MODES)}", instance
+        )
+    channels = body.get("channels")
+    if "channels" in body:
+        if (
+            not isinstance(channels, list)
+            or not channels
+            or not all(isinstance(c, str) and c in ALERT_CHANNELS for c in channels)
+            or len(set(channels)) != len(channels)
+        ):
+            raise _field_error(
+                "channels",
+                f"must be a non-empty list of distinct channels from {', '.join(ALERT_CHANNELS)}; "
+                'to stop delivery, send {"status": "paused"}',
+                instance,
+            )
+    if "status" in body and body.get("status") not in SAVED_SEARCH_STATUSES:
+        raise _field_error("status", f"must be one of {', '.join(SAVED_SEARCH_STATUSES)}", instance)
+    if plan.basis != "free":
+        return
+    if delivery_mode is not None and delivery_mode not in plan.delivery_modes:
+        raise ProblemError(
+            "forbidden_tier",
+            "Delivery mode not included in free alerts",
+            detail=(
+                f"Free alerts are delivered as a {' or '.join(plan.delivery_modes)} email digest; "
+                f"{delivery_mode!r} delivery is part of the paid plans, which are not currently offered."
+            ),
+            errors=[
+                {"field": "delivery_mode", "message": f"must be one of {', '.join(plan.delivery_modes)}"}
+            ],
+            instance=instance,
+        )
+    if channels is not None and any(c not in plan.channels for c in channels):
+        raise ProblemError(
+            "forbidden_tier",
+            "Channel not included in free alerts",
+            detail="Free alerts are delivered by email only.",
+            errors=[{"field": "channels", "message": f"must be a subset of {', '.join(plan.channels)}"}],
+            instance=instance,
+        )
+
+
+def _name_taken(db: Session, user_id: Any, name: str, *, except_id: Any = None) -> bool:
+    stmt = select(SavedSearch.id).where(SavedSearch.user_id == user_id, SavedSearch.name == name)
+    if except_id is not None:
+        stmt = stmt.where(SavedSearch.id != except_id)
+    return db.scalar(stmt) is not None
+
+
+def _name_conflict(name: str, instance: str) -> ProblemError:
+    # `one_name_per_user` (docs/21 §3.15) would otherwise surface as a database error; the
+    # operations' documented answer is `409 conflict`.
+    return ProblemError(
+        "conflict",
+        "An alert with this name already exists",
+        detail=f"You already have a saved search named {name!r}; choose another name.",
+        errors=[{"field": "name", "message": "already used by another of your saved searches"}],
+        instance=instance,
+    )
+
+
 def _query_hash(query: dict[str, Any]) -> str:
     import json
 
@@ -254,7 +375,7 @@ def list_saved_searches(
     request: Request,
     response: Response,
     db: Annotated[Session, Depends(get_db)],
-    ctx: Annotated[AuthContext, Depends(require_entitlement("pro"))],
+    ctx: Annotated[AuthContext, Depends(require_alert_access())],
 ) -> Any:
     check_allowed(request, {"limit", "cursor"})
     for k, v in _rate_limit_headers(request, ctx).items():
@@ -278,26 +399,50 @@ def create_saved_search(
     response: Response,
     body: dict[str, Any],
     db: Annotated[Session, Depends(get_db)],
-    ctx: Annotated[AuthContext, Depends(require_entitlement("pro"))],
+    ctx: Annotated[AuthContext, Depends(require_alert_access())],
 ) -> Any:
     for k, v in _rate_limit_headers(request, ctx).items():
         response.headers[k] = v
     if ctx.user is None or ctx.account is None:
         raise not_found(request.url.path)
-    name = body.get("name")
-    entity = body.get("entity")
-    query = body.get("query")
-    if not name or entity not in SAVED_SEARCH_ENTITIES or not isinstance(query, dict):
-        raise validation_error("name", "name, entity and query are required", request.url.path)
-    validate_saved_search_query(db, entity, query, request.url.path)
+    instance = request.url.path
+    plan = _plan(ctx, instance)
+    body = {**body}
+    body.setdefault("delivery_mode", "daily")
+    if body.get("channels") is None:
+        body["channels"] = ["email"]
+    validate_saved_search_body(plan, body, creating=True, instance=instance)
+    name, entity, query = str(body["name"]).strip(), str(body["entity"]), dict(body["query"])
+    channels, delivery_mode = list(body["channels"]), str(body["delivery_mode"])
+    validate_saved_search_query(db, entity, query, instance)
+    if plan.requires_verified_email and ctx.user.email_verified_at is None:
+        raise ProblemError(
+            "forbidden_tier",
+            "Verify your email address first",
+            detail=(
+                "Alerts are sent to your account's email address, so it has to be verified before "
+                "the first one is created. Follow the link in the verification email, or ask for a "
+                "new one from your account page."
+            ),
+            instance=instance,
+        )
     existing = db.scalar(
         select(func.count()).select_from(SavedSearch).where(SavedSearch.user_id == ctx.user.id)
     )
-    if (existing or 0) >= SAVED_SEARCH_QUOTA:
-        raise ProblemError(
-            "forbidden_tier", "Saved search quota exceeded", detail=f"Limit is {SAVED_SEARCH_QUOTA}."
-        )
-    channels = body.get("channels") or ["email"]
+    if (existing or 0) >= plan.quota:
+        if plan.basis == "free":
+            raise ProblemError(
+                "forbidden_tier",
+                "Free alert limit reached",
+                detail=(
+                    f"Free accounts can keep up to {plan.quota} alerts while the platform operates "
+                    "as a noncommercial service. Delete one to add another; a paused alert still counts."
+                ),
+                instance=instance,
+            )
+        raise ProblemError("forbidden_tier", "Saved search quota exceeded", detail=f"Limit is {plan.quota}.")
+    if _name_taken(db, ctx.user.id, name):
+        raise _name_conflict(name, instance)
     search = SavedSearch(
         public_id="",
         user_id=ctx.user.id,
@@ -306,9 +451,14 @@ def create_saved_search(
         entity=entity,
         query=query,
         query_hash=_query_hash(query),
-        delivery_mode=body.get("delivery_mode", "daily"),
+        delivery_mode=delivery_mode,
         channels=channels,
         rss_token=generate_rss_token() if "rss" in channels else None,
+        # US-502: an alert is "an email when a saved search gains a new record or event", so it
+        # starts at the head of the event log. From 0 its first digest was every matching event
+        # ever recorded -- hundreds of lines for a broad search, sent to a reader who has just
+        # signed up. The private RSS feed and `/preview` read current matches and are unaffected.
+        watermark_seq=db.scalar(select(func.max(Event.seq))) or 0,
     )
     db.add(search)
     db.flush()
@@ -336,7 +486,7 @@ def get_saved_search(
     saved_search_id: str,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    ctx: Annotated[AuthContext, Depends(require_entitlement("pro"))],
+    ctx: Annotated[AuthContext, Depends(require_alert_access())],
 ) -> Any:
     search = _get_owned_saved_search(db, ctx, saved_search_id, request.url.path)
     return build_envelope(
@@ -352,11 +502,15 @@ def update_saved_search(
     request: Request,
     body: dict[str, Any],
     db: Annotated[Session, Depends(get_db)],
-    ctx: Annotated[AuthContext, Depends(require_entitlement("pro"))],
+    ctx: Annotated[AuthContext, Depends(require_alert_access())],
 ) -> Any:
     search = _get_owned_saved_search(db, ctx, saved_search_id, request.url.path)
+    validate_saved_search_body(_plan(ctx, request.url.path), body, creating=False, instance=request.url.path)
     if "name" in body:
-        search.name = body["name"]
+        name = str(body["name"]).strip()
+        if _name_taken(db, search.user_id, name, except_id=search.id):
+            raise _name_conflict(name, request.url.path)
+        search.name = name
     if "query" in body:
         if not isinstance(body["query"], dict):
             raise validation_error("query", "query must be an object", request.url.path)
@@ -386,7 +540,7 @@ def delete_saved_search(
     saved_search_id: str,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    ctx: Annotated[AuthContext, Depends(require_entitlement("pro"))],
+    ctx: Annotated[AuthContext, Depends(require_alert_access())],
 ) -> Response:
     search = _get_owned_saved_search(db, ctx, saved_search_id, request.url.path)
     db.delete(search)
@@ -399,7 +553,7 @@ def preview_saved_search(
     saved_search_id: str,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    ctx: Annotated[AuthContext, Depends(require_entitlement("pro"))],
+    ctx: Annotated[AuthContext, Depends(require_alert_access())],
 ) -> Any:
     search = _get_owned_saved_search(db, ctx, saved_search_id, request.url.path)
     if ctx.account is None:
@@ -418,7 +572,7 @@ def preview_saved_search(
 def list_alerts(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    ctx: Annotated[AuthContext, Depends(require_entitlement("pro"))],
+    ctx: Annotated[AuthContext, Depends(require_alert_access())],
 ) -> Any:
     check_allowed(request, {"limit", "cursor", "saved_search_id", "status", "sent_at[from]", "sent_at[to]"})
     if ctx.user is None:
@@ -442,7 +596,7 @@ def get_alert(
     alert_id: str,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    ctx: Annotated[AuthContext, Depends(require_entitlement("pro"))],
+    ctx: Annotated[AuthContext, Depends(require_alert_access())],
 ) -> Any:
     alert = db.scalar(select(Alert).where(Alert.public_id == alert_id))
     if alert is None or ctx.user is None or alert.user_id != ctx.user.id:

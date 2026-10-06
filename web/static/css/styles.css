@@ -842,9 +842,10 @@ h3 { font-size: var(--text-4); }
    visible echo of the "This is the plan you picked" line, never the only signal (SC 1.4.1). */
 .tier--selected { border-width: 2px; border-color: var(--link); }
 /* docs/26 §3 precondition (i): visible but not on offer while the platform posture is
-   `noncommercial`. Opacity only, no new token, and never the sole signal -- the "not currently
-   offered" field-hint text in the CTA carries the fact for anyone who cannot see the dimming. */
-.tier--inactive { opacity: 0.7; }
+   `noncommercial`. A dashed border on the page ground, no new token, and never the sole signal --
+   the "not currently offered" field-hint text in the CTA carries the fact. It was `opacity: 0.7`
+   until 2026-09-30, which took the muted text under 4.5:1 (axe color-contrast, lane A1). */
+.tier--inactive { border-style: dashed; background: transparent; }
 .tier h2 { font-size: var(--text-4); margin: 0; }
 .tier__price { font-size: var(--text-5); margin: 0; line-height: 1.1; }
 .tier__period { display: block; font-size: var(--text-1); color: var(--text-muted); font-weight: 400; }
@@ -875,3 +876,65 @@ h3 { font-size: var(--text-4); }
 @media (max-width: 719px) {
   .tier-list { grid-template-columns: 1fr; gap: var(--space-4); }
 }
+
+/* ---------- 13. Alerts (`web/alerts.py`, owner decision 2026-09-30; docs/31 §5.10) ----------
+   The saved-search card is a list item in one column, never a tile grid (D-1): a hairline-ruled
+   panel like the pricing tiers, tokens only, so it inverts with the rest of the site. State is
+   carried by the status chip's words and icon and by the action's own label ("Resume", not a
+   colour), never by colour alone (SC 1.4.1). Buttons are at least 2.25rem tall (SC 2.5.8). */
+.save-alert { margin: 0 0 var(--space-3); font-size: var(--text-2); }
+.save-alert__hint { color: var(--text-muted); font-size: var(--text-1); }
+.alert-plan { max-width: 72ch; color: var(--text); }
+.alert-toolbar {
+  display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); align-items: baseline;
+  border-bottom: 1px solid var(--border); padding-bottom: var(--space-3); margin-bottom: var(--space-4);
+}
+.alert-toolbar p { margin: 0; }
+.alert-quota { font-weight: 600; }
+.alert-list { list-style: none; margin: 0 0 var(--space-6); padding: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.alert-card {
+  border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface);
+  padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); min-width: 0;
+}
+.alert-card__head { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); align-items: baseline; }
+.alert-card__name { font-size: var(--text-4); margin: 0; overflow-wrap: anywhere; }
+.alert-card__meta { margin: 0; color: var(--text-muted); font-size: var(--text-1); }
+.alert-card__filters {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: var(--space-2) var(--space-4);
+  margin: var(--space-2) 0; padding: 0;
+}
+.alert-card__filters dt {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.alert-card__filters dd { margin: 0; overflow-wrap: anywhere; }
+.alert-card__actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-top: var(--space-2); }
+.alert-card__actions form { margin: 0; }
+.alert-section-heading { font-size: var(--text-4); margin: var(--space-5) 0 var(--space-2); }
+.button-secondary {
+  font: inherit; font-size: var(--text-2); padding: var(--space-1) var(--space-4); min-height: 2.25rem;
+  border-radius: var(--radius-2); border: 1px solid var(--link); background: transparent; color: var(--link);
+  cursor: pointer;
+}
+.button-secondary:hover { background: var(--link); color: var(--surface); }
+.button-secondary:focus-visible, .button-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.button-secondary--danger { border-color: var(--family-danger-text); color: var(--family-danger-text); }
+.button-secondary--danger:hover { background: var(--family-danger-text); color: var(--surface); }
+.button-link {
+  display: inline-flex; align-items: center; min-height: 2.5rem; padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-2); border: 1px solid var(--link); background: var(--link); color: var(--surface);
+  text-decoration: none; font-weight: 600;
+}
+.button-link:visited { color: var(--surface); }
+.button-link--secondary, .button-link--secondary:visited { background: transparent; color: var(--link); }
+.field--choices { border: none; margin: 0; padding: 0; gap: var(--space-2); }
+.field--choices legend {
+  font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted); padding: 0; margin-bottom: var(--space-1);
+}
+.field--choices label {
+  display: flex; align-items: center; gap: var(--space-2); min-height: 2rem;
+  font-family: var(--font-body); font-size: var(--text-2); text-transform: none; letter-spacing: normal; color: var(--text);
+}
+.field--choices input[type="radio"] { width: 1.15rem; height: 1.15rem; }
+.field input[type="text"] { width: 100%; }

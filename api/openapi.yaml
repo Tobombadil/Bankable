@@ -2121,10 +2121,11 @@ paths:
       tags: [Account]
       summary: Sign in with email and password
       description: |
-        `authenticate_user` plus the seat check US-602 AC2 requires: a login above
-        `account.seats` concurrent, non-revoked, unexpired sessions is refused with
-        `403 seat_limit` naming the seat count and the active session count, rather than silently
-        evicting another session.
+        `authenticate_user` plus the seat check US-602 AC2 requires: on a paid account (`pro`, `api`
+        entitlement) a login above `account.seats` concurrent, non-revoked, unexpired sessions is
+        refused with `403 seat_limit` naming the seat count and the active session count, rather than
+        silently evicting another session. A free (`public`) or `admin` account has no seats to count
+        and is never refused on this ground (owner decision 2026-09-30; docs/26 §7).
       x-tier: public
       x-status: live
       x-sprint: 3
@@ -2240,6 +2241,131 @@ paths:
                     description: Present only when no `RESEND_API_KEY` is configured (dry-run `EmailPort`) — never present against a real provider.
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        <<: *common_errors
+
+  /v1/auth/sessions/revoke-others:
+    post:
+      operationId: authRevokeOtherSessions
+      tags: [Account]
+      summary: Sign out every other session of the signed-in user
+      description: |
+        Revokes every live session of the caller's user except the one making the request, and answers how many
+        were revoked. Other users' sessions on the same account are untouched. Lockout recovery (QA-5,
+        2026-09-30): a paid account's seat count is concurrent sessions, and a lost browser kept its seat for 30 days.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - Session: []
+      responses:
+        '200':
+          description: Other sessions revoked.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked:
+                    type: integer
+                    minimum: 0
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        <<: *common_errors
+
+  /v1/auth/password-reset/request:
+    post:
+      operationId: authRequestPasswordReset
+      tags: [Account]
+      summary: Email a password-reset link
+      description: |
+        Always `202`, whether or not the address has an account, so the answer reveals nothing. When it does,
+        a signed link valid for one hour and bound to the current password hash (so it works once) is sent
+        through the `EmailPort`. `dev_reset_url` is present only when no `RESEND_API_KEY` is configured
+        (dry-run) and a link was made; never against a real provider. Rate-limited per address prefix.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '202':
+          description: Accepted.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reset_requested]
+                properties:
+                  reset_requested:
+                    type: boolean
+                  dev_reset_url:
+                    type: string
+                    description: Dry-run only (no `RESEND_API_KEY`), and only when a link was made.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/auth/password-reset:
+    post:
+      operationId: authResetPassword
+      tags: [Account]
+      summary: Set a new password with a reset link's token
+      description: |
+        Sets the password (same rule as registration) and revokes every session of that user, so a stolen
+        cookie stops working too. An invalid, expired or already-used token is `400 validation_error` naming
+        `token`.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-602]
+      security:
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  minLength: 12
+      responses:
+        '200':
+          description: Password changed; every session of the user revoked.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [password_reset, sessions_revoked]
+                properties:
+                  password_reset:
+                    type: boolean
+                  sessions_revoked:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
         <<: *common_errors
 
   /v1/me:
@@ -2381,7 +2507,13 @@ paths:
       operationId: listSavedSearches
       tags: [Saved searches & alerts]
       summary: List saved searches
-      description: Mode, `last_run_at`, `last_match_count` and status per saved search (US-504 AC1).
+      description: |
+        Mode, `last_run_at`, `last_match_count` and status per saved search (US-504 AC1).
+
+        **Free alerts under the noncommercial posture** (owner decision 2026-09-30; docs/26 §7): while
+        paid tiers are inactive (`GET /v1/health` `free_alerts.active`), a signed-in `public` session
+        passes this operation's entitlement check too, on the free plan `GET /v1/me` reports as
+        `alert_plan`. Under the `commercial` posture nothing changes: `pro` or above, as before.
       x-tier: pro
       x-status: live
       x-sprint: 2
@@ -2414,6 +2546,19 @@ paths:
         (US-501 AC2). Any filtered list — proposals, opportunities, events, matches — can be saved (US-501 AC1).
         Limit 25 per user (configurable); the 26th answers `403 forbidden_tier` naming the quota. `delivery_mode`
         defaults to `daily` (US-502 AC1); `channels` may include `rss`, which mints a private `rss_token` feed.
+        A `delivery_mode` or `status` outside the vocabulary is `400 validation_error`; a name the caller
+        already uses is `409 conflict`. A new saved search starts at the head of the event log
+        (`watermark_seq` = the newest `event.seq`), so its first digest carries changes after it was saved.
+
+        **Free alerts under the noncommercial posture** (owner decision 2026-09-30; docs/26 §7): while
+        paid tiers are inactive (`GET /v1/health` `free_alerts.active`), a signed-in `public` session
+        passes this operation's entitlement check too, on the free plan `GET /v1/me` reports as
+        `alert_plan`. Under the `commercial` posture nothing changes: `pro` or above, as before.
+        The free plan: at most `FREE_ALERT_CAP` saved searches (default 10; the next answers
+        `403 forbidden_tier` "Free alert limit reached"; a paused one still counts), `delivery_mode`
+        `daily` or `weekly` only and `channels` `[email]` only (anything else is `403 forbidden_tier`
+        naming the field), and the user's email must be verified before the first is created
+        (`403 forbidden_tier` "Verify your email address first").
 
         `query` is held to the `entity`'s list endpoint: a key that list does not filter on answers
         `400 unknown_parameter` naming it (proposals: that list's filters plus `q`; opportunities likewise;
@@ -2461,6 +2606,11 @@ paths:
       operationId: getSavedSearch
       tags: [Saved searches & alerts]
       summary: Saved search detail
+      description: |
+        **Free alerts under the noncommercial posture** (owner decision 2026-09-30; docs/26 §7): while
+        paid tiers are inactive (`GET /v1/health` `free_alerts.active`), a signed-in `public` session
+        passes this operation's entitlement check too, on the free plan `GET /v1/me` reports as
+        `alert_plan`. Under the `commercial` posture nothing changes: `pro` or above, as before.
       x-tier: pro
       x-status: live
       x-sprint: 2
@@ -2483,7 +2633,16 @@ paths:
       operationId: updateSavedSearch
       tags: [Saved searches & alerts]
       summary: Edit or pause a saved search
-      description: Name, query, delivery mode, channels or `status` (`active` | `paused`); the change is reflected in the next delivery cycle (US-504 AC1). A new `query` is validated as on create (`400 unknown_parameter` for a key the entity's list does not filter on).
+      description: |
+        Name, query, delivery mode, channels or `status` (`active` | `paused`); the change is reflected in the next
+        delivery cycle (US-504 AC1). A new `query` is validated as on create (`400 unknown_parameter` for a key the
+        entity's list does not filter on); a `delivery_mode` or `status` outside the vocabulary is
+        `400 validation_error`. On the free plan the same delivery-mode and channel limits as on create apply.
+
+        **Free alerts under the noncommercial posture** (owner decision 2026-09-30; docs/26 §7): while
+        paid tiers are inactive (`GET /v1/health` `free_alerts.active`), a signed-in `public` session
+        passes this operation's entitlement check too, on the free plan `GET /v1/me` reports as
+        `alert_plan`. Under the `commercial` posture nothing changes: `pro` or above, as before.
       x-tier: pro
       x-status: live
       x-sprint: 2
@@ -2516,7 +2675,7 @@ paths:
       operationId: deleteSavedSearch
       tags: [Saved searches & alerts]
       summary: Delete a saved search
-      description: Stops its alerts within one delivery cycle and revokes its `rss_token` (US-504 AC1, US-502 AC3).
+      description: Stops its alerts within one delivery cycle and revokes its `rss_token` (US-504 AC1, US-502 AC3). Under the noncommercial posture a signed-in `public` session passes too (free alerts, see `createSavedSearch`).
       x-tier: pro
       x-status: live
       x-sprint: 2
@@ -2540,7 +2699,7 @@ paths:
       operationId: previewSavedSearch
       tags: [Saved searches & alerts]
       summary: Run the query now
-      description: Returns the records or events the saved search would alert on, from the caller's tier, without moving `watermark_seq` (US-501 AC2).
+      description: Returns the records or events the saved search would alert on, from the caller's tier, without moving `watermark_seq` (US-501 AC2). Under the noncommercial posture a signed-in `public` session passes too (free alerts, see `createSavedSearch`).
       x-tier: pro
       x-status: live
       x-sprint: 2
@@ -2654,7 +2813,14 @@ paths:
       operationId: listAlerts
       tags: [Saved searches & alerts]
       summary: Alert delivery history
-      description: One row per delivery with `event_seqs`, `sent_at`, `status` and `provider_message_id` — the source of truth for metric M-5 (US-502 AC4).
+      description: |
+        One row per delivery with `event_seqs`, `sent_at`, `status` and `provider_message_id` — the source of
+        truth for metric M-5 (US-502 AC4).
+
+        **Free alerts under the noncommercial posture** (owner decision 2026-09-30; docs/26 §7): while
+        paid tiers are inactive (`GET /v1/health` `free_alerts.active`), a signed-in `public` session
+        passes this operation's entitlement check too, on the free plan `GET /v1/me` reports as
+        `alert_plan`. Under the `commercial` posture nothing changes: `pro` or above, as before.
       x-tier: pro
       x-status: live
       x-sprint: 2
@@ -2690,6 +2856,7 @@ paths:
       operationId: getAlert
       tags: [Saved searches & alerts]
       summary: Alert detail
+      description: One delivery. Under the noncommercial posture a signed-in `public` session passes too (free alerts, see `createSavedSearch`).
       x-tier: pro
       x-status: live
       x-sprint: 2
@@ -6008,7 +6175,7 @@ components:
         Signed HTTP-only `Secure` `SameSite=Lax` cookie backed by a revocable server-side `session` row
         (docs/20 §7; docs/04 S-2). Issued by passwordless magic link or Google sign-in. The role list on a security
         requirement names the entitlement (`pro`, `api`) or `user.role` (`member`, `owner`) required; an empty
-        list means any signed-in user. Concurrent sessions above `account.seats` answer `403 seat_limit`.
+        list means any signed-in user. On a paid account, concurrent sessions above `account.seats` answer `403 seat_limit`.
     AdminSession:
       type: apiKey
       in: cookie
@@ -7375,7 +7542,7 @@ components:
             request_id: req_9f2c1a
             docs: https://infraque.com/docs/api/errors#licence_gated
     SeatLimit:
-      description: Concurrent sessions above the account's seat count (US-602 AC2).
+      description: Concurrent sessions above a paid account's seat count (US-602 AC2).
       headers: *std_headers
       content:
         application/problem+json:
@@ -10319,7 +10486,11 @@ components:
       properties:
         name:
           type: string
-          enum: [map.layer_toggled, map.region_jumped, map.basemap_failed, auth.registered, alert.created]
+          enum: [map.layer_toggled, map.region_jumped, map.basemap_failed, auth.registered, alert.created, page.viewed]
+          description: >-
+            `page.viewed` (props `{page_type: proposal | company | asset | point}`, required) is accepted only
+            from the public site's own server (its `X-Internal-Token` service identity); from any other caller
+            it is `400 validation_error`. That caller is not subject to the per-IP limit (migration 0029).
         props:
           type: object
           description: At most 8 keys; allowed keys and types depend on `name` (docs/21 §3.21). No identifier-shaped value (email, IP, UUID, or a 20+ character token) is ever accepted.
@@ -10345,6 +10516,14 @@ components:
           type: integer
           minimum: 0
           description: '`map.layer_toggled` only.'
+        by_page_type:
+          type: object
+          description: '`page.viewed` only: the week''s views per page type.'
+          properties:
+            proposal: {type: integer, minimum: 0}
+            company: {type: integer, minimum: 0}
+            asset: {type: integer, minimum: 0}
+            point: {type: integer, minimum: 0}
     UiEventsSummaryResponse:
       allOf:
         - $ref: '#/components/schemas/Envelope'
@@ -10540,6 +10719,25 @@ components:
           description: >-
             The one sentence the public site prints about the posture (`/about#tiers`,
             `/methodology`), derived from `posture`; the pages carry no prose of their own.
+        free_alerts:
+          type: object
+          description: >-
+            Whether a registered reader may hold free email alerts (owner decision 2026-09-30):
+            `active` exactly while paid tiers are inactive (the `noncommercial` posture), the cap
+            (`FREE_ALERT_CAP`, default 10) and the digest cadences. Read from the same constant the
+            saved-search routes enforce. Configuration, never a secret.
+          required: [active, cap, delivery_modes]
+          properties:
+            active:
+              type: boolean
+            cap:
+              type: integer
+              minimum: 0
+            delivery_modes:
+              type: array
+              items:
+                type: string
+                enum: [daily, weekly]
     IntakeContact:
       type: object
       description: Submitted personal data — stored on the task and in the CRM, never on `organization`; deletable (docs/21 C-7).
@@ -11605,11 +11803,39 @@ components:
                   $ref: '#/components/schemas/RateLimitPolicy'
                 saved_search_quota:
                   type: object
+                  description: '`limit` is the caller''s plan quota (`alert_plan.quota`), or the paid quota when it holds no plan.'
                   properties:
                     limit:
                       type: integer
                     used:
                       type: integer
+                alert_plan:
+                  type: [object, 'null']
+                  description: >-
+                    What this caller may hold as saved searches and alerts; `null` when it may hold none
+                    (a free account under the `commercial` posture, or a key without a paid tier). `paid`
+                    for `pro`/`api`/`admin`; `free` for a signed-in `public` session while free alerts
+                    are on (owner decision 2026-09-30).
+                  required: [basis, quota, delivery_modes, channels, requires_verified_email]
+                  properties:
+                    basis:
+                      type: string
+                      enum: [paid, free]
+                    quota:
+                      type: integer
+                      minimum: 0
+                    delivery_modes:
+                      type: array
+                      items:
+                        type: string
+                        enum: [immediate, daily, weekly]
+                    channels:
+                      type: array
+                      items:
+                        type: string
+                        enum: [email, rss]
+                    requires_verified_email:
+                      type: boolean
                 api_licence:
                   type: object
                   required: [current_version, url]
@@ -11700,6 +11926,11 @@ components:
     SavedSearchCreate:
       type: object
       required: [name, entity, query]
+      additionalProperties: false
+      description: >-
+        Any other key, a value outside a vocabulary, a non-list or empty `channels`, or a blank `name`
+        is `400 validation_error` naming the field (QA-6, 2026-09-30); before, some were stored as sent
+        and some failed at the database with a 500.
       properties:
         name:
           type: string
@@ -11715,11 +11946,17 @@ components:
         channels:
           type: array
           default: [email]
+          minItems: 1
+          uniqueItems: true
           items:
             $ref: '#/components/schemas/AlertChannel'
     SavedSearchUpdate:
       type: object
       minProperties: 1
+      additionalProperties: false
+      description: >-
+        As `SavedSearchCreate`: any other key (for example `paused`; pausing is `{"status": "paused"}`)
+        or a bad value is `400 validation_error` naming the field, never a silent no-op.
       properties:
         name:
           type: string
@@ -11731,6 +11968,8 @@ components:
           $ref: '#/components/schemas/DeliveryMode'
         channels:
           type: array
+          minItems: 1
+          uniqueItems: true
           items:
             $ref: '#/components/schemas/AlertChannel'
         status:
@@ -13846,6 +14085,10 @@ components:
           format: email
         password:
           type: string
+        sign_out_other_sessions:
+          type: boolean
+          default: false
+          description: After the password is verified, revoke the user's own other sessions before the seat check (lockout recovery, QA-5).
     AuthSessionResponse:
       type: object
       required: [data, meta, licence_summary, redactions]

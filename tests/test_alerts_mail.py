@@ -102,18 +102,45 @@ def test_every_digest_carries_one_click_unsubscribe_headers_and_the_legal_footer
     assert f"<{API_HOST}/v1/alerts/unsubscribe?token={token}>" in headers["List-Unsubscribe"]
     assert f"{FAKE_NAME}, {FAKE_ADDRESS}" in sent.body
     assert f"Unsubscribe (one click): {WEB_HOST}/unsubscribe?token={token}" in sent.body
-    assert "Data notice: this digest is sent at your account's live tier" in sent.body
+    assert "Data notice: every record and change event is published on the public site" in sent.body
+    assert f"Manage your alerts: {WEB_HOST}/alerts" in sent.body
     assert prop.name_canonical in sent.body
     assert "None" not in sent.body
 
 
-def test_public_tier_digest_carries_the_delayed_notice(db):
+def test_no_digest_claims_a_live_tier_the_public_site_runs_behind(db):
+    """Content audit F8: nothing is delayed on any tier since 2026-09-21, so no digest may say the
+    public site lags, whatever the reader's entitlement (commercial posture: no free-alert line)."""
     account, _user, _prop, _search = _seed(db)
     account.entitlement = "public"
     db.commit()
     port = HeaderPort()
     run_alert_cycle(db, email_port=port)
-    assert "delayed public tier" in port.sent[0][0].body
+    body = port.sent[0][0].body
+    assert "live tier" not in body and "delayed public tier" not in body and "paid feature" not in body
+    assert "as soon as it is ingested" in body
+    assert "noncommercial" not in body
+
+
+def test_a_free_account_under_the_noncommercial_posture_is_told_the_alert_is_free(db, monkeypatch):
+    from services.billing import router as billing_router
+
+    monkeypatch.setattr(billing_router, "PAID_TIERS_ACTIVE", False)
+    account, _user, _prop, _search = _seed(db)
+    account.entitlement = "public"
+    db.commit()
+    port = HeaderPort()
+    run_alert_cycle(db, email_port=port)
+    assert (
+        "This alert is free while the platform operates as a noncommercial service." in port.sent[0][0].body
+    )
+
+
+def test_the_data_notice_states_a_lag_only_when_one_exists():
+    from services.alerts.mail import delayed_data_notice
+
+    assert "as soon as it is ingested" in delayed_data_notice("pro")
+    assert "7 days after they are ingested" in delayed_data_notice("pro", lag_days=7)
 
 
 def test_unsubscribe_headers_url_encode_the_token():

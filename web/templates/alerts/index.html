@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Alerts -- Infraque{% endblock %}
+{% block robots %}noindex, nofollow{% endblock %}
+{% block meta_description %}Your Infraque email alerts.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Alerts</h1>
+  <p>Each alert watches a saved list or map view and emails you what changed in it, with a link to every record and its source.</p>
+</div>
+
+{%- if done %}
+<p class="notice" role="status">{{ done }}</p>
+{%- endif %}
+
+{%- if error %}
+<div class="notice notice--error" role="alert">
+  <p class="notice__title">{{ error.title }}</p>
+  {%- if error.detail %}<p>{{ error.detail }}</p>{% endif %}
+  {%- if error.request_id %}<p class="notice__ref">Reference <code class="tnum">{{ error.request_id }}</code></p>{% endif %}
+</div>
+{%- endif %}
+
+{%- if not plan %}
+<div class="notice" role="status">
+  <p class="notice__title">Email alerts are part of the paid plans.</p>
+  <p>Every record stays free to read, and every list has an RSS feed. <a href="/pricing">See what the plans include</a>.</p>
+</div>
+{%- else %}
+
+{%- if free %}
+<p class="alert-plan">Free while Infraque operates as a noncommercial service: up to <span class="tnum">{{ limit }}</span> alerts, each sent as a daily or weekly email digest.</p>
+{%- endif %}
+
+{%- if needs_verification %}
+<div class="notice" role="status">
+  <p class="notice__title">Verify your email address to create alerts.</p>
+  <p>Alerts go to your account's address, so it has to be confirmed first. Follow the link in the verification email, or send a new one.</p>
+  <form method="post" action="/account/resend" class="inline-form">
+    <div class="form-actions"><button type="submit">Resend verification email</button></div>
+  </form>
+</div>
+{%- endif %}
+
+<div class="alert-toolbar">
+  <p class="alert-quota" id="alert-quota"><span class="tnum">{{ used }}</span> of <span class="tnum">{{ limit }}</span> alerts used.</p>
+  {%- if at_quota %}
+  <p class="field-hint">You have used every alert on your plan. Delete one to add another.</p>
+  {%- else %}
+  <p class="alert-toolbar__new">New alert from <a href="/proposals">Proposals</a>, <a href="/opportunities">Opportunities</a> or <a href="/">the map</a>: set the filters, then choose &ldquo;Save this search as an alert&rdquo;.</p>
+  {%- endif %}
+</div>
+
+{%- if cards %}
+<ul class="alert-list" aria-label="Your alerts">
+  {%- for card in cards %}
+  <li class="alert-card{% if card.status == 'paused' %} alert-card--paused{% endif %}">
+    <div class="alert-card__head">
+      <h2 class="alert-card__name">{{ card.name }}</h2>
+      {%- if card.status == 'paused' %}{{ m.status_chip('paused', 'neutral') }}{% else %}{{ m.status_chip('active', 'success') }}{% endif %}
+    </div>
+    <p class="alert-card__meta">{{ card.entity_label }} &middot; {{ card.mode_label }} &middot;
+      {%- if card.last_run %} last run <span class="tnum">{{ card.last_run }}</span> UTC, <span class="tnum">{{ card.last_match_count }}</span> new match{{ 'es' if card.last_match_count != 1 }}{% else %} not run yet{% endif %}</p>
+    {%- if card.filters %}
+    <dl class="alert-card__filters">
+      {%- for label, value in card.filters %}
+      <div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
+      {%- endfor %}
+    </dl>
+    {%- else %}
+    <p class="alert-card__meta">No filters: every new {{ card.entity_label | lower }} record.</p>
+    {%- endif %}
+    <div class="alert-card__actions">
+      {%- if card.results_href %}<a href="{{ card.results_href }}">View results<span class="visually-hidden"> for {{ card.name }}</span></a>{% endif %}
+      {%- if card.status == 'paused' %}
+      <form method="post" action="/alerts/{{ card.id }}/resume"><button type="submit" class="button-secondary">Resume<span class="visually-hidden"> {{ card.name }}</span></button></form>
+      {%- else %}
+      <form method="post" action="/alerts/{{ card.id }}/pause"><button type="submit" class="button-secondary">Pause<span class="visually-hidden"> {{ card.name }}</span></button></form>
+      {%- endif %}
+      <form method="post" action="/alerts/{{ card.id }}/delete"><button type="submit" class="button-secondary button-secondary--danger">Delete<span class="visually-hidden"> {{ card.name }}</span></button></form>
+    </div>
+  </li>
+  {%- endfor %}
+</ul>
+{%- elif not error %}
+<div class="empty-state">
+  <p>No alerts yet. Set the filters on any list or <a href="/">the map</a>, then choose &ldquo;Save this search as an alert&rdquo;.</p>
+</div>
+{%- endif %}
+{%- endif %}
+
+<p class="field-hint">Every alert email has a one-click unsubscribe link. Deleting an alert stops it before the next digest.</p>
+{% endblock %}

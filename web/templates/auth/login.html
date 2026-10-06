@@ -21,9 +21,14 @@
     <input id="login-password" name="password" type="password" autocomplete="current-password" required>
     {% if field_errors and field_errors.password %}<p class="field__error">{{ field_errors.password }}</p>{% endif %}
   </div>
+  <div class="field field--choices">
+    <label for="login-sign-out-others"><input id="login-sign-out-others" type="checkbox" name="sign_out_other_sessions" value="1"{% if sign_out_other_sessions %} checked{% endif %}> Sign me out everywhere else</label>
+    <p class="field-hint">Use this if a browser you no longer have is still signed in to a paid account and holding its seat.</p>
+  </div>
   <div class="form-actions">
     <button type="submit">Sign in</button>
   </div>
 </form>
+<p><a href="/forgot-password">Forgot your password?</a></p>
 <p><a href="/register{% if next and next != '/account' %}?next={{ next }}{% endif %}">Create an account</a></p>
 {% endblock %}

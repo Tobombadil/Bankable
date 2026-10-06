@@ -124,3 +124,49 @@ def test_engagement_page_empty_state(web_client: TestClient, db_sessionmaker: se
     resp = web_client.get("/admin/engagement?weeks=2")
     assert resp.status_code == 200, resp.text
     assert "No interaction counts in the last 2 weeks" in resp.text
+
+
+# ------------------------------------------------------------ alert activation (2026-09-30, PM-5)
+def test_activation_rows_divide_alerts_by_views_and_never_invent_a_rate() -> None:
+    from web.admin.engagement import activation_rows
+
+    grid = pivot_weeks(
+        [
+            {"week": "2026-W40", "name": "alert.created", "count": 2},
+            {
+                "week": "2026-W40",
+                "name": "page.viewed",
+                "count": 400,
+                "by_page_type": {"proposal": 300, "company": 100, "asset": 0, "point": 0},
+            },
+            {"week": "2026-W39", "name": "alert.created", "count": 1},
+        ]
+    )
+    rows = activation_rows(grid)
+    assert rows[0]["week"] == "2026-W40" and rows[0]["alerts"] == 2
+    assert rows[0]["total"] == {"views": 400, "rate": "0.5"}
+    by_label = {t["label"]: t for t in rows[0]["types"]}
+    assert by_label["Proposal"]["rate"] == "0.7" and by_label["Company"]["rate"] == "2.0"
+    assert by_label["Asset"] == {"label": "Asset", "views": 0, "rate": None}
+    assert rows[1]["total"] == {"views": 0, "rate": None}, "a week with no views has no rate, not 0"
+
+
+def test_engagement_page_shows_the_activation_rate(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    _sign_in(web_client, db_sessionmaker)
+    with db_sessionmaker() as db:
+        db.add_all(
+            [UiEvent(name="page.viewed", props={"page_type": "proposal"}) for _ in range(4)]
+            + [
+                UiEvent(name="page.viewed", props={"page_type": "asset"}),
+                UiEvent(name="alert.created", props={}),
+            ]
+        )
+        db.commit()
+    resp = web_client.get("/admin/engagement")
+    assert resp.status_code == 200, resp.text
+    assert "Alert activation" in resp.text
+    assert '5 <span class="admin-muted">(20.0)</span>' in resp.text
+    assert '4 <span class="admin-muted">(25.0)</span>' in resp.text
+    assert '0 <span class="admin-muted">(no views)</span>' in resp.text

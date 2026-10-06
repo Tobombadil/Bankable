@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Alerts -- Infraque{% endblock %}
+{% block robots %}noindex, nofollow{% endblock %}
+{% block meta_description %}Email alerts for Infraque searches: sign in to save a view and get its changes by email.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Alerts</h1>
+  <p>An alert watches a list or map view and emails you what changed in it: new records, status changes, capacity and date changes, each with a link to the record and its source.</p>
+</div>
+<div class="notice" role="status">
+  <p class="notice__title">Sign in to save and manage alerts.</p>
+  <p>Alerts are sent to your account's email address, so they need an account. You will come straight back here.</p>
+</div>
+<div class="form-actions">
+  <a class="button-link" href="{{ login_href }}">Sign in</a>
+  <a class="button-link button-link--secondary" href="{{ register_href }}">Create an account</a>
+</div>
+{% endblock %}

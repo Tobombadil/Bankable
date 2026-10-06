@@ -158,12 +158,17 @@ def login_submit(
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
     next: Annotated[str, Form()] = "/account",
+    sign_out_other_sessions: Annotated[str, Form()] = "",
 ) -> Response:
     if not _is_same_origin(request):
         return _csrf_rejection()
     next_path = _safe_next(next)
     api = get_api(request)
-    result = api.post("/v1/auth/login", json={"email": email, "password": password})
+    body: dict[str, Any] = {"email": email, "password": password}
+    if sign_out_other_sessions:
+        # QA-5 lockout recovery: end this user's own other sessions before the seat check.
+        body["sign_out_other_sessions"] = True
+    result = api.post("/v1/auth/login", json=body)
     if result.status_code == 200:
         redirect = RedirectResponse(url=next_path, status_code=303)
         _relay_cookies(redirect, result.set_cookie)
@@ -171,6 +176,7 @@ def login_submit(
     context = {
         "next": next_path,
         "email": email,
+        "sign_out_other_sessions": bool(sign_out_other_sessions) or result.body.get("code") == "seat_limit",
         "error_title": result.body.get("title", "Sign in failed"),
         "error_detail": result.body.get("detail"),
         "field_errors": _field_errors(result.body),
@@ -292,3 +298,82 @@ def account_resend(request: Request) -> Response:
         "resend_body": resend_body,
     }
     return templates.TemplateResponse(request, "auth/account.html", context)
+
+
+# ------------------------------------------------- lockout recovery (QA-5, lane A1, 2026-09-30)
+@router.post("/account/sign-out-others", response_class=HTMLResponse)
+def account_sign_out_others(request: Request) -> Response:
+    if not _is_same_origin(request):
+        return _csrf_rejection()
+    cookie = request.cookies.get(SESSION_COOKIE_NAME)
+    if not cookie:
+        return RedirectResponse(url="/login?next=/account", status_code=303)
+    api = get_api(request)
+    result = api.post("/v1/auth/sessions/revoke-others", cookies={SESSION_COOKIE_NAME: cookie})
+    me_result = api.get_result("/v1/me", cookies={SESSION_COOKIE_NAME: cookie})
+    if result.status_code != 200 or me_result.status_code != 200:
+        return RedirectResponse(url="/login?next=/account", status_code=303)
+    context = {
+        "me": me_result.body.get("data", {}),
+        "others_signed_out": int(result.body.get("revoked") or 0),
+    }
+    return templates.TemplateResponse(request, "auth/account.html", context)
+
+
+@router.get("/forgot-password", response_class=HTMLResponse)
+def forgot_password_form(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "auth/forgot_password.html", {})
+
+
+@router.post("/forgot-password", response_class=HTMLResponse)
+def forgot_password_submit(request: Request, email: Annotated[str, Form()] = "") -> Response:
+    if not _is_same_origin(request):
+        return _csrf_rejection()
+    result = get_api(request).post("/v1/auth/password-reset/request", json={"email": email})
+    if result.status_code == 202:
+        dev_url = result.body.get("dev_reset_url")
+        context = {
+            "sent": True,
+            "email": email,
+            "dev_reset_url": web_relative_url(dev_url) if dev_url else None,
+        }
+        return templates.TemplateResponse(request, "auth/forgot_password.html", context)
+    context = {
+        "email": email,
+        "error_title": result.body.get("title", "Could not send a reset link"),
+        "error_detail": result.body.get("detail"),
+        "field_errors": _field_errors(result.body),
+    }
+    return templates.TemplateResponse(
+        request, "auth/forgot_password.html", context, status_code=result.status_code or 400
+    )
+
+
+@router.get("/reset-password", response_class=HTMLResponse)
+def reset_password_form(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "auth/reset_password.html", {"token": request.query_params.get("token", "")}
+    )
+
+
+@router.post("/reset-password", response_class=HTMLResponse)
+def reset_password_submit(
+    request: Request, token: Annotated[str, Form()] = "", password: Annotated[str, Form()] = ""
+) -> Response:
+    if not _is_same_origin(request):
+        return _csrf_rejection()
+    result = get_api(request).post("/v1/auth/password-reset", json={"token": token, "password": password})
+    if result.status_code == 200:
+        response = templates.TemplateResponse(request, "auth/reset_password.html", {"done": True})
+        # Every session was revoked, this browser's included; drop its now-dead cookie too.
+        response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+        return response
+    context = {
+        "token": token,
+        "error_title": result.body.get("title", "Could not reset the password"),
+        "error_detail": result.body.get("detail"),
+        "field_errors": _field_errors(result.body),
+    }
+    return templates.TemplateResponse(
+        request, "auth/reset_password.html", context, status_code=result.status_code or 400
+    )

@@ -201,3 +201,48 @@ def test_summary_unknown_query_parameter_is_400(client, db):
     login(client, db, operator)
     resp = client.get("/admin/v1/ui-events/summary", params={"bogus": "x"})
     assert resp.status_code == 400
+
+
+# ------------------------------------------------------------------ page.viewed (2026-09-30, 0028)
+SITE_TOKEN = "site-token-for-tests-only"  # noqa: S105 -- a test fixture, not a credential
+
+
+@pytest.fixture()
+def site_headers(monkeypatch):
+    monkeypatch.setenv("API_INTERNAL_TOKEN", SITE_TOKEN)
+    return {"X-Internal-Token": SITE_TOKEN}
+
+
+def test_page_viewed_is_accepted_only_from_the_site(client, db, site_headers):
+    body = {"name": "page.viewed", "props": {"page_type": "proposal"}}
+    assert client.post("/v1/ui-events", json=body).status_code == 400, "a browser cannot post it"
+    assert client.post("/v1/ui-events", json=body, headers={"X-Internal-Token": "wrong"}).status_code == 400
+    assert client.post("/v1/ui-events", json=body, headers=site_headers).status_code == 202
+    rows = list(db.scalars(select(UiEvent).where(UiEvent.name == "page.viewed")).all())
+    assert [r.props for r in rows] == [{"page_type": "proposal"}]
+
+
+@pytest.mark.parametrize("props", [{}, {"page_type": "homepage"}, {"page_type": "proposal", "slug": "x"}])
+def test_page_viewed_needs_a_known_page_type_and_nothing_else(client, db, site_headers, props):
+    resp = client.post("/v1/ui-events", json={"name": "page.viewed", "props": props}, headers=site_headers)
+    assert resp.status_code == 400
+
+
+def test_the_site_is_not_held_to_the_per_ip_limit(client, db, site_headers):
+    body = {"name": "page.viewed", "props": {"page_type": "asset"}}
+    for _ in range(70):
+        assert client.post("/v1/ui-events", json=body, headers=site_headers).status_code == 202
+
+
+def test_summary_splits_page_views_by_type(client, db, spec):
+    now = dt.datetime.now(UTC)
+    for page_type in ("proposal", "proposal", "company", "point"):
+        db.add(UiEvent(name="page.viewed", props={"page_type": page_type}, occurred_at=now))
+    operator = _operator(db)
+    db.commit()
+    login(client, db, operator)
+    body = client.get("/admin/v1/ui-events/summary").json()
+    assert_valid(spec, "UiEventsSummaryResponse", body)
+    row = next(r for r in body["data"] if r["name"] == "page.viewed")
+    assert row["count"] == 4
+    assert row["by_page_type"] == {"proposal": 2, "company": 1, "asset": 0, "point": 1}

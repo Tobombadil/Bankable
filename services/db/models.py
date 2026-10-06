@@ -1702,7 +1702,13 @@ UI_EVENT_NAMES = (
     "map.basemap_failed",  # props: {} — tiles never loaded; the outline fallback was shown
     "auth.registered",  # props: {"layers": "plants"} — layers on the page that linked to /register
     "alert.created",  # props: {}
+    # props: {"page_type": "proposal" | "company" | "asset" | "point"} -- one detail-page view, written
+    # by the public site itself (never a browser), migration 0029 (owner decision 2026-09-30).
+    "page.viewed",
 )
+#: `page.viewed`'s `page_type` vocabulary: the detail pages whose views are the alert-activation
+#: denominator (docs/00-PLAN.md 2026-09-18 decision 8 and 2026-09-30).
+PAGE_VIEW_TYPES = ("proposal", "company", "asset", "point")
 
 
 class UiEvent(Base):
