@@ -19,6 +19,10 @@
 # idempotent). Before any of it, the decrypted secrets must carry a non-empty API_INTERNAL_TOKEN:
 # without it every call `web` makes shares the anonymous 60/hour bucket and pages turn into 429s
 # (docs/60 §11 item 9), so the deploy refuses rather than starting a `web` that fails after a few views.
+# The same goes for every other key in REQUIRED_KEYS below (the list infra/sops/secrets.example.plain.yaml
+# marks `required`; devops audit 2026-09-30 F3): a missing DOMAIN took Caddy down and a missing
+# PLATFORM_POSTURE changed what was published, with no error. The environment argument is written
+# into the shipped env file as ENVIRONMENT, so staging no longer reports itself as production.
 set -Eeuo pipefail # -E: the ERR trap below must fire inside functions too
 
 usage() {
@@ -96,11 +100,38 @@ dotenv_value() { # <KEY>: the last assignment of KEY in the decrypted secrets, q
   line="${line%\"}"; line="${line#\"}"; line="${line%\'}"; line="${line#\'}"
   printf '%s' "$line"
 }
+refuse() { echo "[deploy $environment] refusing to deploy: $*" >&2; exit 1; }
 if [[ -z "$(dotenv_value API_INTERNAL_TOKEN)" ]]; then
   echo "[deploy $environment] refusing to deploy: API_INTERNAL_TOKEN is empty or missing in infra/sops/secrets.${environment}.enc.yaml." >&2
   echo "[deploy $environment] web shares the anonymous 60/hour API bucket without it and starts failing after a few page views (docs/60 §11 item 9)." >&2
   exit 1
 fi
+# Keep in step with the keys marked `required` in infra/sops/secrets.example.plain.yaml
+# (infra/test_scripts.py compares the two).
+REQUIRED_KEYS=(
+  API_INTERNAL_TOKEN SESSION_SECRET AUDIT_HASH_PEPPER DATABASE_URL
+  DOMAIN PLATFORM_POSTURE MAP_TILE_URL
+  SNAPSHOT_STORE R2_ACCOUNT_ID R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
+  SENDER_LEGAL_NAME SENDER_POSTAL_ADDRESS PRODUCT_NAME PRODUCT_URL PRODUCT_CONTACT_EMAIL
+)
+missing=()
+for key in "${REQUIRED_KEYS[@]}"; do
+  [[ -n "$(dotenv_value "$key")" ]] || missing+=("$key")
+done
+(( ${#missing[@]} == 0 )) || refuse "empty or missing in infra/sops/secrets.${environment}.enc.yaml: ${missing[*]} (infra/sops/secrets.example.plain.yaml lists every key)"
+case "$(dotenv_value PLATFORM_POSTURE)" in
+  commercial|noncommercial) ;;
+  *) refuse "PLATFORM_POSTURE must be commercial or noncommercial, not '$(dotenv_value PLATFORM_POSTURE)' (docs/60 §5.1)" ;;
+esac
+[[ "$(dotenv_value SNAPSHOT_STORE)" == "s3" ]] || refuse "SNAPSHOT_STORE must be s3: fetch and load run on different hosts (docs/60 §5)"
+declared_environment="$(dotenv_value ENVIRONMENT)"
+if [[ -n "$declared_environment" && "$declared_environment" != "$environment" ]]; then
+  refuse "infra/sops/secrets.${environment}.enc.yaml says ENVIRONMENT=${declared_environment}"
+fi
+# The environment is the argument, not something the secrets file can get wrong: one ENVIRONMENT
+# line, last, is what compose.prod.yml interpolates and every container receives.
+secrets_dotenv="$(grep -v -E '^ENVIRONMENT=' <<<"$secrets_dotenv" || true)"
+secrets_dotenv+=$'\n'"ENVIRONMENT=${environment}"
 
 # ---------------------------------------------------------------- remote helpers
 remote() { local host="$1"; shift; ssh "${ssh_user}@${host}" "$@"; }

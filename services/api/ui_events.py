@@ -73,11 +73,11 @@ def _looks_identifying(value: str) -> bool:
 
 
 def _enforce_rate_limit(request: Request) -> None:
+    from services.api.client_ip import rate_limit_address
     from services.api.ratelimit import default_limiter
 
-    client_ip = request.client.host if request.client else "unknown"
     result = default_limiter.check(
-        f"ui-events:{client_ip}", limit=UI_EVENT_RATE_LIMIT_PER_MINUTE, window_seconds=60
+        f"ui-events:{rate_limit_address(request)}", limit=UI_EVENT_RATE_LIMIT_PER_MINUTE, window_seconds=60
     )
     if not result.allowed:
         raise ProblemError(

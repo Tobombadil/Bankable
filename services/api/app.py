@@ -15,8 +15,6 @@ Deliberately not implemented this sprint (see services/README.md "Open decisions
 from __future__ import annotations
 
 import datetime as dt
-import hmac
-import os
 import uuid as _uuid
 from typing import Any
 
@@ -26,8 +24,9 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 from starlette.middleware.gzip import GZipMiddleware
 
-from services.api.auth import AuthContext, get_auth_context
+from services.api.auth import AuthContext, get_auth_context, meter_credentialed_request
 from services.api.build_info import build_info, data_as_of
+from services.api.client_ip import is_internal_request, rate_limit_address
 from services.api.common import API_HOST, WEB_HOST, new_request_id, utcnow
 from services.api.coverage import coverage, source_vintages
 from services.api.deps import get_db
@@ -81,6 +80,9 @@ app = FastAPI(
     title="Platform API",
     version="1.0.0-draft",
     description="Public tier only (Sprint 2 backend brief). See api/openapi.yaml for the full contract.",
+    # Every route resolves a presented credential, so only a valid one exempts a request from the
+    # public bucket (backend audit 2026-09-30 F8; `services/api/auth.py::meter_credentialed_request`).
+    dependencies=[Depends(meter_credentialed_request)],
 )
 app.add_exception_handler(ProblemError, problem_exception_handler)
 # Response compression (2026-09-19, line layer): a national `GET /v1/assets/geo` over the 3,000-line
@@ -223,15 +225,12 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
     now)"); this sprint (Pro tier and alerts, task item 2: "real per-tier token buckets") replaces
     them for anonymous traffic — the public tier per docs/23 §6's "60/hour, per IP" row — with a
     real count through `services.api.ratelimit.default_limiter`. A request carrying a session
-    cookie or `Authorization` header is left to the route itself: `services/api/pro.py`'s routes
-    already compute and set real per-caller headers via `_rate_limit_headers` (keyed by API key or
-    session, tier from `AuthContext.entitlement`), which this middleware never overwrites
-    (`setdefault` only). **Known gap**, not silently dropped: a Pro/API-entitled credential calling
-    one of `services/api/app.py`'s original Sprint 2 public-tier routes directly (rather than a
-    `services/api/pro.py` route) is not yet metered by this middleware, since crediting it to the
-    anonymous per-IP bucket would double-count against unrelated anonymous traffic sharing that
-    IP, and this sprint does not thread `AuthContext` resolution into the middleware layer itself.
-    Recorded in services/README.md as a follow-up: unify both under one rate-limiting dependency.
+    cookie or `Authorization` header is metered by the app-wide dependency
+    `services/api/auth.py::meter_credentialed_request` instead: on its tier's bucket when the
+    credential resolves (keyed by API key or user), on this anonymous bucket when it does not.
+    Its `RateLimit-*` headers are copied onto the response below (`setdefault` only, so a route
+    that sets its own, such as the bulk streams, keeps them). This closes the follow-up that
+    services/README.md recorded (2026-09-30; QA audit QA-3, backend audit F8).
     """
     from services.api.ratelimit import TIER_LIMITS, default_limiter, policy_header
 
@@ -240,13 +239,11 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
     # service identity the whole site would share one anonymous bucket (live probe 2026-09-18: a
     # sitemap render plus a few map pans returned 429). A matching `X-Internal-Token` marks the
     # request as the site's own; the site is then responsible for per-visitor limits.
-    internal_token = os.environ.get("API_INTERNAL_TOKEN")
-    is_internal = bool(internal_token) and hmac.compare_digest(
-        request.headers.get("x-internal-token", ""), internal_token or ""
-    )
-    if not is_credentialed and not is_internal:
-        client_ip = request.client.host if request.client else "unknown"
-        result = default_limiter.check(f"public:{client_ip}", limit=TIER_LIMITS["public"])
+    # A credentialed request is metered by the app-wide `meter_credentialed_request` dependency
+    # when its credential does not resolve, and by its own tier's bucket when it does.
+    if not is_credentialed and not is_internal_request(request):
+        # Keyed on the visitor, not on Caddy's or web's address (`services/api/client_ip.py`).
+        result = default_limiter.check(f"public:{rate_limit_address(request)}", limit=TIER_LIMITS["public"])
         if not result.allowed:
             from fastapi.responses import JSONResponse
 
@@ -278,6 +275,10 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
         response.headers.setdefault("RateLimit-Policy", policy_header("public", result))
     else:
         response = await call_next(request)
+        # A valid credential was charged to its tier's bucket by `meter_credentialed_request`; its
+        # numbers go on every response, not only on the routes that set them (docs/23 §6, US-702).
+        for name, value in getattr(request.state, "credential_rate_limit", {}).items():
+            response.headers.setdefault(name, value)
     response.headers["X-Request-Id"] = new_request_id()
     if request.url.path.startswith("/v1/") and request.method == "GET":
         # A response produced for a credential (valid or not) is never shareable: `/v1/me`, live

@@ -35,3 +35,17 @@ resource "cloudflare_record" "admin" {
   proxied = true # Cloudflare Access can be layered on this hostname later (docs/20 §7 [A-10])
   ttl     = 1
 }
+
+# The API host (2026-09-30; QA audit QA-2). `https://api.{domain}` is the API's server in
+# api/openapi.yaml, the Attio webhook target (docs/34 §6), and the host in export download links,
+# unsubscribe links and every problem `type` URI (services/api/common.py `API_HOST`). Caddy serves
+# it as an API-only site (infra/compose/Caddyfile `api_site`). Staging follows the admin pattern.
+resource "cloudflare_record" "api" {
+  count   = local.create_dns ? 1 : 0
+  zone_id = var.cloudflare_zone_id
+  name    = var.environment == "production" ? "api" : "api-${var.environment}"
+  content = hcloud_server.app.ipv4_address
+  type    = "A"
+  proxied = true
+  ttl     = 1
+}

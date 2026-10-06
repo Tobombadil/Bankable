@@ -6,11 +6,15 @@ we're done."
 
 The posture is one environment variable, `PLATFORM_POSTURE`, read the way `SENDER_LEGAL_NAME`
 and `MAP_TILE_URL` are read (`os.environ.get` at the point of use, stripped, case-folded) — there
-is no settings object in this codebase and this module does not introduce one. It **defaults to
-`commercial`**, so a deployment that never sets it behaves exactly as it did before this module
-existed; an unrecognised value fails closed to `commercial` too, so a typo cannot widen
-publication. Flipping the value takes effect on the next process start: the API, the ingest
-runner and the workers each read it once at import (`services/api/visibility.py`,
+is no settings object in this codebase and this module does not introduce one. In development it
+**defaults to `commercial`**, so a checkout that never sets it behaves exactly as it did before
+this module existed; an unrecognised value fails closed to `commercial` too, so a typo cannot
+widen publication. **Outside the development environments** (`services/environment.py`: staging,
+production, anything but dev/local/test/ci) there is no default: an unset, empty or unrecognised
+value raises at the first read, which every service does at import, so the process refuses to
+start rather than silently publishing the `commercial` source set (devops audit 2026-09-30 F3;
+the same rule `SESSION_SECRET` follows). Flipping the value takes effect on the next process
+start: the API, the ingest runner and the workers each read it once at import (`services/api/visibility.py`,
 `pipeline/connectors/registry.py`), which is deliberate — a running process must not have half
 its queries under one posture and half under another.
 
@@ -31,6 +35,8 @@ branch without touching `os.environ`; `platform_posture()` is the only environme
 from __future__ import annotations
 
 import os
+
+from services.environment import current_environment, is_dev_environment
 
 #: The two postures. The order is not a ranking.
 PLATFORM_POSTURES: tuple[str, ...] = ("commercial", "noncommercial")
@@ -68,8 +74,17 @@ def normalise_posture(raw: str | None) -> str:
 
 
 def platform_posture() -> str:
-    """The posture in force for this process, from `PLATFORM_POSTURE`."""
-    return normalise_posture(os.environ.get(ENV_VAR))
+    """The posture in force for this process, from `PLATFORM_POSTURE`. Raises `RuntimeError`
+    outside the development environments when the value is not exactly one of the postures."""
+    raw = os.environ.get(ENV_VAR)
+    if not is_dev_environment() and (raw or "").strip().lower() not in PLATFORM_POSTURES:
+        raise RuntimeError(
+            f"{ENV_VAR} must be one of {', '.join(PLATFORM_POSTURES)} when "
+            f"ENVIRONMENT={current_environment()!r} (it is {'unset' if raw is None else repr(raw)}); "
+            "there is no default outside development. See infra/sops/secrets.example.plain.yaml "
+            "and docs/60-deployment.md §5.1"
+        )
+    return normalise_posture(raw)
 
 
 def publishable_reuse_classes(posture: str) -> tuple[str, ...]:

@@ -1,6 +1,7 @@
 # Base Compose file: one service per component (docs/20 §2, §4.1). Used as-is for `local`/`dev`
-# and `staging` (docs/04 O-1); `compose.prod.yml` overrides it for `production` (managed Postgres,
-# Caddy, tighter resource limits, docs/04 O-4).
+# (docs/04 O-1). `staging` and `production` both apply `compose.prod.yml` on top (managed Postgres,
+# Caddy, resource limits, docs/04 O-4): infra/scripts/deploy.sh always does, and writes the
+# environment's name into the env file as ENVIRONMENT.
 #
 # Run from the repo root:
 #   docker compose -f infra/compose/docker-compose.yml --env-file infra/compose/.env --profile local up -d --build
@@ -81,7 +82,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-    mem_limit: 512m
+    # One uvicorn worker (infra/entrypoint.py) peaked at 638 MB on the full dev store after two
+    # rounds of map, list and page traffic (devops audit follow-up, 2026-09-30); 512m would be
+    # OOM-killed. Same figure as compose.prod.yml.
+    mem_limit: 1g
     cpus: "1.0"
 
   web:

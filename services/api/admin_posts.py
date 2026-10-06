@@ -61,6 +61,7 @@ from sqlalchemy.orm import Session
 from services.api import captcha
 from services.api.audit import record_audit_event
 from services.api.auth import AuthContext, generate_api_key, require_admin
+from services.api.client_ip import client_ip, rate_limit_address
 from services.api.common import WEB_HOST, ensure_aware, iso, new_request_id, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
@@ -167,11 +168,12 @@ def _parse_dt(value: str) -> dt.datetime | None:
 
 
 def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    """The submitter's address, not the proxy's (`services/api/client_ip.py`)."""
+    return client_ip(request)
 
 
 def _enforce_intake_rate_limit(request: Request, instance: str) -> None:
-    result = default_limiter.check(f"intake:{_client_ip(request)}", limit=INTAKE_RATE_LIMIT)
+    result = default_limiter.check(f"intake:{rate_limit_address(request)}", limit=INTAKE_RATE_LIMIT)
     if not result.allowed:
         raise ProblemError(
             "rate_limited",

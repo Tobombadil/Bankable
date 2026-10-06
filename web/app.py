@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import QueryParams
 
-from web.api_client import ApiClient, ApiError, ApiNotFound
+from web.api_client import ApiClient, ApiError, ApiNotFound, VisitorIpMiddleware
 from web.auth import router as auth_router
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
@@ -105,6 +105,8 @@ HOME_MAP_ASSET_TYPES: list[tuple[str, str, bool]] = [
 logger = logging.getLogger("web.app")
 
 app = FastAPI(title="Infraque -- public site")
+# Every server-side API call carries the visitor's address (web/api_client.py; devops audit F1).
+app.add_middleware(VisitorIpMiddleware)
 app.mount("/static", StaticFiles(directory=str(WEB_ROOT / "static")), name="static")
 # Sprint 3 "login and registration surface": /login, /register, /logout, /verify, /account (own
 # router in web/auth.py -- see that module's docstring for why it keeps its own Jinja2Templates

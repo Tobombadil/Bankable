@@ -27,6 +27,7 @@ def test_normalise_posture_fails_closed_to_commercial(raw: str | None, expected:
 
 
 def test_platform_posture_reads_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.delenv(posture.ENV_VAR, raising=False)
     assert posture.platform_posture() == "commercial"
     monkeypatch.setenv(posture.ENV_VAR, "noncommercial")
@@ -65,3 +66,37 @@ def test_statement_is_derived_from_the_setting() -> None:
     )
     # Garbage reads as the default, so the sentence never claims a posture the gate is not applying.
     assert posture.posture_statement("garbage") == posture.posture_statement("commercial")
+
+
+@pytest.mark.parametrize("environment", ["staging", "production", "preview", "prod"])
+@pytest.mark.parametrize("raw", [None, "", "  ", "Non-Commercial", "research"])
+def test_outside_development_there_is_no_default(
+    monkeypatch: pytest.MonkeyPatch, environment: str, raw: str | None
+) -> None:
+    """Devops audit 2026-09-30 F3: a secrets file without PLATFORM_POSTURE switched production to
+    `commercial` with no error. Outside development an unset or unknown value now refuses."""
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    if raw is None:
+        monkeypatch.delenv(posture.ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(posture.ENV_VAR, raw)
+    with pytest.raises(RuntimeError, match="PLATFORM_POSTURE must be one of commercial, noncommercial"):
+        posture.platform_posture()
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_outside_development_a_valid_posture_is_used(
+    monkeypatch: pytest.MonkeyPatch, environment: str
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv(posture.ENV_VAR, " Commercial ")
+    assert posture.platform_posture() == "commercial"
+    monkeypatch.setenv(posture.ENV_VAR, "noncommercial")
+    assert posture.platform_posture() == "noncommercial"
+
+
+@pytest.mark.parametrize("environment", ["", "dev", "development", "local", "test", "ci", " DEV "])
+def test_development_keeps_the_commercial_default(monkeypatch: pytest.MonkeyPatch, environment: str) -> None:
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.delenv(posture.ENV_VAR, raising=False)
+    assert posture.platform_posture() == "commercial"

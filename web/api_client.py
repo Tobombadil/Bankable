@@ -20,17 +20,76 @@ through one `ApiClient`, so mutating the client's persistent jar with one visito
 would leak it to the next request from anyone else. httpx honours a per-call `cookies=` mapping for
 exactly one request without merging it back into `Client.cookies` -- verified in
 `web/test_auth.py`.
+
+**The visitor's address travels with every call** (devops audit 2026-09-30 F1). The API's
+per-address limits (login, registration, intake) would otherwise see this process's own address
+for every visitor and put the whole site in one bucket. `VisitorIpMiddleware` records the address
+uvicorn resolved for the incoming request (the visitor's, because uvicorn believes Caddy's
+`X-Forwarded-For` and nobody else's, `infra/entrypoint.py`) in a context variable, and both
+transports send it as `X-Visitor-IP` next to `X-Internal-Token`. The API believes the header only
+with that token (`services/api/client_ip.py`). A request hook sets it per call, so the shared
+client never carries one visitor's address into another visitor's call.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import secrets
 from collections.abc import Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import httpx
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+#: The header the API reads the visitor's address from, only alongside `X-Internal-Token`.
+VISITOR_IP_HEADER = "X-Visitor-IP"
+_visitor_ip: ContextVar[str | None] = ContextVar("visitor_ip", default=None)
+
+
+def current_visitor_ip() -> str | None:
+    """The address of the visitor whose request this code is serving, if there is one."""
+    return _visitor_ip.get()
+
+
+class VisitorIpMiddleware:
+    """Pure ASGI middleware (so the context variable is visible to sync routes, which Starlette runs
+    in a worker thread with a copy of this context): records the incoming request's client address
+    for the duration of the request. Only a well-formed IP address is recorded."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        client = scope.get("client")
+        token = _visitor_ip.set(_valid_ip(client[0] if client else None))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _visitor_ip.reset(token)
+
+
+def _valid_ip(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        return None
+
+
+def _attach_visitor_ip(request: httpx.Request) -> None:
+    """httpx request hook: the visitor's address on this one outgoing call, or nothing."""
+    visitor = current_visitor_ip()
+    if visitor is not None:
+        request.headers[VISITOR_IP_HEADER] = visitor
+    else:
+        request.headers.pop(VISITOR_IP_HEADER, None)
 
 
 class Transport(Protocol):
@@ -182,7 +241,14 @@ def build_client(*, api_base_url: str | None = None) -> ApiClient:
         headers = {}
         if token := os.environ.get("API_INTERNAL_TOKEN"):
             headers["X-Internal-Token"] = token  # the site's service identity; see services/api/app.py
-        return ApiClient(httpx.Client(base_url=base_url, timeout=10.0, headers=headers))
+        return ApiClient(
+            httpx.Client(
+                base_url=base_url,
+                timeout=10.0,
+                headers=headers,
+                event_hooks={"request": [_attach_visitor_ip]},
+            )
+        )
     # In-process: import lazily so `DATABASE_URL` can be set by the caller (a dev script, or a
     # test fixture) before `services.api.deps` resolves its engine on first use.
     from starlette.testclient import TestClient
@@ -200,4 +266,6 @@ def build_client(*, api_base_url: str | None = None) -> ApiClient:
     token = os.environ.get("API_INTERNAL_TOKEN") or os.environ.setdefault(
         "API_INTERNAL_TOKEN", secrets.token_urlsafe(32)
     )
-    return ApiClient(TestClient(api_app, base_url="http://api-internal", headers={"X-Internal-Token": token}))
+    in_process = TestClient(api_app, base_url="http://api-internal", headers={"X-Internal-Token": token})
+    in_process.event_hooks = {"request": [_attach_visitor_ip], "response": []}
+    return ApiClient(in_process)

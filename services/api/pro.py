@@ -24,6 +24,7 @@ from services.alerts.webhooks import create_test_delivery, replay_from_seq
 from services.api.audit import record_audit_event
 from services.api.auth import (
     AuthContext,
+    charge_credential,
     generate_api_key,
     get_auth_context,
     require_admin,
@@ -86,24 +87,9 @@ MAX_WEBHOOKS_PER_ACCOUNT = 10
 
 
 def _rate_limit_headers(request: Request, ctx: AuthContext) -> dict[str, str]:
-    from services.api.ratelimit import TIER_LIMITS, default_limiter, policy_header
-
-    tier = ctx.entitlement if ctx.entitlement in TIER_LIMITS else "public"
-    key = ctx.api_key.public_id if ctx.api_key else (str(ctx.user.id) if ctx.user else "anon")
-    result = default_limiter.check(f"{tier}:{key}", limit=TIER_LIMITS[tier])
-    if not result.allowed:
-        raise ProblemError(
-            "rate_limited",
-            "Rate limit exceeded",
-            detail=f"More than {result.limit} requests in the current window.",
-            headers={"Retry-After": str(result.reset_seconds)},
-        )
-    return {
-        "RateLimit-Limit": str(result.limit),
-        "RateLimit-Remaining": str(result.remaining),
-        "RateLimit-Reset": str(result.reset_seconds),
-        "RateLimit-Policy": policy_header(tier, result),
-    }
+    """The caller's tier bucket, charged once per request (`services/api/auth.py::charge_credential`,
+    which the app-wide dependency has usually called already)."""
+    return charge_credential(request, ctx)
 
 
 # --------------------------------------------------------------------------------------- /v1/me

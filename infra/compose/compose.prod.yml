@@ -12,6 +12,18 @@
 # `!reset` / `!override` appear only in this override file (they are merge directives; the base file
 # must stand on its own — infra/test_compose.py checks both). The env file is `!override`n rather
 # than merged so production has exactly one secrets source and fails to start when it is missing.
+#
+# Staging uses this file too (deploy.sh applies it for both), so nothing here names an environment:
+# `ENVIRONMENT` comes from the env file, where deploy.sh writes the environment it was invoked for
+# (devops audit 2026-09-30 F3; before, every service here said `production`). The `:?` forms below
+# make `docker compose` refuse to render, and so refuse to start anything, when a required
+# configuration key is missing or empty; infra/sops/secrets.example.plain.yaml lists them all and
+# deploy.sh checks the same list before it touches a host.
+
+x-required-env: &required-env
+  ENVIRONMENT: ${ENVIRONMENT:?ENVIRONMENT must be staging or production (deploy.sh writes it into the env file)}
+  BANKABLE_DOMAIN: ${DOMAIN:?DOMAIN must be the registered apex domain (infra/sops/secrets.example.plain.yaml)}
+  PLATFORM_POSTURE: ${PLATFORM_POSTURE:?PLATFORM_POSTURE must be commercial or noncommercial (docs/60 5.1)}
 
 services:
   caddy:
@@ -25,7 +37,13 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     environment:
-      DOMAIN: ${DOMAIN}
+      DOMAIN: ${DOMAIN:?DOMAIN must be the registered apex domain}
+      ENVIRONMENT: ${ENVIRONMENT:?ENVIRONMENT must be staging or production}
+    networks:
+      default:
+        # Fixed, outside the dynamic range below, because api and web believe X-Forwarded-For from
+        # this one address only (FORWARDED_ALLOW_IPS; infra/entrypoint.py; devops audit F1).
+        ipv4_address: 172.30.53.2
     depends_on:
       - api
       - web
@@ -44,7 +62,16 @@ services:
       - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
         required: true
     environment:
-      ENVIRONMENT: production
+      <<: *required-env
+      FORWARDED_ALLOW_IPS: 172.30.53.2 # Caddy only; see its `networks:` above
+      # The session cookie is minted here for a login web relays; web reaches api over plain HTTP
+      # inside the network, so the scheme alone would leave `Secure` off (services/api/auth_routes.py).
+      SESSION_COOKIE_SECURE: "true"
+      # One uvicorn process per container; the service scales by replicas. Measured 2026-09-30 on
+      # the full dev store (devops audit F4 and its re-run): 2 workers peaked at 1,182 MB against
+      # this 1 GB limit (563 + 590 MB, each holding its own geo and asset indexes); 1 worker
+      # peaked at 606 MB after one round of the same traffic and 638 MB after two (docs/60 §2).
+      WEB_CONCURRENCY: "1"
     deploy:
       replicas: 2 # docs/20 §4.1
     mem_limit: 1g
@@ -61,7 +88,9 @@ services:
       - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
         required: true
     environment:
-      ENVIRONMENT: production
+      <<: *required-env
+      FORWARDED_ALLOW_IPS: 172.30.53.2 # Caddy only; the visitor's address is forwarded to api from here
+      MAP_TILE_URL: ${MAP_TILE_URL:?MAP_TILE_URL must be set; the OSM fallback is dev-only (docs/40 2.7)}
     mem_limit: 768m
     # depends_on: [api] is kept from the base file — that dependency has no profile and is fine as-is.
     cpus: "1.0"
@@ -77,7 +106,7 @@ services:
       - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
         required: true
     environment:
-      ENVIRONMENT: production
+      <<: *required-env
     logging:
       driver: json-file
       options:
@@ -90,7 +119,7 @@ services:
       - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
         required: true
     environment:
-      ENVIRONMENT: production
+      <<: *required-env
     mem_limit: 1g
     cpus: "1.5"
     logging:
@@ -105,12 +134,21 @@ services:
       - path: ${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}
         required: true
     environment:
-      ENVIRONMENT: production
+      <<: *required-env
     logging:
       driver: json-file
       options:
         max-size: "20m"
         max-file: "5"
+
+networks:
+  default:
+    ipam:
+      config:
+        # Pinned so Caddy's address is known in advance. Containers get addresses from ip_range
+        # only, so none can take .2 before Caddy starts. Outside Cloudflare's 172.64.0.0/13.
+        - subnet: 172.30.53.0/24
+          ip_range: 172.30.53.128/25
 
 volumes:
   caddy_data:

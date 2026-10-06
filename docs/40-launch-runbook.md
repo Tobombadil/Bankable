@@ -269,7 +269,12 @@ which only makes sense once 1–6 exist.
    template that exists today). This file is where every secret in §2 above (`ATTIO_*`, `STRIPE_*`,
    `RESEND_API_KEY`, `EMAIL_*`, `BSKY_*`, `LINKEDIN_*`, `X_*`, `SOCIAL_BUDGET_X_MONTHLY_USD`, `DATABASE_URL`,
    `R2_*`, `SENTRY_DSN`, `GRAFANA_CLOUD_API_KEY`) is written — never into `infra/compose/.env.example` or the
-   repo.
+   repo. **Start from `infra/sops/secrets.example.plain.yaml`** (added 2026-09-30): it lists every key, the
+   non-secret configuration included (`DOMAIN`, `PLATFORM_POSTURE`, `MAP_TILE_URL`, `SNAPSHOT_STORE`,
+   `AUDIT_HASH_PEPPER`, the `SENDER_*` and `PRODUCT_*` identity), and marks which ones `deploy.sh` requires.
+   The list above was missing those, and a file built from it took Caddy down and switched the posture to
+   `commercial` without an error (devops audit 2026-09-30 F3; `docs/60` §5). Do not add `ENVIRONMENT`;
+   `deploy.sh` writes it.
 4. **Object storage.** Create the R2 bucket; there is no lifecycle rule pruning it yet (`docs/60` §11 item 8) —
    accept unbounded growth at launch or add one via `infra/terraform/storage.tf` first.
 5. **Observability accounts.** Create the Sentry project and the Grafana Cloud account; their keys are wiring
