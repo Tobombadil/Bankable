@@ -702,7 +702,7 @@ def apply_context_features(session: Session, data_root: pathlib.Path) -> dict[st
             )
         elif key == "eia923":
             report[key] = apply_eia923(session, frame, now=now)
-        elif key == "eia860_plants":
+        elif key == "eia860_plants":  # gitleaks:allow (a context frame key, not a secret)
             report[key] = apply_eia860_plants(session, frame, now=now)
         else:
             report[key] = apply_rfs(session, frame, now=now)
