@@ -19,13 +19,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from services.alerts.matching import event_matches_query, matches_query
 from services.alerts.visibility import event_with_visible_subject_filter
 from services.api.common import ensure_aware
 from services.api.visibility import gated_opportunity, gated_proposal
+from services.db.event_horizon import stable_event_seq
 from services.db.models import Account, Event, Opportunity, Proposal, WebhookDelivery, WebhookEndpoint
 from services.ids import public_id
 
@@ -184,7 +185,9 @@ def enqueue_new_deliveries(db: Session, *, batch_size: int = ENQUEUE_BATCH_SIZE)
     a record hidden when its change was recorded is not announced later. Returns the number of
     deliveries created. The payload is built at delivery time from the served view
     (`attempt_delivery`, `_event_payload`), which also re-checks visibility."""
-    head = db.scalar(select(func.max(Event.seq))) or 0
+    # Not `MAX(seq)`: a lower seq can still be committed by an open transaction, and a watermark
+    # moved past it would never see it (backend audit 2026-09-30 F5; `services/db/event_horizon.py`).
+    head = stable_event_seq(db)
     endpoint_ids = list(
         db.scalars(
             select(WebhookEndpoint.id).where(WebhookEndpoint.status == "active").order_by(WebhookEndpoint.id)

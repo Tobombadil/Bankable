@@ -535,13 +535,27 @@ def connector_data_root() -> Path:
 
 
 def load_source_job(
-    source_id: str, ts: str, *, _load: Callable[..., Any] | None = None, _data_root: Path | None = None
+    source_id: str,
+    ts: str,
+    *,
+    _load: Callable[..., Any] | None = None,
+    _data_root: Path | None = None,
+    _plan: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Body of `load_source`: `services.ingest.loader.load_from_files` for one run's parquet
-    (the same call `web/data_loading.py` makes), committed as one transaction. A gate refusal
-    or a kind refusal (a `document` source: `services.ingest.loader.KindRefused`) is logged and
-    returned, never raised — there is nothing to retry."""
+    (the same call `web/data_loading.py` makes). A gate refusal or a kind refusal (a `document`
+    source: `services.ingest.loader.KindRefused`) is logged and returned, never raised — there is
+    nothing to retry.
+
+    Replay (architect audit 2026-09-30 A6): the runner diffs each run against the previous promoted
+    snapshot whether or not it was loaded, so a load that failed used to lose its run's change events
+    for good. `services.ingest.loader.runs_to_load` lists the promoted runs after the source's
+    `last_loaded_ts`, oldest first, ending with `ts`; each is loaded and committed in its own
+    transaction, so a replay that fails part-way keeps the runs it finished and the next load resumes
+    after them. A run older than the last loaded one is reported `superseded` and not loaded. The
+    report is the last run's, with `replayed` naming the earlier runs loaded first."""
     load = _load if _load is not None else _load_fn("services.ingest.loader", "load_from_files")
+    plan = _plan if _plan is not None else _load_fn("services.ingest.loader", "runs_to_load")
     from pipeline.connectors import store as store_module
     from services.db.session import session_scope
 
@@ -550,19 +564,33 @@ def load_source_job(
     # backend the load reads the bucket and need not run on the host that fetched.
     data_root = _data_root if _data_root is not None else connector_data_root()
     store = store_module.open_store(data_root)
-    with session_scope(build_session_factory()) as session:
-        try:
-            result = load(session, source_id, ts, data_root=data_root, store=store)
-        except Exception as exc:
-            if type(exc).__name__ == "GateRefused":
-                logger.warning("load refused", extra={"source_id": source_id, "error": str(exc)})
-                return {"source_id": source_id, "ts": ts, "skipped": "gate refused"}
-            if type(exc).__name__ == "KindRefused":
-                logger.warning("load refused", extra={"source_id": source_id, "error": str(exc)})
-                return {"source_id": source_id, "ts": ts, "skipped": "kind refused"}
-            raise
+    factory = build_session_factory()
+    with session_scope(factory) as session:
+        pending = [str(run_ts) for run_ts in plan(session, store, source_id, ts)]
+    if not pending:
+        logger.info("load superseded by a later loaded run", extra={"source_id": source_id, "ts": ts})
+        return {"source_id": source_id, "ts": ts, "skipped": "superseded"}
+    if len(pending) > 1:
+        logger.warning(
+            "replaying runs whose load did not commit", extra={"source_id": source_id, "runs": pending[:-1]}
+        )
+    result: Any = None
+    for run_ts in pending:
+        with session_scope(factory) as session:
+            try:
+                result = load(session, source_id, run_ts, data_root=data_root, store=store)
+            except Exception as exc:
+                if type(exc).__name__ == "GateRefused":
+                    logger.warning("load refused", extra={"source_id": source_id, "error": str(exc)})
+                    return {"source_id": source_id, "ts": ts, "skipped": "gate refused"}
+                if type(exc).__name__ == "KindRefused":
+                    logger.warning("load refused", extra={"source_id": source_id, "error": str(exc)})
+                    return {"source_id": source_id, "ts": ts, "skipped": "kind refused"}
+                raise
     data = _result_to_dict(result)
     data.update(source_id=source_id, ts=ts)
+    if len(pending) > 1:
+        data["replayed"] = pending[:-1]
     _log_report("load_source", data)
     return data
 

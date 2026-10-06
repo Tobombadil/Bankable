@@ -1696,6 +1696,9 @@ def load_from_files(
 
     One `source_run` row per run (2026-09-27, `_run_for_load`): the load attaches to the row the
     scheduler recorded for the fetch, and writes one itself only when loaded standalone.
+
+    The load records `ts` as `source.last_loaded_ts` in its own transaction (architect audit A6),
+    which `runs_to_load` reads to replay runs whose load never committed.
     """
     registry = registry or Registry()
     entry = registry.get(source_id)
@@ -1705,6 +1708,7 @@ def load_from_files(
         special_result: LoadResult | RetirementLoadResult = special(
             session, source_id, ts, data_root=data_root, registry=registry, store=store
         )
+        _mark_loaded(session, source_id, ts)
         return special_result
     load_kind = generic_load_kind(registry, source_id, kind)
 
@@ -1724,7 +1728,64 @@ def load_from_files(
 
     result = load_dataframe(session, source, load_kind, records_df, events_df, run=run)
     result.source_run_id = run.id
+    _mark_loaded(session, source_id, ts)
     return result
+
+
+def _mark_loaded(session: Session, source_id: str, ts: str) -> None:
+    """Records `ts` as the source's last loaded run, in the load's own transaction, so it is set
+    exactly when the load commits. Never moves backwards (`Source.last_loaded_ts`)."""
+    source = session.get(Source, source_id)
+    if source is not None and (source.last_loaded_ts is None or ts > source.last_loaded_ts):
+        source.last_loaded_ts = ts
+        session.flush()
+
+
+def _run_ts(record: Mapping[str, Any]) -> str | None:
+    """The snapshot token a run record's normalised output was written under: the basename of
+    `outputs.normalized` (a local path or an `s3://` URI, `Store.locate`)."""
+    location = (record.get("outputs") or {}).get("normalized")
+    if not location:
+        return None
+    name = pathlib.PurePosixPath(str(location)).name
+    return name[: -len(".parquet")] if name.endswith(".parquet") else None
+
+
+def runs_to_load(session: Session, store: Store, source_id: str, ts: str) -> list[str]:
+    """The runs a load of `ts` must load, oldest first (architect audit 2026-09-30 A6).
+
+    The runner diffs each run against the previous promoted snapshot, whether or not that snapshot
+    was ever loaded. A failed load therefore lost its run's change events for good: the next run's
+    events start from the failed run's state. So a load of `ts` first replays every promoted run
+    (`status = ok` with a normalised output) after the source's `last_loaded_ts`, in order, then
+    `ts` itself. Each loads exactly the events its run's diff produced, and event idempotency keys
+    make a repeat a no-op.
+
+    - No `last_loaded_ts` yet (a source first loaded, or loaded before migration 0032): `[ts]`.
+    - `ts` older than `last_loaded_ts`: `[]`. A later run is loaded and `ts` was replayed before it;
+      loading it again would move records back to an older state.
+    - `ts` equal to `last_loaded_ts`: `[ts]`, an idempotent reload.
+    - A promoted run whose normalised file is gone is skipped with a warning rather than blocking
+      every later load."""
+    source = session.get(Source, source_id)
+    last = source.last_loaded_ts if source is not None else None
+    if last is None or ts == last:
+        return [ts]
+    if ts < last:
+        return []
+    pending: list[str] = []
+    for record in store.runs(source_id):
+        run_ts = _run_ts(record)
+        if run_ts is None or record.get("status") != "ok" or not (last < run_ts < ts):
+            continue
+        if not store.exists(store.normalized_path(source_id, run_ts)):
+            log.warning(
+                "unloaded run has no normalised file; its events cannot be replayed",
+                extra={"source_id": source_id, "ts": run_ts},
+            )
+            continue
+        pending.append(run_ts)
+    return [*sorted(set(pending)), ts]
 
 
 def _run_for_load(

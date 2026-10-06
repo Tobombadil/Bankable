@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from fastapi import Request
 from sqlalchemy.orm import Session, sessionmaker
 
 from services.db.session import get_engine, get_sessionmaker, init_db
@@ -47,3 +48,11 @@ def get_db() -> Iterator[Session]:
         raise
     finally:
         db.close()
+
+
+async def read_raw_body(request: Request) -> bytes:
+    """The raw request body, read on the event loop, for a plain `def` route that needs the exact
+    bytes (a provider webhook verifies its signature over them). Such a route runs in FastAPI's
+    threadpool, so its synchronous database and adapter calls do not block the loop (backend audit
+    2026-09-30 F7: the Stripe and Attio handlers were `async def` and stalled every request)."""
+    return await request.body()

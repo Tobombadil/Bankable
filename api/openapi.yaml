@@ -12498,6 +12498,12 @@ components:
           type: string
           format: uri
           pattern: '^https://'
+          description: >-
+            An https URL on port 443 with no user-info. Every address the host resolves to must be
+            public: loopback, private, link-local (including cloud metadata), unique-local, shared
+            (100.64/10), multicast, reserved and documentation ranges are refused with 400, and so are
+            IPv4 addresses embedded in IPv6. The check is repeated at every delivery, which connects
+            to the vetted address only and follows no redirects (`services/alerts/webhook_url.py`).
         description:
           type: string
           maxLength: 200

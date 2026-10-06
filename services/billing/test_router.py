@@ -244,39 +244,6 @@ def test_webhook_applies_and_flips_entitlement_then_me_shows_new_tier(
     assert me.json()["data"]["account"]["seats"] == 4
 
 
-def test_webhook_never_5xx_when_change_application_fails(
-    client: TestClient, billing_port: InMemoryBilling, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A per-change failure is logged and counted, never a 500 on the whole delivery."""
-    import services.billing.router as router_module
-
-    def _boom(*_args: object, **_kwargs: object) -> None:
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(router_module, "apply_entitlement_change", _boom)
-
-    body_obj = {
-        "id": "evt_router_test_2",
-        "type": "customer.subscription.updated",
-        "data": {
-            "object": {
-                "id": "sub_router_test_2",
-                "customer": "cus_router_test_2",
-                "status": "active",
-                "plan_tier": "pro",
-                "seats": 1,
-                "current_period_start": "2026-09-01T00:00:00Z",
-                "current_period_end": "2026-10-01T00:00:00Z",
-            }
-        },
-    }
-    body = json.dumps(body_obj).encode()
-    header = billing_port.sign(body)
-    resp = client.post("/webhooks/stripe", content=body, headers={"Stripe-Signature": header})
-    assert resp.status_code == 200
-    assert resp.json() == {"received": 1, "applied": 0}
-
-
 # --------------------------------------------------------------------------- admin subscriptions
 def test_admin_subscriptions_requires_operator(client: TestClient, db: Session) -> None:
     account = make_account(db, entitlement="public", name="Non admin")
@@ -466,3 +433,104 @@ def test_subscriptions_for_account_helper(db: Session, billing_port: InMemoryBil
     assert len(rows) == 1
     assert rows[0]["sor_ref"] == "sub_direct_1"
     assert rows[0]["account_id"] == account.public_id
+
+
+# ------------------------------------------- acknowledgement and order (backend audit 2026-09-30 F4)
+def _subscription_event(
+    event_id: str, status: str, created: int, account_public_id: str | None = None
+) -> bytes:
+    obj = {
+        "id": "sub_order",
+        "customer": "cus_order",
+        "status": status,
+        "plan_tier": "pro",
+        "seats": 2,
+        "current_period_start": "2026-09-01T00:00:00Z",
+        "current_period_end": "2026-10-01T00:00:00Z",
+    }
+    if account_public_id is not None:
+        obj["account_public_id"] = account_public_id
+    return json.dumps(
+        {"id": event_id, "type": "customer.subscription.updated", "created": created, "data": {"object": obj}}
+    ).encode()
+
+
+def _post(client: TestClient, port: InMemoryBilling, body: bytes):  # type: ignore[no-untyped-def]
+    return client.post("/webhooks/stripe", content=body, headers={"Stripe-Signature": port.sign(body)})
+
+
+def _order_account(db: Session):  # type: ignore[no-untyped-def]
+    account = make_account(db, entitlement="public", name="Order Co")
+    account.billing_ref = "cus_order"
+    db.commit()
+    return account
+
+
+def test_webhook_ignores_an_event_older_than_the_last_applied(
+    client: TestClient, db: Session, billing_port: InMemoryBilling
+) -> None:
+    from services.db.models import Account
+
+    account = _order_account(db)
+    t = 1_788_000_000
+    resp = _post(client, billing_port, _subscription_event("evt_new_canceled", "canceled", t + 300))
+    assert resp.status_code == 200 and resp.json() == {"received": 1, "applied": 1}
+    resp = _post(client, billing_port, _subscription_event("evt_old_active", "active", t))
+    assert resp.status_code == 200 and resp.json() == {"received": 1, "applied": 0}
+    db.expire_all()
+    stored = db.get(Account, account.id)
+    assert stored is not None and stored.entitlement == "public"
+
+
+def test_webhook_answers_503_and_keeps_nothing_when_a_change_fails(
+    client: TestClient,
+    db: Session,
+    billing_port: InMemoryBilling,
+    crm_port: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Before, a failed change was logged and acknowledged with 200, so Stripe never redelivered it."""
+    from services.db.models import Account, Event, Subscription
+
+    account = _order_account(db)
+
+    def _crash(*_a: object, **_k: object) -> None:
+        raise RuntimeError("connection reset during flush")
+
+    monkeypatch.setattr(crm_port, "upsert_subscription", _crash)
+    body = _subscription_event("evt_retry_me", "active", 1_788_000_000)
+    resp = _post(client, billing_port, body)
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["code"] == "unavailable"
+    db.expire_all()
+    assert db.get(Account, account.id).entitlement == "public"  # type: ignore[union-attr]
+    assert db.query(Subscription).count() == 0
+    assert db.query(Event).filter(Event.idempotency_key == "billing:evt_retry_me").count() == 0
+
+    monkeypatch.undo()
+    resp = _post(client, billing_port, body)  # Stripe's redelivery
+    assert resp.status_code == 200 and resp.json() == {"received": 1, "applied": 1}
+    db.expire_all()
+    assert db.get(Account, account.id).entitlement == "pro"  # type: ignore[union-attr]
+
+
+def test_webhook_answers_503_when_the_provider_is_unavailable_while_reading_the_event(
+    client: TestClient, billing_port: InMemoryBilling, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _down(**_kwargs: object) -> list[object]:
+        raise SorUnavailable("stripe is down")
+
+    monkeypatch.setattr(billing_port, "handle_webhook", _down)
+    resp = client.post("/webhooks/stripe", content=b"{}", headers={"Stripe-Signature": "t=1,v1=x"})
+    assert resp.status_code == 503 and resp.json()["code"] == "sor_unavailable"
+
+
+def test_webhook_still_acknowledges_a_provider_refusal(
+    client: TestClient, billing_port: InMemoryBilling, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _refused(**_kwargs: object) -> list[object]:
+        raise SorRejected("no such subscription")
+
+    monkeypatch.setattr(billing_port, "handle_webhook", _refused)
+    resp = client.post("/webhooks/stripe", content=b"{}", headers={"Stripe-Signature": "t=1,v1=x"})
+    assert resp.status_code == 200 and resp.json() == {"received": 0, "applied": 0}

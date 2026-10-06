@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from services.alerts.evaluate import run_alert_cycle
 from services.alerts.mail import AlertMailer, ResendAlertMailer, refused_send_count
+from services.alerts.webhook_url import Resolver, guarded_client
 from services.alerts.webhooks import Transport, deliver_pending, enqueue_new_deliveries
 from services.db.models import SavedSearch, WebhookEndpoint
 from services.db.session import get_engine, get_sessionmaker, init_db
@@ -71,21 +72,31 @@ def _secret_for(endpoint: WebhookEndpoint) -> str:
 
 
 class HttpxTransport:
-    """The production `Transport` (`services/alerts/webhooks.py`'s `Transport` Protocol): a real
-    `httpx.Client` with a 10 second timeout. `httpx.Client.post(url, *, content=, headers=)`
-    returns an `httpx.Response`, which already carries `status_code` — it satisfies
-    `TransportResponse` structurally with no adaptation, so this class exists only to own the
-    client's lifecycle (construct once per tick with the right timeout, close it after).
+    """The production `Transport` (`services/alerts/webhooks.py`'s `Transport` Protocol): an
+    `httpx.Client` with a 10 second timeout, built by `services.alerts.webhook_url.guarded_client`
+    (architect audit 2026-09-30 A10): each connect re-resolves the endpoint's host, refuses a
+    private, loopback, link-local or otherwise internal address and any port but 443, and connects
+    to the address it vetted; redirects are not followed and proxy variables are ignored. The
+    returned `httpx.Response` carries `status_code`, which satisfies `TransportResponse`; its body is
+    never read, so an endpoint cannot make the worker buffer an arbitrarily large response.
 
     Accepts an already-built `httpx.Client` (`client=`) so a test can hand it one wired to
-    `httpx.MockTransport` and exercise this exact class end to end, per the task brief."""
+    `httpx.MockTransport` and exercise this exact class end to end, per the task brief, and a
+    `resolver` so a test of the guarded client never resolves a real name."""
 
-    def __init__(self, *, timeout: float = 10.0, client: httpx.Client | None = None) -> None:
-        self._client = client if client is not None else httpx.Client(timeout=timeout)
+    def __init__(
+        self,
+        *,
+        timeout: float = 10.0,
+        client: httpx.Client | None = None,
+        resolver: Resolver | None = None,
+    ) -> None:
+        self._client = client if client is not None else guarded_client(timeout=timeout, resolver=resolver)
         self._owns_client = client is None
 
     def post(self, url: str, *, content: bytes, headers: dict[str, str]) -> httpx.Response:
-        return self._client.post(url, content=content, headers=headers)
+        with self._client.stream("POST", url, content=content, headers=headers) as response:
+            return response
 
     def close(self) -> None:
         """No-op when this instance was handed an external client — closing someone else's

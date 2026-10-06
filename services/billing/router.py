@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from services.api.auth import AuthContext, require_admin, require_session_only
 from services.api.common import WEB_HOST, iso
-from services.api.deps import get_db
+from services.api.deps import get_db, read_raw_body
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.pagination import DEFAULT_LIMIT, clamp_limit, paginate
 from services.api.params import check_allowed, csv_param
@@ -89,8 +89,9 @@ def subscriptions_for_account(db: Session, account: Account) -> list[dict[str, A
 
 # ------------------------------------------------------------------------------------- webhook
 @router.post("/webhooks/stripe")
-async def stripe_webhook(
+def stripe_webhook(
     request: Request,
+    body: Annotated[bytes, Depends(read_raw_body)],
     db: Annotated[Session, Depends(get_db)],
     port: Annotated[BillingPort, Depends(get_billing_port)],
     crm: Annotated[CrmPort, Depends(get_crm_port)],
@@ -98,29 +99,54 @@ async def stripe_webhook(
     """Security `[]` (`api/fragments/billing.yaml`): Stripe authenticates itself via the
     `Stripe-Signature` header, verified inside `port.handle_webhook`, not via session/API-key
     auth. `security: []` on the OpenAPI operation is Stripe-facing, not "unauthenticated" in the
-    platform's usual sense."""
-    body = await request.body()
+    platform's usual sense.
+
+    A plain `def` (backend audit 2026-09-30 F7): FastAPI runs it in its threadpool, so the
+    adapter's HTTP calls, the CRM mirror and the synchronous session no longer block the event loop
+    and every other request with it. The body is read on the loop by `read_raw_body`.
+
+    Acknowledgement (backend audit 2026-09-30 F4): Stripe redelivers an event for up to three days
+    until it gets a 2xx, so a 2xx must mean the change is stored. A change that fails to apply
+    rolls back every change of this delivery and answers `503 unavailable`; so does a provider
+    outage while the adapter reads the event (`503 sor_unavailable`). A 200 is still the answer
+    when a retry could not help: no matching account, an event older than the one last applied to
+    its subscription (`services/billing/entitlement.py::is_older_than_applied`), a provider refusal,
+    or an event already applied (idempotent on the event id)."""
     try:
         changes = port.handle_webhook(body=body, headers=request.headers)
     except WebhookRejected as exc:
         raise ProblemError("unauthenticated", "Webhook signature invalid", detail=str(exc)) from exc
+    except SorUnavailable as exc:
+        # A downstream GET (e.g. `checkout.session.completed` fetching the subscription) could not
+        # reach the provider. Answering 2xx would drop the event; Stripe retries a 503.
+        logger.warning("billing webhook: provider unavailable while parsing event: %s", exc)
+        raise ProblemError(
+            "sor_unavailable",
+            "Billing provider unavailable",
+            detail="The event could not be read from the billing provider; it will be delivered again.",
+            instance=request.url.path,
+        ) from exc
     except SorError as exc:
-        # A downstream GET (e.g. `checkout.session.completed` fetching the subscription) failed:
-        # never 5xx the webhook receiver over it (Stripe would retry indefinitely) — log and treat
-        # as zero changes for this delivery; the next event for the same subscription (or Stripe's
-        # own webhook retry) carries the same information again.
-        logger.warning("billing webhook: adapter failed while parsing event: %s", exc, exc_info=True)
+        # The provider refused the read (e.g. the subscription no longer exists): a retry gets the
+        # same answer, so the event is acknowledged with nothing applied.
+        logger.warning("billing webhook: provider refused a read while parsing event: %s", exc, exc_info=True)
         changes = []
 
     applied = 0
     for change in changes:
         try:
             account = apply_entitlement_change(db, change, crm=crm)
-        except Exception:  # never fail the whole webhook delivery over one bad change
+        except Exception as exc:
+            db.rollback()
             logger.exception(
                 "billing webhook: failed to apply entitlement change for event %s", change.event_ref
             )
-            continue
+            raise ProblemError(
+                "unavailable",
+                "Billing change not applied",
+                detail="The change could not be stored; it will be delivered again.",
+                instance=request.url.path,
+            ) from exc
         if account is not None:
             applied += 1
     return {"received": len(changes), "applied": applied}

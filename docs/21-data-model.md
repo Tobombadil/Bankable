@@ -511,6 +511,52 @@ document references only (`docs/20` §11; `docs/02` §4 last row).
 | `job_id` | text | Yes | Queue job identifier for tracing | `resolve:018f39…` |
 | `idempotency_key` | text | No | `(source_id, source_record_id, event_type, hash(after))` — unique, makes re-runs free | `caiso:Q1234:status_change:9f2c…` |
 
+**Reading `seq` in order (2026-10-06, backend audit 2026-09-30 F5; architect A5).** On Postgres `seq`
+comes from the identity sequence (migration 0027), so seq order is the order values were *taken*, not
+the order transactions *committed*. A load holds its transaction for up to 30 minutes; an admin edit
+or a merge that takes a later seq and commits first is visible before it. A reader that moved its
+watermark to the highest visible seq passed the load's lower seqs and never saw them. Measured on
+Postgres 16 before the fix: with A holding seq 2 and B committing seq 3, the webhook, saved-search and
+social watermarks all moved to 3, and `/v1/events?since=` returned 3 alone; seq 2 was never delivered.
+
+Every watermark reader now stops at `stable_event_seq` (`services/db/event_horizon.py`), a bound no
+open or future transaction can commit an event at or below:
+
+- *Writers advertise.* A statement-level `BEFORE INSERT` trigger on `event` (migration 0032) runs, once
+  per transaction, before the statement takes any value from the sequence. It reads the sequence's last
+  value `L` and takes a shared transaction-level advisory lock keyed `0x455651 << 40 | L`. Every seq
+  the transaction then takes is above `L`, and the lock lasts until it commits or rolls back. A
+  savepoint rollback drops the lock and the once-per-transaction flag together.
+- *Readers bound themselves.* Read the sequence's last value `S`, then the smallest advertised `L`
+  still held (`pg_locks`), and use `min(S, L)`. A seq at or below the bound was taken before `S` was
+  read, by a transaction that had already advertised: if it is still open its `L` lies below its
+  seqs; if it has finished, its rows are visible to the reader's next statement. The bound is read
+  before the statement that reads events, under READ COMMITTED.
+- *Who reads it.* Webhook enqueue (`webhook_endpoint.watermark_seq`), saved-search alerts
+  (`saved_search.watermark_seq`), social drafts (`worker_watermark`), the `/v1/events`,
+  `/v1/bulk/events` and event-export statement, and the starting watermark of a new saved search or
+  webhook. Not bounded: `POST /v1/webhooks/{id}/replay` (the caller names the range) and the admin
+  run screens (not cursors).
+- *SQLite.* Writers are serialised by the database lock and `seq` is `MAX(seq)+1` inside the writing
+  transaction, so seq order is commit order; the bound is `MAX(seq)`.
+
+Why this and not the alternatives. A time lag on the watermark is not a bound: a load transaction can
+outlive any lag short of its 1,800 s timeout, and an abandoned thread (architect A9) can outlive that.
+Allocating `seq` at commit (one sequencer, or a commit-time `UPDATE`) makes seq order commit order but
+either serialises every event writer behind a 30-minute load or leaves `seq` unset until commit for
+code that reads it inside the transaction. A transaction-id column with `pg_snapshot_xmin` tells a
+reader which transactions are open but not which seqs they hold, so it still needs a per-reader
+snapshot cursor in place of the integer `since` the API publishes. The advisory lock costs one
+sequence read and one lock per writing transaction, and two single-row reads per reader (0.6 ms
+per call on a local Postgres 16, measured).
+
+Costs and limits. While a load is open, events other writers commit after it started wait for the
+load to finish before readers and `/v1/events` show them; the delay is the load's length (minutes,
+30 at most). The sequence must not cache values (`CACHE 1`, the default; migration 0032 refuses
+otherwise). An advisory lock taken by unrelated code in the `0x455651 << 40` range would only hold
+the bound lower while it is held. Proven in `tests/test_postgres.py` (CI's Postgres job) and, for the
+SQLite ordering and the readers, `tests/test_event_horizon.py`.
+
 ### 3.11 `match`
 
 | Field | Type | Null | Meaning | Example |
@@ -596,6 +642,7 @@ reconciliation job (`docs/20` §9). Conflicts resolve system-of-record-wins.
 | `currency` | char(3) | No | ISO 4217 | `USD` |
 | `mirrored_at` | timestamptz | No | Last successful sync | `2026-09-12T03:00:00Z` |
 | `drift_flag` | boolean | No | Set by reconciliation when local and remote disagree | `false` |
+| `last_event_at` | timestamptz | Yes | Provider `created` time of the billing event last applied; an older event is ignored, because the provider does not deliver in order (migration 0032, backend audit 2026-09-30 F4). Null on rows written before 0032 | `2026-09-12T03:00:00Z` |
 
 ### 3.15 `saved_search`
 
@@ -1019,6 +1066,7 @@ overwritten from YAML on every boot, fields marked *runtime* are never touched b
 | `health` | text | No | runtime | `ok \| degraded \| failing \| blocked \| paused` | `ok` |
 | `consecutive_failures` | int | No | runtime | Flag at 3 (US-904 AC3), dead-letter at 5 (`docs/20` §4.2) | `0` |
 | `last_success_at` | timestamptz | Yes | runtime | Last `ok`/`unchanged` run | `2026-09-11T05:00:00Z` |
+| `last_loaded_ts` | text | Yes | runtime | Snapshot token of the last run whose load committed; the next scheduled load replays every promoted run after it, oldest first (migration 0032, architect audit 2026-09-30 A6) | `20260911T050000Z` |
 | `last_error` / `last_error_at` | text / timestamptz | Yes | runtime | Latest failure | `null` |
 | `host` | text | No | manifest | Rate-limit bucket key | `www.caiso.com` |
 | `max_rps` | numeric(6,3) | No | manifest | Host politeness limit (`docs/02` §7) | `0.500` |

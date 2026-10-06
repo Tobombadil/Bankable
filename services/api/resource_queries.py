@@ -59,6 +59,7 @@ from services.api.records import (
     instant_filter,
 )
 from services.api.visibility import event_visibility_filter, gated_record, source_visible
+from services.db.event_horizon import stable_event_seq
 from services.db.models import (
     OPPORTUNITY_STATUSES,
     Event,
@@ -315,7 +316,10 @@ def event_query_with_filters(request: Request, db: Session, entitlement: str) ->
     `services/api/app.py::list_events` so bulk and exports run the same block. A `since` that is
     neither an integer nor an RFC 3339 instant is a `400 validation_error` (the inline block let
     `fromisoformat` raise, a 500)."""
-    stmt = select(Event).where(*event_visibility_filter(entitlement))
+    # Never past a seq an open transaction may still commit: a client resuming with `since=<the
+    # last seq it saw>` would otherwise skip an event that commits late with a lower seq (backend
+    # audit 2026-09-30 F5; `services/db/event_horizon.py`). On SQLite this is `MAX(seq)`.
+    stmt = select(Event).where(Event.seq <= stable_event_seq(db), *event_visibility_filter(entitlement))
     qp = request.query_params
     if v := qp.get("subject_type"):
         stmt = stmt.where(Event.subject_type.in_(csv_param(v)))

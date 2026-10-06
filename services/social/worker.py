@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from services.api.common import ensure_aware
 from services.api.visibility import opportunity_visibility_filter, proposal_visibility_filter
+from services.db.event_horizon import stable_event_seq
 from services.db.models import ChannelConfig, Event, Opportunity, Post, Proposal, WorkerWatermark
 from services.db.session import get_engine, get_sessionmaker
 from services.ids import public_id
@@ -277,7 +278,13 @@ def draft_posts_tick(
         watermark_row = _watermark_row(db)
         events = list(
             db.scalars(
-                select(Event).where(Event.seq > watermark_row.seq).order_by(Event.seq.asc()).limit(limit)
+                select(Event)
+                # Bounded below every seq an open transaction may still commit, so the watermark
+                # never passes a late-committing event (backend audit 2026-09-30 F5;
+                # `services/db/event_horizon.py`).
+                .where(Event.seq > watermark_row.seq, Event.seq <= stable_event_seq(db))
+                .order_by(Event.seq.asc())
+                .limit(limit)
             )
         )
         events_scanned = len(events)

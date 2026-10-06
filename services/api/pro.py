@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.alerts.feed import generate_rss_token, matching_items_for_feed
+from services.alerts.webhook_url import UnsafeDestination, validate_webhook_url
 from services.alerts.webhooks import create_test_delivery, replay_from_seq
 from services.api.alert_plan import SAVED_SEARCH_QUOTA, AlertPlan, alert_plan_for, require_alert_access
 from services.api.audit import record_audit_event
@@ -61,6 +62,7 @@ from services.api.serialize import (
     serialize_webhook_endpoint,
 )
 from services.billing.router import subscriptions_for_account
+from services.db.event_horizon import stable_event_seq
 from services.db.models import (
     ACCOUNT_ENTITLEMENTS,
     ALERT_CHANNELS,
@@ -69,7 +71,6 @@ from services.db.models import (
     Account,
     Alert,
     ApiKey,
-    Event,
     Organization,
     SavedSearch,
     UiEvent,
@@ -458,7 +459,9 @@ def create_saved_search(
         # starts at the head of the event log. From 0 its first digest was every matching event
         # ever recorded -- hundreds of lines for a broad search, sent to a reader who has just
         # signed up. The private RSS feed and `/preview` read current matches and are unaffected.
-        watermark_seq=db.scalar(select(func.max(Event.seq))) or 0,
+        # The stable head, not `MAX(seq)`, so an event an open transaction commits later with a
+        # lower seq is still delivered (backend audit 2026-09-30 F5).
+        watermark_seq=stable_event_seq(db),
     )
     db.add(search)
     db.flush()
@@ -783,8 +786,12 @@ def create_webhook(
         raise not_found(request.url.path)
     url = body.get("url", "")
     types = body.get("types") or []
-    if not url.startswith("https://"):
-        raise validation_error("url", "url must be https://", request.url.path)
+    # Not only an `https://` prefix: the host must resolve to public addresses only, on port 443
+    # (architect audit 2026-09-30 A10; checked again at every delivery, `services/alerts/webhook_url.py`).
+    try:
+        validate_webhook_url(url)
+    except UnsafeDestination as exc:
+        raise validation_error("url", str(exc), request.url.path) from exc
     if not types:
         raise validation_error("types", "at least one type is required", request.url.path)
     entity = body.get("entity", "event")
@@ -818,8 +825,9 @@ def create_webhook(
         query=query,
         secret=secret,
         # Deliveries start with the next change, as a saved search's alerts do; earlier events are
-        # `POST /v1/webhooks/{id}/replay` (backend audit 2026-09-30 F2).
-        watermark_seq=db.scalar(select(func.max(Event.seq))) or 0,
+        # `POST /v1/webhooks/{id}/replay` (backend audit 2026-09-30 F2). The stable head, as for a
+        # saved search above (F5).
+        watermark_seq=stable_event_seq(db),
     )
     db.add(endpoint)
     db.flush()

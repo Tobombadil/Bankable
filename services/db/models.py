@@ -310,6 +310,11 @@ class Source(Base, TimestampMixin):
     #: conflating the two is the bug this column exists to end.
     vintage: Mapped[str | None] = mapped_column(sa.Text)
     vintage_basis: Mapped[str | None] = mapped_column(sa.Text)
+    #: Snapshot token (`YYYYMMDDTHHMMSSZ`) of the last run whose load committed (migration 0032;
+    #: architect audit 2026-09-30 A6). The scheduler's load replays every promoted run after it,
+    #: oldest first, so a failed load's change events are not lost (`services/ingest/loader.py::
+    #: runs_to_load`). NULL until a load commits.
+    last_loaded_ts: Mapped[str | None] = mapped_column(sa.Text)
 
     licence: Mapped[Licence] = relationship(lazy="joined")
 
@@ -1263,6 +1268,10 @@ class Subscription(Base, TimestampMixin):
         sa.DateTime(timezone=True), nullable=False, default=utcnow
     )
     drift_flag: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    #: When the billing event last applied to this row was created at the provider (Stripe's
+    #: `created`; migration 0032, backend audit 2026-09-30 F4). An older event is ignored, because
+    #: the provider does not deliver events in order. NULL for rows written before 0032.
+    last_event_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
 
     account: Mapped[Account] = relationship(lazy="joined")
 

@@ -46,7 +46,12 @@ saved-search query, or a webhook secret) before being summarised into `errors` a
   post(url, *, content=, headers=)` returns an `httpx.Response`, which already has `status_code`
   and needs no adaptation). `run_alert_tick` closes this client at the end of the tick **only**
   when it built it itself — a transport passed in by a caller (a test, or `--dry-run`'s
-  `DryRunTransport`) is that caller's to close.
+  `DryRunTransport`) is that caller's to close. Since 2026-10-06 (architect audit 2026-09-30 A10)
+  the client it builds is `services/alerts/webhook_url.py::guarded_client`: every connect
+  re-resolves the endpoint's host, refuses any internal or non-public address and any port but
+  443, and connects to the address it vetted (no second lookup, so no DNS-rebinding gap); no
+  redirects, no proxy from the environment, and the response body is never read.
+  `POST /v1/webhooks` applies the same check at registration.
 - `now=None` → `dt.datetime.now(dt.UTC)`, used as `started_at` and passed through to both halves
   so their window/backoff math is computed against one consistent instant.
 

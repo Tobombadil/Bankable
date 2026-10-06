@@ -39,6 +39,20 @@ def _reset_rate_limiter() -> None:
     default_limiter.reset()
 
 
+#: A public address (`address_refusal` accepts it) every name resolves to in this suite.
+PUBLIC_TEST_ADDRESS = "93.184.215.14"
+
+
+@pytest.fixture(autouse=True)
+def _no_real_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Webhook URLs are resolved at registration and delivery (architect audit A10,
+    `services/alerts/webhook_url.py`). No test may resolve a real name (docs/04 E-6), so every
+    name answers one public address unless a test installs its own resolver."""
+    from services.alerts import webhook_url
+
+    monkeypatch.setattr(webhook_url, "default_resolver", lambda host, port: [PUBLIC_TEST_ADDRESS])
+
+
 @pytest.fixture()
 def db_sessionmaker() -> sessionmaker[Session]:
     engine = get_engine("sqlite+pysqlite:///:memory:")
