@@ -18,3 +18,12 @@ CVE-2026-41066
 # imported by the application at runtime. Same removal condition as the setuptools pip-audit ignore.
 CVE-2026-24049
 CVE-2026-23949
+# virtualenv 20.39.1 -> fixed in 21.7.12/21.7.13. Blocked: gridstatus 0.36.0 pins virtualenv<21.
+# All four advisories concern creating environments and their activation scripts; nothing in the
+# image imports or runs virtualenv. Same exception as pip-audit's PYSEC-2026-4011..4014 in ci.yml;
+# tracked in docs/00-PLAN.md (2026-10-06). Remove the day gridstatus relaxes the pin. The fourth id
+# (102938) is below HIGH today and listed so a severity change does not reopen the gate.
+CVE-2026-102925
+CVE-2026-102930
+CVE-2026-102937
+CVE-2026-102938
