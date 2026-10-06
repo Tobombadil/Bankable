@@ -817,6 +817,9 @@ def create_webhook(
         entity=entity,
         query=query,
         secret=secret,
+        # Deliveries start with the next change, as a saved search's alerts do; earlier events are
+        # `POST /v1/webhooks/{id}/replay` (backend audit 2026-09-30 F2).
+        watermark_seq=db.scalar(select(func.max(Event.seq))) or 0,
     )
     db.add(endpoint)
     db.flush()

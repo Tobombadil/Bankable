@@ -18,6 +18,7 @@ import logging
 import os
 import pathlib
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, Request
@@ -514,11 +515,28 @@ def _resolve_opportunity_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | 
     return entities[0] if entities else None
 
 
+def _survivor_slug(api: ApiClient, collection: str, segment: str) -> str | None:
+    """Where a detail URL that names no current record now lives (US-201 AC3; QA audit 2026-09-30
+    QA-8). The API answers a merged record's old id or old slug with `301` to its survivor, and
+    `404` when the survivor is not visible at this tier (so its id never reaches this page). Both
+    transports follow that redirect (`web/api_client.py::build_client`), so a 200 here is the
+    survivor's envelope; its slug differs from `segment` exactly when the visitor should be sent on.
+    A live record's own public id resolves here too and lands on its slug URL."""
+    try:
+        envelope = api.get(f"/v1/{collection}/{quote(segment, safe='')}")
+    except ApiNotFound:
+        return None
+    slug = (envelope.get("data") or {}).get("slug")
+    return slug if isinstance(slug, str) and slug and slug != segment else None
+
+
 @app.get("/proposals/{slug}", response_class=HTMLResponse)
-def proposal_detail(request: Request, slug: str) -> HTMLResponse:
+def proposal_detail(request: Request, slug: str) -> Response:
     api = get_api(request)
     entity = _resolve_proposal_by_slug(api, slug)
     if entity is None:
+        if survivor := _survivor_slug(api, "proposals", slug):
+            return RedirectResponse(f"/proposals/{quote(survivor, safe='')}", status_code=301)
         return not_found_response(request, "proposal")
     record = flatten_proposal(entity)
     path = f"/proposals/{record['slug']}"
@@ -592,10 +610,12 @@ def opportunities_list(request: Request) -> HTMLResponse:
 
 
 @app.get("/opportunities/{slug}", response_class=HTMLResponse)
-def opportunity_detail(request: Request, slug: str) -> HTMLResponse:
+def opportunity_detail(request: Request, slug: str) -> Response:
     api = get_api(request)
     entity = _resolve_opportunity_by_slug(api, slug)
     if entity is None:
+        if survivor := _survivor_slug(api, "opportunities", slug):
+            return RedirectResponse(f"/opportunities/{quote(survivor, safe='')}", status_code=301)
         return not_found_response(request, "opportunity")
     record = flatten_opportunity(entity)
     path = f"/opportunities/{record['slug']}"

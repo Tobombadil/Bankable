@@ -62,11 +62,11 @@ from services.api import captcha
 from services.api.audit import record_audit_event
 from services.api.auth import AuthContext, generate_api_key, require_admin
 from services.api.client_ip import client_ip, rate_limit_address
-from services.api.common import WEB_HOST, ensure_aware, iso, new_request_id, utcnow
+from services.api.common import WEB_HOST, current_request_id, ensure_aware, iso, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.pagination import clamp_limit, paginate
-from services.api.params import check_allowed, csv_param
+from services.api.params import check_allowed, csv_param, int_param
 from services.api.pro import API_LICENCE_VERSION
 from services.api.ratelimit import default_limiter
 from services.api.serialize import (
@@ -326,7 +326,7 @@ def admin_list_posts(
     check_allowed(request, {"limit", "cursor", "channel", "state", "event_type", "subject_type"})
     qp = request.query_params
     instance = request.url.path
-    limit = clamp_limit(int(qp["limit"]) if "limit" in qp else None)
+    limit = clamp_limit(int_param(request, "limit"))
     stmt = select(Post)
     if channels := csv_param(qp.get("channel")):
         bad = [c for c in channels if c not in POST_CHANNELS]
@@ -729,7 +729,7 @@ def admin_list_keys(
     check_allowed(request, {"limit", "cursor", "account_id", "revoked"})
     qp = request.query_params
     instance = request.url.path
-    limit = clamp_limit(int(qp["limit"]) if "limit" in qp else None)
+    limit = clamp_limit(int_param(request, "limit"))
     stmt = select(ApiKey)
     revoked = qp.get("revoked", "false").strip().lower() in ("1", "true", "yes")
     stmt = stmt.where(ApiKey.revoked_at.is_not(None) if revoked else ApiKey.revoked_at.is_(None))
@@ -880,7 +880,7 @@ def _intake_accepted_response(task: Task) -> dict[str, Any]:
         "status": "pending_review",
         "status_url": f"{WEB_HOST}/status/{task.public_id}",
         "privacy_notice_url": PRIVACY_NOTICE_URL,
-        "request_id": new_request_id(),
+        "request_id": current_request_id(),
     }
 
 
@@ -888,7 +888,7 @@ def _report_accepted_response(task: Task) -> dict[str, Any]:
     return {
         "task_id": task.public_id,
         "privacy_notice_url": PRIVACY_NOTICE_URL,
-        "request_id": new_request_id(),
+        "request_id": current_request_id(),
     }
 
 

@@ -368,6 +368,13 @@ def test_create_deal_links_company_signal_and_writes_note() -> None:
             body = json.loads(request.content)
             assert body["filter"] == {"signal_id": {"$eq": "evt_9"}}
             return httpx.Response(200, json={"data": [_record_response(signal_id).json()["data"]]})
+        if path == "/v2/objects/deals/records/query":
+            # The retry guard (backend audit 2026-09-30 F12): no deal yet for this signal.
+            body = json.loads(request.content)
+            assert body["filter"] == {
+                "originating_signal": {"target_object": "lead_signals", "target_record_id": signal_id}
+            }
+            return httpx.Response(200, json={"data": []})
         if path == "/v2/objects/deals/records":
             assert request.method == "POST"
             body = json.loads(request.content)

@@ -46,7 +46,7 @@ from sqlalchemy.orm.interfaces import LoaderOption
 
 from services.api.common import WEB_HOST
 from services.api.errors import validation_error
-from services.api.params import check_allowed, csv_param
+from services.api.params import check_allowed, csv_param, since_seq
 from services.api.records import (
     OPPORTUNITY_FILTERS,
     OPPORTUNITY_SORT_ALLOWLIST,
@@ -260,11 +260,25 @@ def subject_infos(
             readable = _readable_source_ids(
                 db, {str((fp or {}).get(name_key, {}).get("source_id")) for *_, fp in rows}, entitlement
             )
-            for row_id, row_public_id, name, slug, fp in rows:
-                name_source = (fp or {}).get(name_key, {}).get("source_id")
-                if name_source is None or str(name_source) not in readable:
-                    record = cast("Proposal | Opportunity | None", db.get(model, row_id))
-                    name = getattr(gated_record(record, entitlement), name_key) if record else name
+            # Rows whose name source this tier may not read (or that record none) are read through
+            # `GatedRecord`, loaded in one query for the chunk rather than one `get` each.
+            gated_ids = [
+                row_id
+                for row_id, *_, fp in rows
+                if str((fp or {}).get(name_key, {}).get("source_id")) not in readable
+            ]
+            loaded = (
+                db.scalars(select(model).where(model.id.in_(gated_ids)).options(selectinload(model.sources)))
+                if gated_ids
+                else None
+            )
+            gated_rows = {
+                r.id: r for r in cast("list[Proposal | Opportunity]", list(loaded.all() if loaded else []))
+            }
+            for row_id, row_public_id, name, slug, _fp in rows:
+                if row_id in gated_rows:
+                    record = gated_rows[row_id]
+                    name = getattr(gated_record(record, entitlement), name_key)
                 out[row_id] = {
                     "subject_public_id": row_public_id,
                     "subject_name": name,
@@ -316,8 +330,8 @@ def event_query_with_filters(request: Request, db: Session, entitlement: str) ->
         else:
             stmt = stmt.where(Event.subject_id == subj.id)
     if v := qp.get("since"):
-        if v.isdigit():
-            stmt = stmt.where(Event.seq > int(v))
+        if (seq := since_seq(v, request.url.path)) is not None:
+            stmt = stmt.where(Event.seq > seq)
         else:
             stmt = stmt.where(Event.observed_at > _parse_instant(v, "since", request.url.path))
     if v := qp.get("changed_key"):

@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from services.api.common import API_HOST, new_request_id
+from services.api.common import API_HOST, current_request_id
 
 ERROR_CODES = {
     "validation_error": 400,
@@ -26,6 +26,7 @@ ERROR_CODES = {
     "quota_exceeded": 429,
     "sor_unavailable": 503,
     "unavailable": 503,
+    "internal_error": 500,
 }
 
 
@@ -62,7 +63,7 @@ class ProblemError(Exception):
             "title": self.title,
             "status": self.status,
             "code": self.code,
-            "request_id": new_request_id(),
+            "request_id": current_request_id(),
             "instance": self.instance or request.url.path,
         }
         if self.detail:

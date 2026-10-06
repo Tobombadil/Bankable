@@ -3419,6 +3419,9 @@ paths:
         shapes are documented under `webhooks` at the end of this document. `entity` must be a `SavedSearchEntity`
         (`400 validation_error` otherwise) and `query` is validated exactly as on `POST /v1/saved-searches`: a key
         the entity's list does not filter on answers `400 unknown_parameter`, never a filter stored and ignored.
+        Deliveries start with the first change recorded after the endpoint is created (each endpoint keeps an
+        event-seq watermark); earlier events are `POST /v1/webhooks/{webhook_id}/replay`. Delivery is at least once:
+        a retried attempt carries the same `X-Platform-Delivery-Id`.
       x-tier: api
       x-status: live
       x-sprint: 2
@@ -6239,7 +6242,7 @@ components:
   # ───────────────────────────── Headers (docs/23 §1, §6; docs/04 API-6, API-7, API-9) ─────────────────────────────
   headers:
     X-Request-Id:
-      description: Request identifier; also in every problem body and quoted in support requests.
+      description: Request identifier, one per request. The same value is `meta.request_id` in every envelope and `request_id` in every problem body (a `500 internal_error` included), and is logged with any server error; quote it in support requests.
       schema:
         type: string
         pattern: '^req_[0-9a-z]{6,32}$'
@@ -6358,7 +6361,7 @@ components:
     SlugFilter:
       name: slug
       in: query
-      description: Exact match on the record's SEO slug (`docs/30-design-ia.md`'s `/proposals/{slug}` / `/opportunities/{slug}` URLs). One value, not comma-separated — slugs are unique per kind. A working substitute for a dedicated slug-keyed detail route (`web/README.md` "Missing from the API" item 1); it does not implement `slug_history` 301 redirects for merged/renamed records, which stay out of scope this sprint (docs/21 §6.3).
+      description: Exact match on the record's SEO slug (`docs/30-design-ia.md`'s `/proposals/{slug}` / `/opportunities/{slug}` URLs). One value, not comma-separated — slugs are unique per kind. A working substitute for a dedicated slug-keyed detail route (`web/README.md` "Missing from the API" item 1). It matches current records only; a merged record's old slug is answered by the detail route, which redirects `301` to the survivor.
       schema:
         type: string
         minLength: 1
@@ -7328,13 +7331,14 @@ components:
       name: public_id
       in: path
       required: true
-      description: Proposal public id. A slug from `slug_history` is also accepted and answers `301` to the current id.
+      description: Proposal public id. The old public id or old slug of a merged proposal answers `301` to the same path on the surviving id, when the survivor is visible at the caller's tier (`404` otherwise, so its id does not leak). A merge keeps the absorbed row, its id and its slug, which is the slug history for merges (docs/21 §6.3).
       schema:
         $ref: '#/components/schemas/ProposalPublicId'
     OpportunityPublicId:
       name: public_id
       in: path
       required: true
+      description: Opportunity public id. As for proposals, a merged opportunity's old id or slug answers `301` to the visible survivor (`404` when the survivor is not visible at the caller's tier).
       schema:
         $ref: '#/components/schemas/OpportunityPublicId'
     OrganizationPublicId:
@@ -7486,7 +7490,7 @@ components:
     IdempotencyKey:
       name: Idempotency-Key
       in: header
-      description: Client-chosen unique key (UUID recommended). A replay within 24 h returns the original response; reuse with a different body is `409 conflict`. Required on every mutating call from an API key; recommended from sessions.
+      description: Client-chosen unique key (UUID recommended), 8 to 128 printable characters (`400 validation_error` otherwise). Scoped to the caller's account and bound to the method, path, query string and body. A replay within 24 h returns the original status, body and headers with the `Idempotent-Replayed` header set to `true`, and the operation does not run again; reuse with a different request is `409 conflict`, as is a second request with the same key that races the first. Only a completed operation is stored, so a retry after an error runs again. Should be sent on every mutating call from an API key and is recommended from sessions; it is not yet enforced as required (a deliberate difference, backend audit 2026-09-30 F12), and anonymous calls are not covered.
       schema:
         type: string
         minLength: 8
@@ -8442,6 +8446,7 @@ components:
         - quota_exceeded
         - sor_unavailable
         - unavailable
+        - internal_error
     Problem:
       type: object
       description: RFC 9457 problem details. No stack traces, internal ids or source payloads ever appear here. `type` is `https://api.infraque.com/errors/{code}`.
@@ -8450,7 +8455,7 @@ components:
         type:
           type: string
           format: uri
-          pattern: '^https://api\.infraque\.com/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|paid_tiers_inactive|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable)$'
+          pattern: '^https://api\.infraque\.com/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|paid_tiers_inactive|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable|internal_error)$'
         title:
           type: string
         status:

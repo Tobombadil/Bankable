@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import overload
 
 from fastapi import Request
@@ -67,3 +68,20 @@ def wants_csv(request: Request) -> bool:
     the request to `services/api/exports.py::csv_list_response`."""
     first = request.headers.get("accept", "").split(",")[0].strip().split(";")[0].strip().lower()
     return first == "text/csv"
+
+
+#: The largest `event.seq` (a Postgres `bigint`); a larger number cannot be bound at all.
+SEQ_MAX = 2**63 - 1
+
+
+def since_seq(value: str, instance: str) -> int | None:
+    """`since` as an event `seq` when it is ASCII digits only, `None` when it is something else (the
+    caller then reads it as a date-time), and `400` when the number exceeds a `bigint`. Before,
+    `str.isdigit()` accepted digits such as `²` that `int()` refuses, and an over-long number
+    reached the driver; both were 500s (backend audit 2026-09-30 F9)."""
+    if not re.fullmatch(r"[0-9]+", value):
+        return None
+    number = int(value)
+    if number > SEQ_MAX:
+        raise validation_error("since", f"since must be an event seq no larger than {SEQ_MAX}", instance)
+    return number

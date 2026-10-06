@@ -212,7 +212,12 @@ class AttioCrmAdapter:
         json_body: dict[str, Any] | None = None,
         params: Mapping[str, str] | None = None,
         treat_404_as_none: bool = False,
+        creates: bool = False,
     ) -> dict[str, Any] | None:
+        """`creates=True` marks a POST that creates a record or note: it is not retried after a
+        transport error or a 5xx, because the first attempt may have been applied, and a retry
+        would create a second one (backend audit 2026-09-30 F12: two deals for one match). A 429
+        is still retried: Attio did not process the request."""
         retries_429 = 0
         retried_5xx = False
         retried_transport = False
@@ -220,7 +225,7 @@ class AttioCrmAdapter:
             try:
                 resp = self._client.request(method, path, json=json_body, params=params)
             except httpx.TransportError as exc:
-                if retried_transport:
+                if retried_transport or creates:
                     logger.warning("attio_transport_error method=%s path=%s error=%s", method, path, exc)
                     raise SorUnavailable(f"transport error calling attio {method} {path}") from exc
                 retried_transport = True
@@ -240,7 +245,7 @@ class AttioCrmAdapter:
                 continue
 
             if resp.status_code >= 500:
-                if retried_5xx:
+                if retried_5xx or creates:
                     logger.warning(
                         "attio_server_error method=%s path=%s status=%s", method, path, resp.status_code
                     )
@@ -389,6 +394,26 @@ class AttioCrmAdapter:
             if rows:
                 signal_record_id = rows[0]["id"]["record_id"]
 
+        if signal_record_id is not None:
+            # One deal per originating signal (= per match): a retried hand-off finds the deal an
+            # earlier attempt created instead of creating another (backend audit 2026-09-30 F12).
+            existing = self._request(
+                "POST",
+                f"/v2/objects/{DEALS}/records/query",
+                json_body={
+                    "filter": {
+                        "originating_signal": {
+                            "target_object": LEAD_SIGNALS,
+                            "target_record_id": signal_record_id,
+                        }
+                    },
+                    "limit": 1,
+                },
+            )
+            found = (existing or {}).get("data") or []
+            if found:
+                return DealRef(sor_kind="attio", sor_ref=found[0]["id"]["record_id"])
+
         values: dict[str, list[Any]] = {"name": [deal.name]}
         if company_record is not None:
             values["associated_company"] = [
@@ -401,7 +426,9 @@ class AttioCrmAdapter:
         if deal.tier is not None:
             values["tier"] = [deal.tier]
 
-        body = self._request("POST", f"/v2/objects/{DEALS}/records", json_body={"data": {"values": values}})
+        body = self._request(
+            "POST", f"/v2/objects/{DEALS}/records", json_body={"data": {"values": values}}, creates=True
+        )
         assert body is not None  # noqa: S101
         record_id: str = body["data"]["id"]["record_id"]
 
@@ -412,19 +439,26 @@ class AttioCrmAdapter:
             f"Rationale: {deal.rationale}\n"
             f"Link: {deal.link_url}"
         )
-        self._request(
-            "POST",
-            "/v2/notes",
-            json_body={
-                "data": {
-                    "parent_object": DEALS,
-                    "parent_record_id": record_id,
-                    "title": "Lead hand-off from platform",
-                    "format": "plaintext",
-                    "content": note_content,
-                }
-            },
-        )
+        try:
+            self._request(
+                "POST",
+                "/v2/notes",
+                json_body={
+                    "data": {
+                        "parent_object": DEALS,
+                        "parent_record_id": record_id,
+                        "title": "Lead hand-off from platform",
+                        "format": "plaintext",
+                        "content": note_content,
+                    }
+                },
+                creates=True,
+            )
+        except (SorUnavailable, SorRejected) as exc:
+            # The deal exists: report it, so the platform records its ref, rather than failing the
+            # hand-off and inviting a retry. The note carries nothing the deal's own fields and the
+            # platform's link do not; an operator can add it in Attio.
+            logger.warning("attio_deal_note_failed deal=%s error=%s", record_id, exc)
         return DealRef(sor_kind="attio", sor_ref=record_id)
 
     def log_activity(self, company: CompanyRef, note: ActivityNote) -> str:
@@ -440,6 +474,7 @@ class AttioCrmAdapter:
                     "content": note.body,
                 }
             },
+            creates=True,
         )
         assert body is not None  # noqa: S101
         note_id: str = body["data"]["id"]["note_id"]

@@ -39,8 +39,9 @@ from sqlalchemy.orm import (
 from services.api.auth import AuthContext, get_auth_context
 from services.api.common import WEB_HOST
 from services.api.deps import get_db
-from services.api.errors import not_found, validation_error
+from services.api.errors import validation_error
 from services.api.geo import build_geo_feature_collection
+from services.api.merged_redirect import merged_redirect_or_404
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec, wants_csv
 from services.api.serialize import (
@@ -812,7 +813,9 @@ def get_proposal(
         select(Proposal).where(Proposal.public_id == public_id, *proposal_visibility_filter(ctx.entitlement))
     )
     if prop is None:
-        raise not_found(request.url.path)
+        return merged_redirect_or_404(
+            db, Proposal, public_id, proposal_visibility_filter, ctx.entitlement, request
+        )
     data = serialize_proposal(prop, entitlement=ctx.entitlement)
     # Where the project connects (docs/21 §3.24), with its tier's queue totals; detail only, so no
     # list or map query pays for it. Deferred import: that module imports this one.
@@ -840,7 +843,9 @@ def list_proposal_sources(
         select(Proposal).where(Proposal.public_id == public_id, *proposal_visibility_filter(ctx.entitlement))
     )
     if prop is None:
-        raise not_found(request.url.path)
+        return merged_redirect_or_404(
+            db, Proposal, public_id, proposal_visibility_filter, ctx.entitlement, request
+        )
     from services.api.serialize import provenance_row
 
     # docs/21 §8 item 3: a link to a source this tier may not read is omitted, not greyed.
@@ -1089,7 +1094,9 @@ def get_opportunity(
         )
     )
     if opp is None:
-        raise not_found(request.url.path)
+        return merged_redirect_or_404(
+            db, Opportunity, public_id, opportunity_visibility_filter, ctx.entitlement, request
+        )
     data = serialize_opportunity(opp, entitlement=ctx.entitlement)
     meta = build_meta("opportunity", tier=ctx.entitlement)
     return build_envelope(
@@ -1114,7 +1121,9 @@ def list_opportunity_sources(
         )
     )
     if opp is None:
-        raise not_found(request.url.path)
+        return merged_redirect_or_404(
+            db, Opportunity, public_id, opportunity_visibility_filter, ctx.entitlement, request
+        )
     from services.api.serialize import provenance_row
 
     links = visible_source_links(opp.sources, ctx.entitlement)  # docs/21 §8 item 3
@@ -1168,7 +1177,9 @@ def _list_subject_events(
         )
     )
     if subject_row is None:
-        raise not_found(request.url.path)
+        return merged_redirect_or_404(
+            db, config.model, public_id, config.visibility_filter, ctx.entitlement, request
+        )
     # `config.model` is a `type[Proposal] | type[Opportunity]` union, so SQLAlchemy's overloads
     # cannot narrow `db.scalar(select(config.model)...)` past the declarative base -- both members
     # share every attribute this function reads (`id`, `public_id`, `slug`), so this is a type-only

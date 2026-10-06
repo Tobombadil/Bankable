@@ -1136,11 +1136,49 @@ class WebhookEndpoint(Base, TimestampMixin):
     last_delivery_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     last_success_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     secret_rotated_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    #: The highest `event.seq` the alert tick has considered for this endpoint (migration 0031;
+    #: backend audit 2026-09-30 F2), the `saved_search.watermark_seq` pattern. Deliveries for the
+    #: events above it are enqueued and the watermark advanced in one transaction, so a failed or
+    #: repeated tick neither loses nor duplicates a delivery. A new endpoint starts at the head of
+    #: the event log; history is `POST /v1/webhooks/{id}/replay`.
+    watermark_seq: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, default=0, server_default="0")
 
     __table_args__ = (
         sa.CheckConstraint(f"entity IN {SAVED_SEARCH_ENTITIES!r}", name="entity_vocab"),
         sa.CheckConstraint(f"status IN {WEBHOOK_ENDPOINT_STATUSES!r}", name="status_vocab"),
         sa.Index("ix_webhook_endpoint_account_id", "account_id"),
+    )
+
+
+# ============================================================================= idempotency_record
+class IdempotencyRecord(Base):
+    """One stored response per `(scope, idempotency_key)` (api/openapi.yaml `IdempotencyKey`;
+    docs/23 §1: "replays return the original response for 24 h"; backend audit 2026-09-30 F12).
+    `scope` is the caller: `account:<uuid>` for an API key or a session, so two customers can pick
+    the same key. `request_hash` is SHA-256 over method, path, query string and body; a replay with
+    another hash is `409 conflict`. Written in the same transaction as the write it records
+    (`services/api/idempotency.py`), so a stored response always describes a committed write.
+    Migration 0031."""
+
+    __tablename__ = "idempotency_record"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    scope: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    method: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    path: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    request_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    status_code: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    response_headers: Mapped[dict[str, str]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    response_body: Mapped[bytes] = mapped_column(sa.LargeBinary, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        sa.UniqueConstraint("scope", "idempotency_key", name="uq_idempotency_record_scope_key"),
+        sa.Index("ix_idempotency_record_expires_at", "expires_at"),
     )
 
 

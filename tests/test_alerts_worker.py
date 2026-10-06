@@ -89,10 +89,15 @@ def _seed(db):
     endpoint = _make_endpoint(db, account, user)
     db.commit()
 
-    from services.alerts.webhooks import enqueue_deliveries_for_event
+    from sqlalchemy import select
 
-    deliveries = enqueue_deliveries_for_event(db, event)
+    from services.alerts.webhooks import enqueue_new_deliveries
+
+    # The tick's own enqueue step, which also advances the endpoint's watermark past the event, so
+    # the tick under test does not enqueue it a second time (backend audit 2026-09-30 F2).
+    enqueue_new_deliveries(db)
     db.commit()
+    deliveries = list(db.scalars(select(WebhookDelivery)).all())
     return {
         "account": account,
         "user": user,

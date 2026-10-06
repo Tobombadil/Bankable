@@ -316,7 +316,8 @@ def test_dismissal_is_per_user_and_never_global(
     assert_valid(spec, "MatchDetailResponse", first.json())
     assert first.json()["data"]["dismissed_by_me"] is True
     assert (
-        client.post(f"/v1/matches/{match_id}/dismiss", headers={"Idempotency-Key": "k1"}).status_code == 200
+        client.post(f"/v1/matches/{match_id}/dismiss", headers={"Idempotency-Key": "dismiss1"}).status_code
+        == 200
     )
     assert len(db.scalars(select(MatchDismissal)).all()) == 1  # idempotent
 

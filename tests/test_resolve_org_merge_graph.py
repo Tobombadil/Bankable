@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime as dt
 import pathlib
 import uuid
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -29,6 +30,15 @@ from services.ids import public_id, slugify
 from services.ingest.loader import upsert_licence_and_source
 from services.ingest.organizations import load_merges, read_merge_rules
 from services.resolve import merge as merge_mod
+
+#: Unmerge restores every field except the two sync columns, which it moves forward because the
+#: unmerge is itself a change (backend audit 2026-09-30 F6); `tests/test_resolve_unmerge_sync.py`.
+_SYNC_COLUMNS = ("last_changed", "updated_at")
+
+
+def _state(row: Any) -> dict[str, Any]:
+    return {k: v for k, v in merge_mod.serialize_row(row).items() if k not in _SYNC_COLUMNS}
+
 
 UTC = dt.UTC
 RETRIEVED = dt.datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
@@ -185,7 +195,7 @@ def test_edge_only_merge_moves_the_edge_and_the_tree_still_sees_it(
     edges_before = scope_edges(session, group)
     assert len(edges_before) == 2
     assert org_scope(session, group, "all").organizations == 3
-    snapshot = merge_mod.serialize_row(absorbed)
+    snapshot = _state(absorbed)
 
     event = merge_mod.merge_organization(session, canonical=survivor, absorbed=absorbed, rationale="10-K")
 
@@ -213,7 +223,7 @@ def test_edge_only_merge_moves_the_edge_and_the_tree_still_sees_it(
     assert absorbed_edge.organization_id == absorbed.id
     assert own_alias.organization_id == absorbed.id
     restored = session.get(Organization, absorbed.id)
-    assert restored is not None and merge_mod.serialize_row(restored) == snapshot
+    assert restored is not None and _state(restored) == snapshot
     assert scope_edges(session, group) == edges_before
     assert org_scope(session, group, "all").organizations == 3
 
@@ -276,7 +286,7 @@ def test_parent_link_is_inherited_when_the_survivor_has_none_and_restored(sessio
     absorbed = make_org(session, "WIDGET ENERGY", parent=group)
     absorbed.parent_as_of = dt.date(2019, 3, 11)
     session.flush()
-    snapshot = merge_mod.serialize_row(absorbed)
+    snapshot = _state(absorbed)
 
     event = merge_mod.merge_organization(session, canonical=survivor, absorbed=absorbed, rationale="r")
     assert "parent_org_id" in event.changed_keys
@@ -286,7 +296,7 @@ def test_parent_link_is_inherited_when_the_survivor_has_none_and_restored(sessio
 
     merge_mod.unmerge_organization(session, event.id)
     assert survivor.parent_org_id is None and survivor.parent_as_of is None
-    assert merge_mod.serialize_row(absorbed) == snapshot
+    assert _state(absorbed) == snapshot
 
 
 def test_merging_a_parent_into_its_own_child_clears_the_self_loop_and_restores_it(session: Session) -> None:
@@ -378,7 +388,7 @@ def test_an_old_shape_event_still_unmerges(session: Session) -> None:
     absorbed = make_org(session, "OLD SHAPE POWER")
     asset = make_asset(session, src, "O1", asset_type="power_plant")
     stranded = make_edge(session, asset, absorbed, src, role="owner")
-    snapshot = merge_mod.serialize_row(absorbed)
+    snapshot = _state(absorbed)
     last_changed = survivor.last_changed
 
     # What the pre-2026-09-26 `merge_organization` wrote for an edge-only organisation.
@@ -410,7 +420,7 @@ def test_an_old_shape_event_still_unmerges(session: Session) -> None:
 
     undo = merge_mod.unmerge_organization(session, old_event.id)
     assert undo.reverses_event_id == old_event.id
-    assert merge_mod.serialize_row(absorbed) == snapshot
+    assert _state(absorbed) == snapshot
     session.refresh(stranded)
     assert stranded.organization_id == absorbed.id
     # and a second call is the same event, not a second reversal

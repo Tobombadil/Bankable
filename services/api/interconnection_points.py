@@ -43,7 +43,7 @@ from services.api.auth import AuthContext, get_auth_context
 from services.api.common import WEB_HOST, iso
 from services.api.deps import get_db
 from services.api.errors import invalid_cursor, not_found, validation_error
-from services.api.pagination import clamp_limit, decode_cursor, encode_cursor
+from services.api.pagination import clamp_limit, coerce_cursor_value, decode_cursor, encode_cursor
 from services.api.params import check_allowed, csv_param, int_param
 from services.api.records import _proposal_licence_rows, number_filter
 from services.api.resource_queries import subject_infos
@@ -406,8 +406,13 @@ def list_interconnection_points(
     paged = stmt
     if cursor := request.query_params.get("cursor"):
         decoded = decode_cursor(cursor, request.url.path)
+        # Typed like `paginate`'s cursors (backend audit 2026-09-30 F9): a string where the sort is
+        # a number would be a Postgres type error, not an empty page.
+        # `active_mw` is an aggregate with no declared type; it is a number.
+        sort_type = sa.Float() if isinstance(sort_expr.type, sa.types.NullType) else sort_expr.type
+        value = coerce_cursor_value(decoded.sort_value, sort_type, request.url.path)
         try:
-            clause = _keyset(sort_expr, ascending, decoded.sort_value, decoded.tiebreaker_id)
+            clause = _keyset(sort_expr, ascending, value, decoded.tiebreaker_id)
         except ValueError as exc:
             raise invalid_cursor(request.url.path) from exc
         paged = paged.where(clause)

@@ -239,6 +239,12 @@ class InMemoryCrm:
             if signal_row is not None:
                 signal_record_id = signal_row.record_id
 
+        if signal_record_id is not None:
+            # As the Attio adapter: one deal per originating signal, so a retried hand-off reuses it.
+            for existing in self.deals.values():
+                if existing.signal_record_id == signal_record_id:
+                    return DealRef(sor_kind="attio_fake", sor_ref=existing.record_id)
+
         record_id = self._next_id("deal")
         self.deals[record_id] = _DealRow(
             record_id=record_id, deal=deal, company_ref=company_ref, signal_record_id=signal_record_id

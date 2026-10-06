@@ -247,6 +247,9 @@ def build_client(*, api_base_url: str | None = None) -> ApiClient:
                 timeout=10.0,
                 headers=headers,
                 event_hooks={"request": [_attach_visitor_ip]},
+                # A merged record's old id answers `301` to its survivor on the API's own host
+                # (QA audit 2026-09-30 QA-8); the in-process TestClient already follows redirects.
+                follow_redirects=True,
             )
         )
     # In-process: import lazily so `DATABASE_URL` can be set by the caller (a dev script, or a

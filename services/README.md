@@ -609,7 +609,9 @@ returns only the Texas point, not the New York one, while `totals.records` stays
   scanning up to 200 search results — `?slug=<value>` does that directly. This does not implement
   `slug_history`/301-redirect semantics for merged/renamed records (no `slug_history` table exists
   yet; `merged_into_id` does, but no merge writer runs this sprint) — documented as a real, narrower
-  gap in the new `SlugFilter` parameter's description, not silently pretended complete.
+  gap in the new `SlugFilter` parameter's description, not silently pretended complete. Closed for
+  merges on 2026-10-06 (QA audit QA-8): a merged record's old id or slug answers `301` to its
+  visible survivor (`services/api/merged_redirect.py`); renames still regenerate no slug.
 - **`technologies` filter on opportunities** (item 5): now applied
   (`_opportunity_technologies_filter`, `services/api/app.py`) everywhere opportunities are queried
   (`GET /v1/opportunities`, `/geo`, `/organizations/{id}/opportunities`). Any-of match; an

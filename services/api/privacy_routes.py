@@ -41,8 +41,8 @@ from services.api.auth import AuthContext, iter_client_ip_prefix, require_admin
 from services.api.common import iso, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
-from services.api.pagination import DEFAULT_LIMIT, clamp_limit, paginate
-from services.api.params import check_allowed, csv_param
+from services.api.pagination import clamp_limit, paginate
+from services.api.params import check_allowed, csv_param, int_param
 from services.api.ratelimit import default_limiter
 from services.api.serialize import (
     build_envelope,
@@ -157,8 +157,7 @@ def admin_list_privacy_requests(
         stmt = stmt.where(PrivacyRequest.status.in_(csv_param(status_filter)))
     if kind_filter := request.query_params.get("kind"):
         stmt = stmt.where(PrivacyRequest.kind.in_(csv_param(kind_filter)))
-    limit_raw = request.query_params.get("limit")
-    limit = clamp_limit(int(limit_raw)) if limit_raw is not None else DEFAULT_LIMIT
+    limit = clamp_limit(int_param(request, "limit"))
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
