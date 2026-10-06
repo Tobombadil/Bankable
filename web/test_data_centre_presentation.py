@@ -224,7 +224,7 @@ def test_list_shows_the_load_label_not_the_token(web_client: TestClient) -> None
     _install(_base([_data_centre("dc-one", {ICIS: "name"}, [ICIS]), _solar()]))
     html = web_client.get("/proposals?kind=load").text
     cells = re.findall(r'<td data-label="Technology">([^<]*)</td>', html)
-    assert cells == [TECHNOLOGY_LOAD_LABEL, "solar"]
+    assert cells == [TECHNOLOGY_LOAD_LABEL, "Solar"]
 
 
 def test_list_and_map_filter_selects_use_labels_and_keep_tokens_as_values(web_client: TestClient) -> None:
@@ -263,7 +263,7 @@ def test_detail_generation_record_keeps_both_rows(web_client: TestClient) -> Non
     _install(_base([_solar()]))
     html = web_client.get("/proposals/solar-one").text
     assert "<dt>Kind</dt><dd>Generation</dd>" in html
-    assert "<dt>Technology</dt><dd>solar" in html
+    assert "<dt>Technology</dt><dd>Solar" in html
 
 
 # ---------------------------------------------------------------------- 3. why a data centre

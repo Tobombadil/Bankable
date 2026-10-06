@@ -42,6 +42,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
 from web.viewmodels import footer_build as vm_footer_build
@@ -51,6 +52,7 @@ router = APIRouter()
 
 _WEB_ROOT = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(_WEB_ROOT / "templates"))
+labels.install(templates.env)
 
 SESSION_COOKIE_NAME = "session"
 

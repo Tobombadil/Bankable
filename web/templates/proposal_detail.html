@@ -19,7 +19,7 @@
   <div><dt>Kind</dt><dd>{{ record.kind_label }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="field-grid__source-value">source: &ldquo;{{ record.technology_raw }}&rdquo;</span>{% endif %}</dd></div>
   {% else %}
   <div><dt>Kind</dt><dd>{{ record.kind_label or '—' }}</dd></div>
-  <div><dt>Technology</dt><dd>{{ record.technology_label or '—' }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="visually-hidden">(source value: {{ record.technology_raw }})</span>{% endif %}</dd></div>
+  <div><dt>Technology</dt><dd>{{ record.technology_label or '—' }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="field-grid__source-value">source: &ldquo;{{ record.technology_raw }}&rdquo;</span>{% endif %}</dd></div>
   {% endif %}
   <div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}</dd></div>
   <div><dt>Storage (MWh)</dt><dd class="tnum">{{ '%.1f'|format(record.storage_mwh) if record.storage_mwh is not none else '—' }}</dd></div>
@@ -40,10 +40,10 @@
   <ul class="timeline">
     <li>
       <time datetime="{{ record.retrieved_at }}">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown date' }}</time>
-      <span class="timeline__event">Observed as <strong>{{ record.lifecycle_state | replace('_',' ') }}</strong> in {{ record.source_name }}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.</span>
+      <span class="timeline__event">Observed as <strong>{{ record.lifecycle_state | lifecycle_label | lower }}</strong> in {{ record.source_name }}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.</span>
     </li>
     {% if record.proposed_online_date %}
-    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date }}</time> <span class="timeline__event">Proposed commercial-operation date (source-stated; not a commitment).{% if record.slip %} This date passed <strong>{{ record.slip.amount }}</strong> ago and {{ record.source_name }} still reports the project as {{ record.lifecycle_state | replace('_',' ') }}.{% endif %}</span></li>
+    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date }}</time> <span class="timeline__event">Proposed commercial-operation date (source-stated; not a commitment).{% if record.slip %} This date passed <strong>{{ record.slip.amount }}</strong> ago and {{ record.source_name }} still reports the project as {{ record.lifecycle_state | lifecycle_label | lower }}.{% endif %}</span></li>
     {% endif %}
   </ul>
   {% if record.slip %}
@@ -51,7 +51,8 @@
   {% endif %}
 </section>
 
-<p><a href="mailto:?subject=Report%20a%20problem%20with%20{{ record.name | urlencode }}">Report a problem with this record &rarr;</a></p>
+{% include "partials/_report_problem.html" %}
 
 {{ m.attribution_line(record) }}
 {% endblock %}
+{% block extra_scripts %}<script src="/static/js/report.js?v={{ asset_version }}" defer></script>{% endblock %}

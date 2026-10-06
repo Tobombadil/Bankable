@@ -1,0 +1,60 @@
+{#- "Report a problem with this record" (designer D-6; web/reports.py). `report` comes from
+    `web/reports.py::report_context`. The whole <details> is what `report.js` swaps after a send, so
+    the success or error state lands where the reader is, and focus moves to its status line. Without
+    JavaScript the form posts to /report, which renders the same fragment on a page of its own. -#}
+{%- set r = report -%}
+<details class="report-problem" id="report-problem"{% if r.sent or r.problem or r.errors %} open{% endif %}>
+  <summary>Something wrong with this record? Report a problem</summary>
+  {% if r.sent %}
+  <div class="notice report-problem__status" id="report-status" role="status" tabindex="-1">
+    <p><strong>Thanks. Your report has reached our editors.</strong> An editor reviews every report; we don&rsquo;t email you unless you gave an address.</p>
+    {% if r.request_id %}<p class="field-hint">Reference <span class="mono">{{ r.request_id }}</span></p>{% endif %}
+  </div>
+  {% else %}
+  {% if r.problem %}
+  <div class="notice notice--error report-problem__status" id="report-status" role="alert" tabindex="-1">
+    <p><strong>{{ r.problem.title }}.</strong>
+      {%- if r.problem.rate_limited %} Too many reports have come from your connection this hour. Please try again later.
+      {%- elif r.problem.not_found %} This record is no longer published, so it can&rsquo;t be reported here.
+      {%- elif r.errors %} Check the highlighted field{{ 's' if r.errors | length > 1 }} below and send again.
+      {%- else %} Nothing was sent. Please try again in a few minutes.{% endif %}</p>
+    {% if r.problem.request_id %}<p class="field-hint">Request <span class="mono">{{ r.problem.request_id }}</span></p>{% endif %}
+  </div>
+  {% endif %}
+  <form class="report-form" method="post" action="/report" data-report-form>
+    <input type="hidden" name="public_id" value="{{ r.public_id }}">
+    <input type="hidden" name="return_path" value="{{ r.return_path }}">
+    <input type="hidden" name="record_name" value="{{ r.record_name }}">
+    <fieldset{% if r.errors.issue_type %} aria-describedby="report-issue-error"{% endif %}>
+      <legend>What is wrong with {{ r.record_name or 'this record' }}?</legend>
+      {% if r.errors.issue_type %}<p class="form-error" id="report-issue-error">{{ r.errors.issue_type }}</p>{% endif %}
+      {% for value, label in r.issue_types %}
+      <label for="report-issue-{{ value }}"><input type="radio" id="report-issue-{{ value }}" name="issue_type" value="{{ value }}" required{% if r.typed.issue_type == value %} checked{% endif %}> {{ label }}</label>
+      {% endfor %}
+    </fieldset>
+    <div class="field">
+      <label for="report-description">What should it say, and where did you see that?</label>
+      <p class="field-hint" id="report-description-hint">Up to {{ '{:,}'.format(r.description_max) }} characters. A link to a source helps an editor check it.</p>
+      {% if r.errors.description %}<p class="form-error" id="report-description-error">{{ r.errors.description }}</p>{% endif %}
+      <textarea id="report-description" name="description" required maxlength="{{ r.description_max }}" aria-describedby="report-description-hint{% if r.errors.description %} report-description-error{% endif %}"{% if r.errors.description %} aria-invalid="true"{% endif %}>{{ r.typed.description or '' }}</textarea>
+    </div>
+    <div class="field">
+      <label for="report-email">Your email (optional)</label>
+      <p class="field-hint" id="report-email-hint">Only if you would like a reply. It is used for this report and nothing else; see the <a href="/legal/privacy">privacy notice</a>.</p>
+      {% if r.errors.email %}<p class="form-error" id="report-email-error">{{ r.errors.email }}</p>{% endif %}
+      <input type="email" id="report-email" name="email" autocomplete="email" value="{{ r.typed.email or '' }}" aria-describedby="report-email-hint{% if r.errors.email %} report-email-error{% endif %}"{% if r.errors.email %} aria-invalid="true"{% endif %}>
+    </div>
+    {#- Honeypot, as on the intake forms: hidden from people and assistive technology, filled by bots. -#}
+    <div class="report-problem__trap" aria-hidden="true">
+      <label for="report-website">Leave this empty</label>
+      <input type="text" id="report-website" name="website" tabindex="-1" autocomplete="off">
+    </div>
+    {% if r.site_key %}
+    {% if r.errors.captcha_token %}<p class="form-error">{{ r.errors.captcha_token }}</p>{% endif %}
+    <div class="cf-turnstile" data-sitekey="{{ r.site_key }}"></div>
+    <script src="{{ r.turnstile_script }}" async defer></script>
+    {% endif %}
+    <button type="submit">Send report</button>
+  </form>
+  {% endif %}
+</details>

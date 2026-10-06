@@ -257,6 +257,8 @@ overlay for the dominant technology; hover/focus reveals a breakdown tooltip (`l
 + "county level (source licence)" label, D-9); reduced-motion (no `flyTo` easing, instant reposition, D-15).
 **Rule satisfied:** D-5, D-9, D-10, D-14.
 
+**As built (2026-10-06, audit UX lane; owner to ratify):** the shape-by-precision anatomy above was never drawn (the map drew circles, with a thicker stroke for licence-limited precision). Markers are now small status chips: the lifecycle family's fill, a family-coloured ring and the family glyph, so status is never colour alone (D-5); licence-limited precision keeps a second, wider ring (D-9) and the drawer states the precision in words (`precision_note`); the technology badge sits beside the marker from zoom 9; clusters show the dominant family's glyph above the count. Marker contrast in dark mode is 6.32–7.88:1 (`web/test_map_a11y.py`). Either this section is rewritten to match, or the shapes are drawn; until the owner decides, the as-built chips stand.
+
 ### 5.8 Detail drawer
 
 **Anatomy:** `role="dialog"`, focus trap, close control (`×` + `Escape`), canonical fields, status chip (§5.1),

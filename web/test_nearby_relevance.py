@@ -406,8 +406,8 @@ def test_manual_technology_choice_overrides_the_default(web_client: TestClient) 
     body = web_client.get(f"/organizations/midstream-co?{PARAM}=solar").text
 
     assert _nearby_params(transport)["technology"] == "solar"
-    assert "Showing 1 of 9 nearby proposals, narrowed to the technology you chose: solar." in _notice(body)
-    assert '<option value="solar" selected>solar</option>' in body
+    assert "Showing 1 of 9 nearby proposals, narrowed to the technology you chose: Solar." in _notice(body)
+    assert '<option value="solar" selected>Solar</option>' in body
 
 
 def test_a_filter_matching_nothing_explains_itself_instead_of_looking_empty(

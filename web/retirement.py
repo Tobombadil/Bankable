@@ -12,14 +12,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-#: `asset.status` -> the word a page prints (services/db/models.py ASSET_STATUSES).
-ASSET_STATUS_LABELS: dict[str, str] = {
-    "operating": "Operating",
-    "standby": "Standby",
-    "retiring": "Retiring",
-    "retired": "Retired",
-    "unknown": "Status not stated",
-}
+from web import labels
+
+#: `asset.status` -> the word a page prints; the table lives in `web/labels.py` with every other
+#: vocabulary's words and is re-exported here, where R1 introduced it.
+ASSET_STATUS_LABELS = labels.ASSET_STATUS_LABELS
 
 #: `event.event_type` on an asset (services/db/models.py ASSET_EVENT_TYPES) -> a heading.
 RETIREMENT_EVENT_LABELS: dict[str, str] = {

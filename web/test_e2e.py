@@ -9,6 +9,7 @@ in-process) on a fixed local port.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import http.server
 import json
@@ -25,10 +26,12 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Route, sync_playwright
 
 from services.db.session import get_engine, get_sessionmaker, init_db
 from web.data_loading import load_dev_database, load_test_database
+from web.labels import map_labels
 from web.retirement import ASSET_STATUS_LABELS
 from web.viewmodels import TECHNOLOGY_LABELS, technology_label
 
@@ -544,8 +547,8 @@ def _in_view_feature(name: str, technology: str | None, lon: float) -> dict[str,
 def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) -> None:
     """Lane H7: the in-view row printed the bare token ("load · US-VA"). It now prints the label
     the proposal list prints, read from the `#map-labels` tag the server renders from
-    `web/viewmodels.py::TECHNOLOGY_LABELS`; a token with no label, and an absent one, read as
-    before. The geo answer is fixed here so the rows do not depend on which sources are loaded."""
+    `web/viewmodels.py::TECHNOLOGY_LABELS`; an absent one reads as a dash. The geo answer is
+    fixed here so the rows do not depend on which sources are loaded."""
     features = [
         _in_view_feature("dc-one", "load", -77.5),
         _in_view_feature("solar-one", "solar", -77.4),
@@ -576,8 +579,10 @@ def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) 
             )
             page.goto(BASE_URL + "/?kind=load")
             labels = json.loads(page.inner_text("#map-labels"))
-            # Lane R1 added the asset status words beside the technology ones.
-            assert labels == {"technology": TECHNOLOGY_LABELS, "asset_status": ASSET_STATUS_LABELS}
+            # Every table the map prints words from (web/labels.py, audit 2026-09-30 F1).
+            assert labels == map_labels()
+            assert labels["technology"] == TECHNOLOGY_LABELS
+            assert labels["asset_status"] == ASSET_STATUS_LABELS
             page.wait_for_function(
                 "() => document.querySelectorAll('#in-view-items .meta').length === 3", timeout=15000
             )
@@ -587,10 +592,311 @@ def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) 
             }
             assert by_name["dc-one"] == f"{technology_label('load')} · US-VA · 12.0 MW"
             assert by_name["dc-one"].startswith(TECHNOLOGY_LABELS["load"])
-            assert by_name["solar-one"] == "solar · US-VA · 12.0 MW"
+            assert by_name["solar-one"] == "Solar · US-VA · 12.0 MW"  # every token in words now
             assert by_name["blank-one"] == "— · US-VA · 12.0 MW"
         finally:
             browser.close()
+
+
+# ============================================================================================
+# 2026-09-30 audit, UX lane: words not tokens (F1/D-7), the map's keyboard path and drawer (F5,
+# D-13), stale responses (F3), what "in view" announces (F4), and the report form (D-6).
+
+#: A snake_case token in reader-visible text: `gas_cc`, `under_construction`, `us.eia.atlas`'s
+#: `ethanol_plants`. Identifiers are printed in Plex Mono by rule (docs/31 §4) and licence quotes
+#: are verbatim legal text, so those two are the only places a token may stand. A file name a
+#: source publishes under (`ks_wells.zip`, in that register's own title) is the source's word.
+_TOKEN = re.compile(r"\b[a-z0-9]+_[a-z0-9_]+\b(?!\.[a-z]{2,4}\b)")
+_VISIBLE_TEXT_JS = """() => {
+  const skip = (el) => el.closest('script,style,template,.mono,code,.provenance-panel__quote,[hidden]');
+  const out = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.parentElement && !skip(node.parentElement)) out.push(node.textContent);
+  }
+  document.querySelectorAll('option').forEach((o) => out.push(o.textContent));
+  return out.join(' ');
+}"""
+
+
+def test_public_pages_print_words_not_vocabulary_tokens(server: object) -> None:
+    """F1 / D-7: technology, lifecycle and kind tokens (`gas_cc`, `solar_storage`,
+    `under_construction`) reached filter selects, list columns, detail pages and the map. Every
+    reader-visible string on the main public pages, select options included, is now free of them."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            paths = ["/", "/proposals", "/proposals?include_withdrawn=1", "/opportunities", "/methodology"]
+            page.goto(BASE_URL + "/proposals")
+            paths.append(page.locator("#result-rows a[href^='/proposals/']").first.get_attribute("href"))
+            page.goto(BASE_URL + "/opportunities")
+            opportunity = page.locator("a[href^='/opportunities/']").first
+            if opportunity.count():
+                paths.append(opportunity.get_attribute("href"))
+            found: dict[str, list[str]] = {}
+            for path in paths:
+                page.goto(BASE_URL + path)
+                tokens = sorted(set(_TOKEN.findall(page.evaluate(_VISIBLE_TEXT_JS))))
+                if tokens:
+                    found[path] = tokens
+            assert not found, f"raw vocabulary tokens shown to readers: {found}"
+        finally:
+            browser.close()
+
+
+def _geo_envelope(features: list[dict[str, Any]], *, records: int, clustered: bool = False) -> str:
+    totals: dict[str, Any] = {
+        "records": records,
+        "clustered": clustered,
+        "lifecycle_state_counts": {"filed": records},
+    }
+    return json.dumps(
+        {"data": {"type": "FeatureCollection", "features": features, "totals": totals}, "meta": {}}
+    )
+
+
+def _feature_with_source(name: str, lon: float) -> dict[str, Any]:
+    feature = _in_view_feature(name, "solar", lon)
+    feature["properties"]["provenance"] = [
+        {
+            "source_name": "Virginia DEQ air permits",
+            "source_url": "https://example.invalid/deq",
+            "retrieved_at": "2026-09-28T00:00:00Z",
+            "reuse_class": "open",
+            "attribution_text": None,
+        }
+    ]
+    return feature
+
+
+def test_map_keyboard_path_reaches_results_and_the_drawer_and_the_closed_drawer_is_gone(
+    server: object,
+) -> None:
+    """F5 + D-13. Closed, the drawer used to stay focusable and exposed as an `aria-modal` dialog;
+    proposals opened it only by mouse; it named no licence; no skip link reached the results."""
+    envelope = _geo_envelope(
+        [_feature_with_source("deq-one", -77.5), _feature_with_source("deq-two", -77.4)], records=2
+    )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.route(
+                "**/api/ui-events",
+                lambda r: r.fulfill(status=202, content_type="application/json", body="{}"),
+            )
+            page.route(
+                "**/api/proposals/geo?**",
+                lambda r: r.fulfill(status=200, content_type="application/json", body=envelope),
+            )
+            page.goto(BASE_URL + "/")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#in-view-items .details-btn').length === 2"
+            )
+
+            # Closed: hidden, not modal, and not a tab stop.
+            drawer = page.locator("#map-drawer")
+            assert drawer.evaluate("d => d.hidden") is True
+            assert drawer.get_attribute("aria-modal") is None
+            assert page.locator("#drawer-close").is_hidden()
+
+            # The second skip link lands on the results.
+            page.keyboard.press("Tab")
+            assert page.evaluate("document.activeElement.textContent") == "Skip to main content"
+            page.keyboard.press("Tab")
+            assert page.evaluate("document.activeElement.textContent") == "Skip to results in view"
+            page.keyboard.press("Enter")
+            assert page.evaluate("document.activeElement.id") == "in-view-list"
+
+            # A proposal row opens the drawer from the keyboard; the drawer names the licence.
+            details = page.get_by_role("button", name="Details for deq-one")
+            details.focus()
+            page.keyboard.press("Enter")
+            page.wait_for_function(
+                "() => document.getElementById('map-drawer').classList.contains('is-open')"
+            )
+            assert drawer.get_attribute("aria-modal") == "true" and drawer.get_attribute("role") == "dialog"
+            assert page.evaluate("document.activeElement.id") == "drawer-close"
+            source_line = page.inner_text("#map-drawer .drawer-source")
+            assert "Virginia DEQ air permits" in source_line and "Open licence" in source_line
+
+            # Escape closes it, focus returns to the button, and it leaves the page again.
+            page.keyboard.press("Escape")
+            page.wait_for_function("() => document.getElementById('map-drawer').hidden === true")
+            assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Details for deq-one"
+            assert drawer.get_attribute("aria-modal") is None
+
+            # Tabbing the whole page never lands inside the closed drawer.
+            for _ in range(80):
+                page.keyboard.press("Tab")
+                assert not page.evaluate("!!document.activeElement.closest('#map-drawer')")
+        finally:
+            browser.close()
+
+
+def test_map_drops_a_slow_earlier_proposals_response(server: object) -> None:
+    """F3: hold the first `/api/proposals/geo` answer, move the map, let the second answer land,
+    then release the first: the list and the count must still describe the current view."""
+    national = _geo_envelope(
+        [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-98.5, 39.8]},
+                "properties": {"feature_kind": "cluster", "count": 5000, "dominant_lifecycle_state": "filed"},
+            }
+        ],
+        records=5000,
+        clustered=True,
+    )
+    local = _geo_envelope(
+        [_feature_with_source("near-one", -77.5), _feature_with_source("near-two", -77.4)], records=2
+    )
+    held: list[Route] = []
+
+    def answer(route: Route) -> None:
+        if not held:
+            held.append(route)  # the first (national) request: answered later, out of order
+            return
+        route.fulfill(status=200, content_type="application/json", body=local)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.route(
+                "**/api/ui-events",
+                lambda r: r.fulfill(status=202, content_type="application/json", body="{}"),
+            )
+            page.route("**/api/proposals/geo?**", answer)
+            page.goto(BASE_URL + "/")
+            page.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
+            assert held, "the first geo request was not issued"
+            page.evaluate("window.__map.jumpTo({center: [-77.45, 38.95], zoom: 9})")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#in-view-items a.name-link').length === 2"
+            )
+            # The page may already have aborted the superseded request, which is also correct.
+            with contextlib.suppress(PlaywrightError):
+                held[0].fulfill(status=200, content_type="application/json", body=national)
+            page.wait_for_timeout(800)
+            assert page.locator("#in-view-items a.name-link").count() == 2
+            assert page.inner_text("#map-result-count").startswith("2 proposals match")
+            assert "5000" not in page.inner_text("#map-live-region")
+        finally:
+            browser.close()
+
+
+def test_map_announces_what_is_in_view_and_names_and_counts_lines(server: object) -> None:
+    """F4: the live region said `totals.records` (every match, anywhere) was "in view", called
+    every line a pipeline, and never said when the API had capped the lines it sent."""
+    proposals = _geo_envelope(
+        [
+            _feature_with_source("in-a", -77.5),
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-77.3, 38.9]},
+                "properties": {"feature_kind": "cluster", "count": 40, "dominant_lifecycle_state": "filed"},
+            },
+        ],
+        records=5651,
+        clustered=False,
+    )
+
+    def line(n: int) -> dict[str, Any]:
+        return {
+            "type": "Feature",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[-77.6, 38.8 + n / 100], [-77.2, 38.9 + n / 100]],
+            },
+            "properties": {
+                "feature_kind": "asset_line",
+                "asset_type": "transmission_line",
+                "name": f"Line {n}",
+                "public_id": f"ast_line{n}",
+                "voltage_kv": 230,
+            },
+        }
+
+    assets = json.dumps(
+        {
+            "data": {
+                "type": "FeatureCollection",
+                "features": [line(1), line(2)],
+                "totals": {"records": 13290, "clustered": False, "line_count": 13290, "lines_shown": 1500},
+            },
+            "meta": {},
+        }
+    )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.route(
+                "**/api/ui-events",
+                lambda r: r.fulfill(status=202, content_type="application/json", body="{}"),
+            )
+            page.route(
+                "**/api/proposals/geo?**",
+                lambda r: r.fulfill(status=200, content_type="application/json", body=proposals),
+            )
+            page.route(
+                "**/api/assets/geo?**",
+                lambda r: r.fulfill(status=200, content_type="application/json", body=assets),
+            )
+            page.goto(BASE_URL + "/?layers=plants&asset_type=transmission_line")
+            page.wait_for_function(
+                "() => /transmission lines/.test(document.getElementById('map-live-region').textContent)",
+                timeout=30000,
+            )
+            live = page.inner_text("#map-live-region")
+            assert live.startswith("41 proposals in view."), live  # 1 point + a cluster of 40, not 5651
+            assert "2 existing assets in view (2 transmission lines)." in live
+            assert "pipeline" not in live
+            note = "Showing the longest 1,500 of 13,290 lines in this view; zoom in to see them all."
+            assert note in live
+            assert page.inner_text("#lines-note") == note
+        finally:
+            browser.close()
+
+
+def test_report_a_problem_creates_a_review_task(server: object) -> None:
+    """D-6: the "Report a problem" link was `mailto:` with no recipient. The form now posts through
+    the site to `POST /v1/reports`; the answer replaces the form and takes focus."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=NARROW_VIEWPORT)
+            _install_offline_routes(page)
+            page.goto(BASE_URL + "/proposals")
+            href = page.locator("#result-rows a[href^='/proposals/']").first.get_attribute("href")
+            page.goto(BASE_URL + href)
+            assert page.locator("a[href^='mailto:']").count() == 0
+            page.get_by_text("Something wrong with this record? Report a problem").click()
+            page.get_by_label("The status is wrong").check()
+            page.get_by_label("What should it say, and where did you see that?").fill(
+                "E2E check: the register lists this project as withdrawn."
+            )
+            page.get_by_role("button", name="Send report").click()
+            status = page.locator("#report-status")
+            status.wait_for(state="visible")
+            assert "Thanks. Your report has reached our editors." in status.inner_text()
+            assert page.evaluate("document.activeElement.id") == "report-status"
+        finally:
+            browser.close()
+    engine = get_engine(f"sqlite+pysqlite:///{DB_PATH}")
+    with engine.connect() as conn:
+        rows = conn.exec_driver_sql(
+            "SELECT issue_type, subject_type FROM task"
+            " WHERE type = 'report' AND description LIKE 'E2E check:%'"
+        ).fetchall()
+    assert [tuple(r) for r in rows] == [("wrong_status", "proposal")]
 
 
 # ============================================================================================

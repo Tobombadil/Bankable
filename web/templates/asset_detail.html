@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
-{% block meta_description %}{{ record.name }}: {{ record.type_label }}{% if record.technology_label %}, {{ record.technology_label | lower }}{% elif record.technology and not record.is_fuel %}, {{ record.technology }}{% endif %}{% for f in record.fuel_fields if f.label in ('Nameplate capacity', 'Rated capacity', 'LFG flow to project') %}, {{ f.value }}{% endfor %}{% if record.capacity_mw and not record.is_fuel %}, {{ '%.1f'|format(record.capacity_mw) }} MW{% endif %}{% if record.length_miles %}, {{ '{:,.0f}'.format(record.length_miles) }} miles{% endif %}{% if record.operator.name %}, operated by {{ record.operator.name }}{% endif %}{% if record.states %}, {{ record.states }}{% elif record.state %}, {{ record.state }}{% endif %}.{% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.type_label }}{% if record.technology_label %}, {{ record.technology_label | lower }}{% endif %}{% for f in record.fuel_fields if f.label in ('Nameplate capacity', 'Rated capacity', 'LFG flow to project') %}, {{ f.value }}{% endfor %}{% if record.capacity_mw and not record.is_fuel %}, {{ '%.1f'|format(record.capacity_mw) }} MW{% endif %}{% if record.length_miles %}, {{ '{:,.0f}'.format(record.length_miles) }} miles{% endif %}{% if record.operator.name %}, operated by {{ record.operator.name }}{% endif %}{% if record.states %}, {{ record.states }}{% elif record.state %}, {{ record.state }}{% endif %}.{% endblock %}
 {% block extra_head %}
 {% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
 {% endblock %}
@@ -35,7 +35,7 @@
   {% endfor %}
   {% if not record.is_fuel %}
   {% if record.technology %}
-  <div><dt>Technology</dt><dd>{{ record.technology }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="visually-hidden">(source value: {{ record.technology_raw }})</span>{% endif %}</dd></div>
+  <div><dt>Technology</dt><dd>{{ record.technology_label or (record.technology | technology_label) }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="field-grid__source-value">source: &ldquo;{{ record.technology_raw }}&rdquo;</span>{% endif %}</dd></div>
   {% endif %}
   {% if record.capacity_mw is not none %}<div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) }}</dd></div>{% endif %}
   {% if record.capacity_value is not none %}
@@ -155,7 +155,7 @@
 {% set sec.n = sec.n + 1 %}
 <section aria-label="Attributes">
   {{ m.section_heading(sec.n ~ ".", "Attributes") }}
-  {{ m.attributes_table(record.attributes, omit=record.promoted_attributes) }}
+  {{ m.attributes_table(record.attributes_display, notes=record.attribute_notes) }}
 </section>
 
 {% set sec.n = sec.n + 1 %}
@@ -172,7 +172,7 @@
       {% for o in record.owners %}
       <tr>
         <td data-label="Organisation">{% if o.public_id %}<a class="row-link" href="/organizations/{{ o.slug or o.public_id }}">{{ o.name or o.public_id }}</a>{% elif o.name %}{{ o.name }}{% endif %}</td>
-        <td data-label="Role">{% if o.role %}{{ o.role }}{% endif %}</td>
+        <td data-label="Role">{% if o.role %}{{ o.role | humanise }}{% endif %}</td>
         <td data-label="Share" class="num tnum">{% if o.share_pct is not none %}{{ '%.1f%%'|format(o.share_pct) }}{% endif %}</td>
         <td data-label="As of" class="tnum">{% if o.as_of %}{{ o.as_of[:10] }}{% endif %}</td>
       </tr>
@@ -189,9 +189,9 @@
 <section aria-label="Nearby proposals">
   {{ m.section_heading(sec.n ~ ".", "Nearby proposals") }}
   {% if record.is_line %}
-  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of this {{ record.route_noun or 'pipeline' }}&rsquo;s route, nearest first (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
+  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of this {{ record.route_noun or 'pipeline' }}&rsquo;s route, nearest first. Only proposals with a site location are matched to assets; those placed only by county or state are not.</p>
   {% else %}
-  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of this asset&rsquo;s point, nearest first (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
+  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of this asset&rsquo;s point, nearest first. Only proposals with a site location are matched to assets; those placed only by county or state are not.</p>
   {% endif %}
   {% if nearby_proposals %}
   {{ m.nearby_proposals_list(nearby_proposals) }}

@@ -225,14 +225,15 @@ def test_kind_select_is_labelled_and_names_every_vocabulary_kind(transport: Fake
     assert all(offered[k] == PROPOSAL_KIND_LABELS[k] for k in PROPOSAL_KINDS)
 
 
-def test_an_unlabelled_kind_token_renders_as_itself(transport: FakeTransport) -> None:
+def test_an_unlabelled_kind_token_renders_as_words_not_as_itself(transport: FakeTransport) -> None:
     transport.responses["/v1/meta/vocabularies"] = (
         200,
         {"data": {**VOCAB["data"], "proposal_kind": [{"value": "geothermal_heat"}]}},
     )
     with TestClient(web_app) as client:
         page = _parse(client.get("/").text)
-    assert ("geothermal_heat", "geothermal_heat", False) in page.kind_options
+    # The value stays the token; the visible text is never the raw token (web/labels.py `humanise`).
+    assert ("geothermal_heat", "Geothermal heat", False) in page.kind_options
 
 
 def test_notice_fragment_counts_the_filters_map_js_applied(transport: FakeTransport) -> None:

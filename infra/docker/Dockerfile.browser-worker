@@ -32,6 +32,13 @@ COPY pyproject.toml ./pyproject.toml
 COPY pipeline ./pipeline
 COPY services ./services
 COPY data/sources.yaml ./data/sources.yaml
+# Reference data the code reads at runtime from the app tree (not the connector_data volume):
+# vocabularies, vendored regions/organisations/suppressions, match rules and three label files.
+# Pinned by infra/test_image_data.py, which fails when code reads a data path this image lacks.
+COPY data/vocabulary ./data/vocabulary
+COPY data/vendored ./data/vendored
+COPY data/match_rules.yaml ./data/match_rules.yaml
+COPY data/eval/ethanol_match_labels.csv data/eval/gleif_matches.csv data/eval/match_labels.csv ./data/eval/
 COPY infra/__init__.py ./infra/__init__.py
 COPY infra/entrypoint.py infra/logging_config.py infra/observability.py ./infra/
 COPY infra/scheduler ./infra/scheduler

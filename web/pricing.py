@@ -83,6 +83,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 from fastapi.templating import Jinja2Templates
 
 from services.api.common import DOMAIN
+from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
 from web.page import get_free_alerts, get_platform_posture
@@ -92,6 +93,7 @@ router = APIRouter()
 
 _WEB_ROOT = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(_WEB_ROOT / "templates"))
+labels.install(templates.env)
 
 SESSION_COOKIE_NAME = "session"
 

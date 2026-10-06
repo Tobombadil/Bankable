@@ -671,7 +671,9 @@ def test_the_page_states_sources_and_rows_per_asset_type_with_resolution(web_cli
     ethanol = section.split('id="asset-sources-ethanol_plant"')[1].split("</tr>")[0]
     assert "388" in ethanol
     assert "197" in ethanol and "with a location" in ethanol
-    assert "us.eia.atlas.ethanol_plants" in ethanol and "us.eia.ethanol_capacity" in ethanol
+    # Registers by name, never by id (audit 2026-09-30 F1): web/app.py `methodology_source_names`.
+    assert "EIA Energy Atlas" in ethanol and "EIA ethanol capacity" in ethanol
+    assert "us.eia.atlas.ethanol_plants" not in ethanol and "us.eia.ethanol_capacity" not in ethanol
     assert "191" in ethanol
     assert "<strong>Not yet</strong>" in ethanol
     assert 'href="#note-ethanol_two_sources">measured</a>' in ethanol

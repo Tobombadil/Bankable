@@ -28,6 +28,7 @@ from starlette.datastructures import QueryParams
 
 from web.api_client import ApiClient, ApiError, ApiNotFound, VisitorIpMiddleware
 from web.auth import router as auth_router
+from web.labels import PLANT_FAMILY_LABELS
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
     ASSET_TYPE_LABELS,
@@ -76,6 +77,7 @@ from web.viewmodels import (
     provenance_panel_rows,
     relativize_geo_feature_urls,
     resolve_proposal_lifecycle_param,
+    source_label,
     technology_label,
 )
 
@@ -164,6 +166,12 @@ app.include_router(interconnection_points_router)
 from web.sitemaps import router as sitemaps_router  # noqa: E402
 
 app.include_router(sitemaps_router)
+
+# Designer audit 2026-09-30 D-6: "Report a problem" posts here and is relayed to `/v1/reports`.
+from web.reports import report_context  # noqa: E402
+from web.reports import router as reports_router  # noqa: E402
+
+app.include_router(reports_router)
 
 # Sprint 3 item 3: the admin panel shell (operator guard, chrome) — page routers for each nav
 # group are mounted below it as they land.
@@ -265,6 +273,7 @@ def home_map(request: Request) -> HTMLResponse:
             "delayed": delayed_notice(request, "proposal"),
             "technology_options": _technology_options(vocab),
             "kind_options": _proposal_kind_options(vocab),
+            "plant_families": list(PLANT_FAMILY_LABELS.items()),
             "sources_phrase": proposal_sources_phrase(),
             # map.js reads, keeps in the URL and forwards to `/api/proposals/geo` exactly these
             # names (2026-09-29: it knew four by hand and `/?kind=load` drew 5,853 proposals under
@@ -311,8 +320,11 @@ def proposals_notice_fragment(request: Request) -> HTMLResponse:
 
 
 @app.get("/map")
-def map_alias() -> RedirectResponse:
-    return RedirectResponse(url="/")
+def map_alias(request: Request) -> RedirectResponse:
+    """`/map` is a permanent alias of the map at `/` (docs/04 D-16), so it answers 301, not the
+    default 307 (audit 2026-09-30 F15), and keeps the view's query string."""
+    query = request.url.query
+    return RedirectResponse(url="/" + (f"?{query}" if query else ""), status_code=301)
 
 
 @app.get("/api/proposals/geo")
@@ -549,6 +561,7 @@ def proposal_detail(request: Request, slug: str) -> Response:
             "connection": proposal_connection(api, record.get("public_id")),
             "delayed": delayed_notice(request, "proposal"),
             "canonical_path": path,
+            "report": report_context(record["public_id"], record["name"], path),
             "jsonld": [
                 breadcrumb_jsonld(
                     request, [("Home", "/"), ("Proposals", "/proposals"), (record["name"], path)]
@@ -627,6 +640,7 @@ def opportunity_detail(request: Request, slug: str) -> Response:
             "provenance_rows": provenance_panel_rows(api, record["provenance"]),
             "delayed": delayed_notice(request, "opportunity"),
             "canonical_path": path,
+            "report": report_context(record["public_id"], record["title"], path),
             "jsonld": [
                 breadcrumb_jsonld(
                     request,
@@ -778,6 +792,9 @@ def methodology(request: Request) -> HTMLResponse:
             },
             "asset_type_labels": {t: _type_label(t, plural=True) for t in ASSET_TYPE_LABELS},
             "vocabulary": vocabulary_env["data"],
+            # Source ids name a register in the status maps and the asset table; a reader sees
+            # its short name (or the manifest's name), never the id (audit 2026-09-30, F1).
+            "source_names": methodology_source_names(),
             "basis_labels": VINTAGE_BASIS_LABELS,
             "posture": get_platform_posture(request),
         },
@@ -794,6 +811,27 @@ GEOCODING_GAZETTEER_IDS = (
     "us.census.cartographic_boundaries",
 )
 _MANIFEST = pathlib.Path(__file__).resolve().parents[1] / "data" / "sources.yaml"
+
+
+#: Registers the status maps name by key alone, because no connector for them is loaded yet
+#: (`services/api/lifecycle.py` gives these a `status_key` and no `source_id`).
+STATUS_KEY_NAMES = {"isone": "ISO-NE", "spp": "SPP", "miso": "MISO", "pjm": "PJM"}
+
+
+@functools.lru_cache(maxsize=1)
+def methodology_source_names() -> dict[str, str]:
+    """`{source_id or status_key: name}` for the methodology page's status-map lists and asset
+    table: the short name a list prints (`source_label`) where there is one, else the manifest's
+    `name`. A reader sees "CAISO" or "Texas RRC Class VI permits", never `us.tx.rrc.class_vi`
+    (audit 2026-09-30, F1)."""
+    import yaml
+
+    names: dict[str, str] = dict(STATUS_KEY_NAMES)
+    for entry in (yaml.safe_load(_MANIFEST.read_text(encoding="utf-8")) or {}).get("sources") or []:
+        source_id = str(entry.get("id") or "")
+        if source_id:
+            names[source_id] = source_label(source_id) or str(entry.get("name") or source_id)
+    return names
 
 
 @functools.lru_cache(maxsize=1)

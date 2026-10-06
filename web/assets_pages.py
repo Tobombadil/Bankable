@@ -36,6 +36,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.datastructures import QueryParams
 
 from web.api_client import ApiClient, ApiError, ApiNotFound
+from web.labels import data_notes, labelled_attributes
 from web.page import (
     LINE_ASSET_TYPES,
     _asset_extras,
@@ -306,6 +307,12 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
     # them again as raw keys and tokens (`majority_mw_retiring`, `2028-12`).
     hidden = ("retirement", "grid") if retirement is not None else ("retirement",)
     record["promoted_attributes"] = [*record.get("promoted_attributes", []), *hidden]
+    # The Attributes table in reader words (web/labels.py `labelled_attributes`, audit 2026-09-30
+    # F1/D-14): internal matching keys dropped, promoted fields omitted, every key a label, and the
+    # loaders' caveats as sentences under the table rather than as `feature flags` rows.
+    attributes = record["attributes"]
+    record["attributes_display"] = labelled_attributes(attributes, omit=record["promoted_attributes"])
+    record["attribute_notes"] = data_notes(attributes)
     tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
     tile_mode = _tile_mode(tile_url)
     placed = sum(1 for f in features if f["properties"]["kind"] == "proposal")

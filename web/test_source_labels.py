@@ -6,8 +6,8 @@ Held in place here:
   * the opportunity and asset label maps cover exactly the sources the dev loader loads, and
     every word of every label is already in that source's `data/sources.yaml` name, so a label
     cannot be made up;
-  * the map page renders `TECHNOLOGY_LABELS` into `#map-labels` for `map.js`, and `map.js` keeps
-    no copy of the words (the in-view row itself is driven in `web/test_e2e.py`).
+  * the map page renders the label tables (`web/labels.py::map_labels`) into `#map-labels` for
+    `map.js`, and `map.js` keeps no copy of the words (the in-view row itself is driven in `web/test_e2e.py`).
 
 Same pattern as `web/test_data_centre_presentation.py`: `web.app.app` against a hand-written fake
 `Transport`, no database. The fake is duplicated rather than imported, per this repo's convention
@@ -32,6 +32,7 @@ from web.api_client import ApiClient
 from web.app import app as web_app
 from web.build_data import OPPORTUNITY_SOURCE_IDS
 from web.dev_up import _CONTEXT_ASSET_FILES, _ETHANOL_ATLAS_FILE, _ETHANOL_CAPACITY_FILE
+from web.labels import map_labels
 from web.page import _asset_extras, templates
 from web.retirement import ASSET_STATUS_LABELS
 from web.viewmodels import (
@@ -286,12 +287,15 @@ def test_map_page_renders_the_python_technology_labels_for_map_js(web_client: Te
     body = web_client.get("/").text
     match = re.search(r'<script type="application/json" id="map-labels">(.*?)</script>', body, flags=re.S)
     assert match, "map page has no #map-labels"
-    # Lane R1 added the asset status words beside the technology ones.
-    expected = {"technology": TECHNOLOGY_LABELS, "asset_status": ASSET_STATUS_LABELS}
-    assert json.loads(match.group(1)) == expected
+    # Every table map.js prints words from, all from web/labels.py (audit 2026-09-30, F1).
+    rendered = json.loads(match.group(1))
+    assert rendered == map_labels()
+    assert rendered["technology"] == TECHNOLOGY_LABELS
+    assert rendered["asset_status"] == ASSET_STATUS_LABELS
     assert TECHNOLOGY_LABELS["load"] == TECHNOLOGY_LOAD_LABEL
     assert technology_label("load") == TECHNOLOGY_LOAD_LABEL
-    assert technology_label("solar") == "solar"
+    assert technology_label("solar") == "Solar"
+    assert technology_label("gas_cc") == "Gas, combined cycle"
 
 
 def test_map_labels_json_cannot_close_its_script_tag() -> None:
@@ -299,7 +303,13 @@ def test_map_labels_json_cannot_close_its_script_tag() -> None:
 
 
 def test_map_js_reads_the_labels_and_keeps_no_copy_of_them() -> None:
+    """No `token: "Label"` pair from any server table appears in map.js: the words reach the
+    browser only through `#map-labels`. (A bare word such as "Gas" in "Gas pipeline" is not a
+    copy of the table, so the check is on the pair, not on the word.)"""
     source = MAP_JS.read_text(encoding="utf-8")
     assert 'getElementById("map-labels")' in source
-    for label in TECHNOLOGY_LABELS.values():
-        assert label not in source, f"{label!r} is hand-copied into map.js"
+    for table, words in map_labels().items():
+        for token, label in words.items():
+            key = r"[\"']?\b" + re.escape(token) + r"\b[\"']?"
+            pair = re.compile(key + r"\s*:\s*[\"']" + re.escape(label) + r"[\"']")
+            assert not pair.search(source), f"{table}.{token} -> {label!r} is hand-copied into map.js"

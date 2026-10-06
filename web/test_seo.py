@@ -367,7 +367,7 @@ def test_organizations_index_row_survives_a_failed_counts_call(web_client: TestC
 
     assert resp.status_code == 200
     assert "Tallgrass Energy" in resp.text
-    assert "developer" in resp.text  # the stored type, since no counts came back
+    assert "Developer" in resp.text  # the stored type in words, since no counts came back
     assert ">0<" not in resp.text  # never a fabricated zero
 
 
@@ -691,6 +691,36 @@ def test_sitemap_splits_into_an_index_once_the_urls_exceed_one_file(web_client: 
     assert len(first.content) < 50 * 1024 * 1024
 
 
+def test_sitemap_lists_every_asset_past_the_old_150_page_cap(web_client: TestClient) -> None:
+    """Audit 2026-09-30 F12: the walk stopped after 150 pages of 200, so `/assets` was cut off at
+    exactly 30,000 URLs of 30,955. 151 full pages plus a short last one must all be listed."""
+    page_count = 152
+
+    def assets_page(n: int) -> Any:
+        last = n >= page_count - 1
+        rows = _many(f"asset-p{n}", 7 if last else 200)
+        return _page(rows, has_more=not last, cursor=None if last else f"c{n + 1}")
+
+    transport = _transport(
+        {
+            "/v1/proposals": _page([]),
+            "/v1/opportunities": _page([]),
+            "/v1/organizations": _page([]),
+            "/v1/assets": assets_page,
+        }
+    )
+    _install(transport)
+
+    index = web_client.get("/sitemap.xml").text
+    chunks = [web_client.get(f"/sitemaps/{n}.xml").text for n in (1, 2)]
+
+    assert "<sitemapindex" in index
+    listed = sum(chunk.count("<loc>http://testserver/assets/") for chunk in chunks)
+    assert listed == 151 * 200 + 7
+    assert "/assets/asset-p151-6</loc>" in chunks[1]  # the very last asset made it in
+    assert len([c for c in transport.calls if c[1] == "/v1/assets"]) == page_count
+
+
 def test_a_sitemap_chunk_that_is_not_in_the_build_is_a_404_not_an_empty_urlset(
     web_client: TestClient,
 ) -> None:
@@ -791,3 +821,12 @@ def test_the_selected_count_chip_is_marked_for_a_screen_reader_not_only_visually
     assert chips.group(0).count('aria-current="page"') == 1
     selected = re.search(r'<a href="/assets\?asset_type=gas_pipeline" aria-current="page"', body)
     assert selected is not None
+
+
+def test_map_alias_is_a_permanent_redirect_that_keeps_the_view(web_client: TestClient) -> None:
+    """Audit 2026-09-30 F15: `/map` answered 307 (temporary) although it is a canonical alias."""
+    resp = web_client.get("/map?kind=load&layers=plants", follow_redirects=False)
+
+    assert resp.status_code == 301
+    assert resp.headers["location"] == "/?kind=load&layers=plants"
+    assert web_client.get("/map", follow_redirects=False).headers["location"] == "/"

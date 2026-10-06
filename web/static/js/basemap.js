@@ -15,7 +15,11 @@
     return {
       land: cssVar("--map-land") || "#eae6da",
       water: cssVar("--map-water") || "#cfe0e8",
-      border: cssVar("--map-border") || "#b9c4c9"
+      border: cssVar("--map-border") || "#b9c4c9",
+      label: cssVar("--text-muted") || "#5b6b7c",
+      // "light" | "dark": which Protomaps flavour and sprite sheet the theme starts from
+      // (styles.css `--map-flavor`, redefined in both dark-theme blocks).
+      flavor: cssVar("--map-flavor") === "dark" ? "dark" : "light"
     };
   }
 
@@ -79,10 +83,34 @@
   // `@protomaps/basemaps@5.7.2`'s generated layers reference (e.g. "arrow" for one-way-road
   // markers) -- confirmed by fetching both `sprites/v3/light.json` and `sprites/v4/light.json`
   // and checking which one has the icon names this bundle's own compiled layers use; `v3`'s
-  // sheet is a different, older icon set. Kept as one flavor's worth (`light`, matching
-  // `namedFlavor("light")` below) rather than every flavor, since this style only ever uses one.
+  // sheet is a different, older icon set. The sheet's flavour follows the theme (`light` or
+  // `dark`, matching the `namedFlavor` `themedFlavor` starts from).
   var PROTOMAPS_GLYPHS_URL = "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf";
-  var PROTOMAPS_SPRITE_URL = "https://protomaps.github.io/basemaps-assets/sprites/v4/light";
+  var PROTOMAPS_SPRITE_BASE = "https://protomaps.github.io/basemaps-assets/sprites/v4/";
+
+  // Designer D-12: in dark mode the home map drew the light flavour's pale land cover (grass,
+  // farmland, forest) beside dark water, because only nine keys were overridden; at national zoom
+  // land cover is most of the picture. The theme now picks the matching flavour and sprite, and
+  // every area fill, land-cover class and label halo is set from the same tokens, so both themes
+  // get one quiet ground under the data, at every zoom, on the home map and the mini-maps alike.
+  var AREA_KEYS = [
+    "earth", "park_a", "park_b", "wood_a", "wood_b", "scrub_a", "scrub_b", "glacier", "sand", "beach",
+    "hospital", "industrial", "school", "zoo", "military", "aerodrome", "pedestrian", "pier"
+  ];
+  var LINE_KEYS = ["major", "minor_a", "minor_b", "minor_service", "other", "highway", "link", "boundaries", "buildings", "railway"];
+  var LABEL_KEYS = ["city_label", "state_label", "country_label", "subplace_label", "address_label", "roads_label_minor", "roads_label_major", "ocean_label"];
+  var HALO_KEYS = ["city_label_halo", "state_label_halo", "subplace_label_halo", "address_label_halo", "roads_label_minor_halo", "roads_label_major_halo"];
+  function themedFlavor(colors) {
+    var flavor = basemaps.namedFlavor(colors.flavor);
+    flavor.background = colors.land;
+    AREA_KEYS.forEach(function (k) { if (k in flavor) flavor[k] = colors.land; });
+    if (flavor.landcover) Object.keys(flavor.landcover).forEach(function (k) { flavor.landcover[k] = colors.land; });
+    flavor.water = colors.water;
+    LINE_KEYS.forEach(function (k) { if (k in flavor) flavor[k] = colors.border; });
+    LABEL_KEYS.forEach(function (k) { if (k in flavor) flavor[k] = colors.label; });
+    HALO_KEYS.forEach(function (k) { if (k in flavor) flavor[k] = colors.land; });
+    return flavor;
+  }
 
   function addPmtilesBasemap(map, tileUrl, colors, onFail) {
     if (typeof pmtiles === "undefined" || typeof basemaps === "undefined") {
@@ -103,20 +131,8 @@
       // in place, matching the incremental addLayer approach here rather than a full setStyle
       // that would also replace the fallback and data layers.
       map.setGlyphs(PROTOMAPS_GLYPHS_URL);
-      map.setSprite(PROTOMAPS_SPRITE_URL);
-      var flavor = basemaps.namedFlavor("light");
-      // Mute land/water/roads to the paper ground the same way the raster layer is tinted above,
-      // via token-derived colours rather than the flavor's own defaults.
-      flavor.background = colors.land;
-      flavor.earth = colors.land;
-      flavor.water = colors.water;
-      flavor.major = colors.border;
-      flavor.minor_a = colors.border;
-      flavor.minor_b = colors.border;
-      flavor.highway = colors.border;
-      flavor.link = colors.border;
-      flavor.boundaries = colors.border;
-      var styleLayers = basemaps.layers("protomaps", flavor, { lang: "en" });
+      map.setSprite(PROTOMAPS_SPRITE_BASE + (colors.flavor || "light"));
+      var styleLayers = basemaps.layers("protomaps", themedFlavor(colors), { lang: "en" });
       styleLayers.forEach(function (layer) { map.addLayer(layer); });
       map.on("error", function (e) {
         if (e && e.sourceId === "protomaps") onFail();

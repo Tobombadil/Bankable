@@ -29,6 +29,8 @@ from urllib.parse import urlencode
 
 import yaml
 
+from web.labels import technologies_label
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 RELEVANCE_YAML = REPO_ROOT / "data" / "vendored" / "relevance" / "asset_technology_relevance.yaml"
 
@@ -275,7 +277,7 @@ def nearby_notice(
             "tone": "narrowed",
         }
     if nearby_filter.mode == "manual":
-        picked = ", ".join(nearby_filter.technologies or ())
+        picked = technologies_label(nearby_filter.technologies or ())
         return {
             "text": (
                 f"Showing {shown} of {total} nearby proposal{plural}, narrowed to the "
