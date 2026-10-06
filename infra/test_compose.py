@@ -129,7 +129,12 @@ def test_prod_overrides_only_known_services_and_publishes_only_caddy(
                 env_file[0]["path"] == "${INFRAQUE_ENV_FILE:-/opt/infraque/secrets/.env}",
                 f"{name}: env_file path must be the one infra/scripts/deploy.sh writes ({env_file})",
             )
-            expect(svc["environment"].get("ENVIRONMENT") == "production", f"{name}: ENVIRONMENT")
+            environment = svc["environment"]
+            expect(environment.get("ENVIRONMENT", "").startswith("${ENVIRONMENT:?"), f"{name}: ENVIRONMENT")
+            expect(
+                environment.get("PLATFORM_POSTURE", "").startswith("${PLATFORM_POSTURE:?"), f"{name}: posture"
+            )
+            expect(environment.get("BANKABLE_DOMAIN", "").startswith("${DOMAIN:?"), f"{name}: domain")
     expect("postgres" not in prod["services"], "the local-profile database is never overridden into prod")
     caddy_volumes = {v.split(":")[0] for v in prod["services"]["caddy"]["volumes"]}
     expect(set(prod["volumes"]) <= caddy_volumes, "dangling named volume in the prod file")
@@ -151,32 +156,113 @@ def test_deploy_script_agrees_with_the_compose_files() -> None:
     expect("--output-type dotenv" in deploy, "the SOPS YAML must be converted to KEY=VALUE lines")
 
 
-@pytest.mark.skipif(DOCKER is None, reason="docker CLI not on PATH")
-def test_docker_compose_config_renders_base_alone_and_with_prod(tmp_path: pathlib.Path) -> None:
-    """`docker compose config` needs no daemon. Skipped (visibly) where the CLI is absent."""
-    docker = DOCKER or "docker"
-    probe = subprocess.run([docker, "compose", "version"], capture_output=True, text=True, check=False)  # noqa: S603
-    if probe.returncode != 0:
-        pytest.skip("docker compose plugin not available")
-    env_file = tmp_path / "fake.env"
-    env_file.write_text("DOMAIN=example.test\nSESSION_SECRET=render-only-fake-secret-0123456789abcdef\n")
-    base_alone = subprocess.run(  # noqa: S603 -- fixed argv, no shell
-        [docker, "compose", "-f", str(BASE), "config"], capture_output=True, text=True, check=False
+def test_prod_names_no_environment_and_trusts_only_caddy(prod: dict[str, Any]) -> None:
+    """Devops audit 2026-09-30 F3: staging applies this file too, so it must not say `production`.
+    F1: api and web believe X-Forwarded-For from Caddy's fixed address and nobody else's."""
+    import ipaddress
+
+    expect(
+        "ENVIRONMENT: production" not in PROD.read_text(), "compose.prod.yml must not hard-code production"
     )
-    expect(base_alone.returncode == 0, f"base file must be a valid project on its own: {base_alone.stderr}")
-    merged = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+    services = prod["services"]
+    caddy_ip = services["caddy"]["networks"]["default"]["ipv4_address"]
+    ipam = prod["networks"]["default"]["ipam"]["config"][0]
+    subnet, dynamic = ipaddress.ip_network(ipam["subnet"]), ipaddress.ip_network(ipam["ip_range"])
+    expect(ipaddress.ip_address(caddy_ip) in subnet, f"{caddy_ip} outside {subnet}")
+    expect(ipaddress.ip_address(caddy_ip) not in dynamic, "another container could take Caddy's address")
+    for name in ("api", "web"):
+        expect(
+            services[name]["environment"]["FORWARDED_ALLOW_IPS"] == caddy_ip, f"{name}: FORWARDED_ALLOW_IPS"
+        )
+    for name in ("scheduler", "worker", "browser-worker"):
+        expect("FORWARDED_ALLOW_IPS" not in services[name]["environment"], f"{name} serves no HTTP")
+    expect(
+        services["caddy"]["environment"]["DOMAIN"].startswith("${DOMAIN:?"),
+        "Caddy must not start without DOMAIN",
+    )
+    expect(
+        services["web"]["environment"]["MAP_TILE_URL"].startswith("${MAP_TILE_URL:?"),
+        "no OSM fallback in prod",
+    )
+    expect(services["api"]["environment"]["WEB_CONCURRENCY"] == "1", "one api worker per container (F4)")
+
+
+def _documented_env(tmp_path: pathlib.Path, environment: str, **overrides: str) -> pathlib.Path:
+    """An env file holding exactly the keys infra/sops/secrets.example.plain.yaml marks `required`,
+    with its placeholder values, plus the ENVIRONMENT line deploy.sh appends."""
+    template = yaml.safe_load((COMPOSE_DIR.parent / "sops" / "secrets.example.plain.yaml").read_text())
+    text = (COMPOSE_DIR.parent / "sops" / "secrets.example.plain.yaml").read_text()
+    required = [line.split(":", 1)[0] for line in text.splitlines() if "# required" in line]
+    values = {key: str(template[key]) for key in required} | {"ENVIRONMENT": environment} | overrides
+    env_file = tmp_path / f"{environment}.env"
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items() if v is not None))
+    return env_file
+
+
+def _render(env_file: pathlib.Path) -> subprocess.CompletedProcess[str]:
+    docker = DOCKER or "docker"
+    return subprocess.run(  # noqa: S603 -- fixed argv, no shell
         [docker, "compose", "-f", str(BASE), "-f", str(PROD), "--env-file", str(env_file), "config"],
         capture_output=True,
         text=True,
         check=False,
         env={"PATH": "/usr/bin:/bin", "INFRAQUE_ENV_FILE": str(env_file), "IMAGE_TAG": "sha-test123"},
     )
+
+
+def _needs_compose() -> None:
+    if DOCKER is None:
+        pytest.skip("docker CLI not on PATH")
+    probe = subprocess.run([DOCKER, "compose", "version"], capture_output=True, text=True, check=False)  # noqa: S603
+    if probe.returncode != 0:
+        pytest.skip("docker compose plugin not available")
+
+
+def test_docker_compose_config_renders_base_alone_and_with_prod(tmp_path: pathlib.Path) -> None:
+    """`docker compose config` needs no daemon. Skipped (visibly) where the CLI is absent."""
+    _needs_compose()
+    docker = DOCKER or "docker"
+    base_alone = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+        [docker, "compose", "-f", str(BASE), "config"], capture_output=True, text=True, check=False
+    )
+    expect(base_alone.returncode == 0, f"base file must be a valid project on its own: {base_alone.stderr}")
+    merged = _render(_documented_env(tmp_path, "production"))
     expect(merged.returncode == 0, f"base + prod must render: {merged.stderr}")
     rendered = yaml.safe_load(merged.stdout)
     for name in APP_SERVICES:
         env = rendered["services"][name]["environment"]
-        expect(env.get("SESSION_SECRET", "").startswith("render-only"), f"{name}: env file did not reach it")
+        expect(env.get("SESSION_SECRET", "").startswith("replace-me"), f"{name}: env file did not reach it")
         expect(
             rendered["services"][name]["image"].endswith(":sha-test123"), rendered["services"][name]["image"]
         )
         expect("ports" not in rendered["services"][name], f"{name}: published ports in prod")
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_the_documented_keys_render_a_complete_config(tmp_path: pathlib.Path, environment: str) -> None:
+    """Devops audit F3, reproduced: a file with only DATABASE_URL, SESSION_SECRET and
+    API_INTERNAL_TOKEN rendered caddy `DOMAIN: ""`, the placeholder domain on every app service,
+    no PLATFORM_POSTURE and `ENVIRONMENT: production` everywhere. The documented keys now give a
+    non-empty DOMAIN to Caddy and the right values to every service."""
+    _needs_compose()
+    result = _render(_documented_env(tmp_path, environment))
+    expect(result.returncode == 0, result.stderr)
+    services = yaml.safe_load(result.stdout)["services"]
+    domain = services["caddy"]["environment"]["DOMAIN"]
+    expect(domain == "example.com", f"caddy DOMAIN: {domain!r}")
+    expect(services["caddy"]["environment"]["ENVIRONMENT"] == environment, services["caddy"]["environment"])
+    for name in APP_SERVICES:
+        env = services[name]["environment"]
+        expect(env["ENVIRONMENT"] == environment, f"{name}: ENVIRONMENT {env['ENVIRONMENT']}")
+        expect(env["BANKABLE_DOMAIN"] == domain, f"{name}: BANKABLE_DOMAIN {env['BANKABLE_DOMAIN']}")
+        expect(env["PLATFORM_POSTURE"] == "noncommercial", f"{name}: PLATFORM_POSTURE")
+    expect(services["web"]["environment"]["MAP_TILE_URL"].startswith("https://"), "MAP_TILE_URL")
+
+
+@pytest.mark.parametrize("missing", ["DOMAIN", "PLATFORM_POSTURE", "MAP_TILE_URL", "ENVIRONMENT"])
+def test_prod_refuses_to_render_without_a_required_key(tmp_path: pathlib.Path, missing: str) -> None:
+    _needs_compose()
+    for override in (None, ""):
+        result = _render(_documented_env(tmp_path, "production", **{missing: override}))  # type: ignore[arg-type]
+        expect(result.returncode != 0, f"{missing}={override!r} rendered")
+        expect(missing in result.stderr, result.stderr)

@@ -69,14 +69,86 @@ table and the task brief's list: `postgres` (local/dev/CI only — see §3), `ap
 
 | Service | VM | Replicas | Image target | Notes |
 |---|---|---|---|---|
-| `caddy` | app | 1 | `caddy:2.8-alpine` | TLS via Let's Encrypt; only public port on the app VM |
-| `api` | app | 2 | `infra/docker/Dockerfile` `api` | `docs/20` §4.1 |
+| `caddy` | app | 1 | `caddy:2.8-alpine` | TLS via Let's Encrypt; only public port on the app VM; fixed address `172.30.53.2` on the Compose network (below) |
+| `api` | app | 2 | `infra/docker/Dockerfile` `api` | `docs/20` §4.1; one uvicorn worker per replica, 1 GB each (memory below) |
 | `web` | app | 1 | `infra/docker/Dockerfile` `web` | server-rendered, `docs/20` §15 |
 | `scheduler` | app | 1 (singleton) | `infra/docker/Dockerfile` `worker` | leader-lock semantics — see §6 |
 | `worker` | worker | 2 | `infra/docker/Dockerfile` `worker` | `worker-plain`, `docs/20` §4.1 |
 | `social` | worker | 1 | `infra/docker/Dockerfile` `worker` | dry-run only, `services/social/README.md` |
 | `browser-worker` | browser-worker | 1 | `infra/docker/Dockerfile.browser-worker` | Playwright Chromium, `docs/20` §4.1 |
 | `postgres` | app (local profile only) | 1 | `postgis/postgis:16-3.4` | `local`/`dev`/CI only, see §3 |
+
+**Routing, host names and the client address (2026-09-30; devops audit F1–F4, architect A3/A7/A8,
+PM-3).** `infra/compose/Caddyfile` sends `/v1/*`, `/admin/v1/*`, `/feeds/*` and `/webhooks/*` to `api` and
+every other path to `web`, the admin UI at `/admin/<page>` included. Before, `/admin/*` went to the API, so the
+admin UI was unreachable, and the RSS feeds went to web and 404ed. `/webhooks/*` is on the list as well as
+the three prefixes the audits named, because the Stripe and Attio webhooks live there
+(`app.openapi()`). `infra/test_caddyfile.py` fails if the API gains a path outside the four. Host names come
+from `ENVIRONMENT` and match `infra/terraform/dns.tf`:
+
+| Environment | Site | Admin | API | `www` |
+|---|---|---|---|---|
+| production | `{DOMAIN}` | `admin.{DOMAIN}` | `api.{DOMAIN}` | `www.{DOMAIN}` → 301 to the apex |
+| staging | `staging.{DOMAIN}` | `admin-staging.{DOMAIN}` | `api-staging.{DOMAIN}` | none (no DNS record) |
+
+The admin host serves the web app with `/admin/v1/*` to the API, and redirects `/` to `/admin`. The API host
+sends every path to the API. It had no DNS record and no Caddy block, but it is the server in
+`api/openapi.yaml`, the Attio webhook target (`docs/34` §6), and the host of export download links,
+unsubscribe links and every problem `type` URI (`services/api/common.py` `API_HOST`; QA audit QA-2). Both
+now exist (`infra/terraform/dns.tf` `cloudflare_record.api`). The apex keeps serving the same API prefixes,
+so either base URL works. `API_HOST` itself is still the hard-coded `api.infraque.com` placeholder
+(`docs/04` §0.6), not derived from `DOMAIN`; it changes when the product is named. The web admin
+pages call the API server-side with the operator's cookie (`web/admin/shell.py`), so the browser never needs
+the API on that host.
+
+The address a per-address rate limit sees is established one hop at a time. Each hop trusts only the one
+before it:
+
+1. Caddy believes `CF-Connecting-IP` only from Cloudflare's published ranges. The ranges are vendored in the
+   Caddyfile from https://www.cloudflare.com/ips-v4 and /ips-v6, retrieved 2026-09-30; re-check them at
+   each §10.5 rotation. Caddy then *overwrites* `X-Forwarded-For` with that one address, or with the real
+   peer for anyone who is not Cloudflare. It strips `X-Internal-Token` and `X-Visitor-IP` from every inbound
+   request.
+2. uvicorn believes `X-Forwarded-For` and `X-Forwarded-Proto` from Caddy's fixed address only
+   (`FORWARDED_ALLOW_IPS`, `infra/entrypoint.py`; `*` is refused). The Compose network is pinned to
+   `172.30.53.0/24`, with dynamic addresses from `.128/25` only, so no other container can take `.2`.
+3. `web` sends each visitor's address to the API as `X-Visitor-IP` (`web/api_client.py`). The API believes
+   it only alongside a valid `X-Internal-Token` (`services/api/client_ip.py`).
+
+Every per-address limiter keys on the result: the public bucket, login, registration, resend, intake,
+UI events, unsubscribe and privacy requests. IPv6 callers are grouped by /64. A credential that does not
+resolve is charged to the caller's public bucket on every route; before, that happened only on routes
+that asked for an `AuthContext` (backend audit F8). A valid credential is charged to its own tier's bucket
+on every route, keyed by API key or user, at `docs/23` §6's figures. A signed-in account without a paid plan
+counts as `free_account` (300 an hour), and the `RateLimit-*` headers go on every response. Before, the main
+read routes did not meter a valid credential at all: a free account pulled 150 pages with no headers
+(QA audit QA-3). The bulk streams keep their own bucket. `web`'s own internal-token calls stay exempt from
+every bucket, as before. Measured end to end through Caddy 2.8.4, the real api and the real web (lane P1, 2026-09-30):
+
+- three visitors each started at 59 remaining;
+- one visitor rotating `X-Forwarded-For` counted 58, 57, 56;
+- a direct client forging `CF-Connecting-IP`, `X-Forwarded-For` and `X-Visitor-IP` stayed in one bucket;
+- 61 junk-bearer calls to `/v1/assets` and to `/v1/organizations` returned 60 × 200 and 1 × 429;
+- through the site, one visitor's 21st failed login was 429 while a second visitor's first was 401.
+
+A side effect is that the site's same-origin check on its forms (`web/auth.py::_is_same_origin`) now sees
+the `https` scheme the visitor used. Before, it would have seen `http` behind Caddy and refused every login.
+That part is inference: the check compares against `request.url.scheme`, and `infra/test_entrypoint.py`
+shows uvicorn keeping `http` for an untrusted peer. For the same reason, `compose.prod.yml` sets
+`SESSION_COOKIE_SECURE=true` on api: web reaches api over plain HTTP.
+
+**API memory (devops audit F4, architect A8).** Two uvicorn workers in one api container peaked at
+1,182 MB (563 + 590 MB) against the 1 GB limit, because each process builds its own geo and asset indexes
+(the asset index alone is +158 MB per process). The fix is the smaller of the two options: one worker per
+container (`infra/entrypoint.py` default, and `WEB_CONCURRENCY: "1"` in `compose.prod.yml`), keeping the
+1 GB limit and the two replicas. The auditor's probe, re-run against one worker on the same full dev
+store: each run is two rounds of 24 geo calls (three layers at zooms 3–10) and 12 list calls, then 8 site
+pages and a sitemap render. The worker peaked at 606 MB after one run and 638 MB after a second, which leaves
+about 37 % headroom. Raising the limit to 1.5 GB was the alternative. It
+would have kept four processes, and so four independent in-memory limiter buckets instead of two, and
+used 1 GB more of the app VM for parallelism that Cloudflare's cache of public GETs mostly absorbs. The base
+file's api limit moved from 512 MB to 1 GB for the same reason (local Compose on the full store). Not
+changed here: the index itself (A8's PostGIS/PMTiles fix). At 10× assets one worker will not fit either.
 
 `worker-model` (`docs/20` §4.1's fourth pool, enrichment/adjudication) is not a separate Compose service
 this sprint: `services/modelgw` (the model-call gateway, `docs/20` §4.5) does not exist yet
@@ -155,8 +227,8 @@ Compose CLI exists, renders them with `docker compose config` and asserts `SESSI
 file lands in all five app services.
 
 **`SESSION_SECRET`.** `services/api/auth.py::session_secret()` returns the committed dev constant only when
-`ENVIRONMENT` is unset or one of `dev`/`development`/`local`/`test`/`ci`. For any other value (the
-`production` compose.prod.yml sets, `staging`, `preview`, a typo) an unset or shorter-than-32-character
+`ENVIRONMENT` is unset or one of `dev`/`development`/`local`/`test`/`ci` (`services/environment.py`). For
+any other value (`staging` or `production`, which `deploy.sh` writes into the env file; `preview`; a typo) an unset or shorter-than-32-character
 `SESSION_SECRET` raises `RuntimeError` at import, so the api container exits at startup with the reason
 instead of signing cookies with a public string (`tests/test_session_secret.py`). Generate one per
 environment with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
@@ -185,19 +257,47 @@ already reads, and the same scoped token can serve both: snapshots go under `dat
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | yes | same, and `backup.sh` | R2 API token with Object Read & Write on that bucket |
 | `SNAPSHOT_STORE_PREFIX` | no | connector store only | key prefix inside the bucket, default `data/` (keys then mirror the repo's `data/` tree) |
 
-The two credentials belong in `secrets.<env>.enc.yaml`, and they already reach every container through the
-single `.env` file described above. The non-secret names are listed here but are not yet in
-`infra/compose/.env.example`. Adding them there is a one-line change per variable for whoever owns that file.
+The two credentials belong in `secrets.<env>.enc.yaml`, and they reach every container through the single
+`.env` file described above. The non-secret names are in `infra/compose/.env.example` (local) and in
+`infra/sops/secrets.example.plain.yaml` (staging and production) since 2026-09-30. `deploy.sh` refuses a
+staging or production file whose `SNAPSHOT_STORE` is not `s3`.
+
+**Every key a staging or production file must carry (2026-09-30; devops audit F3).** The audit rendered
+the Compose files with a secrets file written from the old documented list. The result had no `DOMAIN`, so
+Caddy did not start. It had no `PLATFORM_POSTURE`, so the posture silently became `commercial`. It had no
+`MAP_TILE_URL`, `AUDIT_HASH_PEPPER` or sender identity, and it said `ENVIRONMENT: production` on staging.
+The complete list is now one file, `infra/sops/secrets.example.plain.yaml`, with every key marked
+`required` or `optional` and `secret` or `config`. Non-secret configuration lives in the same SOPS file,
+because it is the only channel to the hosts. Three layers refuse a bad file, each before the next can
+misbehave:
+
+| Layer | Refuses | Where |
+|---|---|---|
+| `deploy.sh`, before touching any host | any `required` key empty or missing (all named at once); `PLATFORM_POSTURE` other than `commercial`/`noncommercial`; `SNAPSHOT_STORE` other than `s3`; an `ENVIRONMENT` line that disagrees with the argument | `REQUIRED_KEYS`, kept identical to the template by `infra/test_scripts.py` |
+| `docker compose` (render time) | empty or unset `ENVIRONMENT`, `DOMAIN`, `PLATFORM_POSTURE`, `MAP_TILE_URL` | `${VAR:?}` in `compose.prod.yml`; `infra/test_compose.py` renders it with the documented keys |
+| The processes, at import | `SESSION_SECRET` (as before) and now `PLATFORM_POSTURE`, outside the development environments | `services/api/auth.py`, `services/posture.py` |
+
+`ENVIRONMENT` is not in the file. `deploy.sh` appends `ENVIRONMENT=<staging|production>` from its own
+argument to the env file it ships, so `compose.prod.yml` no longer names an environment. `docker-compose.yml`
+header and this section used to say staging ran the base file alone. It never did: `deploy.sh` always applies
+both files.
 
 ### 5.1 Platform posture (data-licensing configuration, not a secret)
 
 `PLATFORM_POSTURE` (`commercial` | `noncommercial`; `services/posture.py`, `docs/26-platform-posture.md`)
-reaches every container the same way any other non-secret variable does — it lives in
-`infra/compose/.env.example`, which `deploy.sh` (via the operator, not automatically) copies to a real
-environment's `.env` alongside the SOPS-decrypted secrets §5 describes; it is not itself SOPS-encrypted and
-carries no credential. **Editing `.env.example` changes only the template.** A running environment's own
-`.env` (or its `infra/sops/secrets.<env>.enc.yaml`, if the value is ever moved there) keeps whatever it was
-last set to until an operator copies the template again or edits that environment's file directly.
+reaches every container like any other key: from the environment's SOPS file, decrypted by `deploy.sh`
+into the one env file (§5). It carries no credential, but it lives in the SOPS file because that file is the
+only channel to the hosts. **Corrected 2026-09-30:** this section used to say `deploy.sh` copies
+`infra/compose/.env.example` to the hosts. It never did. A file without the key therefore ran as
+`commercial`, silently (devops audit F3). `.env.example` is the local template only.
+
+**There is no default outside development.** In staging and production, `services/posture.py` raises at
+the first read when the value is unset, empty or not one of the two postures. Every service reads it at
+import, so `api`, `web`, the workers and the scheduler refuse to start rather than publish a different
+source set. In `dev`/`local`/`test`/`ci` the code default stays `commercial`, fail-closed, as before.
+`deploy.sh` and `compose.prod.yml` refuse the same file earlier (§5 table). Editing either template
+changes no running environment. To change a live posture, edit that environment's SOPS file
+(`sops infra/sops/secrets.<env>.enc.yaml`) and redeploy.
 
 **Changing it is a three-service restart, together, not a rolling one.** `api`, the ingest runner and every
 `worker` each read `PLATFORM_POSTURE` once per process at import (`docs/26` §1), so a deploy that restarts
@@ -415,7 +515,8 @@ Format per `docs/04` O-9. Kept as sections of this file rather than one file eac
    working tree's).
 3. The script (order rewritten 2026-09-19, queue-schema step and token check added 2026-09-27;
    `infra/test_scripts.py` asserts it against ssh/scp/sops shims): decrypts the secrets once and **refuses
-   to deploy** if `API_INTERNAL_TOKEN` is empty or missing (before any host is touched) → syncs compose
+   to deploy** if `API_INTERNAL_TOKEN` or any other key the template marks `required` is empty or missing, or a
+value is wrong (§5; before any host is touched), and appends `ENVIRONMENT=<environment>` to what it ships → syncs compose
    files, Caddyfile, `backup.sh` and the decrypted `.env` to **every** host → `docker compose pull` on
    every host → stops `worker`/`browser-worker` on the worker VMs and `scheduler` on the app VM → runs
    migrations once in a one-off container of the **same** api image (`run --rm --no-deps api alembic

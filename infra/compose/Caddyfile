@@ -1,33 +1,123 @@
-# Caddy terminates TLS with automatic Let's Encrypt certificates (docs/20 §11, ADR 0005).
-# {$DOMAIN} is the infraque.com placeholder (docs/04 §0.6) — set the real DOMAIN env var at deploy
-# time. Cloudflare (proxied DNS) sits in front of this at the edge (docs/20 §2); Caddy still needs
-# a real certificate because Cloudflare's edge TLS terminates to origin over HTTPS ("Full (strict)"
-# SSL mode) — see docs/60-deployment.md.
-
-{$DOMAIN} {
-	reverse_proxy web:8001
-
-	handle /v1/* {
-		reverse_proxy api:8000
+# Caddy terminates TLS with automatic Let's Encrypt certificates (docs/20 §11, ADR 0005). Cloudflare
+# (proxied DNS) sits in front of it at the edge (docs/20 §2); Caddy still needs a real certificate
+# because Cloudflare's edge connects to the origin over HTTPS ("Full (strict)" SSL mode, docs/60).
+#
+# Two environment variables, both required (compose.prod.yml refuses to render without them and
+# `caddy adapt` fails on either missing, so a bad env file stops here, not at the first request):
+#   DOMAIN       the registered apex, e.g. infraque.com (the same value in staging and production)
+#   ENVIRONMENT  staging | production; picks the host set below, which matches the Cloudflare
+#                records in infra/terraform/dns.tf:
+#                  production  {DOMAIN}          admin.{DOMAIN}          api.{DOMAIN}          www.{DOMAIN} -> apex
+#                  staging     staging.{DOMAIN}  admin-staging.{DOMAIN}  api-staging.{DOMAIN}  (no www record)
+#
+# Routing (devops audit 2026-09-30 F2, architect A7, PM-3). The API owns four path prefixes; every
+# other path, the operator admin UI at /admin/<page> included, is the web app:
+#   /v1/*  /admin/v1/*  /feeds/*  /webhooks/*   -> api:8000
+#   everything else                             -> web:8001
+# The admin host serves the same web app (its admin pages call the API server-side with the
+# operator's cookie, web/admin/shell.py) plus /admin/v1/*; its root redirects to /admin. The api
+# host is the API alone: it is the server in api/openapi.yaml, the Attio webhook target and the
+# host of download, unsubscribe and problem-type URLs (services/api/common.py API_HOST).
+# infra/test_caddyfile.py proves each route with a real Caddy and checks the API prefixes against
+# the API's own route table.
+#
+# Client address (devops audit F1, architect A3). Caddy believes CF-Connecting-IP only from a peer
+# in Cloudflare's published ranges (below) and then sends the upstream exactly one address in
+# X-Forwarded-For: `{client_ip}`, which is that header's value from Cloudflare and the real peer
+# for anyone else. Whatever X-Forwarded-For a client sent is overwritten, not appended to, so
+# uvicorn (which believes X-Forwarded-For from Caddy's address only, infra/entrypoint.py) sees
+# the visitor and nothing a visitor can forge. X-Internal-Token and X-Visitor-IP are internal to
+# the Compose network (web -> api) and are stripped from every inbound request.
+{
+	servers {
+		# Cloudflare's published edge ranges, vendored from https://www.cloudflare.com/ips-v4 and
+		# https://www.cloudflare.com/ips-v6 (the same lists as https://api.cloudflare.com/client/v4/ips,
+		# etag 38f79d050aa027e3be3865e495dcc9bc), retrieved 2026-09-30. Cloudflare changes these
+		# rarely and announces changes in advance; re-check at every quarterly secret rotation
+		# (docs/60 §10.5) and update here and in infra/test_caddyfile.py together.
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP
 	}
+}
 
-	handle /admin/* {
-		reverse_proxy api:8000
+(to_api) {
+	reverse_proxy api:8000 {
+		header_up X-Forwarded-For {client_ip}
 	}
+}
 
+(to_web) {
+	reverse_proxy web:8001 {
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+(common) {
+	request_header -X-Internal-Token
+	request_header -X-Visitor-IP
 	encode gzip
-
 	log {
 		output stdout
 		format json
 	}
 }
 
-admin.{$DOMAIN} {
-	reverse_proxy api:8000
-
-	log {
-		output stdout
-		format json
+(site) {
+	import common
+	@api path /v1/* /admin/v1/* /feeds/* /webhooks/*
+	handle @api {
+		import to_api
+	}
+	handle {
+		import to_web
 	}
 }
+
+(admin_site) {
+	import common
+	handle /admin/v1/* {
+		import to_api
+	}
+	handle / {
+		redir * /admin 302
+	}
+	handle {
+		import to_web
+	}
+}
+
+(api_site) {
+	import common
+	handle {
+		import to_api
+	}
+}
+
+(hosts_production) {
+	{$DOMAIN} {
+		import site
+	}
+	admin.{$DOMAIN} {
+		import admin_site
+	}
+	api.{$DOMAIN} {
+		import api_site
+	}
+	www.{$DOMAIN} {
+		redir https://{$DOMAIN}{uri} permanent
+	}
+}
+
+(hosts_staging) {
+	staging.{$DOMAIN} {
+		import site
+	}
+	admin-staging.{$DOMAIN} {
+		import admin_site
+	}
+	api-staging.{$DOMAIN} {
+		import api_site
+	}
+}
+
+import hosts_{$ENVIRONMENT}

@@ -111,6 +111,15 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install -r requirements.txt
+      - name: install Caddy 2.8.4 for infra/test_caddyfile.py (the line compose.prod.yml pins)
+        # Without a binary those tests skip and only the static Caddyfile checks run. The checksum is
+        # the release's own (caddy_2.8.4_checksums.txt, SHA-512), verified before anything is unpacked.
+        run: |
+          curl -fsSL -o /tmp/caddy.tar.gz \
+            https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_linux_amd64.tar.gz
+          echo "b8bec15d14fb033562af9f207850027bcbaa1f891edc9efe00d38bf39e1bf9944f8b6b8eba041ddd4c171cd70c905174c704d705be2f23bc678fe1eaf37a2485  /tmp/caddy.tar.gz" | sha512sum -c -
+          tar -xzf /tmp/caddy.tar.gz -C /tmp caddy
+          echo "CADDY_BIN=/tmp/caddy" >> "$GITHUB_ENV"
       - name: pytest with branch coverage, 80% floor (docs/04 E-7)
         run: |
           coverage run --branch -m pytest tests pipeline services infra \

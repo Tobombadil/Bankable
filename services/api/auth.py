@@ -38,9 +38,11 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from services.api.client_ip import client_ip_prefix, is_internal_request, rate_limit_address
 from services.api.deps import get_db
 from services.api.errors import ProblemError
 from services.db.models import Account, ApiKey, User, UserSession
+from services.environment import DEV_ENVIRONMENTS
 from services.ids import public_id
 
 # ------------------------------------------------------------------------------------- passwords
@@ -129,10 +131,11 @@ _SESSION_IDLE_DAYS = 30  # docs/20 §7: 30-day idle expiry
 
 _DEV_SESSION_SECRET = "dev-only-insecure-session-secret-do-not-deploy"  # noqa: S105 -- dev/test only, see below
 _SESSION_SECRET_MIN_LENGTH = 32
-# `ENVIRONMENT` values that may run on the committed dev secret. Compose sets `dev` by default and
-# `production` in compose.prod.yml (infra/compose/*.yml); anything not listed here (production,
-# staging, preview, a typo) must carry a real SESSION_SECRET (docs/04 E-19).
-_DEV_ENVIRONMENTS = frozenset({"", "dev", "development", "local", "test", "ci"})
+# `ENVIRONMENT` values that may run on the committed dev secret (`services/environment.py`). Compose
+# sets `dev` by default and deploy.sh writes `staging` or `production` into the env file; anything
+# not listed there (production, staging, preview, a typo) must carry a real SESSION_SECRET
+# (docs/04 E-19).
+_DEV_ENVIRONMENTS = DEV_ENVIRONMENTS
 
 
 def session_secret() -> str:
@@ -358,34 +361,129 @@ def build_auth_context(db: Session, *, session_cookie: str | None, authorization
     return PUBLIC_CONTEXT
 
 
+def _charge_unresolved_credential(request: Request) -> None:
+    """Meter a credential that resolved to nothing on the caller's anonymous per-address bucket,
+    once per request. The middleware in `services/api/app.py` skips that bucket for any request
+    carrying a credential, on the assumption that a Pro/API bucket meters it further down; a junk
+    credential would otherwise be served on the public tier unmetered (API audit 2026-09-18
+    finding S3; backend audit 2026-09-30 F8)."""
+    if getattr(request.state, "unresolved_credential_charged", False):
+        return
+    request.state.unresolved_credential_charged = True
+    from services.api.ratelimit import TIER_LIMITS, default_limiter
+
+    result = default_limiter.check(f"public:{rate_limit_address(request)}", limit=TIER_LIMITS["public"])
+    if not result.allowed:
+        raise ProblemError(
+            "rate_limited",
+            "Rate limit exceeded",
+            detail=(
+                "Public-tier request limit reached for this address; "
+                "the credential presented did not resolve."
+            ),
+            headers={"Retry-After": str(result.reset_seconds)},
+        )
+
+
+def resolve_request_auth(
+    request: Request, db: Session, *, session_cookie: str | None, authorization: str | None
+) -> AuthContext:
+    """The request's `AuthContext`, resolved once and kept on `request.state` (same request, same
+    DB session, so the ORM rows stay attached). A credential that resolves to nothing is charged to
+    the public bucket unless the request is the site's own (`X-Internal-Token`): the site forwards
+    its visitors' cookies, and it is already exempt from the anonymous bucket (`services/api/app.py`)."""
+    cached: AuthContext | None = getattr(request.state, "auth_context", None)
+    if cached is not None:
+        return cached
+    ctx = build_auth_context(db, session_cookie=session_cookie, authorization=authorization)
+    if ctx is PUBLIC_CONTEXT and (session_cookie or authorization) and not is_internal_request(request):
+        _charge_unresolved_credential(request)
+    request.state.auth_context = ctx
+    return ctx
+
+
 def get_auth_context(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     session: Annotated[str | None, Cookie()] = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> AuthContext:
-    ctx = build_auth_context(db, session_cookie=session, authorization=authorization)
-    if ctx is PUBLIC_CONTEXT and (session or authorization):
-        # The middleware skips the anonymous bucket for any request that carries a credential, on
-        # the assumption that a Pro/API bucket meters it further down. A credential that resolves
-        # to nothing would otherwise be served on the public tier unmetered (API audit 2026-09-18,
-        # finding S3: 110 of 110 requests with a junk bearer token served). Meter it here, on the
-        # same per-IP bucket an anonymous caller uses.
-        from services.api.ratelimit import TIER_LIMITS, default_limiter
+    return resolve_request_auth(request, db, session_cookie=session, authorization=authorization)
 
-        client_ip = request.client.host if request.client else "unknown"
-        result = default_limiter.check(f"public:{client_ip}", limit=TIER_LIMITS["public"])
-        if not result.allowed:
-            raise ProblemError(
-                "rate_limited",
-                "Rate limit exceeded",
-                detail=(
-                    "Public-tier request limit reached for this address; "
-                    "the credential presented did not resolve."
-                ),
-                headers={"Retry-After": str(result.reset_seconds)},
-            )
-    return ctx
+
+#: Paths that meter a credential on a bucket of their own instead of the tier's read bucket
+#: (`services/api/bulk.py`: "the key's own `bulk` bucket and nothing from its `read` bucket").
+_OWN_BUCKET_PREFIXES = ("/v1/bulk/",)
+
+
+def credential_tier(ctx: AuthContext) -> str:
+    """The docs/23 §6 row a resolved credential is metered under. A signed-in account with no paid
+    entitlement is a `free_account` (300 an hour), not the anonymous 60; so is a key that resolves to
+    the public tier, since only an account can hold one."""
+    from services.api.ratelimit import TIER_LIMITS
+
+    if ctx.entitlement in TIER_LIMITS and ctx.entitlement != "public":
+        return ctx.entitlement
+    return "free_account" if ctx.is_authenticated else "public"
+
+
+def charge_credential(request: Request, ctx: AuthContext) -> dict[str, str]:
+    """Charge a resolved credential one request on its tier's read bucket, once per request, and
+    return the `RateLimit-*` headers (cached on `request.state`, so a route that asks again, through
+    `services/api/pro.py::_rate_limit_headers`, gets the same numbers without a second charge).
+    Keyed by API key, else by user. Raises `429 rate_limited` with `Retry-After` when spent."""
+    cached: dict[str, str] | None = getattr(request.state, "credential_rate_limit", None)
+    if cached is not None:
+        return cached
+    from services.api.ratelimit import TIER_LIMITS, default_limiter, policy_header
+
+    tier = credential_tier(ctx)
+    key = ctx.api_key.public_id if ctx.api_key else (str(ctx.user.id) if ctx.user else "anon")
+    result = default_limiter.check(f"{tier}:{key}", limit=TIER_LIMITS[tier])
+    headers = {
+        "RateLimit-Limit": str(result.limit),
+        "RateLimit-Remaining": str(result.remaining),
+        "RateLimit-Reset": str(result.reset_seconds),
+        "RateLimit-Policy": policy_header(tier, result),
+    }
+    if not result.allowed:
+        raise ProblemError(
+            "rate_limited",
+            "Rate limit exceeded",
+            detail=f"More than {result.limit} requests in the current window.",
+            headers={"Retry-After": str(result.reset_seconds), **headers},
+        )
+    request.state.credential_rate_limit = headers
+    return headers
+
+
+def meter_credentialed_request(request: Request, db: Annotated[Session, Depends(get_db)]) -> None:
+    """App-wide dependency (`services/api/app.py` `FastAPI(dependencies=...)`): every route, not
+    only the ones that ask for `get_auth_context`, resolves a presented credential and meters it.
+
+    - A credential that resolves to nothing is charged to the caller's anonymous bucket, so a junk
+      `Authorization` or `session` header exempts nothing. Before, 13 public GET routes never
+      resolved auth and served such callers unmetered (backend audit 2026-09-30 F8).
+    - A valid credential is charged to its own tier's bucket (`charge_credential`; docs/23 §6,
+      US-702). Before, the main read routes did not meter it at all, and a free account pulled
+      150 pages of 200 rows with no `RateLimit-*` headers (QA audit 2026-09-30, QA-3).
+    - The site's own server-side calls (`X-Internal-Token`) stay exempt, as they are from the
+      anonymous bucket; so do the bulk streams, which meter their own bucket.
+
+    It reads the credential from the raw request rather than via `Cookie()`/`Header()` parameters
+    so it adds nothing to every operation in the OpenAPI document, and shares the per-request
+    caches with `get_auth_context` and `_rate_limit_headers`, so nothing is resolved or charged
+    twice. Anonymous requests return at once; the middleware meters those."""
+    session_cookie = request.cookies.get(_SESSION_COOKIE_NAME)
+    authorization = request.headers.get("authorization")
+    if not (session_cookie or authorization):
+        return
+    ctx = resolve_request_auth(request, db, session_cookie=session_cookie, authorization=authorization)
+    if ctx is PUBLIC_CONTEXT or is_internal_request(request):
+        return
+    if request.url.path.startswith(_OWN_BUCKET_PREFIXES):
+        return
+    charge_credential(request, ctx)
 
 
 _ENTITLEMENT_ORDER = {"public": 0, "pro": 1, "api": 2, "admin": 3}
@@ -470,15 +568,9 @@ def require_admin(*, roles: tuple[str, ...] = ("operator", "owner")) -> Callable
 
 
 def iter_client_ip_prefix(request: Request) -> str | None:
-    """Truncates an IPv4 address to /24 (docs/21 §3.17 `api_key.last_used_ip`); best-effort only —
-    IPv6 truncation is a follow-up, not needed by this sprint's tests."""
-    host = request.client.host if request.client else None
-    if host is None:
-        return None
-    parts = host.split(".")
-    if len(parts) == 4:
-        return ".".join([*parts[:3], "0"])
-    return host
+    """The caller's coarse address (docs/21 §3.17 `api_key.last_used_ip`): IPv4 /24, IPv6 /64.
+    The address is the visitor's, not the proxy's (`services/api/client_ip.py`)."""
+    return client_ip_prefix(request)
 
 
 # ------------------------------------------------------------------------- Sprint 3: /v1/auth/*

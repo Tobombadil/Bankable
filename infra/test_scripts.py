@@ -22,7 +22,10 @@ BASH = shutil.which("bash") or "/bin/bash"
 SSH_SHIM = r"""#!/usr/bin/env bash
 # Records the remote command; answers the few queries deploy.sh reads back.
 printf 'ssh %s\n' "$*" >> "$FAKE_LOG"
-cat > /dev/null  # swallow piped stdin (secrets, tokens)
+case "$*" in  # swallow piped stdin (secrets, tokens); keep what would land in the secrets file
+  *"cat > /opt/infraque/secrets/.env"*) cat >> "${FAKE_SECRETS:-/dev/null}" ;;
+  *) cat > /dev/null ;;
+esac
 healthy_body='{"status":"ok","checks":{"database":true,"queue":true}}'
 case "$*" in
   *"cat /opt/infraque/current-tag"*) printf '%s\n' "${FAKE_PREVIOUS_TAG:-}" ;;
@@ -34,10 +37,34 @@ exit 0
 LOGGING_SHIM = (
     '#!/usr/bin/env bash\nprintf \'{name} %s\\n\' "$*" >> "$FAKE_LOG"\ncat > /dev/null 2>&1 || true\nexit 0\n'
 )
+#: Every key deploy.sh requires, with obviously fake values (infra/sops/secrets.example.plain.yaml).
+REQUIRED_FAKES = {
+    "SESSION_SECRET": "fake-session-secret-not-a-secret-0123456789",
+    "AUDIT_HASH_PEPPER": "fake-pepper",
+    "DATABASE_URL": "postgresql+psycopg://u:p@db.example.test/infraque",
+    "DOMAIN": "example.test",
+    "PLATFORM_POSTURE": "noncommercial",
+    "MAP_TILE_URL": "https://tiles.example.test/basemap.pmtiles",
+    "SNAPSHOT_STORE": "s3",
+    "R2_ACCOUNT_ID": "fake-account",
+    "R2_BUCKET": "fake-bucket",
+    "R2_ACCESS_KEY_ID": "fake-key-id",
+    "R2_SECRET_ACCESS_KEY": "fake-secret",
+    "SENDER_LEGAL_NAME": "Example LLC",
+    "SENDER_POSTAL_ADDRESS": "1 Example St",
+    "PRODUCT_NAME": "Example",
+    "PRODUCT_URL": "https://example.test",
+    "PRODUCT_CONTACT_EMAIL": "hello@example.test",
+}
 SOPS_SHIM = (
-    "#!/usr/bin/env bash\nprintf 'sops %s\\n' \"$*\" >> \"$FAKE_LOG\"\necho 'DOMAIN=example.test'\n"
+    '#!/usr/bin/env bash\nprintf \'sops %s\\n\' "$*" >> "$FAKE_LOG"\n'
     # A non-empty API_INTERNAL_TOKEN unless a test sets FAKE_TOKEN (possibly to ""); deploy.sh needs one.
-    'echo "API_INTERNAL_TOKEN=${FAKE_TOKEN-fake-internal-token-not-a-secret}"\nexit 0\n'
+    'echo "API_INTERNAL_TOKEN=${FAKE_TOKEN-fake-internal-token-not-a-secret}"\n'
+    # Every other required key unless named in FAKE_OMIT; FAKE_EXTRA lines come last (and win).
+    + "".join(
+        f'[[ " ${{FAKE_OMIT:-}} " == *" {k} "* ]] || echo "{k}={v}"\n' for k, v in REQUIRED_FAKES.items()
+    )
+    + '[[ -n "${FAKE_EXTRA:-}" ]] && printf \'%s\\n\' "$FAKE_EXTRA"\nexit 0\n'
 )
 PG_SHIMS = {
     "psql": "#!/usr/bin/env bash\necho '16.4'\n",
@@ -171,6 +198,83 @@ def test_deploy_refuses_to_start_web_without_the_internal_token(
         expect("API_INTERNAL_TOKEN is empty or missing" in result.stderr, result.stderr)
         lines = calls(log)
         expect(not any(ln.startswith(("ssh ", "scp ")) for ln in lines), f"no host may be touched: {lines}")
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "DOMAIN",
+        "PLATFORM_POSTURE",
+        "MAP_TILE_URL",
+        "AUDIT_HASH_PEPPER",
+        "SNAPSHOT_STORE",
+        "SENDER_LEGAL_NAME",
+    ],
+)
+def test_deploy_refuses_a_secrets_file_missing_a_required_key(
+    shims: tuple[pathlib.Path, dict[str, str]], key: str
+) -> None:
+    """Devops audit 2026-09-30 F3: a file written from the old documented list had no DOMAIN (Caddy
+    crash-looped) and no PLATFORM_POSTURE (the code default published a different source set). The
+    deploy now names every missing key and stops before any host is touched."""
+    log, env = shims
+    for variant in ({"FAKE_OMIT": key}, {"FAKE_EXTRA": f"{key}="}):
+        log.write_text("")
+        result = run("deploy.sh", "production", "sha-abc1234", env={**env, **variant})
+        expect(result.returncode == 1, result.stdout + result.stderr)
+        expect("refusing to deploy" in result.stderr and key in result.stderr, result.stderr)
+        expect(not any(ln.startswith(("ssh ", "scp ")) for ln in calls(log)), f"{key}: a host was touched")
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ("PLATFORM_POSTURE=Commercial ", "PLATFORM_POSTURE must be commercial or noncommercial"),
+        ("SNAPSHOT_STORE=local", "SNAPSHOT_STORE must be s3"),
+        ("ENVIRONMENT=production", "says ENVIRONMENT=production"),
+    ],
+)
+def test_deploy_refuses_wrong_values(
+    shims: tuple[pathlib.Path, dict[str, str]], extra: str, message: str
+) -> None:
+    log, env = shims
+    result = run("deploy.sh", "staging", "sha-abc1234", env={**env, "FAKE_EXTRA": extra})
+    expect(result.returncode == 1 and message in result.stderr, result.stderr)
+    expect(not any(ln.startswith(("ssh ", "scp ")) for ln in calls(log)), "no host may be touched")
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_deploy_ships_the_environment_it_was_run_for(
+    shims: tuple[pathlib.Path, dict[str, str]], tmp_path: pathlib.Path, environment: str
+) -> None:
+    """compose.prod.yml used to hard-code ENVIRONMENT=production, and staging applies that file too.
+    Now the env file every host receives ends with exactly one ENVIRONMENT line: the argument."""
+    _log, env = shims
+    shipped = tmp_path / "shipped.env"
+    extra = {"FAKE_EXTRA": f"ENVIRONMENT={environment}"} if environment == "staging" else {}
+    result = run("deploy.sh", environment, "sha-abc1234", env={**env, "FAKE_SECRETS": str(shipped), **extra})
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    per_host = shipped.read_text().split("ENVIRONMENT=" + environment + "\n")
+    expect(len(per_host) == 5 and per_host[-1] == "", f"one ENVIRONMENT line, last, on 4 hosts: {per_host}")
+    expect(all("ENVIRONMENT=" not in chunk for chunk in per_host), "no second ENVIRONMENT line")
+    expect(all("DOMAIN=example.test" in chunk for chunk in per_host[:4]), "the secrets travel unchanged")
+
+
+def test_required_keys_match_the_documented_template() -> None:
+    """deploy.sh's REQUIRED_KEYS and the keys infra/sops/secrets.example.plain.yaml marks `required`
+    are one list; so are the keys the test shim provides."""
+    import re
+
+    deploy = (SCRIPTS / "deploy.sh").read_text()
+    block = re.search(r"REQUIRED_KEYS=\((.*?)\)", deploy, flags=re.DOTALL)
+    expect(block is not None, "REQUIRED_KEYS array not found")
+    required = set(block.group(1).split()) if block else set()
+    template = (ROOT / "infra" / "sops" / "secrets.example.plain.yaml").read_text()
+    marked = set(re.findall(r"^([A-Z][A-Z0-9_]*):.*# required\b", template, flags=re.MULTILINE))
+    expect(required == marked, f"deploy.sh only: {required - marked}; template only: {marked - required}")
+    expect(required == set(REQUIRED_FAKES) | {"API_INTERNAL_TOKEN"}, "SOPS shim out of step")
+    documented = set(re.findall(r"^([A-Z][A-Z0-9_]*):", template, flags=re.MULTILINE))
+    expect("ENVIRONMENT" not in documented, "deploy.sh writes ENVIRONMENT; the file must not carry it")
 
 
 def test_missing_queue_schema_fails_the_health_gate_and_rolls_back(
