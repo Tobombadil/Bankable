@@ -352,7 +352,7 @@ def _last_admin_event_id(db: Session, subject_type: str, subject_id: _uuid.UUID)
 
 def _admin_proposal_dict(db: Session, proposal: Proposal) -> dict[str, Any]:
     sources = list(db.scalars(select(ProposalSource).where(ProposalSource.proposal_id == proposal.id)).all())
-    data = serialize_proposal(proposal, sources=[s for s in sources if s.active])
+    data = serialize_proposal(proposal, sources=[s for s in sources if s.active], admin=True)
     # Admin reads bypass the visibility predicate (docs/21 §5.4): the sponsor is embedded whether
     # or not the public tier may see it (`serialize_proposal` drops a taken-down one).
     data["sponsor"] = serialize_organization_summary(proposal.sponsor) if proposal.sponsor else None
@@ -370,7 +370,7 @@ def _admin_opportunity_dict(db: Session, opportunity: Opportunity) -> dict[str, 
     sources = list(
         db.scalars(select(OpportunitySource).where(OpportunitySource.opportunity_id == opportunity.id)).all()
     )
-    data = serialize_opportunity(opportunity, sources=[s for s in sources if s.active])
+    data = serialize_opportunity(opportunity, sources=[s for s in sources if s.active], admin=True)
     data["issuer"] = serialize_organization_summary(opportunity.issuer) if opportunity.issuer else None
     data["provenance"] = [_admin_provenance_row(s) for s in sources]
     data["sources"] = [_admin_source_row(s) for s in sources]

@@ -125,6 +125,7 @@ def build_geo_feature_collection(
     lifecycle_state_counts: dict[str, int],
     technology_counts: dict[str, int],
     entitlement: str = "public",
+    gate_ids: frozenset[Any] = frozenset(),
 ) -> dict[str, Any]:
     """`plottable_proposals` must already be tier/licence filtered by the caller
     (services/api/visibility.py) *and* pre-restricted to records with a placeable point
@@ -158,17 +159,27 @@ def build_geo_feature_collection(
     (a mixed-precision viewport is normal); `SPLIT_THRESHOLD` clustering applies only to the
     `exact` grade, per docs/23 §3.1's "keep proposal and cluster features for exact precision only".
     """
+    from services.api.visibility import gated_proposal
+
     exact: list[_Member] = []
     region: list[_Member] = []
     for p in plottable_proposals:
-        if p.location is None or p.location.geom is None:
+        # Field-level gate (services/api/visibility.py::GatedRecord): `gate_ids` are the rows whose
+        # stored name, lifecycle, technology or capacity names a source this tier may not read (the
+        # caller selects them in SQL, `visibility.hidden_provenance_clause`); only they are drawn
+        # from their served view, also in the cluster and region sums. Every other row is drawn as
+        # stored, and the caller's SQL already dropped hidden-source placements.
+        if gate_ids and p.id in gate_ids:
+            p = gated_proposal(p, entitlement)
+        loc = p.location
+        if loc is None or loc.geom is None:
             continue
-        placement = effective_placement(p.location)
+        placement = effective_placement(loc)
         if placement.geom is None:
             # An exact row downgraded by its licence whose county/state resolves to nothing:
             # unplaced on this surface (never the stored coordinate), counted, not drawn.
             continue
-        member = (p, p.location, placement.geom, placement)
+        member = (p, loc, placement.geom, placement)
         grade = placement_grade(placement.precision)
         if grade == "exact":
             exact.append(member)

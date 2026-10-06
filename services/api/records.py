@@ -52,7 +52,7 @@ from services.api.serialize import (
     event_licence_row,
     licence_summary_from_source_aggregates,
     licence_summary_row,
-    location_redactions,
+    record_redactions,
     serialize_event,
     serialize_opportunity,
     serialize_proposal,
@@ -62,12 +62,16 @@ from services.api.slippage import today as slip_today
 from services.api.visibility import (
     PUBLISHABLE_REUSE_CLASSES,
     event_visibility_filter,
+    gated_record,
+    gated_views,
+    hidden_provenance_clause,
     interconnection_point_source_filter,
     location_exact_permitted,
     opportunity_visibility_filter,
     organization_visibility_filter,
     permitted_source_states,
     proposal_visibility_filter,
+    source_split,
     visible_source_link_filter,
     visible_source_links,
 )
@@ -529,6 +533,9 @@ _GEO_PROPOSAL_COLUMNS = (
     Proposal.last_changed,
     Proposal.location_id,
 )
+#: The proposal fields the map prints or sums (`services/api/geo.py`): a row whose provenance for
+#: one of them names a hidden source is drawn from its served view.
+_GEO_GATED_FIELDS = ("name_canonical", "kind", "technology", "lifecycle_state", "capacity_mw")
 _GEO_LOCATION_COLUMNS = (
     Location.id,
     Location.geom,
@@ -542,7 +549,7 @@ _GEO_LOCATION_COLUMNS = (
 
 
 def _proposal_geo_plottable_query(
-    request: Request, entitlement: str = "public"
+    request: Request, entitlement: str = "public", *, hidden_sources: frozenset[str] = frozenset()
 ) -> sa.Select[tuple[Proposal]]:
     """Same filters as `_proposal_query_with_filters`, restricted to proposals that can actually
     be placed on the map (`location` present with a resolved `geom`) and loaded for `GET
@@ -569,11 +576,14 @@ def _proposal_geo_plottable_query(
     services/README.md "Sprint 2 fixes" geo timing.
     """
     loc_load = contains_eager(Proposal.location)
+    # `hidden_sources` (2026-10-06; `visibility.source_split`): a placement from a source the tier
+    # may not read is not drawn (GatedRecord's rule). A plain `NOT IN` over the few hidden ids.
+    gate_where = [Location.source_id.not_in(sorted(hidden_sources))] if hidden_sources else []
     stmt = (
         select(Proposal)
         .join(Location, Location.id == Proposal.location_id)
         .join(Licence, Licence.id == Location.licence_id)
-        .where(*proposal_visibility_filter(entitlement), Location.geom.is_not(None))
+        .where(*proposal_visibility_filter(entitlement), Location.geom.is_not(None), *gate_where)
         .options(
             load_only(*_GEO_PROPOSAL_COLUMNS),
             noload(Proposal.sponsor),
@@ -599,8 +609,22 @@ def _proposal_geo_totals(
     each re-evaluating the visibility predicate, or hydrating every row as an ORM object just to
     tally two of its columns in Python (services/README.md "Sprint 2 fixes").
     """
+    hidden_sources = source_split(db, entitlement)[1]
+    gate = (
+        hidden_provenance_clause(Proposal, ("lifecycle_state", "technology"), hidden_sources)
+        if hidden_sources
+        else sa.false()
+    )
     stmt = _apply_proposal_filters(
-        select(Proposal.lifecycle_state, Proposal.technology, Location.geom)
+        select(
+            Proposal.id,
+            Proposal.lifecycle_state,
+            Proposal.technology,
+            # True only for a row whose lifecycle or technology a hidden source supplied.
+            gate.label("gate"),
+            Location.geom,
+            Location.source_id,
+        )
         .select_from(Proposal)
         .outerjoin(Location, Location.id == Proposal.location_id)
         .where(*proposal_visibility_filter(entitlement)),
@@ -608,14 +632,19 @@ def _proposal_geo_totals(
         entitlement,
     )
     rows = db.execute(stmt).all()
+    views = gated_views(db, Proposal, (r[0] for r in rows if r[3]), entitlement) if hidden_sources else {}
     lifecycle_counts: dict[str, int] = defaultdict(int)
     technology_counts: dict[str, int] = defaultdict(int)
     unplaced = 0
-    for lifecycle_state, technology, geom in rows:
+    for row_id, lifecycle_state, technology, gated, geom, location_source in rows:
+        # The served values (GatedRecord), read through the full view only for a row whose stored
+        # lifecycle or technology came from a source this tier may not read.
+        if gated and (view := views.get(row_id)) is not None:
+            lifecycle_state, technology = view.lifecycle_state, view.technology
         lifecycle_counts[lifecycle_state] += 1
         if technology:
             technology_counts[technology] += 1
-        if geom is None:
+        if geom is None or location_source in hidden_sources:
             unplaced += 1
     return len(rows), dict(lifecycle_counts), dict(technology_counts), unplaced
 
@@ -737,8 +766,15 @@ def get_proposals_geo(
         zoom = int(zoom_param)
     except ValueError as exc:
         raise validation_error("bbox", "bbox/zoom malformed", request.url.path) from exc
-    stmt = _proposal_geo_plottable_query(request, ctx.entitlement)
+    hidden_sources = source_split(db, ctx.entitlement)[1]
+    stmt = _proposal_geo_plottable_query(request, ctx.entitlement, hidden_sources=hidden_sources)
     plottable = list(db.scalars(stmt).all())
+    gated_rows = select(Proposal.id).where(
+        hidden_provenance_clause(Proposal, _GEO_GATED_FIELDS, hidden_sources)
+    )
+    gate_ids: frozenset[Any] = frozenset(db.scalars(gated_rows)) if hidden_sources else frozenset()
+    # Their links, loaded once for the page rather than lazily per drawn row.
+    gated_views(db, Proposal, gate_ids & {p.id for p in plottable}, ctx.entitlement)
     records_total, lifecycle_counts, technology_counts, unplaced_count = _proposal_geo_totals(
         db, request, ctx.entitlement
     )
@@ -750,6 +786,7 @@ def get_proposals_geo(
         lifecycle_state_counts=lifecycle_counts,
         technology_counts=technology_counts,
         entitlement=ctx.entitlement,
+        gate_ids=gate_ids,
     )
     meta = build_meta("proposal", tier=ctx.entitlement, extra={"unplaced_count": unplaced_count})
     id_subquery = _apply_proposal_filters(
@@ -787,7 +824,7 @@ def get_proposal(
         data,
         meta=meta,
         licence_summary=build_licence_summary(_proposal_licence_rows([prop], ctx.entitlement)),
-        redactions=location_redactions(prop.public_id, prop.location),
+        redactions=record_redactions(prop, ctx.entitlement),
     )
 
 
@@ -1059,6 +1096,7 @@ def get_opportunity(
         data,
         meta=meta,
         licence_summary=build_licence_summary(_opportunity_licence_rows([opp], ctx.entitlement)),
+        redactions=record_redactions(opp, ctx.entitlement),
     )
 
 
@@ -1159,7 +1197,7 @@ def _list_subject_events(
         serialize_event(
             e,
             subject_public_id=subject.public_id,
-            subject_name=config.name_of(subject),
+            subject_name=config.name_of(gated_record(subject, ctx.entitlement)),
             subject_url=f"{WEB_HOST}/{config.url_segment}/{subject.slug}",
         )
         for e in rows

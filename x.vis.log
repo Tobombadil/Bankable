@@ -1,5 +1,5 @@
 Name                         Stmts   Miss Branch BrPart  Cover
 --------------------------------------------------------------
-services/api/visibility.py      83      0      4      0   100%
+services/api/visibility.py     265      0     90      0   100%
 --------------------------------------------------------------
-TOTAL                           83      0      4      0   100%
+TOTAL                          265      0     90      0   100%

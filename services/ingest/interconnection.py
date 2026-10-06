@@ -170,6 +170,23 @@ class ParsedPoint:
     kind: PointKind
 
 
+#: One coordinate as registers type them into a POI field: an optional `Long:`/`Lat:` label, a
+#: signed decimal with at least four places (fewer is a voltage, a mileage or a parcel number --
+#: "34.5kV", "1.78mi", "151.00-01"), an optional degree sign. A run of them, comma- or
+#: semicolon-separated, is one coordinate expression.
+_COORD = r"(?:(?:long(?:itude)?|lon|lng|lat(?:itude)?)\s*[:=]?\s*)?-?\d{1,3}\.\d{4,}\s*°?"
+COORDINATE_RUN_RE = re.compile(rf"{_COORD}(?:\s*[,;]?\s*{_COORD})*", re.IGNORECASE)
+COORDINATES_WITHHELD = "[coordinates withheld]"
+
+
+def withhold_coordinates(text: str) -> str:
+    """`text` with every coordinate expression replaced by `COORDINATES_WITHHELD` (docs/21 §8:
+    under a derived-only licence an exact coordinate is a raw field, and a register that typed
+    one into its point-of-interconnection text must not publish it through the point's name;
+    L-4 of the 2026-09-30 legal audit, CAISO "Herdlyn - Tracy 70 kV - Long: ... Lat: ...")."""
+    return _WS_RE.sub(" ", COORDINATE_RUN_RE.sub(COORDINATES_WITHHELD, text)).strip()
+
+
 def _clean(text: str) -> str:
     return _WS_RE.sub(" ", _DASHES_RE.sub("-", text)).strip().rstrip(".,;:").strip()
 
@@ -418,6 +435,8 @@ def link_source_points(
         spellings = Counter(parsed.name_display for parsed, _l, _p in members)
         top = max(spellings.values())
         display = min(s for s, n in spellings.items() if n == top)
+        if not source.licence.allows_raw_publication:
+            display = withhold_coordinates(display)
         first = members[0][0]
         member_proposals = [p for _parsed, _l, p in members]
         jurisdictions = Counter(p.jurisdiction for p in member_proposals if p.jurisdiction)

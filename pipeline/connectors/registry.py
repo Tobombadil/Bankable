@@ -97,7 +97,31 @@ class SourceEntry:
     #: scripts/check_manifest_licences.py). None when an entry predates the field: the loader
     #: then warns and falls back to its notes regex.
     publication: str | None = None
+    #: data/sources.yaml `attribution`: the credit line the source's terms require, verbatim (NESO's
+    #: "Supported by National Energy SO Open Data", OGL's default statement, a CC BY citation).
+    #: Empty when the terms state none; the loader then writes `Source: <operator>` for an
+    #: attribution-class source. `scripts/check_manifest_licences.py` R5 fails when the register
+    #: (docs/13 §6) names a credit the manifest does not carry.
+    attribution: str = ""
+    #: data/sources.yaml `licence_url`: the licence or terms document a credit links to (CC BY
+    #: 4.0 §3(a)(1)(C); OGL "where possible, provide a link to this licence"). R6.
+    licence_url: str = ""
+    #: data/sources.yaml `changes_statement`: the indication of modifications CC BY 4.0
+    #: §3(a)(1)(B) requires, rendered after the credit.
+    changes_statement: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def credit_text(self) -> str | None:
+        """The credit line every surface renders for this source, verbatim: the manifest's
+        `attribution` (else `Source: <operator>` for an attribution-class source, else nothing),
+        followed by its `changes_statement`."""
+        credit = self.attribution or (
+            f"Source: {self.operator or self.name}" if self.reuse in ("attribution", "noncommercial") else ""
+        )
+        if not credit:
+            return None
+        return f"{credit}. {self.changes_statement}" if self.changes_statement else credit
 
     @property
     def host(self) -> str:
@@ -158,6 +182,9 @@ class SourceEntry:
             probe=dict(e.get("probe") or {}),
             egress=str(e.get("egress") or _default_egress(str(e.get("access", "")))),
             publication=str(e["publication"]) if e.get("publication") is not None else None,
+            attribution=str(e.get("attribution") or ""),
+            licence_url=str(e.get("licence_url") or ""),
+            changes_statement=str(e.get("changes_statement") or ""),
             raw=e,
         )
         src.max_rps = _rate_limit(src, e)

@@ -155,7 +155,7 @@ def _unique_slug(db: Session, column: InstrumentedAttribute[str], base: str) -> 
 # --------------------------------------------------------------------------------------- serialization
 def _serialize_admin_proposal(proposal: Proposal) -> dict[str, Any]:
     # Admin reads bypass the source-link gate (docs/21 §5.4): every active link, as given.
-    out = serialize_proposal(proposal, sources=[s for s in proposal.sources if s.active])
+    out = serialize_proposal(proposal, sources=[s for s in proposal.sources if s.active], admin=True)
     out["published_at"] = iso(proposal.published_at)
     out["public_at"] = iso(proposal.public_at)
     out["publish_state"] = proposal.publish_state
@@ -165,7 +165,7 @@ def _serialize_admin_proposal(proposal: Proposal) -> dict[str, Any]:
 
 
 def _serialize_admin_opportunity(opportunity: Opportunity) -> dict[str, Any]:
-    out = serialize_opportunity(opportunity, sources=[s for s in opportunity.sources if s.active])
+    out = serialize_opportunity(opportunity, sources=[s for s in opportunity.sources if s.active], admin=True)
     out["published_at"] = iso(opportunity.published_at)
     out["public_at"] = iso(opportunity.public_at)
     out["publish_state"] = opportunity.publish_state

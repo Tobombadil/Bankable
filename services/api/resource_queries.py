@@ -58,7 +58,7 @@ from services.api.records import (
     check_budget_sort,
     instant_filter,
 )
-from services.api.visibility import event_visibility_filter
+from services.api.visibility import event_visibility_filter, gated_record, source_visible
 from services.db.models import (
     OPPORTUNITY_STATUSES,
     Event,
@@ -68,6 +68,7 @@ from services.db.models import (
     OpportunitySource,
     Proposal,
     ProposalSource,
+    Source,
 )
 
 Resource = Literal["proposal", "opportunity", "event"]
@@ -203,16 +204,17 @@ def resolve_subject(db: Session, public_id_value: str) -> Proposal | Opportunity
     return None
 
 
-def subject_info(db: Session, event: Event) -> dict[str, str]:
+def subject_info(db: Session, event: Event, entitlement: str = "public") -> dict[str, str]:
     """The denormalised `subject` block `serialize_event` takes (public id, name, web URL), moved
     here from `services/api/app.py` so `/v1/events`, `/v1/bulk/events` and an event export render
-    the same subject for the same event."""
+    the same subject for the same event. The name is the subject's served name at `entitlement`
+    (`services/api/visibility.py::GatedRecord`), never a hidden source's spelling."""
     if event.subject_type == "proposal":
         p = db.get(Proposal, event.subject_id)
         if p:
             return {
                 "subject_public_id": p.public_id,
-                "subject_name": p.name_canonical,
+                "subject_name": gated_record(p, entitlement).name_canonical,
                 "subject_url": f"{WEB_HOST}/proposals/{p.slug}",
             }
     if event.subject_type == "opportunity":
@@ -220,7 +222,7 @@ def subject_info(db: Session, event: Event) -> dict[str, str]:
         if o:
             return {
                 "subject_public_id": o.public_id,
-                "subject_name": o.title,
+                "subject_name": gated_record(o, entitlement).title,
                 "subject_url": f"{WEB_HOST}/opportunities/{o.slug}",
             }
     return {"subject_public_id": str(event.subject_id), "subject_name": "Unknown", "subject_url": WEB_HOST}
@@ -231,24 +233,38 @@ _UNKNOWN_SUBJECT_NAME = "Unknown"
 _IN_CHUNK = 500
 
 
-def subject_infos(db: Session, events: Sequence[Event]) -> dict[_uuid.UUID, dict[str, str]]:
+def subject_infos(
+    db: Session, events: Sequence[Event], entitlement: str = "public"
+) -> dict[_uuid.UUID, dict[str, str]]:
     """`subject_info` for a whole page or export at once: one column-only query per 500 subjects
     per type instead of one `db.get` per event. Measured on 12,000 synthetic events over the real
     proposal load: the per-event `get` was ~15 of a 10,000-row event export's ~19 seconds under the
-    profiler (the session's identity map is weak, so rows already streamed past are reloaded)."""
+    profiler (the session's identity map is weak, so rows already streamed past are reloaded).
+
+    The name is the served one at `entitlement`, as `subject_info`: a row whose name's
+    `field_provenance` source the tier may read keeps the column (the common case, no extra
+    query); any other row is loaded and read through `GatedRecord`."""
     out: dict[_uuid.UUID, dict[str, str]] = {}
     for subject_type, model, name_col, path in (
         ("proposal", Proposal, Proposal.name_canonical, "proposals"),
         ("opportunity", Opportunity, Opportunity.title, "opportunities"),
     ):
+        name_key = name_col.key
         ids = sorted({e.subject_id for e in events if e.subject_type == subject_type}, key=str)
         for start in range(0, len(ids), _IN_CHUNK):
             rows = db.execute(
-                select(model.id, model.public_id, name_col, model.slug).where(
+                select(model.id, model.public_id, name_col, model.slug, model.field_provenance).where(
                     model.id.in_(ids[start : start + _IN_CHUNK])
                 )
+            ).all()
+            readable = _readable_source_ids(
+                db, {str((fp or {}).get(name_key, {}).get("source_id")) for *_, fp in rows}, entitlement
             )
-            for row_id, row_public_id, name, slug in rows:
+            for row_id, row_public_id, name, slug, fp in rows:
+                name_source = (fp or {}).get(name_key, {}).get("source_id")
+                if name_source is None or str(name_source) not in readable:
+                    record = cast("Proposal | Opportunity | None", db.get(model, row_id))
+                    name = getattr(gated_record(record, entitlement), name_key) if record else name
                 out[row_id] = {
                     "subject_public_id": row_public_id,
                     "subject_name": name,
@@ -264,6 +280,18 @@ def subject_infos(db: Session, events: Sequence[Event]) -> dict[_uuid.UUID, dict
             },
         )
     return out
+
+
+def _readable_source_ids(db: Session, source_ids: set[str], entitlement: str) -> set[str]:
+    """Those of `source_ids` that `entitlement` may read (`visibility.source_visible`)."""
+    wanted = sorted(source_ids - {"None"})
+    if not wanted:
+        return set()
+    return {
+        source.id
+        for source in db.scalars(select(Source).where(Source.id.in_(wanted))).all()
+        if source_visible(source, entitlement)
+    }
 
 
 def event_query_with_filters(request: Request, db: Session, entitlement: str) -> sa.Select[tuple[Event]]:
@@ -439,17 +467,17 @@ def lean_load_options(resource: Resource, *, identifiers: bool) -> list[LoaderOp
     `data/normalized` load (services/README.md "Exports, bulk and documents"):
 
     - defer the JSON columns neither shape prints -- every source link's `raw`/`normalised`
-      (`raw` is never served off the admin tier at all) and the record's `field_provenance`/
-      `overrides`; `identifiers=True` keeps `identifiers`, which the bulk line (the detail shape)
-      prints;
+      (`raw` is never served off the admin tier at all; `normalised` is read only for the rare
+      field whose provenance source is hidden, `services/api/visibility.py::GatedRecord`);
+      `identifiers=True` keeps `identifiers`, which the bulk line (the detail shape) prints. The
+      record's `field_provenance` and `overrides` are loaded: the served view reads both for
+      every field it prints (2026-10-06);
     - load the many-to-one `source`/`licence` hops lazily instead of by the models' default
       `joined` strategy: there are a few dozen sources and licences against thousands of rows, so
       after the first row each hop is an identity-map hit with no SQL, where the join re-read and
       re-hydrated them on every row."""
     if resource == "proposal":
         options: list[LoaderOption] = [
-            defer(Proposal.field_provenance),
-            defer(Proposal.overrides),
             joinedload(Proposal.location).lazyload(Location.source),
             joinedload(Proposal.location).lazyload(Location.licence),
             selectinload(Proposal.sources).defer(ProposalSource.raw).defer(ProposalSource.normalised),
@@ -458,8 +486,6 @@ def lean_load_options(resource: Resource, *, identifiers: bool) -> list[LoaderOp
         return options if identifiers else [*options, defer(Proposal.identifiers)]
     if resource == "opportunity":
         options = [
-            defer(Opportunity.field_provenance),
-            defer(Opportunity.overrides),
             joinedload(Opportunity.location).lazyload(Location.source),
             joinedload(Opportunity.location).lazyload(Location.licence),
             selectinload(Opportunity.sources)

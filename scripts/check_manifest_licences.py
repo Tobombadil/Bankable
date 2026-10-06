@@ -32,7 +32,16 @@ Rules (each violation is one line of output; exit 1 if any)
   R3  `publication` must be in vocabulary, and may not rank above the register's rule
       (raw-ok > derived-only > link-out-only/do-not-ingest = none);
   R4  a `restricted`/`unknown` source must be `publication: none`; an `attribution-restricted`
-      register class must not be `raw_ok`.
+      register class must not be `raw_ok`;
+  R5  a register rule that names a credit the licence mandates must be carried by the manifest's
+      `attribution` field, which the loader renders verbatim on every surface: `exact string "X"`
+      means `attribution` is exactly X; `credit "X"` means `attribution` contains X (a `<...>`
+      placeholder in X, e.g. "(<filing>)", is optional there); "statement of changes" means a
+      non-empty `changes_statement` (CC BY 4.0 §3(a)(1)(B)). Added 2026-10-06 (L-2 of the
+      2026-09-30 legal audit: NESO's licence ends automatically without its exact statement);
+  R6  an `attribution`/`noncommercial` source that publishes anything carries `licence_url`, the
+      link a credit points to (CC BY 4.0 §3(a)(1)(C); OGL "where possible"), or an explicit
+      `licence_url_pending` reason (allowed only for a source with no connector yet).
 
 Usage:  python scripts/check_manifest_licences.py [--manifest PATH] [--register PATH] [--quiet]
 """
@@ -159,6 +168,50 @@ def load_manifest(path: pathlib.Path = MANIFEST) -> list[dict[str, Any]]:
     return list(doc["sources"])
 
 
+#: R5: a credit the register rule names, by how strictly it binds.
+_CREDIT_RE = re.compile(r'(exact string|credit)\s+"([^"]+)"')
+_PLACEHOLDER_RE = re.compile(r"\s*\(<[^>]+>\)|<[^>]+>")
+CONNECTORS = ROOT / "pipeline" / "connectors"
+
+
+def credit_problems(sid: str, entry: dict[str, Any], row: RegisterRow) -> list[str]:
+    """R5 for one source: each credit the register rule names, checked against the manifest."""
+    problems: list[str] = []
+    attribution = str(entry.get("attribution") or "")
+    for kind, credit in _CREDIT_RE.findall(row.rule_text):
+        if kind == "exact string":
+            if attribution != credit:
+                problems.append(
+                    f"{sid}: register mandates the exact credit {credit!r} (docs/13 line {row.line_no}); "
+                    f"manifest attribution is {attribution!r} (R5)"
+                )
+            continue
+        pattern = re.escape(_PLACEHOLDER_RE.sub("\x00", credit)).replace("\x00", "(?:.*)?")
+        if not re.search(pattern, attribution):
+            problems.append(
+                f"{sid}: register names the credit {credit!r} (docs/13 line {row.line_no}); "
+                f"manifest attribution {attribution!r} does not carry it (R5)"
+            )
+    if "statement of changes" in row.rule_text and not str(entry.get("changes_statement") or "").strip():
+        problems.append(
+            f"{sid}: register requires a statement of changes (docs/13 line {row.line_no}); "
+            "manifest has no changes_statement (R5)"
+        )
+    return problems
+
+
+def licence_url_problems(sid: str, entry: dict[str, Any], reuse: str, publication: str) -> list[str]:
+    """R6 for one source."""
+    if reuse not in ("attribution", "noncommercial") or publication == "none" or entry.get("licence_url"):
+        return []
+    pending = str(entry.get("licence_url_pending") or "").strip()
+    module = sid.replace(".", "_").replace("-", "_")
+    if pending and not (CONNECTORS / module / "connector.py").exists():
+        return []
+    why = "has a connector, so " if pending else ""
+    return [f"{sid}: {why}an {reuse!r} source that publishes must carry licence_url (R6)"]
+
+
 def check(manifest_path: pathlib.Path = MANIFEST, register_path: pathlib.Path = REGISTER) -> list[str]:
     """Every violation as one `source_id: ...` line; empty means the manifest is no more permissive
     than the register on any source."""
@@ -186,11 +239,13 @@ def check(manifest_path: pathlib.Path = MANIFEST, register_path: pathlib.Path = 
             continue
         if reuse in ("restricted", "unknown") and publication != "none":
             problems.append(f"{sid}: reuse={reuse!r} must be publication: none, not {publication!r} (R4)")
+        problems.extend(licence_url_problems(sid, entry, reuse, publication))
 
         row = register.get(sid)
         if row is None:
             problems.append(f"{sid}: not in the docs/13 §6 register matrix (R1)")
             continue
+        problems.extend(credit_problems(sid, entry, row))
         register_class = row.strictest_class
         if register_class is None:
             problems.append(

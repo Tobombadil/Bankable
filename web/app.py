@@ -13,8 +13,10 @@ file (or the default in-memory database, empty until something loads it).
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import logging
 import os
+import pathlib
 from typing import Any
 
 import httpx
@@ -761,17 +763,58 @@ def methodology(request: Request) -> HTMLResponse:
     )
 
 
+#: The registers the loader geocodes against (`services/ingest/geocode.py`): their names place
+#: records on the map, so their credit is owed wherever that placement appears, although they are
+#: not `source` rows of their own (L-2 of the 2026-09-30 legal audit: NESO's gazetteer carries the
+#: same mandatory statement as its TEC register).
+GEOCODING_GAZETTEER_IDS = (
+    "gb.neso.fes_gsp_gazetteer",
+    "gb.ons.ipn_gazetteer",
+    "us.census.cartographic_boundaries",
+)
+_MANIFEST = pathlib.Path(__file__).resolve().parents[1] / "data" / "sources.yaml"
+
+
+@functools.lru_cache(maxsize=1)
+def geocoding_gazetteer_credits() -> tuple[dict[str, str], ...]:
+    """Name, operator, credit and licence link of each gazetteer, read from `data/sources.yaml`
+    (the manifest's `attribution` verbatim, else "Source: <operator>"). A file, not the store:
+    nothing about a gazetteer is loaded into a table the API could serve."""
+    import yaml
+
+    entries = {
+        str(e.get("id")): e for e in (yaml.safe_load(_MANIFEST.read_text(encoding="utf-8")) or {})["sources"]
+    }
+    out: list[dict[str, str]] = []
+    for source_id in GEOCODING_GAZETTEER_IDS:
+        entry = entries.get(source_id)
+        if entry is None:
+            continue
+        operator = str(entry.get("operator") or entry.get("name") or source_id)
+        out.append(
+            {
+                "source_id": source_id,
+                "name": str(entry.get("name") or source_id),
+                "url": str(entry.get("url") or ""),
+                "credit": str(entry.get("attribution") or f"Source: {operator}"),
+                "licence_url": str(entry.get("licence_url") or ""),
+            }
+        )
+    return tuple(out)
+
+
 @app.get("/attribution", response_class=HTMLResponse)
 def attribution(request: Request) -> HTMLResponse:
     """Task item 4: every source the API lists, plus a Basemap section (Protomaps/OSM ODbL,
-    Natural Earth, Census) and a Context layers section (EIA-860M, public domain). Reuses the same
-    `/v1/sources` fetch `about()` makes rather than a second query shape."""
+    Natural Earth, Census), a Context layers section (EIA-860M, public domain) and the geocoding
+    gazetteers (`geocoding_gazetteer_credits`). Reuses the same `/v1/sources` fetch `about()`
+    makes rather than a second query shape."""
     api = get_api(request)
     sources_env = api.get("/v1/sources", params={"limit": 100})
     return templates.TemplateResponse(
         request,
         "attribution.html",
-        {"sources": sources_env["data"]},
+        {"sources": sources_env["data"], "gazetteers": geocoding_gazetteer_credits()},
     )
 
 

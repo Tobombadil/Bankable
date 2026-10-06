@@ -60,13 +60,18 @@ from services.api.serialize import (
 )
 from services.api.visibility import (
     event_visibility_filter,
+    gated_record,
+    gated_views,
+    hidden_provenance_clause,
     interconnection_point_source_filter,
     interconnection_point_visibility_filter,
     interconnection_point_visible,
     proposal_visibility_filter,
     provenance_visible,
+    source_split,
 )
 from services.db.models import INTERCONNECTION_POINT_KINDS, Event, InterconnectionPoint, Proposal
+from services.ingest.interconnection import withhold_coordinates
 
 router = APIRouter()
 
@@ -179,25 +184,59 @@ def point_proposal_filter(entitlement: str, now: dt.datetime | None = None) -> l
 def point_totals(
     db: Session, point_ids: list[_uuid.UUID], entitlement: str, now: dt.datetime | None = None
 ) -> dict[_uuid.UUID, PointTotals]:
-    """Totals for each point in `point_ids`, over proposals visible at `entitlement`. One grouped
-    query; a point with no visible proposal is absent from the result."""
+    """Totals for each point in `point_ids`, over proposals visible at `entitlement`, summed over
+    each proposal's *served* lifecycle, technology and capacity (`visibility.GatedRecord`; docs/21
+    §8 item 4: no aggregate that includes a hidden source's value). One column query; a row whose
+    stored value for one of those fields came from a source the tier may not read is re-read
+    through its served view (rare: only after a source is unpublished). A point with no visible
+    proposal is absent from the result."""
     if not point_ids:
         return {}
-    stmt = (
-        select(
-            Proposal.interconnection_point_id,
-            Proposal.lifecycle_state,
-            Proposal.technology,
-            func.count(),
-            func.coalesce(func.sum(Proposal.capacity_mw), 0),
-        )
-        .where(Proposal.interconnection_point_id.in_(point_ids), *point_proposal_filter(entitlement, now))
-        .group_by(Proposal.interconnection_point_id, Proposal.lifecycle_state, Proposal.technology)
-    )
+    hidden = source_split(db, entitlement)[1]
     out: dict[_uuid.UUID, PointTotals] = {}
-    for point_id, lifecycle_state, technology, n, mw in db.execute(stmt).all():
-        out.setdefault(point_id, PointTotals()).add(lifecycle_state, technology, int(n), float(mw or 0))
+    visible_at_points = [
+        Proposal.interconnection_point_id.in_(point_ids),
+        *point_proposal_filter(entitlement, now),
+    ]
+    if not hidden:
+        # Every source readable at this tier: no stored value can be a hidden one, so one grouped
+        # query over the stored columns is the served sum.
+        grouped_stmt = (
+            select(
+                Proposal.interconnection_point_id,
+                Proposal.lifecycle_state,
+                Proposal.technology,
+                func.count(),
+                func.coalesce(func.sum(Proposal.capacity_mw), 0),
+            )
+            .where(*visible_at_points)
+            .group_by(Proposal.interconnection_point_id, Proposal.lifecycle_state, Proposal.technology)
+        )
+        for point_id, lifecycle_state, technology, n, mw in db.execute(grouped_stmt).all():
+            out.setdefault(point_id, PointTotals()).add(lifecycle_state, technology, int(n), float(mw or 0))
+        return out
+    stmt = select(
+        Proposal.id,
+        Proposal.interconnection_point_id,
+        Proposal.lifecycle_state,
+        Proposal.technology,
+        Proposal.capacity_mw,
+        hidden_provenance_clause(Proposal, _TOTAL_FIELDS, hidden).label("gate"),
+    ).where(*visible_at_points)
+    grouped: dict[tuple[_uuid.UUID, str, str | None], list[float]] = {}
+    rows = db.execute(stmt).all()
+    views = gated_views(db, Proposal, (r[0] for r in rows if r[5]), entitlement)
+    for row_id, point_id, lifecycle_state, technology, mw, gated in rows:
+        if gated and (view := views.get(row_id)) is not None:
+            lifecycle_state, technology, mw = view.lifecycle_state, view.technology, view.capacity_mw
+        grouped.setdefault((point_id, lifecycle_state, technology), []).append(float(mw or 0))
+    for (point_id, lifecycle_state, technology), mws in grouped.items():
+        out.setdefault(point_id, PointTotals()).add(lifecycle_state, technology, len(mws), sum(mws))
     return out
+
+
+#: The proposal fields a point's totals read (`point_totals`).
+_TOTAL_FIELDS = ("lifecycle_state", "technology", "capacity_mw")
 
 
 def _active_mw_aggregate(entitlement: str) -> sa.Subquery:
@@ -250,11 +289,20 @@ def _substation_asset(point: InterconnectionPoint, entitlement: str) -> dict[str
     }
 
 
+def point_name(point: InterconnectionPoint) -> str:
+    """The point's served name: the register's spelling, with any coordinate typed into it
+    withheld when the point's licence forbids raw publication (docs/21 §8 `precise_geo`; the
+    loader already strips it at link time, and this covers rows linked before that rule)."""
+    if point.licence.allows_raw_publication:
+        return point.name_display
+    return withhold_coordinates(point.name_display)
+
+
 def serialize_point(point: InterconnectionPoint, totals: PointTotals, entitlement: str) -> dict[str, Any]:
     return {
         "public_id": point.public_id,
         "url": point_url(point),
-        "name": point.name_display,
+        "name": point_name(point),
         "iso": point.operator,
         "kind": point.kind,
         "voltage_kv": float(point.voltage_kv) if point.voltage_kv is not None else None,
@@ -459,10 +507,13 @@ def recent_point_changes(
     return out
 
 
-def serialize_recent_changes(db: Session, events: list[Event]) -> list[dict[str, Any]]:
+def serialize_recent_changes(
+    db: Session, events: list[Event], entitlement: str = "public"
+) -> list[dict[str, Any]]:
     """`recent_changes[]`: each event in the `Event` shape the events endpoints serve (its
-    `subject` names and links the proposal; its `provenance` is the event's own quartet)."""
-    subjects = subject_infos(db, events)
+    `subject` names and links the proposal, by its served name at `entitlement`; its `provenance`
+    is the event's own quartet)."""
+    subjects = subject_infos(db, events, entitlement)
     return [serialize_event(e, **subjects[e.subject_id]) for e in events]
 
 
@@ -504,10 +555,11 @@ def get_interconnection_point(
     truncated = len(proposals) > DETAIL_PROPOSAL_CAP
     proposals = proposals[:DETAIL_PROPOSAL_CAP]
     data = serialize_point(point, totals, ctx.entitlement)
-    data["proposals"] = [_proposal_row(p) for p in proposals]
+    # Each row is the proposal's served view: no value from a source the tier may not read.
+    data["proposals"] = [_proposal_row(gated_record(p, ctx.entitlement)) for p in proposals]
     data["proposals_truncated"] = truncated
     changes = recent_point_changes(db, [point.id], ctx.entitlement)[point.id]
-    data["recent_changes"] = serialize_recent_changes(db, changes)
+    data["recent_changes"] = serialize_recent_changes(db, changes, ctx.entitlement)
     rows = [
         _point_licence_row(point),
         *_proposal_licence_rows(proposals, ctx.entitlement),
@@ -555,7 +607,7 @@ def proposal_point_embeds(
         out[proposal.id] = {
             "public_id": point.public_id,
             "url": point_url(point),
-            "name": point.name_display,
+            "name": point_name(point),
             "kind": point.kind,
             "voltage_kv": float(point.voltage_kv) if point.voltage_kv is not None else None,
             "active_mw": t["active_mw"],

@@ -1902,6 +1902,60 @@ covers the same self-read-and-proceed pattern for PJM (item 1), MISO (item 2) an
 Precondition (i) (paid-tier surfaces suspended or marked inactive) and (iii) (the firewall) are addressed in
 `docs/26-platform-posture.md` §3/§6, not here.
 
+### 6.3 Credit lines carried by the manifest, 2026-10-06
+
+The 2026-09-30 legal audit (L-2, L-10) found every attribution source credited with a line the loader
+composed, `Source: <operator>`, so the one register row with a **mandatory exact statement** — NESO, §2.5:
+"Acknowledge NESO as the source of the Information by including the following attribution statement
+'Supported by National Energy SO Open Data' … if you fail to comply with them the rights granted to you
+under this licence … will end automatically" — was not honoured on any surface, the NESO FES gazetteer
+(which places GB records) was credited nowhere, no licence carried a URL, and the CC BY rows carried
+neither year nor a statement of changes. What the text requires is quoted in §2.4, §2.5 and §2.19; what
+follows is how the repo now carries it.
+
+- `data/sources.yaml` gains three fields, rendered verbatim on every surface (API `provenance` and
+  `licence_summary`, RSS `<infraque:attribution>`, `<dc:creator>` and description, CSV header and
+  `attribution_text` column, bulk meta and lines, `/attribution`, the record pages): `attribution` (the
+  credit line the terms require), `licence_url` (the link a credit points to: CC BY 4.0 §3(a)(1)(C); OGL
+  "where possible, provide a link to this licence") and `changes_statement` (CC BY 4.0 §3(a)(1)(B),
+  appended after the credit). `licence_url_pending` records why a source with no connector yet has no
+  URL. The loader writes them to `licence.attribution_text` / `licence.url` on every load, and
+  `python -m services.ingest.loader --refresh-credits` brings a deployed store up to date without loading
+  data. The generic `Source: <operator>` remains only as the fallback for a source whose terms name no
+  credit.
+- Entries filled from this register: NESO TEC and FES gazetteer (exact §2.5 statement, licence page);
+  ONS gazetteer (§6 row's two statements, OGL v3); Find a Tender and PINS (OGL default statement, §2.4);
+  LBNL lines (the §6 row's credit, CC BY 4.0, and the statement of changes "HIFLD-side fields only, names
+  re-cased, coordinates rounded"); CAISO ("Source: California ISO", its terms URL §1.2); NYISO (legal
+  notice URL §1.5); TED (legal notice URL §2.3); VA DEQ (the "suggested" citation, §6 row); FCC (the §6
+  row's credit; the filing is printed beside it as the source's stated release, not inside the string).
+- **Inferred, not quoted:** the World Bank credit ("Source: The World Bank, Procurement Notices,
+  licensed under CC BY 4.0") and its changes statement are drafted from CC BY 4.0's own requirements;
+  the World Bank's procurement-notice terms are still "not re-verified" (§6 row, L-11). Counsel item 16.
+- `scripts/check_manifest_licences.py` enforces it: **R5** — a row whose Publication rule says
+  `exact string "X"` requires `attribution` to be exactly X; `credit "X"` requires X to appear in it (a
+  `(<placeholder>)` is optional); "statement of changes" requires a `changes_statement`. **R6** — an
+  `attribution`/`noncommercial` source that publishes carries `licence_url`, or `licence_url_pending`
+  only while it has no connector. Run against the 2026-09-30 manifest it reported 30 violations; it
+  passes on 123 sources now.
+- Not changed here: the social drafting templates still print `Source: {source_name}`
+  (`services/social/editorial.py`); no publisher sends today (L-8), but a NESO post would need the exact
+  statement. Recorded as an open item, not done.
+
+**Raw fields under `derived_only` (L-4, 2026-10-06).** `status_raw` and `technology_raw` are now withheld
+at serialisation wherever the source that supplies the served value has `allows_raw_publication = false`
+(CAISO, NYISO, AEMO, GDELT, the other `derived_only` rows), on the API, CSV, bulk, feeds and pages, with a
+`redactions[]` entry (`reason: licence`); measured on the audit store, 3,996 CAISO/NYISO-only records went
+from 3,996 serving `status_raw` to 0. A coordinate typed into a derived-only register's
+point-of-interconnection text is replaced by `[coordinates withheld]` in the point's served name (CAISO
+"Herdlyn - Tracy 70 kV - Long: … Lat: …"; one NYISO pole location likewise). Whether a POI string is
+itself raw is still decision D-18 and counsel's; this only removes the coordinate.
+
+**Unpublishing a source withholds its values (QA-1, 2026-10-06).** A source set to `ingest_only` (the
+takedown path for a licence problem) now withdraws every field it supplied from merged records, the
+records' `source_count`, its placement, and every organisation only its rows named, on every non-admin
+surface (`docs/21` §8). Before this, the values stayed public credited to the remaining source.
+
 ---
 
 ## 7. Items requiring counsel before launch
@@ -2006,6 +2060,16 @@ Numbered, in the order they block work.
     public (no `noncommercial`-class source is live on any surface — `PLATFORM_POSTURE` defaults to
     `commercial`, fail-closed); the owner has accepted the residual risk of a wrong reading in exchange for
     the runbook's backstop rather than closing the question.
+16. **Credit lines drafted rather than quoted, and the NESO statement's placement** (§6.3, added
+    2026-10-06). (a) The World Bank CC BY 4.0 credit and both World Bank changes statements are drafted
+    from CC BY 4.0's requirements, not from the World Bank's own terms, which are not re-verified (L-11):
+    confirm the credit form and that a statement of changes in that wording satisfies §3(a)(1)(B). (b)
+    NESO's statement is shown once per credited source on each surface (API provenance, RSS item, CSV
+    header and rows, record page, `/attribution`), not on every map tile or every geocoded record: confirm
+    that satisfies "including the following attribution statement" for derived uses (placement by the
+    NESO gazetteer). (c) An automatic-termination clause cannot be cured by a code fix: whether NESO data
+    published before 2026-10-06 without the statement needs any action is a question for counsel.
+    Recommendation, not a blocker for anything already public.
 
 ## 8. What changed in the repo as a result
 

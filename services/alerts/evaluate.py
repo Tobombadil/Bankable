@@ -66,6 +66,7 @@ from services.alerts.matching import event_matches_query, matches_query
 from services.alerts.suppression import is_suppressed
 from services.alerts.visibility import event_with_visible_subject_filter
 from services.api.common import WEB_HOST
+from services.api.visibility import gated_opportunity, gated_proposal
 from services.db.models import Account, Alert, Event, Opportunity, Proposal, SavedSearch, User
 from services.ids import public_id
 from services.social.textgate import reject_bare_none
@@ -176,17 +177,20 @@ def describe_subject(subject: Proposal | Opportunity) -> str:
     return ", ".join(p for p in parts if p)
 
 
-def _subject_and_attribution(db: Session, event: Event) -> tuple[Proposal | Opportunity | None, str, str]:
+def _subject_and_attribution(
+    db: Session, event: Event, entitlement: str = "public"
+) -> tuple[Proposal | Opportunity | None, str, str]:
+    """The event's subject and its served name at the owner's tier (`visibility.GatedRecord`)."""
     if event.subject_type == "proposal":
         p = db.get(Proposal, event.subject_id)
         if p is None:
             return None, "", WEB_HOST
-        return p, p.name_canonical, f"{WEB_HOST}/proposals/{p.slug}"
+        return p, gated_proposal(p, entitlement).name_canonical, f"{WEB_HOST}/proposals/{p.slug}"
     if event.subject_type == "opportunity":
         o = db.get(Opportunity, event.subject_id)
         if o is None:
             return None, "", WEB_HOST
-        return o, o.title, f"{WEB_HOST}/opportunities/{o.slug}"
+        return o, gated_opportunity(o, entitlement).title, f"{WEB_HOST}/opportunities/{o.slug}"
     return None, event.event_type, WEB_HOST
 
 
@@ -236,7 +240,7 @@ def evaluate_saved_search(db: Session, search: SavedSearch, account: Account) ->
                 )
             )
             continue
-        subject, name, url = _subject_and_attribution(db, event)
+        subject, name, url = _subject_and_attribution(db, event, account.entitlement)
         if subject is None or subject.id in seen_subjects:
             continue
         if not matches_query(search.entity, subject, search.query, account.entitlement):

@@ -398,9 +398,13 @@ def test_the_served_pass_restores_a_callers_dependency_override(
     assert app.dependency_overrides[get_db] is before
 
 
-def test_a_starved_served_pass_is_counted_inconclusive_not_clean(
+def test_the_served_pass_is_not_metered_against_the_anonymous_budget(
     db: Session, db_sessionmaker: sessionmaker[Session]
 ) -> None:
+    """QA-10 (2026-09-30 audit): the served pass spent the anonymous per-address budget and starved
+    itself into 429s. It now speaks as the site's own service identity (the public tier, unmetered),
+    so an exhausted anonymous bucket leaves every check conclusive. Until 2026-10-06 this test
+    asserted the opposite: that a starved pass was all inconclusive."""
     from services.api.ratelimit import TIER_LIMITS, default_limiter
 
     seed_clean_store(db)
@@ -411,8 +415,52 @@ def test_a_starved_served_pass_is_counted_inconclusive_not_clean(
     result = run.run_audit(db_sessionmaker, persist=False)
 
     assert result["served"]["checked"] > 0
-    assert result["served"]["inconclusive"] == result["served"]["checked"]
+    assert result["served"]["inconclusive"] == 0
     assert result["served"]["leaks"] == 0
+
+
+class _Throttled:
+    status_code = 429
+    text = ""
+
+    def json(self) -> dict[str, Any]:
+        return {"type": "https://api.infraque.com/problems/rate_limited", "status": 429}
+
+
+def test_a_throttled_response_is_inconclusive_never_a_leak(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """QA-10: one throttled `interconnection_point_id=` probe (status 429) was scored `leak: true`
+    against a 200 baseline, a false breach. Every probe of a hidden point is throttled here while
+    the baseline is not; a 429 proves nothing, so it is inconclusive and never a breach."""
+    from contextlib import contextmanager
+
+    seed_points(db)
+    db.commit()
+    real = run.anonymous_client
+
+    @contextmanager
+    def throttled(factory: sessionmaker[Session]) -> Iterator[Any]:
+        with real(factory) as client:
+
+            class _Client:
+                def get(self, path: str, **kwargs: Any) -> Any:
+                    point = (kwargs.get("params") or {}).get("interconnection_point_id")
+                    if path == "/v1/proposals" and point and point != run.UNKNOWN_POINT_ID:
+                        return _Throttled()
+                    return client.get(path, **kwargs)
+
+            yield _Client()
+
+    monkeypatch.setattr(run, "anonymous_client", throttled)
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    oracle = [c for c in result["served"]["checks"] if c["kind"] == "point_oracle"]
+    assert oracle and all(c["status"] == 429 and c["leak"] is False for c in oracle)
+    assert result["served"]["inconclusive"] >= len(oracle)
+    assert result["served"]["leaks"] == 0
+    assert result["m11"] == 0, result["breaches"]
 
 
 # ================================================================================ caps and helpers
@@ -1157,3 +1205,168 @@ def test_a_bulk_embed_that_ignores_the_redistribution_flag_is_a_store_breach(
         for k in ("a1", "a2")
     }
     assert all(b["served_status"] == 200 and b["served_leak"] is False for b in found)
+
+
+# ================================================== field-level provenance (QA-1, QA-10; 2026-10-06)
+UNPUBLISHED_NAME = "Inventory Spelling LLC"
+UNPUBLISHED_ORG = "Inventory Only Holdings LLC"
+
+
+def seed_unpublished_contributor(db: Session) -> dict[str, Any]:
+    """The QA-1 shape: a record public through a queue whose stored name, capacity and plant id
+    were supplied by an inventory an operator has since set to `ingest_only`, plus an organisation
+    only the inventory names. Routine after an unpublish; correctly served, it is no breach."""
+    from services.db.models import OrganizationAlias
+
+    seeded = seed_clean_store(db)
+    queue = seeded["ercot"]
+    inventory = _source(db, queue.licence, "us.test.inventory", publish_state="ingest_only")
+    prop = make_visible_proposal(db, queue, public_id_suffix="31")
+    link = next(lnk for lnk in prop.sources if lnk.source_id == queue.id)
+    link.normalised = {"name_canonical": "Queue Spelling", "capacity_mw": 141.05, "lifecycle_state": "built"}
+    _link(db, prop, inventory, suffix="inv")
+    prop.name_canonical = UNPUBLISHED_NAME
+    prop.capacity_mw = 210.0
+    prop.identifiers = {"eia_plant_id": "64672"}
+    prop.source_count = 2
+    prop.field_provenance = {
+        f: {"source_id": inventory.id, "licence_id": inventory.licence_id, "retrieved_at": "2026-09-27"}
+        for f in ("name_canonical", "capacity_mw", "identifiers")
+    }
+    org = make_org(db, UNPUBLISHED_ORG)
+    db.add(
+        OrganizationAlias(
+            organization_id=org.id,
+            alias=UNPUBLISHED_ORG,
+            alias_normalised=UNPUBLISHED_ORG.lower(),
+            kind="filing_spelling",
+            source_id=inventory.id,
+            source_url=inventory.url,
+            retrieved_at=dt.datetime.now(UTC),
+            licence_id=inventory.licence_id,
+        )
+    )
+    db.flush()
+    return {**seeded, "inventory": inventory, "mixed_prop": prop, "inventory_org": org}
+
+
+def test_an_unpublished_contributor_correctly_withheld_is_no_breach_and_is_counted_apart(
+    db: Session, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    """QA-10's noise: a routine unpublish made M-11 red (340 `source_links` rows whose served check
+    was clean, 736 organisations the predicate did not hide). Now the withheld links are reported
+    apart, the organisation is hidden by the predicate, and the field check finds nothing."""
+    seeded = seed_unpublished_contributor(db)
+    db.commit()
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    assert result["m11"] == 0, result["breaches"]
+    assert result["withheld_links"] == 1
+    assert result["field_checked_records"] == 1
+    checks = [c for c in result["served"]["checks"] if c["kind"] == "field_provenance"]
+    assert [(c["public_id"], c["status"], c["leak"]) for c in checks] == [
+        (seeded["mixed_prop"].public_id, 200, False)
+    ]
+
+
+def test_a_field_attributed_to_a_hidden_source_is_a_breach_on_both_passes(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """QA-1 itself, which M-11 could not see: the serialiser's field gate regressed, so the record
+    prints the inventory's name, capacity and plant id and counts the inventory link, under a
+    Sources panel that names only the queue. The store pass renders the record through the
+    builder and the served pass requests it."""
+    from services.api import visibility
+
+    seeded = seed_unpublished_contributor(db)
+    db.commit()
+    monkeypatch.setattr(
+        visibility, "gated_proposal", lambda record, entitlement="public", link_ok=None: record
+    )
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    pid = seeded["mixed_prop"].public_id
+    store = {b["reason"] for b in _breaches(result, "proposals") if b["public_id"] == pid}
+    assert {
+        "field_from_gated_source:name_canonical",
+        "field_from_gated_source:capacity_mw",
+        "field_from_gated_source:identifiers",
+        "field_from_gated_source:source_count",
+    } <= store
+    sampled = [b for b in _breaches(result, "proposals") if b["reason"].startswith("field_from_gated_source")]
+    assert all(b["served_status"] == 200 and b["served_leak"] is True for b in sampled)
+    # The breach rows name fields and sources, never the withheld values themselves.
+    assert UNPUBLISHED_NAME not in json.dumps(result["breaches"])
+
+
+def test_a_serving_path_that_bypasses_the_builder_is_caught_by_the_served_field_check(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The builder the store pass renders is right; the detail route alone prints the stored row."""
+    from services.api import serialize
+
+    seeded = seed_unpublished_contributor(db)
+    db.commit()
+    original = serialize.serialize_proposal
+
+    def leaky(proposal: Any, **kwargs: Any) -> dict[str, Any]:
+        return original(proposal, **{**kwargs, "admin": True})
+
+    monkeypatch.setattr(records_module, "serialize_proposal", leaky)
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    pid = seeded["mixed_prop"].public_id
+    served = {b["reason"] for b in _breaches(result, "proposals") if b["public_id"] == pid}
+    assert "served_field_leak:name_canonical" in served
+    assert result["served"]["leaks"] >= 1
+
+
+def test_an_organisation_only_a_hidden_source_names_is_a_breach_if_the_predicate_serves_it(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from services.api import visibility
+    from services.db.models import Organization
+
+    seeded = seed_unpublished_contributor(db)
+    db.commit()
+    monkeypatch.setattr(
+        visibility,
+        "organization_visibility_filter",
+        lambda entitlement="public", now=None: [Organization.publish_state == "public"],
+    )
+
+    result = run.run_audit(db_sessionmaker, persist=False)
+
+    orgs = _breaches(result, "organizations")
+    assert [b["public_id"] for b in orgs] == [seeded["inventory_org"].public_id]
+    assert orgs[0]["source_id"] == "us.test.inventory"
+
+
+def test_a_raw_field_of_a_derived_only_source_printed_is_a_breach(
+    db: Session, db_sessionmaker: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L-4: the derived-only rule restated by the audit, caught when the serialiser regresses."""
+    from services.api import visibility
+
+    seeded = seed_clean_store(db)
+    seeded["ercot"].licence.allows_raw_publication = False
+    prop = make_visible_proposal(db, seeded["ercot"], public_id_suffix="41")
+    prop.status_raw = "ACTIVE"
+    prop.field_provenance = {
+        "status_raw": {"source_id": seeded["ercot"].id, "licence_id": "x", "retrieved_at": "x"}
+    }
+    db.commit()
+
+    clean = run.run_audit(db_sessionmaker, persist=False)
+    assert clean["m11"] == 0, clean["breaches"]
+
+    monkeypatch.setattr(
+        visibility, "gated_proposal", lambda record, entitlement="public", link_ok=None: record
+    )
+    regressed = run.run_audit(db_sessionmaker, persist=False)
+    assert (prop.public_id, "raw_field_printed:status_raw") in {
+        (b["public_id"], b["reason"]) for b in regressed["breaches"]
+    }

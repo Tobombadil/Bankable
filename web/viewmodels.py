@@ -594,6 +594,7 @@ def provenance_panel_rows(api: ApiClient, provenance: list[dict[str, Any]]) -> l
                 "retrieved_at": row.get("retrieved_at"),
                 "reuse_class": row.get("reuse_class"),
                 "attribution_text": row.get("attribution_text"),
+                "licence_url": (licence or {}).get("url"),
                 "allows_raw": row.get("source_record_id") is not None,
                 "active": row.get("active", True),
                 "licence_quote": _licence_quote_text(licence),

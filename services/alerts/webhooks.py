@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from services.alerts.matching import event_matches_query, matches_query
 from services.alerts.visibility import event_with_visible_subject_filter
+from services.api.visibility import gated_opportunity, gated_proposal
 from services.db.models import Account, Event, Opportunity, Proposal, WebhookDelivery, WebhookEndpoint
 from services.ids import public_id
 
@@ -168,16 +169,19 @@ def enqueue_deliveries_for_event(db: Session, event: Event) -> list[WebhookDeliv
     return created
 
 
-def _event_payload(db: Session, event: Event) -> dict[str, Any]:
+def _event_payload(db: Session, event: Event, entitlement: str = "public") -> dict[str, Any]:
+    """The subject's name is its served name at the endpoint owner's tier (`GatedRecord`)."""
     subject: dict[str, Any] = {"public_id": str(event.subject_id)}
     if event.subject_type == "proposal":
         p = db.get(Proposal, event.subject_id)
         if p is not None:
-            subject = {"public_id": p.public_id, "name_canonical": p.name_canonical}
+            name = gated_proposal(p, entitlement).name_canonical
+            subject = {"public_id": p.public_id, "name_canonical": name}
     elif event.subject_type == "opportunity":
         o = db.get(Opportunity, event.subject_id)
         if o is not None:
-            subject = {"public_id": o.public_id, "name_canonical": o.title}
+            title = gated_opportunity(o, entitlement).title
+            subject = {"public_id": o.public_id, "name_canonical": title}
     return {
         "event": {
             "seq": event.seq,
@@ -216,7 +220,7 @@ def attempt_delivery(
         db.flush()
         return delivery
     payload = (
-        _event_payload(db, event)
+        _event_payload(db, event, _endpoint_entitlement(db, endpoint))
         if event is not None
         else {"event": None, "subject": None, "message": "webhook.test"}
     )

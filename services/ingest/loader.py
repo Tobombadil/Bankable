@@ -402,11 +402,12 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
             # `attribution` — CC BY-NC's own terms — and the row is publishable only while the
             # posture admits the class, which is the registry gate above, not this row.
             attribution_required=entry.reuse in ("attribution", "noncommercial"),
-            attribution_text=(
-                f"Source: {entry.operator or entry.name}"
-                if entry.reuse in ("attribution", "noncommercial")
-                else None
-            ),
+            # The manifest's credit line, verbatim (`SourceEntry.credit_text`: `attribution` plus
+            # any `changes_statement`, else `Source: <operator>` for an attribution class).
+            # 2026-10-06, L-2: NESO's licence ends automatically unless the exact statement
+            # "Supported by National Energy SO Open Data" is shown, and the generic line was not it.
+            attribution_text=entry.credit_text,
+            url=entry.licence_url or None,
             requires_link_back=entry.reuse in ("attribution", "noncommercial"),
             allows_derived_publication=True,
             # docs/21 §8: `open` is always raw-ok; `attribution` is raw-ok too unless this
@@ -433,6 +434,8 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
         )
         session.add(licence)
         session.flush()
+    else:
+        refresh_licence_credit(licence, entry)
     if licence.reuse_class in GATED_REUSE:  # the "both must hold" re-check
         raise GateRefused(f"{entry.id}: stored licence {licence.id} is gated ({licence.reuse_class})")
 
@@ -483,6 +486,38 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
         source.licence_id = licence.id
     session.flush()
     return source
+
+
+def refresh_licence_credit(licence: Licence, entry: SourceEntry) -> bool:
+    """Bring a stored licence row's credit metadata (`attribution_text`, `url`) to what the
+    manifest says now. These say how the terms are honoured, not what the terms are (a change to
+    the terms changes `licence_id` itself), so they follow the manifest on every load instead of
+    keeping whatever the first load wrote. A manifest that states neither leaves the row alone.
+    Returns whether anything changed."""
+    changed = False
+    credit = entry.credit_text
+    if credit is not None and licence.attribution_text != credit:
+        licence.attribution_text = credit
+        changed = True
+    if entry.licence_url and licence.url != entry.licence_url:
+        licence.url = entry.licence_url
+        changed = True
+    return changed
+
+
+def refresh_all_licence_credits(session: Session, registry: Registry | None = None) -> list[str]:
+    """`refresh_licence_credit` for every stored source the manifest lists, without loading any
+    data: the one-off that puts a corrected credit on every surface at once (run after a manifest
+    credit change; `python -m services.ingest.loader --refresh-credits`). Returns the licence ids
+    changed."""
+    registry = registry or Registry()
+    changed: list[str] = []
+    for source in session.scalars(select(Source)).all():
+        entry = registry.sources.get(source.id)
+        if entry is not None and refresh_licence_credit(source.licence, entry):
+            changed.append(source.licence_id)
+    session.flush()
+    return changed
 
 
 def set_source_vintage(source: Source, vintage: Vintage) -> None:
@@ -1297,7 +1332,14 @@ def _update_existing_entity(
     ctx: _LoadContext, existing_link: Any, row: Mapping[str, Any], fields: dict[str, Any]
 ) -> None:
     """The already-stored-link branch: re-stamp field provenance per changed field (module
-    docstring, "Field provenance"), refresh the link, clear `gone_at`."""
+    docstring, "Field provenance"), refresh the link, clear `gone_at`.
+
+    A field named in the entity's `overrides` is a human decision (docs/21 §6.4: "the normaliser
+    and the enricher skip overridden fields until a user clears the override") and is neither
+    written nor re-stamped: an operator's correction or privacy redaction survives every later
+    load (2026-10-06, L-1 of the 2026-09-30 legal audit; docs/13 §5.4 rule 6). The source's own
+    view still lands on its link row (`normalised`, `raw`), so clearing the override and
+    reloading restores the source's value."""
     raw_payload = _parse_raw(_row_get(row, "raw"))
     retrieved_at = _to_datetime(_row_get(row, "retrieved_at")) or ctx.now
     entity = ctx.cache.entities.get(getattr(existing_link, ctx.fk_name))
@@ -1314,7 +1356,10 @@ def _update_existing_entity(
             ),
         }
     provenance = dict(entity.field_provenance or {})
+    pinned = set(entity.overrides or {})
     for k, v in fields.items():
+        if k in pinned:
+            continue
         if v is not None and (k not in provenance or getattr(entity, k, None) != v):
             provenance[k] = {
                 "source_id": ctx.source.id,
@@ -1741,3 +1786,29 @@ def _run_for_load(
     session.add(run)
     session.flush()
     return run
+
+
+def main(argv: list[str] | None = None) -> int:  # pragma: no cover - thin CLI over a tested function
+    """`python -m services.ingest.loader --refresh-credits`: `refresh_all_licence_credits` against
+    `DATABASE_URL`, committed. The only command this module offers; loads run through the scheduler."""
+    import argparse
+    import sys
+
+    from services.db.session import get_engine, get_sessionmaker, session_scope
+
+    parser = argparse.ArgumentParser(description="Infraque loader maintenance")
+    parser.add_argument(
+        "--refresh-credits", action="store_true", help="refresh licence credits from the manifest"
+    )
+    args = parser.parse_args(argv)
+    if not args.refresh_credits:
+        parser.print_help()
+        return 2
+    with session_scope(get_sessionmaker(get_engine())) as session:
+        changed = refresh_all_licence_credits(session)
+    sys.stdout.write(f"licence credits refreshed: {len(changed)} ({', '.join(changed) or 'none'})\n")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

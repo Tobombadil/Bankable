@@ -24,7 +24,7 @@ pipeline/connectors/mdb_worldbank_procnotices/connector.py                      
 pipeline/connectors/mdb_worldbank_procnotices/test_connector.py                   68      0      2      0   100%
 pipeline/connectors/objectstore.py                                               180      5     38      1    97%
 pipeline/connectors/opportunity.py                                                50      5     18      2    90%
-pipeline/connectors/registry.py                                                  130      4     22      3    95%
+pipeline/connectors/registry.py                                                  139      4     24      3    96%
 pipeline/connectors/runner.py                                                    263     20     60      7    92%
 pipeline/connectors/store.py                                                     141      3     30      2    97%
 pipeline/connectors/us_eia_860/__init__.py                                         0      0      0      0   100%
@@ -120,13 +120,13 @@ pipeline/normalize.py                                                           
 pipeline/resolve.py                                                              539    145    204     19    74%
 services/__init__.py                                                               0      0      0      0   100%
 services/alerts/__init__.py                                                        0      0      0      0   100%
-services/alerts/evaluate.py                                                      195     22     74     13    84%
-services/alerts/feed.py                                                           49      1      8      1    96%
+services/alerts/evaluate.py                                                      196     22     74     13    84%
+services/alerts/feed.py                                                           51      1      8      1    97%
 services/alerts/mail.py                                                           99      0     14      0   100%
 services/alerts/matching.py                                                      210      5    136      3    97%
 services/alerts/suppression.py                                                    24      0      8      0   100%
 services/alerts/visibility.py                                                     14      0      0      0   100%
-services/alerts/webhooks.py                                                      175      9     46      5    91%
+services/alerts/webhooks.py                                                      178     10     46      5    91%
 services/alerts/worker.py                                                        125      1     12      2    98%
 services/api/__init__.py                                                           0      0      0      0   100%
 services/api/admin_audit_routes.py                                                36      0      2      0   100%
@@ -143,7 +143,7 @@ services/api/auth.py                                                            
 services/api/auth_routes.py                                                      202      5     66      9    95%
 services/api/bootstrap.py                                                         63      4     10      4    89%
 services/api/build_info.py                                                        52      5     18      1    91%
-services/api/bulk.py                                                             100      0     24      1    99%
+services/api/bulk.py                                                             108      0     28      1    99%
 services/api/captcha.py                                                           57      1     14      0    99%
 services/api/client_ip.py                                                         47      0     12      0   100%
 services/api/common.py                                                            38      0     14      0   100%
@@ -152,10 +152,10 @@ services/api/coverage.py                                                        
 services/api/deps.py                                                              20     13      0      0    35%
 services/api/documents.py                                                         87      1     30      2    97%
 services/api/errors.py                                                            35      1      6      1    95%
-services/api/exports.py                                                          276      6     70      8    96%
+services/api/exports.py                                                          280      6     70      8    96%
 services/api/feeds.py                                                             67      1     22      3    96%
-services/api/geo.py                                                              142      9     62     14    89%
-services/api/interconnection_points.py                                           221      2     56      2    99%
+services/api/geo.py                                                              146     10     64     15    88%
+services/api/interconnection_points.py                                           241      2     66      2    99%
 services/api/lifecycle.py                                                         68      3     20      2    94%
 services/api/lines.py                                                            213      8     96      7    94%
 services/api/matches.py                                                          231      2     76      5    98%
@@ -165,10 +165,10 @@ services/api/params.py                                                          
 services/api/privacy_routes.py                                                   101      2     30      2    97%
 services/api/pro.py                                                              428     21    168     20    93%
 services/api/ratelimit.py                                                         45      1      2      1    96%
-services/api/records.py                                                          423      7    154      7    97%
+services/api/records.py                                                          434      7    156      7    97%
 services/api/regions.py                                                           62      1     10      1    97%
-services/api/resource_queries.py                                                 169      5     88      8    95%
-services/api/serialize.py                                                        202      6     56      2    96%
+services/api/resource_queries.py                                                 180      5     92      9    95%
+services/api/serialize.py                                                        221      6     66      3    96%
 services/api/slippage.py                                                          44      0     16      0   100%
 services/api/test_assets.py                                                      234      0      2      0   100%
 services/api/test_bootstrap.py                                                    39      0      0      0   100%
@@ -183,7 +183,7 @@ services/api/test_slippage.py                                                   
 services/api/test_ui_events.py                                                   153      0      8      0   100%
 services/api/ui_events.py                                                        126      5     56      5    95%
 services/api/unsubscribe_routes.py                                                59      2     12      2    94%
-services/api/visibility.py                                                        83      0      4      0   100%
+services/api/visibility.py                                                       265      0     90      0   100%
 services/api/withheld_names.py                                                   109      3     32      2    96%
 services/billing/__init__.py                                                       1      0      0      0   100%
 services/billing/conftest.py                                                      62      0      0      0   100%
@@ -253,9 +253,9 @@ services/ingest/enrich.py                                                       
 services/ingest/fiber_availability.py                                             77      7     34      7    87%
 services/ingest/geocode.py                                                       261     23     90     11    90%
 services/ingest/ghgrp.py                                                         193     41     42      9    77%
-services/ingest/interconnection.py                                               224      4     76      4    97%
+services/ingest/interconnection.py                                               231      5     78      5    97%
 services/ingest/lag.py                                                             7      0      0      0   100%
-services/ingest/loader.py                                                        648     28    216     21    94%
+services/ingest/loader.py                                                        671     27    226     20    95%
 services/ingest/midstream.py                                                     245     39     70     11    82%
 services/ingest/org_redirects.py                                                  31      1      6      0    97%
 services/ingest/organizations.py                                                 373     55    124     22    82%
@@ -292,12 +292,12 @@ services/match/test_rules.py                                                    
 services/match/test_run.py                                                       238      0      6      0   100%
 services/posture.py                                                               24      0      2      0   100%
 services/resolve/__init__.py                                                       1      0      0      0   100%
-services/resolve/merge.py                                                        417     17    194     23    93%
+services/resolve/merge.py                                                        455     16    212     23    94%
 services/resolve/models.py                                                        27      0      0      0   100%
 services/resolve/report.py                                                       255    153     72      6    41%
 services/social/__init__.py                                                        1      0      0      0   100%
 services/social/__main__.py                                                      187     15     34      5    87%
-services/social/db_events.py                                                      73      0     26      0   100%
+services/social/db_events.py                                                      75      0     26      0   100%
 services/social/editorial.py                                                     503     31    194     29    91%
 services/social/models.py                                                        104      1      4      0    99%
 services/social/publishers/__init__.py                                             7      0      0      0   100%
@@ -313,6 +313,6 @@ services/sor/ports.py                                                           
 services/sor/wiring.py                                                            10      0      0      0   100%
 services/test_posture.py                                                          53      0      4      0   100%
 services/visibility_audit/__init__.py                                              0      0      0      0   100%
-services/visibility_audit/run.py                                                 721     36    294     41    92%
+services/visibility_audit/run.py                                                 885     61    372     55    90%
 ----------------------------------------------------------------------------------------------------------------
-TOTAL                                                                          40745   2907   8810   1024    91%
+TOTAL                                                                          41253   2933   9038   1041    91%
