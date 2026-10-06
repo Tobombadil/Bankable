@@ -571,7 +571,8 @@ def opportunities_list(request: Request) -> HTMLResponse:
         "delayed": delayed_notice(request, "opportunity"),
         "kind_options": [(v["value"], opportunity_kind_label(v["value"])) for v in vocab["opportunity_kind"]],
         "statuses": [v["value"] for v in vocab["opportunity_status"]],
-        "technologies": [v["value"] for v in vocab["technology"]],
+        # The opportunity vocabulary, not the proposal one: `solar` matches no tagged notice.
+        "technologies": [v["value"] for v in vocab.get("opportunity_technology", [])],
         "filters": {**dict(qp), "status": qp.get("status", "open")},
         "canonical_path": canonical_path,
         "jsonld": [

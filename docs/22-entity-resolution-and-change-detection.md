@@ -63,6 +63,17 @@ Decisions taken in normalisation, each of which changed a measured number:
   "Combustion (gas) Turbine, but not part of a Combined-Cycle" (52 rows) matched the combined-cycle rule
   first; fixed with explicit exclusion rules. `unknown` = 1,840 rows, of which NYISO 1,562 (the no-id rows)
   and ISO-NE 265.
+  **Rule order corrected 2026-10-06** (audit 2026-09-30, data scientist F4). Offshore wind now matches either
+  word order (NESO writes "Wind Offshore") and the permits dashboard's "Wind: Federal Offshore"; pumped storage
+  includes NESO's "Pump Storage"; nuclear precedes the steam-turbine rules (ERCOT's STP Unit 2 uprate, "Nuclear -
+  Steam Turbine other than Combined-Cycle", was `gas_steam`); a new class `marine` takes NESO "Tidal" (was
+  `other`); an LNG terminal "in State Water" is `gas_other`, not `hydro`. Rows that change class, over the
+  normalised frames: NESO 173 of 2,198 (`wind`→`wind_offshore` 145, `storage`→`pumped_storage` 20,
+  `other`→`marine` 7, `wind_storage`→`pumped_storage` 1 for "Pump Storage;Wind Onshore"), permits dashboard 26 of
+  104 (21 federal offshore wind, 5 LNG terminals), ERCOT 1 of 1,778; EIA-860M, its plant context, CAISO, NYISO and
+  Virginia DEQ 0. Every distinct raw string in those frames (163) is pinned raw → class in
+  `data/eval/technology_classes.csv` by `tests/test_technology_classifier.py`. Not fixed: a NESO compound string
+  takes its first matching rule, so "CCGT;Demand;Energy Storage System;Hydrogen;OCGT" is `storage`.
 - **Cross-references** in names (`"Chazy Lake BESS (NYISO-C24-308)"`) are extracted into `cross_refs`
   only when the id contains a digit; the first version matched prose ("PJM Rainey") and was wrong.
 
@@ -368,6 +379,31 @@ the next ERCOT report that differs (monthly), not on the next scheduled tick; th
 flag. (ii) Only connectors that implement `restate_status` are covered; the other gridstatus queues (CAISO,
 NYISO) can opt in with the same one-line override. (iii) A stored frame without a `raw` column is diffed as
 stored.
+
+### 8.2 A capacity-rule correction is restated too; an open notice past its deadline closes (2026-10-06)
+
+**Capacity.** The NESO connector took `Cumulative Total Capacity (MW)` as every row's capacity, so a staged
+project counted its earlier stages again (audit 2026-09-30, data scientist F3). It now takes the row's own MW,
+`MW Connected` + `MW Increase / Decrease` (docs/25 §1.3 has the before/after). That correction would reach the
+change feed as one `capacity_change` per moved row (136 on the 2026-09-13 register) on NESO's next run. The §8.1
+mechanism is extended: `Connector.restate_capacity(df)` recomputes a stored frame's `capacity_mw` from `raw`
+(NESO implements it; default `None`), the runner restates the previous frame before the diff, counts the moved
+rows as `reclassified.capacity_rows` and records an `info` check `capacity_restated`. A row the restatement cannot
+read keeps its stored value. `pipeline/connectors/gb_neso_tec_register/test_connector.py` replays a store written
+under the cumulative rule: the 2 moved fixture rows emit nothing, and a real change in the same run is the one
+`capacity_change`. The loader writes the corrected capacity as an ordinary field update.
+
+**Opportunity deadlines.** `open` means the deadline has not passed (`data/vocabulary/lifecycle_states.yaml`;
+docs/21 §7.2: "open --> closed: deadline passed", `closed` = "deadline passed, outcome unknown"). Each connector
+applies that at fetch time, but an incremental source (TED, Find a Tender, World Bank) carries earlier rows
+forward unchanged, so a notice never re-fetched stayed `open` for good (audit 2026-09-30, data engineer F4,
+market M-7). The runner now applies `pipeline.connectors.opportunity.close_past_deadline` to the whole frame at
+the run's `retrieved_at`, with `status_rule = opportunity.deadline_passed`. This one *is* news: the diff
+publishes it as `status_change` open → closed, and the run records an `info` check `deadline_closed`. Measured on
+a copy of the 2026-09-30 dev store: 90 `open` notices had a past `due_at` (TED 59, World Bank 16, grants.gov 15);
+re-running each stored frame through the rule at 2026-09-30 and loading it leaves 0 (open 405 → 315). The stored
+status still lags a deadline by at most one run of the notice's source; a read-time rule would close that gap
+but needs the list filter and the alert matcher changed together (open item).
 
 ## 9. What an LLM adjudication step would add, and what it costs
 
@@ -967,6 +1003,12 @@ co-op/co op/cooperative to one spelling; remove legal-form tokens repeatedly unt
   LLC` / `SED NY Holdings LLC`).
 - Iterated stripping handles stacked forms: `Astoria Generating Company, L.P.` == `Astoria
   Generating Co.`.
+- A leading article is dropped (2026-10-06, audit 2026-09-30 data scientist F9): `THE SOUTHERN CO` ==
+  `SOUTHERN CO`. Only the first word, so `Bank of the West` keeps its `the`. On a copy of the 2026-09-30 dev store
+  it joins exactly 4 pairs of the 8,289 live organisations: Southern Co (3 / 30 asset edges), Williams /
+  The Williams Companies, Inc. (9 / 2), Dayton Power & Light Co / The Dayton Power & Light Co (1 / 2), Medical
+  Center Co / The Medical Center Company (1 / 0, with 4 proposals). The fuzzy census beyond the article (892 pairs
+  at `token_sort_ratio >= 92`, 4 of a 60-pair sample the same entity) is not acted on: it needs labels.
 - `norm_org` still returns `None` for a string that is nothing but legal forms (`"LLC"`).
   `pipeline.normalize.org_key` is the total version, and **it is now the one function** the
   resolver, the ownership index, the midstream parent lookup and their group keys all call —

@@ -74,6 +74,7 @@ TECH_FAMILIES: dict[str, frozenset[str]] = {
     "wind_storage": frozenset({"wind", "storage"}),
     "hydro": frozenset({"hydro"}),
     "pumped_storage": frozenset({"hydro"}),
+    "marine": frozenset({"marine"}),
     "nuclear": frozenset({"nuclear"}),
     "geothermal": frozenset({"geothermal"}),
     **{

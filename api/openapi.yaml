@@ -1320,7 +1320,7 @@ paths:
       summary: Enum vocabularies
       description: |
         Every vocabulary the filters accept (docs/21 §7): proposal kinds, technologies, lifecycle states, opportunity
-        kinds and statuses, event types, organization types, reuse classes, publish states. Vocabularies are
+        kinds, statuses and technologies, event types, organization types, reuse classes, publish states. Vocabularies are
         documented as open: a new value is announced ≥ 30 days ahead (docs/04 API-7) and appears here first.
       x-tier: public
       x-status: live
@@ -6866,7 +6866,7 @@ components:
     Technologies:
       name: technologies
       in: query
-      description: Any-of over the opportunity's `technologies[]`; comma-separated. All-source opportunities (empty array) match every value.
+      description: Any-of over the opportunity's `technologies[]`; comma-separated. Values are the `opportunity_technology` vocabulary of `/v1/meta/vocabularies` (`solar_pv`, `bess`, `gas`, ...), not the proposal `technology` tokens. All-source opportunities (empty array) match every value.
       style: form
       explode: false
       schema:
@@ -10776,6 +10776,11 @@ components:
                     $ref: '#/components/schemas/VocabularyEntry'
                 opportunity_status:
                   type: array
+                  items:
+                    $ref: '#/components/schemas/VocabularyEntry'
+                opportunity_technology:
+                  type: array
+                  description: The technology tokens opportunities carry (the opportunity `technologies` filter); a different vocabulary from the proposal `technology`.
                   items:
                     $ref: '#/components/schemas/VocabularyEntry'
                 event_type:

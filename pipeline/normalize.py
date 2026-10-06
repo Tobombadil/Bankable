@@ -163,17 +163,29 @@ US_STATES = {
 
 # ---------------------------------------------------------------- technology vocabulary
 # Ordered: first regex that matches the raw technology string wins.
+#
+# Order fixes of 2026-10-06 (audit 2026-09-30, data scientist F4), pinned raw -> class over every
+# distinct `technology_raw` in the normalised frames by `tests/test_technology_classifier.py`:
+# - offshore wind matches either word order: NESO writes "Wind Offshore" (140 rows fell to `wind`),
+#   the permits dashboard "Wind: Federal Offshore" ("Other than Federal Offshore" stays `wind`);
+# - pumped storage includes NESO's "Pump Storage" (18 rows fell to `storage`);
+# - nuclear precedes the steam-turbine rules: ERCOT's "Nuclear - Steam Turbine other than
+#   Combined-Cycle" (STP Unit 2's uprate) fell to `gas_steam`;
+# - `marine` (tidal stream, wave) is a class of its own: NESO "Tidal" fell to `other`;
+# - an LNG terminal is gas: the permits dashboard's "... (Onshore or in State Water) ..." matched
+#   the hydro rule's "water".
 TECH_RULES: list[tuple[str, str, str]] = [
-    (r"pumped\s*storage", "pumped_storage", "storage"),
+    (r"pump(ed)?\s*storage", "pumped_storage", "storage"),
     (r"(solar|photovolt|\bsun\b|\bpv\b).*(storage|batter|\bbat\b)", "solar_storage", "generation"),
     (r"(storage|batter|\bbat\b).*(solar|photovolt|\bsun\b|\bpv\b)", "solar_storage", "generation"),
     (r"(wind|\bwnd\b).*(storage|batter|\bbat\b)", "wind_storage", "generation"),
     (r"(storage|batter|\bbat\b).*(wind|\bwnd\b)", "wind_storage", "generation"),
-    (r"offshore\s*wind", "wind_offshore", "generation"),
+    (r"offshore\s*wind|wind\s*offshore|(?<!than )federal\s*offshore", "wind_offshore", "generation"),
     (r"wind|\bwnd\b", "wind", "generation"),
     (r"solar\s*thermal", "solar_thermal", "generation"),
     (r"solar|photovolt|\bsun\b|\bpv\b", "solar", "generation"),
     (r"batter|\bbess\b|energy\s*storage|^storage|\bbat\b|\bstorage\b", "storage", "storage"),
+    (r"nuclear|\bnuc\b", "nuclear", "generation"),
     # ERCOT spells out exclusions: "... Turbine, but not part of a Combined-Cycle" (52 rows),
     # "Steam Turbine other than Combined-Cycle" (3 rows). Those must not hit the CC rule.
     (r"steam\s*turbine.*(other than|not part of).*combined", "gas_steam", "generation"),
@@ -181,7 +193,6 @@ TECH_RULES: list[tuple[str, str, str]] = [
     (r"combined[\s-]*cycle|\bcc\b", "gas_cc", "generation"),
     (r"(combustion|gas)\s*turbine|\bct\b|\bgt\b", "gas_ct", "generation"),
     (r"internal\s*combustion|reciprocating|\bice\b", "gas_ice", "generation"),
-    (r"nuclear|\bnuc\b", "nuclear", "generation"),
     (r"geotherm", "geothermal", "generation"),
     (r"landfill|biomass|\bwds\b|\blfg\b|biogas|digest|wood", "biomass", "generation"),
     (r"municipal\s*solid|waste", "waste", "generation"),
@@ -189,6 +200,8 @@ TECH_RULES: list[tuple[str, str, str]] = [
     (r"petroleum|fuel\s*oil|\bdfo\b|diesel|\bjf\b|oil", "oil", "generation"),
     (r"fuel\s*cell|\bfc\b", "fuel_cell", "generation"),
     (r"hydrogen", "hydrogen", "generation"),
+    (r"\btidal\b|\bwave\s*(energy|power)\b|marine\s*energy", "marine", "generation"),
+    (r"liquefied\s*natural\s*gas|\blng\b", "gas_other", "generation"),
     (r"hydro|\bwat\b|water", "hydro", "generation"),
     (r"steam\s*turbine|\bst\b", "gas_steam", "generation"),
     (r"natural\s*gas|methane|dual\s*fuel|\bng\b|^gas", "gas_other", "generation"),
@@ -313,6 +326,8 @@ ORG_PLURALS = {
 #: Co-Op" -> "SIOUXLAND ... LIVESTOCK OP"). Folded to one spelling before that pass.
 COOPERATIVE = re.compile(r"\bco[\s-]?operatives?\b|\bco[\s-]?ops?\b")
 
+LEADING_ARTICLE = re.compile(r"^the\s+")
+
 NAME_NOISE = re.compile(
     r"\b(project|solar|wind|energy|center|centre|storage|bess|battery|farm|park|facility|"
     r"generating|generation|station|plant|llc|inc|lp|phase|site|hybrid|expansion)\b"
@@ -369,6 +384,9 @@ def norm_org(v) -> str | None:
     s = s.replace("&", " and ")  # "Wisconsin Power & Light" == "Wisconsin Power and Light"
     s = re.sub(r"[^a-z0-9 ]", " ", s)
     s = COOPERATIVE.sub(" cooperative ", s)
+    # A leading article is not part of the name: "THE SOUTHERN CO" is "SOUTHERN CO" (EIA writes
+    # both; audit 2026-09-30, data scientist F9). Only the first word, so "Bank of the West" keeps it.
+    s = LEADING_ARTICLE.sub("", s.strip())
     # Iterate: "Astoria Generating Company LP" sheds two legal forms, "... Co., L.P." three.
     previous = ""
     while previous != s:

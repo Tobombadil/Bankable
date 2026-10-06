@@ -47,7 +47,7 @@
     oil: ["oil"],
     coal: ["coal"],
     nuclear: ["nuclear"],
-    hydro: ["hydro"],
+    hydro: ["hydro", "marine"],
     storage: ["storage", "pumped_storage"],
     biomass: ["biomass", "waste"],
     geothermal: ["geothermal"],

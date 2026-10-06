@@ -1,0 +1,164 @@
+technology_raw,technology,kind,sources
+=Solid Waste,waste,generation,us.iso.nyiso.gen_queue
+AC Transmission,transmission,transmission,us.iso.nyiso.gen_queue
+All Other,other,other,us.eia.860m;us.eia.860m.plants
+Batteries,storage,storage,us.eia.860m;us.eia.860m.plants
+Biomass,biomass,generation,gb.neso.tec_register
+Biomass;Demand,biomass,generation,gb.neso.tec_register
+Carbon Capture and Sequestration,other,other,us.permits_dashboard
+CCGT (Combined Cycle Gas Turbine),gas_cc,generation,gb.neso.tec_register
+CCGT (Combined Cycle Gas Turbine);Demand,gas_cc,generation,gb.neso.tec_register
+CCGT (Combined Cycle Gas Turbine);Demand;Energy Storage System;Hydrogen;OCGT (Open Cycle Gas Turbine),storage,storage,gb.neso.tec_register
+CCGT (Combined Cycle Gas Turbine);Energy Storage System,storage,storage,gb.neso.tec_register
+CCGT (Combined Cycle Gas Turbine);Energy Storage System;OCGT (Open Cycle Gas Turbine),storage,storage,gb.neso.tec_register
+CCGT (Combined Cycle Gas Turbine);Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
+CCGT (Combined Cycle Gas Turbine);Reactive Compensation,gas_cc,generation,gb.neso.tec_register
+CHP (Combined Heat and Power),other,other,gb.neso.tec_register
+CHP (Combined Heat and Power);Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
+Coal,coal,generation,gb.neso.tec_register
+Cogeneration,other,other,us.iso.caiso.gen_queue
+Combined Cycle,gas_cc,generation,us.iso.caiso.gen_queue;us.iso.nyiso.gen_queue
+Combined Cycle + Combined Cycle,gas_cc,generation,us.iso.caiso.gen_queue
+Combined Cycle + Storage,storage,storage,us.iso.caiso.gen_queue
+Combustion Turbine,gas_ct,generation,us.iso.caiso.gen_queue;us.iso.nyiso.gen_queue
+Combustion Turbine + Photovoltaic,solar,generation,us.iso.caiso.gen_queue
+Combustion Turbine + Storage,storage,storage,us.iso.caiso.gen_queue
+Combustion Turbine + Storage + Steam Turbine,storage,storage,us.iso.caiso.gen_queue
+Conventional Energy Production,other,other,us.permits_dashboard
+Conventional Hydroelectric,hydro,generation,us.eia.860m;us.eia.860m.plants
+Conventional Steam Coal,coal,generation,us.eia.860m.plants
+Data Center,load,load,us.va.deq.data_center_air_sites
+DC Transmission,transmission,transmission,us.iso.nyiso.gen_queue
+Demand;Energy Storage System,storage,storage,gb.neso.tec_register
+Demand;Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
+Demand;Energy Storage System;PV Array (Photo Voltaic/solar),solar_storage,generation,gb.neso.tec_register
+Demand;Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation,solar_storage,generation,gb.neso.tec_register
+Demand;Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
+Demand;Energy Storage System;Reactive Compensation,storage,storage,gb.neso.tec_register
+Demand;Energy Storage System;Wind Onshore,wind_storage,generation,gb.neso.tec_register
+Demand;Hydrogen,hydrogen,generation,gb.neso.tec_register
+Demand;LAES (Liquid Air Energy Storage),storage,storage,gb.neso.tec_register
+Demand;PV Array (Photo Voltaic/solar),solar,generation,gb.neso.tec_register
+Demand;Wind Offshore,wind_offshore,generation,gb.neso.tec_register
+Demand;Wind Onshore,wind,generation,gb.neso.tec_register
+Dual Fuel,gas_other,generation,us.iso.nyiso.gen_queue
+Electricity Transmission,transmission,transmission,us.permits_dashboard
+Electricity Transmission (all),transmission,transmission,us.permits_dashboard
+Energy Storage,storage,storage,us.iso.nyiso.gen_queue;us.permits_dashboard
+Energy Storage System,storage,storage,gb.neso.tec_register
+Energy Storage System;Gas Reciprocating,storage,storage,gb.neso.tec_register
+Energy Storage System;Hydro;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
+Energy Storage System;Hydrogen;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
+Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Reactive Compensation;Wind Onshore,solar_storage,generation,gb.neso.tec_register
+Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
+Energy Storage System;OCGT (Open Cycle Gas Turbine),storage,storage,gb.neso.tec_register
+Energy Storage System;Pump Storage;Thermal,pumped_storage,storage,gb.neso.tec_register
+Energy Storage System;PV Array (Photo Voltaic/solar),solar_storage,generation,gb.neso.tec_register
+Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation,solar_storage,generation,gb.neso.tec_register
+Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation;Wind Onshore,solar_storage,generation,gb.neso.tec_register
+Energy Storage System;PV Array (Photo Voltaic/solar);Wind Offshore,solar_storage,generation,gb.neso.tec_register
+Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
+Energy Storage System;Reactive Compensation,storage,storage,gb.neso.tec_register
+Energy Storage System;Tidal,storage,storage,gb.neso.tec_register
+Energy Storage System;Wind Offshore,wind_storage,generation,gb.neso.tec_register
+Energy Storage System;Wind Onshore,wind_storage,generation,gb.neso.tec_register
+Flywheel,other,other,us.iso.nyiso.gen_queue
+Flywheels,other,other,us.eia.860m.plants
+Fuel Cell,fuel_cell,generation,us.iso.nyiso.gen_queue
+Fuel Oil - Other,oil,generation,us.iso.ercot.gen_queue
+Gas - Combined-Cycle,gas_cc,generation,us.iso.ercot.gen_queue
+"Gas - Combustion (gas) Turbine, but not part of a Combined-Cycle",gas_ct,generation,us.iso.ercot.gen_queue
+"Gas - Internal Combustion Engine, eg. Reciprocating",gas_ice,generation,us.iso.ercot.gen_queue
+Gas - Steam Turbine other than Combined-Cycle,gas_steam,generation,us.iso.ercot.gen_queue
+Gas Reciprocating,gas_ice,generation,gb.neso.tec_register
+Gas Turbine,gas_ct,generation,us.iso.caiso.gen_queue
+Gas Turbine + Storage,storage,storage,us.iso.caiso.gen_queue
+Geothermal,geothermal,generation,us.eia.860m;us.eia.860m.plants
+Hydro,hydro,generation,gb.neso.tec_register;us.iso.caiso.gen_queue;us.iso.nyiso.gen_queue
+Hydroelectric Pumped Storage,pumped_storage,storage,us.eia.860m;us.eia.860m.plants
+Hydrogen,hydrogen,generation,gb.neso.tec_register
+Hydrogen - Other,hydrogen,generation,us.iso.ercot.gen_queue
+Interconnector;Wind Offshore,wind_offshore,generation,gb.neso.tec_register
+Interstate Natural Gas Pipelines,gas_other,generation,us.permits_dashboard
+Land-based Oil & Gas - Production/Extraction,oil,generation,us.permits_dashboard
+Landfill Gas,biomass,generation,us.eia.860m;us.eia.860m.plants
+"Liquefied Natural Gas Terminal Facilities (Onshore or in State Water), and associated Natural Gas Pipelines",gas_other,generation,us.permits_dashboard
+Methane,gas_other,generation,us.iso.nyiso.gen_queue
+Municipal Solid Waste,waste,generation,us.eia.860m;us.eia.860m.plants
+Natural Gas,gas_other,generation,us.iso.nyiso.gen_queue
+Natural Gas Fired Combined Cycle,gas_cc,generation,us.eia.860m;us.eia.860m.plants
+Natural Gas Fired Combustion Turbine,gas_ct,generation,us.eia.860m;us.eia.860m.plants
+Natural Gas Internal Combustion Engine,gas_ice,generation,us.eia.860m;us.eia.860m.plants
+Natural Gas Steam Turbine,gas_steam,generation,us.eia.860m;us.eia.860m.plants
+Non-Federal Hydropower - Licenses (including Non-Federal Marine and Hydrokinetic Projects),hydro,generation,us.permits_dashboard
+Nuclear,nuclear,generation,gb.neso.tec_register;us.eia.860m;us.eia.860m.plants;us.iso.nyiso.gen_queue
+Nuclear - Steam Turbine other than Combined-Cycle,nuclear,generation,us.iso.ercot.gen_queue
+Nuclear Power Plant - Combined (construction and operating) license,nuclear,generation,us.permits_dashboard
+OCGT (Open Cycle Gas Turbine),gas_ct,generation,gb.neso.tec_register
+Offshore Oil & Gas,oil,generation,us.permits_dashboard
+Offshore Wind Turbine,wind_offshore,generation,us.eia.860m;us.eia.860m.plants
+Oil & AGT (Advanced Gas Turbine),gas_ct,generation,gb.neso.tec_register
+Onshore Wind Turbine,wind,generation,us.eia.860m;us.eia.860m.plants
+Other,other,other,us.iso.caiso.gen_queue
+Other - Battery Energy Storage,storage,storage,us.iso.ercot.gen_queue
+Other - Other,other,other,us.iso.ercot.gen_queue
+Other Gases,other,other,us.eia.860m.plants
+Other Natural Gas,gas_other,generation,us.eia.860m.plants
+Other Waste Biomass,biomass,generation,us.eia.860m;us.eia.860m.plants
+Petroleum Coke,oil,generation,us.eia.860m.plants
+Petroleum Liquids,oil,generation,us.eia.860m;us.eia.860m.plants
+Photovoltaic,solar,generation,us.iso.caiso.gen_queue
+Photovoltaic + Combustion Turbine,solar,generation,us.iso.caiso.gen_queue
+Photovoltaic + Steam Turbine,solar,generation,us.iso.caiso.gen_queue
+Photovoltaic + Storage,solar_storage,generation,us.iso.caiso.gen_queue
+Photovoltaic + Storage + Combustion Turbine,solar_storage,generation,us.iso.caiso.gen_queue
+Photovoltaic + Wind Turbine,wind,generation,us.iso.caiso.gen_queue
+Photovoltaic + Wind Turbine + Storage,solar_storage,generation,us.iso.caiso.gen_queue
+Pipelines,transmission,transmission,us.permits_dashboard
+Pump Storage,pumped_storage,storage,gb.neso.tec_register
+Pump Storage;Wind Onshore,pumped_storage,storage,gb.neso.tec_register
+Pumped Storage,pumped_storage,storage,us.iso.nyiso.gen_queue
+PV Array (Photo Voltaic/solar),solar,generation,gb.neso.tec_register
+PV Array (Photo Voltaic/solar);Wind Onshore,wind,generation,gb.neso.tec_register
+Reactive Compensation,other,other,gb.neso.tec_register
+Reciprocating Engine,gas_ice,generation,us.iso.caiso.gen_queue
+Rural Transmission,transmission,transmission,us.permits_dashboard
+Solar,solar,generation,us.iso.nyiso.gen_queue;us.permits_dashboard
+Solar - Photovoltaic Solar,solar,generation,us.iso.ercot.gen_queue
+Solar Photovoltaic,solar,generation,us.eia.860m;us.eia.860m.plants
+Solar Thermal,solar_thermal,generation,us.iso.caiso.gen_queue
+Solar Thermal with Energy Storage,solar_storage,generation,us.eia.860m.plants
+Solar Thermal without Energy Storage,solar_storage,generation,us.eia.860m;us.eia.860m.plants
+Steam Turbine,gas_steam,generation,us.iso.caiso.gen_queue;us.iso.nyiso.gen_queue
+Steam Turbine + Steam Turbine,gas_steam,generation,us.iso.caiso.gen_queue
+Steam Turbine + Storage,storage,storage,us.iso.caiso.gen_queue
+Storage,storage,storage,us.iso.caiso.gen_queue
+Storage + Combustion Turbine,storage,storage,us.iso.caiso.gen_queue
+Storage + Gas Turbine,storage,storage,us.iso.caiso.gen_queue
+Storage + Other,storage,storage,us.iso.caiso.gen_queue
+Storage + Photovoltaic,solar_storage,generation,us.iso.caiso.gen_queue
+Storage + Photovoltaic + Wind Turbine,solar_storage,generation,us.iso.caiso.gen_queue
+Storage + Solar Thermal,solar_storage,generation,us.iso.caiso.gen_queue
+Storage + Steam Turbine + Combustion Turbine,storage,storage,us.iso.caiso.gen_queue
+Storage + Storage,storage,storage,us.iso.caiso.gen_queue
+Storage + Wind Turbine,wind_storage,generation,us.iso.caiso.gen_queue
+Storage + Wind Turbine + Photovoltaic,solar_storage,generation,us.iso.caiso.gen_queue
+Substation;Wind Onshore,wind,generation,gb.neso.tec_register
+Thermal,other,other,gb.neso.tec_register
+Tidal,marine,generation,gb.neso.tec_register
+Waste,waste,generation,gb.neso.tec_register
+Water - Other,hydro,generation,us.iso.ercot.gen_queue
+Wind,wind,generation,us.iso.nyiso.gen_queue
+Wind - Wind Turbine,wind,generation,us.iso.ercot.gen_queue
+Wind Offshore,wind_offshore,generation,gb.neso.tec_register
+Wind Onshore,wind,generation,gb.neso.tec_register
+Wind Turbine,wind,generation,us.iso.caiso.gen_queue
+Wind Turbine + Photovoltaic,wind,generation,us.iso.caiso.gen_queue
+Wind Turbine + Photovoltaic + Storage,solar_storage,generation,us.iso.caiso.gen_queue
+Wind Turbine + Storage,wind_storage,generation,us.iso.caiso.gen_queue
+Wind Turbine + Storage + Photovoltaic,solar_storage,generation,us.iso.caiso.gen_queue
+Wind Turbine + Storage + Storage,wind_storage,generation,us.iso.caiso.gen_queue
+Wind: Federal Offshore,wind_offshore,generation,us.permits_dashboard
+Wind: Other than Federal Offshore,wind,generation,us.permits_dashboard
+Wood,biomass,generation,us.iso.nyiso.gen_queue
+Wood/Wood Waste Biomass,biomass,generation,us.eia.860m.plants

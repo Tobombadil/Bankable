@@ -174,3 +174,24 @@ def test_labelled_pair_set_reproduces_the_reported_rates() -> None:
     # the corrected key recovers 2 of the 3 over-splits in the sample, and adds none
     assert sum(1 for r in sample if r["label"] == "same" and merges(r)) == 2
     assert sum(1 for r in sample if r["label"] == "different" and merges(r)) == 0
+
+
+# The four live pairs split only by a leading "The" (audit 2026-09-30, data scientist F9).
+LEADING_ARTICLE_PAIRS = [
+    ("SOUTHERN CO", "THE SOUTHERN CO"),
+    ("Williams", "The Williams Companies, Inc."),
+    ("Dayton Power & Light", "THE DAYTON POWER & LIGHT CO"),
+    ("Medical Center Company", "MEDICAL CENTER CO"),
+]
+
+
+@pytest.mark.parametrize(("a", "b"), LEADING_ARTICLE_PAIRS)
+def test_a_leading_the_is_not_part_of_the_key(a: str, b: str) -> None:
+    assert org_key(a) == org_key(b)
+
+
+def test_only_a_leading_the_is_dropped() -> None:
+    assert org_key("THE SOUTHERN CO") == "SOUTHERN"
+    assert org_key("Bank of the West") == "BANK OF THE WEST"
+    assert org_key("Theodore Energy LLC") == "THEODORE ENERGY"
+    assert org_key("The") == "THE"  # nothing else to key on: the total function keeps the word

@@ -119,25 +119,33 @@ The cost of this conservatism is misses, not false merges. A spelling that omits
 stays a separate point, as do "W 49th St" and "W49th St". Unifying spellings like these is the substation
 crosswalk's job.
 
-**Top 15 points by active queued MW (public tier).** All 15 are NESO points:
+**Top 15 points by active queued MW (public tier).** All 15 are NESO points. *Corrected 2026-10-06* (audit
+2026-09-30, data scientist F3): the NESO connector used each row's `Cumulative Total Capacity (MW)` as its
+capacity, so a project split into stages counted its earlier stages again on every later stage. It now uses the
+stage's own MW (`MW Connected` + `MW Increase / Decrease`). On the 2026-09-13 register that moves 136 of 2,198
+rows and 105 of 1,204 NESO points; all of NESO goes from 731,513.8 MW to 680,306.9 MW (−51,206.9 MW), and the
+123 multi-row projects from 136,499.2 MW to 85,292.3 MW. Measured on a copy of the 2026-09-30 dev store with the
+NESO frame re-normalised from its own `raw` rows and reloaded:
 
-| # | Point | Active MW | Active projects |
-|---|---|---|---|
-| 1 | Alverdiscott 400kV | 13,365.9 | 16 |
-| 2 | Creyke Beck 400kV | 9,078.4 | 7 |
-| 3 | Norwich Main 400kV | 8,354.0 | 7 |
-| 4 | Branxton 400kV | 6,976.6 | 7 |
-| 5 | Grimsby West 400kV | 6,555.0 | 7 |
-| 6 | Longside 400kV | 6,500.0 | 6 |
-| 7 | Trent Valley South Connection Node D 400kV | 6,420.0 | 4 |
-| 8 | East Claydon 400kV | 6,175.0 | 7 |
-| 9 | Navenby 400kV | 5,569.9 | 9 |
-| 10 | Birkhill Wood 400kV | 5,150.0 | 5 |
-| 11 | Cheshire Connection Node A 400kV | 5,130.0 | 4 |
-| 12 | Greens 400kV | 5,100.0 | 4 |
-| 13 | South Anglia Connection Node C 400kV | 5,074.0 | 6 |
-| 14 | Sizewell 400kV | 5,010.0 | 2 |
-| 15 | Shurton 400kV | 5,010.0 | 2 |
+| # | Point | Active MW | Active projects | Before (cumulative rule) |
+|---|---|---|---|---|
+| 1 | Alverdiscott 400kV | 13,316.0 | 16 | 13,365.9 |
+| 2 | Creyke Beck 400kV | 7,578.4 | 7 | 9,078.4 |
+| 3 | Grimsby West 400kV | 6,555.0 | 7 | 6,555.0 |
+| 4 | Trent Valley South Connection Node D 400kV | 6,420.0 | 4 | 6,420.0 |
+| 5 | Longside 400kV | 5,500.0 | 6 | 6,500.0 |
+| 6 | East Claydon 400kV | 5,150.0 | 7 | 6,175.0 |
+| 7 | Cheshire Connection Node A 400kV | 5,130.0 | 4 | 5,130.0 |
+| 8 | South Anglia Connection Node C 400kV | 4,874.0 | 6 | 5,074.0 |
+| 9 | Trent Valley South Connection Node B 400kV | 4,870.0 | 9 | not in top 15 |
+| 10 | Branxton 400kV | 4,676.6 | 7 | 6,976.6 |
+| 11 | Trent Valley South Connection Node C 400kV | 4,588.9 | 10 | not in top 15 |
+| 12 | Norwich Main 400kV | 4,435.0 | 7 | 8,354.0 |
+| 13 | Navenby 400kV | 4,369.9 | 9 | 5,569.9 |
+| 14 | Birkhill Wood 400kV | 4,350.0 | 5 | 5,150.0 |
+| 15 | Drax 400kV | 4,306.0 | 2 | not in top 15 |
+
+Greens, Sizewell and Shurton 400kV (5,100.0, 5,010.0 and 5,010.0 before) fall to 3,500, 3,340 and 3,340 MW.
 
 The largest US point in each ISO:
 
@@ -683,6 +691,22 @@ ICIS-Air, and the rule selects **138 of those 160 (86 % recall)**.
 - States that do not report minor sources to ICIS-Air, and sites that need no registration (Texas
   permit-by-rule engines; Texas has 12 selected facilities).
 - Permanently closed facilities, by design.
+
+#### Reviewed suppressions (2026-10-06)
+
+The residual false positives are offices, and no rule removes them (above), so the verified ones are suppressed
+by hand: `data/vendored/data_centres/icis_air_not_data_centres.yaml`, keyed by FRS registry id, each entry with
+its reason and evidence. `services/resolve/suppress.py::apply_suppressions` runs in the resolution step
+(`infra/scheduler/jobs.py::default_resolve`, so also `web.dev_up`). A proposal whose only active sources are listed
+ICIS records becomes `unpublished`, with one `unpublished` event (actor `pipeline`, the reason, before/after
+publish state; not itself published). The connector still selects the row and the link keeps its raw payload; an
+admin re-publish stands, because the suppression event is written once per proposal and id. A proposal another
+source supports stays published and is reported. Listed (5): IBM Dulles Station West, Northrop Grumman Falls
+Church, US Liability Insurance Wayne PA, Concordance Healthcare Grapevine TX, FCA US Auburn Hills. Not listed:
+Northrop Grumman Fairfax, which this section's hand-check called an office but Virginia DEQ's own register flags
+as a data centre (contested), and Deere & Co Moline, Northrop Grumman McLean and Lebanon (unverified). Measured on a
+copy of the 2026-09-30 dev store: public live `load` proposals 581 → 576; a second run changes nothing. The
+same-facility ICIS duplicates under re-padded programme ids (audit F8) are not addressed here.
 
 #### Placement (coordinates) and precision grades
 
