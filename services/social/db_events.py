@@ -32,7 +32,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from services.api.common import WEB_HOST, ensure_aware
-from services.api.visibility import organization_visible
+from services.api.visibility import gated_opportunity, gated_proposal, organization_visible
 from services.db.models import Event, Opportunity, Proposal
 from services.social.editorial import SocialEvent
 
@@ -134,6 +134,9 @@ def _lifecycle_value(payload: dict[str, Any] | None, key: str = "lifecycle_state
 
 
 def _proposal_social_event(event: Event, event_type: str, proposal: Proposal) -> SocialEvent:
+    # A post is a public surface: every field is the record's public served view
+    # (`services/api/visibility.py::GatedRecord`), never a value from a hidden source.
+    proposal = gated_proposal(proposal, "public")
     location = proposal.location
     retrieved_at = ensure_aware(event.retrieved_at or event.recorded_at)
     withdrawal_reason = (
@@ -174,6 +177,7 @@ def _proposal_social_event(event: Event, event_type: str, proposal: Proposal) ->
 
 
 def _opportunity_social_event(event: Event, event_type: str, opportunity: Opportunity) -> SocialEvent | None:
+    opportunity = gated_opportunity(opportunity, "public")
     issuer_org = (
         opportunity.issuer.name_canonical
         if opportunity.issuer is not None and organization_visible(opportunity.issuer)

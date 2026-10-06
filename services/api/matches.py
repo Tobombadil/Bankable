@@ -62,7 +62,12 @@ from services.api.serialize import (
     licence_summary_row,
     provenance_quartet,
 )
-from services.api.visibility import opportunity_visibility_filter, proposal_visibility_filter
+from services.api.visibility import (
+    gated_opportunity,
+    gated_proposal,
+    opportunity_visibility_filter,
+    proposal_visibility_filter,
+)
 from services.db.models import (
     MATCH_STATUSES,
     Match,
@@ -308,8 +313,10 @@ def _render(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Serialized rows plus licence-summary rows for one page: both sides loaded in two queries
     (sources eagerly), dismissals in one."""
+    # Each side is its served view at the caller's tier (`visibility.GatedRecord`): no field and no
+    # provenance or licence row from a source that tier may not read (2026-10-06, QA-1).
     proposals = {
-        p.id: p
+        p.id: gated_proposal(p, ctx.entitlement)
         for p in db.scalars(
             select(Proposal)
             .where(Proposal.id.in_([m.proposal_id for m in matches]))
@@ -317,7 +324,7 @@ def _render(
         ).unique()
     }
     opportunities = {
-        o.id: o
+        o.id: gated_opportunity(o, ctx.entitlement)
         for o in db.scalars(
             select(Opportunity)
             .where(Opportunity.id.in_([m.opportunity_id for m in matches]))

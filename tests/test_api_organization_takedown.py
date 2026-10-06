@@ -77,7 +77,10 @@ def world(db: Session) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------------ the predicate itself
-def test_the_organisation_arm_is_the_state_alone_and_the_same_on_every_tier(db: Session) -> None:
+def test_the_organisation_arm_is_the_state_and_evidence_the_tier_may_read(db: Session) -> None:
+    """The record-level state clause first, unchanged; since 2026-10-06 (QA-1) an evidence clause
+    second, which reads source states per tier exactly as the record predicate does: Pro and API
+    agree, the public tier reads `public` sources only."""
     org = make_org(db)
     assert visibility.organization_visible(org)
     for state in ("pending_review", "ingest_only", "api_only", "unpublished"):
@@ -90,8 +93,10 @@ def test_the_organisation_arm_is_the_state_alone_and_the_same_on_every_tier(db: 
         ]
         for tier in ("public", "pro", "api")
     }
-    assert rendered["public"] == rendered["pro"] == rendered["api"]
-    assert rendered["public"] == ["organization.publish_state = 'public'"]
+    assert rendered["pro"] == rendered["api"]
+    assert rendered["public"][0] == rendered["pro"][0] == "organization.publish_state = 'public'"
+    assert "organization_alias" in rendered["public"][1]
+    assert "'api_only'" in rendered["pro"][1] and "'api_only'" not in rendered["public"][1]
 
 
 # ----------------------------------------------------------------------- organisation routes

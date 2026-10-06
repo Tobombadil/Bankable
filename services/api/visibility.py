@@ -35,16 +35,25 @@ admin reads bypass this predicate entirely per docs/21 §5.4's fourth row) and d
 - `r.publish_state == 'public'` at the record level is unconditional on tier, matching the
   pseudocode above exactly (not "unless admin", which the module does not implement).
 
+**Field-level provenance (2026-10-06, QA-1).** The record predicate decides whether a record is
+served; `GatedRecord` (end of module) decides what each served field says: a value only from a
+source the tier may read, raw fields withheld under a derived-only licence, `source_count` and
+`min_reuse_class` over the readable links, a placement only from a readable source. Every
+serialising surface builds it; admin views do not.
+
 Backward-compatible names `proposal_public_filter`/`opportunity_public_filter`/
 `event_public_filter` are kept as the `entitlement="public"` case — `services/api/app.py`'s public
 routes are unchanged by this sprint.
 
 **The organisation arm (2026-09-26, migration 0022; docs/40 §6 item 2).** `organization` now
 carries `publish_state` with the record vocabulary, and `organization_visibility_filter` is the
-predicate's first clause alone: `r.publish_state = 'public'`. The other three clauses do not
-apply — an organisation has no source link rows, no `min_reuse_class` and no `published_at`/
-`public_at` pair (nothing on it is time-gated), so the arm is the same on every tier and
-`entitlement`/`now` are accepted for signature parity only. Every public read of organisations
+predicate's first clause, `r.publish_state = 'public'`, plus (2026-10-06, QA-1 of the 2026-09-30
+audit) an evidence clause: the organisation is curated, or has no alias row, or at least one of its
+`organization_alias` rows came from a source the tier may read -- so unpublishing a source takes
+down an organisation only that source named. An organisation has no source link rows, no
+`min_reuse_class` and no `published_at`/`public_at` pair (nothing on it is time-gated); the
+evidence clause reads source states per tier as the record arms do, and `now` is accepted for
+signature parity only. Every public read of organisations
 goes through it or its Python twin `organization_visible`: `GET /v1/organizations` and the
 detail/sub-list routes (`visible_organization_or_404`, which answers the same `not_found`
 problem an unknown id gets, so existence does not leak), the sponsor/issuer embeds
@@ -66,11 +75,11 @@ bypass all of this (`GET /admin/v1/organizations/{public_id}`), as docs/21 §5.4
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Callable, Iterable
+from typing import Any, cast
 
-from sqlalchemy import ColumnElement, and_, exists, or_, select
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy import ColumnElement, and_, event, exists, func, or_, select
+from sqlalchemy.orm import Session, aliased, object_session
 
 from services.api.errors import not_found
 from services.db.models import (
@@ -83,6 +92,7 @@ from services.db.models import (
     Opportunity,
     OpportunitySource,
     Organization,
+    OrganizationAlias,
     Proposal,
     ProposalSource,
     Source,
@@ -396,20 +406,92 @@ def asset_geometry_visible(asset: Asset) -> bool:
 def organization_visibility_filter(
     entitlement: Entitlement = "public", now: dt.datetime | None = None
 ) -> list[ColumnElement[bool]]:
-    """The organisation arm (module docstring): `publish_state = 'public'` and nothing else. No
-    source or licence clause (an organisation has no source link rows and no `min_reuse_class`;
-    the records and assets that point at it carry their own) and no timing clause (no
-    `published_at`/`public_at` on the row), so the arm is identical on every tier;
-    `entitlement` and `now` exist for signature parity with the other `*_visibility_filter`s."""
-    del entitlement, now
-    return [Organization.publish_state == "public"]
+    """The organisation arm (module docstring): `publish_state = 'public'` **and** evidence the
+    tier may see (2026-10-06, QA-1 of the 2026-09-30 audit). An organisation has no source link
+    rows of its own; what a source says about it is its `organization_alias` rows, one per
+    spelling a register used, each with the `source_id` it came from. Unpublishing a source must
+    take down an organisation that source alone named (docs/21 §8 item 3: its existence is itself
+    a disclosure of the register's contents), so the row is visible only when one of these holds:
+
+    - it is a curated issuer (`is_curated_issuer`: Infraque's own statement, not a register's);
+    - it has no alias row at all (nothing recorded to gate on: hand-made and legacy rows);
+    - at least one alias came from a source `entitlement` may read (`source_permits` and
+      `licence_permits`, the two clauses `visible_source_link_filter` applies).
+
+    Conservative by construction: a second source that spelled the name exactly as the first
+    adds no alias (the `one_alias_per_org` constraint), so an organisation first named by a source
+    that is later unpublished is hidden even where another register names it too. No timing
+    clause: nothing on an organisation is time-gated; `now` is accepted for signature parity."""
+    del now
+    return [Organization.publish_state == "public", _organization_evidence(entitlement)]
 
 
-def organization_visible(org: Organization) -> bool:
-    """Python twin of `organization_visibility_filter` for an already-loaded row: the sponsor and
-    issuer embeds, the asset owners table and the parent link are read off relationships, not
-    re-queried, so they apply the same single clause here."""
-    return org.publish_state == "public"
+def _organization_evidence(entitlement: Entitlement) -> ColumnElement[bool]:
+    """The organisation arm's evidence clause alone (`organization_visibility_filter`)."""
+    alias_src = aliased(Source)
+    alias_lic = aliased(Licence)
+    any_alias = exists(
+        select(OrganizationAlias.id).where(OrganizationAlias.organization_id == Organization.id)
+    )
+    visible_alias = exists(
+        select(OrganizationAlias.id)
+        .join(alias_src, alias_src.id == OrganizationAlias.source_id)
+        .join(alias_lic, alias_lic.id == alias_src.licence_id)
+        .where(
+            OrganizationAlias.organization_id == Organization.id,
+            alias_src.publish_state.in_(permitted_source_states(entitlement)),
+            alias_lic.reuse_class.in_(PUBLISHABLE_REUSE_CLASSES),
+        )
+    )
+    return or_(Organization.is_curated_issuer.is_(True), visible_alias, ~any_alias)
+
+
+#: `Session.info` key of the evidence answers `organization_visible` has looked up, per tier.
+_ORG_EVIDENCE_CACHE = "visibility.organization_evidence"
+_IN_CHUNK = 500
+
+
+@event.listens_for(Session, "after_flush")
+@event.listens_for(Session, "after_commit")
+@event.listens_for(Session, "after_rollback")
+def _forget_organization_evidence(session: Session, *_args: Any) -> None:
+    """Any write, commit or rollback in the session may change the evidence (a source's state, an
+    alias): the cached answers go with it. Sessions are per request, so a change another session
+    commits is seen by the next request."""
+    session.info.pop(_ORG_EVIDENCE_CACHE, None)
+
+
+def organization_visible(org: Organization, entitlement: Entitlement = "public") -> bool:
+    """Python twin of `organization_visibility_filter` for an already-loaded row (the sponsor and
+    issuer embeds, the asset owners table, the parent link). The state clause is read off the row;
+    the evidence clause is the same SQL, asked of the row's own session, because an
+    organisation's aliases are not loaded with it. A row with no session (built in memory and
+    never added) has no stored evidence to gate on, so the state clause alone decides.
+
+    One query answers every organisation the session holds at that moment (a list page's sponsors
+    arrive together, joined-loaded), and the answers are kept on the session until its next flush,
+    commit or rollback: a 200-row page costs one evidence query, not 200."""
+    if org.publish_state != "public":
+        return False
+    session = object_session(org)
+    if session is None or org.id is None:
+        return True
+    cache: dict[Any, bool] = session.info.setdefault(_ORG_EVIDENCE_CACHE, {}).setdefault(entitlement, {})
+    if org.id not in cache:
+        # Identity keys, not the objects: reading `.id` off an expired row would refresh it.
+        held = {key[1][0] for key in session.identity_map.keys() if key[0] is Organization}
+        pending = sorted((held - set(cache)) | {org.id}, key=str)
+        for start in range(0, len(pending), _IN_CHUNK):
+            chunk = pending[start : start + _IN_CHUNK]
+            shown = set(
+                session.scalars(
+                    select(Organization.id).where(
+                        Organization.id.in_(chunk), _organization_evidence(entitlement)
+                    )
+                )
+            )
+            cache.update({oid: oid in shown for oid in chunk})
+    return cache[org.id]
 
 
 def visible_organization_or_404(db: Session, public_id: str, instance: str) -> Organization:
@@ -488,3 +570,302 @@ def visible_source_link_filter(
             )
         ),
     ]
+
+
+# ------------------------------------------------------------------ field-level provenance gate
+# docs/21 §8, the mixed-provenance case (2026-10-06, QA-1 of the 2026-09-30 audit): a record visible
+# through one source is published "with ... every field whose `field_provenance` points only at
+# [a hidden source] removed from the response". The record predicate above decides whether a
+# record is served at all; `GatedRecord` decides what each served field says. One object, built
+# at every serialising surface (record list and detail, bulk, CSV export, map features, feeds,
+# alert payloads, event subjects, interconnection-point rows), so a field cannot be filtered on
+# one surface and leak on another.
+#
+# Per field `f` of `PROPOSAL_SOURCED_FIELDS` / `OPPORTUNITY_SOURCED_FIELDS`:
+#   1. an admin override (`overrides[f]`) is a human decision (docs/21 §6.4) and is served as stored;
+#   2. else, when `field_provenance[f].source_id` is a source the caller may read (and, for bulk
+#      and export, one whose licence permits the shape), the stored value is served;
+#   3. else the value is re-derived from the readable links' own `normalised` rows, most recently
+#      retrieved first, so the value printed is one the credited source actually states;
+#   4. else it is withheld (`None`; a required field takes a neutral placeholder).
+# A field with no recorded provenance is served as stored only while every active link is
+# readable; otherwise it is re-derived as in 3.
+#
+# Raw field class (docs/21 §8 "no raw, no `status_raw`" for a derived-only licence; L-4 of the
+# legal audit): `status_raw`/`technology_raw` are withheld when the source that supplies the
+# served value has `allows_raw_publication = false`. Same rule, same place, every surface.
+PROPOSAL_SOURCED_FIELDS: tuple[str, ...] = (
+    "kind",
+    "name_canonical",
+    "technology",
+    "technology_raw",
+    "capacity_mw",
+    "storage_mwh",
+    "jurisdiction",
+    "iso",
+    "lifecycle_state",
+    "status_raw",
+    "identifiers",
+    "proposed_online_date",
+)
+OPPORTUNITY_SOURCED_FIELDS: tuple[str, ...] = (
+    "kind",
+    "title",
+    "summary",
+    "jurisdiction",
+    "technologies",
+    "capacity_sought_mw",
+    "budget_amount",
+    "budget_currency",
+    "open_at",
+    "due_at",
+    "status",
+    "status_raw",
+    "identifiers",
+)
+#: docs/21 §8 field class **raw** as it appears on a record row.
+RAW_RECORD_FIELDS: frozenset[str] = frozenset({"status_raw", "technology_raw"})
+_DATE_FIELDS = frozenset({"proposed_online_date", "open_at"})
+_DATETIME_FIELDS = frozenset({"due_at"})
+#: `identifiers` key whose value is `{source_id: basis}` (`services/ingest/loader.py`).
+_SELECT_BASIS_KEY = "select_basis"
+
+LinkOk = Callable[[Source], bool]
+
+
+def _coerce(field: str, value: Any) -> Any:
+    """A non-null `normalised` value back to the column's type: the loader stores dates as ISO
+    text."""
+    if field in _DATE_FIELDS and isinstance(value, str):
+        return dt.date.fromisoformat(value[:10])
+    if field in _DATETIME_FIELDS and isinstance(value, str):
+        return dt.datetime.fromisoformat(value)
+    return value
+
+
+def _strictest_class(classes: Iterable[str]) -> str | None:
+    ranked = [c for c in classes if c in REUSE_CLASSES]
+    return max(ranked, key=REUSE_CLASSES.index) if ranked else None
+
+
+class GatedRecord:
+    """A served view of one `Proposal`/`Opportunity` (see the section comment above). Attribute
+    access answers the gated value for the sourced fields and for `sources` (the readable active
+    links), `source_count` (readable links only, docs/21 §8 item 4), `min_reuse_class` (over the
+    readable links), `location` (withheld when its own source is not readable) and `sponsor`/
+    `issuer` (withheld when `organization_visible` says so); everything else is the record's own
+    attribute. Read-only: nothing writes through it.
+
+    `link_ok` narrows the links further for one shape: bulk passes `allows_api_redistribution`,
+    an export `allows_bulk_export`, so a field is printed only from a link whose licence permits
+    that shape. `source_count` stays the tier's count."""
+
+    def __init__(
+        self, record: Proposal | Opportunity, entitlement: Entitlement, link_ok: LinkOk | None
+    ) -> None:
+        self._record = record
+        self._entitlement = entitlement
+        self._link_ok = link_ok
+        self._fields = PROPOSAL_SOURCED_FIELDS if isinstance(record, Proposal) else OPPORTUNITY_SOURCED_FIELDS
+        active = [link for link in record.sources if link.active]
+        tier = [link for link in active if source_visible(link.source, entitlement)]
+        allowed = [link for link in tier if link_ok is None or link_ok(link.source)]
+        self._active = active
+        self._tier_links = tier
+        self._allowed_links = allowed
+        self._tier_hidden = len(tier) < len(active)
+        self._any_hidden = len(allowed) < len(active)
+        self._allowed_sources: dict[str, Source] = {link.source_id: link.source for link in allowed}
+        self._values: dict[str, Any] = {}
+        #: field -> source id whose licence withheld its raw value (for `redactions[]`).
+        self._raw_withheld: dict[str, str] = {}
+
+    # -- plumbing
+    def __getattr__(self, name: str) -> Any:
+        # Only reached for names not found on the instance or the class (the `_`-prefixed state
+        # above never is), so every gated name is answered here and everything else falls through.
+        if name in self._fields:
+            if name not in self._values:
+                self._values[name] = self._field(name)
+            return self._values[name]
+        if name == "sources":
+            return list(self._allowed_links)
+        if name == "source_count":
+            return len(self._tier_links) if self._tier_hidden else self._record.source_count
+        if name == "min_reuse_class":
+            if not self._tier_hidden:
+                return self._record.min_reuse_class
+            return _strictest_class(link.source.licence.reuse_class for link in self._tier_links) or (
+                self._record.min_reuse_class
+            )
+        if name == "location":
+            return self._location()
+        if name in ("sponsor", "issuer"):
+            if name not in self._values:  # one visibility query per view, however often it is read
+                org = getattr(self._record, name)
+                visible = org is not None and organization_visible(org, self._entitlement)
+                self._values[name] = org if visible else None
+            return self._values[name]
+        return getattr(self._record, name)
+
+    def raw_withheld(self) -> dict[str, str]:
+        """`{field: source_id}` for each raw field withheld under its supplier's licence, after
+        every raw field has been read (so a caller can list them in `redactions[]`)."""
+        for name in RAW_RECORD_FIELDS & set(self._fields):
+            getattr(self, name)
+        return dict(self._raw_withheld)
+
+    # -- per-field rule
+    def _source_allowed(self, source_id: str) -> Source | None:
+        if source_id in self._allowed_sources:
+            return self._allowed_sources[source_id]
+        session = object_session(self._record)
+        source = session.get(Source, source_id) if session is not None else None
+        if source is None or not source_visible(source, self._entitlement):
+            return None
+        if self._link_ok is not None and not self._link_ok(source):
+            return None
+        return source
+
+    def _field(self, name: str) -> Any:
+        stored = getattr(self._record, name)
+        if name in (self._record.overrides or {}):
+            return stored  # rule 1: a human decision is served as made
+        prov = (self._record.field_provenance or {}).get(name)
+        source_id = prov.get("source_id") if isinstance(prov, dict) else None
+        suppliers: list[Source]
+        if source_id is not None and (supplier := self._source_allowed(str(source_id))) is not None:
+            value, suppliers = stored, [supplier]  # rule 2
+        elif source_id is None and not self._any_hidden:
+            value, suppliers = stored, [link.source for link in self._allowed_links]
+        else:
+            value, suppliers = self._fallback(name)  # rules 3 and 4
+        if name == "identifiers":
+            return self._visible_identifiers(value)
+        if name in RAW_RECORD_FIELDS and value is not None:
+            # No supplier at all (a record with no readable link) cannot show its raw value is
+            # allowed, so it is withheld too -- fail closed.
+            barred = next((s for s in suppliers if not s.licence.allows_raw_publication), None)
+            if barred is not None:
+                self._raw_withheld[name] = barred.id
+            if barred is not None or not suppliers:
+                return None
+        return value
+
+    def _fallback(self, name: str) -> tuple[Any, list[Source]]:
+        if name != "identifiers":
+            ordered = sorted(self._allowed_links, key=lambda link: link.retrieved_at, reverse=True)
+            for link in ordered:
+                value = (link.normalised or {}).get(name)
+                if value is not None:
+                    return _coerce(name, value), [link.source]
+        return self._placeholder(name), []
+
+    def _placeholder(self, name: str) -> Any:
+        """Rule 4: a field no readable source states. Nullable fields are `None`; the record's
+        required fields take the neutral value its own loader writes for a row that states
+        nothing (`services/ingest/loader.py::_proposal_fields_from_row`)."""
+        if name in ("identifiers",):
+            return {}
+        if name == "technologies":
+            return []
+        if name in ("name_canonical", "title"):
+            return "Untitled"
+        if name == "kind":
+            return "other" if isinstance(self._record, Proposal) else "program"
+        if name in ("lifecycle_state", "status"):
+            return "unknown"
+        if name == "jurisdiction":
+            # The country part only: which country a project is in is not the hidden source's
+            # contribution alone (every record carries one), the subdivision may be.
+            return str(self._record.jurisdiction or "US").split("-", 1)[0]
+        return None
+
+    def _visible_identifiers(self, value: Any) -> dict[str, Any]:
+        """`identifiers` minus any `select_basis` entry keyed by a source the caller may not read."""
+        ids = dict(value or {})
+        basis = ids.get(_SELECT_BASIS_KEY)
+        if isinstance(basis, dict):
+            kept = {sid: b for sid, b in basis.items() if self._source_allowed(str(sid)) is not None}
+            if kept:
+                ids[_SELECT_BASIS_KEY] = kept
+            else:
+                ids.pop(_SELECT_BASIS_KEY, None)
+        return ids
+
+    def _location(self) -> Location | None:
+        loc = self._record.location
+        if loc is None:
+            return None
+        if not source_visible(loc.source, self._entitlement):
+            return None
+        if self._link_ok is not None and not self._link_ok(loc.source):
+            return None
+        return loc
+
+
+def gated_record(
+    record: Proposal | Opportunity, entitlement: Entitlement = "public", link_ok: LinkOk | None = None
+) -> Any:
+    """The served view of `record` at `entitlement` (`GatedRecord`). Typed `Any` so the
+    serialisers keep reading it as the model they were written against; idempotent on a view."""
+    if isinstance(record, GatedRecord):
+        return record
+    return GatedRecord(record, entitlement, link_ok)
+
+
+def gated_proposal(
+    record: Proposal, entitlement: Entitlement = "public", link_ok: LinkOk | None = None
+) -> Proposal:
+    return cast(Proposal, gated_record(record, entitlement, link_ok))
+
+
+def gated_opportunity(
+    record: Opportunity, entitlement: Entitlement = "public", link_ok: LinkOk | None = None
+) -> Opportunity:
+    return cast(Opportunity, gated_record(record, entitlement, link_ok))
+
+
+def source_split(db: Session, entitlement: Entitlement = "public") -> tuple[frozenset[str], frozenset[str]]:
+    """`(readable, hidden)` source ids at `entitlement`. An empty `hidden` -- every stored source
+    on the tier's surface, the normal state -- lets a whole-set surface skip the field gate's
+    per-row work: no row can then carry a hidden source's value."""
+    readable: set[str] = set()
+    hidden: set[str] = set()
+    for source in db.scalars(select(Source)).all():
+        (readable if source_visible(source, entitlement) else hidden).add(source.id)
+    return frozenset(readable), frozenset(hidden)
+
+
+def hidden_provenance_clause(
+    model: type[Proposal] | type[Opportunity], fields: Iterable[str], hidden: Iterable[str]
+) -> ColumnElement[bool]:
+    """SQL twin of `provenance_outside` for a whole-set surface: true for a row whose
+    `field_provenance` names one of `hidden` for any of `fields` -- the only rows whose served value
+    can differ from the stored one, which such a surface then reads through `GatedRecord`. JSON
+    path access renders as `json_extract` on SQLite and `->` on Postgres."""
+    ids = sorted(hidden)
+    return or_(
+        *(func.coalesce(model.field_provenance[(f, "source_id")].as_string(), "").in_(ids) for f in fields)
+    )
+
+
+def gated_views(
+    db: Session,
+    model: type[Proposal] | type[Opportunity],
+    ids: Iterable[Any],
+    entitlement: Entitlement = "public",
+) -> dict[Any, Any]:
+    """`{id: GatedRecord}` for `ids`, loaded in one query per 500 with their links, for a whole-set
+    surface that must re-read a few hundred rows through their served view (`hidden_provenance_clause`
+    picks them) without one query per row."""
+    from sqlalchemy.orm import selectinload
+
+    wanted = sorted(set(ids), key=str)
+    out: dict[Any, Any] = {}
+    for start in range(0, len(wanted), _IN_CHUNK):
+        chunk = wanted[start : start + _IN_CHUNK]
+        stmt = select(model).where(model.id.in_(chunk)).options(selectinload(model.sources))
+        rows = cast("list[Proposal | Opportunity]", list(db.scalars(stmt)))
+        out.update({row.id: gated_record(row, entitlement) for row in rows})
+    return out

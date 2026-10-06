@@ -32,6 +32,22 @@ Two passes, deliberately independent of each other:
    right (`served_hidden`), so a serving path that bypasses the predicate is caught even when the
    predicate is right.
 
+**Field-level provenance** (2026-10-06; QA-1 and QA-10 of the 2026-09-30 audit). A record can be
+rightly public on clean evidence and still print a gated source's *values*: unpublishing EIA-860M
+left its name, capacity and plant ids on merged records credited to ERCOT, and this audit did not
+see it. The store pass now renders every shown record that has clean evidence and an active link
+or placement on a gated source through `services/api/serialize.py` and checks, against facts
+restated from the store (`field_facts`: each field whose `field_provenance` names a gated source,
+no override pins it and no clean link states the same value), that no such value, no
+`source_count` counting the gated link and no gated placement is printed
+(`field_from_gated_source:<field>`); the served pass requests a sample of those records' detail
+(`served_field_leak:<field>`). A shown record's stored link to a gated source that every surface
+withholds is the routine state after an unpublish: it is reported as `withheld_links`, apart from
+breaches, and is a breach only when a surface names it. Derived-only raw fields are restated too
+(`raw_field_printed:<field>`, `point_coordinate_printed`; L-4). The served pass speaks as the site's
+service identity (`X-Internal-Token`, the public tier unmetered), and any status other than 200/404
+is inconclusive, never a leak.
+
 **Withheld operator names** (lane E15, 2026-09-27). An asset stays public when an organisation it
 names is taken down, but no non-admin surface may print that organisation's name in the asset's
 register text (`services/api/withheld_names.py`; docs/00-PLAN.md 2026-09-27, lane E14). The store pass
@@ -92,13 +108,14 @@ import json
 import logging
 import os
 import re
+import secrets
 import sys
 import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import sqlalchemy as sa
 import yaml
@@ -114,9 +131,11 @@ from services.db.models import (
     Event,
     InterconnectionPoint,
     Licence,
+    Location,
     Opportunity,
     OpportunitySource,
     Organization,
+    OrganizationAlias,
     Proposal,
     ProposalSource,
     Source,
@@ -330,11 +349,272 @@ def _audit_records(
             )
         for rid, pid, sid in link_rows:
             reason = gated_src[sid]
-            if rid in clean:
-                breaches.append(Breach("source_links", pid, sid, f"source_link_gated:{reason}"))
-            else:
+            if rid not in clean:
                 breaches.append(Breach(surface, pid, sid, f"only_gated_evidence:{reason}"))
+            elif _link_rendered(db, model, rid, sid):
+                breaches.append(Breach("source_links", pid, sid, f"source_link_gated:{reason}"))
+            # else: the gated link is stored and correctly withheld from every surface -- the
+            # routine state after an operator unpublishes a source, counted in `withheld_links`
+            # by `audit_store`, never a breach (2026-10-06, QA-10 "noise").
     return count, breaches
+
+
+def _link_rendered(
+    db: Session, model: type[Proposal] | type[Opportunity], record_id: uuid.UUID, source_id: str
+) -> bool:
+    """Whether the record's public view names `source_id` anywhere a link is listed: its
+    `provenance` array as `services/api/serialize.py` builds it for every record surface."""
+    from services.api.serialize import serialize_opportunity, serialize_proposal
+
+    record = cast("Proposal | Opportunity | None", db.get(model, record_id))
+    if record is None:
+        return False
+    data = (
+        serialize_proposal(record, entitlement="public")
+        if isinstance(record, Proposal)
+        else serialize_opportunity(record, entitlement="public")
+    )
+    return _mentions_source(data.get("provenance") or [], source_id)
+
+
+def _withheld_link_count(db: Session, *, gated_src: Mapping[str, str], now: dt.datetime) -> int:
+    """Active links from shown records to gated sources: stored, and (unless a breach says
+    otherwise) withheld from every surface. Reported apart from breaches."""
+    if not gated_src:
+        return 0
+    total = 0
+    for surface, model, link_model, fk in (
+        ("proposals", Proposal, ProposalSource, ProposalSource.proposal_id),
+        ("opportunities", Opportunity, OpportunitySource, OpportunitySource.opportunity_id),
+    ):
+        total += int(
+            db.scalar(
+                select(func.count())
+                .select_from(link_model)
+                .join(model, fk == model.id)
+                .where(
+                    link_model.active.is_(True),
+                    link_model.source_id.in_(list(gated_src)),
+                    *PREDICATES[surface]("public", now),
+                )
+            )
+            or 0
+        )
+    return total
+
+
+# ================================================================== field-level provenance (W3)
+@dataclass(frozen=True)
+class _FieldFacts:
+    """What the store pass established about one shown record that has both clean evidence and an
+    active link (or its placement) on a gated source: the mixed-provenance case of docs/21 §8.
+    Every value the record's public view may not print is listed with the gated source that
+    supplied it. In memory only (it holds stored values); breach rows carry field names."""
+
+    surface: str
+    public_id: str
+    gated: frozenset[str]
+    #: field -> (gated source id, stored value) for each field a gated source supplied and no
+    #: clean active link also states.
+    gated_values: Mapping[str, tuple[str, Any]]
+    #: active links whose source is not gated: the most `source_count` may say.
+    clean_count: int
+
+
+def _same(served: Any, stored: Any) -> bool:
+    """Whether a served JSON value is the stored Python value (dates and instants as ISO text,
+    numerics as floats, JSON objects as equal mappings)."""
+    if served is None or stored is None:
+        return False
+    if isinstance(stored, dt.datetime) and isinstance(served, str):
+        try:
+            return _aware(dt.datetime.fromisoformat(served.replace("Z", "+00:00"))) == _aware(stored)
+        except ValueError:
+            return False
+    if isinstance(stored, dt.date) and isinstance(served, str):
+        return served[:10] == stored.isoformat()
+    numeric = isinstance(stored, (int, float)) and not isinstance(stored, bool)
+    if numeric or type(stored).__name__ == "Decimal":
+        try:
+            return float(served) == float(stored)
+        except (TypeError, ValueError):
+            return False
+    return bool(served == stored)
+
+
+def field_facts(record: Proposal | Opportunity, surface: str, gated: frozenset[str]) -> _FieldFacts:
+    """`_FieldFacts` for `record`, restated from the store without the served view: a field is
+    gated when its `field_provenance` names a gated source, no admin override pins it, and no
+    clean active link's own `normalised` row states the same value."""
+    fields = (
+        visibility.PROPOSAL_SOURCED_FIELDS
+        if surface == "proposals"
+        else visibility.OPPORTUNITY_SOURCED_FIELDS
+    )
+    clean = [link for link in record.sources if link.active and link.source_id not in gated]
+    overrides = record.overrides or {}
+    gated_values: dict[str, tuple[str, Any]] = {}
+    for name in fields:
+        prov = (record.field_provenance or {}).get(name)
+        source_id = prov.get("source_id") if isinstance(prov, dict) else None
+        if name in overrides or source_id not in gated:
+            continue
+        stored = getattr(record, name)
+        if stored in (None, {}, []):
+            continue
+        if any(_same((link.normalised or {}).get(name), stored) for link in clean):
+            continue
+        gated_values[name] = (str(source_id), stored)
+    return _FieldFacts(surface, record.public_id, gated, gated_values, len(clean))
+
+
+def field_offences(facts: _FieldFacts, data: Mapping[str, Any]) -> list[tuple[str, str | None]]:
+    """`(field, gated source)` for each place a served record (`data`, the detail shape) prints
+    what `facts` says it may not: a gated source's value, a `source_count` that counts a gated
+    link, or a placement whose provenance names a gated source."""
+    out: list[tuple[str, str | None]] = []
+    for name, (source_id, stored) in facts.gated_values.items():
+        if name in data and _same(data[name], stored):
+            out.append((name, source_id))
+    if int(data.get("source_count") or 0) > facts.clean_count:
+        out.append(("source_count", None))
+    location = data.get("location") or {}
+    location_source = (location.get("provenance") or {}).get("source_id")
+    if location_source in facts.gated:
+        out.append(("location", location_source))
+    return out
+
+
+def _audit_record_fields(
+    db: Session, *, gated_src: Mapping[str, str], now: dt.datetime
+) -> tuple[list[Breach], list[_FieldFacts]]:
+    """The field-level check (docs/21 §8, the mixed-provenance case; QA-1 of the 2026-09-30
+    audit): every shown record with clean evidence *and* an active link or placement on a gated
+    source is rendered through the builder every record surface calls
+    (`services/api/serialize.py`) and its fields checked with `field_offences`. A breach is
+    `field_from_gated_source:<field>`. Returns the breaches and the facts, which the served pass
+    re-checks against real responses. No gated source, no query."""
+    if not gated_src:
+        return [], []
+    from services.api.serialize import serialize_opportunity, serialize_proposal
+
+    gated = frozenset(gated_src)
+    breaches: list[Breach] = []
+    facts_out: list[_FieldFacts] = []
+    clean_p = aliased(ProposalSource)
+    clean_o = aliased(OpportunitySource)
+    for surface, model, link_model, fk, has_clean in (
+        (
+            "proposals",
+            Proposal,
+            ProposalSource,
+            ProposalSource.proposal_id,
+            exists(
+                select(clean_p.id).where(
+                    clean_p.proposal_id == Proposal.id,
+                    clean_p.active.is_(True),
+                    clean_p.source_id.not_in(gated),
+                )
+            ),
+        ),
+        (
+            "opportunities",
+            Opportunity,
+            OpportunitySource,
+            OpportunitySource.opportunity_id,
+            exists(
+                select(clean_o.id).where(
+                    clean_o.opportunity_id == Opportunity.id,
+                    clean_o.active.is_(True),
+                    clean_o.source_id.not_in(gated),
+                )
+            ),
+        ),
+    ):
+        touches_gated = or_(
+            exists(
+                select(link_model.id).where(
+                    fk == model.id, link_model.active.is_(True), link_model.source_id.in_(gated)
+                )
+            ),
+            exists(
+                select(Location.id).where(Location.id == model.location_id, Location.source_id.in_(gated))
+            ),
+        )
+        stmt = select(model).where(*PREDICATES[surface]("public", now), has_clean, touches_gated)
+        records = cast("list[Proposal | Opportunity]", list(db.scalars(stmt.order_by(model.id)).all()))
+        for record in records:
+            facts = field_facts(record, surface, gated)
+            facts_out.append(facts)
+            if isinstance(record, Proposal):
+                data = serialize_proposal(record, entitlement="public")
+            else:
+                data = serialize_opportunity(record, entitlement="public")
+            for name, source_id in field_offences(facts, data):
+                reason = f"field_from_gated_source:{name}"
+                breaches.append(Breach(surface, record.public_id, source_id, reason))
+    return breaches, facts_out
+
+
+def _audit_derived_only_raw(db: Session, *, now: dt.datetime) -> list[Breach]:
+    """docs/21 §8's derived-only row ("no raw, no `status_raw`, no exact coordinates"; L-4 of the
+    2026-09-30 legal audit): a shown record whose stored raw field (`status_raw`,
+    `technology_raw`) was supplied by a source whose licence has `allows_raw_publication = false`
+    must not print it, rendered through the record builder (`raw_field_printed:<field>`); and a
+    shown point named by such a register must not print a coordinate typed into its name
+    (`point_coordinate_printed`)."""
+    from services.api.interconnection_points import point_name
+    from services.api.serialize import serialize_opportunity, serialize_proposal
+    from services.ingest.interconnection import COORDINATE_RUN_RE
+
+    derived_only = {
+        sid
+        for sid, raw_ok in db.execute(
+            select(Source.id, Licence.allows_raw_publication).join(Licence, Licence.id == Source.licence_id)
+        ).all()
+        if not raw_ok
+    }
+    breaches: list[Breach] = []
+    if not derived_only:
+        return breaches
+    for surface, model, fields in (
+        ("proposals", Proposal, ("status_raw", "technology_raw")),
+        ("opportunities", Opportunity, ("status_raw",)),
+    ):
+        has_raw = or_(*(getattr(model, f).is_not(None) for f in fields))
+        stmt = select(model).where(*PREDICATES[surface]("public", now), has_raw).order_by(model.id)
+        for record in cast("list[Proposal | Opportunity]", list(db.scalars(stmt).all())):
+            provenance = record.field_provenance or {}
+            suspect = [
+                f
+                for f in fields
+                if f not in (record.overrides or {})
+                and isinstance(provenance.get(f), dict)
+                and provenance[f].get("source_id") in derived_only
+            ]
+            if not suspect:
+                continue
+            data = (
+                serialize_proposal(record, entitlement="public")
+                if isinstance(record, Proposal)
+                else serialize_opportunity(record, entitlement="public")
+            )
+            for f in suspect:
+                if data.get(f) is not None:
+                    breaches.append(
+                        Breach(
+                            surface, record.public_id, provenance[f]["source_id"], f"raw_field_printed:{f}"
+                        )
+                    )
+    points = db.scalars(
+        select(InterconnectionPoint).where(
+            *PREDICATES[POINTS]("public", now), InterconnectionPoint.source_id.in_(sorted(derived_only))
+        )
+    ).all()
+    for point in points:
+        if COORDINATE_RUN_RE.search(point_name(point)):
+            breaches.append(Breach(POINTS, point.public_id, point.source_id, "point_coordinate_printed"))
+    return breaches
 
 
 def _audit_events(
@@ -580,7 +860,14 @@ def _audit_organizations(
     surface only because of gated evidence — the existence disclosure docs/21 §8 item 3 forbids.
     "Visible" here means shown by the predicate *and* resting on at least one clean link, so an
     organisation whose only shown record is itself a gated-evidence breach is counted too."""
-    served: list[ColumnElement[bool]] = [Organization.merged_into_id.is_(None)]
+    # What `GET /v1/organizations` actually serves: unmerged rows the organisation arm of the
+    # predicate admits (its evidence clause hides an organisation every alias of which comes from a
+    # gated source, 2026-10-06). Until then this set was every unmerged row, so a correctly hidden
+    # organisation still counted as a breach.
+    served: list[ColumnElement[bool]] = [
+        Organization.merged_into_id.is_(None),
+        *visibility.organization_visibility_filter("public", now),
+    ]
     count = _count(db, Organization, served)
     if not gated_src:
         return count, []
@@ -588,6 +875,15 @@ def _audit_organizations(
     clean_p = aliased(ProposalSource)
     clean_o = aliased(OpportunitySource)
     visible = or_(
+        # A spelling a clean source states, or Infraque's own curated statement, is evidence of
+        # the organisation's existence that discloses nothing of a gated register (2026-10-06).
+        Organization.is_curated_issuer.is_(True),
+        exists(
+            select(OrganizationAlias.id).where(
+                OrganizationAlias.organization_id == Organization.id,
+                OrganizationAlias.source_id.not_in(gated_ids),
+            )
+        ),
         exists(
             select(Proposal.id).where(
                 Proposal.sponsor_org_id == Organization.id,
@@ -641,6 +937,12 @@ def _audit_organizations(
                 AssetOwner.organization_id == Organization.id, AssetOwner.source_id.in_(gated_ids)
             )
         ),
+        exists(
+            select(OrganizationAlias.id).where(
+                OrganizationAlias.organization_id == Organization.id,
+                OrganizationAlias.source_id.in_(gated_ids),
+            )
+        ),
     )
     rows = db.execute(
         select(Organization.id, Organization.public_id).where(*served, gated_edge, ~visible)
@@ -663,6 +965,9 @@ def _first_gated_org_source(db: Session, org_id: uuid.UUID, gated_ids: list[str]
         .where(Opportunity.issuer_org_id == org_id, OpportunitySource.source_id.in_(gated_ids)),
         select(AssetOwner.source_id).where(
             AssetOwner.organization_id == org_id, AssetOwner.source_id.in_(gated_ids)
+        ),
+        select(OrganizationAlias.source_id).where(
+            OrganizationAlias.organization_id == org_id, OrganizationAlias.source_id.in_(gated_ids)
         ),
     ):
         found = db.scalar(stmt.limit(1))
@@ -733,6 +1038,41 @@ def first_total_mismatch(
     return None
 
 
+def _clean_field_value(
+    db: Session,
+    proposal_id: uuid.UUID,
+    name: str,
+    stored: Any,
+    provenance: Mapping[str, Any] | None,
+    overrides: Mapping[str, Any] | None,
+    gated_src: Mapping[str, str],
+) -> Any:
+    """The value of one proposal field that a public sum may count, restated from the store
+    without the served view: the stored value unless its `field_provenance` names a gated source
+    (or names none while the record has an active gated link) and no admin override pins it, in
+    which case the most recently retrieved clean active link's own `normalised` value, else
+    `None`."""
+    prov = (provenance or {}).get(name)
+    source_id = prov.get("source_id") if isinstance(prov, dict) else None
+    if name in (overrides or {}):
+        return stored
+    if source_id is not None and source_id not in gated_src:
+        return stored
+    links = db.execute(
+        select(ProposalSource.source_id, ProposalSource.normalised, ProposalSource.retrieved_at).where(
+            ProposalSource.proposal_id == proposal_id, ProposalSource.active.is_(True)
+        )
+    ).all()
+    if source_id is None and not any(sid in gated_src for sid, _, _ in links):
+        return stored
+    clean = sorted((r for r in links if r[0] not in gated_src), key=lambda r: _aware(r[2]), reverse=True)
+    for _, normalised, _ in clean:
+        value = (normalised or {}).get(name)
+        if value is not None:
+            return value
+    return None
+
+
 def _audit_interconnection_points(
     db: Session,
     *,
@@ -772,6 +1112,8 @@ def _audit_interconnection_points(
             Proposal.lifecycle_state,
             Proposal.technology,
             Proposal.capacity_mw,
+            Proposal.field_provenance,
+            Proposal.overrides,
         ).where(
             Proposal.interconnection_point_id.is_not(None),
             Proposal.publish_state == "public",
@@ -784,7 +1126,19 @@ def _audit_interconnection_points(
     totals: dict[uuid.UUID, Any] = {}
     clean_props: dict[uuid.UUID, set[uuid.UUID]] = {}
     clean_prop_public: dict[uuid.UUID, set[str]] = {}
-    for prop_id, prop_public, point_id, state, technology, mw in rows:
+    for prop_id, prop_public, point_id, state, technology, mw, provenance, overrides in rows:
+        # docs/21 §8 item 4: a sum includes no gated source's value. A field a gated source
+        # supplied counts at what the record's clean links state (`_clean_field_value`).
+        if gated_src:
+            state, technology, mw = (
+                _clean_field_value(db, prop_id, name, stored, provenance, overrides, gated_src)
+                for name, stored in (
+                    ("lifecycle_state", state),
+                    ("technology", technology),
+                    ("capacity_mw", mw),
+                )
+            )
+            state = state or "unknown"
         totals.setdefault(point_id, ip.PointTotals()).add(state, technology, 1, float(mw or 0))
         clean_props.setdefault(point_id, set()).add(prop_id)
         clean_prop_public.setdefault(point_id, set()).add(prop_public)
@@ -1040,6 +1394,9 @@ def audit_store(
         )
         counts[surface]["shown"] = shown
         breaches.extend(found)
+    found, field_facts_list = _audit_record_fields(db, gated_src=gated_src, now=now)
+    breaches.extend(found)
+    breaches.extend(_audit_derived_only_raw(db, now=now))
     shown, found = _audit_events(db, gated_src=gated_src, gated_lic=gated_lic, now=now)
     counts["events"]["shown"] = shown
     breaches.extend(found)
@@ -1079,12 +1436,17 @@ def audit_store(
         "breach_cap": BREACH_CAP,
         "breaches_truncated": len(breaches) > BREACH_CAP,
         "served": {"checked": 0, "leaks": 0, "inconclusive": 0, "web_pages": "not_needed", "checks": []},
+        # Stored links to gated sources on shown records that every surface withholds: the
+        # routine state after a source is unpublished, reported apart from breaches (QA-10).
+        "withheld_links": _withheld_link_count(db, gated_src=gated_src, now=now),
+        "field_checked_records": len(field_facts_list),
         "m11": len(breaches),
         "_breaches": breaches,  # in-memory only; stripped before persisting/returning
         "_withheld": withheld,  # in-memory only: the served pass scans with the same names
         "_hidden_org_ids": hidden[1],
         "_name_probes": name_probes,  # in-memory only
         "_points": point_facts,  # in-memory only: expected totals are never persisted
+        "_field_facts": {f.public_id: f for f in field_facts_list},  # in-memory only: stored values
     }
 
 
@@ -1175,8 +1537,12 @@ def anonymous_client(session_factory: sessionmaker[Session]) -> Iterator[Any]:
 
     previous = app.dependency_overrides.get(get_db)
     app.dependency_overrides[get_db] = _override
+    # The site's own service identity (`web/api_client.py` does the same): the public tier, never
+    # metered against the anonymous per-address budget, so the served pass cannot starve itself
+    # into 429s (QA-10). The app reads the variable per request, in this process.
+    token = os.environ.setdefault("API_INTERNAL_TOKEN", secrets.token_urlsafe(32))
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers={"X-Internal-Token": token}) as client:
             yield client
     finally:
         if previous is None:
@@ -1213,6 +1579,12 @@ def served_pass(
                 leak = bool(_served_name_paths(response.json().get("data") or {}, result, breach.public_id))
             if leak and breach.surface == POINTS:
                 leak = _point_breach_served(breach, response.json().get("data") or {}, result)
+            if leak and breach.reason.startswith("field_from_gated_source:"):
+                # The record is rightly served; the leak is the field in it.
+                facts = result["_field_facts"][breach.public_id]
+                field = breach.reason.split(":", 1)[1]
+                served = field_offences(facts, response.json().get("data") or {})
+                leak = any(name == field for name, _ in served)
             breach.served_leak = leak
             leaks += int(leak)
             checks.append(
@@ -1252,6 +1624,7 @@ def served_pass(
                 )
                 breaches.append(breach)
                 result["counts"][candidate.surface]["breaches"] += 1
+        leaks += _served_field_checks(client, result, already, checks, sample=sample)
         leaks += _served_name_checks(client, result, already, checks, sample=sample)
         leaks += _served_point_checks(client, result, already, checks, sample=sample)
     # A status that is neither "served" (200) nor "hidden" (404) — a 429 from the public tier's
@@ -1269,6 +1642,49 @@ def served_pass(
     result["breach_total"] = len(breaches)
     result["breaches_truncated"] = len(breaches) > BREACH_CAP
     result["m11"] = len(breaches)
+
+
+def _served_field_checks(
+    client: Any,
+    result: dict[str, Any],
+    already: set[tuple[str, str]],
+    checks: list[dict[str, Any]],
+    *,
+    sample: int,
+) -> int:
+    """The served half of the field-level check: the detail of a sample of mixed-provenance
+    records the store pass found clean, through the real app, must not print a gated source's
+    value, count a gated link or place the record at a gated source's point (`field_offences`).
+    This is what catches a serving path that bypasses `services/api/serialize.py`. Each offence is
+    a breach `served_field_leak:<field>`. A status other than 200/404 is inconclusive."""
+    facts_by_id: Mapping[str, _FieldFacts] = result.get("_field_facts", {})
+    breaches: list[Breach] = result["_breaches"]
+    leaks = 0
+    probes = [f for pid, f in sorted(facts_by_id.items()) if (f.surface, pid) not in already][:sample]
+    for facts in probes:
+        path = _detail_path(facts.surface, facts.public_id)
+        if path is None:  # pragma: no cover - both record surfaces have a detail path
+            continue
+        response = client.get(path)
+        data = response.json().get("data") or {} if response.status_code == 200 else {}
+        offences = field_offences(facts, data) if response.status_code == 200 else []
+        checks.append(
+            {
+                "kind": "field_provenance",
+                "surface": facts.surface,
+                "public_id": facts.public_id,
+                "path": path,
+                "status": response.status_code,
+                "leak": bool(offences),
+            }
+        )
+        for name, source_id in offences:
+            leaks += 1
+            breaches.append(
+                Breach(facts.surface, facts.public_id, source_id, f"served_field_leak:{name}", 200, True)
+            )
+            result["counts"][facts.surface]["breaches"] += 1
+    return leaks
 
 
 def _served_name_paths(data: Mapping[str, Any], result: Mapping[str, Any], asset_public_id: str) -> list[str]:
@@ -1459,6 +1875,10 @@ def _served_point_checks(
 
     def record(kind: str, pub: str, path: str, status: int, reason: str | None, why: str) -> None:
         nonlocal leaks
+        if status not in (200, 404):
+            # A 429 or a 5xx proves nothing either way (QA-10: a throttled oracle request was
+            # scored a leak): inconclusive, counted by `served_pass`, never a breach.
+            reason = None
         checks.append(
             {
                 "kind": kind,

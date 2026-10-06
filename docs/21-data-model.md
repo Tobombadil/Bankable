@@ -1234,7 +1234,14 @@ execute this without reading any other row; a merge that cannot satisfy it is re
 ### 6.4 Human decisions win
 
 An event with `actor_type = user` on field *f* writes `entity.overrides[f] = {value, event_id, set_at, user_id}`.
-The normaliser and the enricher skip overridden fields until a user clears the override. Resolver decisions made
+The normaliser and the enricher skip overridden fields until a user clears the override. **Enforced 2026-10-06** (L-1 of the 2026-09-30 legal audit, which found that nothing read
+`overrides` and every edit, privacy redactions included, reverted at the next load): the loader's update path
+(`services/ingest/loader.py::_update_existing_entity`) neither writes nor re-stamps an overridden field (the
+source's own value still lands on its link's `normalised` row, so clearing the override and reloading restores
+it), and a merge (`services/resolve/merge.py::merge_proposal`) carries the absorbed record's overrides onto the
+survivor where the survivor has none of its own for that field, records the survivor's previous column values in
+`before.surviving.overrides_carried`, and `unmerge_proposal` restores them; an overridden `identifiers` takes no
+carried `select_basis`. Every served surface prints an overridden field as stored, whichever source is hidden. Resolver decisions made
 by a human on a candidate pair are recorded in `resolution_decision` (supporting table) and short-circuit later
 automated adjudication of the same pair (`docs/20` §3.5).
 
@@ -1396,6 +1403,55 @@ The **mixed-provenance case** is the one that matters in practice: a proposal se
 field whose `field_provenance` points only at PJM removed from the response, and `min_reuse_class` computed over
 **visible** sources. This is exactly why provenance is per field (§3.1) rather than per record. An entity whose
 *only* evidence is restricted is invisible, full stop.
+
+**Field-level enforcement (2026-10-06; QA-1 of the 2026-09-30 platform audit).** The paragraph above was not
+implemented: unpublishing EIA-860M left its name, capacity, status text, plant ids and exact point on merged
+records whose Sources panel then listed only ERCOT, `source_count` stayed 2, and organisations only EIA-860M named
+stayed public. It is now, in one place, `services/api/visibility.py::GatedRecord`, built by every serialising
+surface (record list and detail, bulk, CSV export, map features and totals, RSS items, alert and webhook
+payloads, event subject names, interconnection-point rows and totals, social drafts). For each field a source
+supplies, at the caller's tier:
+
+1. an admin override is served as stored (§6.4);
+2. else the stored value is served when its `field_provenance` source is one the tier may read (`source_permits`
+   and `licence_permits`), and, for bulk and export, one whose licence permits that shape
+   (`allows_api_redistribution`, `allows_bulk_export`);
+3. else the value is re-derived from the readable links' own `normalised` rows, most recently retrieved first;
+4. else it is withheld (`null`; a required field takes the loader's neutral placeholder). A field with no
+   recorded provenance is served as stored only while every active link is readable.
+
+`source_count` and `min_reuse_class` are computed over the readable links (checklist item 4), the placement is
+withheld when its own source is not readable (the record is unplaced, never drawn at the hidden source's point),
+`identifiers.select_basis` drops a hidden source's entry, and no `redactions[]` row names the hidden source (that
+would be the item-3 disclosure). Sums a surface prints (interconnection-point totals, map clusters) are over the
+served values. Admin views print the stored row. The **organisation** arm gains an evidence clause: an
+organisation is public only when it is curated, has no alias row, or has an `organization_alias` row from a source
+the tier may read, so one only a hidden source named is withdrawn with it (conservative: a second register that
+spelled the name identically adds no alias, so such an organisation is hidden too). Tests:
+`tests/test_source_unpublish_fields.py`, `tests/test_gated_record.py`; the nightly M-11 audit restates it
+(`field_from_gated_source:<field>`, `served_field_leak:<field>`).
+
+**Raw class at serialisation (2026-10-06; L-4).** The derived-only row's "no raw, no `status_raw`" is enforced by
+the same object: `status_raw` and `technology_raw` are `null` wherever the source supplying the served value has
+`allows_raw_publication = false`, with a `redactions[]` entry (`reason: licence`), on every surface. A coordinate
+in a derived-only register's point-of-interconnection text is withheld from the point's served name
+(`services/ingest/interconnection.py::withhold_coordinates`, at link time and at serve time).
+
+**Known limits (2026-10-06).** List *filters and sorts* still read the stored columns: `q=` can match a record by
+a hidden source's spelling and `capacity_mw[gte]`/sort can order by a hidden capacity, although neither value is
+printed; the interconnection-point list's `active_mw` sort key is a SQL sum of stored values. Each is an
+ordering/matching oracle on a hidden value, not a printed one; closing them needs the served values in SQL. Cost,
+measured on the 11,098-proposal audit store (SQLite, 4-core host): with every source public the map and list
+cost what they did (`/v1/proposals/geo` at zoom 4 p50 1.20 s against 1.16 s, `/v1/proposals?limit=200` 0.19 s
+against 0.17 s), because whole-set surfaces skip the per-row gate when no source is hidden
+(`visibility.source_split`) and select only rows whose provenance names a hidden source otherwise
+(`visibility.hidden_provenance_clause`); with EIA-860M unpublished the map takes about 1.7 s against 0.95 s.
+
+**Credit lines (2026-10-06; L-2, L-10).** The credit is the manifest's `attribution` field verbatim (plus its
+`changes_statement`), written to `licence.attribution_text` with `licence_url` to `licence.url` on every load;
+`Source: <operator>` is only the fallback for terms that name no credit. Pages print it unprefixed
+(`web/templates/_macros.html`), feeds use it as `dc:creator`, and `/attribution` lists the geocoding gazetteers.
+`docs/13` §6.3 and `scripts/check_manifest_licences.py` R5/R6.
 
 **Manifest field (2026-09-18).** The row a source falls under is declared, not inferred: `data/sources.yaml`
 carries `publication: raw_ok | derived_only | none` on every source alongside `reuse`. `raw_ok` is the plain

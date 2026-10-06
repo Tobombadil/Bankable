@@ -501,13 +501,26 @@ def test_batched_subject_lookup_matches_the_single_one(db):
     assert batched[opp.id]["subject_url"].endswith(f"/opportunities/{opp.slug}")
 
 
-def test_multi_source_record_prints_a_redistributable_link_and_credits_every_source(client, db):
+def test_multi_source_record_prints_only_what_bulk_exportable_sources_state(client, db):
+    """A record seen in a source whose licence forbids bulk export and in an open one: the row's
+    provenance is the open link, every derived column is what the open source states (the other
+    source's stored name is not exported under the open source's credit), and only the open source
+    is credited. Until 2026-10-06 the row printed the stored values whichever source supplied them
+    and credited both (QA-1 / L-10: a value credited to a source that does not state it)."""
     from services.db.models import ProposalSource
 
     no_bulk = make_attribution_licence(db, id_="no-bulk")
     no_bulk.allows_bulk_export = False
     no_bulk_src = make_public_source(db, no_bulk, id_="us.test.a_no_bulk")
     prop = make_visible_proposal(db, no_bulk_src, public_id_suffix="1")
+    prop.name_canonical = "No-Bulk Register Spelling"
+    prop.field_provenance = {
+        "name_canonical": {
+            "source_id": no_bulk_src.id,
+            "licence_id": no_bulk.id,
+            "retrieved_at": "2026-09-01",
+        }
+    }
     open_src = make_public_source(db, make_open_licence(db), id_="us.test.b_open")
     db.add(
         ProposalSource(
@@ -518,6 +531,7 @@ def test_multi_source_record_prints_a_redistributable_link_and_credits_every_sou
             retrieved_at=dt.datetime.now(UTC),
             licence_id=open_src.licence_id,
             raw={},
+            normalised={"name_canonical": "Open Register Spelling"},
             first_seen=dt.datetime.now(UTC),
             last_seen=dt.datetime.now(UTC),
         )
@@ -533,6 +547,7 @@ def test_multi_source_record_prints_a_redistributable_link_and_credits_every_sou
         "OPEN-1",
         "2",
     )
-    assert any(line.startswith("# us.test.a_no_bulk:") for line in header)
+    assert rows[0]["name_canonical"] == "Open Register Spelling"
+    assert not any(line.startswith("# us.test.a_no_bulk:") for line in header)
     assert any(line.startswith("# us.test.b_open:") for line in header)
-    assert "licences=no-bulk,open-lic" in header[0]
+    assert "licences=open-lic" in header[0]

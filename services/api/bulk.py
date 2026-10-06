@@ -66,7 +66,8 @@ from services.api.serialize import (
     serialize_opportunity,
     serialize_proposal,
 )
-from services.db.models import Event, Opportunity, OpportunitySource, Proposal, ProposalSource
+from services.api.visibility import gated_record, source_visible
+from services.db.models import Event, Opportunity, OpportunitySource, Proposal, ProposalSource, Source
 
 router = APIRouter()
 _Link = TypeVar("_Link", ProposalSource, OpportunitySource)
@@ -122,21 +123,37 @@ def _bulk_rate_limit(ctx: AuthContext, instance: str) -> dict[str, str]:
     return headers
 
 
+def _api_redistributable(source: Source) -> bool:
+    return bool(source.licence.allows_api_redistribution)
+
+
 def _redistributable(links: Iterable[_Link]) -> list[_Link]:
-    return [s for s in links if s.active and s.source.licence.allows_api_redistribution]
+    return [s for s in links if s.active and _api_redistributable(s.source)]
 
 
 def _record_line(
-    record: Proposal | Opportunity, redactions: list[dict[str, Any]], licence_rows: list[dict[str, Any]]
+    record: Proposal | Opportunity,
+    redactions: list[dict[str, Any]],
+    licence_rows: list[dict[str, Any]],
+    entitlement: str = "public",
 ) -> dict[str, Any]:
+    """One record in the detail shape. Its links, fields and location are the served view at the
+    key's tier, narrowed to licences that permit API redistribution
+    (`services/api/visibility.py::GatedRecord`): a link the tier may not read is not printed and
+    no field value comes from it (2026-10-06, QA-1)."""
+    view = gated_record(record, entitlement, _api_redistributable)
     links: list[ProposalSource | OpportunitySource] = []
     if isinstance(record, Proposal):
-        proposal_links = _redistributable(record.sources)
-        data = serialize_proposal(record, sources=proposal_links)
+        proposal_links = _redistributable(view.sources)
+        data = serialize_proposal(
+            record, sources=proposal_links, entitlement=entitlement, link_ok=_api_redistributable
+        )
         links.extend(proposal_links)
     else:
-        opportunity_links = _redistributable(record.sources)
-        data = serialize_opportunity(record, sources=opportunity_links)
+        opportunity_links = _redistributable(view.sources)
+        data = serialize_opportunity(
+            record, sources=opportunity_links, entitlement=entitlement, link_ok=_api_redistributable
+        )
         links.extend(opportunity_links)
     for i, link in enumerate(links):
         licence = link.source.licence
@@ -152,7 +169,11 @@ def _record_line(
                     "note": "the source licence does not permit bulk export; derived fields only",
                 }
             )
+    # The placement the tier may see (a hidden source's placement is withheld silently, as its
+    # link is); of that, one whose licence forbids API redistribution is redacted with a reason.
     location = record.location
+    if location is not None and not source_visible(location.source, entitlement):
+        location = None
     if location is not None and not location.licence.allows_api_redistribution:
         data["location"] = None
         redactions.append(
@@ -166,6 +187,16 @@ def _record_line(
         )
     else:
         redactions.extend(location_redactions(record.public_id, location))
+    for field, source_id in sorted(view.raw_withheld().items()):
+        redactions.append(
+            {
+                "public_id": record.public_id,
+                "field": field,
+                "reason": "licence",
+                "source_id": source_id,
+                "note": "raw source value withheld under the source licence; derived fields only",
+            }
+        )
     return data
 
 
@@ -204,7 +235,7 @@ def bulk_response(request: Request, db: Session, ctx: AuthContext, resource: Res
     redactions: list[dict[str, Any]] = []
     licence_rows: list[dict[str, Any]] = []
     lines: list[dict[str, Any]] = []
-    subjects = subject_infos(db, [r for r in rows if isinstance(r, Event)])
+    subjects = subject_infos(db, [r for r in rows if isinstance(r, Event)], ctx.entitlement)
     # The detail shape includes the proposal's grid interconnection point (docs/21 §3.24), batched
     # for the page; its register's licence must allow API redistribution, like every other field.
     points = proposal_point_embeds(
@@ -216,7 +247,7 @@ def bulk_response(request: Request, db: Session, ctx: AuthContext, resource: Res
             if (lic := event_licence_row(row)) is not None:
                 licence_rows.append(lic)
         else:
-            line = _record_line(row, redactions, licence_rows)
+            line = _record_line(row, redactions, licence_rows, ctx.entitlement)
             if isinstance(row, Proposal):
                 line["interconnection_point"] = points[row.id]
             lines.append(line)

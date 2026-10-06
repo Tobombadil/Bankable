@@ -52,6 +52,8 @@ sources:
   license: 'CAISO Terms of Use (rev. 2025-05-14), retrieved 2026-09-12 — "No material or information from this Website ... may be copied, reproduced, republished ... except (i) as authorized in these Terms of Use"; and "may be used by you provided that you keep intact all copyright ... notices and that you credit the California ISO"'
   reuse: attribution
   publication: derived_only
+  attribution: "Source: California ISO"
+  licence_url: "https://www.caiso.com/privacy-terms-of-use"
   tier: 1
   effort: S
   connector: gridstatus.CAISO.get_interconnection_queue
@@ -141,6 +143,7 @@ sources:
     means not intentionally made available"; data "as is", "for reference purposes only".
   reuse: open
   publication: raw_ok
+  attribution: "Source: Virginia Department of Environmental Quality"
   tier: 1
   effort: S
   probe: {method: GET, url: "https://gisdata.deq.virginia.gov/arcgis/rest/services/public/EDMA/MapServer/294?f=json"}
@@ -310,6 +313,8 @@ sources:
   license: 'NYISO Legal Notice, retrieved 2026-09-12 — only express prohibition is "Downloading, republishing, retransmitting, reproducing, or other use of any image or video on this website as a stand-alone file is strictly prohibited"; otherwise reserves rights; no assent clause; no data-reuse restriction'
   reuse: attribution
   publication: derived_only
+  attribution: "Source: NYISO"
+  licence_url: "https://www.nyiso.com/legal-notice"
   tier: 1
   effort: S
   connector: gridstatus.NYISO.get_interconnection_queue
@@ -1322,6 +1327,7 @@ sources:
     linking and privacy policy.
   reuse: noncommercial
   publication: raw_ok
+  licence_url: "https://www.rrc.texas.gov/site-policies/"
   tier: 3
   effort: M
   probe: {method: GET}
@@ -1464,6 +1470,7 @@ sources:
   license: 'RRC site policies (https://www.rrc.texas.gov/site-policies/, read 2026-09-25) — "Unless otherwise noted on an individual document, file, web page, or other website item, RRC grants permission to copy and distribute the information on its website for noncommercial use, as long as the content remains unaltered and is not presented in a misleading way." and "The RRC has no restrictions on linking to our website as long as a fee is not charged to access our material."'
   reuse: noncommercial
   publication: raw_ok
+  licence_url: "https://www.rrc.texas.gov/site-policies/"
   tier: 3
   effort: L
   probe: {method: GET}
@@ -2017,6 +2024,8 @@ sources:
   license: 'National Energy SO Open Data Licence v1.0 (based on OGL v3), retrieved 2026-09-12 — free to "exploit the Information commercially and non-commercially"; must "Acknowledge NESO as the source of the Information by including the following attribution statement: Supported by National Energy SO Open Data"'
   reuse: attribution
   publication: raw_ok
+  attribution: "Supported by National Energy SO Open Data"
+  licence_url: "https://www.neso.energy/data-portal/neso-open-licence"
   tier: 1
   effort: S
   probe: {method: GET}
@@ -2043,6 +2052,8 @@ sources:
   license: 'National Energy SO Open Data Licence v1.0 (identical to the TEC register''s own licence, docs/13-legal-data-rights.md §2.5 — this dataset''s own package_show confirms the same license_title/license_id/license_url); must "Acknowledge NESO as the source of the Information by including the following attribution statement: Supported by National Energy SO Open Data"'
   reuse: attribution
   publication: raw_ok
+  attribution: "Supported by National Energy SO Open Data"
+  licence_url: "https://www.neso.energy/data-portal/neso-open-licence"
   tier: 1
   effort: S
   probe: {method: GET}
@@ -2073,6 +2084,8 @@ sources:
   license: 'Open Government Licence v3.0 (docs/13-legal-data-rights.md §2.17; the Open Geography Portal item''s own licenseInfo points at https://www.ons.gov.uk/methodology/geography/licences, which states ONS material may be re-used "whether commercially or privately … freely without a specific application for a licence", and the dataset''s user guide repeats the OGL v3 grant); attribution required: "Source: Office for National Statistics licensed under the Open Government Licence v3.0" and "Contains OS data © Crown copyright and database right 2024"'
   reuse: attribution
   publication: raw_ok
+  attribution: "Source: Office for National Statistics licensed under the Open Government Licence v3.0. Contains OS data © Crown copyright and database right 2024"
+  licence_url: "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/"
   tier: 1
   effort: S
   probe: {method: GET, url: "https://www.arcgis.com/sharing/rest/content/items/208d9884575647c29f0dd5a1184e711a?f=json"}
@@ -2101,6 +2114,8 @@ sources:
   license: OGL v3
   reuse: attribution
   publication: raw_ok
+  attribution: "Contains public sector information licensed under the Open Government Licence v3.0."
+  licence_url: "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/"
   tier: 2
   effort: M
   probe: {method: GET}
@@ -2119,6 +2134,8 @@ sources:
   license: OGL v3
   reuse: attribution
   publication: raw_ok
+  attribution: "Contains public sector information licensed under the Open Government Licence v3.0."
+  licence_url: "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/"
   tier: 1
   effort: S
   probe: {method: GET, url: "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages?updatedFrom=2026-09-10T00:00:00"}
@@ -2137,6 +2154,7 @@ sources:
   license: 'TED legal notice (Copyright notice), retrieved 2026-09-12 — "Unless otherwise noted, the procurement notices published in the Supplement to the Official Journal of the European Union can be freely reused, for commercial or non-commercial purposes" (Decision 2011/833/EU); editorial content CC BY 4.0; system metadata CC0 1.0'
   reuse: attribution
   publication: raw_ok
+  licence_url: "https://ted.europa.eu/en/legal-notice"
   tier: 1
   effort: S
   probe: {method: POST, body: '{"query":"classification-cpv=09* AND publication-date>=20260901","limit":3,"fields":["publication-number","notice-title"]}'}
@@ -2175,6 +2193,7 @@ sources:
   license: EU reuse policy
   reuse: attribution
   publication: raw_ok
+  licence_url_pending: "terms URL not recorded in docs/13; no connector yet; record it when the terms are read before ingest"
   tier: 2
   effort: S
 
@@ -2191,6 +2210,7 @@ sources:
   license: dl-de/by-2-0 (Datenlizenz Deutschland – Namensnennung)
   reuse: attribution
   publication: raw_ok
+  licence_url_pending: "terms URL not recorded in docs/13; no connector yet; record it when the terms are read before ingest"
   tier: 2
   effort: S
   connector: open-mastr (OpenEnergyPlatform)
@@ -2261,6 +2281,7 @@ sources:
   license: Open Government Licence – Canada
   reuse: attribution
   publication: raw_ok
+  licence_url_pending: "terms URL not recorded in docs/13; no connector yet; record it when the terms are read before ingest"
   tier: 2
   effort: S
   probe: {method: GET}
@@ -2279,6 +2300,7 @@ sources:
   license: AEMO terms (attribution, non-modification)
   reuse: attribution
   publication: derived_only
+  licence_url_pending: "terms URL not recorded in docs/13; no connector yet; record it when the terms are read before ingest"
   tier: 2
   effort: M
   probe: {method: GET}
@@ -2298,6 +2320,7 @@ sources:
   license: CC BY 4.0
   reuse: attribution
   publication: raw_ok
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
   tier: 3
   effort: S
   probe: {method: GET}
@@ -2368,6 +2391,7 @@ sources:
   license: 'FactPages "Use of content" (https://factpages.sodir.no/, read 2026-09-25): "The content on the FactPages may be used in accordance with Norwegian Licence for Open Government Data (NLOD). In this context we emphasize that there may be limitations with respect to the use of information subject to third party rights, such as reports, core images and logs etc." NLOD text itself (data.norge.no/nlod/en) not yet read.'
   reuse: attribution
   publication: derived_only
+  licence_url: "https://factpages.sodir.no/"
   tier: 3
   effort: M
   probe: {method: GET}
@@ -2437,6 +2461,9 @@ sources:
   license: World Bank Open Data (CC BY 4.0)
   reuse: attribution
   publication: raw_ok
+  attribution: "Source: The World Bank, Procurement Notices, licensed under CC BY 4.0"
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  changes_statement: "Modified by Infraque: notices mapped to the platform's opportunity fields (status, dates, amounts normalised); not endorsed by the World Bank."
   tier: 1
   effort: S
   probe: {method: GET, url: "https://search.worldbank.org/api/v2/procnotices?format=json&rows=2"}
@@ -2455,6 +2482,9 @@ sources:
   license: CC BY 4.0
   reuse: attribution
   publication: raw_ok
+  attribution: "Source: The World Bank, Projects & Operations, licensed under CC BY 4.0"
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  changes_statement: "Modified by Infraque: projects mapped to the platform's record fields; not endorsed by the World Bank."
   tier: 2
   effort: S
 
@@ -2491,6 +2521,7 @@ sources:
   license: 'GEM Download Data page, retrieved 2026-09-12 — "When the data set is being shared or adapted and our Creative Commons CC BY 4.0 International license applies, please read the license for attribution requirements"; records carrying a TZ ID are "Distributed under a Creative Commons Attribution-Non-Commercial 4.0 International License (CC BY-NC 4.0)"'
   reuse: attribution
   publication: raw_ok
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
   tier: 1
   effort: S
   probe: {method: GET}
@@ -2529,6 +2560,7 @@ sources:
   license: 'No licence statement on the dataset page (retrieved 2026-09-20, HTTP 200) — the page gives only "The recommended citation is ''Global Energy Ownership Tracker, Global Energy Monitor, August 2026 release.''" and a site footer "© 2026 Global Energy Monitor All Rights Reserved". CC BY 4.0 is named only by the download gate: GEM''s download component renders a required checkbox "I have reviewed and understand Global Energy Monitor''s Creative Commons Public License" and records licence "Creative Commons Attribution 4.0 International (CC BY 4.0)" (https://api.globalenergymonitor.org/static/gem-download-form.bundle.js, retrieved 2026-09-20), linking https://globalenergymonitor.org/creative-commons-license, which is the verbatim CC BY 4.0 text and scopes itself to no dataset. In-file notice unread: it sits behind a registration wall this lane did not pass.'
   reuse: attribution
   publication: derived_only
+  licence_url: "https://globalenergymonitor.org/creative-commons-license"
   tier: 3
   effort: M
   probe: {method: GET}
@@ -2654,6 +2686,7 @@ sources:
   license: GDELT open (attribution); article text is third-party copyright
   reuse: attribution
   publication: derived_only
+  licence_url_pending: "terms URL not recorded in docs/13; no connector yet; record it when the terms are read before ingest"
   tier: 2
   effort: S
   probe: {method: GET, url: "https://api.gdeltproject.org/api/v2/doc/doc?query=%22battery%20storage%22%20%22interconnection%22&mode=artlist&maxrecords=3&format=json&timespan=3d"}
@@ -2672,6 +2705,7 @@ sources:
   license: 'SEC "Accessing EDGAR Data" (read 2026-09-25): "Anyone can access and download this information for free"; "Current max request rate: 10 requests/second"; "The SEC does not allow botnets or automated tools to crawl the site. Any request that has been identified as part of a botnet or an automated tool outside of the acceptable policy will be managed to ensure fair access for all users."; "Please declare your user agent in request headers". Filing text is authored by the registrant, not the SEC.'
   reuse: attribution
   publication: derived_only
+  licence_url_pending: "terms URL not recorded in docs/13; no connector yet; record it when the terms are read before ingest"
   tier: 2
   effort: S
   rate_limit_rps: 1
@@ -3207,6 +3241,7 @@ sources:
   license: 'US federal work — public domain (17 U.S.C. §105): the geography summaries are FCC-compiled aggregates of provider availability filings. Not retrieved (every fcc.gov and broadbandmap.fcc.gov page, including robots.txt, answered HTTP 403 Akamai "Access Denied" to this egress on 2026-09-28): the National Broadband Map terms of use and the disclaimer the FCC shows before issuing an API token (a clickwrap the account holder accepts). The location-level Broadband Serviceable Location Fabric behind total_units is licensed by CostQuest (FCC public notice DA 25-1080, quoted in docs/25 §4) and is never fetched or stored here; only the FCC''s published county aggregates are. Suggested credit: "Source: FCC National Broadband Map, Broadband Data Collection (<filing>)"; not endorsed by the FCC'
   reuse: open
   publication: derived_only
+  attribution: "Source: FCC National Broadband Map, Broadband Data Collection"
   tier: 2
   effort: M
   connector: pipeline/context/fcc_bdc.py
@@ -3302,6 +3337,9 @@ sources:
   license: 'CC BY 4.0 — dataset page https://data.openei.org/submissions/8742 (retrieved 2026-09-28, HTTP 200) links "License" to https://creativecommons.org/licenses/by/4.0/; LBNL''s own DCAT record harvested to catalog.data.gov (identifier https://data.openei.org/submissions/8742, publisher Lawrence Berkeley National Laboratory, modified 2026-09-22T15:29:54Z) states "license": "https://creativecommons.org/licenses/by/4.0/", "accessLevel": "public". Underlying geometry is DHS HIFLD (US government works per DHS''s data.gov record, see us.dhs.hifld.transmission_lines) and FERC Form 1 (federal filings). Credit: Yin, R., Nait Belaid, Y., & Heleno, M. (2026). A Harmonized Geospatial Dataset of U.S. Transmission Lines: Linking FERC Form 1 and HIFLD, 1994-2024. Lawrence Berkeley National Laboratory, OEDI. CC BY 4.0; changes: HIFLD-side fields only, FERC-side fields dropped, names title-cased, coordinates rounded to 6 dp'
   reuse: attribution
   publication: raw_ok
+  attribution: "Yin, Nait Belaid & Heleno (2026), Lawrence Berkeley National Laboratory, OEDI, CC BY 4.0: A Harmonized Geospatial Dataset of U.S. Transmission Lines: Linking FERC Form 1 and HIFLD, 1994-2024"
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  changes_statement: "Modified by Infraque: HIFLD-side fields only, names re-cased, coordinates rounded."
   tier: 2
   effort: S
   probe: {method: GET}

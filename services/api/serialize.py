@@ -10,6 +10,7 @@ hand-duplicating the same schema in Pydantic.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from typing import Any
 
 from services.api.common import TERMS_URL, WEB_HOST, iso, utcnow
@@ -214,6 +215,13 @@ def build_list_envelope(
 
 
 # --------------------------------------------------------------------------------- provenance
+def source_credit(source: Source) -> str:
+    """The one credit line for `source` on every surface (2026-10-06, L-2/L-10): an operator's
+    per-source override, else the licence's credit (the manifest's `attribution` verbatim, plus
+    its statement of changes), else the source's name. Never prefixed by the caller."""
+    return source.attribution_text or source.licence.attribution_text or source.name
+
+
 def licence_summary_row(source: Source, licence: Licence, retrieved_at: dt.datetime | None) -> dict[str, Any]:
     return {
         "source_id": source.id,
@@ -283,7 +291,9 @@ def serialize_organization_summary(org: Organization) -> dict[str, Any]:
     }
 
 
-def visible_organization_summary(org: Organization | None) -> dict[str, Any] | None:
+def visible_organization_summary(
+    org: Organization | None, entitlement: str = "public"
+) -> dict[str, Any] | None:
     """The `sponsor`/`issuer` embed on a public surface: `None` when there is no organisation
     *and* when there is one the public tier may not see (`organization.publish_state` other
     than `public`, migration 0022). The edge is dropped rather than rendered with the name
@@ -291,9 +301,17 @@ def visible_organization_summary(org: Organization | None) -> dict[str, Any] | N
     (`services/api/admin_records.py`) re-embeds the summary unconditionally."""
     from services.api.visibility import organization_visible
 
-    if org is None or not organization_visible(org):
+    if org is None or not organization_visible(org, entitlement):
         return None
     return serialize_organization_summary(org)
+
+
+def _embedded_organization(org: Organization | None, entitlement: str, admin: bool) -> dict[str, Any] | None:
+    """The sponsor/issuer embed: on a served view the organisation was already judged by
+    `GatedRecord`, so it is not asked again; the admin row is judged here as before."""
+    if admin:
+        return visible_organization_summary(org, entitlement)
+    return serialize_organization_summary(org) if org is not None else None
 
 
 def serialize_location(loc: Location) -> dict[str, Any]:
@@ -345,16 +363,49 @@ def location_redactions(record_public_id: str, loc: Location | None) -> list[dic
     ]
 
 
-def serialize_proposal(
-    proposal: Proposal, *, sources: list[ProposalSource] | None = None, entitlement: str = "public"
-) -> dict[str, Any]:
-    """`sources` is the caller's own link list and is printed as given (the admin detail passes
-    every active link, ungated). Left out, the `provenance` array is the links `entitlement` may
-    see -- a link to a gated source is omitted, not greyed (docs/21 §8 item 3;
-    `services/api/visibility.py::visible_source_links`)."""
-    if sources is None:
-        from services.api.visibility import visible_source_links
+def record_redactions(record: Proposal | Opportunity, entitlement: str = "public") -> list[dict[str, Any]]:
+    """`redactions[]` for one served record: its licence-downgraded location
+    (`location_redactions`, on the location the tier may see) and each raw field withheld because
+    the source that supplies it is derived-only (docs/21 §8; reason `licence`). A field re-derived
+    because its provenance source is hidden is *not* listed: naming that source here would be the
+    disclosure the Sources panel already withholds (docs/21 §8 item 3)."""
+    from services.api.visibility import GatedRecord, gated_record
 
+    view = gated_record(record, entitlement)
+    out = location_redactions(view.public_id, view.location)
+    if isinstance(view, GatedRecord):
+        for field, source_id in sorted(view.raw_withheld().items()):
+            out.append(
+                {
+                    "public_id": view.public_id,
+                    "field": field,
+                    "reason": "licence",
+                    "source_id": source_id,
+                    "note": "raw source value withheld under the source licence; derived fields only",
+                }
+            )
+    return out
+
+
+def serialize_proposal(
+    proposal: Proposal,
+    *,
+    sources: list[ProposalSource] | None = None,
+    entitlement: str = "public",
+    admin: bool = False,
+    link_ok: Callable[[Source], bool] | None = None,
+) -> dict[str, Any]:
+    """Every non-admin caller gets the record's served view
+    (`services/api/visibility.py::GatedRecord`): each field from a source `entitlement` may read
+    (and `link_ok` admits, for bulk), raw fields withheld under a derived-only licence, the
+    `provenance` array the readable links -- a link to a gated source is omitted, not greyed
+    (docs/21 §8 item 3) -- and `source_count` over those links. `admin=True` (the admin detail
+    and intake views) prints the stored row with `sources` exactly as given."""
+    from services.api.visibility import gated_proposal, visible_source_links
+
+    if not admin:
+        proposal = gated_proposal(proposal, entitlement, link_ok)
+    if sources is None:
         sources = visible_source_links(proposal.sources, entitlement)
     out: dict[str, Any] = {
         "public_id": proposal.public_id,
@@ -362,7 +413,8 @@ def serialize_proposal(
         "url": f"{WEB_HOST}/proposals/{proposal.slug}",
         "kind": proposal.kind,
         "name_canonical": proposal.name_canonical,
-        "sponsor": visible_organization_summary(proposal.sponsor),
+        # The served view's `sponsor` is already `None` unless `organization_visible` admits it.
+        "sponsor": _embedded_organization(proposal.sponsor, entitlement, admin),
         "technology": proposal.technology,
         "technology_raw": proposal.technology_raw,
         "capacity_mw": float(proposal.capacity_mw) if proposal.capacity_mw is not None else None,
@@ -393,20 +445,27 @@ def serialize_proposal(
 
 
 def serialize_opportunity(
-    opportunity: Opportunity, *, sources: list[OpportunitySource] | None = None, entitlement: str = "public"
+    opportunity: Opportunity,
+    *,
+    sources: list[OpportunitySource] | None = None,
+    entitlement: str = "public",
+    admin: bool = False,
+    link_ok: Callable[[Source], bool] | None = None,
 ) -> dict[str, Any]:
-    """As `serialize_proposal`: `sources` given is printed as given; left out, only the links
-    `entitlement` may see."""
-    if sources is None:
-        from services.api.visibility import visible_source_links
+    """As `serialize_proposal`: the served view unless `admin`, and `sources` given is printed
+    as given."""
+    from services.api.visibility import gated_opportunity, visible_source_links
 
+    if not admin:
+        opportunity = gated_opportunity(opportunity, entitlement, link_ok)
+    if sources is None:
         sources = visible_source_links(opportunity.sources, entitlement)
     return {
         "public_id": opportunity.public_id,
         "slug": opportunity.slug,
         "url": f"{WEB_HOST}/opportunities/{opportunity.slug}",
         "kind": opportunity.kind,
-        "issuer": visible_organization_summary(opportunity.issuer),
+        "issuer": _embedded_organization(opportunity.issuer, entitlement, admin),
         "title": opportunity.title,
         "summary": opportunity.summary,
         "jurisdiction": opportunity.jurisdiction,

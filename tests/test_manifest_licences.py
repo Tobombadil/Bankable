@@ -238,6 +238,7 @@ def test_noncommercial_register_class_admits_noncommercial_reuse_raw_ok(tmp_path
         - id: t.noncommercial
           reuse: noncommercial
           publication: raw_ok
+          licence_url: https://example.org/terms
         """,
     )
     assert check(manifest, register) == []
@@ -279,3 +280,118 @@ def test_only_the_named_sources_are_noncommercial() -> None:
         "us.tx.rrc.class_vi",
         "us.tx.rrc.datasets",
     ]
+
+
+# ------------------------------------------------- R5/R6: mandated credits and licence links (L-2)
+_CREDIT_REGISTER = textwrap.dedent(
+    """\
+    ## 6. Per-source publication matrix
+
+    | `source_id` | Class | Publication rule | Evidence | Confidence |
+    |---|---|---|---|---|
+    | `t.exact` | open-attribution | raw-ok + exact string "Supported by Test SO Open Data" | q | high |
+    | `t.credit` | attribution-restricted | derived-only + credit "Test ISO" | q | high |
+    | `t.ccby` | open-attribution | raw-ok + credit "Doe, CC BY 4.0" and a statement of changes | q | h |
+    | `t.filing` | public-domain | derived-only: credit "Source: Test Map (<filing>)" | q | high |
+    """
+)
+
+
+def _credit_check(tmp_path: pathlib.Path, manifest_yaml: str) -> list[str]:
+    manifest = tmp_path / "sources.yaml"
+    manifest.write_text("version: 2026-10-06\nsources:\n" + textwrap.dedent(manifest_yaml), encoding="utf-8")
+    register = tmp_path / "13.md"
+    register.write_text(_CREDIT_REGISTER, encoding="utf-8")
+    return check(manifest, register)
+
+
+def test_a_mandated_exact_credit_must_be_carried_verbatim(tmp_path: pathlib.Path) -> None:
+    """NESO's licence ends automatically unless its exact statement is shown (docs/13 §2.5)."""
+    missing = _credit_check(
+        tmp_path,
+        """\
+        - id: t.exact
+          reuse: attribution
+          publication: raw_ok
+          licence_url: https://example.org/licence
+          attribution: "Source: Test System Operator"
+        """,
+    )
+    assert any("t.exact" in p and "(R5)" in p for p in missing), missing
+    carried = _credit_check(
+        tmp_path,
+        """\
+        - id: t.exact
+          reuse: attribution
+          publication: raw_ok
+          licence_url: https://example.org/licence
+          attribution: "Supported by Test SO Open Data"
+        """,
+    )
+    assert carried == []
+
+
+def test_a_named_credit_must_appear_and_a_statement_of_changes_must_exist(tmp_path: pathlib.Path) -> None:
+    problems = _credit_check(
+        tmp_path,
+        """\
+        - id: t.credit
+          reuse: attribution
+          publication: derived_only
+          licence_url: https://example.org/terms
+        - id: t.ccby
+          reuse: attribution
+          publication: raw_ok
+          licence_url: https://creativecommons.org/licenses/by/4.0/
+          attribution: "Doe, CC BY 4.0"
+        """,
+    )
+    assert any(p.startswith("t.credit:") and "(R5)" in p for p in problems), problems
+    assert any(p.startswith("t.ccby:") and "statement of changes" in p for p in problems), problems
+    fixed = _credit_check(
+        tmp_path,
+        """\
+        - id: t.credit
+          reuse: attribution
+          publication: derived_only
+          licence_url: https://example.org/terms
+          attribution: "Source: Test ISO"
+        - id: t.ccby
+          reuse: attribution
+          publication: raw_ok
+          licence_url: https://creativecommons.org/licenses/by/4.0/
+          attribution: "Doe, CC BY 4.0"
+          changes_statement: "Modified: fields renamed."
+        - id: t.filing
+          reuse: open
+          publication: derived_only
+          attribution: "Source: Test Map"
+        """,
+    )
+    assert fixed == [], fixed  # a `(<placeholder>)` in the register's credit is optional
+
+
+def test_an_attribution_source_must_link_its_licence_unless_pending_without_a_connector(
+    tmp_path: pathlib.Path,
+) -> None:
+    problems = _credit_check(
+        tmp_path,
+        """\
+        - id: t.credit
+          reuse: attribution
+          publication: derived_only
+          attribution: "Source: Test ISO"
+        """,
+    )
+    assert any(p.startswith("t.credit:") and "(R6)" in p for p in problems), problems
+    pending = _credit_check(
+        tmp_path,
+        """\
+        - id: t.credit
+          reuse: attribution
+          publication: derived_only
+          attribution: "Source: Test ISO"
+          licence_url_pending: "terms not yet read"
+        """,
+    )
+    assert pending == []

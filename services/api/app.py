@@ -49,11 +49,14 @@ from services.api.serialize import (
     serialize_organization,
     serialize_proposal,
     serialize_source,
+    source_credit,
 )
 from services.api.slippage import SLIP_BUCKET_MAX_DAYS, SLIP_GRACE_DAYS
 from services.api.visibility import (
     event_public_filter,
     event_visibility_filter,
+    gated_opportunity,
+    gated_proposal,
     opportunity_public_filter,
     opportunity_visibility_filter,
     organization_visibility_filter,
@@ -539,7 +542,7 @@ def list_events(
         limit=limit,
         instance=request.url.path,
     )
-    data = [serialize_event(e, **_subject_info(db, e)) for e in rows]
+    data = [serialize_event(e, **_subject_info(db, e, ctx.entitlement)) for e in rows]
     # `meta.lag_days` is a completeness claim about the feed, not about the rows that happened to
     # land on this page. Since 2026-09-21 it is `0` on every tier including the public one: the
     # ISO change-event delay is gone (owner; `services/ingest/lag.py`), so there is no withheld
@@ -570,7 +573,7 @@ def get_event(
     ev = db.scalar(select(Event).where(Event.id == event_uuid, *event_visibility_filter(ctx.entitlement)))
     if ev is None:
         raise not_found(request.url.path)
-    data = serialize_event(ev, **_subject_info(db, ev))
+    data = serialize_event(ev, **_subject_info(db, ev, ctx.entitlement))
     # `0` on every tier: an event is public when it is published (owner, 2026-09-21).
     meta = build_meta(lag_days=0, tier=ctx.entitlement)
     row = event_licence_row(ev)
@@ -997,9 +1000,10 @@ def feed_proposals(format: str, request: Request, db: Session = Depends(get_db))
     stmt = _proposal_query_with_filters(request)
     proposals = list(db.scalars(stmt.order_by(Proposal.last_changed.desc()).limit(50)).all())
     items = []
-    for p in proposals:
-        # The credited source is one the public tier may see (docs/21 §8 item 3), never the first
-        # active link whatever its licence.
+    for p in map(gated_proposal, proposals):
+        # The item is the record's served view (`visibility.GatedRecord`): no field from a source
+        # the public tier may not read. The credited source is one the public tier may see
+        # (docs/21 §8 item 3), never the first active link whatever its licence.
         source_row = next(iter(visible_source_links(p.sources)), None)
         items.append(
             {
@@ -1007,9 +1011,7 @@ def feed_proposals(format: str, request: Request, db: Session = Depends(get_db))
                 "url": f"{WEB_HOST}/proposals/{p.slug}",
                 "guid": p.public_id,
                 "pub_date": p.public_at,
-                "creator": (source_row.source.attribution_text or source_row.source.name)
-                if source_row
-                else "the platform",
+                "creator": source_credit(source_row.source) if source_row else "the platform",
                 "categories": [p.lifecycle_state, p.kind],
                 "description": f"{p.name_canonical}: {p.lifecycle_state} ({p.jurisdiction}).",
                 "platform_ext": {
@@ -1036,7 +1038,7 @@ def feed_opportunities(format: str, request: Request, db: Session = Depends(get_
     stmt = _opportunity_query_with_filters(request, db)
     items_rows = list(db.scalars(stmt.order_by(Opportunity.last_changed.desc()).limit(50)).all())
     items = []
-    for o in items_rows:
+    for o in map(gated_opportunity, items_rows):
         source_row = next(iter(visible_source_links(o.sources)), None)
         items.append(
             {
@@ -1044,9 +1046,7 @@ def feed_opportunities(format: str, request: Request, db: Session = Depends(get_
                 "url": f"{WEB_HOST}/opportunities/{o.slug}",
                 "guid": o.public_id,
                 "pub_date": o.public_at,
-                "creator": (source_row.source.attribution_text or source_row.source.name)
-                if source_row
-                else "the platform",
+                "creator": source_credit(source_row.source) if source_row else "the platform",
                 "categories": [o.status, o.kind],
                 "description": f"{o.title}: {o.status} ({o.jurisdiction}).",
                 "platform_ext": {
@@ -1087,14 +1087,14 @@ def feed_events(format: str, request: Request, db: Session = Depends(get_db)) ->
     rows = list(db.scalars(stmt.order_by(Event.seq.desc()).limit(50)).all())
     items = []
     for e in rows:
-        info = _subject_info(db, e)
+        info = _subject_info(db, e, "public")
         items.append(
             {
                 "title": f"{info['subject_name']}: {e.event_type}",
                 "url": info["subject_url"],
                 "guid": _event_public_id_for(e),
                 "pub_date": e.public_at,
-                "creator": e.source.attribution_text or e.source.name if e.source else "the platform",
+                "creator": source_credit(e.source) if e.source else "the platform",
                 "categories": [e.event_type, e.subject_type],
                 "description": f"{info['subject_name']}: {e.event_type}",
                 "platform_ext": {

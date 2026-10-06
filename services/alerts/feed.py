@@ -26,8 +26,8 @@ from sqlalchemy.orm import Session
 from services.alerts.visibility import event_with_visible_subject_filter
 from services.api.common import WEB_HOST
 from services.api.feeds import event_provenance, link_provenance
-from services.api.serialize import build_licence_summary, licence_summary_row
-from services.api.visibility import visible_source_links
+from services.api.serialize import build_licence_summary, licence_summary_row, source_credit
+from services.api.visibility import gated_opportunity, gated_proposal, visible_source_links
 from services.db.models import Account, Event, Opportunity, Proposal, SavedSearch
 
 from .matching import event_matches_query, matches_query
@@ -91,7 +91,9 @@ def _visibility_for(model: type[Proposal] | type[Opportunity], account: Account)
 def _proposal_feed_item(p: Proposal, entitlement: str) -> dict[str, Any]:
     """`entitlement` is the feed owner's (a Pro account still sees `api_only` links): the credited
     source and the `licence_summary` list only links that tier may read (docs/21 §8 item 3;
-    `services/api/visibility.py::visible_source_links`)."""
+    `services/api/visibility.py::visible_source_links`), and every field is the record's served
+    view at that tier (`services/api/visibility.py::GatedRecord`)."""
+    p = gated_proposal(p, entitlement)
     links = visible_source_links(p.sources, entitlement)
     source_row = links[0] if links else None
     return {
@@ -99,9 +101,7 @@ def _proposal_feed_item(p: Proposal, entitlement: str) -> dict[str, Any]:
         "url": f"{WEB_HOST}/proposals/{p.slug}",
         "guid": p.public_id,
         "pub_date": p.published_at or p.last_changed,
-        "creator": (source_row.source.attribution_text or source_row.source.name)
-        if source_row
-        else "the platform",
+        "creator": source_credit(source_row.source) if source_row else "the platform",
         "categories": [p.lifecycle_state, p.kind],
         "description": f"{p.name_canonical}: {p.lifecycle_state} ({p.jurisdiction}).",
         "platform_ext": {
@@ -121,7 +121,8 @@ def _proposal_feed_item(p: Proposal, entitlement: str) -> dict[str, Any]:
 
 
 def _opportunity_feed_item(o: Opportunity, entitlement: str) -> dict[str, Any]:
-    """As `_proposal_feed_item`: only the links the owner's tier may read."""
+    """As `_proposal_feed_item`: only the links the owner's tier may read, and served values."""
+    o = gated_opportunity(o, entitlement)
     links = visible_source_links(o.sources, entitlement)
     source_row = links[0] if links else None
     return {
@@ -129,9 +130,7 @@ def _opportunity_feed_item(o: Opportunity, entitlement: str) -> dict[str, Any]:
         "url": f"{WEB_HOST}/opportunities/{o.slug}",
         "guid": o.public_id,
         "pub_date": o.published_at or o.last_changed,
-        "creator": (source_row.source.attribution_text or source_row.source.name)
-        if source_row
-        else "the platform",
+        "creator": source_credit(source_row.source) if source_row else "the platform",
         "categories": [o.status, o.kind],
         "description": f"{o.title}: {o.status} ({o.jurisdiction}).",
         "platform_ext": {
@@ -156,7 +155,7 @@ def _event_feed_item(e: Event) -> dict[str, Any]:
         "url": WEB_HOST,
         "guid": str(e.id),
         "pub_date": e.published_at or e.observed_at,
-        "creator": e.source.attribution_text or e.source.name if e.source else "the platform",
+        "creator": source_credit(e.source) if e.source else "the platform",
         "categories": [e.event_type, e.subject_type],
         "description": f"{e.subject_type}: {e.event_type}",
         "platform_ext": {

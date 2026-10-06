@@ -338,6 +338,57 @@ def _drop_select_basis(canonical: Proposal, source_ids: Sequence[str]) -> bool:
     return True
 
 
+#: Keys under the merge event's `before.surviving` / `after.surviving` for the admin overrides the
+#: merge carried from the absorbed record onto the survivor (2026-10-06, L-1). `before` holds the
+#: survivor's own value of each such column, so unmerge restores it exactly.
+OVERRIDES_CARRIED_KEY = "overrides_carried"
+#: An override key that names something other than a same-named column (`admin_records.py`).
+_OVERRIDE_COLUMNS = {"location": "location_id"}
+
+
+def _override_column(key: str) -> str | None:
+    column = _OVERRIDE_COLUMNS.get(key, key)
+    return column if column in Proposal.__mapper__.columns else None
+
+
+def _carry_overrides(canonical: Proposal, absorbed: Proposal) -> dict[str, Any]:
+    """Pin the absorbed record's admin overrides onto the survivor where the survivor has none of
+    its own for that field, and return `{key: survivor's previous column value}` (JSON-safe).
+
+    An override is a human decision about the real-world project both rows describe (docs/21
+    §6.4); a correction or a privacy redaction made on the row that loses the merge must not be
+    undone by the merge (L-1 of the 2026-09-30 legal audit: "a deletion that a later crawl silently
+    undoes is not a deletion", docs/13 §5.4 rule 6). The survivor's own overrides win. The column
+    takes the absorbed row's value, which is the override's value."""
+    mine = dict(canonical.overrides or {})
+    carried: dict[str, Any] = {}
+    for key, entry in (absorbed.overrides or {}).items():
+        column = _override_column(key)
+        if key in mine or column is None:
+            continue
+        carried[key] = _json_safe(getattr(canonical, column))
+        setattr(canonical, column, getattr(absorbed, column))
+        mine[key] = entry
+    if carried:
+        canonical.overrides = mine  # reassigned so the JSON column is marked dirty
+    return carried
+
+
+def _uncarry_overrides(canonical: Proposal, carried: dict[str, Any]) -> bool:
+    """Undo `_carry_overrides` from the merge event's own payload: drop each carried key from the
+    survivor's overrides and restore its column."""
+    if not carried:
+        return False
+    overrides = dict(canonical.overrides or {})
+    for key, before in carried.items():
+        column = _override_column(key)
+        overrides.pop(key, None)
+        if column is not None:
+            restore_row(canonical, {column: before})
+    canonical.overrides = overrides
+    return True
+
+
 def merge_proposal(
     session: Session,
     *,
@@ -394,7 +445,13 @@ def merge_proposal(
 
     absorbed.merged_into_id = canonical.id
     absorbed.publish_state = "unpublished"
-    basis_added = _carry_select_basis(canonical, absorbed)
+    # An admin override of `identifiers` on the survivor pins the whole value (docs/21 §6.4).
+    basis_added = (
+        {} if "identifiers" in (canonical.overrides or {}) else _carry_select_basis(canonical, absorbed)
+    )
+    overrides_carried = _carry_overrides(canonical, absorbed)
+    if overrides_carried:
+        before_payload["surviving"][OVERRIDES_CARRIED_KEY] = overrides_carried
 
     after_payload: dict[str, Any] = {
         "surviving": {
@@ -407,6 +464,9 @@ def merge_proposal(
     if basis_added:
         after_payload["surviving"][SELECT_BASIS_ADDED_KEY] = basis_added
         changed_keys.append("identifiers")
+    if overrides_carried:
+        after_payload["surviving"][OVERRIDES_CARRIED_KEY] = sorted(overrides_carried)
+        changed_keys.extend(k for k in sorted(overrides_carried) if k not in changed_keys)
 
     event = Event(
         subject_type="proposal",
@@ -476,6 +536,9 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
     changed_keys = ["merged_into_id"]
     if _drop_select_basis(canonical, list(basis_added)):
         changed_keys.append("identifiers")
+    carried = surviving.get(OVERRIDES_CARRIED_KEY) or {}
+    if _uncarry_overrides(canonical, carried):
+        changed_keys.extend(k for k in sorted(carried) if k not in changed_keys)
 
     event = Event(
         subject_type="proposal",

@@ -31,11 +31,14 @@ licence_name, reuse_class, attribution_text`; the file opens with a `#` comment 
 licence summary (one line per source present) and the attribution line. A multi-source record is
 one row whose provenance columns come from its first active source link whose licence permits
 bulk export (`services/api/resource_queries.py::redistributable_link`), with `source_count` saying
-how many links it has -- one row per record keeps the row cap meaning "records" -- and every
-active source the record draws on is credited in the header block. A record with no such link is
-not exported at all: its row would have no provenance to print (CLAUDE.md: never a record without
-it). Event rows carry the event's own quartet; their `before`/`after` are the same values
-`GET /v1/events` serves. Tier visibility is `services/api/visibility.py`'s
+how many links the tier may see -- one row per record keeps the row cap meaning "records". Every
+derived column is the record's served view narrowed to bulk-exportable sources
+(`services/api/visibility.py::GatedRecord`, 2026-10-06): no value comes from a source the tier may
+not read or whose licence does not permit bulk export, raw columns are empty under a derived-only
+licence, and exactly the sources that supply the row are credited in the header block. A record
+with no such link is not exported at all: its row would have no provenance to print (CLAUDE.md:
+never a record without it). Event rows carry the event's own quartet; their `before`/`after` are
+the same values `GET /v1/events` serves. Tier visibility is `services/api/visibility.py`'s
 own predicate, reached through the list endpoints' filter functions; nothing here re-states it.
 
 **Logged per user** (US-603 AC3, metric M-6): the `export` row itself (`user_id`, `api_key_id`,
@@ -93,6 +96,7 @@ from services.api.serialize import (
     build_page,
     licence_summary_row,
 )
+from services.api.visibility import gated_record
 from services.db.models import (
     Event,
     Export,
@@ -101,6 +105,7 @@ from services.db.models import (
     Proposal,
     ProposalSource,
     SavedSearch,
+    Source,
     User,
 )
 from services.ids import public_id
@@ -134,6 +139,10 @@ def export_path(object_key: str) -> pathlib.Path:
 
 
 # ------------------------------------------------------------------------------------ columns
+def _bulk_exportable(source: Source) -> bool:
+    return bool(source.licence.allows_bulk_export)
+
+
 def _num(value: Any) -> Any:
     return float(value) if value is not None else None
 
@@ -421,7 +430,7 @@ def _write_csv(export: Export, db: Session, rows_iter: Any, columns: list[str]) 
     licence_rows: list[dict[str, Any]] = []
     count = 0
     rows = list(rows_iter)
-    subjects = subject_infos(db, rows) if resource == "event" else {}
+    subjects = subject_infos(db, rows, export.tier) if resource == "event" else {}
     for row in rows:
         if count >= export.row_cap:
             export.truncated = True
@@ -432,16 +441,18 @@ def _write_csv(export: Export, db: Session, rows_iter: Any, columns: list[str]) 
             if lic is not None:
                 licence_rows.append(lic)
         else:
-            derived = _proposal_row(row) if resource == "proposal" else _opportunity_row(row)
+            # The record's served view at the export's tier, narrowed to sources whose licence
+            # permits bulk export (`services/api/visibility.py::GatedRecord`, 2026-10-06): every
+            # derived column comes from such a source, and only those sources are credited. A
+            # source the tier may not read is neither printed nor credited (docs/21 §8 items 3-5).
+            view = gated_record(row, export.tier, _bulk_exportable)
+            derived = _proposal_row(view) if resource == "proposal" else _opportunity_row(view)
             prov, _lic = _provenance_columns_for_link(
-                redistributable_link(list(row.sources), "allows_bulk_export")
+                redistributable_link(list(view.sources), "allows_bulk_export")
             )
-            # Every active source the record draws on is credited, not only the one printed on
-            # the row: a source without `allows_bulk_export` still contributes derived columns.
             licence_rows.extend(
                 licence_summary_row(link.source, link.source.licence, link.retrieved_at)
-                for link in row.sources
-                if link.active
+                for link in view.sources
             )
         writer.writerow([*(derived[c] for c in columns), *(prov[c] for c in PROVENANCE_COLUMNS)])
         count += 1

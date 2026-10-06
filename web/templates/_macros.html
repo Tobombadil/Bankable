@@ -48,7 +48,11 @@
 {%- endmacro %}
 
 {% macro attribution_line(record) -%}
-<p class="attribution-line">Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text or record.source_name }}</a>{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved <span class="tnum">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown' }}</span>.</p>
+{#- The licence's credit line is printed verbatim, never prefixed: it already says "Source: ..."
+    where it is the generic line, and a mandated statement (NESO's "Supported by National Energy SO
+    Open Data") must appear exactly as written (2026-10-06, L-2/L-10). Only the bare source name
+    takes the "Source:" label. -#}
+<p class="attribution-line">{% if record.attribution_text %}<a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text }}</a>{% else %}Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.source_name }}</a>{% endif %}{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved <span class="tnum">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown' }}</span>.</p>
 {%- endmacro %}
 
 {% macro section_heading(number, text, id=None) -%}
@@ -90,6 +94,7 @@
           <span class="provenance-panel__licence reuse-badge">{{ row.reuse_class }}</span>
           <span class="provenance-panel__date tnum">retrieved {{ row.retrieved_at[:10] if row.retrieved_at else 'unknown' }}</span>
         </summary>
+        {% if row.attribution_text %}<p class="provenance-panel__credit">{{ row.attribution_text }}{% if row.licence_url %} &middot; <a href="{{ row.licence_url }}" rel="noopener nofollow">licence</a>{% endif %}</p>{% endif %}
         <p class="provenance-panel__quote">{{ row.licence_quote }}</p>
         {% if not row.allows_raw -%}
         <p class="provenance-panel__note">Derived fields only; the raw source row is withheld under licence.</p>
