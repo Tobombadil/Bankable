@@ -24,6 +24,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 from starlette.middleware.gzip import GZipMiddleware
 
+from pipeline.connectors.opportunity import OPPORTUNITY_TECHNOLOGIES
 from services.api.alert_plan import free_alerts_summary
 from services.api.auth import AuthContext, get_auth_context, meter_credentialed_request
 from services.api.build_info import build_info, data_as_of
@@ -869,6 +870,8 @@ def get_vocabularies(db: Session = Depends(get_db)) -> Any:
         "lifecycle_state": _vocab(LIFECYCLE_STATE_VALUES),
         "opportunity_kind": _vocab(OPPORTUNITY_KIND_VALUES),
         "opportunity_status": _vocab(OPPORTUNITY_STATUS_VALUES),
+        # The tokens opportunities carry, which are not the proposal `technology` tokens.
+        "opportunity_technology": _vocab(list(OPPORTUNITY_TECHNOLOGIES)),
         "event_type": _vocab(EVENT_TYPE_VALUES),
         "organization_type": _vocab(ORGANIZATION_TYPE_VALUES),
         "reuse_class": _vocab(REUSE_CLASS_VALUES),

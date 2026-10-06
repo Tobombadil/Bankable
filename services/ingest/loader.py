@@ -1053,7 +1053,11 @@ def _opportunity_fields_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def re_split(value: str) -> list[str]:
-    return [v.strip() for v in value.replace(";", ",").split(",")]
+    """A stored list from a frame's string cell. `|` is the separator the opportunity connectors
+    write (`pipeline.connectors.opportunity.technologies_str`); `,` and `;` are kept for older
+    frames. Before 2026-10-06 `|` was not split, so 72 stored rows held one joined element such
+    as `solar_pv|nuclear` that no technology filter matched (audit 2026-09-30, frontend F2)."""
+    return [v.strip() for v in value.replace(";", ",").replace("|", ",").split(",")]
 
 
 def _jsonable(value: Any) -> Any:

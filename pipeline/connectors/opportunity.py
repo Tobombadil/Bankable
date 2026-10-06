@@ -30,6 +30,7 @@ TECH_KEYWORDS: list[tuple[str, str]] = [
     (r"battery|\bbess\b|energy storage|stockage|batter[iy]|magazyn", "bess"),
     (r"pumped[\s-]*storage|pumped hydro", "pumped_storage"),
     (r"hydro(?:electric|power)?\b|hydraul|wasserkraft", "hydro"),
+    (r"\btidal\b|wave energy|marine energy|hydrokinetic", "marine"),
     (r"nuclear|nucléaire|nucleare|jądrow|kernkraft|\bsmr\b", "nuclear"),
     (r"hydrogen|hydrogène|wasserstoff|wodor|electrolys", "hydrogen"),
     (r"geotherm|géotherm", "geothermal"),
@@ -47,6 +48,13 @@ TECH_KEYWORDS: list[tuple[str, str]] = [
     (r"microgrid|mini[\s-]grid|off[\s-]grid|rural electrification", "microgrid"),
     (r"smart meter|metering|\bami\b", "metering"),
 ]
+
+#: Every technology token an opportunity can carry, in rule order: the vocabulary the opportunity
+#: technology filter offers (`GET /v1/meta/vocabularies` `opportunity_technology`). It is not the
+#: proposal vocabulary (`pipeline.normalize.TECH_RULES`): opportunities say `solar_pv`, `bess`,
+#: `gas`, `heat`, ... and the opportunities page used to offer the proposal tokens, which match no
+#: tagged notice (audit 2026-09-30, frontend F2).
+OPPORTUNITY_TECHNOLOGIES: tuple[str, ...] = tuple(dict.fromkeys(token for _, token in TECH_KEYWORDS))
 
 # ISO 3166-1 alpha-3 -> alpha-2 for the buyer countries TED and MDB notices use.
 ISO3_TO_ISO2: dict[str, str] = {
@@ -148,6 +156,39 @@ def deadline_passed(due: pd.Timestamp | None, now: dt.datetime) -> str:
     if due is None:
         return ""
     return "yes" if due < pd.Timestamp(now).tz_convert("UTC") else "no"
+
+
+#: `status_rule` of a row `close_past_deadline` moved from `open` to `closed`.
+DEADLINE_PASSED_RULE = "opportunity.deadline_passed"
+
+
+def close_past_deadline(df: pd.DataFrame, now: dt.datetime) -> tuple[pd.DataFrame, int]:
+    """Every `open` row whose `due_at` is before `now` becomes `closed` (docs/21 §7.2: "open -->
+    closed: deadline passed"; `closed` is "deadline passed, outcome unknown"), with `status_rule`
+    `DEADLINE_PASSED_RULE`. Returns the frame and how many rows moved.
+
+    Each connector already applies this at fetch time through its status map's refine rule (TED
+    `ted.competition_deadline_passed`, Find a Tender, World Bank, grants.gov). The runner applies it
+    again to the whole frame at the run's `retrieved_at`, because an incremental source carries
+    earlier rows forward unchanged: a notice fetched while open and never re-fetched stayed `open`
+    after its deadline (audit 2026-09-30: 90 of 405 stored `open` notices had a past `due_at`)."""
+    if "status" not in df.columns or "due_at" not in df.columns or not len(df):
+        return df, 0
+    due = pd.to_datetime(df["due_at"], errors="coerce", utc=True)
+    cutoff = pd.Timestamp(now)
+    cutoff = cutoff.tz_localize("UTC") if cutoff.tzinfo is None else cutoff.tz_convert("UTC")
+    moved = (df["status"].astype("string") == "open").fillna(False).to_numpy() & (due < cutoff).fillna(
+        False
+    ).to_numpy()
+    if not moved.any():
+        return df, 0
+    out = df.copy()
+    out["status"] = out["status"].astype("object")
+    out.loc[moved, "status"] = "closed"
+    if "status_rule" in out.columns:
+        out["status_rule"] = out["status_rule"].astype("object")
+        out.loc[moved, "status_rule"] = DEADLINE_PASSED_RULE
+    return out, int(moved.sum())
 
 
 def technologies_str(tokens: list[str]) -> str:

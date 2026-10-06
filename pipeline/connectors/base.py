@@ -297,6 +297,14 @@ class Connector:
         are diffed as they are."""
         return None
 
+    def restate_capacity(self, df: pd.DataFrame) -> pd.Series | None:
+        """`capacity_mw` for each row of a previously stored normalised frame of this source,
+        recomputed from the row's own `raw` payload under the *current* capacity rule
+        (index-aligned with `df`; null where the row cannot be read). Same purpose as
+        `restate_status`: a corrected derivation is restated before the diff, so it is never
+        published as a `capacity_change`. Default None: nothing to restate."""
+        return None
+
     def redact(self, content: bytes) -> bytes:
         """Strip contact identifiers before the snapshot is stored; default: nothing to strip."""
         return content

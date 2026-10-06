@@ -51,6 +51,7 @@ rules:
       wind: [wind, wind_offshore, wind_onshore, wind_storage]
       gas: [gas, gas_cc, gas_ct, gas_steam, gas_ice, gas_other, natural_gas]
       hydro: [hydro, pumped_storage]
+      marine: [marine]
       nuclear: [nuclear]
       geothermal: [geothermal]
       biomass: [biomass, waste, biogas, rng]

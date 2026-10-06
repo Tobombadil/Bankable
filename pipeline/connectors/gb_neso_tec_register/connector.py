@@ -7,6 +7,17 @@ source_record_id: `<Project ID>/<Stage>` where the project is split into MW stag
 have 2–5 stage rows with different effective dates), else `<Project ID>/<hash>` over the capacity,
 effective date and status of the row — one project (a0l4L0000005im7QAA, VPI Immingham) files a
 built row and an unstaged future increase under the same id, so the project id alone is not a key.
+capacity_mw: the row's own MW, `MW Connected` + `MW Increase / Decrease` (`stage_capacity_mw`). The
+register's `Cumulative Total Capacity (MW)` is the project's running total up to that row, so using
+it on every stage counted earlier stages again: on the 2026-09-13 register the 267 rows of the 123
+multi-row projects summed to 136,499 MW against 85,292 MW real, and all of NESO to 731,514 MW
+against 680,307 MW (audit 2026-09-30, data scientist F3). Per row, connected + increase equals the
+cumulative figure on all 1,931 single-row projects, and summed over a project's rows it equals the
+project's largest cumulative figure on all 123 multi-row projects to within 0.01 MW (three differ by
+exactly 0.01 MW, the source's own rounding). The
+cumulative figure is kept as its own attribute in `raw` (`Cumulative Total Capacity (MW)`), and
+`restate_capacity` restates a stored frame under this rule so the correction is not published as
+capacity changes.
 Reuse: NESO Open Data Licence v1.0 — attribution "Supported by National Energy SO Open Data".
 """
 
@@ -15,6 +26,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import json
 import pathlib
 import time
 from typing import Any, ClassVar
@@ -54,9 +66,15 @@ class Connector(BaseConnector):
         "Project Name",
         "Project Status",
         "Plant Type",
+        "MW Connected",
+        "MW Increase / Decrease",
         "Cumulative Total Capacity (MW)",
         "MW Effective From",
     )
+
+    def restate_capacity(self, df: pd.DataFrame) -> pd.Series | None:
+        """`capacity_mw` of a stored frame recomputed from each row's own `raw` (base contract)."""
+        return pd.Series([stage_capacity_mw(_raw_row(v)) for v in df["raw"]], index=df.index, dtype="Float64")
 
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()
@@ -112,10 +130,7 @@ class Connector(BaseConnector):
             f"{pid}/{st}" if st else f"{pid}/{_row_hash(r)}"
             for pid, st, r in zip(g("Project ID"), stage, rows, strict=True)
         ]
-        cap = [
-            to_float(c) or to_float(i)
-            for c, i in zip(g("Cumulative Total Capacity (MW)"), g("MW Increase / Decrease"), strict=True)
-        ]
+        cap = [stage_capacity_mw(r) for r in rows]
         df = pd.DataFrame(
             {
                 "source_record_id": srid,
@@ -146,6 +161,31 @@ class Connector(BaseConnector):
             }
         )
         return self.finalize(df, rows, raw)
+
+
+def stage_capacity_mw(row: dict[str, Any]) -> float | None:
+    """The MW this row itself adds: `MW Connected` + `MW Increase / Decrease` (module docstring).
+
+    Not `Cumulative Total Capacity (MW)`, which repeats every earlier stage of the project, and not
+    the increase alone, which is 0 on a built stage (Arecleoch stage 1: 114 MW connected, +0).
+    Falls back to the cumulative figure only when the row states neither component. A row whose
+    net is negative (a stage that only reduces TEC) has no capacity of its own: None."""
+    connected = to_float(row.get("MW Connected"))
+    increase = to_float(row.get("MW Increase / Decrease"))
+    if connected is None and increase is None:
+        return to_float(row.get("Cumulative Total Capacity (MW)"))
+    mw = (connected or 0.0) + (increase or 0.0)
+    return round(mw, 3) if mw >= 0 else None
+
+
+def _raw_row(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _row_hash(row: dict[str, Any]) -> str:

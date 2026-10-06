@@ -1,0 +1,80 @@
+# EPA ICIS-Air facilities the data-centre selection rule keeps but that are NOT data centres.
+#
+# WHAT THIS FILE DOES
+#   `services/resolve/suppress.py::apply_suppressions`, run by the scheduler's resolution step
+#   (`infra/scheduler/jobs.py::default_resolve`, also run by `web.dev_up`), sets every proposal
+#   whose only active sources are the ICIS-Air records listed here to `publish_state =
+#   unpublished` and records an `unpublished` event (actor `pipeline`, reason from `reason` below,
+#   before/after publish state). Nothing is deleted: the connector still selects the row, the
+#   source link and its raw payload stay, and an admin can re-publish the record from the records
+#   page, which this step then respects (the event's idempotency key is never written twice). A
+#   proposal that another source also supports (a Virginia DEQ data centre merged with its ICIS
+#   record) is left published and reported, because the other source's claim is independent.
+#
+# WHY A LIST AND NOT A RULE
+#   The residual false positives of the `naics_518210` basis are corporate offices and campuses
+#   with an IT room coded 518210 (docs/25 §3.7). No rule separates them from real data centres:
+#   pollutant class, NAICS co-codes and status do not (measured, docs/25 §3.7). So each one is
+#   suppressed by hand, by FRS registry id, with the evidence written next to it.
+#
+# WHAT GOES IN
+#   Only a facility verified as not a data centre: the docs/25 §3.7 hand-check (final-rule sample
+#   and the Virginia DEQ cross-check) or a cited public record. Not "looks like an office".
+#   Keyed by `registry_id` (FRS REGISTRY_ID), which survives a re-padded or re-prefixed ICIS
+#   programme id; `pgm_sys_id` and `name` are recorded only so a reader can find the row.
+#
+# NOT LISTED (checked 2026-10-06: contested or unverified, so left published)
+#   NORTHROP GRUMMAN SERVICES CORPORATION, 12900 Federal Systems Park Dr, Fairfax VA
+#     (110040757730): docs/25 §3.7's hand-check judged it an office, but Virginia DEQ's own register
+#     flags it as a data centre (`PLA_DATA_CENTER_YN`, DEQ site 73813, merged with this ICIS record
+#     in the dev store). The regulator's flag is independent evidence, so it is not suppressed.
+#   DEERE & CO, 400 19th St, Moline IL (110003050723): the audit names it, but the docs/25
+#     reference to Deere is about the 541513 basis and this row is 518210; no public record found
+#     says what the site is (Deere's headquarters is One John Deere Place).
+#   NORTHROP GRUMMAN SYSTEMS CORPORATION, 7575 Colshire Dr, McLean VA (110042260905): not in the
+#     hand-checked samples.
+#   NORTHROP GRUMMAN SYSTEMS CORPORATION, 201 Technology Park Drive, Lebanon VA (110031257315):
+#     not in the samples; Northrop ran a Commonwealth of Virginia data centre in Lebanon, so this
+#     one may well be a data centre.
+#
+# Reviewed 2026-10-06 (lane W1 of the 2026-09-30 audit fixes, data scientist F8).
+
+source_id: us.epa.echo.icis_air
+reviewed: 2026-10-06
+suppressed:
+  - registry_id: "110040513496"
+    pgm_sys_id: VA0000005105901033
+    name: IBM DULLES STATION WEST
+    place: 2300 Dulles Station Blvd, Herndon VA
+    reason: >-
+      Office building with a data-centre room on two floors, not a data centre (docs/25 §3.7, citing
+      https://www.stantec.com/en/projects/united-states-projects/i/ibm-dulles-station-west); not
+      flagged by Virginia DEQ's own data-centre flag.
+  - registry_id: "110043433219"
+    pgm_sys_id: VA0000005105901055
+    name: NORTHROP GRUMMAN SYSTEMS CORPORATION
+    place: 2980 Fairview Park Dr, Falls Church VA
+    reason: >-
+      Corporate office, judged not a data centre in the docs/25 §3.7 final-rule hand-check and the
+      Virginia DEQ cross-check ("Northrop Grumman Falls Church are offices").
+  - registry_id: "110059984744"
+    pgm_sys_id: PA000731579
+    name: US LIABILITY INS GROUP/WAYNE
+    place: 190 S Warner Rd, Wayne PA
+    reason: >-
+      Insurance company office, judged not a data centre in the docs/25 §3.7 final-rule hand-check.
+  - registry_id: "110035370504"
+    pgm_sys_id: TX0000004843901735
+    name: CONCORDANCE HEALTHCARE SOLUTIONS
+    place: 801 Industrial Blvd, Grapevine TX
+    reason: >-
+      Medical-supply distributor, judged not a data centre in the docs/25 §3.7 final-rule
+      hand-check.
+  - registry_id: "110054888298"
+    pgm_sys_id: MI00000000000N5505
+    name: FCA US LLC
+    place: 1035 W Entrance Dr, Auburn Hills MI
+    reason: >-
+      Automaker's office and technical-centre site (Stellantis North America's Auburn Hills
+      campus; Michigan EGLE source N5505), judged not a data centre in the docs/25 §3.7 final-rule
+      hand-check.

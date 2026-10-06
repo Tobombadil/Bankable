@@ -108,6 +108,7 @@ NON_EMITTING_TECHNOLOGIES = frozenset(
         "wind_offshore",
         "hydro",
         "pumped_storage",
+        "marine",
         "storage",
         "solar_storage",
         "nuclear",

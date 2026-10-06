@@ -28,6 +28,17 @@ payload (`Connector.restate_status`), so the diff sees only what the source chan
 map places differently are counted on the run record (`reclassified`) and as an `info` DQ check
 (`status_reclassified`, persisted on `source_run.dq`), and emit no `status_change` event; the
 loader then writes the corrected state onto the stored record as an ordinary field update.
+An opportunity's `open` is re-evaluated against its `due_at` at every run (2026-10-06, audit
+2026-09-30 data engineer F4 / market M-7): after an incremental source's earlier rows are carried
+forward, every `open` row whose deadline is before this run's `retrieved_at` becomes `closed`
+(`pipeline.connectors.opportunity.close_past_deadline`, docs/21 §7.2). That is a real lifecycle
+change, so the diff publishes it as a `status_change` (loaded as a `closed` event), and the run
+records an `info` check (`deadline_closed`).
+
+A capacity-rule correction is handled like a status-map correction (2026-10-06, NESO stages): a connector
+that implements `Connector.restate_capacity` has the previous frame's `capacity_mw` recomputed from
+`raw` before the diff, the moved rows are counted as `reclassified.capacity_rows` and an `info`
+check (`capacity_restated`), and no `capacity_change` event is emitted for them.
 
 `release_held` is the other way a run's output reaches `normalized/`: an operator accepted a
 data-quality hold (`POST /admin/v1/source-runs/{run_id}/release`), so the held frame is diffed
@@ -47,6 +58,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from pipeline.connectors.base import (
@@ -61,9 +73,10 @@ from pipeline.connectors.dedupe import align_previous_keys
 from pipeline.connectors.dq import Check, DQResult, run_gates
 from pipeline.connectors.http import HttpBlocked, HttpFailed, PoliteSession
 from pipeline.connectors.objectstore import StoreError
+from pipeline.connectors.opportunity import close_past_deadline
 from pipeline.connectors.registry import Registry
 from pipeline.connectors.store import QuarantineStore, Store, open_store, ts_token
-from pipeline.diff import EVENT_TYPES, diff_snapshots
+from pipeline.diff import CAP_ABS_MW, CAP_REL, EVENT_TYPES, diff_snapshots
 
 log = logging.getLogger("pipeline.connectors")
 
@@ -112,22 +125,27 @@ def _discard(st: Store, paths: list[pathlib.Path], source_id: str, run_id: str) 
 
 
 def _restate_previous(connector: Connector, prev_df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """The previous snapshot as the current status map reads it (`Connector.restate_status`), and
-    the reclassification summary for the run record: how many stored rows change state, by
-    `before->after` transition. Diffing against the restated frame is what keeps a status-map
-    correction from being published as a real-world `status_change` (module docstring)."""
+    """The previous snapshot as the current status map and capacity rule read it
+    (`Connector.restate_status`, `Connector.restate_capacity`), and the reclassification summary
+    for the run record: how many stored rows change state, by `before->after` transition, and how
+    many change `capacity_mw` (`capacity_rows`). Diffing against the restated frame is what keeps a
+    mapping correction from being published as a real-world `status_change` or `capacity_change`
+    (module docstring)."""
     summary: dict[str, Any] = {"rows": 0, "transitions": {}}
-    if "lifecycle_state" not in prev_df.columns:
-        return prev_df, summary
-    restated = connector.restate_status(prev_df)
+    out, capacity_rows = _restate_capacity(connector, prev_df)
+    if capacity_rows:
+        summary["capacity_rows"] = capacity_rows
+    if "lifecycle_state" not in out.columns:
+        return out, summary
+    restated = connector.restate_status(out)
     if restated is None:
-        return prev_df, summary
-    before = prev_df["lifecycle_state"].astype("string").fillna("").to_numpy()
+        return out, summary
+    before = out["lifecycle_state"].astype("string").fillna("").to_numpy()
     after = restated["lifecycle_state"].astype("string").fillna("").to_numpy()
     changed = before != after
     if not changed.any():
-        return prev_df, summary
-    out = prev_df.copy()
+        return out, summary
+    out = out.copy()
     out["lifecycle_state"] = out["lifecycle_state"].astype("object")
     out.loc[changed, "lifecycle_state"] = restated["lifecycle_state"].to_numpy()[changed]
     if "status_rule" in out.columns and "status_rule" in restated.columns:
@@ -135,12 +153,41 @@ def _restate_previous(connector: Connector, prev_df: pd.DataFrame) -> tuple[pd.D
         out.loc[changed, "status_rule"] = restated["status_rule"].to_numpy()[changed]
     pairs = pd.Series([f"{b}->{a}" for b, a in zip(before[changed], after[changed], strict=True)])
     transitions = {str(k): int(v) for k, v in pairs.value_counts().items()}
-    summary = {"rows": int(changed.sum()), "transitions": transitions}
+    summary["rows"] = int(changed.sum())
+    summary["transitions"] = transitions
     log.info(
         "previous snapshot restated under the current status map",
         extra={"source_id": connector.source_id, "rows": summary["rows"]},
     )
     return out, summary
+
+
+def _restate_capacity(connector: Connector, prev_df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """`prev_df` with `capacity_mw` recomputed by the connector's current capacity rule, and how
+    many rows the diff would otherwise have published as a `capacity_change`. A row the
+    restatement cannot read (null) keeps its stored value."""
+    if "capacity_mw" not in prev_df.columns or "raw" not in prev_df.columns:
+        return prev_df, 0
+    restated = connector.restate_capacity(prev_df)
+    if restated is None:
+        return prev_df, 0
+    before = pd.to_numeric(prev_df["capacity_mw"], errors="coerce").astype(float).to_numpy()
+    after = pd.to_numeric(restated, errors="coerce").astype(float).to_numpy()
+    after = np.where(np.isnan(after), before, after)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        delta = np.abs(after - before)
+        rel = delta / np.maximum(np.abs(before), np.abs(after))
+    moved = ((delta > CAP_ABS_MW) & (rel > CAP_REL)) | (np.isnan(before) ^ np.isnan(after))
+    if not moved.any():
+        return prev_df, 0
+    out = prev_df.copy()
+    out["capacity_mw"] = pd.array(after, dtype="Float64")
+    n = int(moved.sum())
+    log.info(
+        "previous snapshot restated under the current capacity rule",
+        extra={"source_id": connector.source_id, "rows": n},
+    )
+    return out, n
 
 
 def _reclassified_check(summary: dict[str, Any]) -> Check:
@@ -150,6 +197,25 @@ def _reclassified_check(summary: dict[str, Any]) -> Check:
         f"{summary['rows']} stored rows restated under the current status map; no status_change "
         "events emitted for them",
         {"rows": summary["rows"], "transitions": summary["transitions"]},
+    )
+
+
+def _capacity_restated_check(rows: int) -> Check:
+    return Check(
+        "capacity_restated",
+        "info",
+        f"{rows} stored rows restated under the current capacity rule; no capacity_change events "
+        "emitted for them",
+        {"rows": rows},
+    )
+
+
+def _deadline_closed_check(rows: int) -> Check:
+    return Check(
+        "deadline_closed",
+        "info",
+        f"{rows} open opportunities past their due_at at this run's retrieval time set to closed",
+        {"rows": rows},
     )
 
 
@@ -338,6 +404,10 @@ def run(
     if connector.snapshot_mode == "incremental" and prev_df is not None:
         keep = prev_df[~prev_df["record_id"].isin(df["record_id"])]
         df = pd.concat([keep[df.columns.intersection(keep.columns)], df], ignore_index=True)
+    deadline_closed = 0
+    if connector.kind == "opportunity":
+        # Carried-forward rows were last evaluated when they were fetched (module docstring).
+        df, deadline_closed = close_past_deadline(df, snap.retrieved_at)
     record["rows_seen"] = len(df)
     record["snapshot"]["previous_run_id"] = prev_run_id
 
@@ -354,6 +424,10 @@ def run(
     )
     if record["rows_reclassified"]:
         dq.checks.append(_reclassified_check(record["reclassified"]))
+    if deadline_closed:
+        dq.checks.append(_deadline_closed_check(deadline_closed))
+    if record.get("reclassified", {}).get("capacity_rows"):
+        dq.checks.append(_capacity_restated_check(record["reclassified"]["capacity_rows"]))
     result.dq = dq
     record["dq_status"] = dq.dq_status
     record["dq"] = dq.to_dict()

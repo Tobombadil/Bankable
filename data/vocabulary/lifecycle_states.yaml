@@ -155,9 +155,11 @@ opportunity_statuses:
     excludes: >-
       Eligibility is not checked. An open notice may be closed to most readers.
     uncertainty: >-
-      "Deadline has not passed" is evaluated against the deadline the source publishes, at the
-      time the row was normalised. A notice whose deadline passes between two of our runs stays
-      open until the next run.
+      "Deadline has not passed" is evaluated against the deadline the source publishes, at each
+      run of the notice's source: every stored open notice of that source whose deadline is before
+      the run's retrieval time becomes closed, including notices an incremental source carries
+      forward without fetching them again.
+      A notice whose deadline passes between two runs stays open until the next run.
 
   frozen:
     definition: >-

@@ -672,8 +672,6 @@ def resolve_tick_job(
 
 
 def default_resolve(session_factory: Any, *, data_root: Path | None = None) -> dict[str, Any]:
-    import pandas as pd
-
     from services.db.session import session_scope
 
     resolve_organizations = _load_fn("services.resolve.merge", "resolve_organizations")
@@ -683,30 +681,43 @@ def default_resolve(session_factory: Any, *, data_root: Path | None = None) -> d
         "proposal_clusters": 0,
         "proposals_merged": 0,
         "decisions_proposed": 0,
+        "proposals_suppressed": 0,
     }
     with session_scope(session_factory) as session:
         org_report = resolve_organizations(session, norm_org)
         report["organizations_merged"] = int(getattr(org_report, "merged", 0) or 0)
         frames = _latest_proposal_frames(data_root)
-        if not frames:
-            return report
-        resolve_run = _load_fn("pipeline.resolve", "run")
-        report_mod = importlib.import_module("services.resolve.report")
-        merge_mod = importlib.import_module("services.resolve.merge")
-        df = pd.concat(frames, ignore_index=True)
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "normalized.parquet"
-            df.to_parquet(path, index=False)
-            matches, clusters = resolve_run(merge_mod.MERGE_SCORE_THRESHOLD, path)
-        loaded_sources = {str(s): str(s) for s in df["source_id"].unique()}
-        link_index = report_mod.build_link_index(session)
-        members, edges = report_mod.build_clusters(df, matches, clusters, loaded_sources, link_index)
-        multi = {k: v for k, v in members.items() if len(v) >= 2}
-        applications = report_mod.apply_all_clusters(session, multi, edges)
-        report["proposal_clusters"] = len(multi)
-        report["proposals_merged"] = sum(a.members_merged for a in applications if a.action == "merged")
-        report["decisions_proposed"] = sum(len(a.decisions) for a in applications if a.action == "proposed")
+        if frames:
+            report.update(_resolve_proposal_clusters(session, frames))
+    # Reviewed suppressions (services/resolve/suppress.py) act on the merged store, so they run last.
+    with session_scope(session_factory) as session:
+        suppressed = _load_fn("services.resolve.suppress", "apply_suppressions")(session)
+        report["proposals_suppressed"] = len(suppressed.unpublished)
     return report
+
+
+def _resolve_proposal_clusters(session: Any, frames: list[Any]) -> dict[str, int]:
+    """Proposal clusters over the latest frames, through the confidence gate (`default_resolve`)."""
+    import pandas as pd
+
+    resolve_run = _load_fn("pipeline.resolve", "run")
+    report_mod = importlib.import_module("services.resolve.report")
+    merge_mod = importlib.import_module("services.resolve.merge")
+    df = pd.concat(frames, ignore_index=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "normalized.parquet"
+        df.to_parquet(path, index=False)
+        matches, clusters = resolve_run(merge_mod.MERGE_SCORE_THRESHOLD, path)
+    loaded_sources = {str(s): str(s) for s in df["source_id"].unique()}
+    link_index = report_mod.build_link_index(session)
+    members, edges = report_mod.build_clusters(df, matches, clusters, loaded_sources, link_index)
+    multi = {k: v for k, v in members.items() if len(v) >= 2}
+    applications = report_mod.apply_all_clusters(session, multi, edges)
+    return {
+        "proposal_clusters": len(multi),
+        "proposals_merged": sum(a.members_merged for a in applications if a.action == "merged"),
+        "decisions_proposed": sum(len(a.decisions) for a in applications if a.action == "proposed"),
+    }
 
 
 def _latest_proposal_frames(data_root: Path | None, *, registry: Any = None) -> list[Any]:
