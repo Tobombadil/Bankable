@@ -157,7 +157,7 @@ def _client_seen_by_uvicorn(peer: str, forwarded_for: str) -> tuple[str, str]:
     async def app(scope: Any, receive: Any, send: Any) -> None:
         seen.append((scope["client"][0], scope["scheme"]))
 
-    middleware = ProxyHeadersMiddleware(app, trusted_hosts=entrypoint.forwarded_allow_ips())  # type: ignore[arg-type]
+    middleware = ProxyHeadersMiddleware(app, trusted_hosts=entrypoint.forwarded_allow_ips())
     scope = {
         "type": "http",
         "scheme": "http",
