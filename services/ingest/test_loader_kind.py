@@ -155,6 +155,12 @@ def test_every_implemented_connector_is_loaded_or_refused_by_its_declared_kind()
         if kind in ("proposal", "opportunity"):
             assert refusal is None, (source_id, refusal)
             assert loader.generic_load_kind(registry, source_id) == kind
+        elif source_id in loader.SPECIALISED_LOADERS:
+            # Loaded by its own loader (lane R1): queued, but never as proposals.
+            assert refusal is None, (source_id, refusal)
+            assert loader.specialised_loader(source_id) is not None
+            with pytest.raises(loader.KindRefused):
+                loader.generic_load_kind(registry, source_id)
         else:
             assert refusal and kind in refusal, (source_id, refusal)
             with pytest.raises(loader.KindRefused):

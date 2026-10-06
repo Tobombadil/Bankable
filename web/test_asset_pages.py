@@ -1469,7 +1469,9 @@ def test_asset_detail_rng_landfill_project_promotes_project_fields(web_client: T
     assert "Capacity (mmscfd)" not in rows and "Commissioned" not in rows
     # Header badge carries the family in words (D-5), not a hue.
     badge = body.split('<span class="reuse-badge">')[1].split("</span>")[0]
-    assert "RNG project" in badge and "Renewable natural gas" in badge and "operating" in badge
+    assert (
+        "RNG project" in badge and "Renewable natural gas" in badge and "Operating" in badge
+    )  # the status label, not the token (lane R1)
     # Unconsumed landfill numbers stay in the Attributes table.
     assert "landfill waste in place tons" in body and "5743184" in body
     assert "lfg flow to project mmscfd" not in body
@@ -1506,7 +1508,7 @@ def test_asset_detail_rng_digester_promotes_digester_type_feedstock_and_years(we
     assert rows["Biogas generation (est.)"] == "200,000 cu ft/day"
     assert rows["Feedstock"] == "Dairy (1,800 head)"  # from the herd counts; zero herds omitted
     assert rows["Start year"] == "1999" and rows["Shutdown year"] == "2005"
-    assert rows["Status"] == "retired"
+    assert rows["Status"] == "Retired"  # the status label, not the token (lane R1)
     assert "Project type" not in rows and "Host landfill" not in rows and "Operator" not in rows
     # Herd-count columns are consumed by the Feedstock row; the kWh figure is not, so it stays.
     assert ">dairy<" not in body and ">swine<" not in body

@@ -489,7 +489,35 @@ sources:
     Authoritative for planned units ≥1 MW with plant IDs — the spine for entity resolution against queue
     records. Also feeds the built-infrastructure context layer (`pipeline/context/eia_plants.py` →
     `built_plant`) from the same workbook's Operating sheet — read-only reuse of this entry's licence, no new
-    source id (2026-09-15).
+    source id (2026-09-15). 2026-10-06 (lane R1): the Operating and Retired sheets' generator rows are also
+    diffed run over run under their own id, `us.eia.860m.retirements`, so planned and actual retirements
+    become events.
+
+- id: us.eia.860m.retirements
+  name: EIA-860M Preliminary Monthly Electric Generator Inventory — Operating and Retired sheets (generator retirements, planned and actual)
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration
+  url: https://www.eia.gov/electricity/data/eia860m/
+  access: bulk_file
+  auth: none
+  format: xlsx (the us.eia.860m workbook; sheets "Operating" and "Retired", header on the third row)
+  cadence: monthly
+  license: 'US federal work — public domain; EIA reuse statement quoted in docs/13-legal-data-rights.md section 2.11'
+  reuse: open
+  publication: raw_ok
+  tier: 1
+  effort: S
+  rate_limit_rps: 1
+  connector: pipeline/connectors/us_eia_860m_retirements (direct xlsx parse; fetch shared with us.eia.860m)
+  probe: {method: GET}
+  verified: {date: 2026-10-06, result: ok, rows: 35701, note: 'lane R1 first live run 2026-10-06T19:21:29Z (python -m pipeline.connectors run us.eia.860m.retirements, scratch data root): index 200; december and october 2026 answered 200 with a 55,938-byte HTML placeholder; xls/august_generator2026.xlsx 200, 13,955,142 bytes, sha256 b4b70abb...9f1c, 4 requests. Operating 28,377 + Retired 7,324 generator records (12 Retired appendix rows with no Plant ID dropped), DQ pass, 0 unmapped statuses, 0 duplicate keys, 27.8 s. States: operating 25,625, standby 2,221, retiring 531, retired 7,324. First run: 0 events by construction. 10 sampled rows checked against the sheet cells, 10 match (docs/27 section R1.6)'}
+  notes: >-
+    Same workbook and terms as us.eia.860m; a separate id because its records are existing generators, not
+    proposals, and need their own run-over-run diff: a generator gaining, moving or losing a planned
+    retirement date, or moving to the Retired sheet, is an event on its power_plant asset
+    (services/ingest/retirements.py). Kind `document`, so the generic proposal loader refuses it; the
+    loader table in services/ingest/loader.py routes it to the retirement loader. See docs/27 section R1.
 
 - id: us.eia.api
   name: EIA Open Data API v2

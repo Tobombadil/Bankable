@@ -1558,6 +1558,14 @@ paths:
         `owners[]` edge recorded under such a licence is omitted from a visible asset. `q` matches name, operator
         name, or an owning/operating organisation's name; an operator name that names an organisation which is not
         public is neither printed (`operator_name: null`) nor matched.
+
+        **Retired and retiring plants** (lane R1, 2026-10-06). `power_plant` assets include plants whose every
+        generator has retired (EIA-860M's Retired sheet, 2002 onwards) as `status: retired`, and plants with at least
+        half their in-service nameplate MW scheduled to retire as `status: retiring`; one EIA plant id is one asset
+        whichever it is. `retirement_year` is the year a retired plant finished retiring, else the year its next unit
+        is scheduled to, else null, and `attributes.retirement` carries the units, MW by technology and dates.
+        `status=retired,retiring&retirement_year[gte]=2026&retirement_year[lte]=2030` lists what retired or will retire
+        in that window; a plant retiring a minority of its MW stays `operating` but still matches a year bound.
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -1573,6 +1581,9 @@ paths:
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/AssetOrganizationFilter'
         - $ref: '#/components/parameters/SlugFilter'
+        - $ref: '#/components/parameters/AssetStatusFilter'
+        - $ref: '#/components/parameters/RetirementYearGte'
+        - $ref: '#/components/parameters/RetirementYearLte'
       responses:
         '200':
           description: A page of assets inside the attribution envelope.
@@ -1645,6 +1656,7 @@ paths:
         - $ref: '#/components/parameters/IncludeSubsidiaries'
         - $ref: '#/components/parameters/AssetType'
         - $ref: '#/components/parameters/Technology'
+        - $ref: '#/components/parameters/AssetStatusFilter'
         - name: country
           in: query
           description: ISO 3166-1 alpha-2; comma-separated for OR.
@@ -1849,6 +1861,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NearbyProposalsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/assets/{public_id}/nearby-grid:
+    parameters:
+      - $ref: '#/components/parameters/AssetPublicId'
+    get:
+      operationId: getAssetNearbyGrid
+      tags: [Assets, Map]
+      summary: Transmission lines and interconnection points near this asset
+      description: >
+        The grid around a point asset (lane R1, 2026-10-06), for the powered-land question "what is this site connected
+        to?". `transmission_lines` are `transmission_line` assets (the LBNL FERC Form 1 subset, docs/25 §2: not the
+        whole grid) within `radius_km` of the asset's point, measured to the nearest point of each line.
+        `interconnection_points` are the points named by the exact-grade, publicly visible proposals within
+        `radius_km` (the `nearby-proposals` candidate set), with how many of them name each point and the nearest
+        one's distance; a point has no coordinates of its own, so this reads "queue requests near here connect at",
+        never a located substation. Nearest first, at most 10 of each. Empty, with a `redactions[]` row, for a line
+        asset, an asset with no point, or one whose geometry is withheld under its licence. `404` when the asset is
+        licence-gated.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-203]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/RadiusKm'
+      responses:
+        '200':
+          description: The nearby grid inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NearbyGridResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -6346,11 +6396,41 @@ components:
     SortAssets:
       name: sort
       in: query
-      description: 'Allowlist: `last_changed`, `first_seen`, `name`, `capacity_mw`; only the first field applies. Default `-last_changed`.'
+      description: 'Allowlist: `last_changed`, `first_seen`, `name`, `capacity_mw`, `retirement_year`; only the first field applies. Default `-last_changed`. Nulls sort last either way.'
       schema:
         type: string
-        pattern: '^-?(last_changed|first_seen|name|capacity_mw)(,-?(last_changed|first_seen|name|capacity_mw))*$'
+        pattern: '^-?(last_changed|first_seen|name|capacity_mw|retirement_year)(,-?(last_changed|first_seen|name|capacity_mw|retirement_year))*$'
         default: '-last_changed'
+    AssetStatusFilter:
+      name: status
+      in: query
+      description: >-
+        Asset status; comma-separated for OR (`status=retired,retiring` is the retired and retiring power plants).
+        An unknown value is a `400 validation_error`. No default: every status is returned unless this narrows it.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/AssetStatus'
+    RetirementYearGte:
+      name: 'retirement_year[gte]'
+      in: query
+      description: >-
+        Inclusive lower bound on `retirement_year` (1900-2100; otherwise `400`). An asset with no retirement year
+        (every non-plant, and every plant with no retired or scheduled unit) matches no bound.
+      schema:
+        type: integer
+        minimum: 1900
+        maximum: 2100
+    RetirementYearLte:
+      name: 'retirement_year[lte]'
+      in: query
+      description: Inclusive upper bound on `retirement_year`; same rules as `retirement_year[gte]`.
+      schema:
+        type: integer
+        minimum: 1900
+        maximum: 2100
     SortEvents:
       name: sort
       in: query
@@ -7934,8 +8014,11 @@ components:
         - refinery
     AssetStatus:
       type: string
-      description: The source's current operating status (docs/21 §3.22) — never a lifecycle.
-      enum: [operating, standby, retired, unknown]
+      description: >-
+        The source's current operating status (docs/21 §3.22) — never a lifecycle. `retiring` (lane R1, 2026-10-06):
+        still in service, with at least half of its in-service nameplate MW scheduled to retire on a date the owner
+        has reported to EIA; `retired`: every generator the plant had is on EIA-860M's Retired sheet.
+      enum: [operating, standby, retiring, retired, unknown]
     AssetOwnerRole:
       type: string
       enum: [owner, operator]
@@ -9751,6 +9834,9 @@ components:
           type: [integer, 'null']
         commissioned_year:
           type: [integer, 'null']
+        retirement_year:
+          type: [integer, 'null']
+          description: As on `Asset`; null for every asset with no retired or scheduled unit.
         state_code:
           type: [string, 'null']
         county_name:
@@ -10022,6 +10108,20 @@ components:
           type: [integer, 'null']
         unit_count:
           type: [integer, 'null']
+        retirement_year:
+          type: [integer, 'null']
+          description: >-
+            `power_plant` only (lane R1): the year a `retired` plant finished retiring, else the year its next unit is
+            scheduled to retire, else null. The units and dates are in `attributes.retirement`; the NERC region, grid
+            voltage and transmission owner EIA-860 states for the plant are in `attributes.grid`.
+        retirement_changes:
+          type: array
+          description: >-
+            Detail responses only. The plant's retirement news, newest first, at most 20: one row per change type per
+            monthly EIA-860M release, from the run-over-run diff of its generators (a first load writes none).
+            Empty for every other asset type.
+          items:
+            $ref: '#/components/schemas/AssetRetirementChange'
         attributes:
           type: object
           description: The type's objective feature set only (ADR 0008 §4) — no valuation, tariff or contract fields.
@@ -10370,6 +10470,105 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/Asset'
+    AssetRetirementChange:
+      type: object
+      required: [event_type, observed_at, units]
+      properties:
+        event_type:
+          type: string
+          enum: [retirement_planned, retirement_date_changed, retirement_cancelled, retired, returned_to_service]
+        observed_at:
+          type: string
+          format: date-time
+          description: When the EIA-860M release that showed the change was retrieved.
+        summary:
+          type: [string, 'null']
+          description: One plain sentence naming the units, MW and dates.
+        units:
+          type: array
+          items:
+            type: object
+            properties:
+              generator_id:
+                type: string
+              technology:
+                type: [string, 'null']
+              capacity_mw:
+                type: [number, 'null']
+              date_before:
+                type: [string, 'null']
+                description: '`YYYY-MM`; the previous retirement date where one moved or was withdrawn.'
+              date_after:
+                type: [string, 'null']
+                description: '`YYYY-MM` or `YYYY`, at the precision EIA states.'
+        capacity_mw:
+          type: [number, 'null']
+        plant_status:
+          oneOf:
+            - $ref: '#/components/schemas/AssetStatus'
+            - type: 'null'
+        provenance:
+          oneOf:
+            - $ref: '#/components/schemas/ProvenanceQuartet'
+            - type: 'null'
+    NearbyGrid:
+      type: object
+      required: [radius_km, transmission_lines, interconnection_points]
+      properties:
+        radius_km:
+          type: number
+        transmission_lines:
+          type: array
+          items:
+            type: object
+            required: [public_id, slug, url, name, distance_km]
+            properties:
+              public_id:
+                $ref: '#/components/schemas/AssetPublicId'
+              slug:
+                type: string
+              url:
+                type: string
+                format: uri
+              name:
+                type: string
+              voltage_kv:
+                type: [number, 'null']
+              distance_km:
+                type: number
+                minimum: 0
+        interconnection_points:
+          type: array
+          items:
+            type: object
+            required: [public_id, url, name, proposals_nearby, nearest_proposal_km]
+            properties:
+              public_id:
+                type: string
+              url:
+                type: string
+                format: uri
+              name:
+                type: string
+              iso:
+                type: string
+              kind:
+                type: string
+              voltage_kv:
+                type: [number, 'null']
+              proposals_nearby:
+                type: integer
+                minimum: 1
+              nearest_proposal_km:
+                type: number
+                minimum: 0
+    NearbyGridResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/NearbyGrid'
     NearbyProposalSummary:
       allOf:
         - $ref: '#/components/schemas/Proposal'

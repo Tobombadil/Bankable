@@ -33,6 +33,7 @@ from web.app import app as web_app
 from web.build_data import OPPORTUNITY_SOURCE_IDS
 from web.dev_up import _CONTEXT_ASSET_FILES, _ETHANOL_ATLAS_FILE, _ETHANOL_CAPACITY_FILE
 from web.page import _asset_extras, templates
+from web.retirement import ASSET_STATUS_LABELS
 from web.viewmodels import (
     ASSET_SOURCE_LABELS,
     OPPORTUNITY_SOURCE_LABELS,
@@ -285,7 +286,9 @@ def test_map_page_renders_the_python_technology_labels_for_map_js(web_client: Te
     body = web_client.get("/").text
     match = re.search(r'<script type="application/json" id="map-labels">(.*?)</script>', body, flags=re.S)
     assert match, "map page has no #map-labels"
-    assert json.loads(match.group(1)) == {"technology": TECHNOLOGY_LABELS}
+    # Lane R1 added the asset status words beside the technology ones.
+    expected = {"technology": TECHNOLOGY_LABELS, "asset_status": ASSET_STATUS_LABELS}
+    assert json.loads(match.group(1)) == expected
     assert TECHNOLOGY_LABELS["load"] == TECHNOLOGY_LOAD_LABEL
     assert technology_label("load") == TECHNOLOGY_LOAD_LABEL
     assert technology_label("solar") == "solar"

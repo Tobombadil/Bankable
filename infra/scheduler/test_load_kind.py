@@ -155,6 +155,8 @@ def test_a_released_hold_of_a_document_source_queues_no_load(monkeypatch: pytest
         ("us.ferc.elibrary", True),
         ("us.eia.860", True),
         ("us.epa.ghgrp", True),
+        # A document source with its own loader (lane R1): queued, loaded by services.ingest.retirements.
+        ("us.eia.860m.retirements", False),
         ("us.iso.ercot.gen_queue", False),
         ("eu.ted.api", False),
     ],

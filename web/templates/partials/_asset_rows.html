@@ -31,7 +31,7 @@
     {% for r in records %}
     <tr>
       <td data-label="Name">{% if r.slug %}<a class="row-link" href="/assets/{{ r.slug }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
-      <td data-label="Type">{{ r.type_label }}</td>
+      <td data-label="Type">{{ r.type_label }}{% if r.status in ('retired', 'retiring') %} <span class="row-status">({{ r.status_label | lower }}{% if r.retirement_year %} {{ r.retirement_year }}{% endif %})</span>{% endif %}</td>
       <td data-label="Technology">{{ r.technology_label or r.line_class or r.technology or '—' }}</td>
       <td data-label="Capacity" class="num tnum">
         {%- if r.capacity_mw is not none %}{{ '%.1f'|format(r.capacity_mw) }} MW

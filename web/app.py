@@ -355,7 +355,7 @@ def plants_geo_proxy(request: Request) -> JSONResponse:
 @app.get("/api/assets/geo")
 def assets_geo_proxy(request: Request) -> JSONResponse:
     """Same-origin proxy for `GET /v1/assets/geo` (ADR 0008): forwards `bbox`, `zoom`,
-    `asset_type`, `technology` only, no cookies -- `web/static/js/map.js`'s assets layer fetches
+    `asset_type`, `technology`, `status` only, no cookies -- `web/static/js/map.js`'s assets layer fetches
     this instead of `/api/context/plants/geo` (which stays, unchanged, as its own proxy for the
     `/v1/context/plants/geo` alias route)."""
     api = get_api(request)
@@ -368,6 +368,10 @@ def assets_geo_proxy(request: Request) -> JSONResponse:
         params["asset_type"] = qp["asset_type"]
     if qp.get("technology"):
         params["technology"] = qp["technology"]
+    # Lane R1: the map's existing-plants layer leaves retired plants out, and its "Retired &
+    # retiring plants" layer asks for exactly those two statuses.
+    if qp.get("status"):
+        params["status"] = qp["status"]
     try:
         envelope = api.get("/v1/assets/geo", params=params)
     except ApiError as exc:

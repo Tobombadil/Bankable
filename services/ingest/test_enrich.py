@@ -427,3 +427,57 @@ def test_the_two_alias_files_stay_separate():
     assert "source_id" not in renames["aliases"][0]
     cross = yaml.safe_load(ALIASES_PATH.read_text(encoding="utf-8"))
     assert {"alias", "organization", "source_id", "external_id"} <= set(cross["aliases"][0])
+
+
+# ------------------------------------------------------------- EIA-860 Schedule 2 (lane R1, grid)
+def test_eia860_plant_grid_fields_land_on_the_plant(session, tmp_path):
+    from pipeline.connectors.base import to_parquet_safe
+    from pipeline.context.eia860_plants import extract_plant_rows
+
+    fixture = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "pipeline"
+        / "context"
+        / "fixtures"
+        / "eia860_plant_sample.zip"
+    )
+    rows = extract_plant_rows(
+        fixture.read_bytes(),
+        source_url="https://example.org/eia8602025.zip",
+        retrieved_at="2026-09-19T20:48:22Z",
+    )
+    context = tmp_path / "normalized" / "context"
+    context.mkdir(parents=True)
+    to_parquet_safe(rows).to_parquet(context / "us.eia.860.plants.parquet", index=False)
+    load_assets(
+        session,
+        pd.DataFrame(
+            [
+                {"source_asset_id": "6166", "name": "Rockport", "status": "retiring", "country": "US",
+                 "source_id": "us.eia.860m", "source_url": "https://www.eia.gov/electricity/data/eia860m/",
+                 "retrieved_at": "2026-09-27T15:15:28Z"},
+                {"source_asset_id": "99999", "name": "Not In The Annual File", "status": "retired",
+                 "country": "US",
+                 "source_id": "us.eia.860m", "source_url": "https://www.eia.gov/electricity/data/eia860m/",
+                 "retrieved_at": "2026-09-27T15:15:28Z"},
+            ]
+        ),
+        "power_plant",
+    )  # fmt: skip
+    report = apply_context_features(session, tmp_path)
+    assert report["eia860_plants"]["assets_matched"] == 1
+    assert report["eia860_plants"]["rows_without_an_asset"] == 9
+    rockport = session.scalar(select(Asset).where(Asset.source_asset_id == "6166"))
+    assert rockport.attributes["grid"] == {
+        "nerc_region": "RFC",
+        "balancing_authority_code": "PJM",
+        "balancing_authority_name": rockport.attributes["grid"]["balancing_authority_name"],
+        "transmission_owner": "Indiana Michigan Power Co",
+        "grid_voltage_kv": [765.0],
+        "report_year": 2025,
+        "source_id": "us.eia.860",
+    }
+    other = session.scalar(select(Asset).where(Asset.source_asset_id == "99999"))
+    assert "grid" not in (other.attributes or {})
+    again = apply_context_features(session, tmp_path)
+    assert again["eia860_plants"]["unchanged"] == 1 and again["eia860_plants"]["updated"] == 0

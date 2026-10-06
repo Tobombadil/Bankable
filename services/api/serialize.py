@@ -565,6 +565,7 @@ def serialize_asset(
         "capacity_unit": asset.capacity_unit,
         "commissioned_year": asset.commissioned_year,
         "unit_count": asset.unit_count,
+        "retirement_year": asset.retirement_year,
         "attributes": withheld.attributes(asset.id, asset.operator_name, asset.attributes),
         "state_code": asset.state_code,
         "county_name": asset.county_name,

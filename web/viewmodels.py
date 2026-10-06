@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from services.api.common import WEB_HOST
 from web.api_client import ApiClient, ApiError
+from web.retirement import ASSET_STATUS_LABELS, asset_status_label
 
 Family = Literal["neutral", "progress", "committed", "success", "danger"]
 
@@ -130,7 +131,8 @@ def map_labels_json() -> str:
     browser names a token exactly as the server does without a hand-kept copy of the words.
     `</` is escaped for the same reason as `web/page.py::_mini_map`: it is the only sequence that
     can end a `<script type="application/json">` early."""
-    return json.dumps({"technology": TECHNOLOGY_LABELS}, separators=(",", ":")).replace("</", "<\\/")
+    labels = {"technology": TECHNOLOGY_LABELS, "asset_status": ASSET_STATUS_LABELS}
+    return json.dumps(labels, separators=(",", ":")).replace("</", "<\\/")
 
 
 #: Every source whose rows are proposals, in the order a page names them, with the short name a
@@ -489,6 +491,8 @@ def flatten_asset(entity: Mapping[str, Any]) -> dict[str, Any]:
         "name": entity.get("name"),
         "asset_type": entity.get("asset_type"),
         "status": entity.get("status"),
+        "status_label": asset_status_label(entity.get("status")),
+        "retirement_year": entity.get("retirement_year"),
         "operator_name": entity.get("operator_name"),
         "technology": entity.get("technology"),
         "technology_raw": entity.get("technology_raw"),

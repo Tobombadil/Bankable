@@ -252,7 +252,8 @@ def load_assets(
     `source_plant_id`): `source_asset_id`, `name`, `operator_name`, `technology`,
     `technology_raw`, `technologies`, `capacity_mw`, `capacity_value`, `capacity_unit`,
     `unit_count`, `commissioned_year`, `lon`/`lat`, `state_code`, `county_name`, `county_fips`,
-    `country`, `attributes`, `status`, `source_url`, `retrieved_at`, plus `geom_line_wkt` (a
+    `country`, `attributes`, `status`, `retirement_year`, `source_url`, `retrieved_at`, plus
+    `geom_line_wkt` (a
     `MULTILINESTRING` WKT string for line assets, `pipeline.context.eia_atlas`) -> `geom_line`.
     Every column is optional except `source_asset_id` and `name`; a missing column is treated as
     absent for every row. `operator_name`/`owner_name` are stored as spelled and turned into
@@ -302,6 +303,8 @@ def load_assets(
             "capacity_unit": _to_str(row.get("capacity_unit")),
             "commissioned_year": _to_int(row.get("commissioned_year")),
             "unit_count": _to_int(row.get("unit_count")),
+            # `power_plant` only (lane R1, `pipeline/context/eia_plants.py`); absent -> NULL.
+            "retirement_year": _to_int(row.get("retirement_year")),
             "geom": geom,
             "geom_line": _to_geom_line(row.get("geom_line_wkt")),
             "attributes": _to_attributes(row.get("attributes")),

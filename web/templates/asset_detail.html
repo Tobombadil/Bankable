@@ -9,7 +9,7 @@
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
-  <span class="reuse-badge">{{ record.type_label }}{% if record.technology_label %} &middot; {{ record.technology_label }}{% endif %}{% if record.line_class %} &middot; {{ record.line_class }}{% endif %}{% if record.status %} &middot; {{ record.status | replace('_', ' ') }}{% endif %}</span>
+  <span class="reuse-badge">{{ record.type_label }}{% if record.technology_label %} &middot; {{ record.technology_label }}{% endif %}{% if record.line_class %} &middot; {{ record.line_class }}{% endif %}{% if record.status_label %} &middot; {{ record.status_label }}{% endif %}</span>
 </div>
 
 {# Every row is conditional on its value (blockers-sprint "None" gate): an absent field is not a
@@ -19,7 +19,7 @@
    web/app.py::_fuel_fields) in place of the plant-shaped technology/capacity/commissioned rows. #}
 <dl class="field-grid">
   <div><dt>Type</dt><dd>{{ record.type_label }}</dd></div>
-  {% if record.status %}<div><dt>Status</dt><dd>{{ record.status | replace('_', ' ') }}</dd></div>{% endif %}
+  {% if record.status_label %}<div><dt>Status</dt><dd>{{ record.status_label }}</dd></div>{% endif %}
   {% if record.operator.name %}
   <div><dt>Operator</dt><dd>{% if record.operator.public_id %}<a class="row-link" href="/organizations/{{ record.operator.slug or record.operator.public_id }}">{{ record.operator.name }}</a>{% else %}{{ record.operator.name }}{% endif %}</dd></div>
   {% endif %}
@@ -59,23 +59,108 @@
 <p class="attribution-line field-note">Two different lengths: <strong>mapped route length</strong> is this pipeline&rsquo;s route as mapped (EIA Energy Atlas); <strong>onshore transmission miles</strong> under Attributes is what the operator reported to PHMSA{% if phmsa.get('report_year') %} for {{ phmsa.get('report_year') }}{% endif %} for its whole onshore gas transmission system, so the two need not agree.</p>
 {% endif %}
 
+{% set sec = namespace(n=0) %}
 {% if mini_map %}
+{% set sec.n = sec.n + 1 %}
 {#- Not labelled plain "Map": MapLibre gives the map container it builds inside this section its own
     region landmark named "Map", and two landmarks of one role and name fail axe `landmark-unique`
     (moderate; docs/40 §6 item 4, measured 2026-09-26 on /assets/<slug>). -#}
 <section aria-label="Location map">
-  {{ m.section_heading("1.", "Map") }}
+  {{ m.section_heading(sec.n ~ ".", "Map") }}
   {{ m.mini_map(mini_map, tile_url, tile_mode) }}
 </section>
 {% endif %}
 
+{% if retirement %}
+{% set sec.n = sec.n + 1 %}
+{#- Lane R1: retired and retiring plants as a powered-land signal. Every row is conditional on its
+    value; the dates, MW and grid fields come from EIA-860M and EIA-860, the reuse note is a
+    possibility, never a claim about this site (web/retirement.py). -#}
+<section aria-label="Retirement" class="retirement">
+  {{ m.section_heading(sec.n ~ ".", "Retirement") }}
+  {% if retirement.rule_text %}<p class="attribution-line">{{ retirement.rule_text }}{% if retirement.as_of %} As of EIA-860M for {{ retirement.as_of }}.{% endif %}</p>{% endif %}
+  {% if retirement.facts %}
+  <dl class="field-grid">
+    {% for label, value in retirement.facts %}<div><dt>{{ label }}</dt><dd class="tnum">{{ value }}</dd></div>{% endfor %}
+  </dl>
+  {% endif %}
+  {% if retirement.by_technology %}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption>Nameplate capacity retired or scheduled to retire, by technology</caption>
+    <thead><tr><th scope="col">Technology</th><th scope="col" class="num">Retired</th><th scope="col" class="num">Scheduled to retire</th></tr></thead>
+    <tbody>
+      {% for row in retirement.by_technology %}
+      <tr><td data-label="Technology">{{ row.technology }}</td><td data-label="Retired" class="num tnum">{{ row.retired or '—' }}</td><td data-label="Scheduled to retire" class="num tnum">{{ row.retiring or '—' }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+  {% if retirement.units %}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption>Generators that retired or are scheduled to retire</caption>
+    <thead><tr><th scope="col">Generator</th><th scope="col">Technology</th><th scope="col" class="num">Nameplate</th><th scope="col">State</th><th scope="col">Date</th></tr></thead>
+    <tbody>
+      {% for u in retirement.units %}
+      <tr><td data-label="Generator" class="tnum">{{ u.generator_id }}</td><td data-label="Technology">{{ u.technology or '—' }}</td><td data-label="Nameplate" class="num tnum">{{ u.capacity or '—' }}</td><td data-label="State">{{ u.state }}</td><td data-label="Date" class="tnum">{{ u.when or '—' }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if retirement.units_more %}<p class="attribution-line">{{ retirement.units_more }} more generators are listed in the source.</p>{% endif %}
+  {% endif %}
+
+  <h3 class="retirement__subhead">Grid connection</h3>
+  {% if retirement.grid_rows %}
+  <dl class="field-grid">
+    {% for label, value in retirement.grid_rows %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+  </dl>
+  <p class="attribution-line">Grid fields as the plant reported them to EIA-860{% if retirement.grid_year %} for {{ retirement.grid_year }}{% endif %} (Schedule 2).</p>
+  {% else %}
+  <p class="attribution-line">EIA-860 states no grid voltage or transmission owner for this plant: its annual file lists plants with a generator in the report year, so a plant that retired earlier is not in it.</p>
+  {% endif %}
+  {% if retirement.lines %}
+  <p class="retirement__list-intro">Transmission lines within {{ '%.0f'|format(retirement.radius_km or 25) }}&nbsp;km (lines FERC Form 1 filers own; not the whole grid):</p>
+  <ul class="in-view-list">
+    {% for line in retirement.lines %}
+    <li><a href="/assets/{{ line.slug }}">{{ line.name }}</a> <span class="meta tnum">{% if line.voltage_kv %}{{ '%.0f'|format(line.voltage_kv) }} kV &middot; {% endif %}{{ '%.1f'|format(line.distance_km) }} km</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if retirement.points %}
+  <p class="retirement__list-intro">Interconnection points named by queue requests within {{ '%.0f'|format(retirement.radius_km or 25) }}&nbsp;km:</p>
+  <ul class="in-view-list">
+    {% for p in retirement.points %}
+    <li><a href="/interconnection-points/{{ p.public_id }}">{{ p.name }}</a> <span class="meta tnum">{% if p.iso %}{{ p.iso }} &middot; {% endif %}{% if p.voltage_kv %}{{ '%.0f'|format(p.voltage_kv) }} kV &middot; {% endif %}{{ p.proposals_nearby }} request{{ 's' if p.proposals_nearby != 1 }} nearby, nearest {{ '%.1f'|format(p.nearest_proposal_km) }} km</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if retirement.reuse_note %}<p class="field-note retirement__note">{{ retirement.reuse_note }}</p>{% endif %}
+
+  {% if retirement.changes %}
+  <h3 class="retirement__subhead">Retirement changes</h3>
+  <ul class="in-view-list">
+    {% for c in retirement.changes %}
+    <li><strong>{{ c.label }}</strong>{% if c.observed %} <span class="meta tnum">seen {{ c.observed }}</span>{% endif %}{% if c.capacity %} <span class="meta tnum">{{ c.capacity }}</span>{% endif %}
+      {% if c.units %}<span class="meta">{% for u in c.units %}unit {{ u.generator_id }}{% if u.technology %} ({{ u.technology }}{% if u.capacity %}, {{ u.capacity }}{% endif %}){% endif %}{% if u.when %}: {{ u.when }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
+{% set sec.n = sec.n + 1 %}
 <section aria-label="Attributes">
-  {{ m.section_heading("2.", "Attributes") }}
+  {{ m.section_heading(sec.n ~ ".", "Attributes") }}
   {{ m.attributes_table(record.attributes, omit=record.promoted_attributes) }}
 </section>
 
+{% set sec.n = sec.n + 1 %}
 <section aria-label="Owners and operators">
-  {{ m.section_heading("3.", "Owners and operators") }}
+  {{ m.section_heading(sec.n ~ ".", "Owners and operators") }}
   {% if record.owners %}
   <div class="table-scroll">
   <table class="record-table">
@@ -100,8 +185,9 @@
   {% endif %}
 </section>
 
+{% set sec.n = sec.n + 1 %}
 <section aria-label="Nearby proposals">
-  {{ m.section_heading("4.", "Nearby proposals") }}
+  {{ m.section_heading(sec.n ~ ".", "Nearby proposals") }}
   {% if record.is_line %}
   <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of this {{ record.route_noun or 'pipeline' }}&rsquo;s route, nearest first (ADR 0008: region- and none-grade proposals are never joined to an asset).</p>
   {% else %}
@@ -114,7 +200,8 @@
   {% endif %}
 </section>
 
-{{ m.provenance_panel(provenance_rows, number="5.") }}
+{% set sec.n = sec.n + 1 %}
+{{ m.provenance_panel(provenance_rows, number=sec.n ~ ".") }}
 
 {{ m.attribution_line(record) }}
 {% endblock %}
