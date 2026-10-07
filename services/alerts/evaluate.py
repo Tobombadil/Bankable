@@ -109,6 +109,7 @@ def is_due(search: SavedSearch, now: dt.datetime) -> bool:
 _FIELD_LABELS = {
     "lifecycle_state": "status",
     "status": "status",
+    "status_raw": "source status",
     "capacity_mw": "capacity",
     "proposed_cod": "target online date",
     "proposed_online_date": "target online date",

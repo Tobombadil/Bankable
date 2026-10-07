@@ -195,7 +195,13 @@ def load_operator_edges(
             if raw_name is None:
                 continue
             org = _resolve_organization(
-                session, norm_index, raw_name, source=source, now=now, created_counter=created_counter
+                session,
+                norm_index,
+                raw_name,
+                source=source,
+                now=retrieved_at,
+                created_counter=created_counter,
+                source_url=source_url,
             )
             key = (str(asset.id), str(org.id), role)
             edge = existing_edges.get(key)
@@ -320,8 +326,16 @@ def _parents_source(session: Session, manifest_version: str) -> Source:
 
 
 def _get_or_create_parent(
-    session: Session, norm_index: dict[str, Organization], name: str, *, source: Source, now: dt.datetime
+    session: Session,
+    norm_index: dict[str, Organization],
+    name: str,
+    *,
+    source: Source,
+    now: dt.datetime,
+    source_url: str | None = None,
 ) -> tuple[Organization, bool]:
+    """`now` and `source_url` are the citing rule's own `retrieved_at` and page, stamped on a new
+    parent's alias (audit 2026-09-30 F8)."""
     key = org_key(name)  # one function, docs/22 §16 (was an inlined, divergent fallback)
     org = norm_index.get(key)
     if org is not None:
@@ -348,7 +362,7 @@ def _get_or_create_parent(
             alias_normalised=name.strip().lower(),
             kind="filing_spelling",
             source_id=source.id,
-            source_url=source.url,
+            source_url=source_url or source.url,
             retrieved_at=now,
             licence_id=source.licence_id,
             confidence=1.0,
@@ -378,7 +392,14 @@ def load_parents(
         aliases.setdefault(org_id, []).append(alias)
 
     for rule in rules:
-        parent, created = _get_or_create_parent(session, norm_index, rule.parent, source=source, now=now)
+        parent, created = _get_or_create_parent(
+            session,
+            norm_index,
+            rule.parent,
+            source=source,
+            now=_to_datetime(rule.retrieved_at) or now,
+            source_url=rule.source_url,
+        )
         if created:
             result.parents_created += 1
             orgs.append(parent)

@@ -62,6 +62,9 @@ class Connector(BaseConnector):
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("status_map.yaml")
     dq_required_fields: ClassVar[tuple[str, ...]] = ("name_canonical",)
     key_source_columns: ClassVar[tuple[str, ...]] = ("emilId_s", "productName_s")
+    #: ERCOT does not publish the report yet; the connector watches the catalogue for it, so a run
+    #: of zero rows is the expected result, not a broken source (dq `zero_rows`, audit F13).
+    may_be_empty: ClassVar[bool] = True
 
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()

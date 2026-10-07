@@ -115,6 +115,10 @@ class Connector(BaseConnector):
         "Owner Name",
         "Percent Owned",
     )
+    #: The document defaults watch accession, docket and date fields this frame never fills
+    #: (100 % null on every run), which left `title` as the only watched field (audit F13). The
+    #: owner columns live in `raw`; their renames hold through `key_source_columns`.
+    dq_required_fields: ClassVar[tuple[str, ...]] = ("title",)
     max_candidates: ClassVar[int] = 6
 
     def fetch(self) -> RawSnapshot:

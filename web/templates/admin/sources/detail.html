@@ -10,6 +10,8 @@
 <div class="page-header">
   <h1>{{ source.name }} <span class="admin-muted mono">{{ source.source_id }}</span></h1>
   <span class="chip {{ chip_class }}">{{ icon }} {{ source.health }}</span>
+  {% set f_icon, f_class, f_label = source_freshness_chip(source.freshness) %}
+  <span class="chip {{ f_class }}" title="last success against its poll allowance">{{ f_icon }} {{ f_label }}</span>
   {% if source.paused %}<span class="chip chip--neutral">paused</span>{% endif %}
   {% if source_is_gated(source) %}<span class="chip chip--gated">GATED</span>{% else %}<span class="chip chip--neutral">{{ source.publish_state }}</span>{% endif %}
 </div>
@@ -25,6 +27,7 @@
         <tr><th scope="row">URL</th><td class="mono"><a href="{{ source.url }}">{{ source.url }}</a></td></tr>
         <tr><th scope="row">Access</th><td>{{ source.access }}</td></tr>
         <tr><th scope="row">Cadence</th><td>{{ source.cadence }}</td></tr>
+        <tr><th scope="row">Freshness</th><td>{% if source.freshness %}{{ source.freshness.status }}{% if source.freshness.last_success_at %}; last success {{ source.freshness.last_success_at }}{% endif %}; allowance {{ source.freshness.allowance_hours }} h ({{ source.freshness.bucket }} poll), stale after {{ source.freshness.stale_after_hours }} h{% else %}&mdash;{% endif %}</td></tr>
         <tr><th scope="row">Tier</th><td>{{ source.tier }}</td></tr>
         <tr><th scope="row">Host</th><td class="mono">{{ source.host or "&mdash;" }}</td></tr>
         <tr><th scope="row">Connector</th><td class="mono">{{ source.connector or "&mdash;" }}</td></tr>

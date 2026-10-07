@@ -291,15 +291,22 @@ def load_ghgrp(
         as_of_values = [r["as_of"] for r in rows if r.get("as_of") is not None and not pd.isna(r["as_of"])]
         as_of = max(as_of_values) if as_of_values else None
         created_before = created_counter[0]
+        retrieved_at = max(
+            (d for r in rows if (d := _to_datetime(r.get("retrieved_at"))) is not None), default=now
+        )
+        # The alias carries the fetch the spelling was read in, not this load (audit 2026-09-30 F8).
         org = _resolve_organization(
-            session, norm_index, owner_name_raw, source=source, now=now, created_counter=created_counter
+            session,
+            norm_index,
+            owner_name_raw,
+            source=source,
+            now=retrieved_at,
+            created_counter=created_counter,
+            source_url=next((str(u) for r in rows if isinstance(u := r.get("source_url"), str) and u), None),
         )
         if created_counter[0] == created_before and org.id not in seen_org_ids:
             result.organizations_matched += 1
         seen_org_ids.add(org.id)
-        retrieved_at = max(
-            (d for r in rows if (d := _to_datetime(r.get("retrieved_at"))) is not None), default=now
-        )
         edge = existing.get((asset_id, str(org.id)))
         if edge is None:
             edge = AssetOwner(

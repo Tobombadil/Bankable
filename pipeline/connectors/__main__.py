@@ -1,11 +1,13 @@
 """CLI: `python -m pipeline.connectors list | run <source_id>... [--all] [--allow-restricted]
-[--trigger schedule|manual|backfill|retry] [--run-id <uuid>]`.
+[--trigger schedule|manual|backfill|retry] [--run-id <uuid>] [--reparse]`.
 
 Logs are structured JSON on stdout (docs/04 E-18); nothing is printed otherwise. `--trigger`
 defaults to `manual` (a human at a terminal); `infra/scheduler/app.py::run_connector` passes
 `--trigger schedule`, so the run record, and every `source_run` row read from it, says which it was.
 `--run-id` (one source only) names the run: the scheduler passes the id of the `source_run` row the
 admin "run now" route already created, so the run completes that row instead of adding another.
+`--reparse` runs the latest stored snapshot through the current parser without fetching (audit
+2026-09-30 F10): the output is restated, never published as change events (runner docstring).
 """
 
 from __future__ import annotations
@@ -107,6 +109,11 @@ def main(argv: list[str] | None = None) -> int:
         "source_run row an admin run-now already created",
     )
     rp.add_argument(
+        "--reparse",
+        action="store_true",
+        help="no fetch: run the latest stored snapshot through the current parser (a restatement)",
+    )
+    rp.add_argument(
         "--data-dir",
         default=str(DATA_DIR),
         help="local data root; with SNAPSHOT_STORE=s3 only the key layout under it matters",
@@ -142,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
                 allow_restricted=args.allow_restricted,
                 trigger=args.trigger,
                 run_id=args.run_id,
+                reparse=args.reparse,
             )
         except GateViolation as e:
             log.error("gate refused", extra={"source_id": sid, "error": str(e)})

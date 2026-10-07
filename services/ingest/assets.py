@@ -560,8 +560,9 @@ def load_ethanol_plants(
             norm_org_index,
             raw_name,
             source=role_source,
-            now=now,
+            now=retrieved_at,  # the fetch the spelling was read in, not this load (audit F8)
             created_counter=org_created_counter,
+            source_url=source_url,
         )
         key = (str(asset.id), str(org.id), "operator", role_source.id)
         edge = existing_owner_edges.get(key)

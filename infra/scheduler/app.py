@@ -72,6 +72,7 @@ from infra.scheduler.jobs import (
     ConnectorRunFailed,
     TransientConnectorFailure,
     alert_tick_job,
+    freshness_tick_job,
     post_draft_tick_job,
     visibility_audit_tick_job,
 )
@@ -411,6 +412,24 @@ def _tick_visibility_audit(timestamp: int) -> None:  # load chain; after the 04:
         visibility_audit_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous visibility_audit_tick still queued or running")
+
+
+@app.task(name="freshness_tick", queue="audit", retry=0, queueing_lock="freshness_tick")
+def freshness_tick() -> dict[str, Any]:
+    """Source freshness (audit 2026-09-30 F2): every implemented source's last success against
+    twice its poll allowance (`infra/scheduler/freshness.py`). Fails loudly (`SourcesStale`) while
+    any scheduled source is stale or has never run, so a source the scheduler silently stopped
+    running is visible within the hour instead of staying `health = ok`. Body in `jobs.py`."""
+    return _run_with_timeout(freshness_tick_job, timeout_s=ALERT_TICK_TIMEOUT_S)
+
+
+@app.periodic(cron="41 * * * *", periodic_id="tick:freshness")  # off every fetch bucket's minute
+@app.task(name="tick_freshness", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_freshness(timestamp: int) -> None:
+    try:
+        freshness_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous freshness_tick still queued or running")
 
 
 # The rest of the loop (module docstring). Queues are ones the compose `worker` service already

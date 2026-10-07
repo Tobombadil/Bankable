@@ -7,8 +7,15 @@ Compares two normalised snapshots keyed by `record_id` and emits one row per eve
                      ERCOT and EIA-860M only ever signal withdrawal/completion this way)
     withdrawn        lifecycle_state moved to withdrawn or cancelled
     status_change    lifecycle_state changed to any other state
+    status_raw_change the source's own status text changed while lifecycle_state stayed put
+                     (EIA-860M `(V) Under construction, more than 50 percent complete` ->
+                     `(TS) Construction complete, but not yet in commercial operation`; docs/22 §8.3)
     capacity_change  capacity_mw changed by more than CAP_ABS_MW and CAP_REL
     cod_change       proposed_cod changed
+
+Capacity and dates are compared whatever the lifecycle state does, so a change inside one state
+is already an event for them. A change of sponsor, name, county or point of connection is not an
+event (docs/22 §8.3): the loader writes it as a field update.
 
 Usage:
     python pipeline/diff.py --before A.parquet --after B.parquet [--out events.parquet]
@@ -31,7 +38,15 @@ EVAL = ROOT / "data" / "eval"
 CAP_ABS_MW = 0.5  # ignore rounding noise below both of these
 CAP_REL = 0.01
 TERMINAL = {"withdrawn", "cancelled"}
-EVENT_TYPES = ["new", "status_change", "capacity_change", "cod_change", "withdrawn", "removed"]
+EVENT_TYPES = [
+    "new",
+    "status_change",
+    "status_raw_change",
+    "capacity_change",
+    "cod_change",
+    "withdrawn",
+    "removed",
+]
 KEY = "record_id"
 
 
@@ -42,6 +57,13 @@ def _s(v):
     if isinstance(v, pd.Timestamp):
         return v.date().isoformat()
     return str(v)
+
+
+def _status_text(v) -> str:
+    """A status string compared for meaning: whitespace collapsed, case folded, missing as ""."""
+    if v is None or v is pd.NA or (isinstance(v, float) and np.isnan(v)):
+        return ""
+    return " ".join(str(v).split()).casefold()
 
 
 def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame, observed_at: str | None = None) -> pd.DataFrame:
@@ -84,6 +106,21 @@ def diff_snapshots(before: pd.DataFrame, after: pd.DataFrame, observed_at: str |
             else "status_change"
         )
         emit(rid, etype, "lifecycle_state", ab.at[rid, "lifecycle_state"], new_state, aa.at[rid, "source_id"])
+
+    if "status_raw" in ab.columns and "status_raw" in aa.columns:
+        braw = ab["status_raw"].map(_status_text).to_numpy()
+        araw = aa["status_raw"].map(_status_text).to_numpy()
+        raw_changed = ~changed & (braw != araw) & (braw != "") & (araw != "")
+        for i in np.flatnonzero(raw_changed):
+            rid = common[i]
+            emit(
+                rid,
+                "status_raw_change",
+                "status_raw",
+                ab.at[rid, "status_raw"],
+                aa.at[rid, "status_raw"],
+                aa.at[rid, "source_id"],
+            )
 
     bc = pd.to_numeric(ab["capacity_mw"], errors="coerce").astype(float).to_numpy()
     ac = pd.to_numeric(aa["capacity_mw"], errors="coerce").astype(float).to_numpy()
@@ -175,6 +212,7 @@ def perturb(
     expected = {
         "new": n_new,
         "status_change": n_status,
+        "status_raw_change": 0,  # perturbations move the state, never the raw text alone
         "capacity_change": n_capacity,
         "cod_change": n_cod,
         "withdrawn": n_withdrawn,

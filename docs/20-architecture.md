@@ -157,7 +157,18 @@ gridstatus is wrapped, not replaced, for the seven ISO queues (`docs/02` §6 ste
 
 Input: `FetchResult`. Output: an immutable object at `raw/{source_id}/{yyyy}/{mm}/{dd}/{sha256}.{ext}` plus a
 `snapshot` row (`docs/21` §4). If the SHA-256 equals the previous snapshot's, the run is recorded as `unchanged`
-and the pipeline stops here (most daily sources change less than daily). Raw bytes are retained for 24 months
+and the pipeline stops here (most daily sources change less than daily) — unless the parser version moved: a run
+records `{source}@{declared}+{code digest}`, and same bytes under new parser code are re-normalised, the previous
+promoted output restated under the new code first, so a parser fix is never published as change events
+(`docs/22` §8.4; `run --reparse` does the same from the stored snapshot without fetching).
+
+Incremental (window) sources anchor their window on the last *promoted* run (2026-10-07, audit 2026-09-30 data
+engineer F3): the runner hands the connector the `retrieved_at` of the last run whose output reached
+`normalized/`, and the connector asks for everything since the start of that day minus its overlap
+(`Connector.fetch_window`; rolling `window_days` on a first run, clamped and flagged past `max_catchup_days`). A run
+after an outage therefore catches up (the audit measured 2,786 TED notices a rolling 3-day window would never have
+fetched), a held run leaves the watermark where it was, and a catch-up may page up to ten times its normal cap; a
+fetch that still stops at the cap is marked `truncated` and held. Raw bytes are retained for 24 months
 **[A-7]**, then compacted to monthly samples; the `snapshot` rows are kept forever. This store is what makes every
 later stage reproducible and is the evidence base for licence disputes.
 
@@ -232,7 +243,18 @@ All processes are one container image with different entrypoints, deployed by Do
 - One Postgres-backed job queue (ADR 0004). Job types: `fetch`, `diff`, `normalise`, `resolve`, `enrich`,
   `alert`, `post_draft`, `publish_post`, `sor_sync`, `webhook`. Each job is idempotent on its `(type, key)`.
 - Per-source cadence from `sources.yaml` (`daily`, `weekly`, `monthly`, `15-min`, `realtime` → polled at a
-  floor of 15 min). Concurrency limits are per source **and** per host (FERC ≤ 0.5 rps, GDELT one per 5 s, PJM
+  floor of 15 min). An entry's optional `poll` overrides how often we ask when that should differ from how often
+  the source changes, and an `hourly` bucket exists (2026-10-07, audit F12): FERC eLibrary polls daily (12 POSTs a
+  run whatever the window; 1,152 a day at the floor for a document feed that loads nothing yet), Find a Tender and
+  grants.gov hourly. Simulated request counts per day over 7 days against in-process fakes of each API (no live
+  calls; `tests/test_connector_windows.py` pins the Find a Tender pair): Find a Tender 576 → 120, FERC 960 → 10,
+  grants.gov 192 → 48, TED 7.0 → 5.6.
+- Freshness (2026-10-07, audit F2): `infra/scheduler/freshness.py` compares each implemented source's
+  `last_success_at` with its poll allowance (15 min 1 h, hourly 3 h, daily 2 d, weekly 8 d, monthly 32 d,
+  quarterly 93 d, annual 397 d): `fresh`, `late` (past the allowance), `stale` (past twice it), `never`, `paused`,
+  `unscheduled`. An hourly `freshness_tick` fails loudly (`SourcesStale`) while any scheduled source is stale or has
+  never run; the admin source-health API and pages and the `/v1/coverage` vintage rows carry the state.
+  `python -m infra.scheduler.freshness` reports the same from run records, without a database. Concurrency limits are per source **and** per host (FERC ≤ 0.5 rps, GDELT one per 5 s, PJM
   6 connections/min, `docs/02` §7) enforced by a token bucket keyed on the host, stored in Postgres.
 - Retries with exponential backoff and jitter; five failures → dead-letter and a `source.health = failing`
   transition that pages the operator and the supervision Routine (`docs/03` §1).
@@ -414,12 +436,17 @@ open-source system with accounting, ERPNext over Odoo on API quality and licence
 - **Traces**: OpenTelemetry with sampling on the API and full tracing on pipeline jobs, exported to the same
   vendor. Optional at MVP.
 - **Errors**: Sentry (free tier suffices at MVP).
-- **Alerts**: source failing > 2 cycles; queue age > 2× cadence; model daily budget at 80 %; API 5xx rate > 1 %;
+- **Alerts**: source failing > 2 cycles; source stale (last success older than twice its poll allowance, or never
+  run: `freshness_tick`, §4.2); queue age > 2× cadence; model daily budget at 80 %; API 5xx rate > 1 %;
   backup age > 26 h; certificate expiry. Delivered to the owner (email + one chat channel) and, for source
   breakage, to the supervision Routine which opens a triage PR (`docs/03` §1).
 - **Data-quality checks** run at the end of each run (row count vs previous run ± 30 %, status vocabulary drift,
   null spikes, duplicate keys — data-engineer's brief) and write `source_run.dq` with warnings that surface in
-  the admin panel.
+  the admin panel. Since 2026-10-07 (audit F5, F6, F13; `pipeline/connectors/dq.py`): a window source's row count
+  is compared on like-for-like weekdays (TED was held 16 days in 28 by its publication week); a declared key column
+  missing from the run's header holds, first run included; a watched field (status, capacity, date, county, sponsor,
+  name, state) lost on more than 20 % of re-fetched rows holds; zero rows hold unless the connector may be empty;
+  a fetch truncated at its page cap holds; a manifest's `dq_thresholds` override the defaults.
 
 ## 11. Security and privacy
 
@@ -456,6 +483,9 @@ open-source system with accounting, ERPNext over Odoo on API quality and licence
 | Source blocked (403, challenge page) | `classify()` result as in `scripts/probe_sources.py` | Mark `blocked`; no retries beyond schedule; escalate egress class only with legal sign-off |
 | HTTP 200 with error body (FERC `success:false`, EIA index HTML) | Connector-level validation | Treated as error; backoff retry (`docs/02` §7) |
 | Silent partial file (row count drops > 30 %) | DQ check | Snapshot stored, diff **not** applied, run flagged; human confirms before `removed` events are emitted |
+| Header renamed or column dropped | DQ `schema_drift` (declared key columns) and `field_nulled` | Run held: no nulls and no change events published; operator fixes the parser or releases |
+| Source silently not running (no worker, dead tick) | `freshness_tick` (stale past 2× poll allowance, or never run) | Job fails loudly; admin source health shows `stale`; the next run catches up from the watermark |
+| Outage longer than an incremental window | Watermark anchoring | Next run fetches from the last promoted run; past `max_catchup_days` the window is clamped and the run warns |
 | Bad merge | Human report or later contradicting evidence | `unmerge` event reverses it from `before` state (`docs/21` §6) |
 | Model provider outage or budget exhausted | Gateway errors / budget counter | Jobs park; deterministic stages continue; enrichment resumes later; nothing published depends on a live model call |
 | Queue backlog | Queue age metric | Scale worker replicas (Compose `--scale`), then §15 |

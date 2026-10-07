@@ -114,6 +114,9 @@ class Connector(BaseConnector):
     status_key: ClassVar[str] = "permits_dashboard"
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("status_map.yaml")
     dq_required_fields: ClassVar[tuple[str, ...]] = ("name_canonical", "technology_raw", "state")
+    #: Every column a canonical field or the record's identity reads (audit 2026-09-30 F5): the
+    #: parser folds rows onto fixed keys, so the run's header comes from the CSV itself
+    #: (`meta.source_header`, set in `parse`) and a renamed one holds the run.
     key_source_columns: ClassVar[tuple[str, ...]] = (
         "Project ID",
         "Project",
@@ -121,6 +124,9 @@ class Connector(BaseConnector):
         "Project Sector Type",
         "Project Status",
         "Project Location State",
+        "Project Location County",
+        "Project Sponsor",
+        "Project Original Completion Date",
     )
 
     def fetch(self) -> RawSnapshot:
@@ -142,9 +148,13 @@ class Connector(BaseConnector):
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
         text = raw.content.decode("utf-8-sig", errors="replace")
-        rows = list(csv.DictReader(io.StringIO(text)))
+        reader = csv.DictReader(io.StringIO(text))
+        rows = list(reader)
         if not rows or "Project ID" not in rows[0]:
             raise ParseError(f"Permitting Dashboard layout changed: {list(rows[0]) if rows else 'empty'}")
+        # The projected rows below carry fixed keys whatever the CSV says, so the DQ schema gate
+        # reads the CSV's own header (audit 2026-09-30 F5).
+        raw.meta["source_header"] = [str(c) for c in reader.fieldnames or []]
 
         groups: dict[str, list[dict[str, Any]]] = {}
         for row in rows:

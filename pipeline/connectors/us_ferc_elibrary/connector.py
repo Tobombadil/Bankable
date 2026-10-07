@@ -49,6 +49,15 @@ issues up to ~18 POSTs (2 docket classes x up to 2 years x 3 pages, plus 3 descr
 pages), so a run takes roughly half a minute; acceptable at the `cadence: realtime` polling window
 this feeds (a scheduler, not this module, decides how often to run it).
 
+Anchored window (2026-10-07, audit 2026-09-30 F3, F12). Without an explicit `.window`, the
+client-side window runs from 7 days before the last promoted run (`window_overlap`, since filings
+are accessioned up to a few days after their filed date) to now, and is the rolling `WINDOW_DAYS`
+only on a first run; `fetch` records it on the snapshot (`meta.window_start`/`window_end`) and
+`parse` filters on exactly that span, so a stored snapshot reparses the same way. The request count
+per run does not depend on the window (the server ignores `filterDate`), so the saving the audit
+asked for comes from the poll cadence: `data/sources.yaml` `poll: daily` (was every 15 minutes,
+1,152 POSTs a day, for a document source that loads nothing yet; 2026-09-30 lane FX2).
+
 Window override (Sprint 3 item 5, docs/00-PLAN.md "a full-text or filer-name backfill over years,
 not 30 days, is the honest next test before docket linkage is counted in M-1"): setting the
 instance attribute `.window` to an explicit `(start, end)` date pair replaces the "last
@@ -176,9 +185,12 @@ class Connector(BaseConnector):
         "category",
         "affiliations",
     )
-    #: how far back a run looks for filings (docs/02 §7 "realtime" cadence; the scheduler decides
-    #: how often this connector actually runs, so the window is wide enough to survive a missed run).
+    #: how far back a first run looks for filings; later runs anchor on the last promoted run
+    #: (module docstring, "Anchored window").
     WINDOW_DAYS: ClassVar[int] = 30
+    window_days: ClassVar[int] = 30
+    window_overlap: ClassVar[dt.timedelta] = dt.timedelta(days=7)
+    window_date_column: ClassVar[str | None] = "published_date"
     DOCKET_CLASSES: ClassVar[tuple[str, ...]] = ("ER", "CP")
     DESCRIPTION_TERMS: ClassVar[tuple[str, ...]] = (
         "interconnection agreement",
@@ -200,7 +212,8 @@ class Connector(BaseConnector):
         `WINDOW_DAYS` ending `now` — the unchanged default cadence behaviour."""
         if self.window is not None:
             return self.window
-        return (now - dt.timedelta(days=self.WINDOW_DAYS)).date(), now.date()
+        window = self.fetch_window(now)
+        return window.start.date(), window.end.date()
 
     def _build_queries(self, start: dt.date, end: dt.date) -> list[dict[str, Any]]:
         """Docket-number-substring queries for every two-digit year `[start.year, end.year]`
@@ -246,8 +259,9 @@ class Connector(BaseConnector):
 
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()
-        now = dt.datetime.now(dt.UTC)
+        now = self.now()
         start, end = self._effective_window(now)
+        anchored = self.fetch_window(now)
         queries: list[dict[str, Any]] = self._build_queries(start, end)
 
         pages: list[dict[str, Any]] = []
@@ -282,13 +296,19 @@ class Connector(BaseConnector):
                 "window_days": self.WINDOW_DAYS,
                 "window_start": start.isoformat(),
                 "window_end": end.isoformat(),
+                "window_anchor": "override" if self.window is not None else anchored.anchor,
+                "watermark": anchored.meta()["watermark"],
             },
         )
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
         doc = json.loads(raw.content)
+        recorded = (raw.meta.get("window_start"), raw.meta.get("window_end"))
         if self.window is not None:
             window_start, window_end = self.window
+        elif all(recorded):
+            window_start = dt.date.fromisoformat(str(recorded[0])[:10])
+            window_end = dt.date.fromisoformat(str(recorded[1])[:10])
         else:
             window_start = raw.retrieved_at.date() - dt.timedelta(days=self.WINDOW_DAYS)
             window_end = raw.retrieved_at.date()

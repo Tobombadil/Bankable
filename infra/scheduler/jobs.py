@@ -148,6 +148,51 @@ def visibility_audit_tick_job(_run: Callable[..., Any] | None = None) -> dict[st
     return data
 
 
+class SourcesStale(RuntimeError):
+    """`freshness_tick` found scheduled sources whose last success is older than twice their poll
+    allowance, or that have never succeeded (`infra/scheduler/freshness.py`). Raised after the
+    per-source warnings are logged, so the job shows as failed in the queue: the operator signal
+    the audit found missing (2026-09-30 F2). The message carries ids and ages only."""
+
+
+def freshness_tick_job(
+    _session_factory: Any = None, *, now: dt.datetime | None = None, raise_on_stale: bool = True
+) -> dict[str, Any]:
+    """Body of the `freshness_tick` task: assess every implemented source row against its poll
+    allowance (`freshness.assess_source`), log one warning per stale or never-run source, return
+    the counts and, when any source alerts, raise `SourcesStale`. Paused and unscheduled sources
+    never alert. Reads only; health stays the failure counter it is (`_update_health`)."""
+    from sqlalchemy import select
+
+    from infra.scheduler.freshness import assess_source
+    from services.db.models import Source
+    from services.db.session import session_scope
+
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    at = now or _utcnow()
+    counts: dict[str, int] = {}
+    alerting: list[dict[str, Any]] = []
+    with session_scope(factory) as session:
+        for source in session.scalars(select(Source).where(Source.implemented.is_(True)).order_by(Source.id)):
+            fr = assess_source(source, at)
+            counts[fr.status] = counts.get(fr.status, 0) + 1
+            if fr.alert:
+                entry = {"source_id": source.id, **fr.to_dict()}
+                alerting.append(entry)
+                logger.warning("source %s is %s", source.id, fr.status, extra=entry)
+    data: dict[str, Any] = {"assessed": sum(counts.values()), "by_status": counts, "alerting": alerting}
+    _log_report("freshness_tick", {"assessed": data["assessed"], "alerting": len(alerting), **counts})
+    if alerting and raise_on_stale:
+        names = ", ".join(
+            f"{a['source_id']} ({a['status']}"
+            + (f", {a['age_hours'] / 24:.1f} d" if a["age_hours"] else "")
+            + ")"
+            for a in alerting
+        )
+        raise SourcesStale(f"{len(alerting)} source(s) past twice their poll allowance or never run: {names}")
+    return data
+
+
 # ============================================================================ the closed loop
 # Audit 2026-09-18 §3.1 "the always-on loop is not a loop" / §4 item 2: until this landed the
 # scheduled path ended at `python -m pipeline.connectors run <id>` — a JSON file under
