@@ -11,8 +11,9 @@
     name carries a quote or an angle bracket cannot break an attribute. `canonical_path` is set by
     the route when the canonical URL is not simply the request path (record slugs, and index pages
     whose canonical carries only the filters the page understands); `canonical_url` makes it
-    absolute. No `og:image`: the repo ships no committed card image, and a third-party image URL is
-    not allowed (task item 3). -#}
+    absolute. The card image is the committed, self-made `static/img/og-card.png`, built by
+    `python -m web.og_card` (web/og_card.py, which also holds the alt text below), and linked under
+    the same base URL as the canonical link, so no domain is written into the page. -#}
 {#- Built from `request` alone, not from a template global: this repo runs four Jinja environments
     (web/app.py, web/auth.py, web/legal.py, web/admin/shell.py) and every one of them renders this
     file, so anything `base.html` needs has to come from the context every environment injects.
@@ -27,9 +28,17 @@
 <meta property="og:description" content="{{ self.meta_description() }}">
 <meta property="og:url" content="{{ canonical_href }}">
 <meta property="og:locale" content="en_US">
-<meta name="twitter:card" content="summary">
+{%- set og_image_href = (request.base_url | string) ~ 'static/img/og-card.png' %}
+<meta property="og:image" content="{{ og_image_href }}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Infraque: energy and infrastructure proposals and opportunities, one record per project, traced from announced to built.">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{{ self.title() }}">
 <meta name="twitter:description" content="{{ self.meta_description() }}">
+<meta name="twitter:image" content="{{ og_image_href }}">
+<meta name="twitter:image:alt" content="Infraque: energy and infrastructure proposals and opportunities, one record per project, traced from announced to built.">
 {#- JSON-LD (task item 4). Each entry is already inert JSON built by web/app.py::jsonld_block:
     `<`, `>` and `&` are escaped to `\uXXXX`, so `| safe` here cannot emit markup. -#}
 {%- for graph in jsonld | default([], true) %}

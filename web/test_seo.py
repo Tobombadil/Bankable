@@ -420,12 +420,14 @@ def test_every_public_page_carries_open_graph_twitter_and_canonical(
     assert _meta(body, "property", "og:site_name") == "Infraque"
     assert _meta(body, "property", "og:type") == "website"
     assert _meta(body, "property", "og:url") == f"http://testserver{path}"
-    assert _meta(body, "name", "twitter:card") == "summary"
+    assert _meta(body, "name", "twitter:card") == "summary_large_image"
     assert _meta(body, "name", "twitter:title") == title.group(1)
     assert _meta(body, "name", "twitter:description") == description
     assert f'<link rel="canonical" href="http://testserver{path}">' in body
-    # No image is promised, and nothing may reach out to a third-party host for one.
-    assert "og:image" not in body
+    # One self-hosted card image, under the same base URL as the canonical link: nothing reaches
+    # out to a third-party host for it (web/test_og_card.py covers the image itself).
+    assert _meta(body, "property", "og:image") == "http://testserver/static/img/og-card.png"
+    assert _meta(body, "name", "twitter:image") == "http://testserver/static/img/og-card.png"
 
 
 def test_canonical_url_keeps_the_pages_own_filters_and_drops_anything_else(

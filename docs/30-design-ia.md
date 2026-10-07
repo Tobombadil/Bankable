@@ -218,8 +218,9 @@ pagination, the same `.empty-state`. Both are in the primary nav, as **Assets** 
 `og:description`, `og:url`, `og:locale`, and `twitter:card|title|description`. Title and description have one
 source each — the template's own `title`/`meta_description` blocks, re-read in `base.html` — so a description is
 always built from the record the API returned, never a constant, and cannot leak a field the visibility gate
-withheld (the gate runs before the template sees the row). No `og:image`: the repo ships no card image, and a
-third-party image URL is not permitted. Canonical URLs are absolute and carry only the parameters the page
+withheld (the gate runs before the template sees the row). `og:image` is the site's own 1200×630 card,
+`web/static/img/og-card.png`, drawn by `python -m web.og_card` (docs/31 §5.15); a third-party image URL is not
+permitted. Canonical URLs are absolute and carry only the parameters the page
 understands, so `?utm_source=` collapses to the clean URL and two orderings of the same filters agree. Session
 and result pages carry `noindex` (`/login`, `/register`, `/verify`, `/account`, the privacy and unsubscribe
 forms, `/search?q=`); the bare `/search` stays indexable because it is in the sitemap.

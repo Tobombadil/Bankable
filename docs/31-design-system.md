@@ -344,6 +344,26 @@ fill, so the chip reads identically in both themes.
 **Rule satisfied:** D-24 (no card grid for data), D-29 (never a fabricated zero), §7 AA (1.4.1 — state is not
 carried by colour alone; the chips wrap rather than scroll at 400px).
 
+### 5.15 Share card (added 2026-10-07, as built)
+
+The one Open Graph / Twitter card image every public page links (`og:image`, `twitter:card=summary_large_image`).
+It replaces the "no `og:image`" line in `docs/30` §3.2, which predates it.
+**Anatomy:** 1200x630 PNG, ink ground so it reads in light and dark feeds; masthead line in Plex Mono Medium,
+upper case and tracked, in copper-tint; a hairline rule; the wordmark in Plex Sans SemiBold; the default meta
+description's first sentence in Plex Sans Regular; a lifecycle strip (announced, filed, permitted, contracted,
+built) using the `base.html` status icons in the §1.2 dark tints, each state named in Plex Mono beside its icon;
+a hairline rule and the line "Every record attributed to its source register". No domain, no map tiles, no
+imagery or marks of any other organisation.
+**Source:** drawn by `web/og_card.py` (`python -m web.og_card`) from the §1.1/§1.2 hex values and the self-hosted
+Plex files in `web/static/fonts/`; output `web/static/img/og-card.png`, 39,972 bytes (budget 150 KB). Linked
+absolutely under the request's base URL, the same one `rel=canonical` uses, with `og:image:width/height/type/alt`
+and `twitter:image(:alt)`. Per-page `og:title`/`og:description` stay the page's own `<title>` and meta
+description (`docs/30` §3.2). Plex rather than Newsreader for the wordmark: the card brief named the Plex files.
+**Rule satisfied:** D-20 (copper is never drawn on ink; the accent is copper-tint, 6.95:1); every text colour
+≥4.5:1 on ink (paper 11.92:1, neutral tint 8.55:1, copper-tint 6.95:1; `web/test_og_card.py` recomputes them);
+D-5 (each state carried by word and shape, never hue alone); D-21 (self-hosted fonts only). The URL carries no
+version query, so cached cards stay valid; a picture that must replace cached copies gets a new file name.
+
 ## 6. Empty, loading and error states — cross-component rule
 
 Per D-29, specified once here and referenced, not restated per component: **empty** states name the filter
@@ -454,3 +474,5 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
 - 2026-09-19 — §5.14 added (frontend-developer, navigation and discoverability lane): count chips for the
   `/assets` index. The `/assets` and `/organizations` indexes otherwise add no components — they are §5.5
   (table), §5.9 (filter bar) and §6 (empty state) as already specified.
+- 2026-10-07 — §5.15 added (frontend-developer, public-site defects lane): the share card image and the
+  meta that links it, as built.
