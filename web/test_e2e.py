@@ -260,7 +260,14 @@ def _install_offline_routes(page: Any, *, serve_pmtiles_scripts: bool = False) -
     def serve(url: str) -> Any:
         def _handler(route: Route) -> None:
             status, body = _fetch(url)
-            route.fulfill(status=status, content_type=_guess_content_type(url), body=body)
+            # The pages load these with `crossorigin="anonymous"` and an `integrity` hash (UX-19), so
+            # the stand-in must answer as the CDN does, with CORS, or the browser refuses the file.
+            route.fulfill(
+                status=status,
+                content_type=_guess_content_type(url),
+                body=body,
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
 
         return _handler
 
@@ -544,7 +551,7 @@ def test_map_keeps_and_forwards_a_linked_kind_filter(server: object) -> None:
             count_js = "document.getElementById('map-result-count').textContent"
             notice_js = "document.getElementById('map-notice').textContent"
             page.wait_for_function(f"() => {count_js}.startsWith('{generation} ')")
-            page.wait_for_function(f"() => {notice_js}.includes('Showing {generation} active')")
+            page.wait_for_function(f"() => {notice_js}.includes('Showing {generation:,} active')")
             assert parse_qs(urlsplit(page.url).query).get("kind") == ["generation"], page.url
         finally:
             browser.close()
@@ -570,6 +577,43 @@ def _in_view_feature(name: str, technology: str | None, lon: float) -> dict[str,
             "provenance": [],
         },
     }
+
+
+def test_map_status_control_draws_built_proposals_and_the_list_keeps_the_choice(server: object) -> None:
+    """Audit 2026-10-07 UX-1: no control on the map or the list could show a built proposal. Walks
+    the real page: MapLibre loads under its integrity hash (UX-19), ticking Built in the Status
+    disclosure asks the geo API for the active states plus `built`, the count is the API's answer,
+    the URL and the summary say so, and the List link opens the list with Built still ticked."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.route(
+                "**/api/ui-events",
+                lambda route: route.fulfill(status=202, content_type="application/json", body="{}"),
+            )
+            page.goto(BASE_URL + "/")
+            page.wait_for_selector("#map canvas", timeout=10000)
+            page.wait_for_function("() => window.__map && window.__map.isStyleLoaded()", timeout=15000)
+            page.wait_for_function(_COUNT_READY, timeout=15000)
+            assert page.inner_text("#mf-status [data-status-summary]") == "active"
+            page.click("#mf-status summary")
+            with page.expect_response(lambda r: "/api/proposals/geo?" in r.url, timeout=30000) as geo_info:
+                page.check("#mf-status-built")
+            states = parse_qs(urlsplit(geo_info.value.url).query)["lifecycle_state"][0].split(",")
+            assert "built" in states and "announced" in states and "withdrawn" not in states
+            page.wait_for_function(_COUNT_READY, timeout=15000)
+            shown = int(page.inner_text("#map-result-count").split()[0].replace(",", ""))
+            assert shown == geo_info.value.json()["data"]["totals"]["records"]
+            assert "built" in parse_qs(urlsplit(page.url).query)["lifecycle_state"][0].split(",")
+            assert page.inner_text("#mf-status [data-status-summary]") == "active, built"
+            page.click("#view-as-list")
+            page.wait_for_load_state("domcontentloaded")
+            assert page.is_checked("#f-status-built") and page.is_checked("#f-status-announced")
+            assert not page.is_checked("#f-status-withdrawn")
+        finally:
+            browser.close()
 
 
 def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) -> None:
@@ -618,10 +662,11 @@ def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) 
                 name: page.inner_text(f"#in-view-items li:has(a[href='/proposals/{name}']) .meta")
                 for name in ("dc-one", "solar-one", "blank-one")
             }
-            assert by_name["dc-one"] == f"{technology_label('load')} · US-VA · 12.0 MW"
+            # MW as the server prints it (web/formatting.py `mw`, UX-8): "12 MW", not "12.0 MW".
+            assert by_name["dc-one"] == f"{technology_label('load')} · US-VA · 12 MW"
             assert by_name["dc-one"].startswith(TECHNOLOGY_LABELS["load"])
-            assert by_name["solar-one"] == "Solar · US-VA · 12.0 MW"  # every token in words now
-            assert by_name["blank-one"] == "— · US-VA · 12.0 MW"
+            assert by_name["solar-one"] == "Solar · US-VA · 12 MW"  # every token in words now
+            assert by_name["blank-one"] == "— · US-VA · 12 MW"
         finally:
             browser.close()
 

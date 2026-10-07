@@ -20,10 +20,14 @@
 .admin-toolbar select, .admin-toolbar input { font: inherit; padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface); color: var(--text); }
 .admin-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .admin-actions form { display: inline; }
-.admin-button { font: inherit; padding: var(--space-1) var(--space-3); border: 1px solid var(--color-ink); border-radius: var(--radius-2); background: var(--surface); color: var(--text); cursor: pointer; min-height: 24px; }
-.admin-button:hover, .admin-button:focus-visible { border-color: var(--link); color: var(--link); }
-.admin-button--primary { background: var(--color-ink); color: var(--color-paper); }
-.admin-button--primary:hover, .admin-button--primary:focus-visible { background: var(--link); border-color: var(--link); color: var(--color-paper); }
+/* The public site's button set (docs/31 §5.16; audit 2026-10-07 UX-16): `.admin-button` is the
+   secondary (outlined) button and `--primary` the primary (filled), in the same tokens, so admin
+   no longer has three treatments of its own. An `<a>` styled as a button loses its underline. */
+.admin-button { font: inherit; display: inline-flex; align-items: center; padding: var(--space-1) var(--space-3); border: 1px solid var(--link); border-radius: var(--radius-2); background: transparent; color: var(--link); cursor: pointer; min-height: 2.25rem; text-decoration: none; }
+.admin-button:visited { color: var(--link); }
+.admin-button:hover { background: var(--link); color: var(--surface); }
+.admin-button--primary, .admin-button--primary:visited { background: var(--link); color: var(--surface); }
+.admin-button--primary:hover { background: var(--link-visited); border-color: var(--link-visited); color: var(--surface); }
 .admin-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface); }
 .admin-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: var(--text-2); }
 .admin-table th, .admin-table td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); vertical-align: top; }

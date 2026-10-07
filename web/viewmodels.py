@@ -9,12 +9,16 @@ predicate. This module only relabels and regroups fields the API already returne
 
 from __future__ import annotations
 
+import datetime as dt
 import json
+import threading
+import time
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Literal, cast
+from urllib.parse import urlencode
 
 from services.api.common import WEB_HOST
-from web import labels
+from web import formatting, labels
 from web.api_client import ApiClient, ApiError
 from web.retirement import asset_status_label
 
@@ -270,6 +274,45 @@ ALL_OPPORTUNITY_STATUSES: tuple[str, ...] = (
 WORLD_BBOX = "-179,-85,179,85"
 
 
+#: The "Status" control on the map and the list (audit 2026-10-07 UX-1; docs/30 §4.1 `lifecycle▾`,
+#: docs/31 §5.9). One checkbox per group, in the map legend's words and order, each submitting its
+#: states as one csv under `lifecycle_state` (the docs/23 §7 grammar, nothing new in the URL). The
+#: first three groups are exactly `ACTIVE_PROPOSAL_STATES`, the default view.
+PROPOSAL_STATUS_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("announced", "Announced", ("announced",)),
+    ("in_process", "In process", ("filed", "studied", "permitted", "under_construction")),
+    ("contracted", "Contracted", ("contracted",)),
+    ("built", "Built or operating", ("built",)),
+    ("withdrawn", "Withdrawn or cancelled", WITHDRAWN_PROPOSAL_STATES),
+    ("unknown", "Status unknown", ("unknown",)),
+)
+
+
+#: The status control's summary words for each group ("Status: active, built").
+STATUS_SHORT_NAMES: dict[str, str] = {
+    "announced": "announced",
+    "in_process": "in process",
+    "contracted": "contracted",
+    "built": "built",
+    "withdrawn": "withdrawn",
+    "unknown": "unknown status",
+}
+
+
+def requested_lifecycle_states(qp: Mapping[str, str]) -> list[str]:
+    """Every state named by `lifecycle_state`, in order, once each. A list form's status boxes send
+    one `lifecycle_state` per checked group, so a request may repeat it; a link sends one csv."""
+    getlist = getattr(qp, "getlist", None)
+    raw = getlist("lifecycle_state") if callable(getlist) else [qp.get("lifecycle_state") or ""]
+    states: list[str] = []
+    for value in raw:
+        for token in (value or "").split(","):
+            token = token.strip()
+            if token and token not in states:
+                states.append(token)
+    return states
+
+
 def resolve_proposal_lifecycle_param(qp: Mapping[str, str]) -> tuple[str, bool, bool]:
     """Return `(lifecycle_state_csv, explicit, include_withdrawn)` for a request.
 
@@ -278,10 +321,19 @@ def resolve_proposal_lifecycle_param(qp: Mapping[str, str]) -> tuple[str, bool, 
     pattern the opportunities list already used for `status=all` before this task. Otherwise the
     default is `ACTIVE_PROPOSAL_STATES`, extended with `WITHDRAWN_PROPOSAL_STATES` when
     `include_withdrawn` is truthy.
+
+    A named set equal to the default (or the default plus withdrawn) is the default, not an
+    explicit choice: the status boxes submit the default set when the reader leaves them alone,
+    and the page must still say what that view hides (UX-1).
     """
-    explicit_value = qp.get("lifecycle_state")
-    if explicit_value:
-        return explicit_value, True, _is_truthy(qp.get("include_withdrawn"))
+    states = requested_lifecycle_states(qp)
+    if states:
+        chosen = set(states)
+        if chosen == set(ACTIVE_PROPOSAL_STATES):
+            return ",".join(ACTIVE_PROPOSAL_STATES), False, False
+        if chosen == set(ACTIVE_PROPOSAL_STATES + WITHDRAWN_PROPOSAL_STATES):
+            return ",".join(ACTIVE_PROPOSAL_STATES + WITHDRAWN_PROPOSAL_STATES), False, True
+        return ",".join(states), True, _is_truthy(qp.get("include_withdrawn"))
     include_withdrawn = _is_truthy(qp.get("include_withdrawn"))
     states = list(ACTIVE_PROPOSAL_STATES)
     if include_withdrawn:
@@ -293,6 +345,77 @@ def _is_truthy(value: str | None) -> bool:
     return (value or "").lower() in ("1", "true", "yes", "on")
 
 
+def lifecycle_query_items(qp: Mapping[str, str]) -> list[tuple[str, str]]:
+    """The request's status choice as the shortest query that means it: nothing for the default,
+    `include_withdrawn=1` for the default plus withdrawn, else one `lifecycle_state` csv. Links
+    between the map and the list carry this, so a reader's choice survives the switch."""
+    csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
+    if explicit:
+        return [("lifecycle_state", csv)]
+    return [("include_withdrawn", "1")] if include_withdrawn else []
+
+
+def proposal_status_choices(qp: Mapping[str, str]) -> dict[str, Any]:
+    """The status control's boxes for this request, and the one-line summary its disclosure shows.
+
+    A group is checked when every one of its states is in the view. A group only partly in the view
+    (a hand-written `lifecycle_state=filed`) is checked with just those states as its value and says
+    which, so submitting the form unchanged asks for the same proposals."""
+    csv, explicit, _include = resolve_proposal_lifecycle_param(qp)
+    chosen = csv.split(",")
+    boxes: list[dict[str, Any]] = []
+    for key, label, states in PROPOSAL_STATUS_GROUPS:
+        picked = [s for s in states if s in chosen]
+        partial = bool(picked) and len(picked) < len(states)
+        boxes.append(
+            {
+                "key": key,
+                "label": label,
+                "short": STATUS_SHORT_NAMES[key],
+                "value": ",".join(picked if partial else states),
+                "checked": bool(picked),
+                "default": all(s in ACTIVE_PROPOSAL_STATES for s in states),
+                "note": ("only " + ", ".join(str(lifecycle_label(s) or s).lower() for s in picked))
+                if partial
+                else None,
+            }
+        )
+    # The disclosure's summary in a few words: "active" while the three default groups are all on,
+    # then whatever else is ("active, built"); otherwise the groups by their short names.
+    on = [b["key"] for b in boxes if b["checked"]]
+    defaults = [b["key"] for b in boxes if b["default"]]
+    if all(k in on for k in defaults):
+        words = ["active"] + [STATUS_SHORT_NAMES[k] for k in on if k not in defaults]
+    else:
+        words = [STATUS_SHORT_NAMES[k] for k in on]
+    summary = ", ".join(words) or "active"
+    unknown = [s for s in chosen if s and s not in ALL_PROPOSAL_LIFECYCLE_STATES]
+    return {
+        "boxes": boxes,
+        "summary": summary,
+        "explicit": explicit,
+        "default_states": ",".join(ACTIVE_PROPOSAL_STATES),
+        "withdrawn_states": ",".join(WITHDRAWN_PROPOSAL_STATES),
+        "unrecognised": unknown,
+    }
+
+
+def with_built_href(path: str, qp: Mapping[str, str]) -> str:
+    """The lifecycle notice's "N built" link: the same view with built proposals added to the
+    states it shows (UX-1: the hidden count is the way in to them)."""
+    csv, _explicit, _include = resolve_proposal_lifecycle_param(qp)
+    states = [s for s in csv.split(",") if s]
+    if "built" not in states:
+        states.append("built")
+    multi = getattr(qp, "multi_items", None)
+    items = multi() if callable(multi) else list(qp.items())
+    kept = [
+        (k, v) for k, v in items if v and k not in ("lifecycle_state", "include_withdrawn", "cursor", "focus")
+    ]
+    kept.append(("lifecycle_state", ",".join(states)))
+    return path + "?" + urlencode(kept)
+
+
 def opportunity_status_param(qp: Mapping[str, str]) -> str:
     """`status=all` means "every status" -- the API itself only knows a literal CSV list (it
     defaults to `open` if the parameter is absent), so the web layer expands `all` to the full
@@ -302,6 +425,56 @@ def opportunity_status_param(qp: Mapping[str, str]) -> str:
     if value == "all":
         return ",".join(ALL_OPPORTUNITY_STATUSES)
     return value
+
+
+#: The credit line under the company index and the search page's Companies section (UX-4): an
+#: organisation row carries no source of its own, so the line says where the names come from.
+ORG_CREDITS_NOTE = (
+    "Companies are named as the source registers of their assets, proposals and opportunities name "
+    "them; each company's page credits those registers."
+)
+
+
+def page_credits(*sources: Any) -> list[dict[str, Any]]:
+    """The registers behind the rows a list or search section prints, once each, in first-seen
+    order (docs/31 §5.3, D-27; audit 2026-10-07 UX-4: `/proposals`, `/opportunities`,
+    `/organizations` and `/search` printed no credit line, while NESO's licence requires "Supported
+    by National Energy SO Open Data" wherever its rows appear).
+
+    Each argument is an API envelope (its `licence_summary.sources`, built by the API from exactly
+    the rows in the payload) or a list of rows (each row's `provenance`, for an envelope whose
+    summary is empty, as `/v1/assets` returns). Gated sources never reach either, so a gated
+    register is never named (D-34)."""
+    credits: dict[str, dict[str, Any]] = {}
+
+    def add(source_id: Any, name: Any, credit: Any, reuse_class: Any) -> None:
+        if not source_id or source_id in credits:
+            return
+        credits[str(source_id)] = {
+            "source_id": str(source_id),
+            "name": source_label(source_id) or name or str(source_id),
+            "credit": credit or None,
+            "reuse_class": reuse_class,
+        }
+
+    for item in sources:
+        if isinstance(item, Mapping):
+            summary = item.get("licence_summary")
+            for src in (summary.get("sources") or []) if isinstance(summary, Mapping) else []:
+                add(
+                    src.get("source_id"), src.get("name"), src.get("attribution_text"), src.get("reuse_class")
+                )
+            continue
+        for row in item or []:
+            for prov in (row.get("provenance") or []) if isinstance(row, Mapping) else []:
+                if isinstance(prov, Mapping):
+                    add(
+                        prov.get("source_id"),
+                        prov.get("source_name"),
+                        prov.get("attribution_text"),
+                        prov.get("reuse_class"),
+                    )
+    return list(credits.values())
 
 
 def lifecycle_family(state: str | None) -> Family:
@@ -550,7 +723,7 @@ def capacity_note(entity: Mapping[str, Any]) -> str | None:
         return (
             f"Capacity is the interconnection request in {_join_names(names)}. "
             f"The {len(inventory)} generator{'s' if len(inventory) != 1 else ''} listed in "
-            f"{_join_names(inventory_names)} below total {total:,.1f} MW nameplate."
+            f"{_join_names(inventory_names)} below total {formatting.mw(total)} MW nameplate."
         )
     if rule.startswith("plant_inventory") and len(inventory) > 1:
         return f"Capacity is the sum of the {len(inventory)} generators listed below."
@@ -676,15 +849,41 @@ def _known_budget(amount: Any) -> Any:
     return amount if is_number and amount > 0 else None
 
 
+#: Opportunity states in which a response deadline has stopped mattering; any other state with a
+#: past due date gets the "deadline passed" note (expert review 2026-10-07: "any served opportunity").
+SETTLED_OPPORTUNITY_STATES = ("closed", "cancelled", "awarded")
+
+
+def deadline_passed(status: Any, due_at: Any, today: dt.date | None = None) -> bool:
+    """An opportunity not yet closed, cancelled or awarded at its source whose response deadline is
+    before today (UTC).
+
+    Audit 2026-10-07 UX-2 (and 2026-09-30 D-1): a notice closes only when its source runs again, and
+    nine sources were stale, so `/opportunities` showed "Open" beside "Due 14 Sep 2026" on 7 Oct.
+    The status stays the source's; the page says, beside it, that the date has gone."""
+    if status in SETTLED_OPPORTUNITY_STATES or not due_at:
+        return False
+    try:
+        due = dt.date.fromisoformat(str(due_at)[:10])
+    except ValueError:
+        return False
+    return due < (today or dt.datetime.now(dt.UTC).date())
+
+
 def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
     primary_source = _primary_provenance(entity.get("provenance") or [])
     return {
+        "deadline_passed": deadline_passed(entity.get("status"), entity.get("due_at")),
         "public_id": entity["public_id"],
         "slug": entity["slug"],
         "title": entity["title"],
         "kind": entity.get("kind"),
         "kind_label": opportunity_kind_label(entity.get("kind")),
-        "issuer": (entity.get("issuer") or {}).get("name_canonical"),
+        # The linked issuer organisation, else a plain `issuer_name` should the API serve one, else
+        # the funding agency's code a Grants.gov notice carries (expert review 2026-10-07). TED and
+        # World Bank buyers are in the normalised rows but not linked or served (reported to L3).
+        "issuer": (entity.get("issuer") or {}).get("name_canonical") or entity.get("issuer_name"),
+        "issuer_code": (entity.get("identifiers") or {}).get("agency_code"),
         "jurisdiction": entity.get("jurisdiction"),
         "technologies": entity.get("technologies") or [],
         "capacity_sought_mw": entity.get("capacity_sought_mw"),
@@ -839,11 +1038,43 @@ def provenance_panel_rows(api: ApiClient, provenance: list[dict[str, Any]]) -> l
                 "attribution_text": row.get("attribution_text"),
                 "licence_url": (licence or {}).get("url"),
                 "allows_raw": row.get("source_record_id") is not None,
+                "record_id": row.get("source_record_id"),
                 "active": row.get("active", True),
                 "licence_quote": _licence_quote_text(licence),
             }
         )
     return out
+
+
+def group_source_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One Sources row per register (audit 2026-10-07 UX-11): a merged record that takes eight
+    EIA-860M generators printed eight identical "EIA-860M · Open licence · retrieved 7 Oct 2026"
+    rows, about 1,100px at 400px, while "What this record combines" already lists them one by one.
+    Rows from one source with the same link, licence terms and basis line become one row carrying
+    `count`, the latest `retrieved_at` and the source's own record ids (`record_ids`)."""
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for row in rows:
+        key = (
+            row.get("source_id"),
+            row.get("source_url"),
+            row.get("reuse_class"),
+            row.get("allows_raw"),
+            row.get("select_basis_line"),
+        )
+        group = groups.get(key)
+        if group is None:
+            groups[key] = {
+                **row,
+                "count": 1,
+                "record_ids": [row["record_id"]] if row.get("record_id") else [],
+            }
+            continue
+        group["count"] += 1
+        if row.get("record_id") and row["record_id"] not in group["record_ids"]:
+            group["record_ids"].append(row["record_id"])
+        if str(row.get("retrieved_at") or "") > str(group.get("retrieved_at") or ""):
+            group["retrieved_at"] = row["retrieved_at"]
+    return list(groups.values())
 
 
 def _licence_quote_text(licence: dict[str, Any] | None) -> str:
@@ -985,6 +1216,83 @@ def coverage_facts(request: Any, api: Any) -> dict[str, Any]:
             cached = {}
         request.app.state.coverage_facts = cached
     return cached
+
+
+#: How long a process keeps `/v1/coverage`'s freshness rows before asking again. The call costs
+#: about 1.3 s on the full store, so a stale value is served while one thread refreshes it.
+FRESHNESS_TTL_SECONDS = 600
+_FRESHNESS_LOCK = threading.Lock()
+_NO_FRESHNESS: dict[str, Any] = {"available": False}
+
+
+def summarise_freshness(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """What the header, the tier notice and the footer may claim about how current the data is
+    (expert review 2026-10-07, interconnection finding 9: the header said "every record and every
+    change live" and the footer "fetched 2026-10-07" while CAISO, NYISO and NESO were last fetched
+    2026-09-13). Built from `/v1/coverage`'s per-source `fetched_at` and `freshness` (the
+    scheduler's own allowance per cadence, `infra/scheduler/freshness.py`).
+
+    Only scheduled sources count: an annual reference file nobody polls (`unscheduled`) is neither
+    on time nor late. `behind` names each scheduled source whose last fetch is past its allowance
+    (`stale`) or that has never been fetched (`never`), oldest first."""
+    scheduled = [r for r in rows if (r.get("freshness") or {}).get("status") in ("fresh", "stale", "never")]
+    behind = [r for r in scheduled if (r.get("freshness") or {}).get("status") in ("stale", "never")]
+    behind.sort(key=lambda r: str(r.get("fetched_at") or ""))
+    fetched = sorted(str(r["fetched_at"]) for r in scheduled if r.get("fetched_at"))
+    return {
+        "available": bool(scheduled),
+        "scheduled": len(scheduled),
+        "behind": [
+            {
+                "source_id": r.get("source_id"),
+                "name": source_label(r.get("source_id")) or r.get("name") or r.get("source_id"),
+                "fetched_at": r.get("fetched_at"),
+            }
+            for r in behind
+        ],
+        "oldest_fetch": fetched[0] if fetched else None,
+        "newest_fetch": fetched[-1] if fetched else None,
+    }
+
+
+def coverage_data(request: Any, api: Any) -> dict[str, Any] | None:
+    """`GET /v1/coverage`'s `data`, cached per process for `FRESHNESS_TTL_SECONDS`
+    (stale-while-refresh: an expired value is served while one thread asks again), or `None` when
+    the API cannot say. The header's freshness line and the pricing coverage line both read it."""
+    state = request.app.state
+    cached = getattr(state, "coverage_data", None)
+    now = time.monotonic()
+
+    def fetch() -> dict[str, Any] | None:
+        try:
+            return cast("dict[str, Any]", api.get("/v1/coverage").get("data") or {})
+        except Exception:
+            return None
+
+    if cached is None:
+        value = fetch()
+        state.coverage_data = (now, value)
+        return value
+    stamp, value = cached
+    if now - stamp > FRESHNESS_TTL_SECONDS and _FRESHNESS_LOCK.acquire(blocking=False):
+
+        def refresh() -> None:
+            try:
+                state.coverage_data = (time.monotonic(), fetch())
+            finally:
+                _FRESHNESS_LOCK.release()
+
+        threading.Thread(target=refresh, daemon=True).start()
+    return cast("dict[str, Any] | None", value)
+
+
+def source_freshness(request: Any, api: Any) -> dict[str, Any]:
+    """`summarise_freshness` over the cached coverage; `{"available": False}` when the API cannot
+    say, and the pages then claim nothing about freshness rather than "live"."""
+    data = coverage_data(request, api)
+    if not data:
+        return dict(_NO_FRESHNESS)
+    return summarise_freshness(list((data.get("vintage") or {}).get("sources") or []))
 
 
 def footer_build(request: Any, api: Any) -> dict[str, Any]:

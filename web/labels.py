@@ -42,6 +42,8 @@ from services.labels import _from
 from services.labels import humanise as humanise
 from services.labels import lifecycle_label as lifecycle_label
 from services.labels import technology_label as technology_label
+from services.social.editorial import US_STATE_NAMES
+from web import formatting
 
 #: Proposal `kind` (docs/21 §3). The map's Kind select prints these.
 PROPOSAL_KIND_LABELS: dict[str, str] = {
@@ -456,6 +458,10 @@ def words_in_prose(text: Any) -> str:
     return _PROSE_TOKEN.sub(lambda m: m.group(0).replace("_", " "), str(text or ""))
 
 
+#: Region ids the map's region features carry (`US-XX`, ISO 3166-2) and the names a reader knows.
+REGION_NAMES: dict[str, str] = {f"US-{code}": name for code, name in US_STATE_NAMES.items()}
+
+
 def map_labels() -> dict[str, dict[str, str]]:
     """The tables `map.js` reads from the map page's `#map-labels` JSON (web/viewmodels.py
     `map_labels_json`)."""
@@ -465,6 +471,8 @@ def map_labels() -> dict[str, dict[str, str]]:
         "lifecycle": LIFECYCLE_LABELS,
         "reuse_class": REUSE_CLASS_LABELS,
         "plant_family": PLANT_FAMILY_LABELS,
+        # A state placement's region id (`US-IN`) as its name, for the map's region rows (UX-5).
+        "region": REGION_NAMES,
     }
 
 
@@ -483,3 +491,6 @@ def install(env: Any) -> None:
     env.filters["condition_words"] = condition_words
     env.filters["humanise"] = humanise
     env.filters["words_in_prose"] = words_in_prose
+    # Number and date formats (docs/31 §4, audit 2026-10-07 UX-8) ride on the same call, so every
+    # environment that can render `_macros.html` has them.
+    formatting.install(env)

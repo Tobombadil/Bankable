@@ -56,6 +56,7 @@ from web.data_loading import (
     load_real_normalized_sources,
     load_test_database,
 )
+from web.formatting import display_date
 
 # The spec's own words (docs/00-PLAN.md task item 6: active is "announced through
 # under_construction"; withdrawn and cancelled sit behind the toggle), spelled out here rather than
@@ -213,8 +214,8 @@ def test_home_page_states_the_active_vs_withdrawn_counts(web_client: TestClient,
     assert resp.status_code == 200
     active = _count(api, ACTIVE_STATES_CSV)
     hidden = _count(api, ",".join(WITHDRAWN_PROPOSAL_STATES))
-    assert f"Showing {active} active proposals" in resp.text
-    assert f"{hidden} withdrawn or cancelled" in resp.text
+    assert f"Showing {active:,} active proposals" in resp.text  # thousands separators (UX-8)
+    assert f"{hidden:,} withdrawn or cancelled" in resp.text
     assert "hidden by default" in resp.text
 
 
@@ -291,4 +292,4 @@ def test_proposal_detail_provenance_matches_the_api_envelope(
         assert html.escape(row["source_name"]) in panel
         # Rendered inside an href, so `&` in a query string appears as `&amp;` (correct HTML escaping).
         assert f'href="{html.escape(row["source_url"])}"' in panel
-        assert f"retrieved {row['retrieved_at'][:10]}" in panel
+        assert f"retrieved {display_date(row['retrieved_at'])}" in panel  # docs/31 §4 (UX-8)

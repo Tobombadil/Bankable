@@ -68,6 +68,7 @@ from web.relevance import (
     resolve_nearby_filter,
 )
 from web.viewmodels import (
+    ORG_CREDITS_NOTE,
     coverage_facts,
     flatten_opportunity,
     flatten_org_asset_row,
@@ -457,6 +458,9 @@ def organizations_list(request: Request) -> HTMLResponse:
     canonical_path = "/organizations" + canonical_query(qp, (*ORG_INDEX_FILTERS, "cursor"))
     context = {
         "records": records,
+        # UX-4: a company row carries no source of its own (`serialize_organization` emits none),
+        # so the line says where the names come from rather than naming no register.
+        "credits_note": ORG_CREDITS_NOTE,
         "has_more": page["has_more"],
         "next_cursor": page["next_cursor"],
         "prev_cursor": page.get("prev_cursor"),
@@ -682,8 +686,8 @@ def _organization_compose(
         None
         if fetch.record["provenance"]
         else (
-            "The registers behind this organisation's assets, proposals and opportunities; "
-            "the organisation record itself is derived from them."
+            "The registers behind this company's assets, proposals and opportunities; "
+            "the company record itself is derived from them."
         )
     )
     descriptor = org_descriptor(fetch.record.get("type"), _org_type_counts(fetch.asset_counts, groups))
@@ -851,7 +855,7 @@ def organization_detail(request: Request, ident: str) -> HTMLResponse:
     api = get_api(request)
     entity = _resolve_organization(api, ident)
     if entity is None:
-        return not_found_response(request, "organisation")
+        return not_found_response(request, "company")
     fetch = _organization_fetch(api, request, entity)
     compose = _organization_compose(request, api, entity, fetch)
     return count_page_view(request, _organization_render(request, api, entity, fetch, compose), "company")

@@ -12,8 +12,21 @@ map model, motion, banned patterns) are the design inputs this doc builds screen
 D-16 fixes the shape: Public (`infraque.com`, no key), Pro (same host, entitlement-gated routes),
 Admin (`admin.` host, role `operator`/`owner`). D-4 and D-17 fix the rule governing every screen below: one filter
 vocabulary, one URL grammar (`docs/23` §7), shared across list, map and feed, on every tier — a tier changes what
-a query returns, never its shape. Primary nav is identical across public and Pro: **Proposals · Opportunities ·
-Map · Feed · Alerts · API**. Depth ≤ 3 clicks to any record (D-16); breadcrumbs on every record page.
+a query returns, never its shape. Primary nav is identical across public and Pro. ~~**Proposals · Opportunities ·
+Map · Feed · Alerts · API**~~ — as built (2026-10-07, audit UX-7): **Map · Proposals · Opportunities · Assets ·
+Grid connection points · Companies · About & sources · Pricing · Alerts · Sign in**. Feed and API are not nav items:
+every list's "View as" switch carries its RSS twin, and the footer links **API and feeds** (`/docs/api`). Depth ≤ 3
+clicks to any record (D-16); breadcrumbs on every record page.
+
+**Names (2026-10-07, audit UX-7).** One reader-facing term per concept, in nav, H1, breadcrumbs, column heads and
+search headings. Where this doc did not settle a term, the choice and its reason are recorded here.
+
+| Concept | Term on public pages | Not used | Note |
+|---|---|---|---|
+| Organisation (docs/21 `organization`) | **Company / Companies** | Organisation(s), Organization | §3.2 already named the nav item and index "Companies". A public body that issues tenders is still listed under it. Admin keeps the API's word, "Organization". |
+| Interconnection point (docs/21 §3.24) | **Grid connection point(s)** | Grid points, Grid interconnection points | This doc never named it; the nav said "Grid points" and the page "Grid interconnection points". Chosen as plain words that fit the nav; the URL `/interconnection-points` and the entity name are unchanged, and the proposal field "Connects at" already uses the verb. |
+| Lifecycle state | **Status** (the filter), with the legend's groups: Announced · In process · Contracted · Built or operating · Withdrawn or cancelled · Status unknown | Lifecycle (on public pages) | Groups, not the eleven tokens, as the map legend already does (docs/31 §1.2). |
+| Location | Open | — | "Jurisdiction" (proposals), "State" (asset filter), "Location" (asset list) still all hold `US-TX`; not settled in this lane. |
 
 ### 1.1 Public sitemap
 
@@ -142,6 +155,16 @@ announces "N proposals, M opportunities in view" debounced 500ms; above 500, the
 | `/account` | Pro | Seats, subscription, keys, export log | US-602, US-603, US-701 | `GET /v1/me`, `/v1/keys` | Pro/API scopes; billing read-through CRM adapter |
 | `/docs/api` | Public/Pro | Generated API reference | US-704 | `api/openapi.yaml` (Redoc) | Licence-acceptance gate before key creation |
 | `/feeds/*` | Public | RSS/JSON Feed twins of every list | US-503 | Same list endpoints, `.rss`/`.json` | Feed title states "Public feed, live" (D-28) |
+
+**As built, 2026-10-07 (audit UX-6).** `/docs/api` is a site page, not a rendered Redoc: it lists the three public
+feeds in both formats with an example filtered feed, names this deployment's API base URL, and links the API's own
+live reference (`{API}/redoc`) and OpenAPI description (`{API}/openapi.json`), where `{API}` is `PUBLIC_API_URL` or
+the host beside the site (`api.`, `api-staging.`). It is in the footer ("API and feeds") and the sitemap. Each list
+links its feed twin with the same filters, the lifecycle or status choice spelt out because a feed has no default
+view of its own: "View as: Map · List · RSS feed" on `/` and `/proposals`, a link above the rows on
+`/opportunities`, and `<link rel="alternate" type="application/rss+xml">` in each page's head. In production Caddy
+sends `/feeds/*` to the API; the site's own `/feeds/*` route only relays it where no proxy stands in front
+(`dev_up`, the in-process client). Rendering `api/openapi.yaml` itself on the site stays open.
 | `admin/sources` | Admin | Source health, cadence, gate | US-904, US-905 | `GET/PATCH /admin/v1/sources`, `/source-runs` | `legal` role required to clear a gate flag |
 | `admin/records` | Admin | Edit, merge/unmerge with reason | US-201–202 (admin actions), US-905 AC3 | `PATCH /admin/v1/proposals`, `POST …/merge` | Audit-logged; mandatory reason field |
 | `admin/tasks` | Admin | Reports, intake review, deletions | US-907, US-204, US-1002, US-910 | `GET/PATCH /admin/v1/tasks`, `POST …/approve-intake` | — |
@@ -176,7 +199,11 @@ pipeline name and its operator both resolve) and `/sitemap.xml`.
   share for plants), Proposals, Opportunities, and **Sources** listing the distinct registers behind the
   organisation's assets, proposals and opportunities — an organisation row carries no sources of its own, and
   the page never shows the "withheld under licence" empty state for that case; with no sources anywhere it shows
-  no panel at all.
+  no panel at all. **Follow (2026-10-07):** under the summary, "Follow this company's proposals" (and "Follow its
+  opportunities" where it issues any) opens `/alerts/new` with `sponsor_id` (or `issuer_id`) set to the
+  organisation's **public id** and a name ("Proposals sponsored by …"); an alert saved with a slug matched nothing
+  while the id matched 157, so the alert form also resolves a slug to the id before saving. Not offered on the page of
+  a natural person named in a register.
 - **Map** (`/`): the "Existing assets" toggle now carries an **Asset types** checkbox set (power plants, gas
   pipelines, gas processing, gas storage, LNG terminals, ethanol plants, RNG projects), written to the URL as
   `asset_type=` csv. Ethanol capacity-table plants (state grade) and AgSTAR digesters (county grade) are never
@@ -268,6 +295,32 @@ flowchart TD
   L --> M["Drawer: fields, chip, Sources, last 3 events, D-3 line, link to full record"]
 ```
 
+**Uncovered ISO areas (2026-10-07, expert review).** A list or map filtered by `iso=` for an ISO whose own queue has
+no rows here (PJM, MISO, SPP, ISO-NE today) says so above the rows: "PJM's own interconnection queue is not covered
+here. The proposals listed for PJM come from EIA-860M, an inventory of planned and operating generators in its area,
+not from the queue." It is derived from `/v1/coverage`'s loaded sources and the manifest, so it disappears when a
+queue starts loading (`web/coverage_statement.py`). The same inputs write `/pricing`'s coverage line, which claimed
+"every major US interconnection queue" (docs/41's sentence; docs/41 itself is for its owner to correct).
+
+**Large-load views (2026-10-07, lane L11).** No load record carries MW (0 of 578 live), so a `kind=load` or
+`technology=load` list sorts by **name, A to Z** by default instead of capacity descending, and has no Capacity
+column; the map drawer drops the Capacity row for a load with no MW (the in-view row already printed none). Name was
+chosen over "last changed" because every record's `last_changed` is currently its load date, which orders nothing;
+revisit once change events flow. `/methodology` explains why there is no Texas large-load request: ERCOT publishes its
+large-load queue only as system-wide charts in PDF decks (`data/vocabulary/coverage_notes.yaml`,
+`ercot_large_load_not_request_level`).
+
+**Status control, as built 2026-10-07 (audit UX-1).** The `lifecycle▾` filter of §5.1 is a "Status: active"
+disclosure on both the map and the list bar (one macro, `status_filter`), with one checkbox per group: Announced,
+In process, Contracted (the default, `ACTIVE_PROPOSAL_STATES`), Built or operating, Withdrawn or cancelled, Status
+unknown. It replaces the "Include withdrawn & cancelled" box. The URL keeps the docs/23 grammar and its shortest
+form: nothing for the default, `include_withdrawn=1` for the default plus withdrawn, otherwise one
+`lifecycle_state` csv; a list form that sends one `lifecycle_state` per box is read as their union. The default view
+is unchanged, and leaving the boxes as they are is still the default (the notice stays). The notice now counts built
+and unknown-state proposals apart and links the built count to the same view with Built added (on the map it ticks
+the box in place). Before, the 1,844 built proposals (484 of them operating data centres) were reachable only by
+typing `?lifecycle_state=built`.
+
 ### 4.2 Open a proposal, read provenance and lifecycle (US-201, US-202, US-203)
 
 ```mermaid
@@ -348,6 +401,13 @@ flowchart TD
 ```
 
 ### 4.6 Admin: source gate, publish decision, post queue (US-905, US-802)
+
+**Report → record → unmerge (2026-10-07, audit UX-3).** A reader's report lands in `admin/tasks` with its issue type
+in words ("Two different projects were merged into this record") and a subject link to the record's admin page by
+kind (`/admin/records/{proposals|opportunities|organizations}/{id}`; the screens used to link `/admin/records/{id}`,
+which is no route). The task page names the record, links its public page and, for a `wrong_merge` report, its
+merge history and the unmerge form on the record page (`#history`, `#unmerge`). A privacy request's "Record named"
+links the same way.
 
 ```mermaid
 flowchart TD
@@ -442,6 +502,11 @@ map here); location falls back to text ("Clark County, NV — centroid").
 │ Attribution line (footer)                                              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+As built (2026-10-07, audit UX-2, expert review): the Issuer column shows only when a row on the page has an issuer
+(the linked organisation, else a Grants.gov notice's agency code, marked as a code); TED and World Bank buyer names
+are in the normalised rows but are neither linked nor served by the API (reported to the API lane). A row whose due
+date has passed while its source has not closed, cancelled or awarded it carries "Deadline passed {date}" beside the
+status chip, here, on the record page and in search; the status itself stays the source's. Due dates do not wrap.
 States: empty — "No open opportunities match these filters" + which facet + Clear all. Loading — skeleton rows
 at final row height (no CLS). Error — RFC 9457 banner above table, table area empty. Delayed — D-3 banner;
 delayed — n/a since 2026-09-21 (the record shows its current state and its full timeline). Restricted-precision — n/a here.
@@ -490,7 +555,7 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 | Empty | every list/map/feed | Names the filter that emptied results, offers Clear all (D-29, US-102 AC4) |
 | Loading | every screen | Skeleton of final layout, never a spinner over a table (D-29, CLS) |
 | Error | every screen | RFC 9457 `title` + `request_id`; never a stack trace; gated record = not-found, indistinguishable (D-29, API-4) |
-| Tier notice | every public list/map/detail/feed | Fixed-position D-3 line: "Every record and every change event is published as soon as it is ingested. Alerts and API in Pro." (D-3, D-28) |
+| Tier notice | every public list/map/detail/feed | Fixed-position D-3 line: "Every record and every change event is published as soon as it is ingested. Alerts and API in Pro." (D-3, D-28). Since 2026-10-07 the stamp says "Live" only while every scheduled source is within its fetch allowance, else "No delay" with the late sources named (docs/31 §5.4) |
 | Restricted-precision notice | map markers, detail location field | "location shown at county level (source licence)" wherever the geometry renders (D-9) |
 | Unplaced-record fallback | map side panel only | "Unplaced (N)" collapsible, never silently dropped (D-8) |
 
@@ -511,3 +576,7 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
   company-page descriptor for `other`-typed holders, grouped nearby rows, ethanol/RNG live on the map.
 - 2026-09-19 — §1.1, §3 and new §3.2 (frontend-developer, navigation and discoverability lane): `/assets` and
   `/organizations` index pages, Open Graph and Twitter card meta, JSON-LD, `robots.txt`, and the split sitemap.
+- 2026-10-07 — §1 nav as built and a names table, §3 `/docs/api` and `/feeds/*` as built, §4.1 status control,
+  §4.6 report → record → unmerge (frontend-developer, lane L5, design audit UX-1, UX-3, UX-6, UX-7); §3.1 Follow,
+  §4.1 uncovered ISO areas and large-load views, §5.3 opportunity issuer and deadline, §6 tier notice freshness
+  (same lane, expert reviews 2026-10-07; lane L11).

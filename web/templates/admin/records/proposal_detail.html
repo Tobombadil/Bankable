@@ -19,24 +19,24 @@
     <table class="admin-table">
       <tbody>
         <tr><th scope="row">Kind</th><td>{{ proposal.kind }}</td></tr>
-        <tr><th scope="row">Sponsor</th><td>{{ proposal.sponsor.name_canonical if proposal.sponsor else "&mdash;" }}</td></tr>
-        <tr><th scope="row">Technology</th><td>{{ proposal.technology or "&mdash;" }}{% if proposal.technology_raw %} (raw: {{ proposal.technology_raw }}){% endif %}</td></tr>
-        <tr><th scope="row">Capacity MW</th><td>{{ proposal.capacity_mw if proposal.capacity_mw is not none else "&mdash;" }}</td></tr>
-        <tr><th scope="row">Storage MWh</th><td>{{ proposal.storage_mwh if proposal.storage_mwh is not none else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Sponsor</th><td>{{ proposal.sponsor.name_canonical if proposal.sponsor else '—' }}</td></tr>
+        <tr><th scope="row">Technology</th><td>{{ proposal.technology or '—' }}{% if proposal.technology_raw %} (raw: {{ proposal.technology_raw }}){% endif %}</td></tr>
+        <tr><th scope="row">Capacity MW</th><td>{{ proposal.capacity_mw if proposal.capacity_mw is not none else '—' }}</td></tr>
+        <tr><th scope="row">Storage MWh</th><td>{{ proposal.storage_mwh if proposal.storage_mwh is not none else '—' }}</td></tr>
         <tr><th scope="row">Jurisdiction</th><td>{{ proposal.jurisdiction }}</td></tr>
-        <tr><th scope="row">ISO</th><td>{{ iso_label(proposal.iso) or "&mdash;" }}</td></tr>
+        <tr><th scope="row">ISO</th><td>{{ iso_label(proposal.iso) or '—' }}</td></tr>
         <tr><th scope="row">Lifecycle state</th><td>{{ proposal.lifecycle_state }}</td></tr>
-        <tr><th scope="row">Status raw</th><td>{{ proposal.status_raw or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Proposed online date</th><td>{{ proposal.proposed_online_date or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Status raw</th><td>{{ proposal.status_raw or '—' }}</td></tr>
+        <tr><th scope="row">Proposed online date</th><td>{{ proposal.proposed_online_date or '—' }}</td></tr>
         <tr><th scope="row">Location</th><td>{% if proposal.location %}{{ proposal.location.county_name or proposal.location.state_code or proposal.location.country }} ({{ proposal.location.precision }}){% else %}unplaced{% endif %}</td></tr>
         <tr><th scope="row">Identifiers</th><td class="mono">{{ proposal.identifiers }}</td></tr>
         <tr><th scope="row">First seen</th><td>{{ proposal.first_seen }}</td></tr>
         <tr><th scope="row">Last changed</th><td>{{ proposal.last_changed }}</td></tr>
-        <tr><th scope="row">Published at</th><td>{{ proposal.published_at or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Public at</th><td>{{ proposal.public_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Published at</th><td>{{ proposal.published_at or '—' }}</td></tr>
+        <tr><th scope="row">Public at</th><td>{{ proposal.public_at or '—' }}</td></tr>
         <tr><th scope="row">Source count</th><td>{{ proposal.source_count }}</td></tr>
         <tr><th scope="row">Created by</th><td>{{ proposal.created_by }}</td></tr>
-        <tr><th scope="row">Resolution confidence</th><td>{{ proposal.resolution_confidence if proposal.resolution_confidence is not none else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Resolution confidence</th><td>{{ proposal.resolution_confidence if proposal.resolution_confidence is not none else '—' }}</td></tr>
         <tr><th scope="row">Merged into</th><td>{% if proposal.merged_into %}<a href="/admin/records/proposals/{{ proposal.merged_into }}">{{ proposal.merged_into }}</a>{% else %}&mdash;{% endif %}</td></tr>
         <tr><th scope="row">Overrides</th><td class="mono">{{ proposal.overrides.keys()|join(", ") if proposal.overrides else "none" }}</td></tr>
       </tbody>
@@ -93,7 +93,7 @@
 <p class="admin-empty">No sources are linked to this proposal.</p>
 {% endif %}
 
-<h2>Event history</h2>
+<h2 id="history">Event history</h2>
 {% if proposal.events %}
 <div class="admin-table-wrap">
 <table class="admin-table">
@@ -104,8 +104,8 @@
       <td class="mono">{{ event.id }}<br>{{ event.event_type }}</td>
       <td>{{ event.observed_at }}</td>
       <td>{{ event.actor_type }}{% if event.actor_user_id %} ({{ event.actor_user_id }}){% endif %}</td>
-      <td>{{ event.reason or "&mdash;" }}</td>
-      <td>{{ event.changed_keys|join(", ") if event.changed_keys else "&mdash;" }}</td>
+      <td>{{ event.reason or '—' }}</td>
+      <td>{{ event.changed_keys|join(", ") if event.changed_keys else '—' }}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -170,7 +170,7 @@
 </form>
 {% endif %}
 
-<h2>Unmerge</h2>
+<h2 id="unmerge">Unmerge</h2>
 <form class="admin-form" method="post" action="/admin/records/proposals/{{ proposal.public_id }}/unmerge">
   <div class="field"><label for="merge_event_id">Merge event id</label><input id="merge_event_id" name="merge_event_id" required placeholder="evt_..."></div>
   <div class="field"><label for="unmerge-reason">Reason</label><input id="unmerge-reason" name="reason" required></div>

@@ -32,7 +32,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.datastructures import QueryParams
 
-from web.api_client import ApiClient, ApiResult
+from web.api_client import ApiClient, ApiError, ApiResult
 from web.auth import _csrf_rejection, _is_same_origin
 from web.page import (
     OPPORTUNITY_PASSTHROUGH_FILTERS,
@@ -151,6 +151,31 @@ def suggested_name(entity: str, query: Mapping[str, str]) -> str:
     elif high:
         parts.append(f"up to {high} MW")
     return ", ".join(parts)[:_MAX_NAME_LENGTH]
+
+
+#: Query keys that name an organisation. The alert engine matches them on the `org_…` public id; a
+#: slug in their place (`sponsor_id=fermi-america`) was accepted and matched nothing, while the id
+#: matched 157 proposals (expert review 2026-10-07, large-load finding 7). The API should refuse a
+#: non-id there (reported to lane L3); until it does, the site resolves a slug before saving.
+ORG_REFERENCE_KEYS = ("sponsor_id", "issuer_id")
+
+
+def resolve_org_references(api: ApiClient, query: Mapping[str, str]) -> dict[str, str]:
+    """`query` with any organisation slug in `ORG_REFERENCE_KEYS` replaced by that organisation's
+    public id (`GET /v1/organizations?slug=`). An unknown slug is left as written, and the form
+    then shows it rather than silently saving a different alert."""
+    out = dict(query)
+    for key in ORG_REFERENCE_KEYS:
+        value = (out.get(key) or "").strip()
+        if not value or value.startswith("org_"):
+            continue
+        try:
+            rows = api.get("/v1/organizations", params={"slug": value, "limit": 1}).get("data") or []
+        except ApiError:
+            rows = []
+        if rows and rows[0].get("public_id"):
+            out[key] = str(rows[0]["public_id"])
+    return out
 
 
 def results_href(entity: str, query: Mapping[str, Any]) -> str:
@@ -310,10 +335,11 @@ def alerts_new(request: Request) -> Response:
         return _signin(request, next_url=_this_url(request))
     qp: QueryParams = request.query_params
     entity = _entity(qp.get("entity"))
-    query = saved_search_query(entity, qp, origin=qp.get("origin"))
-    return _render_new(
-        request, me, entity=entity, query=query, name=suggested_name(entity, query), delivery_mode="daily"
-    )
+    query = resolve_org_references(api, saved_search_query(entity, qp, origin=qp.get("origin")))
+    # A page that knows a better name than the filters suggest passes it (the company page's
+    # "Follow" link: "Proposals sponsored by Fermi America"). The reader can still change it.
+    name = (qp.get("name") or "").strip()[:_MAX_NAME_LENGTH] or suggested_name(entity, query)
+    return _render_new(request, me, entity=entity, query=query, name=name, delivery_mode="daily")
 
 
 @router.post("/alerts", response_class=HTMLResponse)
@@ -332,7 +358,7 @@ def alerts_create(
     if me is None:
         return RedirectResponse(url="/login?next=/alerts", status_code=303)
     entity = _entity(entity)
-    stored = dict(parse_qsl(query))
+    stored = resolve_org_references(api, dict(parse_qsl(query)))
     name = name.strip()
     if not name or len(name) > _MAX_NAME_LENGTH:
         error = {

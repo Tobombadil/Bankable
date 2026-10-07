@@ -1,7 +1,10 @@
 {% import "_macros.html" as m %}
 <p class="result-count" aria-live="polite">{{ total }} opportunit{{ 'y' if total == 1 else 'ies' }} match{{ 'es' if total == 1 }} these filters.</p>
 {% if save_alert_href %}{{ m.save_alert(save_alert_href, delayed.free_alerts if delayed else None) }}{% endif %}
+{% if feed_href %}<p class="feed-link"><a href="{{ feed_href }}" type="application/rss+xml">RSS feed of these opportunities</a></p>{% endif %}
 {% if records %}
+{#- UX-2: an Issuer column that is "—" on every row says nothing; it shows when any row has one. -#}
+{%- set show_issuer = (records | selectattr('issuer') | list | length > 0) or (records | selectattr('issuer_code') | list | length > 0) %}
 <div class="table-scroll">
 <table class="record-table">
   <caption class="visually-hidden">Opportunities matching the current filters, sorted by due date ascending by default.</caption>
@@ -9,7 +12,7 @@
     <tr>
       <th scope="col">Status</th>
       <th scope="col">Title</th>
-      <th scope="col">Issuer</th>
+      {% if show_issuer %}<th scope="col">Issuer</th>{% endif %}
       <th scope="col">Technologies</th>
       <th scope="col">Due</th>
       <th scope="col">Source</th>
@@ -18,11 +21,11 @@
   <tbody>
     {% for r in records %}
     <tr>
-      <td data-label="Status">{{ m.status_chip(r.status, r.lifecycle_family, r.status_raw) }}</td>
+      <td data-label="Status">{{ m.status_chip(r.status, r.lifecycle_family, r.status_raw) }}{{ m.deadline_note(r) }}</td>
       <td data-label="Title"><a class="row-link" href="/opportunities/{{ r.slug }}">{{ r.title }}</a></td>
-      <td data-label="Issuer">{{ r.issuer or '—' }}</td>
+      {% if show_issuer %}<td data-label="Issuer">{% if r.issuer %}{{ r.issuer }}{% elif r.issuer_code %}<span class="mono">{{ r.issuer_code }}</span> <span class="field-grid__source-value">(agency code)</span>{% else %}—{% endif %}</td>{% endif %}
       <td data-label="Technologies">{{ (r.technologies | technologies_label) if r.technologies else 'all-source' }}</td>
-      <td data-label="Due">{{ r.due_at[:10] if r.due_at else '—' }}</td>
+      <td data-label="Due" class="nowrap">{{ r.due_at | display_date if r.due_at else '—' }}</td>
       <td data-label="Source"{% if not r.source_label %} class="mono"{% endif %}><a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a></td>
     </tr>
     {% endfor %}
@@ -30,6 +33,7 @@
 </table>
 </div>
 {{ m.pager(prev_cursor, next_cursor, querystring, "/opportunities") }}
+{{ m.credits_line(credits) }}
 {% else %}
 <div class="empty-state">
   <p>No {{ 'open ' if filters and filters.get('status') == 'open' }}opportunities match these filters.</p>

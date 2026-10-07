@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
-{% block meta_description %}{{ record.name }}: {{ record.type_label }}{% if record.technology_label %}, {{ record.technology_label | lower }}{% endif %}{% for f in record.fuel_fields if f.label in ('Nameplate capacity', 'Rated capacity', 'LFG flow to project') %}, {{ f.value }}{% endfor %}{% if record.capacity_mw and not record.is_fuel %}, {{ '%.1f'|format(record.capacity_mw) }} MW{% endif %}{% if record.length_miles %}, {{ '{:,.0f}'.format(record.length_miles) }} miles{% endif %}{% if record.operator.name %}, operated by {{ record.operator.name }}{% endif %}{% if record.states %}, {{ record.states }}{% elif record.state %}, {{ record.state }}{% endif %}.{% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.type_label }}{% if record.technology_label %}, {{ record.technology_label | lower }}{% endif %}{% for f in record.fuel_fields if f.label in ('Nameplate capacity', 'Rated capacity', 'LFG flow to project') %}, {{ f.value }}{% endfor %}{% if record.capacity_mw and not record.is_fuel %}, {{ record.capacity_mw | mw }} MW{% endif %}{% if record.length_miles %}, {{ '{:,.0f}'.format(record.length_miles) }} miles{% endif %}{% if record.operator.name %}, operated by {{ record.operator.name }}{% endif %}{% if record.states %}, {{ record.states }}{% elif record.state %}, {{ record.state }}{% endif %}.{% endblock %}
 {% block extra_head %}
-{% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
+{% if mini_map %}{{ m.cdn_style("maplibre_css") }}{% endif %}
 {% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / {{ record.name }}</nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/assets">Assets</a> / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
   <span class="reuse-badge">{{ record.type_label }}{% if record.technology_label %} &middot; {{ record.technology_label }}{% endif %}{% if record.line_class %} &middot; {{ record.line_class }}{% endif %}{% if record.status_label %} &middot; {{ record.status_label }}{% endif %}</span>
@@ -37,9 +37,9 @@
   {% if record.technology %}
   <div><dt>Technology</dt><dd>{{ record.technology_label or (record.technology | technology_label) }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="field-grid__source-value">source: &ldquo;{{ record.technology_raw }}&rdquo;</span>{% endif %}</dd></div>
   {% endif %}
-  {% if record.capacity_mw is not none %}<div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) }}</dd></div>{% endif %}
+  {% if record.capacity_mw is not none %}<div><dt>Capacity (MW)</dt><dd class="tnum">{{ record.capacity_mw | mw }}</dd></div>{% endif %}
   {% if record.capacity_value is not none %}
-  <div><dt>Capacity ({{ record.capacity_unit or 'native unit' }})</dt><dd class="tnum">{{ '{:,.1f}'.format(record.capacity_value) }}</dd></div>
+  <div><dt>Capacity ({{ record.capacity_unit or 'native unit' }})</dt><dd class="tnum">{{ record.capacity_value | mw }}</dd></div>
   {% endif %}
   {% if record.commissioned_year %}<div><dt>Commissioned</dt><dd class="tnum">{{ record.commissioned_year }}</dd></div>{% endif %}
   {% endif %}
@@ -47,7 +47,7 @@
   {% if record.county %}<div><dt>County</dt><dd>{{ record.county }}</dd></div>{% endif %}
   {% if record.state and not record.states %}<div><dt>State</dt><dd>{{ record.state }}</dd></div>{% endif %}
   {% if record.source_name %}
-  <div><dt>Source</dt><dd><a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text or record.source_name }}</a>{% if record.retrieved_at %}, retrieved <span class="tnum">{{ record.retrieved_at[:10] }}</span>{% endif %}</dd></div>
+  <div><dt>Source</dt><dd><a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text or record.source_name }}</a>{% if record.retrieved_at %}, retrieved <span class="tnum">{{ (record.retrieved_at | display_date) }}</span>{% endif %}</dd></div>
   {% endif %}
 </dl>
 {#- Two lengths, two measures (2026-09-27): the row above is the route as mapped (EIA Energy Atlas,
@@ -164,9 +164,9 @@
   {% if record.owners %}
   <div class="table-scroll">
   <table class="record-table">
-    <caption class="visually-hidden">Organisations with an ownership or operating interest in this asset.</caption>
+    <caption class="visually-hidden">Companies with an ownership or operating interest in this asset.</caption>
     <thead>
-      <tr><th scope="col">Organisation</th><th scope="col">Role</th><th scope="col" class="num">Share</th><th scope="col">As of</th></tr>
+      <tr><th scope="col">Company</th><th scope="col">Role</th><th scope="col" class="num">Share</th><th scope="col">As of</th></tr>
     </thead>
     <tbody>
       {% for o in record.owners %}
@@ -174,7 +174,7 @@
         <td data-label="Organisation">{% if o.public_id %}<a class="row-link" href="/organizations/{{ o.slug or o.public_id }}">{{ o.name or o.public_id }}</a>{% elif o.name %}{{ o.name }}{% endif %}</td>
         <td data-label="Role">{% if o.role %}{{ o.role | humanise }}{% endif %}</td>
         <td data-label="Share" class="num tnum">{% if o.share_pct is not none %}{{ '%.1f%%'|format(o.share_pct) }}{% endif %}</td>
-        <td data-label="As of" class="tnum">{% if o.as_of %}{{ o.as_of[:10] }}{% endif %}</td>
+        <td data-label="As of" class="tnum">{% if o.as_of %}{{ o.as_of | display_date }}{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -207,10 +207,10 @@
 {% endblock %}
 {% block extra_scripts %}
 {% if mini_map %}
-<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+{{ m.cdn_script("maplibre_js") }}
 {% if tile_mode == "pmtiles" %}
-<script src="https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/dist/pmtiles.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/dist/basemaps.js"></script>
+{{ m.cdn_script("pmtiles_js") }}
+{{ m.cdn_script("basemaps_js") }}
 {% endif %}
 <script src="/static/js/basemap.js?v={{ asset_version }}"></script>
 <script src="/static/js/asset_map.js?v={{ asset_version }}"></script>

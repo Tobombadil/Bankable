@@ -63,6 +63,17 @@ self-hostable variable files under one licence.
 | `--text-6` | 33.2px | 1.25 | Newsreader | page H1 |
 | `--text-7` | 39.8px | 1.25 | Newsreader | rare — landing-style single statement, never a marketing hero (D-7) |
 
+**As built (2026-10-07, audit UX-15, UX-17).** `--text-1` is the floor: the 0.7rem (11.2px) mono labels in nine
+rules (filter labels, the masthead, the "LIVE" stamp, in-view group names, form legends) are now `--text-1`, the
+smallest size anywhere in `styles.css`. Filter-bar labels stay at `--text-1` mono upper case (a toolbar caption);
+labels on full forms are `--text-2` as the table says. Plex ships as IBM's static split weights (Sans 400, 500, 600,
+700; Mono 400, 500, 600), not the variable files named above, because Plex reserves its name and only IBM's own
+files may carry it (`web/static/fonts/README.md`). Newsreader is set only at weight 600 and 23–33px, so its latin
+file is an instance at wght 600, opsz 16–40 (50,680 bytes against 132,000), with `font-display: swap` onto the
+metric-matched "Newsreader Fallback": with `optional`, a first visit on a throttled link (1.6 Mbit/s, 150 ms, cache
+off) painted the H1 and wordmark in the fallback for the whole view on 12 of 12 loads; after, 0 of 12, CLS 0. Plex
+keeps `optional`. Admin pages preload the same three files as public pages.
+
 Ratio 1.2 ("minor third"), base 16px (D-22) — deliberately tighter than editorial ratios (1.25–1.333) because
 most text in this product is body/label/chip, not headline (D-1). `font-variant-numeric: tabular-nums` on every
 table and chip. Monospace (Plex Mono) reserved strictly for identifiers, queue IDs, docket numbers, API examples
@@ -148,6 +159,21 @@ mark, the retiring and retired marks, and the EIA-860M note; the proposal key's 
 with a number is a cluster of proposals". The API's asset clusters carry no status counts, so a cluster cannot
 say which status dominates; it reads as "retired and retiring" together.
 
+**Third-party map files (2026-10-07, audit UX-19).** MapLibre, PMTiles and the Protomaps basemaps load from jsDelivr
+with Subresource Integrity: each URL and its SHA-384 hash live together in `web/assets.py::CDN_ASSETS`, rendered by
+the `cdn_script`/`cdn_style` macros with `crossorigin="anonymous"`; a version change records the new file's hash in
+the same edit (`web/test_cdn_integrity.py` recomputes them when the network is there).
+
+**Region placements on the map (2026-10-07, audit UX-5; §5.7 had no region anatomy).** A proposal its source
+places only by area is drawn as the area, in `--region-fill`/`--region-line` (never a status hue). A **county** is a
+fill stepped by its own count — 1: 0.12, 2–9: 0.2, 10–49: 0.3, 50+: 0.4 opacity — under a 1px solid outline. A
+**state or country** is a dashed outline (`[3, 2]`, 1.2px) over a 0.04 wash, because one record placed "somewhere
+in Indiana" says nothing about where in it; before, the fill scaled 0.15–0.7 against the busiest region in view and
+a lone state-placed proposal painted the whole state slate grey over the lines and plants beneath. The count sits at
+the area's representative point. A legend row ("Proposals the source places only by area: a shaded county (darker
+holds more) or a dashed state or country outline; the number is how many") shows while any region is drawn; the
+in-view list orders regions by count and names a state ("Indiana"), not its code.
+
 **Mini-map (asset and company pages).** Server-rendered SVG of the record's geometry (`.mini-map__line`,
 `--intrastate` dashed, `.mini-map__point`, `.mini-map__proposal` in the Progress family hue) as the no-JS
 rendering; `asset_map.js` replaces it with a MapLibre map at a fixed fit on the shared basemap when it runs.
@@ -186,7 +212,15 @@ scroll horizontally, each inside its own `overflow-x` container — the page bod
 ## 4. Data-display rules
 
 - **Numbers** — `tabular-nums` everywhere; right-aligned in table columns with the unit in the column header
-  (`Capacity (MW)`), never repeated per cell (D-24).
+  (`Capacity (MW)`), never repeated per cell (D-24). Exception: a column whose rows carry different units (the
+  `/assets` Capacity column: MW for plants, MMgal/yr for ethanol) keeps the unit in each cell.
+- **Formatters (2026-10-07, audit UX-8).** One Jinja filter each, registered on every template environment
+  (`web/formatting.py`): `mw` (thousands separators, one decimal at most, no trailing `.0`: `4,800`, `1,150.5`),
+  `thousands` (counts: `1,844`), `display_date` (`11 Sep 2026`; `Sep 2026` for a year-month), `rfc3339` (admin
+  timestamps to the second, `2026-10-07T18:23:12Z`, never microseconds). `map.js` mirrors `mw` and `display_date`
+  (`fmtMW`, `fmtDate`). ISO dates stay in `datetime` attributes and admin screens only. Not yet converted: the
+  proposal page's field grid (capacity and storage rows) and the retired-plant rows in the map's in-view list,
+  both held back to merge cleanly with PR #64, which edits those lines.
 - **Dates** — absolute date shown always (`11 Sep 2026`), relative shown alongside where it aids scanning
   (`11 Sep 2026 (12 days ago)`); timestamps in API/admin contexts are RFC 3339 UTC in Plex Mono (`docs/23` §1).
 - **Capacity units** — `capacity_mw` and `storage_mwh` render with their unit suffix in the header only, values
@@ -236,6 +270,10 @@ existence of the row is itself a disclosure).
 **States:** populated; single-source (no plural chrome); zero-visible-sources (only occurs on a mixed-provenance
 record whose only visible evidence was just gated — shows "Sources withheld under licence" rather than an empty
 list, distinguishing from a genuinely sourceless record, which cannot exist per DA-2).
+**Grouped by source (2026-10-07, audit UX-11).** Rows from one register with the same link, licence terms and
+basis line are one row, "EIA-860M · 8 records (69661-G1, 69661-G2, 69661-G3, …) · Open licence · retrieved 7 Oct
+2026", with the latest retrieval date (`web/viewmodels.py::group_source_rows`); the per-record detail is in "What this
+record combines". The "+" disclosure mark sits on the source name, so it no longer stands alone on a line at 400px.
 **Rule satisfied:** D-2, D-27, `docs/21` §8.
 
 ### 5.3 Attribution line
@@ -246,6 +284,14 @@ credit text substituted per `attribution_text` for `attribution`-class sources (
 US-105 AC1) — not optional, not a footnote link.
 **States:** single source; multiple sources (semicolon-joined); no rendering condition where this is blank — a
 payload with zero sources cannot exist per DA-2.
+**Lists and search (2026-10-07, audit UX-4).** `/proposals`, `/opportunities` and each `/search` section print one
+line under their rows: "Sources of these rows: {short name} ({credit text, verbatim, where the licence sets one});
+…. Licences and full credits: Attribution." The registers are the API's `licence_summary.sources` for exactly the
+rows on the page, or, where an envelope's summary is empty (`/v1/assets`), the rows' own provenance
+(`web/viewmodels.py::page_credits`), so a register behind no printed row is never named and a gated one never is.
+NESO's mandated "Supported by National Energy SO Open Data" appears there exactly as written. Company rows carry no
+source of their own, so `/organizations` and the search Companies section say where the names come from instead.
+Search rows link their source as list rows do.
 **Rule satisfied:** D-27, D-34, API-5.
 
 ### 5.4 Tier notice
@@ -259,6 +305,20 @@ Fixed position: page header on lists/map, record header on detail, top of digest
 header block.
 **States:** public tier (shown, non-dismissible, live wording); Pro/API tier (not rendered); the
 record-specific "Updated N days ago on the live tier" variant (US-201 AC4) is retired with the delay.
+**Freshness (2026-10-07, expert review: interconnection finding 9, large-load finding 8).** "No delay" is not "up to
+date": the stamp reads **Live** only while every scheduled source is within its fetch allowance, read from
+`/v1/coverage` (`vintage.sources[].fetched_at` and `.freshness.status`, the scheduler's allowance per cadence;
+unscheduled reference files are not counted). Otherwise the stamp reads **No delay**, the sentence is unchanged, and a
+closed disclosure "N sources are behind their fetch schedule" lists each late source with its last fetch ("CAISO
+(last fetched 13 Sep 2026)", "Find a Tender (never fetched)") and links the per-source table. When the API cannot
+say, the stamp reads "No delay" and nothing is claimed. The masthead says the same in a few words ("8 of 12 sources
+behind their fetch schedule", or "All N scheduled sources fetched on schedule") instead of the fixed "Every record
+and every change live", and the footer gives the range of last fetches ("sources last fetched between 13 Sep 2026
+and 7 Oct 2026") instead of the newest fetch alone, which was EIA-860M's and read as the queues' date. The coverage
+read is cached per process for 10 minutes and refreshed in the background (it costs about 1.3 s on the full store).
+**Gap for the API lane:** `/v1/sources` returns `last_success_at: null` for every source on file loads, and
+`/v1/health` `data_as_of` is the request time; the pages use `/v1/coverage`, which falls back to the newest
+`retrieved_at` per source.
 **Rule satisfied:** D-3, D-28, US-604 AC1.
 
 ### 5.5 Table with sticky header and density toggle
@@ -317,6 +377,13 @@ combination (e.g., `capacity_mw[gte] > capacity_mw[lte]`) shown as inline valida
 **As built (2026-10-07):** at 400px the bar is an in-place "Filters (N active)" disclosure, not a full-height sheet
 (see §3); an impossible range is `aria-invalid` inline validation, server-rendered and live, and the API is not
 called.
+**Status control (2026-10-07, audit UX-1).** The `lifecycle_state` chips are one "Status: {summary}" disclosure on
+both bars (`_macros.html` `status_filter`), with six checkboxes in the legend's words and order: Announced, In
+process, Contracted, Built or operating, Withdrawn or cancelled, Status unknown. **Default set:** the first three,
+i.e. `announced, filed, studied, permitted, contracted, under_construction` (product defect A); built, withdrawn,
+cancelled and unknown are off. The summary reads "active" for the default and "active, built" and so on beyond it;
+the 400px "Filters (N active)" count counts a change from the default. The map and the list now share this control;
+they still differ in capacity and schedule (list only) and layers and placement (map only).
 **Rule satisfied:** D-4, D-17, API-3.
 
 ### 5.10 Saved-search card
@@ -394,6 +461,16 @@ description (`docs/30` §3.2). Plex rather than Newsreader for the wordmark: the
 D-5 (each state carried by word and shape, never hue alone); D-21 (self-hosted fonts only). The URL carries no
 version query, so cached cards stay valid; a picture that must replace cached copies gets a new file name.
 
+### 5.16 Button (added 2026-10-07, audit UX-16)
+
+Three treatments, sentence case, `--radius-2`, at least 2.25rem tall (SC 2.5.8), the 2px focus outline of §7:
+**primary** — filled `--link`, `--surface` text (form submit, pricing calls to action, "Report a problem"; admin
+`.admin-button--primary`); **secondary** — 1px `--link` border, transparent, `--link` text, filling on hover (Search,
+Apply filters, Clear all, Details, admin `.admin-button`); **quiet** — text only (the drawer's Close). Disclosure
+toggles and map controls (Menu, Filters, Map/List, zoom) keep their neutral bordered look as controls, not actions.
+Before: six treatments, including upper-case outlined copper, filled navy with underlined link text in admin, and
+filled ink on the report form.
+
 ## 6. Empty, loading and error states — cross-component rule
 
 Per D-29, specified once here and referenced, not restated per component: **empty** states name the filter
@@ -409,7 +486,7 @@ surfaces are the only place "GATED" is shown as distinct from "does not exist".
 |---|---|---|
 | Contrast ratios computed per token (§1.1–1.2) | SC 1.4.3 (contrast minimum), SC 1.4.11 (non-text contrast) | Every chip, chart mark and UI border |
 | Colour never the only carrier of state/tier/licence | SC 1.4.1 (use of colour) | Status chip (§5.1), source health card (§5.12), alert row (§5.11) |
-| Visible focus outline, `--radius-2` + 2px ink outline | SC 2.4.11 (focus appearance) | All interactive components |
+| Visible focus outline, `--radius-2` + 2px ink outline | SC 2.4.11 (focus appearance) | All interactive components; since 2026-10-07 also the filter inputs and the site search, which had replaced it with a 1px underline change (UX-15) |
 | No keyboard traps; drawer focus trap releases on close | SC 2.1.2 (no keyboard trap) | Detail drawer (§5.8) |
 | Map pan/zoom has a button alternative to drag | SC 2.5.7 (dragging movements) | Map controls (`docs/30` §7) |
 | Target size ≥24×24 CSS px | SC 2.5.8 (target size minimum) | Chips, buttons, map controls |
@@ -510,3 +587,7 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
   plants (dashed-ring clusters, legend, contrast and colour-blind figures); §4 fields by kind and the "CO2"
   rule. The map heading is built from the proposal source groups (`web/viewmodels.py::map_heading`), and the
   map page's meta, `og:` and `twitter:` descriptions from the same table.
+- 2026-10-07 — §1.3 type floor and fonts as built, §1.6 third-party integrity and region anatomy, §4 formatters,
+  §5.2 grouped sources, §5.3 lists and search, §5.9 status control and its default set, §5.16 Button, §7 input focus
+  (frontend-developer, lane L5, design audit UX-1, UX-4, UX-5, UX-8, UX-11, UX-15, UX-16, UX-17, UX-19); §5.4
+  freshness-derived stamp, masthead and footer (same lane, expert review 2026-10-07).

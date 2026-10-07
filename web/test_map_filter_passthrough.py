@@ -209,7 +209,7 @@ def test_a_linked_kind_and_state_reach_the_map_page(transport: FakeTransport) ->
     assert "utm_source" not in names
     # The server-rendered breakdown counted the same filtered set the map will draw.
     breakdown = transport.params_for("/v1/proposals")
-    assert len(breakdown) == 3  # active, withdrawn, other: one `include=count` call each
+    assert len(breakdown) == 4  # active, withdrawn, built, unknown: one `include=count` call each (UX-1)
     assert all(p.get("kind") == "load" and p.get("state") == "US-VA" for p in breakdown)
     assert all(p.get("limit") == 1 and p.get("include") == "count" for p in breakdown)
     assert all("utm_source" not in p for p in breakdown)
@@ -255,7 +255,7 @@ def test_notice_fragment_counts_the_filters_map_js_applied(transport: FakeTransp
     assert fragment.status_code == 200
     assert fragment.headers["content-type"].startswith("text/html")
     counts = transport.params_for("/v1/proposals")
-    assert len(counts) == 3
+    assert len(counts) == 4  # active, withdrawn, built, unknown (UX-1 splits "other")
     assert transport.params_for("/v1/proposals/geo") == []
     for params in counts:
         assert params["kind"] == "load"
@@ -263,7 +263,7 @@ def test_notice_fragment_counts_the_filters_map_js_applied(transport: FakeTransp
         # The map's count line counts every placement grade, so its notice does too.
         assert "placement" not in params
         assert "utm_source" not in params
-    # Every lifecycle state is counted exactly once across the three buckets.
+    # Every lifecycle state is counted exactly once across the four buckets.
     states = [s for params in counts for s in params["lifecycle_state"].split(",")]
     assert len(states) == len(set(states))
     assert set(states) == set(ALL_PROPOSAL_LIFECYCLE_STATES)
@@ -287,5 +287,6 @@ def test_include_withdrawn_notice_counts_what_the_map_draws(transport: FakeTrans
     with TestClient(web_app) as client:
         text = _squash(_parse(client.get("/?include_withdrawn=1").text).notice_text)
     assert "Showing 48 proposals, including 2 withdrawn or cancelled" in text
-    assert "(3 built or unknown-state proposals are outside this view)." in text
+    # UX-1: built and unknown-state are counted apart (the fake store has 3 built, 0 unknown).
+    assert "(3 built proposals are outside this view)." in text
     assert "every lifecycle state" not in text

@@ -3,7 +3,8 @@
     wording cannot drift between first paint and a filter change. Nothing when the link names its
     own `lifecycle_state` (the page then says nothing it did not choose). -#}
 {% import "_macros.html" as m %}
-{%- if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif -%}
+{%- for note in iso_gap_notes or [] %}<p class="view-notice view-notice--gap" role="note">{{ note }} <a href="/methodology#withheld">Which registers are withheld</a>.</p>{% endfor -%}
+{%- if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn, built_href=built_href) }}{% endif -%}
 {#- docs/31 §6 (designer D-11): when nothing matches in any state, name the filter that emptied the
     map and link to the map without it (`web/app.py::map_empty_facets`). -#}
 {%- if empty_facets %}

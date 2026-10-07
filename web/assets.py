@@ -32,3 +32,28 @@ def compute_asset_version(static_root: Path = STATIC_ROOT) -> str:
 
 
 ASSET_VERSION = compute_asset_version()
+
+
+#: Third-party files the map pages load from jsDelivr, each pinned to its version and to the
+#: Subresource Integrity hash of that exact file (audit 2026-10-07 UX-19: none carried `integrity`,
+#: so a changed or compromised CDN copy would have run on the site). Hashes are SHA-384 of the files
+#: as served on 2026-10-07; `web/test_cdn_integrity.py` pins every template's CDN reference to this
+#: table. Changing a version means fetching the new file and recording its hash here, together.
+CDN_ASSETS: dict[str, dict[str, str]] = {
+    "maplibre_css": {
+        "url": "https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css",
+        "integrity": "sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK",
+    },
+    "maplibre_js": {
+        "url": "https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js",
+        "integrity": "sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp",
+    },
+    "pmtiles_js": {
+        "url": "https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/dist/pmtiles.js",
+        "integrity": "sha384-pbKNZbDshUsLnZMIVsn/t+j3xEY9PGfuX5Z22l5rcy/obXz3EwaMx1F5d9sRsJMn",
+    },
+    "basemaps_js": {
+        "url": "https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/dist/basemaps.js",
+        "integrity": "sha384-fzuU7k7ZWwfZAe1+3h7plrSA6dNazJaM2NsKVwcrReJLK0gwVwyOSyPwROl9m1M0",
+    },
+}

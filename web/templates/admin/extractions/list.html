@@ -42,7 +42,7 @@
     {% for e in extractions %}
     <tr>
       <td class="mono">{{ e.subject_type }}<br>{{ e.subject_id }}</td>
-      <td class="mono">{{ e.field_path or "&mdash;" }}</td>
+      <td class="mono">{{ e.field_path or '—' }}</td>
       <td class="mono">{{ e.payload }}</td>
       <td class="num">{{ "%.2f"|format(e.confidence) }}</td>
       <td class="num">{{ count_citations(e) }}</td>

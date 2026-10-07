@@ -5,8 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>{% block title %}Admin -- Infraque{% endblock %}</title>
-<link rel="stylesheet" href="/static/css/styles.css">
-<link rel="stylesheet" href="/static/css/admin.css">
+{#- The public site's first-paint fonts (base.html): without them admin pages rendered in the
+    fallback faces for the whole view (audit 2026-10-07 UX-16). -#}
+<link rel="preload" href="/static/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/IBMPlexSans-SemiBold-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/newsreader-latin-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/css/styles.css?v={{ asset_version }}">
+<link rel="stylesheet" href="/static/css/admin.css?v={{ asset_version }}">
 {% block extra_head %}{% endblock %}
 </head>
 <body class="admin-body">

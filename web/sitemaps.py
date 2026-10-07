@@ -65,6 +65,7 @@ SITEMAP_STATIC_PATHS = (
     "/methodology",
     "/attribution",
     "/pricing",
+    "/docs/api",  # UX-6, 2026-10-07
 )
 
 

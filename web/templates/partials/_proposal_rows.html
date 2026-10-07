@@ -1,21 +1,25 @@
 {% import "_macros.html" as m %}
+{#- The lifecycle notice sits with the rows it describes, so a filter change (htmx swaps this
+    partial) keeps it true (UX-1: picking Built used to leave "Showing N active" above the rows). -#}
+{% for note in iso_gap_notes or [] %}<p class="view-notice view-notice--gap" role="note">{{ note }} <a href="/methodology#withheld">Which registers are withheld</a>.</p>{% endfor %}
+{% if breakdown and not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn, surface="list", built_href=built_href) }}{% endif %}
 <div class="results-bar">
 <p class="result-count" aria-live="polite">{{ total }} proposal{{ 's' if total != 1 }} match{{ 'es' if total == 1 }} these filters.</p>
 {%- if map_href %}
-{{ m.view_switch("list", map_href, list_href) }}
+{{ m.view_switch("list", map_href, list_href, feed_href) }}
 {%- endif %}
 </div>
 {% if save_alert_href %}{{ m.save_alert(save_alert_href, delayed.free_alerts if delayed else None) }}{% endif %}
 {% if records %}
 <div class="table-scroll">
 <table class="record-table">
-  <caption class="visually-hidden">Proposals matching the current filters, sorted by capacity descending by default.</caption>
+  <caption class="visually-hidden">Proposals matching the current filters, {{ sort_caption or 'sorted by capacity, largest first' }}{% if not request.query_params.get('sort') %} by default{% endif %}.</caption>
   <thead>
     <tr>
       <th scope="col">Status</th>
       <th scope="col">Name</th>
       <th scope="col">Technology</th>
-      <th scope="col" class="num">Capacity (MW)</th>
+      {% if not load_view %}<th scope="col" class="num">Capacity (MW)</th>{% endif %}
       <th scope="col">Jurisdiction</th>
       <th scope="col">County</th>
       <th scope="col">Source</th>
@@ -27,7 +31,7 @@
       <td data-label="Status">{{ m.status_chip(r.lifecycle_state, r.lifecycle_family, r.status_raw) }}{{ m.slip_note(r.slip, compact=True) }}</td>
       <td data-label="Name"><a class="row-link" href="/proposals/{{ r.slug }}">{{ r.name }}</a></td>
       <td data-label="Technology">{{ r.technology_label or '—' }}</td>
-      <td data-label="Capacity (MW)" class="num">{{ '%.1f'|format(r.capacity_mw) if r.capacity_mw is not none else '—' }}</td>
+      {% if not load_view %}<td data-label="Capacity (MW)" class="num">{{ r.capacity_mw | mw if r.capacity_mw is not none else '—' }}</td>{% endif %}
       <td data-label="Jurisdiction">{{ r.state or (r.jurisdiction or '—') }}</td>
       <td data-label="County">{{ r.county or '—' }}{% if r.restricted_precision %} <span class="visually-hidden">(county-level location; source licence)</span>{% endif %}</td>
       <td data-label="Source"{% if not r.source_label %} class="mono"{% endif %}><a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a></td>
@@ -37,6 +41,7 @@
 </table>
 </div>
 {{ m.pager(prev_cursor, next_cursor, querystring, "/proposals") }}
+{{ m.credits_line(credits) }}
 {% else %}
 <div class="empty-state">
   {%- if capacity_error %}

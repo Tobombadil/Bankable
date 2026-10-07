@@ -7,6 +7,7 @@ onto `api_app`, exactly as `web/test_auth.py` mounts `auth_router` -- neither is
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections.abc import Iterator
 
 import pytest
@@ -184,7 +185,10 @@ def test_privacy_page_covers_record_subjects_retention_rights_and_cites_no_repo_
     web_client: TestClient,
 ) -> None:
     body = web_client.get("/privacy").text
-    assert "docs/" not in body and ".md" not in body, "internal repository paths are not for the public"
+    # A repository path ("docs/13-legal-...md"), not the site's own `/docs/api` page in the footer.
+    assert not re.search(r"docs/\d", body) and ".md" not in body, (
+        "internal repository paths are not for the public"
+    )
     assert "legitimate interests" in body
     assert "We did not collect this from you" in body
     assert "35 days" in body and "8 weeks" in body, "backup retention (docs/60 §8)"

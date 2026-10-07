@@ -16,10 +16,11 @@
 </h1>
 <dl class="admin-dl">
   <dt>Request id</dt><dd class="mono">{{ r.public_id }}</dd>
-  <dt>Record named</dt><dd class="mono">{{ r.record_public_id }}</dd>
-  <dt>Received</dt><dd class="mono">{{ r.created_at or '' }}</dd>
-  <dt>Due</dt><dd class="mono" id="privacy-due">{{ r.due_at or '' }}</dd>
-  <dt>Completed</dt><dd class="mono">{{ r.completed_at or '—' }}</dd>
+  {%- set named_href = record_admin_href(None, r.record_public_id) %}
+  <dt>Record named</dt><dd class="mono">{% if named_href %}<a href="{{ named_href }}">{{ r.record_public_id }}</a>{% else %}{{ r.record_public_id }}{% endif %}</dd>
+  <dt>Received</dt><dd class="mono">{{ r.created_at | rfc3339 }}</dd>
+  <dt>Due</dt><dd class="mono" id="privacy-due">{{ r.due_at | rfc3339 }}</dd>
+  <dt>Completed</dt><dd class="mono">{{ (r.completed_at | rfc3339) or '—' }}</dd>
 </dl>
 
 {% if r.contact_email or r.message %}
@@ -40,7 +41,7 @@
       <tr>
         <td>{% if item.done %}<span class="chip chip--success">done</span>{% else %}<span class="chip chip--neutral">to do</span>{% endif %}</td>
         <td>{{ item.kind | replace('_', ' ') }}{% if item.personal_data %} <span class="chip chip--progress">person</span>{% endif %}</td>
-        <td>{% if item.kind in ('organization', 'proposal', 'opportunity') %}<a class="mono" href="/admin/records/{{ {'organization': 'organizations', 'proposal': 'proposals', 'opportunity': 'opportunities'}[item.kind] }}/{{ item.public_id }}">{{ item.public_id }}</a>{% else %}<span class="mono">{{ item.public_id }}</span>{% endif %}<br>{{ item.label }}{% if item.url %} <a href="{{ item.url }}" rel="noopener">(public page)</a>{% endif %}</td>
+        <td>{% if item.kind in ('organization', 'proposal', 'opportunity') %}<a class="mono" href="{{ record_admin_href(item.kind, item.public_id) }}">{{ item.public_id }}</a>{% else %}<span class="mono">{{ item.public_id }}</span>{% endif %}<br>{{ item.label }}{% if item.url %} <a href="{{ item.url }}" rel="noopener">(public page)</a>{% endif %}</td>
         <td>{{ item.state }}</td>
         <td>{{ item.action }}</td>
       </tr>

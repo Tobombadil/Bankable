@@ -196,7 +196,7 @@ def test_retiring_plant_page_has_a_retirement_section_in_words(web_client: TestC
         "Retiring",
         "Next scheduled retirement",
         "December 2028",
-        "2,600.0 MW",
+        "2,600 MW",
         "Conventional Steam Coal",
         "765 kV",
         "Indiana Michigan Power Co",
@@ -252,7 +252,7 @@ def test_retired_plant_says_when_and_how_much(web_client: TestClient) -> None:
         grid={"data": {"radius_km": 25.0, "transmission_lines": [], "interconnection_points": []}},
     )
     section = _section(body)
-    assert "April 2024" in section and "July 2023" in section and "2,012.0 MW" in section
+    assert "April 2024" in section and "July 2023" in section and "2,012 MW" in section
     assert "Every generator EIA lists at this plant has retired." in section
     assert "states no grid voltage" in section  # not in the 2025 annual file
     assert INTERCONNECTION_REUSE_NOTE[:60] in section

@@ -416,11 +416,15 @@ def test_fonts_are_self_hosted_and_every_face_has_its_file() -> None:
     for preloaded in re.findall(r'<link rel="preload" href="/static/fonts/([^"]+)" as="font"', base):
         assert preloaded in sources
         face = css[css.rindex("@font-face", 0, css.index(preloaded)) : css.index(preloaded)]
-        assert "font-display: optional" in face, preloaded
+        # Plex keeps `optional`; the display face swaps onto a metric-matched fallback (UX-17).
+        expected = "font-display: swap" if preloaded.startswith("newsreader") else "font-display: optional"
+        assert expected in face, preloaded
     for licence in ("OFL-Newsreader.txt", "LICENSE-IBM-Plex-Sans.txt", "LICENSE-IBM-Plex-Mono.txt"):
         assert "SIL Open Font License" in (WEB / "static" / "fonts" / licence).read_text(encoding="utf-8")
     readme = (WEB / "static" / "fonts" / "README.md").read_text(encoding="utf-8")
     assert "@ibm/plex-sans" in readme and "@ibm/plex-mono" in readme and "unmodified" in readme
+    # Only the instanced Newsreader file is modified, and the README says how it was made.
+    assert "newsreader-latin-600.woff2" in readme and "instancer" in readme
 
 
 def test_font_files_are_served_with_a_long_lived_cache() -> None:

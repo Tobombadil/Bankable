@@ -29,6 +29,22 @@ notes:
       probably the most commercially interesting category in the scope, and it can be neither
       filtered in nor out, because it is not there.
 
+  # `always`, because the fact it explains (a load queue with no rows) has no derived key yet; the
+  # API's `_applicable_notes` would need one (e.g. `empty_source: us.iso.ercot.large_load_queue`)
+  # to retire it automatically when ERCOT publishes request-level data. Reported to the API lane.
+  - id: ercot_large_load_not_request_level
+    applies_to: {always: true}
+    written: 2026-10-07
+    headline: ERCOT publishes no request-level large-load data, so no Texas large-load request is listed.
+    body: >-
+      The data-centre sites on this register come from air-permit registers (Virginia DEQ and EPA
+      ICIS-Air), carry no MW, and are not grid requests. ERCOT reports its large-load
+      interconnection queue only as system-wide totals and charts in PDF decks, with no file
+      that lists individual requests, their size, status or location. The ERCOT large-load
+      connector watches ERCOT's data catalogue each month and has found no such file; until one
+      appears, an empty Texas large-load view is a fact about what ERCOT publishes, not about
+      Texas demand.
+
   - id: withheld_sources
     applies_to: {withheld_sources: true}
     written: 2026-09-21

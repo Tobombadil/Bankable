@@ -32,7 +32,7 @@
       <td><a href="/admin/records/proposals/{{ c.left.public_id }}">{{ c.left.name }}</a><br><span class="admin-muted">{{ c.left.summary.jurisdiction }}, {{ c.left.summary.capacity_mw }} MW</span></td>
       <td><a href="/admin/records/proposals/{{ c.right.public_id }}">{{ c.right.name }}</a><br><span class="admin-muted">{{ c.right.summary.jurisdiction }}, {{ c.right.summary.capacity_mw }} MW</span></td>
       <td class="num">{{ c.score }}</td>
-      <td>{{ c.model_rationale or "&mdash;" }}</td>
+      <td>{{ c.model_rationale or '—' }}</td>
       <td>
         {% if c.status == "pending" %}
         <form class="admin-form" method="post" action="/admin/resolution/{{ c.candidate_id }}/decide?status={{ status_filter }}">

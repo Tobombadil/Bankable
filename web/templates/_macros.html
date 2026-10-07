@@ -23,16 +23,30 @@
 {%- endif %}
 {%- endmacro %}
 
+{#- UX-2: beside the "Open" chip of a notice whose deadline has gone (`viewmodels.deadline_passed`).
+    The status is the source's; this says the date has passed, in words, not by colour alone. -#}
+{% macro deadline_note(r) -%}
+{%- if r.deadline_passed %}<span class="slip-note slip-note--warn">Deadline passed {{ r.due_at | display_date }}<span class="visually-hidden">; the source still lists it as open</span></span>{% endif -%}
+{%- endmacro %}
+
 {% macro delayed_banner(delayed) -%}
 {%- if delayed.lag_days %}
 <p class="delayed-notice" role="status">
   <span class="stamp-label">Delayed</span> Public data is <span class="tnum">{{ delayed.lag_days }}</span> days delayed (as of <span class="tnum">{{ delayed.data_as_of }}</span>). <a href="/about#tiers">Live in Pro &rarr;</a>
 </p>
 {%- else %}
-<p class="delayed-notice" role="status">
-  <span class="stamp-label">Live</span> Every record and every change event is published as soon as it is ingested.
+{#- "Live" only while every scheduled source is within its fetch allowance (`delayed.freshness`,
+    from `/v1/coverage`); otherwise the stamp says what is still true -- nothing is held back after
+    ingest -- and the line names the sources whose last fetch is late (expert review 2026-10-07). -#}
+{%- set fresh = delayed.freshness or {} %}
+<div class="delayed-notice" role="status">
+  <span class="stamp-label">{% if fresh.available and not fresh.behind %}Live{% else %}No delay{% endif %}</span> Every record and every change event is published as soon as it is ingested.
   {%- if delayed.free_alerts %} <a href="/alerts">Free email alerts &rarr;</a>{% else %} <a href="/about#tiers">Alerts and API in Pro &rarr;</a>{% endif %}
-</p>
+  {%- if fresh.behind %}
+  <details class="delayed-notice__stale"><summary>{{ fresh.behind | length }} source{{ 's are' if fresh.behind | length != 1 else ' is' }} behind {{ 'their' if fresh.behind | length != 1 else 'its' }} fetch schedule</summary>
+  {% for b in fresh.behind %}{{ b.name }}{% if b.fetched_at %} (last fetched {{ b.fetched_at | display_date }}){% else %} (never fetched){% endif %}{{ '; ' if not loop.last }}{% endfor %}. <a href="/methodology#vintage">Dates per source</a>.</details>
+  {%- endif %}
+</div>
 {%- endif %}
 {%- if delayed.preview_active %}
 <p class="preview-banner" role="status"><span class="stamp-label">Dev preview</span> The publish delay was bypassed for this data. Since records carry no delay, this now changes nothing except for rows loaded before that decision; the notice above still states the real configured lag either way.</p>
@@ -50,11 +64,15 @@
 {#- Designer audit D-8 / docs/30 §2: "View as: Map · List" beside the results, each a link carrying
     the current query, so a reader moves between the two views of one result set without losing
     the filters. The current view is `aria-current="page"`; the heavier rule is its visible echo. -#}
-{% macro view_switch(current, map_href, list_href) -%}
+{#- `feed_href` (UX-6, docs/30 §2 "View as: Map · List · Feed"): the RSS twin of the same query. -#}
+{% macro view_switch(current, map_href, list_href, feed_href=None) -%}
 <nav class="view-switch" aria-label="View these proposals as">
   <span class="view-switch__label">View as</span>
   <a class="view-switch__link" id="view-as-map" href="{{ map_href }}"{% if current == 'map' %} aria-current="page"{% endif %}>Map</a>
   <a class="view-switch__link" id="view-as-list" href="{{ list_href }}"{% if current == 'list' %} aria-current="page"{% endif %}>List</a>
+  {%- if feed_href %}
+  <a class="view-switch__link" id="view-as-feed" href="{{ feed_href }}" type="application/rss+xml">RSS feed</a>
+  {%- endif %}
 </nav>
 {%- endmacro %}
 
@@ -89,7 +107,31 @@
     where it is the generic line, and a mandated statement (NESO's "Supported by National Energy SO
     Open Data") must appear exactly as written (2026-10-06, L-2/L-10). Only the bare source name
     takes the "Source:" label. -#}
-<p class="attribution-line">{% if record.attribution_text %}<a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text }}</a>{% else %}Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.source_name }}</a>{% endif %}{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved <span class="tnum">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown' }}</span>.</p>
+<p class="attribution-line">{% if record.attribution_text %}<a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text }}</a>{% else %}Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.source_name }}</a>{% endif %}{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved <span class="tnum">{{ record.retrieved_at | display_date if record.retrieved_at else 'unknown' }}</span>.</p>
+{%- endmacro %}
+
+{#- The credit line under a list or a search section (docs/31 §5.3, D-27; audit 2026-10-07 UX-4):
+    one entry per register behind the rows printed (`web/viewmodels.py::page_credits`), its short
+    name and, where the licence sets one, its credit text verbatim in brackets ("Supported by
+    National Energy SO Open Data" must appear exactly as written, L-2). `empty` is the sentence for
+    a set of rows that carries no sources of its own (company rows). -#}
+{% macro credits_line(credits, empty=None) -%}
+{%- if credits %}
+<p class="attribution-line attribution-line--list">Sources of these rows: {% for c in credits -%}
+{{ c.name }}{% if c.credit %} ({{ c.credit }}){% elif c.reuse_class == 'attribution' %} (credit required by licence){% endif %}{{ '; ' if not loop.last }}
+{%- endfor %}. Licences and full credits: <a href="/attribution">Attribution</a>.</p>
+{%- elif empty %}
+<p class="attribution-line attribution-line--list">{{ empty }} Licences and full credits: <a href="/attribution">Attribution</a>.</p>
+{%- endif %}
+{%- endmacro %}
+
+{#- Third-party files with Subresource Integrity (UX-19): the URL and hash come from one table,
+    `web/assets.py::CDN_ASSETS`, so no template can pin a version without its hash. -#}
+{% macro cdn_script(name) -%}
+<script src="{{ cdn[name].url }}" integrity="{{ cdn[name].integrity }}" crossorigin="anonymous"></script>
+{%- endmacro %}
+{% macro cdn_style(name) -%}
+<link href="{{ cdn[name].url }}" rel="stylesheet" integrity="{{ cdn[name].integrity }}" crossorigin="anonymous">
 {%- endmacro %}
 
 {% macro section_heading(number, text, id=None) -%}
@@ -98,22 +140,63 @@
 
 {#- `surface`: "map" or "list". The default-view sentence used to give the map's reason ("so the
     map isn't dominated by dead projects") on the list page too (designer audit 2026-09-30 D-11);
-    each surface now says what it hides in its own terms, with the same counts. -#}
-{% macro active_states_notice(breakdown, include_withdrawn, surface="map") -%}
+    each surface now says what it hides in its own terms, with the same counts.
+    `built_href` (UX-1, 2026-10-07): the built count is a link to the same view with built
+    proposals added, and the sentence names the Status control that shows the rest. -#}
+{% macro built_count(breakdown, built_href) -%}
+{%- if built_href and breakdown.built -%}<a href="{{ built_href }}" class="view-notice__show">{{ breakdown.built|thousands }} built</a>{%- else -%}{{ (breakdown.built or 0)|thousands }} built{%- endif -%}
+{%- endmacro %}
+{% macro active_states_notice(breakdown, include_withdrawn, surface="map", built_href=None) -%}
+{%- set has_split = breakdown.built is defined -%}
 <p class="view-notice" role="status">
   {%- if include_withdrawn -%}
-  Showing {{ breakdown.active + breakdown.withdrawn }} proposals, including {{ breakdown.withdrawn }} withdrawn or cancelled
-  {%- if breakdown.other %} ({{ breakdown.other }} built or unknown-state proposals are outside this view){% endif -%}.
+  Showing {{ (breakdown.active + breakdown.withdrawn)|thousands }} proposals, including {{ breakdown.withdrawn|thousands }} withdrawn or cancelled
+  {%- if breakdown.other %}
+  {%- if has_split %} ({{ built_count(breakdown, built_href) }}{% if breakdown.unknown %} and {{ breakdown.unknown|thousands }} unknown-state{% endif %} proposals are outside this view)
+  {%- else %} ({{ breakdown.other|thousands }} built or unknown-state proposals are outside this view){% endif %}
+  {%- endif -%}.
   {%- elif surface == "list" -%}
-  Showing {{ breakdown.active }} active proposals (announced through under construction).
-  Withdrawn and cancelled proposals ({{ breakdown.withdrawn }}) are hidden by default
-  {%- if breakdown.other %}, as are {{ breakdown.other }} built or unknown-state ones{% endif -%}.
+  Showing {{ breakdown.active|thousands }} active proposals (announced through under construction).
+  Withdrawn and cancelled proposals ({{ breakdown.withdrawn|thousands }}) are hidden by default
+  {%- if breakdown.other %}
+  {%- if has_split %}, as are {{ built_count(breakdown, built_href) }}{% if breakdown.unknown %} and {{ breakdown.unknown|thousands }} unknown-state{% endif %} ones
+  {%- else %}, as are {{ breakdown.other|thousands }} built or unknown-state ones{% endif %}
+  {%- endif -%}.
   {%- else -%}
-  Showing {{ breakdown.active }} active proposals (announced through under construction).
-  {{ breakdown.withdrawn }} withdrawn or cancelled {{ 'is' if breakdown.withdrawn == 1 else 'are' }} hidden by default
-  {%- if breakdown.other %}, as {{ 'is' if breakdown.other == 1 else 'are' }} {{ breakdown.other }} built or unknown-state{% endif -%}.
+  Showing {{ breakdown.active|thousands }} active proposals (announced through under construction).
+  {{ breakdown.withdrawn|thousands }} withdrawn or cancelled {{ 'is' if breakdown.withdrawn == 1 else 'are' }} hidden by default
+  {%- if breakdown.other %}
+  {%- if has_split %}, as {{ 'is' if breakdown.other == 1 else 'are' }} {{ built_count(breakdown, built_href) }}{% if breakdown.unknown %} and {{ breakdown.unknown|thousands }} unknown-state{% endif %}
+  {%- else %}, as {{ 'is' if breakdown.other == 1 else 'are' }} {{ breakdown.other|thousands }} built or unknown-state{% endif %}
+  {%- endif -%}.
   {%- endif %}
+  {#- The map keeps its status row short (the map must start above the fold at 400px); its
+      "N built" link is the way in there. -#}
+  {%- if surface == "list" and (breakdown.withdrawn or breakdown.other) %} Use <strong>Status</strong> in the filters to show them.{% endif %}
 </p>
+{%- endmacro %}
+
+{#- The status control (UX-1; docs/30 §4.1, docs/31 §5.9), one macro for the map and the list so
+    the two bars cannot drift. A closed disclosure whose summary says what is shown ("Status:
+    active"); one checkbox per group, each sending its states as a `lifecycle_state` csv. The
+    default groups carry `data-default="checked"`, so the 400 px "Filters (N active)" count
+    (site.js) counts a change from the default, not the default itself. `data-*-states` let
+    map.js write the shortest URL for the choice (`web/viewmodels.py::lifecycle_query_items`). -#}
+{% macro status_filter(prefix, choices) -%}
+<details class="filter-more filter-status" id="{{ prefix }}-status"{% if choices.explicit %} open{% endif %}>
+  <summary>Status:&nbsp;<span data-status-summary>{{ choices.summary }}</span></summary>
+  <div class="filter-more__body">
+  <fieldset class="filter-field filter-field--placement filter-field--status" data-default-states="{{ choices.default_states }}" data-withdrawn-states="{{ choices.withdrawn_states }}">
+    <legend>Show proposals that are</legend>
+    {%- for b in choices.boxes %}
+    <label for="{{ prefix }}-status-{{ b.key }}">
+      <input id="{{ prefix }}-status-{{ b.key }}" type="checkbox" name="lifecycle_state" value="{{ b.value }}" data-status-group="{{ b.key }}" data-status-short="{{ b.short }}"{% if b.default %} data-default="checked"{% endif %}{% if b.checked %} checked{% endif %}>
+      {{ b.label }}{% if b.note %} <span class="filter-field__note">({{ b.note }})</span>{% endif %}
+    </label>
+    {%- endfor %}
+  </fieldset>
+  </div>
+</details>
 {%- endmacro %}
 
 {# Class stays "provenance-panel" (web/test_e2e.py selects it); the provenance-bar idiom described
@@ -130,13 +213,17 @@
   {% if note %}<p class="attribution-line">{{ note }}</p>{% endif %}
   {% if rows %}
   <ul class="provenance-panel__list">
-    {% for row in rows %}
+    {#- UX-11: identical rows from one register are one row, counted (`viewmodels.group_source_rows`). -#}
+    {% for row in rows | group_source_rows %}
     <li class="provenance-panel__row">
       <details class="provenance-panel__details">
         <summary>
           <span class="provenance-panel__name">{{ row.source_name }}</span>
+          {%- if row.count > 1 %}
+          <span class="provenance-panel__count tnum">{{ row.count }} records{% if row.record_ids %} ({{ row.record_ids[:3] | join(', ') }}{% if row.record_ids | length > 3 %}, &hellip;{% endif %}){% endif %}</span>
+          {%- endif %}
           <span class="provenance-panel__licence reuse-badge">{{ row.reuse_class | reuse_class_label }}</span>
-          <span class="provenance-panel__date tnum">retrieved {{ row.retrieved_at[:10] if row.retrieved_at else 'unknown' }}</span>
+          <span class="provenance-panel__date tnum">retrieved {{ row.retrieved_at | display_date if row.retrieved_at else 'unknown' }}</span>
         </summary>
         {% if row.attribution_text %}<p class="provenance-panel__credit">{{ row.attribution_text }}{% if row.licence_url %} &middot; <a href="{{ row.licence_url }}" rel="noopener nofollow">licence</a>{% endif %}</p>{% endif %}
         <p class="provenance-panel__quote">{{ row.licence_quote }}</p>
@@ -247,7 +334,7 @@
       {%- if r.distance_km is not none %}{% set _ = parts.append('%.1f km away'|format(r.distance_km)) %}{% endif -%}
       {%- if r.technology %}{% set _ = parts.append(r.technology_label or (r.technology | technology_label)) %}{% endif -%}
       {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
-      {%- if r.capacity_mw %}{% set _ = parts.append('%.1f MW'|format(r.capacity_mw)) %}{% endif -%}
+      {%- if r.capacity_mw %}{% set _ = parts.append((r.capacity_mw | mw) ~ ' MW') %}{% endif -%}
       {{ parts | join(' · ') }}
       {%- if r.nearest_asset_name %} &middot; nearest: {% if r.nearest_asset_slug %}<a href="/assets/{{ r.nearest_asset_slug }}">{{ r.nearest_asset_name }}</a>{% else %}{{ r.nearest_asset_name }}{% endif %}{% endif %}
     </span>

@@ -8,7 +8,6 @@
   <p>Supply-side records: interconnection queue positions, planned generation and storage units, and data-centre sites from air-permit registers. Where two sources describe one project and have been matched, it is one row.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
-{% if breakdown and not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn, surface="list") }}{% endif %}
 
 {{ m.filter_toggle("filters") }}
 <form id="filters" class="filter-bar" data-collapse method="get" action="/proposals" hx-get="/proposals" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
@@ -50,17 +49,13 @@
       {% for b in slip_buckets %}<option value="{{ b.value }}" {% if filters.get('slip_bucket') == b.value %}selected{% endif %}>{{ b.label }}</option>{% endfor %}
     </select>
   </div>
-  <div class="filter-field filter-field--checkbox">
-    <label for="f-include-withdrawn">
-      <input id="f-include-withdrawn" type="checkbox" name="include_withdrawn" value="1" {% if include_withdrawn %}checked{% endif %}>
-      Include withdrawn &amp; cancelled
-    </label>
-  </div>
+  {#- UX-1: which lifecycle states to show (default: active), replacing the withdrawn checkbox. -#}
+  {{ m.status_filter("f", status_choices) }}
   {#- The map's viewport, when the list was opened from the map, so "View as map" returns there
       after the filters change (designer D-8). Not a filter: the API never sees it. -#}
   {% if view_center and view_zoom %}<input type="hidden" name="center" value="{{ view_center }}"><input type="hidden" name="zoom" value="{{ view_zoom }}">{% endif %}
   <button class="filter-bar__submit" type="submit">Apply filters</button>
-  {% if filters.get('technology') or filters.get('kind') or filters.get('jurisdiction') or filters.get('capacity_mw[gte]') or filters.get('capacity_mw[lte]') or filters.get('slip_bucket') or include_withdrawn %}
+  {% if filters.get('technology') or filters.get('kind') or filters.get('jurisdiction') or filters.get('capacity_mw[gte]') or filters.get('capacity_mw[lte]') or filters.get('slip_bucket') or include_withdrawn or lifecycle_explicit %}
   <a class="filter-bar__clear" href="/proposals">Clear all</a>
   {% endif %}
 </form>

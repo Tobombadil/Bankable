@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from services.api.app import app as api_app
+from services.api.conftest import make_open_licence, make_public_source, make_visible_proposal
 from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
 from services.crm.fake import InMemoryCrm
@@ -28,6 +29,7 @@ from services.ids import public_id
 from services.sor.ports import SorUnavailable
 from services.sor.wiring import get_crm_port
 from tests.conftest import make_account, make_user
+from web.admin.tasks import issue_type_label, record_admin_href
 from web.admin.tasks import router as tasks_router
 from web.api_client import ApiClient
 from web.app import app as web_app
@@ -319,3 +321,59 @@ def test_deletion_task_completion_503_when_crm_unreachable(web_client: TestClien
     with db_sessionmaker() as db:
         task = db.query(Task).filter_by(public_id=task_id).one()
         assert task.status == "open"
+
+
+# ============================================================================ subject links (UX-3)
+def _make_wrong_merge_report(db_sessionmaker: sessionmaker[Session]) -> tuple[str, str, str]:
+    """A reader's "wrong merge" report on a published proposal, as `POST /v1/reports` files it."""
+    with db_sessionmaker() as db:
+        lic = make_open_licence(db)
+        source = make_public_source(db, lic, id_="us.test.tasksrc_a")
+        proposal = make_visible_proposal(db, source, public_id_suffix="7")
+        task = Task(
+            public_id="",
+            type="report",
+            subject_type="proposal",
+            subject_id=proposal.id,
+            status="open",
+            issue_type="wrong_merge",
+            description="Two phases merged into one record.",
+        )
+        db.add(task)
+        db.flush()
+        task.public_id = public_id("task", task.id)
+        db.commit()
+        return task.public_id, proposal.public_id, proposal.slug
+
+
+def test_record_admin_href_routes_by_kind_and_never_to_the_missing_route() -> None:
+    assert record_admin_href("proposal", "prop_1") == "/admin/records/proposals/prop_1"
+    assert record_admin_href("opportunity", "opp_1") == "/admin/records/opportunities/opp_1"
+    assert record_admin_href("organization", "org_1") == "/admin/records/organizations/org_1"
+    assert record_admin_href(None, "prop_1") == "/admin/records/lookup?public_id=prop_1"
+    assert record_admin_href("user", "usr_1") is None
+    assert record_admin_href("proposal", None) is None
+    assert issue_type_label("wrong_merge") == "Two different projects were merged into this record"
+    assert issue_type_label("some_new_issue") == "Some new issue"
+
+
+def test_report_task_subject_links_reach_the_record(web_client: TestClient, db_sessionmaker) -> None:
+    """Audit 2026-10-07 UX-3: both task screens linked `/admin/records/{id}`, a 404, and printed the
+    issue type as the raw token. Every subject link now answers 200 and the type is in words."""
+    task_id, prop_id, slug = _make_wrong_merge_report(db_sessionmaker)
+    _sign_in(web_client, db_sessionmaker)
+    listing = web_client.get("/admin/tasks")
+    assert listing.status_code == 200
+    assert f'href="/admin/records/{prop_id}"' not in listing.text
+    assert f'href="/admin/records/proposals/{prop_id}"' in listing.text
+    assert "Two different projects were merged into this record" in listing.text
+    detail = web_client.get(f"/admin/tasks/{task_id}")
+    assert detail.status_code == 200
+    assert f'href="/admin/records/{prop_id}"' not in detail.text
+    assert f'href="/admin/records/proposals/{prop_id}"' in detail.text
+    assert f'href="/proposals/{slug}"' in detail.text
+    assert f'href="/admin/records/proposals/{prop_id}#unmerge"' in detail.text
+    assert "Two different projects were merged into this record" in detail.text
+    record = web_client.get(f"/admin/records/proposals/{prop_id}")
+    assert record.status_code == 200
+    assert 'id="unmerge"' in record.text and 'id="history"' in record.text

@@ -71,7 +71,7 @@
           {%- else %}<span class="reuse-badge">not determined</span>{% endif -%}
         </td>
         <td data-label="How we know">{{ basis_labels.get(s.vintage_basis, s.vintage_basis) }}</td>
-        <td data-label="We last fetched" class="tnum">{{ s.fetched_at[:10] if s.fetched_at else '—' }}</td>
+        <td data-label="We last fetched" class="tnum">{{ s.fetched_at | display_date if s.fetched_at else '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>

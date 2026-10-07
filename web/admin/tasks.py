@@ -22,9 +22,78 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse, Response
 
-from web.admin.shell import AdminContext, problem_notice, render, require_operator, require_same_origin
+from web.admin.shell import (
+    AdminContext,
+    problem_notice,
+    render,
+    require_operator,
+    require_same_origin,
+    templates,
+)
+from web.labels import REPORT_ISSUE_LABELS, humanise
 
 router = APIRouter()
+
+#: A task's subject, by `subject_type`: the admin record page's path segment and the public page's
+#: (audit 2026-10-07 UX-3). The task screens linked `/admin/records/{id}`, which is no route: a
+#: reader's report could not reach the record it was about.
+_SUBJECT_PATHS: dict[str, str] = {
+    "proposal": "proposals",
+    "opportunity": "opportunities",
+    "organization": "organizations",
+}
+_LOOKUP_PREFIXES = ("prop_", "opp_", "org_")
+
+
+def record_admin_href(subject_type: str | None, subject_id: str | None) -> str | None:
+    """The admin page of a task's subject, or `None` when the subject has none (a user, an event).
+    An unknown type with a record id goes through the lookup, which redirects by prefix."""
+    if not subject_id:
+        return None
+    segment = _SUBJECT_PATHS.get(subject_type or "")
+    if segment:
+        return f"/admin/records/{segment}/{subject_id}"
+    if subject_id.startswith(_LOOKUP_PREFIXES):
+        return "/admin/records/lookup?" + urlencode({"public_id": subject_id})
+    return None
+
+
+def issue_type_label(token: str | None) -> str:
+    """A report's issue type in the words the reader picked it by (`REPORT_ISSUE_LABELS`)."""
+    if not token:
+        return ""
+    return REPORT_ISSUE_LABELS.get(token) or humanise(token)
+
+
+templates.env.globals["record_admin_href"] = record_admin_href
+templates.env.filters["issue_type_label"] = issue_type_label
+
+
+def _subject_summary(ctx: AdminContext, task: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Name, admin page, public page and (for a proposal) the history and unmerge anchors of the
+    task's subject, so a "wrong merge" report is one click from the control that undoes it. The
+    name and slug come from the admin record read; when that fails the links still stand."""
+    if not task:
+        return None
+    subject_type, subject_id = task.get("subject_type"), task.get("subject_id")
+    admin_href = record_admin_href(subject_type, subject_id)
+    if admin_href is None:
+        return None
+    segment = _SUBJECT_PATHS.get(subject_type or "")
+    record: dict[str, Any] = {}
+    if segment:
+        result = ctx.api.get(f"/admin/v1/{segment}/{subject_id}")
+        if result.status_code == 200:
+            record = result.body.get("data") or {}
+    slug = record.get("slug")
+    return {
+        "name": record.get("name_canonical") or record.get("title") or record.get("name"),
+        "admin_href": admin_href,
+        "public_href": f"/{segment}/{slug}" if segment and slug else None,
+        "history_href": f"{admin_href}#history" if segment in ("proposals", "opportunities") else None,
+        "unmerge_href": f"{admin_href}#unmerge" if segment == "proposals" else None,
+    }
+
 
 TASK_TYPES: tuple[str, ...] = (
     "report",
@@ -242,6 +311,7 @@ def _detail_context(
     context: dict[str, Any] = {
         "task": task,
         "task_id": task_id,
+        "subject": _subject_summary(ctx, task),
         "task_statuses": TASK_STATUSES,
         "publish_states": RECORD_PUBLISH_STATES,
         "status_family": TASK_STATUS_FAMILY,

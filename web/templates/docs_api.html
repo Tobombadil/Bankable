@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{#- docs/30 §3 `/docs/api` (US-704) and `/feeds/*` (US-503); audit 2026-10-07 UX-6: neither was
+    linked from any page. The reference itself is the API's own, served from its host. -#}
+{% block title %}API and feeds -- Infraque{% endblock %}
+{% block meta_description %}The Infraque API and RSS and JSON feeds: the same proposals, opportunities and change events as the site, each with its sources and licences.{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / API and feeds</nav>
+<div class="page-header">
+  <h1>API and feeds</h1>
+  <p>The same records the site shows, as JSON and as feeds. Every response names the registers its rows come from and their licences (<code>licence_summary</code>); a credit a licence requires travels with the data. <a href="/legal/reuse">Reuse conditions</a> lists them per source.</p>
+</div>
+
+<section id="feeds">
+  {{ m.section_heading("1.", "Feeds") }}
+  <p>Free, with no key. Each feed holds the 50 most recently changed records. Any list filter works on a feed: <a class="mono" href="{{ example_feed }}">{{ example_feed }}</a> is new and changed data-centre proposals in Virginia. The proposal list and the map link their own feed under &ldquo;View as&rdquo;, and the opportunity list links one above its rows.</p>
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">Public feeds, each in RSS and JSON Feed format.</caption>
+    <thead><tr><th scope="col">Feed</th><th scope="col">RSS</th><th scope="col">JSON Feed</th></tr></thead>
+    <tbody>
+      {% for f in feeds %}
+      <tr>
+        <td data-label="Feed">{{ f.label }}</td>
+        <td data-label="RSS"><a class="mono" href="{{ f.rss }}">{{ f.rss }}</a></td>
+        <td data-label="JSON Feed"><a class="mono" href="{{ f.json }}">{{ f.json }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="api">
+  {{ m.section_heading("2.", "API") }}
+  <p>Base URL <code>{{ api_base }}</code>. Lists, records, change events and map clusters, with the same filters as the site&rsquo;s lists and map. Requests without a key share the public rate limit. Keys are issued from <a href="/account">your account</a>; <a href="/pricing">Pricing</a> says which plans include API access.</p>
+  <ul>
+    <li><a href="{{ reference_url }}" rel="noopener">API reference</a> (every endpoint, parameter and response)</li>
+    <li><a href="{{ openapi_url }}" rel="noopener">OpenAPI description</a> (machine-readable)</li>
+  </ul>
+</section>
+{% endblock %}
