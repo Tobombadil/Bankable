@@ -10,7 +10,8 @@
 </div>
 <p class="attribution-line">Totals count only projects this page may show; a project withheld under its source licence, or not yet published, is not in any number here. Spellings of one point in one queue are grouped by a documented rule; points are never merged across queues. <a href="/methodology">Methodology</a>.</p>
 
-<form id="filters" class="filter-bar" method="get" action="/interconnection-points" hx-get="/interconnection-points" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" role="search" aria-label="Filter interconnection points">
+{{ m.filter_toggle("filters") }}
+<form id="filters" class="filter-bar" data-collapse method="get" action="/interconnection-points" hx-get="/interconnection-points" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" role="search" aria-label="Filter interconnection points">
   <div class="filter-field">
     <label for="f-poi-iso">Queue</label>
     <select id="f-poi-iso" name="iso">
@@ -39,7 +40,7 @@
   </div>
   <div class="filter-field">
     <label for="f-poi-sort">Sort</label>
-    <select id="f-poi-sort" name="sort">
+    <select id="f-poi-sort" name="sort" data-not-filter>
       {% for token, label in sorts %}<option value="{{ token }}" {% if token == sort %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </div>

@@ -9,7 +9,8 @@
 </div>
 {{ m.delayed_banner(delayed) }}
 
-<form id="filters" class="filter-bar" method="get" action="/opportunities" hx-get="/opportunities" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
+{{ m.filter_toggle("filters") }}
+<form id="filters" class="filter-bar" data-collapse method="get" action="/opportunities" hx-get="/opportunities" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
   <div class="filter-field">
     <label for="f-kind">Kind</label>
     <select id="f-kind" name="kind">
@@ -19,7 +20,7 @@
   </div>
   <div class="filter-field">
     <label for="f-status">Status</label>
-    <select id="f-status" name="status">
+    <select id="f-status" name="status" data-default="open">
       <option value="all" {% if filters.get('status') == 'all' %}selected{% endif %}>All</option>
       {% for s in statuses %}<option value="{{ s }}" {% if filters.get('status') == s %}selected{% endif %}>{{ s | lifecycle_label }}</option>{% endfor %}
     </select>

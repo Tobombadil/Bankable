@@ -271,28 +271,6 @@ def lifecycle_family(state: str | None) -> Family:
     return LIFECYCLE_FAMILY.get(state or "", "neutral")
 
 
-def lifecycle_breakdown(api: ApiClient, *, extra_filters: Mapping[str, str] | None = None) -> dict[str, int]:
-    """Counts behind the empty-state/notice copy for product defect A: how many currently-visible
-    proposals (ignoring the lifecycle_state filter itself, but honouring every other filter in
-    play) are active vs. withdrawn/cancelled vs. other (built/unknown) -- "so the choice is
-    visible" per the task brief, computed from the live API rather than hard-coded.
-    """
-    params: dict[str, str] = dict(extra_filters or {})
-    params.pop("lifecycle_state", None)
-    params.pop("include_withdrawn", None)
-    params["bbox"] = WORLD_BBOX
-    params["zoom"] = "1"
-    try:
-        envelope = api.get("/v1/proposals/geo", params=params)
-    except ApiError:
-        return {"active": 0, "withdrawn": 0, "other": 0, "total": 0}
-    counts: dict[str, int] = envelope["data"].get("totals", {}).get("lifecycle_state_counts", {})
-    active = sum(counts.get(s, 0) for s in ACTIVE_PROPOSAL_STATES)
-    withdrawn = sum(counts.get(s, 0) for s in WITHDRAWN_PROPOSAL_STATES)
-    total = sum(counts.values())
-    return {"active": active, "withdrawn": withdrawn, "other": total - active - withdrawn, "total": total}
-
-
 #: How loud each slip bucket renders. `under_1y` is deliberately plain text, not a coloured
 #: badge: 67 of the 129 slipped rows on the 2026-09-21 load are in it, and a connection date that
 #: has moved by a few months is ordinary for a consented project -- colouring all of them is the

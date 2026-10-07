@@ -57,7 +57,8 @@
 </p>
 {% endif %}
 
-<form id="filters" class="filter-bar" method="get" action="/assets" hx-get="/assets" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
+{{ m.filter_toggle("filters") }}
+<form id="filters" class="filter-bar" data-collapse method="get" action="/assets" hx-get="/assets" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
   <div class="filter-field">
     <label for="f-asset-type">Type</label>
     <select id="f-asset-type" name="asset_type">
@@ -75,7 +76,7 @@
   </div>
   <div class="filter-field">
     <label for="f-sort">Sort</label>
-    <select id="f-sort" name="sort">
+    <select id="f-sort" name="sort" data-not-filter>
       {% for token, label in sorts %}<option value="{{ token }}" {% if token == sort %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </div>

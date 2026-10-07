@@ -157,6 +157,13 @@ for tabular data at any breakpoint (D-1, D-7, banned #13).
 | 720–1079px | Side list becomes a collapsible panel over the map; table scrolls horizontally inside its own container only |
 | 400–719px | Map keeps the results list as a bottom sheet (D-32); table collapses to key/value row cards; filter bar becomes a single "Filters" button opening a sheet |
 
+**As built at 400–719px (2026-10-07, layout lane; owner to ratify):** the filter bar and the site navigation are
+"Filters (N active)" and "Menu" disclosures that open in place rather than as sheets, so nothing is covered and
+focus never lands behind an overlay; the in-view results list is paged (25 rows per group, then "Show N more",
+focus moving to the first new row) rather than a bottom sheet. Collapse keys on a `.js` class set before first
+paint, so a page without scripts stays fully open. Measured: the 400×800 home page went from 13,866 px to
+3,377 px tall and the map from 1,658 px to 471 px down.
+
 No fixed width wider than the viewport at any breakpoint; only tables, the map canvas, and code blocks may
 scroll horizontally, each inside its own `overflow-x` container — the page body never scrolls horizontally
 (D-32).
@@ -277,6 +284,9 @@ filter is active.
 **States:** default (no filters — full vocabulary shown collapsed); active (chips shown with counts where cheap
 to compute); at-400px (collapses to a single "Filters" button opening a full-height sheet, D-32); invalid
 combination (e.g., `capacity_mw[gte] > capacity_mw[lte]`) shown as inline validation text, not a silent no-op.
+**As built (2026-10-07):** at 400px the bar is an in-place "Filters (N active)" disclosure, not a full-height sheet
+(see §3); an impossible range is `aria-invalid` inline validation, server-rendered and live, and the API is not
+called.
 **Rule satisfied:** D-4, D-17, API-3.
 
 ### 5.10 Saved-search card

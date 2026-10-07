@@ -134,19 +134,26 @@ def test_a_linked_state_filter_reaches_the_list_and_the_breakdown(transport: Fak
     with TestClient(web_app) as client:
         response = client.get("/proposals?technology=storage&state=US-TX&utm_source=newsletter")
     assert response.status_code == 200
-    (list_params,) = transport.params_for("/v1/proposals")
+    list_params, *counts = transport.params_for("/v1/proposals")
     assert list_params["state"] == "US-TX"
     assert list_params["technology"] == "storage"
     assert "utm_source" not in list_params  # an unknown parameter is still not forwarded
-    breakdown = transport.params_for("/v1/proposals/geo")
-    assert breakdown and all(params.get("state") == "US-TX" for params in breakdown)
+    # The lifecycle breakdown is three `include=count` list calls (frontend audit F9), each with
+    # the linked filter; the empty result's facet counts carry it too, unless they drop it.
+    breakdown = [p for p in counts if p.get("include") == "count" and "lifecycle_state" in p]
+    assert len(breakdown) >= 3
+    assert all(params.get("state") == "US-TX" for params in breakdown[:3])
+    assert all("utm_source" not in params for params in counts)
+    assert transport.params_for("/v1/proposals/geo") == []
 
 
 def test_a_linked_opportunity_filter_reaches_the_list(transport: FakeTransport) -> None:
     with TestClient(web_app) as client:
         response = client.get("/opportunities?budget_currency=EUR&budget_amount[gte]=1000000&issuer_id=org_x")
     assert response.status_code == 200
-    (list_params,) = transport.params_for("/v1/opportunities")
+    # The first call is the list; an empty list then counts each facet without it (docs/31 §6).
+    list_params, *facet_counts = transport.params_for("/v1/opportunities")
+    assert all(p.get("include") == "count" and p.get("limit") == 1 for p in facet_counts)
     assert list_params["budget_currency"] == "EUR"
     assert list_params["budget_amount[gte]"] == "1000000"
     assert list_params["issuer_id"] == "org_x"

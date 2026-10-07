@@ -17,17 +17,22 @@ import functools
 import logging
 import os
 import pathlib
+import re
+from collections.abc import Mapping
+from os import PathLike
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import QueryParams
+from starlette.types import Scope
 
 from web.api_client import ApiClient, ApiError, ApiNotFound, VisitorIpMiddleware
 from web.auth import router as auth_router
+from web.empty_state import empty_result_facets, range_error
 from web.labels import PLANT_FAMILY_LABELS
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
@@ -55,9 +60,11 @@ from web.page import (
     templates,
     unavailable_response,
 )
+from web.proposal_location import proposal_location
 from web.regions import Region, regions_with_data
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
+    ALL_PROPOSAL_LIFECYCLE_STATES,
     PROPOSAL_SOURCE_LABELS,
     WITHDRAWN_PROPOSAL_STATES,
     WORLD_BBOX,
@@ -68,7 +75,6 @@ from web.viewmodels import (
     flatten_opportunity,
     flatten_organization,
     flatten_proposal,
-    lifecycle_breakdown,
     map_labels_json,
     opportunity_kind_label,
     opportunity_status_param,
@@ -117,7 +123,29 @@ logger = logging.getLogger("web.app")
 app = FastAPI(title="Infraque -- public site")
 # Every server-side API call carries the visitor's address (web/api_client.py; devops audit F1).
 app.add_middleware(VisitorIpMiddleware)
-app.mount("/static", StaticFiles(directory=str(WEB_ROOT / "static")), name="static")
+
+
+class _StaticFiles(StaticFiles):
+    """`/static`, with the self-hosted fonts cached for a year (frontend audit F8). The two first-
+    paint fonts are `font-display: optional` (styles.css): a copy that has to be revalidated on a
+    slow link misses Chrome's short wait and the page stays in the fallback face, so a font must be
+    usable from the cache without a round trip. A font file is renamed whenever its content
+    changes, so `immutable` is safe."""
+
+    def file_response(
+        self,
+        full_path: PathLike[str] | str,
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if str(full_path).endswith(".woff2"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
+app.mount("/static", _StaticFiles(directory=str(WEB_ROOT / "static")), name="static")
 # Sprint 3 "login and registration surface": /login, /register, /logout, /verify, /account (own
 # router in web/auth.py -- see that module's docstring for why it keeps its own Jinja2Templates
 # rather than importing this one).
@@ -230,10 +258,114 @@ def delayed_notice(request: Request, kind: str) -> dict[str, Any]:
     }
 
 
-#: The filters `lifecycle_breakdown` forwards to `/v1/proposals/geo`, so the "Showing N active
-#: proposals" line counts the same set the list shows (before 2026-09-27 it forwarded only
-#: technology, jurisdiction and kind: `?q=solar&state=US-TX` listed 651 and announced 1,743).
+#: The filters `lifecycle_counts` forwards, so the "Showing N active proposals" line counts the
+#: same set the list shows (before 2026-09-27 it forwarded only technology, jurisdiction and kind:
+#: `?q=solar&state=US-TX` listed 651 and announced 1,743).
 BREAKDOWN_FILTERS = PROPOSAL_PASSTHROUGH_FILTERS
+
+#: Lifecycle states outside both the default view and the withdrawn toggle.
+OTHER_PROPOSAL_STATES: tuple[str, ...] = tuple(
+    s for s in ALL_PROPOSAL_LIFECYCLE_STATES if s not in ACTIVE_PROPOSAL_STATES + WITHDRAWN_PROPOSAL_STATES
+)
+
+#: The map's own default placement (`map.js` DEFAULT_PLACEMENT). It is a drawing choice, not a
+#: filter: `/v1/proposals/geo`'s `totals.records` (the map's count line) counts every placement
+#: grade, so the map's notice ignores `placement` too, and the map's links to the list drop it
+#: when it is this default (an unplaced proposal is listed, which is where the map sends readers).
+MAP_DEFAULT_PLACEMENT = "exact,region"
+
+
+def lifecycle_counts(api: ApiClient, qp: QueryParams, *, surface: str = "list") -> dict[str, int]:
+    """Active / withdrawn / other counts behind the lifecycle notice, for every filter in play
+    except the lifecycle one (product defect A: "so the choice is visible").
+
+    Three `GET /v1/proposals?limit=1&include=count` calls, one per bucket. Until 2026-10-06 this
+    was one world-wide clustered `GET /v1/proposals/geo` at zoom 1 whose features were thrown away
+    for its `lifecycle_state_counts` (frontend audit F9): 1.0-1.4 s of every home, `/proposals`
+    and map-filter request against 0.04-0.09 s per count on the same store. A failed count reads
+    as zero, as the geo version did, so the page still renders."""
+    params: dict[str, str] = {n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n)}
+    if surface == "map":
+        params.pop("placement", None)  # the map's count line counts every placement grade
+    counts: dict[str, int] = {}
+    for bucket, states in (
+        ("active", ACTIVE_PROPOSAL_STATES),
+        ("withdrawn", WITHDRAWN_PROPOSAL_STATES),
+        ("other", OTHER_PROPOSAL_STATES),
+    ):
+        try:
+            envelope = api.get(
+                "/v1/proposals",
+                params={**params, "lifecycle_state": ",".join(states), "limit": 1, "include": "count"},
+            )
+            counts[bucket] = int((envelope.get("meta") or {}).get("total") or 0)
+        except ApiError:
+            counts[bucket] = 0
+    counts["total"] = counts["active"] + counts["withdrawn"] + counts["other"]
+    return counts
+
+
+#: An empty page of a list, for a query the page refuses to send (an impossible range).
+NO_ROWS: dict[str, Any] = {
+    "data": [],
+    "meta": {"total": 0, "total_is_estimate": False},
+    "page": {"has_more": False, "next_cursor": None, "prev_cursor": None},
+}
+
+#: The map viewport in the URL (frontend audit F7, docs/04 D-17): `center=<lng>,<lat>` and
+#: `zoom=<z>`, written by map.js. The list keeps them only to hand them back to the map.
+_VIEW_CENTER = re.compile(r"-?\d{1,3}(\.\d+)?,-?\d{1,2}(\.\d+)?")
+_VIEW_ZOOM = re.compile(r"\d{1,2}(\.\d+)?")
+
+
+def map_empty_facets(api: ApiClient, qp: QueryParams, breakdown: Mapping[str, int]) -> list[dict[str, Any]]:
+    """When the map's filters match no proposal in any state, the facets that emptied it (docs/31
+    §6, designer D-11): each filter in play, what removing it would show, and the map link
+    without it. Empty otherwise, so a normal view costs no extra call."""
+    if breakdown.get("total"):
+        return []
+    lifecycle_csv, _explicit, _include = resolve_proposal_lifecycle_param(qp)
+    params: dict[str, str | None] = {n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n) and n != "placement"}
+    params["lifecycle_state"] = lifecycle_csv
+    return empty_result_facets(
+        api,
+        entity="proposal",
+        endpoint="/v1/proposals",
+        path="/",
+        qp=qp,
+        names=[n for n in PROPOSAL_PASSTHROUGH_FILTERS if n != "placement"],
+        base_params=params,
+    )
+
+
+def list_view_href(qp: QueryParams) -> str:
+    """`/proposals` showing the map's proposals: the same filters, plus the viewport so the list's
+    "View as map" link can return to it."""
+    kept = [
+        (k, v)
+        for k, v in qp.multi_items()
+        if v
+        and (
+            k in PROPOSAL_PASSTHROUGH_FILTERS
+            or k in ("include_withdrawn", "lifecycle_state", "center", "zoom")
+        )
+        and not (k == "placement" and v == MAP_DEFAULT_PLACEMENT)
+    ]
+    return "/proposals" + ("?" + urlencode(kept) if kept else "")
+
+
+def map_view_href(qp: QueryParams) -> str:
+    """The map (`/`) showing the same proposals as this list: every passthrough filter, the
+    lifecycle choice, and the viewport when the list was reached from the map (designer D-8). The
+    map honours every one of these (W3/H3: map.js forwards each passthrough filter)."""
+    kept = [
+        (k, v)
+        for k, v in qp.multi_items()
+        if v and (k in PROPOSAL_PASSTHROUGH_FILTERS or k in ("include_withdrawn", "lifecycle_state"))
+    ]
+    if _VIEW_CENTER.fullmatch(qp.get("center") or "") and _VIEW_ZOOM.fullmatch(qp.get("zoom") or ""):
+        kept += [("center", qp["center"]), ("zoom", qp["zoom"])]
+    return "/" + ("?" + urlencode(kept) if kept else "")
 
 
 def _proposal_params(qp: QueryParams, *, lifecycle_csv: str) -> dict[str, str | None]:
@@ -258,7 +390,7 @@ def home_map(request: Request) -> HTMLResponse:
     qp = request.query_params
     _lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
     vocab = api.get("/v1/meta/vocabularies")["data"]
-    breakdown = lifecycle_breakdown(api, extra_filters={n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n)})
+    breakdown = lifecycle_counts(api, qp, surface="map")
     tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
     tile_mode = _tile_mode(tile_url)
     # docs/40 §2.7 / task item 3: only regions a published, non-gated source actually covers get a
@@ -286,7 +418,10 @@ def home_map(request: Request) -> HTMLResponse:
             "lifecycle_explicit": explicit,
             "filters": dict(qp),
             "save_alert_href": save_alert_href("proposal", qp, origin="map"),
+            # The view switch's List link before map.js runs (it rewrites it with every change).
+            "list_href": list_view_href(qp),
             "breakdown": breakdown,
+            "empty_facets": map_empty_facets(api, qp, breakdown),
             "active_states": ACTIVE_PROPOSAL_STATES,
             "withdrawn_states": WITHDRAWN_PROPOSAL_STATES,
             "tile_url": tile_url,
@@ -311,11 +446,16 @@ def proposals_notice_fragment(request: Request) -> HTMLResponse:
     api = get_api(request)
     qp = request.query_params
     _lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
-    breakdown = lifecycle_breakdown(api, extra_filters={n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n)})
+    breakdown = lifecycle_counts(api, qp, surface="map")
     return templates.TemplateResponse(
         request,
         "_map_notice.html",
-        {"breakdown": breakdown, "include_withdrawn": include_withdrawn, "lifecycle_explicit": explicit},
+        {
+            "breakdown": breakdown,
+            "include_withdrawn": include_withdrawn,
+            "lifecycle_explicit": explicit,
+            "empty_facets": map_empty_facets(api, qp, breakdown),
+        },
     )
 
 
@@ -453,11 +593,29 @@ def proposals_list(request: Request) -> HTMLResponse:
     params["sort"] = qp.get("sort") or "-capacity_mw"
     params["cursor"] = qp.get("cursor")
     params["include"] = "count"
-    envelope = api.get("/v1/proposals", params=params)
+    # docs/31 §5.9: an impossible capacity range is said inline, not sent to the API and answered
+    # with an unexplained "no proposals" (designer audit D-11).
+    capacity_error = range_error(qp, "capacity_mw[gte]", "capacity_mw[lte]", noun="capacity")
+    envelope = NO_ROWS if capacity_error else api.get("/v1/proposals", params=params)
     vocab = api.get("/v1/meta/vocabularies")["data"]
-    breakdown = lifecycle_breakdown(api, extra_filters={n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n)})
+    # No lifecycle counts for an impossible range either: "Showing 0 active proposals" would read
+    # as a fact about the register rather than about the query.
+    breakdown = None if capacity_error else lifecycle_counts(api, qp)
 
     records = [flatten_proposal(e) for e in envelope["data"]]
+    empty_facets = (
+        empty_result_facets(
+            api,
+            entity="proposal",
+            endpoint="/v1/proposals",
+            path="/proposals",
+            qp=qp,
+            names=PROPOSAL_PASSTHROUGH_FILTERS,
+            base_params=params,
+        )
+        if not records and not capacity_error and not qp.get("cursor")
+        else []
+    )
     canonical_path = "/proposals" + canonical_query(
         qp, (*PROPOSAL_PASSTHROUGH_FILTERS, "include_withdrawn", "sort", "cursor")
     )
@@ -483,7 +641,17 @@ def proposals_list(request: Request) -> HTMLResponse:
         "breakdown": breakdown,
         # Only computed when the filter matched nothing: see `absence_note`'s docstring for why
         # this is not rendered beside a result that has rows.
-        "absence": absence_note(coverage_facts(request, api), qp) if not records else None,
+        "absence": (
+            absence_note(coverage_facts(request, api), qp) if not records and not capacity_error else None
+        ),
+        "empty_facets": empty_facets,
+        "capacity_error": capacity_error,
+        # Designer audit D-8: "View as: Map · List" beside the results, each carrying the query.
+        "map_href": map_view_href(qp),
+        "list_href": "/proposals"
+        + ("?" + urlencode([(k, v) for k, v in qp.multi_items() if k != "cursor"]) if qp else ""),
+        "view_center": qp.get("center") if _VIEW_CENTER.fullmatch(qp.get("center") or "") else None,
+        "view_zoom": qp.get("zoom") if _VIEW_ZOOM.fullmatch(qp.get("zoom") or "") else None,
         "canonical_path": canonical_path,
         "jsonld": [
             item_list_jsonld(
@@ -562,6 +730,7 @@ def proposal_detail(request: Request, slug: str) -> Response:
             "history": proposal_history(api, record),
             "provenance_rows": attach_select_basis(record, provenance_panel_rows(api, record["provenance"])),
             "connection": proposal_connection(api, record.get("public_id")),
+            "location": proposal_location(entity),
             "delayed": delayed_notice(request, "proposal"),
             "canonical_path": path,
             "report": report_context(record["public_id"], record["name"], path),
@@ -590,6 +759,19 @@ def opportunities_list(request: Request) -> HTMLResponse:
     vocab = api.get("/v1/meta/vocabularies")["data"]
 
     records = [flatten_opportunity(e) for e in envelope["data"]]
+    empty_facets = (
+        empty_result_facets(
+            api,
+            entity="opportunity",
+            endpoint="/v1/opportunities",
+            path="/opportunities",
+            qp=qp,
+            names=OPPORTUNITY_PASSTHROUGH_FILTERS,
+            base_params=params,
+        )
+        if not records and not qp.get("cursor")
+        else []
+    )
     canonical_path = "/opportunities" + canonical_query(
         qp, (*OPPORTUNITY_PASSTHROUGH_FILTERS, "status", "cursor")
     )
@@ -608,6 +790,7 @@ def opportunities_list(request: Request) -> HTMLResponse:
         # The opportunity vocabulary, not the proposal one: `solar` matches no tagged notice.
         "technologies": [v["value"] for v in vocab.get("opportunity_technology", [])],
         "filters": {**dict(qp), "status": qp.get("status", "open")},
+        "empty_facets": empty_facets,
         "canonical_path": canonical_path,
         "jsonld": [
             item_list_jsonld(

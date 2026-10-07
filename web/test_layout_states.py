@@ -1,0 +1,412 @@
+"""Layout-lane fixes from the 2026-09-30 platform audit, server side: the empty, invalid and error
+states of the list and map pages (designer D-11, docs/31 §6 and §5.9), the "View as: Map · List"
+cross-links and the proposal page's Location section (D-8), the 400px disclosures' markup (D-4),
+and the self-hosted fonts that stop `/assets` shifting at 1440px (frontend F8).
+
+The browser halves (the viewport in the URL, the collapsed header and filter bar at 400px, the
+in-view list's "Show more", the map's error state) are in `web/test_e2e.py`. The fake transport is
+duplicated from `web/test_map_filter_passthrough.py`, per this repo's convention that no
+`web/test_*.py` imports another.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable, Iterator, Mapping
+from html import unescape
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlsplit
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from starlette.datastructures import QueryParams
+
+from web.api_client import ApiClient
+from web.app import app as web_app
+from web.app import map_view_href
+from web.empty_state import range_error
+from web.page import templates
+from web.proposal_location import proposal_location
+
+WEB = Path(__file__).resolve().parent
+
+Answer = tuple[int, Any] | Callable[[Mapping[str, Any]], tuple[int, Any]]
+
+
+class FakeTransport:
+    def __init__(self, responses: Mapping[str, Answer]) -> None:
+        self.responses = dict(responses)
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def _respond(self, url: str, params: Mapping[str, Any] | None = None) -> httpx.Response:
+        if url in self.responses:
+            answer = self.responses[url]
+            status, body = answer(params or {}) if callable(answer) else answer
+            return httpx.Response(status, json=body)
+        return httpx.Response(404, json={"title": "not_found", "detail": url})
+
+    def get(
+        self, url: str, *, params: Mapping[str, Any] | None = None, cookies: dict[str, str] | None = None
+    ) -> httpx.Response:
+        self.calls.append(("GET", url, dict(params or {})))
+        return self._respond(url, params)
+
+    def post(
+        self, url: str, *, json: Mapping[str, Any] | None = None, cookies: dict[str, str] | None = None
+    ) -> httpx.Response:
+        self.calls.append(("POST", url, dict(json or {})))
+        return self._respond(url)
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        self.calls.append((method, url, dict(json if json is not None else params or {})))
+        return self._respond(url, params)
+
+    def close(self) -> None:
+        pass
+
+    def params_for(self, url: str) -> list[dict[str, Any]]:
+        return [params for _method, called, params in self.calls if called == url]
+
+
+HEALTH: dict[str, Any] = {
+    "status": "ok",
+    "data_as_of": "2026-09-01",
+    "live_as_of": "2026-09-15T00:00:00Z",
+    "lag_days_default": {"supply": 0, "opportunities": 0},
+}
+VOCAB: dict[str, Any] = {
+    "data": {
+        "technology": [{"value": "solar"}, {"value": "storage"}],
+        "proposal_kind": [{"value": "generation"}, {"value": "load"}],
+        "opportunity_kind": [{"value": "rfp"}],
+        "opportunity_status": [{"value": "open"}],
+        "opportunity_technology": [{"value": "solar_pv"}],
+        "slip_bucket": [],
+    }
+}
+
+
+def _page(total: int) -> dict[str, Any]:
+    return {
+        "data": [],
+        "meta": {"total": total, "total_is_estimate": False},
+        "page": {"next_cursor": None, "prev_cursor": None, "has_more": False},
+        "licence_summary": [],
+    }
+
+
+def _counted(params: Mapping[str, Any]) -> tuple[int, Any]:
+    """Nothing matches a made-up jurisdiction; every other query counts 7."""
+    return 200, _page(0 if params.get("jurisdiction") == "US-ZZ" else 7)
+
+
+@pytest.fixture()
+def transport() -> Iterator[FakeTransport]:
+    fake = FakeTransport(
+        {
+            "/v1/health": (200, HEALTH),
+            "/v1/meta/vocabularies": (200, VOCAB),
+            "/v1/sources": (200, {"data": []}),
+            "/v1/proposals": _counted,
+            "/v1/opportunities": _counted,
+            "/v1/interconnection-points": _counted,
+        }
+    )
+    web_app.state.api_client = ApiClient(fake)
+    web_app.state.lag_days_default = None
+    yield fake
+    for key in ("api_client", "lag_days_default", "sitemap_cache", "asset_type_counts_cache"):
+        web_app.state.__dict__.pop(key, None)
+
+
+def _text(html: str) -> str:
+    return " ".join(unescape(re.sub(r"<[^>]+>", " ", html)).split())
+
+
+# ---- docs/31 §5.9: an impossible range is said inline, not answered with "no proposals" ----
+
+
+@pytest.mark.parametrize(
+    ("low", "high", "expected"),
+    [
+        ("500", "10", "Minimum capacity (500) is above the maximum (10)"),
+        ("-5", "", "Capacity cannot be negative."),
+        ("abc", "", "Minimum capacity must be a number."),
+        ("", "1e", "Maximum capacity must be a number."),
+    ],
+)
+def test_range_error_names_what_is_wrong(low: str, high: str, expected: str) -> None:
+    qp = {"capacity_mw[gte]": low, "capacity_mw[lte]": high}
+    message = range_error(qp, "capacity_mw[gte]", "capacity_mw[lte]", noun="capacity")
+    assert message is not None and message.startswith(expected)
+
+
+@pytest.mark.parametrize(("low", "high"), [("10", "500"), ("10", "10"), ("", "500"), ("", "")])
+def test_range_error_is_none_for_a_usable_pair(low: str, high: str) -> None:
+    qp = {"capacity_mw[gte]": low, "capacity_mw[lte]": high}
+    assert range_error(qp, "capacity_mw[gte]", "capacity_mw[lte]", noun="capacity") is None
+
+
+def test_an_impossible_capacity_range_is_said_beside_the_control(transport: FakeTransport) -> None:
+    """Designer D-11: `capacity_mw[gte]=500&capacity_mw[lte]=10` asked the API a question no row
+    can answer and printed "No proposals match these filters." with no word about why."""
+    with TestClient(web_app) as client:
+        html = client.get("/proposals?capacity_mw[gte]=500&capacity_mw[lte]=10").text
+    text = _text(html)
+    assert "Minimum capacity (500) is above the maximum (10)" in text
+    assert 'id="f-capacity-error"' in html and 'aria-invalid="true"' in html
+    assert 'aria-describedby="f-capacity-error"' in html
+    # Nothing was asked of the API for rows or counts, and no "Showing 0 active proposals" reads
+    # as a fact about the register.
+    assert all("capacity_mw[gte]" not in params for params in transport.params_for("/v1/proposals"))
+    assert "Showing 0 active proposals" not in text
+    assert "No proposals match these filters." not in text
+
+
+# ---- docs/31 §6: an empty result names the facet that emptied it, with a way out ----
+
+
+def test_an_empty_proposal_list_names_the_filter_that_emptied_it(transport: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        html = client.get("/proposals?jurisdiction=US-ZZ&technology=solar").text
+    text = _text(html)
+    assert "Jurisdiction: “US-ZZ” · without it, 7 proposals match." in text
+    assert "Jurisdiction codes look like US-TX, GB or DE." in text
+    # "Remove this filter" keeps every other parameter of the view.
+    assert 'href="/proposals?technology=solar"' in html
+    # Removing the technology alone still leaves US-ZZ, which matches nothing.
+    assert "removing it alone still matches nothing." in text
+    assert "Clear all filters" in text
+
+
+def test_the_list_notice_gives_the_list_its_own_reason(transport: FakeTransport) -> None:
+    """D-11: the list page said withdrawn proposals are hidden "so the map isn't dominated by dead
+    projects", which is the map's reason, on the list."""
+    with TestClient(web_app) as client:
+        text = _text(client.get("/proposals").text)
+    assert "Withdrawn and cancelled proposals (7) are hidden by default" in text
+    assert "dominated" not in text
+
+
+def test_an_empty_opportunity_list_names_the_filter(transport: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        html = client.get("/opportunities?jurisdiction=US-ZZ").text
+    text = _text(html)
+    assert "No open opportunities match these filters." in text
+    assert "Jurisdiction: “US-ZZ” · without it, 7 opportunities match." in text
+
+
+def test_an_empty_point_list_says_so_once_and_names_the_filter(transport: FakeTransport) -> None:
+    """D-11: `/interconnection-points?jurisdiction=US-ZZ` printed its empty sentence twice."""
+    with TestClient(web_app) as client:
+        html = client.get("/interconnection-points?jurisdiction=US-ZZ&iso=ercot").text
+    text = _text(html)
+    assert text.count("No interconnection points match these filters.") == 1
+    assert "Jurisdiction: “US-ZZ”" in text
+    assert 'href="/interconnection-points?iso=ercot"' in html
+
+
+def test_the_map_names_the_filter_that_emptied_it(transport: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        html = client.get("/?jurisdiction=US-ZZ").text
+    assert 'class="map-empty"' in html
+    assert "Jurisdiction: “US-ZZ” · without it, 7 proposals match." in _text(html)
+
+
+def test_the_map_page_has_an_error_slot_and_no_world_geo_query(transport: FakeTransport) -> None:
+    """D-11: with `/api/proposals/geo` failing the map said "Loading proposals…" for good; map.js
+    now fills `#map-error` (an alert region). F9: the page no longer waits on a world-wide
+    clustered geo query to count lifecycle states."""
+    with TestClient(web_app) as client:
+        html = client.get("/").text
+    assert re.search(r'<div class="map-error" id="map-error" role="alert" hidden>', html)
+    assert transport.params_for("/v1/proposals/geo") == []
+
+
+# ---- D-8: "View as: Map · List", each carrying the query ----
+
+
+def test_the_list_links_back_to_the_map_with_its_filters_and_viewport(transport: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        html = client.get("/proposals?technology=solar&center=-77.5000,38.9000&zoom=8.00&cursor=abc").text
+    href = re.search(r'id="view-as-map" href="([^"]+)"', html)
+    assert href is not None
+    query = parse_qs(urlsplit(href.group(1).replace("&amp;", "&")).query)
+    assert query == {"technology": ["solar"], "center": ["-77.5000,38.9000"], "zoom": ["8.00"]}
+    assert re.search(r'id="view-as-list" href="[^"]*" aria-current="page"', html)
+    # The viewport rides along in the filter form, so it survives "Apply filters".
+    assert '<input type="hidden" name="center" value="-77.5000,38.9000">' in html
+
+
+def test_the_map_view_link_drops_a_malformed_viewport() -> None:
+    qp = QueryParams("kind=load&center=<script>&zoom=8")
+    assert map_view_href(qp) == "/?kind=load"
+
+
+def test_the_map_links_to_the_list_with_its_filters(transport: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        html = client.get("/?kind=load&placement=exact,region&layers=plants").text
+    href = re.search(r'id="view-as-list" href="([^"]+)"', html)
+    assert href is not None
+    # The map's default placement is a drawing choice and layers are not proposal filters.
+    assert href.group(1) == "/proposals?kind=load"
+    assert re.search(r'id="view-as-map" href="/" aria-current="page"', html)
+
+
+# ---- D-4: the 400px disclosures are in the markup, and inert without scripts ----
+
+
+def test_every_page_has_the_menu_disclosure_and_list_pages_a_filters_button(transport: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        for path, form_id in (("/", "map-filters"), ("/proposals", "filters"), ("/opportunities", "filters")):
+            html = client.get(path).text
+            nav_toggle = (
+                '<button type="button" class="nav-toggle" aria-expanded="false" '
+                'aria-controls="site-nav-panel">'
+            )
+            assert nav_toggle in html
+            assert 'id="site-nav-panel"' in html
+            assert f'aria-controls="{form_id}" data-filter-toggle' in html, path
+            assert re.search(rf'<form id="{form_id}" class="[^"]*" data-collapse', html), path
+            assert '<script>document.documentElement.classList.add("js")</script>' in html
+            assert "/static/js/site.js" in html
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    # Every collapsed rule is keyed on `.js`, so a page without scripts keeps its links and filters.
+    assert ".js .site-nav-panel { display: none; }" in css
+    assert ".js .filter-bar[data-collapse]:not(.is-open) { display: none; }" in css
+
+
+# ---- D-3: the map page opens with one plain line and the primary action, then the map ----
+
+
+def test_the_map_page_opens_on_a_plain_line_not_a_source_list(transport: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        html = client.get("/").text
+    intro = re.search(r'<div class="map-intro">(.*?)</div>', html, re.S)
+    assert intro is not None
+    text = _text(intro.group(1))
+    assert text.startswith("Planned power plants, batteries and data centres")
+    assert "Click a cluster to zoom in, or a dot to open its record." in text
+    assert not re.search(r"\b(ERCOT|CAISO|NYISO|EIA-860M|NESO)\b", text)
+    # The map comes before the in-view list and nothing but the filters and one status row sit
+    # between the intro and the canvas.
+    assert html.index('id="map-filters"') < html.index('class="map-status"') < html.index('id="map"')
+
+
+# ---- D-8: the proposal page says where the record is and links to the map ----
+
+
+def _entity(precision: str, lon: float, lat: float, **extra: Any) -> dict[str, Any]:
+    return {
+        "public_id": "prop_abc123",
+        "name_canonical": "Example Solar",
+        "lifecycle_state": extra.pop("lifecycle_state", "filed"),
+        "jurisdiction": "US-VA",
+        "location": {
+            "precision": precision,
+            "precision_reason": extra.pop("precision_reason", None),
+            "geom": {"type": "Point", "coordinates": [lon, lat]},
+            "county_name": "Loudoun County",
+            "state_code": "VA",
+        },
+    }
+
+
+def test_an_exact_proposal_gets_a_site_dot_and_a_map_link_that_opens_it() -> None:
+    location = proposal_location(_entity("exact", -77.6, 39.1))
+    assert location is not None
+    assert location["place"] == "Loudoun County, VA"
+    assert location["grade"] == "exact point (source coordinate)"
+    query = parse_qs(urlsplit(location["map_href"]).query)
+    assert query == {"center": ["-77.6000,39.1000"], "zoom": ["10.00"], "focus": ["prop_abc123"]}
+    assert 'class="mini-map__site"' in location["svg"]
+    assert "Example Solar in Virginia" in location["caption"]
+
+
+def test_a_county_centroid_is_drawn_as_a_ring_and_says_it_is_not_the_site() -> None:
+    location = proposal_location(_entity("county_centroid", -77.6, 39.1))
+    assert location is not None
+    assert location["grade"] == "county centroid, not the site"
+    assert 'class="mini-map__centroid"' in location["svg"]
+    assert "focus" not in location["map_href"]
+
+
+def test_a_licence_downgrade_says_why_and_a_withdrawn_record_stays_drawn() -> None:
+    location = proposal_location(
+        _entity("county_centroid", -77.6, 39.1, precision_reason="licence", lifecycle_state="withdrawn")
+    )
+    assert location is not None
+    assert location["grade"] == "shown at county level (source licence)"
+    assert "include_withdrawn=1" in location["map_href"]
+
+
+def test_a_record_without_coordinates_says_so_and_offers_no_map_link() -> None:
+    entity = _entity("unknown", 0, 0)
+    entity["location"]["geom"] = None
+    location = proposal_location(entity)
+    assert location is not None
+    assert location["map_href"] is None and location["svg"] is None
+    assert proposal_location({"location": None}) is None
+
+
+def test_the_location_partial_renders_the_line_and_the_locator() -> None:
+    location = proposal_location(_entity("exact", -77.6, 39.1))
+    html = templates.get_template("partials/_proposal_location.html").render(
+        location=location, record={"jurisdiction": "US-VA", "state": "VA"}
+    )
+    text = _text(html)
+    assert "Location" in text
+    assert "Loudoun County, VA · exact point (source coordinate) · Show on map" in text
+    assert 'href="/proposals?jurisdiction=US-VA"' in html
+    assert "<figure" in html and 'role="img"' in html
+
+
+def test_the_proposal_detail_template_includes_the_location_partial() -> None:
+    detail = (WEB / "templates" / "proposal_detail.html").read_text(encoding="utf-8")
+    assert detail.count('{% include "partials/_proposal_location.html" %}') == 1
+
+
+# ---- F8: fonts are self-hosted, preloaded and cached, so no swap moves the page ----
+
+
+def test_fonts_are_self_hosted_and_every_face_has_its_file() -> None:
+    base = (WEB / "templates" / "base.html").read_text(encoding="utf-8")
+    assert "fonts.googleapis.com" not in base and "fonts.gstatic.com" not in base
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    sources = re.findall(r'url\("/static/fonts/([^"]+)"\)', css)
+    assert len(sources) == 23  # Newsreader latin + latin-ext; Plex Sans 4 and Mono 3 weights x Latin1-3
+    for name in sources:
+        assert (WEB / "static" / "fonts" / name).is_file(), name
+    # Plex carries a Reserved Font Name: only IBM's own split files, under IBM's own names.
+    plex = [name for name in sources if "Plex" in name or "plex" in name]
+    assert plex and all(re.fullmatch(r"IBMPlex(Sans|Mono)-\w+-Latin[123]\.woff2", name) for name in plex)
+    on_disk = {path.name for path in (WEB / "static" / "fonts").glob("*.woff2")}
+    assert on_disk == set(sources), "every shipped font file is declared, and nothing else is shipped"
+    for preloaded in re.findall(r'<link rel="preload" href="/static/fonts/([^"]+)" as="font"', base):
+        assert preloaded in sources
+        face = css[css.rindex("@font-face", 0, css.index(preloaded)) : css.index(preloaded)]
+        assert "font-display: optional" in face, preloaded
+    for licence in ("OFL-Newsreader.txt", "LICENSE-IBM-Plex-Sans.txt", "LICENSE-IBM-Plex-Mono.txt"):
+        assert "SIL Open Font License" in (WEB / "static" / "fonts" / licence).read_text(encoding="utf-8")
+    readme = (WEB / "static" / "fonts" / "README.md").read_text(encoding="utf-8")
+    assert "@ibm/plex-sans" in readme and "@ibm/plex-mono" in readme and "unmodified" in readme
+
+
+def test_font_files_are_served_with_a_long_lived_cache() -> None:
+    with TestClient(web_app) as client:
+        response = client.get("/static/fonts/IBMPlexSans-Regular-Latin1.woff2")
+        css = client.get("/static/css/styles.css")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "font/woff2"
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert "immutable" not in css.headers.get("cache-control", "")

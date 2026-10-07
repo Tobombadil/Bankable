@@ -6,7 +6,7 @@
   {%- if records -%}
   {% if total is not none %}{{ '{:,}'.format(total) }} point{{ 's' if total != 1 }} match{{ 'es' if total == 1 }} these filters.{% else %}{{ records | length }} point{{ 's' if records | length != 1 }} on this page.{% endif %}
   {%- else -%}
-  No interconnection points match these filters.
+  0 points match these filters.
   {%- endif -%}
 </p>
 {% if records %}
@@ -49,6 +49,16 @@
 {% else %}
 <div class="empty-state">
   <p>No interconnection points match these filters.</p>
+  {#- docs/31 §6 (designer audit D-11): name each filter in play and offer to remove just it. The
+      count line above says "0" so the sentence is not printed twice. -#}
+  {%- set poi_facets = {'iso': 'Queue', 'kind': 'Kind', 'jurisdiction': 'Jurisdiction', 'min_active_mw': 'Active MW at least', 'q': 'Name or bus number'} %}
+  {%- set active = [] %}
+  {%- for key, label in poi_facets.items() if filters and filters.get(key) %}
+  {%- set kept = [] %}
+  {%- for k, v in filters.items() if k not in (key, 'cursor') and v %}{% set _ = kept.append((k, v)) %}{% endfor %}
+  {%- set _ = active.append({'key': key, 'label': label, 'value': kind_labels.get(filters[key], filters[key]) if key == 'kind' else filters[key], 'href': '/interconnection-points' ~ ('?' ~ (kept | urlencode) if kept else '')}) %}
+  {%- endfor %}
+  {{ m.empty_facets(active, "point", "points") }}
   <p><a href="/interconnection-points">Clear all filters</a></p>
 </div>
 {% endif %}
