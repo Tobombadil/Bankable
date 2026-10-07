@@ -8,7 +8,7 @@ import datetime as dt
 from fastapi.testclient import TestClient
 
 from services.api.app import app
-from services.api.pro import API_LICENCE_VERSION, MAX_API_KEYS_PER_USER
+from services.api.pro import MAX_API_KEYS_PER_USER, current_api_licence_version
 from services.db.models import ApiKey, Event
 from tests.conftest import login, make_account, make_api_key, make_user
 
@@ -33,7 +33,7 @@ def test_create_key_requires_a_session_not_a_key(client, db):
     db.commit()
     resp = client.post(
         "/v1/keys",
-        json={"name": "n", "licence_accepted_version": API_LICENCE_VERSION},
+        json={"name": "n", "licence_accepted_version": current_api_licence_version()},
         headers={"Authorization": f"Bearer {secret}"},
     )
     assert resp.status_code == 401, "a key cannot mint keys (US-701, api/openapi.yaml createKey)"
@@ -46,7 +46,7 @@ def test_create_key_shows_the_secret_once_and_stores_only_its_hash(client, db):
     login(client, db, user)
 
     resp = client.post(
-        "/v1/keys", json={"name": "production-etl", "licence_accepted_version": API_LICENCE_VERSION}
+        "/v1/keys", json={"name": "production-etl", "licence_accepted_version": current_api_licence_version()}
     )
     assert resp.status_code == 201
     body = resp.json()["data"]
@@ -79,7 +79,7 @@ def test_create_key_rejects_admin_scope(client, db):
         "/v1/keys",
         json={
             "name": "n",
-            "licence_accepted_version": API_LICENCE_VERSION,
+            "licence_accepted_version": current_api_licence_version(),
             "scopes": ["admin:*"],
         },
     )
@@ -93,11 +93,11 @@ def test_create_key_enforces_the_per_account_limit(client, db):
     login(client, db, user)
     for i in range(MAX_API_KEYS_PER_USER):
         resp = client.post(
-            "/v1/keys", json={"name": f"key-{i}", "licence_accepted_version": API_LICENCE_VERSION}
+            "/v1/keys", json={"name": f"key-{i}", "licence_accepted_version": current_api_licence_version()}
         )
         assert resp.status_code == 201
     over_limit = client.post(
-        "/v1/keys", json={"name": "one-too-many", "licence_accepted_version": API_LICENCE_VERSION}
+        "/v1/keys", json={"name": "one-too-many", "licence_accepted_version": current_api_licence_version()}
     )
     assert over_limit.status_code == 403
     assert over_limit.json()["code"] == "forbidden_tier"
@@ -113,7 +113,7 @@ def test_revoke_key_is_immediate_and_audited(client, db):
         "/v1/keys",
         json={
             "name": "to-revoke",
-            "licence_accepted_version": API_LICENCE_VERSION,
+            "licence_accepted_version": current_api_licence_version(),
             "scopes": ["read:live"],
         },
     ).json()["data"]
@@ -140,7 +140,9 @@ def test_key_issued_writes_an_audit_event(client, db):
     user = make_user(db, account)
     db.commit()
     login(client, db, user)
-    client.post("/v1/keys", json={"name": "audited-key", "licence_accepted_version": API_LICENCE_VERSION})
+    client.post(
+        "/v1/keys", json={"name": "audited-key", "licence_accepted_version": current_api_licence_version()}
+    )
 
     events = db.query(Event).filter_by(subject_type="api_key", event_type="key_issued").all()
     assert len(events) == 1
@@ -161,7 +163,7 @@ def test_rotation_is_revoke_then_create_and_only_the_new_secret_works(client, db
         "/v1/keys",
         json={
             "name": "rotate-me",
-            "licence_accepted_version": API_LICENCE_VERSION,
+            "licence_accepted_version": current_api_licence_version(),
             "scopes": ["read:live"],
         },
     ).json()["data"]
@@ -171,7 +173,7 @@ def test_rotation_is_revoke_then_create_and_only_the_new_secret_works(client, db
         "/v1/keys",
         json={
             "name": "rotate-me",
-            "licence_accepted_version": API_LICENCE_VERSION,
+            "licence_accepted_version": current_api_licence_version(),
             "scopes": ["read:live"],
         },
     ).json()["data"]
@@ -199,10 +201,38 @@ def test_keys_are_scoped_to_their_own_account(client, db):
 
     login(client, db, user_a)
     key = client.post(
-        "/v1/keys", json={"name": "a-key", "licence_accepted_version": API_LICENCE_VERSION}
+        "/v1/keys", json={"name": "a-key", "licence_accepted_version": current_api_licence_version()}
     ).json()["data"]
 
     client.cookies.clear()
     login(client, db, user_b)
     resp = client.delete(f"/v1/keys/{key['key_id']}")
     assert resp.status_code == 404, "account B must not be able to revoke account A's key"
+
+
+def test_no_key_records_acceptance_of_an_unpublished_licence(client, db):
+    """2026-09-30 legal audit L-3: until counsel approves an API licence nothing is published to
+    accept, so a key stores no acceptance and a request that claims one is refused rather than
+    recorded. Before, every key stored `api-licence-1.0`, a document served nowhere."""
+    from services.api.common import TERMS_URL
+    from services.api.pro import API_LICENCE_PUBLISHED, API_LICENCE_VERSION
+
+    assert API_LICENCE_PUBLISHED is False
+    account = make_account(db, entitlement="api")
+    user = make_user(db, account)
+    db.commit()
+    login(client, db, user)
+
+    claimed = client.post("/v1/keys", json={"name": "n", "licence_accepted_version": API_LICENCE_VERSION})
+    assert claimed.status_code == 400
+    assert any(e["field"] == "licence_accepted_version" for e in claimed.json()["errors"])
+
+    resp = client.post("/v1/keys", json={"name": "no-acceptance"})
+    assert resp.status_code == 201
+    body = resp.json()["data"]
+    assert body["licence_accepted_version"] is None
+    assert body["licence_accepted_at"] is None
+    stored = db.query(ApiKey).filter_by(public_id=body["key_id"]).one()
+    assert stored.licence_accepted_version is None and stored.licence_accepted_at is None
+    assert resp.json()["meta"]["terms_url"] == TERMS_URL
+    assert TERMS_URL.endswith("/legal/reuse")

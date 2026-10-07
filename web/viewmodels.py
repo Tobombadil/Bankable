@@ -680,6 +680,8 @@ def flatten_organization(entity: Mapping[str, Any]) -> dict[str, Any]:
         "jurisdiction": entity.get("jurisdiction"),
         "website": entity.get("website"),
         "is_curated_issuer": entity.get("is_curated_issuer", False),
+        # A natural person named in a register (migration 0033; docs/13 §5.5): the page is `noindex`.
+        "personal_data": bool(entity.get("personal_data", False)),
         "parent_public_id": parent.get("public_id"),
         "parent_name": parent.get("name_canonical") or parent.get("name"),
         "provenance": entity.get("provenance") or [],

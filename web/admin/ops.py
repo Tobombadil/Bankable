@@ -14,10 +14,10 @@ Decisions:
    write in this module still follows the shell's normal "303 with `?flash=` on 2xx, re-render with
    `notice=` otherwise" pattern; this is the one deliberate exception, matching the task brief's own
    carve-out ("render a one-time page ... it will not be shown again").
-2. **`licence_accepted_version` is never a form field.** `ApiKeyCreate.licence_accepted_version`
-   must equal `services.api.pro.API_LICENCE_VERSION` exactly or the write is refused (400) --
-   there is nothing for an operator to choose, so the form sends the current constant automatically
-   rather than exposing a text box that only ever has one valid value.
+2. **`licence_accepted_version` is never a form field, and the form never sends it.** The API records
+   the published API licence version itself (`services.api.pro.current_api_licence_version()`), and
+   none is published yet (legal audit L-3, 2026-10-07), so the key stores no acceptance; the
+   operator's `licence_acceptance_ref` (the contract or ticket) is the evidence.
 3. **The keys list's "status" filter is the API's own `revoked` boolean** (`GET /admin/v1/keys`
    has no `status` query param) -- rendered as an active/revoked choice rather than inventing a
    status vocabulary the API does not have.
@@ -50,11 +50,6 @@ from web.admin.shell import AdminContext, problem_notice, render, require_operat
 
 router = APIRouter()
 
-#: services.api.pro.API_LICENCE_VERSION -- not imported (that module is outside this agent's read
-#: scope beyond admin_posts.py's keys routes) but this literal is the same constant
-#: `services/api/admin_posts.py`'s `admin_create_key` checks `licence_accepted_version` against;
-#: kept as a named constant here so a bump is a one-line change, not a scattered literal.
-_API_LICENCE_VERSION = "api-licence-1.0"
 
 _COST_PURPOSES: tuple[str, ...] = ("extract", "adjudicate", "draft", "classify", "other")
 _SUBJECT_TYPES: tuple[str, ...] = (
@@ -195,7 +190,6 @@ def issue_key(
         "account_id": account_id,
         "licence_acceptance_ref": licence_acceptance_ref,
         "reason": reason,
-        "licence_accepted_version": _API_LICENCE_VERSION,  # decision 2
     }
     if rate_limit_per_hour.strip():
         try:

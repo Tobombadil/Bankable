@@ -144,24 +144,88 @@ def test_privacy_page_renders_the_required_sections(web_client: TestClient) -> N
     resp = web_client.get("/privacy")
     assert resp.status_code == 200
     body = resp.text
-    assert "Privacy notice" in body
-    assert "What we store" in body
-    assert "Accounts" in body
-    assert "Alerts" in body
-    assert "Intake and reports" in body
-    assert "CRM" in body
-    assert "Why we use it" in body
-    assert "Retention and deletion" in body
-    assert "US-910" in body
+    for heading in (
+        "Privacy notice",
+        "Who is responsible",
+        "If you are named in a record we index",
+        "If you use the site",
+        "Who processes it for us",
+        "How long we keep it",
+        "Your rights",
+        "Complaints",
+        "California residents",
+    ):
+        assert heading in body, heading
     assert "privacy@infraque.com" in body
-    assert "{{POSTAL_ADDRESS}}" in body
     assert "Last updated" in body
+
+
+def test_privacy_page_names_the_controller_from_config(web_client: TestClient, monkeypatch) -> None:
+    """L-7: the controller and address come from `SENDER_LEGAL_NAME`/`SENDER_POSTAL_ADDRESS`
+    (owner decision 2026-09-18 (5)); invented values here."""
+    monkeypatch.setenv("SENDER_LEGAL_NAME", "Example Holdings LLC (test)")
+    monkeypatch.setenv("SENDER_POSTAL_ADDRESS", "1 Test Street, Testville, TS 00000")
+    body = web_client.get("/privacy").text
+    assert "Example Holdings LLC (test)" in body
+    assert "1 Test Street, Testville, TS 00000" in body
+
+
+def test_privacy_page_says_plainly_when_the_controller_is_unset(web_client: TestClient, monkeypatch) -> None:
+    """L-7: no template token, no 'placeholder' badge; an honest sentence instead."""
+    monkeypatch.delenv("SENDER_LEGAL_NAME", raising=False)
+    monkeypatch.delenv("SENDER_POSTAL_ADDRESS", raising=False)
+    body = web_client.get("/privacy").text
+    assert "{{" not in body and "POSTAL_ADDRESS" not in body and "placeholder -- not yet set" not in body
+    assert "has not yet been named on this page" in body
+    assert "Not yet published on this page" in body
+
+
+def test_privacy_page_covers_record_subjects_retention_rights_and_cites_no_repo_paths(
+    web_client: TestClient,
+) -> None:
+    body = web_client.get("/privacy").text
+    assert "docs/" not in body and ".md" not in body, "internal repository paths are not for the public"
+    assert "legitimate interests" in body
+    assert "We did not collect this from you" in body
+    assert "35 days" in body and "8 weeks" in body, "backup retention (docs/60 §8)"
+    assert "24 months" in body
+    assert "ico.org.uk" in body and "edpb.europa.eu" in body and "cppa.ca.gov" in body
+    assert "We do not sell or share personal information" in body
+    assert "within 30 days" in body
+
+
+def test_reuse_conditions_page_summarises_each_sources_licence_and_is_not_a_contract(
+    web_client: TestClient,
+) -> None:
+    """L-3: `meta.terms_url` points here; the page states what the register holds and says it is
+    not a contract."""
+    resp = web_client.get("/legal/reuse")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "not a contract" in body
+    assert "Supported by National Energy SO Open Data" in body, "NESO's exact statement"
+    assert "Source: California ISO" in body, "CAISO's credit"
+    assert "Say what was changed" in body, "the CC BY statement of changes"
+    assert "Noncommercial use only" in body and "unaltered" in body, "the RRC's condition"
+    assert "Do not republish the source" in body, "derived-only sources"
+
+
+def test_the_old_api_licence_url_leads_to_the_reuse_conditions(web_client: TestClient) -> None:
+    resp = web_client.get("/legal/api-licence", follow_redirects=False)
+    assert resp.status_code == 301
+    assert resp.headers["location"] == "/legal/reuse"
 
 
 def test_footer_links_to_privacy_on_every_page(web_client: TestClient) -> None:
     resp = web_client.get("/about")
     assert resp.status_code == 200
     assert 'href="/privacy"' in resp.text
+
+
+def test_footer_links_to_the_reuse_conditions(web_client: TestClient) -> None:
+    resp = web_client.get("/about")
+    assert resp.status_code == 200
+    assert 'href="/legal/reuse"' in resp.text
 
 
 # --------------------------------------------------------------------------------- unsubscribe

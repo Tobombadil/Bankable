@@ -39,9 +39,12 @@ def _columns(engine: sa.Engine, table: str) -> set[str]:
     return {c["name"] for c in sa.inspect(engine).get_columns(table)}
 
 
-def test_0033_is_the_single_head(sqlite_url: str) -> None:
+def test_0033_follows_0032_on_a_single_line(sqlite_url: str) -> None:
+    """0033 sits directly on 0032 and the chain has one head. Not "0033 is the head": that broke the
+    moment 0034 landed (2026-10-07)."""
     script = ScriptDirectory.from_config(_alembic_config(sqlite_url))
-    assert script.get_heads() == ["0033"]
+    assert script.get_revision("0033").down_revision == "0032"
+    assert len(script.get_heads()) == 1
 
 
 def test_0033_round_trip(sqlite_url: str) -> None:

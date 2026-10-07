@@ -4,6 +4,10 @@
 {#- `descriptor` before the raw type: an organisation whose stored `type` is `other` would
     otherwise describe itself to a search engine as "Tallgrass Energy: other". -#}
 {% block meta_description %}{{ record.name }}{% if descriptor %}: {{ descriptor | lower }}{% elif record.type and record.type != 'other' %}: {{ record.type | organization_type_label | lower }}{% endif %}{% if summary_parts %}. {{ summary_parts | join('; ') }}{% endif %}{% if record.jurisdiction %} ({{ record.jurisdiction }}){% endif %}.{% endblock %}
+{#- A natural person named in a register (`personal_data`, migration 0033; docs/13 §5.5, legal
+    audit L-5): the page stays readable for anyone who follows a record's link, but asks search
+    engines not to index it, and the sitemap leaves it out. -#}
+{% block robots %}{% if record.personal_data %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
 {% block extra_head %}
 {% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
 {% endblock %}
@@ -113,7 +117,7 @@
     <table class="record-table">
       <caption class="visually-hidden">Assets this organisation {{ g.role_label | lower }}: {{ g.type_label }}.</caption>
       <thead>
-        <tr><th scope="col">Asset</th>{% if g.show_capacity %}<th scope="col" class="num">Capacity (MW)</th>{% endif %}{% if g.show_length %}<th scope="col" class="num">Length (miles)</th>{% endif %}{% if g.show_states %}<th scope="col">States</th>{% endif %}{% if g.show_share %}<th scope="col" class="num">Share</th>{% endif %}{% if g.show_held_by %}<th scope="col">Held by</th>{% endif %}</tr>
+        <tr><th scope="col">Asset</th>{% if g.show_capacity %}<th scope="col" class="num">Capacity (MW)</th>{% endif %}{% if g.show_length %}<th scope="col" class="num">Length (miles)</th>{% endif %}{% if g.show_states %}<th scope="col">States</th>{% endif %}{% if g.show_share and not record.personal_data %}<th scope="col" class="num">Share</th>{% endif %}{% if g.show_held_by %}<th scope="col">Held by</th>{% endif %}</tr>
       </thead>
       <tbody>
         {% for a in g.rows %}
@@ -122,7 +126,7 @@
           {% if g.show_capacity %}<td data-label="Capacity (MW)" class="num tnum">{% if a.capacity_mw is not none %}{{ '%.1f'|format(a.capacity_mw) }}{% endif %}</td>{% endif %}
           {% if g.show_length %}<td data-label="Length (miles)" class="num tnum">{% if a.length_miles is not none %}{{ '{:,.0f}'.format(a.length_miles) }}{% endif %}</td>{% endif %}
           {% if g.show_states %}<td data-label="States">{% if a.states %}{{ a.states }}{% elif a.state %}{{ a.state }}{% endif %}</td>{% endif %}
-          {% if g.show_share %}<td data-label="Share" class="num tnum">{% if a.share_pct is not none %}{{ '%.1f%%'|format(a.share_pct) }}{% endif %}</td>{% endif %}
+          {% if g.show_share and not record.personal_data %}<td data-label="Share" class="num tnum">{% if a.share_pct is not none %}{{ '%.1f%%'|format(a.share_pct) }}{% endif %}</td>{% endif %}
           {% if g.show_held_by %}<td data-label="Held by">{% if a.held_by %}{% if a.held_by.slug %}<a href="/organizations/{{ a.held_by.slug }}">{{ a.held_by.name or a.held_by.slug }}</a>{% else %}{{ a.held_by.name }}{% endif %}{% endif %}</td>{% endif %}
         </tr>
         {% endfor %}

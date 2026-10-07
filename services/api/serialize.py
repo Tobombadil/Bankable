@@ -288,7 +288,17 @@ def serialize_organization_summary(org: Organization) -> dict[str, Any]:
         "name_canonical": org.name_canonical,
         "type": org.type,
         "url": f"{WEB_HOST}/organizations/{org.slug}",
+        "personal_data": bool(org.personal_data),
     }
+
+
+def personal_share(org: Organization, share_pct: Any) -> float | None:
+    """An ownership share as served: withheld (null) when the holder is a natural person
+    (`organization.personal_data`, migration 0033; docs/13 §5.5, legal audit L-5) -- a person's
+    stake in an asset is the most private fact a register row carries about them."""
+    if share_pct is None or org.personal_data:
+        return None
+    return float(share_pct)
 
 
 def visible_organization_summary(
@@ -505,6 +515,7 @@ def serialize_organization(
         "ids": org.ids or {},
         "website": org.website,
         "is_curated_issuer": org.is_curated_issuer,
+        "personal_data": bool(org.personal_data),
         "first_seen": iso(org.first_seen),
         "last_changed": iso(org.last_changed),
         "merged_into": None,
@@ -573,7 +584,7 @@ def serialize_asset_owner(edge: AssetOwner, *, withheld: WithheldNames) -> dict[
     return {
         "organization": serialize_organization_summary(edge.organization),
         "role": edge.role,
-        "share_pct": float(edge.share_pct) if edge.share_pct is not None else None,
+        "share_pct": personal_share(edge.organization, edge.share_pct),
         "as_of": iso(edge.as_of),
         "owner_name_raw": withheld.owner_name_raw(edge.owner_name_raw),
         "provenance": provenance_quartet(

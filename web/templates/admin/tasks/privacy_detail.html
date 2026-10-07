@@ -1,0 +1,71 @@
+{% extends "admin/base.html" %}
+{% block title %}Privacy request -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-tasks.css">{% endblock %}
+{% block content %}
+<p><a href="/admin/tasks/privacy">&larr; Back to privacy requests</a></p>
+{% include "admin/_notice.html" %}
+{% if flash %}<div class="notice" role="status">{{ flash }}</div>{% endif %}
+
+{% if not privacy_request %}
+<p>This privacy request could not be loaded.</p>
+{% else %}
+{% set r = privacy_request %}
+<h1>{{ r.kind | capitalize }} request
+  <span class="chip chip--{{ status_family.get(r.status, 'neutral') }}">{{ r.status | replace('_', ' ') }}</span>
+  {% if r.overdue %}<span class="chip chip--danger">overdue</span>{% endif %}
+</h1>
+<dl class="admin-dl">
+  <dt>Request id</dt><dd class="mono">{{ r.public_id }}</dd>
+  <dt>Record named</dt><dd class="mono">{{ r.record_public_id }}</dd>
+  <dt>Received</dt><dd class="mono">{{ r.created_at or '' }}</dd>
+  <dt>Due</dt><dd class="mono" id="privacy-due">{{ r.due_at or '' }}</dd>
+  <dt>Completed</dt><dd class="mono">{{ r.completed_at or '—' }}</dd>
+</dl>
+
+{% if r.contact_email or r.message %}
+<h2>From the person (personal data; deleted when the request is closed)</h2>
+<dl class="admin-dl">
+  <dt>Reply to</dt><dd>{{ r.contact_email or '—' }}</dd>
+  <dt>Message</dt><dd>{{ r.message or '—' }}</dd>
+</dl>
+{% endif %}
+
+<h2>Records that name the subject <span class="admin-muted">{{ remaining }} of {{ items | length }} still to do</span></h2>
+<p class="admin-muted">Act on each with the record&rsquo;s own admin page; this list re-reads the store each time it is opened.</p>
+<div class="admin-table-wrap">
+  <table class="admin-table" id="privacy-checklist">
+    <thead><tr><th>Done</th><th>Kind</th><th>Record</th><th>State</th><th>What remains</th></tr></thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{% if item.done %}<span class="chip chip--success">done</span>{% else %}<span class="chip chip--neutral">to do</span>{% endif %}</td>
+        <td>{{ item.kind | replace('_', ' ') }}{% if item.personal_data %} <span class="chip chip--progress">person</span>{% endif %}</td>
+        <td>{% if item.kind in ('organization', 'proposal', 'opportunity') %}<a class="mono" href="/admin/records/{{ {'organization': 'organizations', 'proposal': 'proposals', 'opportunity': 'opportunities'}[item.kind] }}/{{ item.public_id }}">{{ item.public_id }}</a>{% else %}<span class="mono">{{ item.public_id }}</span>{% endif %}<br>{{ item.label }}{% if item.url %} <a href="{{ item.url }}" rel="noopener">(public page)</a>{% endif %}</td>
+        <td>{{ item.state }}</td>
+        <td>{{ item.action }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% for note in notes %}<p class="admin-muted">{{ note }}</p>{% endfor %}
+
+<h2>Update</h2>
+<form class="admin-form" method="post" action="/admin/tasks/privacy/{{ r.public_id }}/update">
+  <div class="field">
+    <label for="pr-status">Status</label>
+    <select id="pr-status" name="status">
+      {% for s in statuses %}
+      <option value="{{ s }}"{% if r.status == s %} selected{% endif %}>{{ s | replace('_', ' ') }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="pr-reason">Reason (required; recorded in the audit log)</label>
+    <input id="pr-reason" name="reason" required>
+  </div>
+  <p class="admin-muted">Setting done or rejected deletes the reply address and the message. Answer the person first.</p>
+  <div class="admin-actions"><button class="admin-button admin-button--primary" type="submit">Save</button></div>
+</form>
+{% endif %}
+{% endblock %}

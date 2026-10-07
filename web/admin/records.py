@@ -54,6 +54,7 @@ from web.admin.shell import (
     require_same_origin,
     templates,
 )
+from web.sitemaps import forget_sitemap_records
 from web.viewmodels import iso_label
 
 router = APIRouter()
@@ -211,6 +212,8 @@ async def set_proposal_publish_state(
         "reason": str(form.get("reason", "")),
     }
     result = ctx.api.put(f"/admin/v1/records/proposals/{public_id}/publish-state", json=body)
+    if result.status_code == 200 and body["publish_state"] != "public":
+        forget_sitemap_records(request.app, [public_id])  # legal audit L-6 (c): out of the sitemap now
     if result.status_code == 200:
         return _redirect(f"/admin/records/proposals/{public_id}", "Publish+state+updated")
     context, status_code = _proposal_context(ctx, public_id, notice=problem_notice(result))
@@ -405,6 +408,8 @@ async def set_opportunity_publish_state(
         "reason": str(form.get("reason", "")),
     }
     result = ctx.api.put(f"/admin/v1/records/opportunities/{public_id}/publish-state", json=body)
+    if result.status_code == 200 and body["publish_state"] != "public":
+        forget_sitemap_records(request.app, [public_id])  # legal audit L-6 (c): out of the sitemap now
     if result.status_code == 200:
         return _redirect(f"/admin/records/opportunities/{public_id}", "Publish+state+updated")
     context, status_code = _opportunity_context(ctx, public_id, notice=problem_notice(result))
@@ -463,6 +468,8 @@ async def set_organization_publish_state(
         "reason": str(form.get("reason", "")),
     }
     result = ctx.api.put(f"/admin/v1/records/organizations/{public_id}/publish-state", json=body)
+    if result.status_code == 200 and body["publish_state"] != "public":
+        forget_sitemap_records(request.app, [public_id])  # legal audit L-6 (c): out of the sitemap now
     if result.status_code == 200:
         return _redirect(f"/admin/records/organizations/{public_id}", "Publish+state+updated")
     # The API's own status, as the organisation edit form below answers a refused edit.

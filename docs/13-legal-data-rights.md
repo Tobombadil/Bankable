@@ -1598,6 +1598,7 @@ Personal data enters Bankable in four places, all incidental:
 | TED / Find a Tender / grants.gov notices | contracting-authority contact name, email, phone | high |
 | ERCOT/CAISO/NYISO queue files | interconnection customer contact in some vintages | low |
 | Press releases and trade press | named executives, quoted individuals | medium |
+| Ownership and queue registers (EIA-860 owners, GHGRP parents, ISO interconnection customers) | a person's name in the owner or sponsor column, a share, sometimes a street address in the project name | low (9 of 8,373 organisations on the 2026-10-07 store copy; §5.5) |
 
 None of it is special-category data. Almost all of it is business-context contact data of people acting in a
 professional capacity. That reduces the risk; it does not remove the obligations.
@@ -1660,6 +1661,166 @@ Recorded here as a decision for `00-PLAN.md`:
 *Inference:* rules 1–4 together reduce Bankable's GDPR/CCPA posture from "data broker" to "publisher of
 project records", which is a materially different regulatory category and a materially cheaper one. The cost
 is losing a feature nobody has asked for. **Confidence: high** that this is the right trade.
+
+### 5.5 Natural persons in the owner and sponsor columns; the erasure path; the privacy notice (2026-10-07)
+
+The 2026-09-30 legal audit found three gaps in how §5.4 was carried out: people named as owners and sponsors
+were published as organisations with indexed pages (L-5), an erasure tested end to end left personal data
+behind (L-6), and the privacy notice lacked what Arts. 13 and 14 require (L-7). §5.1's table listed filer
+contacts and press quotes; it missed the largest category in the store, which is people in the owner and
+sponsor columns of public registers.
+
+**Re-verified on the current tree (`bfab384`) before any change.** L-5: `organization` had no `personal_data`
+column; the five people the audit named still had `/organizations/{slug}` pages in the sitemap walk; ownership
+shares were served on the asset owners table and the organisation's assets list. L-6: closing a request cleared
+`contact_email` only (`services/api/privacy_routes.py`); there was no `due_at`; the sitemap was cached for an
+hour (`web/sitemaps.py`, `SITEMAP_CACHE_SECONDS = 3600`) against the API's `effective_within_seconds: 60`;
+nothing linked a request to the other records naming its subject. L-6's reload finding (an edit undone by the
+next load) no longer reproduces: lane W3 made the loader skip overridden fields (L-1, 2026-10-06), and a
+NYISO reload of the store copy below kept this lane's redaction. L-7: the page printed
+`{{POSTAL_ADDRESS}}`, named no controller, cited `docs/34` and `docs/13` paths, and had no record-subject,
+rights, complaint or CCPA section.
+
+#### 5.5.1 What the text says
+
+UK GDPR, as published by the UK government at https://www.legislation.gov.uk/eur/2016/679/article/6 and
+`.../article/14`, retrieved 2026-10-07 (the amended UK text; the EU text of Art. 14(5)(b) is quoted in §5.2 and
+EUR-Lex answered this session's requests with an interstitial page, so it was not re-read):
+
+> (f) processing is necessary for the purposes of the legitimate interests pursued by the controller or by a
+> third party, except where such interests are overridden by the interests or fundamental rights and freedoms
+> of the data subject which require protection of personal data, in particular where the data subject is a
+> child. (Art. 6(1)(f))
+
+> (e) providing the information is impossible or would involve a disproportionate effort, or [...]
+> 6. For the purposes of paragraph 5(e), whether providing the information would involve a disproportionate
+> effort depends on, among other things, the number of data subjects, the age of the personal data and any
+> appropriate safeguards applied to the processing.
+> 7. A controller relying on paragraph 5(e) or (f) must take appropriate measures to protect the data
+> subject's rights, freedoms and legitimate interests, including by making the information available
+> publicly. (Art. 14(5)(e), (6), (7))
+
+UK Art. 12(3) now reads "without undue delay and in any event [before the end of the applicable time period
+(see Article 12A)]"; Article 12A did not resolve at legislation.gov.uk on 2026-10-07 (HTTP 404). The EU text's
+"within one month of receipt" is from the 2026-09-12 reading. The house rule stays 30 days (§5.4 rule 6).
+
+*Inference, confidence moderate.* The UK amendment moved the disproportionate-effort exemption to 14(5)(e) and
+made the safeguards explicit: the number of data subjects is a named factor, and publishing the information is
+a named measure. On the store measured below there are nine flagged people. Nine is few enough that "writing to
+each would be disproportionate" is weaker here than for a register of thousands of filers, which is the case
+§5.2 had in mind; counsel item 19.
+
+#### 5.5.2 Measured on a store copy
+
+Copy of `scratchpad/shots_main.db` (8,373 organisations), stamped at 0030 and `alembic upgrade head` (0031–0034;
+the store predates 0031, so 0032's columns were also missing), then
+`python -m services.ingest.personal_data all`. The copy was deleted afterwards.
+
+| | Count |
+|---|---|
+| Organisations | 8,373 |
+| Flagged `personal_data` | **9** (7 by the name rule, 2 by curated digest) |
+| ... of which EIA-860 owners | 4 (shares 2 %, 33.33 %, 100 %, 100 %) |
+| ... GHGRP parent companies | 4 (five edges, 1 %–7.89 %) |
+| ... NYISO interconnection customer | 1 (two proposals named with a street address) |
+| Proposals whose name was redacted | 2 ("NY - [street address withheld] - 1/2"; held after a NYISO reload) |
+| Ownership edges whose share is now withheld | 9 |
+
+**Calibration, stated plainly.** The rule was tuned against this store, so its false-positive figure here is
+optimistic by construction.
+
+- *First pass, before tuning:* 13 flagged, 8 of them companies: "Amber Wave", "Dakota Spirit Agenergy", "JOHN
+  HANCOCK MANULIFE", "John Hancock", "Johnson Brothers Lumber", "Lincoln Clean", "OK TITLE CLEARING",
+  "Quincy-Columbia Basin Irr Dist". The fix was nine industry words and one curated `not_personal` entry
+  ("John Hancock").
+- *After tuning:* 0 companies among the 9. On held-out names, the repository's 111 invented test-fixture
+  organisation names, the rule flags four that are not people ("Diamond Top", "Diamond Bottom", "Diamond Left",
+  "Diamond Right": DIAMOND is a Census given name). Expect a few per cent of short two-word project names to be
+  flagged on a new register. The cost is a missing sitemap entry and a withheld share, not a lost page.
+- *False negatives:* of 78 unflagged rows with a person-like shape (two or three alphabetic tokens, no
+  organisation word), a fixed-seed sample of 20 held no person. A hand review of the whole pool found two people
+  whose given names are not in the Census list; both are now covered by digest. Two personal trusts ("<name>
+  Revocable Living Trust") were caught after adding a trust rule. **Not caught by design:** a person's name
+  followed by an organisation word ("<name> Farms", "<name> Dairy"). Those are sole-trader businesses; whether
+  they count is part of the owner decision below.
+
+#### 5.5.3 What the code now does (the conservative, reversible default)
+
+- **Classification.** `services/personal_names.py`: a name rule (US Census 1990 given names, public domain,
+  vendored with its URL; organisation words; person shape; "Last, First"; personal trusts) plus a curated file,
+  `data/vendored/organizations/personal_data_overrides.yaml` (`not_personal` by name; `personal_sha256` by
+  digest, so the repository holds no plain list of people's names). Every new organisation is classified at
+  insert (column default, migration 0034); `python -m services.ingest.personal_data classify` re-applies the
+  rule after a curated change.
+- **Publication, for a flagged organisation.** The page stays readable, but it is left out of the sitemap and
+  served `noindex, follow`. No ownership share is served on any edge that names it (API, so pages, CSV and bulk
+  too). The API carries `personal_data: true` on the organisation and on its embeds.
+- **Street addresses.** `python -m services.ingest.personal_data redact` replaces a street address in the name of
+  a proposal sponsored by a flagged organisation with `[street address withheld]`. It records the change as an
+  override (`overrides.name_canonical`, basis `personal_data_street_address`) and a non-public `admin_edit` event
+  whose `before` does not repeat the address. The loader skips it on every later load. To reverse it, an
+  operator clears the override (`PATCH /admin/v1/proposals/{id}` with `clear_overrides`) and the next load
+  restores the register's spelling. An operator's own override is never overwritten.
+- **Not done: re-slugging.** The slug (`ny-<number>-<street>-rd-2-…`) still carries the address in the URL.
+  Changing it needs a slug-history redirect, which proposals do not have. The page and sitemap entry use that
+  URL, so this is an open item and not a cosmetic one.
+- **Not wired: the redaction pass at load time.** New rows are classified at insert, but `redact` runs from the
+  CLI. To make it automatic, call `services.ingest.personal_data.run(session, what="all")` after each load in
+  the scheduler's load job (`infra/scheduler/jobs.py`, not this lane's file).
+
+#### 5.5.4 Options for the owner: what to do with natural-person rows
+
+This lane does not decide this. The GEM ownership rule (§2.18, §6) already drops every natural-person row at
+ingest for that source. The question is whether the same rule should apply to EIA-860, GHGRP and queue
+sponsors.
+
+| Option | What it means | For | Against |
+|---|---|---|---|
+| (a) Keep the default above | Publish name, role and asset; share withheld; noindex; no sitemap; addresses cut | Smallest change; the registers are public, so the name is not new information; reversible per row | The name is still published and exportable; relies on Art. 6(1)(f) and an Art. 14 notice for every person; counsel 18–19 |
+| (b) Drop at ingest, like GEM | The edge or sponsor link is not stored; the asset or proposal says "a private individual" | Lowest risk, and one rule for every source; nothing to erase later | Loses the join (the same person across plants), and some "persons" are sole traders a buyer would want to see; the misclassified company is dropped too, silently |
+| (c) Store but never publish | Keep the row for resolution; publish the edge without the name ("held by a private individual") | Keeps resolution and counts; nothing personal leaves the building; reversible | Still personal data in the store (LIA needed, but much easier); one more visibility rule in the predicate |
+| (d) Status quo before 2026-10-07 | Indexed pages with shares | None beyond simplicity | The L-5 finding |
+
+*Recommendation, confidence moderate: (c), with (a) as today's interim.* It removes publication of the name,
+which is where almost all the risk sits, and keeps the data the resolver uses. (b) is the right answer if
+counsel says that even internal storage needs an LIA the owner does not want to maintain.
+
+#### 5.5.5 The erasure path (L-6), as built
+
+- Closing a privacy request clears `contact_email` **and `message`**. The audit event keeps only their peppered
+  hashes.
+- `privacy_request.due_at = created_at + 30 days` (migration 0034). `overdue` is on every response.
+  `GET /admin/v1/privacy-requests?overdue=true` filters on it, and the admin task list shows open and overdue
+  counts linking to `/admin/tasks/privacy`.
+- `GET /admin/v1/privacy-requests/{id}/checklist` widens the record the person named (a proposal to its
+  sponsor, an asset to its owners) and lists everything that names the subject: the organisation, its aliases,
+  the proposals it sponsors, the opportunities it issues, its ownership edges, and proposals whose name or slug
+  carries its name. Each item says what is done and what remains. The admin page renders it beside the form
+  that closes the request.
+- An unpublish or takedown made from the admin site removes the record's page from the cached sitemap at once.
+- **Open.** (1) A takedown made directly against the API, not through the admin site, reaches the sitemap only
+  at the next hourly rebuild. A cross-process signal would need an API change. (2) Anonymous API responses
+  carry `Cache-Control: public, max-age=300` (`services/api/app.py`), so a CDN in front could serve a
+  taken-down record for five minutes, longer than the 60 s the publish-state response promises. (3) Event
+  history (`event.before`/`after` of earlier changes) can still carry a name or address that has since been
+  redacted. (4) The 24-month purge of §5.4 rule 7 has no job; the notice says so. (5) A restore from backup
+  would bring back erased values. The restore drill (`docs/60` §8) needs a step that re-applies erasures
+  recorded since the dump. (6) Proposal slugs, above.
+
+#### 5.5.6 The privacy notice (L-7), as redrafted
+
+`/privacy` (`web/templates/legal/privacy.html`) is redrafted from §5. It names the controller from
+`SENDER_LEGAL_NAME` and `SENDER_POSTAL_ADDRESS`; when either is unset it says the value is not yet published,
+with no template token. It cites no repository paths. It has a section for people named in records (what we
+hold, source, purpose and basis, safeguards, who sees it, how to have it removed), sections for site users and
+processors, retention including backups (7-day PITR, 35-day local dumps, 14-day R2 dailies, 8-week Sunday
+dumps; `docs/60` §8), rights, complaint routes (EU authorities via the EDPB list, the ICO, the CPPA), and a
+California section.
+
+**Marked for counsel review (§7 item 17).** Every factual claim in it matches what the code does today, with
+two exceptions it states openly: the 24-month purge is not automated, and the legal entity and address appear
+only when configured. The processor list names Cloudflare, Resend, Attio and Stripe because the repository
+uses them. The hosting and database providers are described, not named, because the deployment is not live.
 
 ---
 
@@ -2070,6 +2231,34 @@ Numbered, in the order they block work.
     NESO gazetteer). (c) An automatic-termination clause cannot be cured by a code fix: whether NESO data
     published before 2026-10-06 without the statement needs any action is a question for counsel.
     Recommendation, not a blocker for anything already public.
+17. **The redrafted privacy notice** (`/privacy`, §5.5.6, 2026-10-07). Review the text as a whole against Arts.
+    13 and 14 and the CCPA notice-at-collection rules. Specific points: (a) the statement that the legal basis
+    for record subjects is legitimate interests, and the one-sentence balancing summary the page gives; (b)
+    "we did not collect this from you … this section is how we tell you" as the Art. 14 notice for record
+    subjects (item 19); (c) the CCPA wording "the only sensitive personal information we collect is your
+    account login with its password", where CPRA lists account log-in plus password as sensitive; (d) the
+    transfer sentence ("we are based in the United States; data may be processed there"), which names no
+    transfer mechanism; (e) the named processors. **Blocks launch** with item 10.
+18. **Legitimate-interests assessment for natural persons in owner and sponsor columns** (§5.5). Nine people on
+    the 2026-10-07 store; names, roles, assets and (withheld) shares from EIA-860, GHGRP and NYISO. Is publishing
+    name + role + asset, with the share withheld, the page `noindex` and the person out of the sitemap,
+    proportionate under Art. 6(1)(f)? Would option (c) in §5.5.4 (store, never publish the name) be needed
+    instead? Does it matter that the source registers themselves publish the same rows? **Blocks the owner
+    decision in §5.5.4.**
+19. **Art. 14(5)(b) (EU) / 14(5)(e) with (6) and (7) (UK) for these persons.** The UK text now names "the
+    number of data subjects" as a factor and "making the information available publicly" as a required
+    measure (§5.5.1). With nine identifiable people, is individual notice disproportionate at all? If not, the
+    platform owes each a notice within a month, which means finding a contact route the §5.4 rules forbid it
+    from storing. That outcome pushes towards option (b) or (c).
+20. **Response time.** EU Art. 12(3): one month from receipt. UK Art. 12(3) now refers to "the applicable time
+    period (see Article 12A)", which this session could not read (HTTP 404 at legislation.gov.uk). Is the 30-day
+    `due_at` the right deadline for both? Does an identity check pause the clock?
+21. **Backups and erasure.** An erased value persists for up to 8 weeks in weekly off-site dumps (`docs/60` §8).
+    The notice says so. Is "beyond use until expiry, re-applied after a restore" sufficient? The restore
+    re-application step does not exist yet (§5.5.5 open item 5).
+22. **Customer terms and API licence** (`docs/13-legal-customer-terms.md`, a draft). It expands item 8 with
+    the questions in that document's §6, including what to do about keys that recorded acceptance of a
+    licence that was never published.
 
 ## 8. What changed in the repo as a result
 
@@ -2082,3 +2271,11 @@ Numbered, in the order they block work.
   document.
 - `11-market-and-competition.md` §3 delay schedule needs the ISO row narrowed (see §6 above).
 - `00-PLAN.md` decisions log should record the §5.4 personal-data rule and the §4.2 TDM-signal rule.
+- 2026-10-07 (legal audit L-3, L-5, L-6, L-7; §5.5): `organization.personal_data` and its basis, `privacy_request.due_at`,
+  nullable API-key acceptance (migration 0034); `services/personal_names.py` with the vendored Census given-name
+  list and `data/vendored/organizations/personal_data_overrides.yaml`; `services/ingest/personal_data.py`
+  (classify, redact); persons' shares withheld and `personal_data` served by the API; sitemap exclusion,
+  `noindex` and immediate sitemap eviction on admin takedown; the privacy-request checklist, overdue filter and
+  admin queue; `/privacy` redrafted; `/legal/reuse` generated from `data/sources.yaml` and made the `terms_url`;
+  no key records acceptance of an unpublished licence; `docs/13-legal-customer-terms.md` drafted. §5.1 gains the
+  owner and sponsor row; counsel items 17–22.

@@ -624,6 +624,8 @@ def test_organization_assets_role_annotation_filters_and_totals(client, db, spec
                 "name_canonical": org.name_canonical,
                 "type": org.type,
                 "url": f"{WEB_HOST}/organizations/{org.slug}",
+                # Every organisation embed says whether it names a natural person (legal audit L-5).
+                "personal_data": False,
             },
             "assets": 5,
             "by_type": {"gas_pipeline": 3, "power_plant": 2},

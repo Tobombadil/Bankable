@@ -294,11 +294,11 @@ def test_saved_search_create_and_list_match_schema(
 def test_api_key_create_and_list_match_schema(
     spec: dict, db_sessionmaker: sessionmaker[Session], pro_client
 ) -> None:
-    from services.api.pro import API_LICENCE_VERSION
+    from services.api.pro import current_api_licence_version
 
     _pro_account_and_user(db_sessionmaker, pro_client, entitlement="api")
     created = pro_client.post(
-        "/v1/keys", json={"name": "contract-key", "licence_accepted_version": API_LICENCE_VERSION}
+        "/v1/keys", json={"name": "contract-key", "licence_accepted_version": current_api_licence_version()}
     )
     assert created.status_code == 201
     assert_valid(spec, "ApiKeyCreatedResponse", created.json())

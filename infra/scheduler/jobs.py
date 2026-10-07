@@ -710,6 +710,7 @@ def default_resolve(session_factory: Any, *, data_root: Path | None = None) -> d
         "proposals_merged": 0,
         "decisions_proposed": 0,
         "proposals_suppressed": 0,
+        "personal_data": {},
     }
     with session_scope(session_factory) as session:
         org_report = resolve_organizations(session, norm_org)
@@ -721,6 +722,11 @@ def default_resolve(session_factory: Any, *, data_root: Path | None = None) -> d
     with session_scope(session_factory) as session:
         suppressed = _load_fn("services.resolve.suppress", "apply_suppressions")(session)
         report["proposals_suppressed"] = len(suppressed.unpublished)
+    # The natural-person rule (docs/13 §5.5, legal audit L-5) on whatever the loads and merges just
+    # wrote: classify organisations, then cut the street address from the name of any proposal a
+    # flagged person sponsors (a reversible system override). Idempotent; a no-op on a clean store.
+    with session_scope(session_factory) as session:
+        report["personal_data"] = _load_fn("services.ingest.personal_data", "run")(session, what="all")
     return report
 
 

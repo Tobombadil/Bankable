@@ -1,0 +1,64 @@
+{% extends "admin/base.html" %}
+{% block title %}Privacy requests -- Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-tasks.css">{% endblock %}
+{% block content %}
+<p><a href="/admin/tasks">&larr; Back to tasks</a></p>
+<h1>Privacy requests</h1>
+<p class="admin-muted">Requests from people named in records (US-910). Each is due 30 days after it arrived (docs/13 &sect;5.4 rule 6). Closing a request deletes the contact address and the message.</p>
+{% include "admin/_notice.html" %}
+
+<form class="admin-toolbar" method="get" action="/admin/tasks/privacy">
+  <div class="field">
+    <label for="p-status">Status</label>
+    <select id="p-status" name="status">
+      <option value="">All statuses</option>
+      {% for s in statuses %}
+      <option value="{{ s }}"{% if filters.status == s %} selected{% endif %}>{{ s | replace('_', ' ') }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="p-overdue">Deadline</label>
+    <select id="p-overdue" name="overdue">
+      <option value="">Any</option>
+      <option value="true"{% if filters.overdue == 'true' %} selected{% endif %}>Overdue only</option>
+      <option value="false"{% if filters.overdue == 'false' %} selected{% endif %}>Not overdue</option>
+    </select>
+  </div>
+  <div class="admin-actions">
+    <button class="admin-button admin-button--primary" type="submit">Apply</button>
+    {% if filters %}<a class="admin-button" href="/admin/tasks/privacy">Clear all</a>{% endif %}
+    <a class="admin-button" href="/admin/tasks/privacy?overdue=true">Overdue</a>
+  </div>
+</form>
+
+{% if requests %}
+<div class="admin-table-wrap">
+  <table class="admin-table" id="privacy-requests">
+    <thead>
+      <tr><th>Request</th><th>Kind</th><th>Status</th><th>Record</th><th>Received</th><th>Due</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for r in requests %}
+      <tr{% if r.overdue %} class="is-overdue"{% endif %}>
+        <td class="mono">{{ r.public_id }}</td>
+        <td>{{ r.kind }}</td>
+        <td><span class="chip chip--{{ status_family.get(r.status, 'neutral') }}">{{ r.status | replace('_', ' ') }}</span></td>
+        <td class="mono">{{ r.record_public_id }}</td>
+        <td class="mono">{{ r.created_at[:10] if r.created_at else '' }}</td>
+        <td class="mono">{{ r.due_at[:10] if r.due_at else '' }}{% if r.overdue %} <span class="chip chip--danger">overdue</span>{% endif %}</td>
+        <td><a href="/admin/tasks/privacy/{{ r.public_id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<nav class="admin-pager" aria-label="Privacy request pages">
+  {% if page.has_more and page.next_cursor %}
+  <a href="/admin/tasks/privacy?{{ filters_qs }}cursor={{ page.next_cursor }}">Next &rarr;</a>
+  {% endif %}
+</nav>
+{% else %}
+<div class="admin-empty"><p>No privacy requests{% if filters %} match these filters{% endif %}.</p></div>
+{% endif %}
+{% endblock %}

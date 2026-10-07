@@ -5,6 +5,12 @@
 <h1>Tasks</h1>
 <p class="admin-muted">Reports, intake review and deletion requests (docs/30-design-ia.md §1.3).</p>
 {% include "admin/_notice.html" %}
+{% if privacy_summary %}
+<div class="notice{% if privacy_summary.overdue %} notice--error{% endif %}" role="status" id="privacy-summary">
+  Privacy requests: {{ privacy_summary.open }} open, {{ privacy_summary.overdue }} overdue.
+  <a href="/admin/tasks/privacy">Open the privacy queue</a>{% if privacy_summary.overdue %} &middot; <a href="/admin/tasks/privacy?overdue=true">Overdue only</a>{% endif %}
+</div>
+{% endif %}
 
 <form class="admin-toolbar" method="get" action="/admin/tasks">
   <div class="field">

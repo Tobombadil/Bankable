@@ -34,7 +34,7 @@ from services.api.auth import (
     require_entitlement,
     require_session_only,
 )
-from services.api.common import utcnow
+from services.api.common import TERMS_URL, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, unknown_parameter, validation_error
 from services.api.feeds import render_json_feed, render_rss
@@ -82,11 +82,25 @@ from services.ids import public_id
 
 router = APIRouter()
 
-#: `GET /v1/me` → `api_licence.current_version` (US-704 AC2); `POST /v1/keys` must be called with
-#: exactly this value. One constant, not read from `api/openapi.yaml`'s `info.license`, to avoid a
-#: YAML parse at import time for a value that only changes with a deliberate licence revision.
+#: Whether an API licence is published (US-704 AC2). **False until counsel approves the draft in
+#: `docs/13-legal-customer-terms.md`** (2026-09-30 legal audit L-3): before 2026-10-07 every key
+#: recorded acceptance of `api-licence-1.0` at `/legal/api-licence`, a page that did not exist, so
+#: the stored acceptance was evidence of nothing. While False, `GET /v1/me` reports no current
+#: version, `POST /v1/keys` records no acceptance and refuses a request that claims one, and every
+#: `terms_url` points at the factual reuse-conditions summary (`TERMS_URL`). Turning it on is one
+#: commit that also serves the licence page at `API_LICENCE_URL`.
+API_LICENCE_PUBLISHED = False
+#: The version id the draft will carry once published. `services/api/admin_posts.py`'s operator
+#: route still checks it (an operator-issued key cites an offline `licence_acceptance_ref`).
 API_LICENCE_VERSION = "api-licence-1.0"
-API_LICENCE_URL = "https://infraque.com/legal/api-licence"
+API_LICENCE_URL = TERMS_URL
+
+
+def current_api_licence_version() -> str | None:
+    """The version a key creation must accept, or `None` while no licence is published."""
+    return API_LICENCE_VERSION if API_LICENCE_PUBLISHED else None
+
+
 MAX_API_KEYS_PER_USER = 5
 MAX_WEBHOOKS_PER_ACCOUNT = 10
 
@@ -151,7 +165,11 @@ def get_me(
         # What this caller may hold (`services/api/alert_plan.py`): `null` when saved searches are
         # not available to it at all, so a page can say so rather than offer a form that 403s.
         "alert_plan": plan.as_dict() if plan is not None else None,
-        "api_licence": {"current_version": API_LICENCE_VERSION, "url": API_LICENCE_URL},
+        "api_licence": {
+            "current_version": current_api_licence_version(),
+            "status": "published" if API_LICENCE_PUBLISHED else "not_published",
+            "url": API_LICENCE_URL,
+        },
     }
     if ctx.api_key is not None:
         data["scopes"] = sorted(ctx.scopes)
@@ -652,10 +670,19 @@ def create_key(
     name = body.get("name")
     if not name:
         raise validation_error("name", "name is required", request.url.path)
-    if body.get("licence_accepted_version") != API_LICENCE_VERSION:
+    current_licence = current_api_licence_version()
+    claimed = body.get("licence_accepted_version")
+    if current_licence is None and claimed is not None:
         raise validation_error(
             "licence_accepted_version",
-            f"Must equal the current API licence version ({API_LICENCE_VERSION!r}).",
+            "No API licence is published yet, so there is nothing to accept: omit "
+            f"licence_accepted_version. The source licences that apply are summarised at {API_LICENCE_URL}.",
+            request.url.path,
+        )
+    if current_licence is not None and claimed != current_licence:
+        raise validation_error(
+            "licence_accepted_version",
+            f"Must equal the current API licence version ({current_licence!r}).",
             request.url.path,
         )
     existing = db.scalar(
@@ -687,8 +714,8 @@ def create_key(
         key_hash=key_hash,
         scopes=requested_scopes,
         tier=tier,
-        licence_accepted_version=API_LICENCE_VERSION,
-        licence_accepted_at=utcnow(),
+        licence_accepted_version=current_licence,
+        licence_accepted_at=utcnow() if current_licence is not None else None,
     )
     db.add(key)
     db.flush()

@@ -11,27 +11,31 @@ it at module level would be circular. This module duplicates that same small amo
 than importing the private, underscore-prefixed CSRF helpers out of `web/auth.py` -- one more
 small, deliberate duplication of a few lines, not a second design.
 
-**Privacy page content sources** (task instructions; nothing here is invented beyond what those
-name): the data inventory is `docs/20-architecture.md` §11's "Personal data" paragraph plus this
-task's own enumeration (accounts, alerts, intake/reports, CRM); the retention/deletion route cites
-US-910 and mirrors docs/20 §11's "user row is anonymised, sessions and API keys revoked, alerts
-suppressed, SoR deletion issued through the port"; the lawful bases follow
-`docs/13-legal-outreach-and-social.md` §7.2's five-item list and its CAN-SPAM/CASL sections; the
-postal address is the physical-address requirement that same document's §1 and §7.2 item 5 state
-(CAN-SPAM: "Your message must include your valid physical postal address"; CASL/GDPR/UK-GDPR:
-postal address and a privacy-notice link) -- like `infraque.com` (`services/api/common.py`), a
-literal placeholder token this build has not resolved yet, not a real address.
+**Privacy notice** (`/privacy`, redrafted 2026-10-07 from `docs/13-legal-data-rights.md` §5 for
+the 2026-09-30 legal audit's L-7; counsel review pending, `docs/13` §7 item 17). The controller is
+rendered from `SENDER_LEGAL_NAME` and `SENDER_POSTAL_ADDRESS`, the same two settings the alert mail
+footer uses (`services/alerts/mail.py`; owner decision 2026-09-18 (5): rendered from config, never
+hard-coded). When either is unset the page says so in plain words; it never prints a template token.
+
+**Reuse conditions** (`/legal/reuse`, 2026-10-07, L-3): a factual summary, generated from
+`data/sources.yaml`, of each published source's licence, the credit it requires and any duty that
+passes to whoever reuses the data. Every `meta.terms_url` points here (`services/api/common.py`)
+until counsel approves real customer terms and an API licence (`docs/13-legal-customer-terms.md`,
+a draft). The page says it is a summary of other people's licences and not a contract.
+`/legal/api-licence`, which every API response cited before and which never existed, answers a
+301 to it so the old links resolve.
 """
 
 from __future__ import annotations
 
+import functools
 import os
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from services.api.common import DOMAIN
@@ -47,18 +51,23 @@ templates = Jinja2Templates(directory=str(_WEB_ROOT / "templates"))
 labels.install(templates.env)
 templates.env.globals["asset_version"] = ASSET_VERSION
 
-#: CAN-SPAM/CASL/GDPR all require a real physical postal address in outbound mail and/or the
-#: privacy notice (docs/13 §1, §7.2 item 5); the operator has not set one yet, so this is a
-#: literal placeholder token in the same spirit as `services.api.common.DOMAIN` -- rendered
-#: through a template variable, never written directly into template markup, so Jinja does not
-#: try to parse the double braces as its own expression syntax.
-POSTAL_ADDRESS_PLACEHOLDER = "{{POSTAL_ADDRESS}}"
-
 #: docs/40-launch-runbook.md §4 row 5 names this as the privacy-notice contact route; US-910 AC1
 #: is the deletion process it points to.
 PRIVACY_EMAIL = f"privacy@{DOMAIN}"
 
-LAST_UPDATED = "2026-09-13"
+LAST_UPDATED = "2026-10-07"
+REUSE_LAST_UPDATED = "2026-10-07"
+
+_MANIFEST = Path(__file__).resolve().parents[1] / "data" / "sources.yaml"
+
+
+def controller_identity() -> dict[str, str | None]:
+    """The controller named on the privacy notice: `SENDER_LEGAL_NAME` and `SENDER_POSTAL_ADDRESS`,
+    read at request time like `services/alerts/mail.py` reads them. `None` for an unset value; the
+    template then says the value is not yet published rather than printing a placeholder."""
+    name = os.environ.get("SENDER_LEGAL_NAME", "").strip() or None
+    address = os.environ.get("SENDER_POSTAL_ADDRESS", "").strip() or None
+    return {"name": name, "address": address}
 
 
 # ------------------------------------------------------------------- duplicated web/app.py glue
@@ -116,10 +125,102 @@ def _csrf_rejection() -> PlainTextResponse:
 def privacy(request: Request) -> HTMLResponse:
     context = {
         "privacy_email": PRIVACY_EMAIL,
-        "postal_address": POSTAL_ADDRESS_PLACEHOLDER,
+        "controller": controller_identity(),
         "last_updated": LAST_UPDATED,
     }
     return templates.TemplateResponse(request, "legal/privacy.html", context)
+
+
+# ------------------------------------------------------------------------------- reuse conditions
+#: The manifest's `reuse` classes whose rows can reach a reader, in the order the page lists them.
+#: `restricted` and `unknown` sources publish nothing (the loader refuses them), so they have no
+#: conditions to pass on and are counted, not listed.
+_REUSE_ORDER = ("open", "attribution", "noncommercial")
+_REUSE_LABELS = {
+    "open": "Public domain or no conditions stated",
+    "attribution": "Reuse with credit",
+    "noncommercial": "Noncommercial reuse only",
+}
+_PUBLICATION_LABELS = {
+    "raw_ok": "Records published as the source states them",
+    "derived_only": "Derived fields only; the source's own rows are not republished",
+}
+
+
+def _pass_through_duties(entry: dict[str, Any]) -> list[str]:
+    """What a person reusing this source's data from us must also do, in the source's terms as the
+    register records them (`docs/13` §6, §6.3). Stated, not interpreted: each line comes from a
+    manifest field or the reuse class."""
+    duties: list[str] = []
+    credit = str(entry.get("attribution") or "").strip()
+    reuse = str(entry.get("reuse") or "")
+    if credit:
+        duties.append(f"Credit the source with: \u201c{credit}\u201d.")
+    elif reuse in ("attribution", "noncommercial"):
+        operator = str(entry.get("operator") or entry.get("name") or "the source")
+        duties.append(f"Credit {operator} as the source.")
+    if entry.get("changes_statement"):
+        duties.append(
+            f"Say what was changed. Our statement of changes: \u201c{entry['changes_statement']}\u201d."
+        )
+    if reuse == "noncommercial":
+        duties.append(
+            "Noncommercial use only, and the source's content must stay unaltered and not be presented in a "
+            "misleading way (the source's own condition)."
+        )
+    if entry.get("publication") == "derived_only":
+        duties.append("Do not republish the source's own table; link to the source for its rows.")
+    return duties
+
+
+@functools.lru_cache(maxsize=1)
+def reuse_conditions() -> dict[str, Any]:
+    """Every published source in `data/sources.yaml`, grouped by reuse class, with its licence, the
+    credit it requires and the duties that pass to a reuser. Read from the file, not the store, so the
+    page states the terms we hold even for a source with no rows loaded yet."""
+    import yaml
+
+    entries = (yaml.safe_load(_MANIFEST.read_text(encoding="utf-8")) or {}).get("sources") or []
+    groups: dict[str, list[dict[str, Any]]] = {k: [] for k in _REUSE_ORDER}
+    withheld = 0
+    for entry in entries:
+        reuse = str(entry.get("reuse") or "unknown")
+        publication = str(entry.get("publication") or "none")
+        if reuse not in groups or publication == "none":
+            withheld += 1
+            continue
+        groups[reuse].append(
+            {
+                "source_id": str(entry.get("id")),
+                "name": str(entry.get("name") or entry.get("id")),
+                "operator": str(entry.get("operator") or ""),
+                "url": str(entry.get("url") or ""),
+                "licence_url": str(entry.get("licence_url") or ""),
+                "publication": _PUBLICATION_LABELS.get(publication, publication),
+                "duties": _pass_through_duties(entry),
+            }
+        )
+    for rows in groups.values():
+        rows.sort(key=lambda r: r["name"].lower())
+    return {
+        "groups": [
+            {"reuse": k, "label": _REUSE_LABELS[k], "sources": groups[k]} for k in _REUSE_ORDER if groups[k]
+        ],
+        "withheld": withheld,
+    }
+
+
+@router.get("/legal/reuse", response_class=HTMLResponse)
+def reuse_page(request: Request) -> HTMLResponse:
+    context = {"last_updated": REUSE_LAST_UPDATED, **reuse_conditions()}
+    return templates.TemplateResponse(request, "legal/reuse.html", context)
+
+
+@router.get("/legal/api-licence")
+def api_licence_redirect() -> RedirectResponse:
+    """The URL every API response and CSV cited until 2026-10-07; no licence was ever served there.
+    It now leads to what is actually true today (`/legal/reuse`)."""
+    return RedirectResponse(url="/legal/reuse", status_code=301)
 
 
 # ----------------------------------------------------------------------------------- unsubscribe

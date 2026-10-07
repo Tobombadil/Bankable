@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Reuse conditions -- Infraque{% endblock %}
+{% block meta_description %}The licence each published data source is under, the credit it requires, and what passes to anyone who reuses the data.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Reuse conditions</h1>
+  <p>Every record here comes from a public source, and each source sets its own terms. This page lists, for each source we publish, its licence, the credit it requires and anything that passes to you if you reuse the data from this site, its API, feeds or exports.</p>
+  <p class="notice" role="note" id="not-a-contract"><strong>This is a summary of the sources&rsquo; licences, not a contract.</strong> We have not yet published customer terms or an API licence. Where this summary and a source&rsquo;s own terms differ, the source&rsquo;s terms apply; follow the licence link to read them. Last updated <span class="tnum">{{ last_updated }}</span>.</p>
+</div>
+
+<section id="how-to-read">
+  {{ m.section_heading("1.", "How to read this") }}
+  <ul>
+    <li><strong>Credit</strong> is the line the source asks for. Where a source states an exact wording, it is quoted and must be used as written.</li>
+    <li><strong>Statement of changes</strong> is required by Creative Commons licences: we have changed the data (mapped fields, normalised values), and anyone passing it on should say so too.</li>
+    <li><strong>Derived fields only</strong> means we publish our own normalised fields and change events but not the source&rsquo;s table; the record links to the source for its rows.</li>
+    <li>Every API response, feed item and export also names its sources and carries their credit lines.</li>
+  </ul>
+</section>
+
+{% for group in groups %}
+<section id="reuse-{{ group.reuse }}">
+  {{ m.section_heading((loop.index + 1) ~ ".", group.label) }}
+  <div class="table-scroll">
+  <table class="record-table source-table">
+    <caption class="visually-hidden">{{ group.label }}: source, licence, what we publish and what passes to a reuser.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Source</th>
+        <th scope="col">Licence</th>
+        <th scope="col">What we publish</th>
+        <th scope="col">If you reuse it</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in group.sources %}
+      <tr id="source-{{ s.source_id | replace('.', '-') }}">
+        <td data-label="Source">{% if s.url %}<a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a>{% else %}{{ s.name }}{% endif %}{% if s.operator %}<br><span class="reuse-badge">{{ s.operator }}</span>{% endif %}</td>
+        <td data-label="Licence">{% if s.licence_url %}<a href="{{ s.licence_url }}" rel="noopener nofollow">Terms</a>{% else %}<span class="reuse-badge">no licence page recorded</span>{% endif %}</td>
+        <td data-label="What we publish">{{ s.publication }}</td>
+        <td data-label="If you reuse it">{% if s.duties %}<ul>{% for d in s.duties %}<li>{{ d }}</li>{% endfor %}</ul>{% else %}No condition stated.{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endfor %}
+
+<section id="not-published">
+  {{ m.section_heading((groups | length + 2) ~ ".", "Sources we do not publish") }}
+  <p>{{ withheld }} sources in our register are not published at all, because their terms restrict reuse or have not yet been read. We link to them from <a href="/methodology">Coverage and methodology</a>; their records never leave this platform.</p>
+</section>
+
+<section id="questions">
+  {{ m.section_heading((groups | length + 3) ~ ".", "Questions") }}
+  <p>The full list of sources and their credit lines is on the <a href="/attribution">attribution page</a>. How we handle personal data is in the <a href="/privacy">privacy notice</a>.</p>
+</section>
+{% endblock %}
