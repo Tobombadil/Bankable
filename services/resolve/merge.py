@@ -417,6 +417,83 @@ def _uncarry_overrides(canonical: Proposal, carried: dict[str, Any]) -> bool:
     return True
 
 
+#: Key under the merge event's `before.absorbed`: `{proposal_source id: its link_event_id before
+#: this merge stamped it}` (str or null) for every link the merge re-pointed (docs/21 §6.3). Its
+#: presence marks a merge written since 2026-10-07, which stamps `link_event_id`; unmerge restores
+#: each value. A merge written before carries none, and its links were never stamped.
+LINK_EVENT_PRIORS_KEY = "proposal_source_link_event_ids"
+
+
+def _optional_uuid(value: Any) -> _uuid.UUID | None:
+    return None if value is None else _uuid.UUID(str(value))
+
+
+def _attribution_chain(session: Session, link: ProposalSource) -> list[_uuid.UUID | None]:
+    """`link.link_event_id`, then the value each stamping merge recorded it replaced, back to the
+    first value no merge recorded: `[latest, ..., base]`.
+
+    A merge carries the links it re-points onward, including links an earlier merge had brought to
+    the absorbed record (C into B, then B into A: C's links carry the B-into-A event, which recorded
+    the C-into-B event as their previous value). The chain is how an unmerge finds a link it moved
+    that a later merge has since carried, and what value to give back to a link moved by a merge
+    written before stamping existed."""
+    chain: list[_uuid.UUID | None] = [link.link_event_id]
+    seen: set[_uuid.UUID] = set()
+    current = link.link_event_id
+    while current is not None and current not in seen:
+        seen.add(current)
+        event = session.get(Event, current)
+        if event is None or event.event_type != "merged" or event.subject_type != "proposal":
+            break
+        priors = ((event.before or {}).get("absorbed") or {}).get(LINK_EVENT_PRIORS_KEY)
+        if not isinstance(priors, dict) or str(link.id) not in priors:
+            break
+        current = _optional_uuid(priors[str(link.id)])
+        chain.append(current)
+    return chain
+
+
+def links_moved_by(session: Session, merge_event: Event) -> list[tuple[ProposalSource, _uuid.UUID | None]]:
+    """The links a proposal `merged` event moved that are still its to move back, each with the
+    `link_event_id` it had before that merge (docs/21 §6.3).
+
+    A merge written since 2026-10-07 stamped every link it moved with its own id: those links are
+    exactly the ones that still carry it, plus any a later merge has carried onward (the chain
+    passes through this merge). A listed link whose chain no longer reaches this merge has already
+    been taken back by another unmerge and is left where it is. A merge written before stamping
+    existed is identified, as it always was, by its listed `proposal_source_ids`; each goes back
+    with the value it had when that merge ran (the end of its chain: such a merge changed nothing)."""
+    absorbed = (merge_event.before or {}).get("absorbed") or {}
+    listed = [
+        link
+        for link in (
+            session.get(ProposalSource, _uuid.UUID(str(x))) for x in absorbed.get("proposal_source_ids") or []
+        )
+        if link is not None
+    ]
+    priors = absorbed.get(LINK_EVENT_PRIORS_KEY)
+    if not isinstance(priors, dict):
+        return [(link, _attribution_chain(session, link)[-1]) for link in listed]
+
+    # A link this merge stamped sits on its survivor until a later merge carries it on (and restamps
+    # it) or an unmerge returns it; the survivor filter keeps the lookup on `proposal_id`'s index.
+    moved: dict[_uuid.UUID, ProposalSource] = {
+        link.id: link
+        for link in session.scalars(
+            select(ProposalSource)
+            .where(
+                ProposalSource.proposal_id == merge_event.subject_id,
+                ProposalSource.link_event_id == merge_event.id,
+            )
+            .order_by(ProposalSource.id)
+        )
+    }
+    for link in listed:
+        if link.id not in moved and merge_event.id in _attribution_chain(session, link):
+            moved[link.id] = link
+    return [(link, _optional_uuid(priors.get(str(link.id)))) for link in moved.values()]
+
+
 def merge_proposal(
     session: Session,
     *,
@@ -469,6 +546,7 @@ def merge_proposal(
             "slug": absorbed.slug,
             "entity": serialize_row(absorbed),
             "proposal_source_ids": [str(s.id) for s in absorbed_sources],
+            LINK_EVENT_PRIORS_KEY: {str(s.id): _json_safe(s.link_event_id) for s in absorbed_sources},
             "match_ids": [],
             "document_ids": [],
         },
@@ -531,6 +609,11 @@ def merge_proposal(
     )
     session.add(event)
     session.flush()
+    # docs/21 §6.3: every re-pointed link names the merge that moved it. Stamped after the event row
+    # exists, so the foreign key holds on every dialect; the previous values are in the payload.
+    for s in absorbed_sources:
+        s.link_event_id = event.id
+    session.flush()
     return event
 
 
@@ -539,6 +622,11 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
     §6.3 invariant M1: "every merged event must contain enough state to execute this without
     reading any other row"). Idempotent: a second call for the same merge event returns the
     existing `unmerged` event.
+
+    The links that move back are `links_moved_by`'s: those still stamped with this merge (or
+    carried onward from it by a later merge), each given back the `link_event_id` it had before;
+    for a merge written before stamping, the listed `proposal_source_ids`. A link another unmerge
+    has already returned stays where it is (C into B, B into A, then C out: B out leaves C's links).
 
     The survivor's `select_basis` loses exactly the source ids the merge added
     (`after.surviving.select_basis_added`), whatever their value now is: those entries belong to
@@ -583,12 +671,12 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
         f"unmerge {merge_event.id}",
     )
 
+    moved = links_moved_by(session, merge_event)
     restore_row(absorbed, before["absorbed"]["entity"])
 
-    for source_id_str in before["absorbed"]["proposal_source_ids"]:
-        ps = session.get(ProposalSource, _uuid.UUID(source_id_str))
-        if ps is not None:
-            ps.proposal_id = absorbed.id
+    for ps, previous_link_event_id in moved:
+        ps.proposal_id = absorbed.id
+        ps.link_event_id = previous_link_event_id
 
     surviving = before["surviving"]
     canonical.source_count = surviving["source_count"]

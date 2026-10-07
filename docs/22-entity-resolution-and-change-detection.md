@@ -721,7 +721,40 @@ derive a quartet. A source unpublished by an admin (`source.publish_state`, muta
 choosing: the licence is the immutable gate (invariant L2) and the visibility filter reads the cited source's
 state at serve time; if merge events are ever published, the choice should also prefer a member whose source is
 hidden, and `before.absorbed.entity` would need the publish-time field-class gating docs/21 §6.2 describes.
-docs/21 §6.3's `link_event_id` on re-pointed links is still not set by `merge_proposal`.
+docs/21 §6.3's `link_event_id` on re-pointed links was not set by `merge_proposal`; closed below.
+
+**`link_event_id` on re-pointed links (as built 2026-10-07, later the same day).** A merge now stamps every
+`proposal_source` row it moves with its own event id and records each row's previous value under
+`before.absorbed.proposal_source_link_event_ids`; an unmerge moves back the rows still stamped with it (or carried
+onward by a later merge, followed through that merge's recorded previous value) and restores each value. Rules and
+departures are in docs/21 §6.3. The quartet rule above is unchanged: it is chosen before the links move, and an
+unmerge still copies its merge's quartet (all 10 `test_provenance.py` tests pass unchanged).
+
+Measured on the same full eval run (`data/eval/normalized.parquet`, 9,563 proposals and links; 407 proposal
+merges; 25 unmerges):
+
+| | Before | After |
+|---|---|---|
+| Re-pointed links with no `link_event_id` | 407 of 407 | 0 of 407 |
+| Re-pointed links naming their own merge | 0 | 407 |
+| Links carrying any `link_event_id` | 0 of 9,563 | 407 of 9,563 (only re-pointed ones) |
+| Unmerged links back on their record, value restored to null | 25 of 25 | 25 of 25 |
+
+The automatic run has no chained merges (0 merges absorb an earlier survivor: `apply_cluster` merges every member
+into one canonical), so the chain and out-of-order cases arise from admin merges and later runs; they are covered by
+tests. Before the change, unmerging B out of A after C had already been unmerged out of B moved C's links to B.
+
+Tests: `services/resolve/test_link_event_id.py` (6; all fail on `583e9ee`): a merge stamps every moved link and no
+other; each hop of C into B into A records its own merge and the previous one; unmerging the later merge moves back
+only its links (another merge's link and the survivor's own stay); out-of-order unmerges leave C's links with C; a
+merge written without stamps unmerges by its listed ids, alone and under a later stamped merge. The realistic-run
+guard (`test_provenance_guard.py`) gains a fourth test: every link a standing merge moved names it, every link an
+unmerge returned is back with null (390 standing, 10 returned; fails on `583e9ee`).
+
+Not done: `merge_history` (`services/api/proposal_members.py`) still selects a merge's links from its listed ids
+intersected with the record's own links, which gives the same answer; it could read `link_event_id` instead.
+Re-merging a pair after an unmerge is a silent no-op that returns the reversed merge event (the idempotency key is
+per pair), observed while testing and left as found.
 
 - **A-22-27:** a resolver event's provenance is one evidence row's whole quartet, the most restrictive licence
   first and the triggering record on a tie (rules above). docs/20 and docs/21 settle gating by the most
