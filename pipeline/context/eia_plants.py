@@ -217,10 +217,10 @@ def aggregate_plants(
     return out
 
 
-def _latest_snapshot() -> pathlib.Path:
-    candidates = sorted(SNAPSHOT_DIR.glob("*.xlsx"))
+def _latest_snapshot(snapshot_dir: pathlib.Path = SNAPSHOT_DIR) -> pathlib.Path:
+    candidates = sorted(snapshot_dir.glob("*.xlsx"))
     if not candidates:
-        raise FileNotFoundError(f"no *.xlsx snapshot under {SNAPSHOT_DIR}")
+        raise FileNotFoundError(f"no *.xlsx snapshot under {snapshot_dir}")
     return candidates[-1]
 
 
@@ -232,7 +232,9 @@ def _token_to_iso(token: str) -> str | None:
     return ts.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _snapshot_metadata(workbook_path: pathlib.Path) -> tuple[str, str | None]:
+def _snapshot_metadata(
+    workbook_path: pathlib.Path, runs_dir: pathlib.Path = RUNS_DIR
+) -> tuple[str, str | None]:
     """`(retrieved_at_iso, source_url)` for a snapshot named the way `pipeline.connectors.store`
     names them (`<ts_token>.xlsx`): the token itself gives `retrieved_at`, and the matching
     `data/runs/us.eia.860m/<ts_token>.json` (when present) gives the exact workbook URL that run
@@ -242,7 +244,7 @@ def _snapshot_metadata(workbook_path: pathlib.Path) -> tuple[str, str | None]:
     retrieved_at = _token_to_iso(token) or dt.datetime.now(dt.UTC).isoformat(timespec="seconds").replace(
         "+00:00", "Z"
     )
-    run_path = RUNS_DIR / f"{token}.json"
+    run_path = runs_dir / f"{token}.json"
     source_url = None
     if run_path.exists():
         try:
@@ -260,12 +262,25 @@ def main(argv: list[str] | None = None) -> None:
     group.add_argument(
         "--latest-snapshot", action="store_true", help="Use the newest data/snapshots/us.eia.860m/*.xlsx"
     )
-    parser.add_argument("--out", type=pathlib.Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--data-root",
+        type=pathlib.Path,
+        default=None,
+        help="Data root holding snapshots/, runs/ and normalized/ (default: this checkout's data/). "
+        "A worktree or a deployment whose data lives elsewhere names it here, so the snapshot, its "
+        "run record (the workbook URL) and the default --out all come from the same root.",
+    )
+    parser.add_argument("--out", type=pathlib.Path, default=None)
     args = parser.parse_args(argv)
 
+    data_root = args.data_root or ROOT / "data"
+    snapshot_dir = data_root / "snapshots" / SOURCE_ID
+    runs_dir = data_root / "runs" / SOURCE_ID
+    out = args.out or data_root / "normalized" / "context" / DEFAULT_OUT.name
+
     t0 = time.monotonic()
-    workbook_path = args.workbook or _latest_snapshot()
-    retrieved_at, source_url = _snapshot_metadata(workbook_path)
+    workbook_path = args.workbook or _latest_snapshot(snapshot_dir)
+    retrieved_at, source_url = _snapshot_metadata(workbook_path, runs_dir)
 
     sheets = parse_generator_sheets(workbook_path.read_bytes())
     plants = aggregate_plants(
@@ -276,8 +291,8 @@ def main(argv: list[str] | None = None) -> None:
         as_of=sheets.as_of,
     )
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    to_parquet_safe(plants).to_parquet(args.out, index=False)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    to_parquet_safe(plants).to_parquet(out, index=False)
 
     with_coords = int(plants["lon"].notna().sum())
     by_technology = plants["technology"].value_counts().to_dict()

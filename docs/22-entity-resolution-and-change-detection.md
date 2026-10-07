@@ -2574,6 +2574,53 @@ python -m pytest tests/test_resolve_rules.py tests/test_resolve_cluster_gate.py 
 The dev-store runs used a scratch copy of the H4 pre-resolution store and data root, with
 `infra.scheduler.jobs.default_resolve(factory, data_root=...)`. That is the same call `web.dev_up` makes.
 
+### 22.12 Rule T over proposal kinds (2026-10-07)
+
+**Defect.** Rule T judged technologies only. `us.epa.class_vi` writes its own technology token
+(`co2_geologic_sequestration`), which `TECH_FAMILIES` does not list, so rule T read it as unknown and let
+every pair through. With Class VI loaded into a copy of the dev store, three CO2 storage projects merged into
+CAISO generation requests at 0.81 to 0.91, and the merged record took kind `generation`:
+
+| Class VI project | Merged into | Why it scored |
+|---|---|---|
+| Tulare County Carbon Storage Project (Tulare County Carbon Storage Project LLC) | CAISO 857 TULARE SOLAR, 150 MW, withdrawn | name token + county |
+| Sutter Decarbonization Project (Calpine California CCUS Holdings) | CAISO 379 SUTTER ENERGY CENTER, 600 MW gas, withdrawn | name token + county |
+| Montezuma Carbon LLC (Montezuma NorCal Carbon Sequestration Hub) | CAISO 22 MONTEZUMA (HIGH WINDS III), then 222 MONTEZUMA II and 489 MONTEZUMA II EXPANSION through it | name token + county |
+
+A CCS project at a power plant (Calpine's Sutter project captures that plant's CO2) is still a different
+project: a well and a permit, not the plant.
+
+**Rule.** `pipeline/resolve.py::KIND_CLASSES` maps each proposal kind (docs/02 §5) to an identity class:
+`generation`, `storage` and `nuclear` are one class, `power` (hybrids file generation and storage
+separately; the technology families still judge those pairs); `load`, `transmission`, `pipeline`, `lng`,
+`ccs` and `hydrogen` each stand alone; `other` and a missing kind match anything. Rule T now refuses a fuzzy
+pair whose kinds are in different classes (`class_compatible`, veto `veto_tech_class`), before it looks at
+technology. Because `other` matches both sides, a record of kind `other` could still chain a CCS project into a
+plant. `kind_chain_veto` closes that: after the pairwise vetoes it walks the accepted pairs (deterministic
+passes first, never refused, then by descending score) and refuses a fuzzy pair that would put two kind
+classes in one cluster (rationale `veto_kind_chain`). It is rule T over a cluster, not a new rule.
+
+**Measured** (store with the dev sources loaded, plus Class VI, then `default_resolve`; data root
+2026-10-07):
+
+| | Before | After |
+|---|---|---|
+| Live proposals whose members span two kind classes | 3 (5 records absorbed across kinds) | **0** |
+| Class VI records on their own proposal | 65 of 68 | **68 of 68** |
+| Proposals merged | 537 | 532 |
+| Proposal clusters vs the same store without Class VI | 3 differ | **identical** (404 multi-member proposals, 936 records) |
+| The same store without Class VI, before vs after the change | — | identical clusters (the rule changes nothing on the existing sources) |
+| Evaluation (85 labels, threshold 75) | 37/1/3/44, 764 accepted pairs | 37/1/3/44, 764 accepted pairs |
+
+The two CAISO Montezuma requests that left the cluster were joined to each other only through the Class VI
+record (one source's requests are never paired directly), so both were wrong merges. Tests:
+`tests/test_resolve_rules.py` (the three real pairs with their real names, counties, MW and technologies;
+the `other` bridge; the ordering of the cluster check).
+
+**Assumption A-22-T-1:** a record of a non-power kind is never the same real-world project as a power record,
+even when the two share a site and a sponsor. If the product later wants "CCS at plant X" linked to plant X,
+that is a relation between two proposals, not a merge.
+
 ## 23. Field survivorship on a merged proposal (lane FS, 2026-10-07)
 
 **Status:** implemented and measured. Code: `services/resolve/survivorship.py` (the rules), called from

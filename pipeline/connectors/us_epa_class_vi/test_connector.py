@@ -110,6 +110,18 @@ def test_a_final_permit_decision_is_permitted_not_built(parsed):
     assert set(issued["lifecycle_state"]) == {"permitted"}
 
 
+def test_prepare_final_permit_decision_is_studied_like_the_draft_permit_stages(parsed):
+    """The phase EPA added by 2026-10-07 (recorded row: Vault "Linden", comment period closed,
+    final decision pending) is before a decision, so it is `studied`, not `permitted`."""
+    _, _, _, df = parsed
+    pending = df[df["status_raw"] == "Prepare Final Permit Decision"]
+    assert len(pending) == 1
+    assert pending["lifecycle_state"].tolist() == ["studied"]
+    assert pending["status_rule"].tolist() == ["epa_class_vi.map"]
+    drafts = df[df["status_raw"].isin(["Prepare Draft Permit", "Public Comment Period"])]
+    assert set(drafts["lifecycle_state"]) == {"studied"}
+
+
 def test_an_unknown_phase_is_flagged_rather_than_guessed(parsed):
     c, raw, rows, _ = parsed
     mutated = [dict(r) for r in rows]

@@ -615,3 +615,155 @@ def test_deterministic_pairs_are_never_vetoed(tmp_path: pathlib.Path) -> None:
     det = matches[matches["pass"].str.startswith("D")]
     assert len(det) == 1 and bool(det["accepted"].iloc[0])
     assert together(clusters, str(a["record_id"]), str(b["record_id"]))
+
+
+# ------------------------------------------------------------------ rule T over kinds (2026-10-07)
+CLASS_VI = "us.epa.class_vi"
+
+
+def class_vi(rid: str, project: str, company: str, *, county: str) -> dict[str, object]:
+    """A Class VI tracker row as `us.epa.class_vi` normalises it: kind `ccs`, its own technology
+    token, no capacity, the permit number as queue id."""
+    row = rec(
+        CLASS_VI, rid, project, "co2_geologic_sequestration", None, county=county, state="CA", sponsor=company
+    )
+    row.update(kind="ccs", iso=None, lifecycle_state="studied")
+    return row
+
+
+def caiso(
+    rid: str, name: str, technology: str, mw: float, *, county: str, lifecycle: str
+) -> dict[str, object]:
+    return rec(CAISO, rid, name, technology, mw, county=county, state="CA", lifecycle=lifecycle)
+
+
+#: The three Class VI projects the resolver merged into CAISO generation records on the 2026-10-07
+#: store copy (confidence 0.81-0.91), each with the CAISO request(s) it was merged into. Names,
+#: companies, counties, technologies, MW and states as the real rows carry them.
+WRONG_CCS_MERGES = [
+    (
+        class_vi(
+            "h2656a779ab3b",
+            "Tulare County Carbon Storage Project",
+            "Tulare County Carbon Storage Project LLC",
+            county="Tulare",
+        ),
+        [caiso("857", "TULARE SOLAR", "solar", 150.0, county="TULARE", lifecycle="withdrawn")],
+    ),
+    (
+        class_vi(
+            "R09-CA-0014",
+            "Sutter Decarbonization Project",
+            "Calpine California CCUS Holdings",
+            county="Sutter",
+        ),
+        [caiso("379", "SUTTER ENERGY CENTER", "gas_cc", 600.0, county="SUTTER", lifecycle="withdrawn")],
+    ),
+    (
+        class_vi(
+            "R09-CA-0013",
+            "Montezuma Carbon LLC",
+            "Montezuma NorCal Carbon Sequestration Hub",
+            county="Solano",
+        ),
+        [
+            caiso(
+                "22",
+                "MONTEZUMA (HIGH WINDS III)",
+                "wind_storage",
+                38.0,
+                county="SOLANO",
+                lifecycle="contracted",
+            ),
+            caiso("222", "MONTEZUMA II", "wind_storage", 78.0, county="SOLANO", lifecycle="contracted"),
+            caiso("489", "MONTEZUMA II EXPANSION", "wind", 98.9, county="SOLANO", lifecycle="withdrawn"),
+        ],
+    ),
+]
+
+
+def test_kind_compatible_table() -> None:
+    assert not resolve.kind_compatible("ccs", "generation")
+    assert not resolve.kind_compatible("ccs", "storage")
+    assert not resolve.kind_compatible("load", "generation")
+    assert not resolve.kind_compatible("pipeline", "lng")
+    assert not resolve.kind_compatible("hydrogen", "generation")
+    assert resolve.kind_compatible("generation", "storage")  # hybrids file their halves separately
+    assert resolve.kind_compatible("nuclear", "generation")
+    assert resolve.kind_compatible("ccs", "ccs")
+    assert resolve.kind_compatible("other", "ccs")
+    assert resolve.kind_compatible(None, "ccs")
+    # Every kind of the proposal vocabulary has a class, except the wildcard `other`.
+    vocabulary = {
+        "generation",
+        "storage",
+        "load",
+        "transmission",
+        "pipeline",
+        "lng",
+        "nuclear",
+        "ccs",
+        "hydrogen",
+    }
+    assert set(resolve.KIND_CLASSES) == vocabulary
+
+
+def test_a_ccs_project_never_merges_with_the_power_plant_it_is_named_after(tmp_path: pathlib.Path) -> None:
+    rows = [r for well, plants in WRONG_CCS_MERGES for r in (well, *plants)]
+    matches, clusters = run(tmp_path, rows)
+    for well, plants in WRONG_CCS_MERGES:
+        for plant in plants:
+            a, b = str(well["record_id"]), str(plant["record_id"])
+            hit = pair(matches, a, b)
+            assert "veto_tech_class" in str(hit["veto"]), hit["rationale"]
+            assert not bool(hit["accepted"])
+            assert not together(clusters, a, b)
+    # The Montezuma requests were joined to each other only through the Class VI record.
+    montezuma = [str(p["record_id"]) for p in WRONG_CCS_MERGES[2][1]]
+    assert not together(clusters, montezuma[0], montezuma[1])
+    assert not together(clusters, montezuma[1], montezuma[2])
+
+
+def test_kind_classes_do_not_join_through_a_record_of_kind_other(tmp_path: pathlib.Path) -> None:
+    """A record whose kind is `other` is compatible with both sides pairwise, so the pairwise
+    check alone would let it chain a CCS project into a power plant."""
+    well = class_vi("R09-CA-0014", "Sutter Decarbonization Project", "Calpine", county="Sutter")
+    plant = rec(
+        EIA,
+        "55112-CTG1",
+        "Sutter Energy Center",
+        "gas_cc",
+        600.0,
+        county="Sutter",
+        state="CA",
+        sponsor="Calpine",
+        plant="55112",
+    )
+    # CAISO files 11 requests as kind `other` (technology `other`); one such row is the bridge.
+    bridge = rec(
+        CAISO, "1999", "SUTTER ENERGY CENTER", "other", None, county="SUTTER", state="CA", sponsor="Calpine"
+    )
+    bridge.update(kind="other")
+    matches, clusters = run(tmp_path, [well, plant, bridge])
+    w, p, b = (str(r["record_id"]) for r in (well, plant, bridge))
+    assert not together(clusters, w, p)
+    assert together(clusters, p, b)  # the stronger edge wins: the bridge is the plant, by name
+    refused = matches[matches["rationale"].str.contains("veto_kind_chain")]
+    assert len(refused) == 1 and not bool(refused["accepted"].iloc[0])
+
+
+def test_kind_chain_check_orders_by_score_and_spares_deterministic_pairs() -> None:
+    df = pd.DataFrame({"kind": ["ccs", "other", "generation", "load", "load"]})
+    matches = pd.DataFrame(
+        {
+            "li": [0, 1, 3],
+            "ri": [1, 2, 2],
+            "pass": ["F_fuzzy:B2", "F_fuzzy:B2", "D3_xref"],
+            "score": [80.0, 95.0, 100.0],
+            "accepted": [True, True, True],
+        }
+    )
+    refused = resolve.kind_chain_veto(df, matches)
+    # D3 (load-generation) is taken first and never refused; then 1-2 (95) joins the other record
+    # to that cluster; then 0-1 (80) would bring a ccs record into it and is refused.
+    assert refused.tolist() == [True, False, False]

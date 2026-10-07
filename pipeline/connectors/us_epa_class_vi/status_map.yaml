@@ -4,7 +4,7 @@
 # connector puts the raw "Phase" value under ctx["status_raw"] before calling it — the same
 # convention us.permits_dashboard and gb.neso.tec_register use for their own status fields.
 version: 1
-updated: 2026-09-22
+updated: 2026-10-07
 canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
 sources:
   epa_class_vi:
@@ -14,15 +14,18 @@ sources:
       Technical Review: studied
       Prepare Draft Permit: studied
       Public Comment Period: studied
+      Prepare Final Permit Decision: studied
       Final Permit Decisions Issued: permitted
       Application Withdrawn: withdrawn
     caveats:
       - >-
-        The six values above are the whole observed vocabulary on 2026-09-22 (68 project rows, Phase counts: Technical Review 36, Application Withdrawn 13, Final Permit Decisions Issued 11, Completeness Review 5, Public Comment Period 2, Prepare Draft Permit 1). Anything else maps to unknown via `epa_class_vi.unmapped` and surfaces as status-vocabulary drift.
+        The six values above are the whole observed vocabulary on 2026-09-22 (68 project rows, Phase counts: Technical Review 36, Application Withdrawn 13, Final Permit Decisions Issued 11, Completeness Review 5, Public Comment Period 2, Prepare Draft Permit 1). On 2026-10-07 it is seven (68 rows: Technical Review 36, Application Withdrawn 13, Final Permit Decisions Issued 11, Completeness Review 5, Prepare Draft Permit 1, Public Comment Period 1, Prepare Final Permit Decision 1). Anything else maps to unknown via `epa_class_vi.unmapped` and surfaces as status-vocabulary drift.
       - >-
         Completeness Review is `filed`, not `announced`: EPA already has the application. The tracker starts at the application, so this source never observes `announced` - a Class VI project announced but not yet filed is invisible here and must come from news or a DOE/FECM award.
       - >-
-        Technical Review, Prepare Draft Permit and Public Comment Period all map to `studied`. The canonical vocabulary has no state between under-review and permitted, and promoting a draft permit to `permitted` would assert a decision EPA has not made. The per-milestone dates in `raw` (draft permit actual, public comment complete actual) carry the finer position.
+        Prepare Final Permit Decision (first seen 2026-10-07, 1 of 68 rows: Vault "Linden", draft permit 2026-08-14, public comment complete 2026-09-24, final decision estimated 2026-12-16) is the stage after the comment period closes and before EPA decides. It maps to `studied` with the draft-permit stages, for the reason below: no decision has been made, and a final decision can still be a denial. Until this entry the row read `unknown` (epa_class_vi.unmapped; the 2026-10-07 run's vocabulary_unmapped warning).
+      - >-
+        Technical Review, Prepare Draft Permit, Public Comment Period and Prepare Final Permit Decision all map to `studied`. The canonical vocabulary has no state between under-review and permitted, and promoting a draft permit to `permitted` would assert a decision EPA has not made. The per-milestone dates in `raw` (draft permit actual, public comment complete actual) carry the finer position.
       - >-
         Final Permit Decisions Issued is `permitted`, not `built`: a Class VI permit authorises construction of the injection well, it does not report it. EPA's field name says decisions issued, which in principle covers a denial as well as an issue; no denial has been observed, and if one appears it will read `permitted` until the tracker distinguishes them (`Current Status` free text would be the evidence).
       - >-

@@ -201,7 +201,8 @@ def test_sources_phrase_names_every_source_once() -> None:
     phrase = proposal_sources_phrase()
     assert phrase == (
         "Interconnection queue and generator proposals from ERCOT, CAISO, NYISO, EIA-860M and NESO, "
-        "and data-centre sites from Virginia DEQ and EPA ICIS-Air"
+        "data-centre sites from Virginia DEQ and EPA ICIS-Air, "
+        "and CO2 storage permit applications from EPA Class VI"
     )
     for label, _group in PROPOSAL_SOURCE_LABELS.values():
         assert phrase.count(label) == 1

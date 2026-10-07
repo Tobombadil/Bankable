@@ -113,6 +113,34 @@ def _load_plants_context_layer(session: Session, data_dir: Path) -> None:
     log.info("plants context layer: loaded from %s (%s)", parquet_path, report)
 
 
+def _load_retirements(session: Session, data_dir: Path, sources_yaml: Path) -> None:
+    """Generator retirements (lane R1, docs/27 §R1) onto the `power_plant` assets
+    `_load_plants_context_layer` just loaded, through the scheduler's own path:
+    `services.ingest.loader.load_from_files`, which routes `us.eia.860m.retirements` to
+    `services/ingest/retirements.py` (`SPECIALISED_LOADERS`). That loader updates each plant's
+    `status`, `retirement_year` and `attributes.retirement` and writes retirement events; it never
+    creates a proposal or an asset, so it must run after the plants layer. A first load (no
+    previous run to diff against) writes no events by construction. The connector's latest frame
+    missing, or the source gated in `sources.yaml`, is one log line, never a failure of the rest
+    of `dev_up`. Not sampled by `--sample`: it touches assets, not proposals, and is quick."""
+    from pipeline.connectors.registry import Registry
+    from services.ingest.loader import GateRefused, load_from_files
+    from services.ingest.retirements import SOURCE_ID
+
+    files = sorted((data_dir / "normalized" / SOURCE_ID).glob("*.parquet"))
+    if not files:
+        log.info("retirements: no %s frame under %s, skipping", SOURCE_ID, data_dir / "normalized")
+        return
+    try:
+        result = load_from_files(
+            session, SOURCE_ID, files[-1].stem, data_root=data_dir, registry=Registry(sources_yaml)
+        )
+    except GateRefused as exc:
+        log.info("retirements: %s refused (%s), skipping", SOURCE_ID, exc)
+        return
+    log.info("retirements: loaded %s (%s)", files[-1].name, result)
+
+
 def _load_ownership(session: Session, data_dir: Path) -> None:
     """ADR 0008 task item 4: the EIA-860 Schedule 4 ownership-share parquet, loaded through the
     ownership ingest lane's own `load_owner_shares_parquet(session, path)` -- same rule as
@@ -410,7 +438,8 @@ def build_store(
     resolve: bool = True,
 ) -> dict[str, Any]:
     """Create the schema at `database_url` and load everything the site serves, in order: the
-    connector output (or the committed fixture), the context layers, cross-source resolution
+    connector output (or the committed fixture), the context layers (the plants first, then the
+    EIA-860M retirements onto them), cross-source resolution
     (unless `resolve` is false), interconnection points, matches, then `ANALYZE` last. Resolution
     runs before the point and match passes so both see only surviving proposals. Returns the
     load report."""
@@ -427,6 +456,7 @@ def build_store(
         )
         load_fixture_if_empty(session, report, sample_per_state=sample_per_state)
         _load_plants_context_layer(session, data_dir)
+        _load_retirements(session, data_dir, sources_yaml)
         _load_context_asset_layers(session, data_dir)  # includes owner shares + features
         if resolve:
             _resolve_clusters(session, engine, data_dir)

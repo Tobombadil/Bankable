@@ -134,6 +134,11 @@ SOURCE_POLICY: dict[str, SourcePolicy] = {
     "us.epa.echo.icis_air": SourcePolicy(
         "U.S. EPA ECHO (ICIS-Air, Facility Registry Service)", True, "US federal public domain work"
     ),
+    "us.epa.class_vi": SourcePolicy(
+        "U.S. EPA UIC Class VI permit tracker",
+        True,
+        "reuse=open, publication=raw_ok (sources.yaml): US federal public domain work",
+    ),
 }
 
 PROPOSAL_SOURCE_IDS = [
@@ -144,6 +149,10 @@ PROPOSAL_SOURCE_IDS = [
     "gb.neso.tec_register",
     "us.va.deq.data_center_air_sites",
     "us.epa.echo.icis_air",
+    # 2026-10-07: CO2 storage (Class VI) permit applications, kind `ccs`. The resolver's kind rule
+    # (pipeline/resolve.py `KIND_CLASSES`, docs/22 §22.12) keeps them off the power plants they
+    # are named after.
+    "us.epa.class_vi",
 ]
 OPPORTUNITY_SOURCE_IDS = [
     "us.grants_gov.search2",

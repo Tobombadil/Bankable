@@ -365,6 +365,11 @@ class Connector:
     key_source_columns: ClassVar[tuple[str, ...]] = ()
     #: raw-column names to strip before the snapshot is stored (docs/13 §5.4 rule 1)
     personal_data_columns: ClassVar[tuple[str, ...]] = ()
+    #: Another source id whose stored snapshot is the same upstream file (`data/sources.yaml`:
+    #: "fetch shared with ..."). The runner hands that source's latest snapshot over as `shared`
+    #: before `fetch()`, so a conditional request answered 304 reuses those bytes instead of
+    #: downloading the file a second time. None for a connector that fetches on its own.
+    shares_fetch_with: ClassVar[str | None] = None
 
     def __init__(self, source: SourceEntry, http: PoliteSession | None = None) -> None:
         if source.id != self.source_id:
@@ -375,6 +380,8 @@ class Connector:
         #: Set by the runner before `fetch()` (`PreviousSnapshot`); None on a first run, a replay,
         #: or when the stored object is gone. Only a connector that makes conditional requests reads it.
         self.previous: PreviousSnapshot | None = None
+        #: The latest snapshot of `shares_fetch_with`, set by the runner the same way; None otherwise.
+        self.shared: PreviousSnapshot | None = None
         #: `retrieved_at` of the last promoted run (its output reached `normalized/`), set by the
         #: runner before `fetch()`; an incremental connector anchors its window on it.
         self.watermark: dt.datetime | None = None

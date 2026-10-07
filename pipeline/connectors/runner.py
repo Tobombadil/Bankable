@@ -536,6 +536,11 @@ def run(
             connector.previous = st.last_snapshot(source_id)
         except StoreError as e:
             log.warning("previous snapshot unavailable", extra={"source_id": source_id, "error": repr(e)})
+        if connector.shares_fetch_with:
+            try:
+                connector.shared = st.last_snapshot(connector.shares_fetch_with)
+            except StoreError as e:
+                log.warning("shared snapshot unavailable", extra={"source_id": source_id, "error": repr(e)})
     if reparse and raw is None:
         entry = st._last_snapshot_entry(source_id)
         body = st.snapshot_bytes(source_id, entry[0], entry[1]) if entry else None
