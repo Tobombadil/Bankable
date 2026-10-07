@@ -3,7 +3,8 @@
 Fetch: the public MIS document list (`IceDocListJsonWS?reportTypeId=15933`) lists monthly
 `GIS_Report_<Month><Year>.xlsx` files (and the co-located battery report, which is skipped); the
 newest GIS_Report is downloaded via `mirDownload?doclookupId=<DocID>`.
-Parse: gridstatus.Ercot's parser over the "Project Details - Large Gen" sheet.
+Parse: gridstatus 0.36.0's ERCOT parser (vendored, `pipeline/vendor/gridstatus`) over the
+"Project Details - Large Gen" sheet.
 source_record_id: the ERCOT INR ("Queue ID"), unique within a report.
 Reuse: open (Website User Agreement clause 5) — raw-ok. Rate: 0.5 rps (clause 6).
 """
@@ -18,7 +19,7 @@ import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot
-from pipeline.connectors.iso_queue import gridstatus_rows, normalize_iso_rows, restate_iso_status
+from pipeline.connectors.iso_queue import normalize_iso_rows, queue_rows, restate_iso_status
 
 DOC_LIST = "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"
 DOWNLOAD = "https://www.ercot.com/misdownload/servlets/mirDownload?doclookupId={doc_id}"
@@ -81,7 +82,7 @@ class Connector(BaseConnector):
         )
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
-        return gridstatus_rows("Ercot", raw)
+        return queue_rows("Ercot", raw)
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
         return normalize_iso_rows(self, "ercot", rows, raw)

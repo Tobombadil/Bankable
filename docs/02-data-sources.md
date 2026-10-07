@@ -1,7 +1,7 @@
 # Data sources: catalogue, coverage, legal register and ingestion order
 
 **Status:** Phase 0 deliverable · 2026-09-12 · machine-readable twin: `data/sources.yaml` (64 entries) ·
-live-check evidence: `data/probes/2026-09-12.json` · re-run: `scripts/probe_sources.py --gridstatus`
+live-check evidence: `data/probes/2026-09-12.json` · re-run: `scripts/probe_sources.py` (the `--gridstatus` row counts need `pip install gridstatus` in a scratch venv; it is no longer a project dependency, 2026-10-07)
 
 ## 1. What "a proposal" is, operationally
 

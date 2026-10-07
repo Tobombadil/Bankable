@@ -3,7 +3,7 @@
 results file to data/probes/<date>.json.
 
 Usage:
-    python -m venv .venv && .venv/bin/pip install pyyaml requests gridstatus
+    python -m venv .venv && .venv/bin/pip install pyyaml requests  # add gridstatus for --gridstatus
     .venv/bin/python scripts/probe_sources.py [--gridstatus]
 
 The script is deliberately gentle: one request per source, a browser-like User-Agent, 25 s timeout,
@@ -71,7 +71,13 @@ def probe(src):
 
 
 def probe_gridstatus():
-    import gridstatus
+    # gridstatus is no longer a project dependency (vendored parsers, 2026-10-07); install it in a
+    # scratch venv to use this probe.
+    try:
+        import gridstatus
+    except ImportError:
+        missing = "gridstatus is not installed: pip install gridstatus in a scratch venv"
+        return {"error": {"ok": False, "err": missing}}
 
     out = {}
     for name in ["CAISO", "PJM", "MISO", "Ercot", "SPP", "NYISO", "ISONE"]:

@@ -1,10 +1,11 @@
 # python -m venv .venv && .venv/bin/pip install -r requirements.txt
-gridstatus>=0.36
-pandas>=2.2
+pandas>=2.2,<3             # <3: gridstatus held pandas~=2.2 until its ISO queue parsers were vendored in
+                           # pipeline/vendor/gridstatus (BSD-3, 2026-10-07); without the bound pip resolves pandas 3,
+                           # a major release nothing here has been tested on. Lift it in its own change.
 pyarrow>=15
 requests>=2.31
 pyyaml>=6
-openpyxl>=3.1
+openpyxl>=3.1,<4           # <4: the bound gridstatus (openpyxl~=3.1) held before vendoring; the queue parsers read xlsx through it
 rapidfuzz>=3.9
 pytest>=8
 pyshp>=2.3               # pipeline/context/regions.py: Census/Natural Earth shapefiles, pure-Python (no geopandas, ADR 0008)

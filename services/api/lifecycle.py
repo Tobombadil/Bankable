@@ -34,7 +34,7 @@ Source ids
 The status maps are keyed by a connector's `status_key` ("caiso", "eia860m"), not by its
 `data/sources.yaml` id. The two are related by class attributes on the connector modules, which
 this module reads *textually* rather than by importing thirteen connector modules (and, through
-them, gridstatus and the HTTP stack) into the API process on a page render. A text scan can drift
+them, pandas and the HTTP stack) into the API process on a page render. A text scan can drift
 from the classes it scans, so `tests/test_lifecycle_definitions.py` imports the real connector
 classes and asserts the scan agrees with them.
 

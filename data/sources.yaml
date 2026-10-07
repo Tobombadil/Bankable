@@ -62,7 +62,7 @@ sources:
   licence_url: "https://www.caiso.com/privacy-terms-of-use"
   tier: 1
   effort: S
-  connector: gridstatus.CAISO.get_interconnection_queue
+  connector: pipeline.vendor.gridstatus.queues.caiso_queue (vendored from gridstatus 0.36.0, 2026-10-07)
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 2278, note: 'connector run: 384,823 bytes, DQ pass; 3 sheets (queued/completed/withdrawn)'}
   notes: >-
@@ -85,7 +85,7 @@ sources:
   publication: raw_ok
   tier: 1
   effort: S
-  connector: gridstatus.Ercot.get_interconnection_queue
+  connector: pipeline.vendor.gridstatus.queues.ercot_queue (vendored from gridstatus 0.36.0, 2026-10-07)
   probe: {method: GET, url: "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"}
   verified: {date: 2026-09-12, result: ok, rows: 1778, note: 'connector run: GIS_Report_August2026 via MIS doclookupId, 675,108 bytes, DQ pass'}
   notes: >-
@@ -295,7 +295,7 @@ sources:
   publication: none
   tier: 1
   effort: S
-  connector: gridstatus.SPP.get_interconnection_queue
+  connector: none yet (gridstatus.SPP.get_interconnection_queue upstream; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 3074}
   notes: >-
@@ -321,7 +321,7 @@ sources:
   licence_url: "https://www.nyiso.com/legal-notice"
   tier: 1
   effort: S
-  connector: gridstatus.NYISO.get_interconnection_queue
+  connector: pipeline.vendor.gridstatus.queues.nyiso_queue (vendored from gridstatus 0.36.0, 2026-10-07)
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 1814, note: 'connector run: 1,814 identified rows (1,350 padding rows with no queue position, name, county or date are dropped); DQ warn: 2 queue positions duplicated in the workbook, suffixed'}
   notes: >-
@@ -343,7 +343,7 @@ sources:
   publication: none
   tier: 1
   effort: S
-  connector: gridstatus.ISONE.get_interconnection_queue
+  connector: none yet (gridstatus.ISONE.get_interconnection_queue upstream; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 1751}
   notes: >-
@@ -367,7 +367,7 @@ sources:
   publication: none
   tier: 1
   effort: M
-  connector: gridstatus.PJM.get_interconnection_queue (PJM_API_KEY)
+  connector: none yet (gridstatus.PJM.get_interconnection_queue upstream, needs PJM_API_KEY; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
   probe: {method: GET, url: "https://api.pjm.com/api/v1/"}
   verified: {date: 2026-09-12, result: needs_key, note: "401 without key; gridstatus raised 'api_key must be provided'"}
   notes: >-
@@ -392,7 +392,7 @@ sources:
   publication: none
   tier: 1
   effort: M
-  connector: gridstatus.MISO.get_interconnection_queue
+  connector: none yet (gridstatus.MISO.get_interconnection_queue upstream; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
   probe: {method: GET, url: "https://www.misoenergy.org/api/giqueue/getprojects"}
   verified: {date: 2026-09-12, result: blocked, note: "403 'Just a moment...' Cloudflare challenge from datacentre IP; worked for gridstatus historically"}
   notes: >-

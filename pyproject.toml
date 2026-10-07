@@ -60,7 +60,7 @@ exclude = [
 warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
-module = ["gridstatus.*", "pandas.*", "yaml.*", "openpyxl.*", "requests.*", "geoalchemy2.*", "alembic.*"]
+module = ["pandas.*", "yaml.*", "openpyxl.*", "requests.*", "geoalchemy2.*", "alembic.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

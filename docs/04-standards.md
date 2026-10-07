@@ -347,7 +347,7 @@ enforce the rest if the code stays typed.
 
 **E-5 Lint and type gates.** `ruff` rule sets `E, F, W, I, N, UP, B, S, C4, DTZ, T20, RUF`, line length 110,
 `ruff format`; `mypy --strict` on `pipeline/` and `services/`, `ignore_missing_imports` only per named untyped
-module (gridstatus) in `pyproject.toml`; `# type: ignore[code]` only with a code and a reason. Clean before
+module (pandas, yaml, openpyxl, requests, geoalchemy2, alembic) in `pyproject.toml`; `# type: ignore[code]` only with a code and a reason. Clean before
 commit (`CLAUDE.md`), blocking in CI (O-3). *Why:* strict typing is the cheapest review the team has.
 
 ### 3.3 Testing pyramid (named minimums)

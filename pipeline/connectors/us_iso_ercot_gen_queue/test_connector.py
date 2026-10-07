@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import pandas as pd
 import pytest
 
-from conftest import connector_for, snapshot
+from conftest import connector_for, fixture_path, snapshot
 from pipeline.connectors.base import ParseError
 from pipeline.connectors.us_iso_ercot_gen_queue.connector import latest_gis_document
+from pipeline.vendor.gridstatus import queues
 
 SOURCE_ID = "us.iso.ercot.gen_queue"
 URL = "https://www.ercot.com/misdownload/servlets/mirDownload?doclookupId=1269363208"
@@ -131,3 +134,19 @@ def test_latest_gis_document_picks_the_newest_report_not_the_battery_report():
 def test_latest_gis_document_raises_when_the_listing_has_none():
     with pytest.raises(ParseError):
         latest_gis_document({"ListDocsByRptTypeRes": {"DocumentList": []}})
+
+
+# The bare parser frame over the committed fixture, pinned to what gridstatus 0.36.0's
+# `get_interconnection_queue` returned for the same bytes before the library was dropped
+# (2026-10-07, pipeline/vendor/gridstatus/README.md): shape, column order, dtypes, every value.
+def _frame_digest(df: pd.DataFrame) -> str:
+    h = hashlib.sha256()
+    h.update(repr(list(df.columns)).encode())
+    h.update(repr([str(t) for t in df.dtypes]).encode())
+    h.update(pd.util.hash_pandas_object(df, index=True).values.tobytes())
+    return h.hexdigest()[:16]
+
+
+def test_vendored_parser_reproduces_the_gridstatus_0_36_frame():
+    df = queues.ercot_queue(fixture_path("ercot_gis_report.xlsx").read_bytes())
+    assert (df.shape, _frame_digest(df)) == ((25, 35), "28c0519524929638")
