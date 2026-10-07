@@ -133,6 +133,21 @@ first and again with the asset's detail row merged (`/api/assets/{public_id}`), 
 no capacity value, unit or attributes. Units: `MMgal/yr`, `MMscf/d`, `cu ft/day`, numbers with thousands
 separators and at most one decimal (three for MMscf/d).
 
+**Retired and retiring plants (as built 2026-10-07; layer added by lane R1, 2026-10-06).** A separate layer
+(`?layers=retired`), never drawn as an operating plant. Points are hollow rings sized by nameplate MW: a centre
+dot for retiring (`--asset-retiring`, light `#a3480a`, dark `#f2a66b`) and a cross for retired (`--asset-retired`,
+light `#7a2e5c`, dark `#e7a3c9`). **Clusters are dashed rings** with the count inside, in the retired hue on the
+land colour; a proposals cluster is a solid ring with its family glyph above the count. Until 2026-10-07 both were
+solid rings with a number and differed by hue alone (D-5); the hue gap is also small for colour-blind readers
+(simulated deuteranopia, CIELAB ΔE: retired vs Neutral family 7.0 light / 7.7 dark, vs Progress 16.8 / 13.2;
+protanopia vs Progress 14.0 / 6.4), so the dash, not the hue, carries the difference. Rings and legend text:
+retired 7.62:1 / 8.05:1 (land / page, light), 7.11:1 / 8.40:1 (dark); retiring 5.19:1 / 5.48:1 (light),
+7.09:1 / 8.37:1 (dark). Hovering a cluster says "N retired or retiring plants · nameplate MW · click to zoom
+in". **Legend** (`#retired-legend`, a labelled group, shown whenever the layer is on): the dashed-ring cluster
+mark, the retiring and retired marks, and the EIA-860M note; the proposal key's note now says "A solid ring
+with a number is a cluster of proposals". The API's asset clusters carry no status counts, so a cluster cannot
+say which status dominates; it reads as "retired and retiring" together.
+
 **Mini-map (asset and company pages).** Server-rendered SVG of the record's geometry (`.mini-map__line`,
 `--intrastate` dashed, `.mini-map__point`, `.mini-map__proposal` in the Progress family hue) as the no-JS
 rendering; `asset_map.js` replaces it with a MapLibre map at a fixed fit on the shared basemap when it runs.
@@ -182,6 +197,21 @@ scroll horizontally, each inside its own `overflow-x` container — the page bod
   tabular numerals, no decimals unless the source states cents.
 - **Counts** — `source_count`, cluster counts and aggregates are computed over **visible sources only**; a
   gated source is never counted (D-34, `docs/21` §8 item 4).
+
+**Fields by kind (as built 2026-10-07).** A proposal page's field grid leaves out a row that cannot apply to
+the record's kind, rather than printing "—"; "—" keeps the meaning "the register did not state it". The rows
+come from one table, `web/viewmodels.py::PROPOSAL_FIELDS_NOT_APPLICABLE`, read by the record page and the map
+drawer alike: `ccs` (Class VI CO2 storage wells) has no Capacity (MW), Storage (MWh), ISO / operator, Connects
+at or EIA plant / generator ID row; `load` (data centres, large loads) and `transmission` have no Storage (MWh)
+or EIA row. A data centre keeps Capacity (MW), ISO and Connects at, shown as "—" when unstated, because a load
+has a real MW figure and an ISO. A row is hidden only when it is empty, so an override or merged value always
+shows. Kinds not in the table show every row. Class VI ids are labelled "Permit project ID" (EPA GSDT project id,
+Texas RRC tracking number), not "Queue ID". The same rule as the asset pages' "None gate" (`docs/30` §3.1);
+`docs/30` §5.2 lists fields but does not require every record to show the same set.
+
+**Chemical formulae.** "CO2", not "CO₂": U+2082 is in none of the self-hosted IBM Plex `unicode-range` blocks,
+so a subscript would render in the fallback face. Technology `co2_geologic_sequestration` reads
+"CO2 geologic sequestration".
 
 ## 5. Component inventory
 
@@ -476,3 +506,7 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
   (table), §5.9 (filter bar) and §6 (empty state) as already specified.
 - 2026-10-07 — §5.15 added (frontend-developer, public-site defects lane): the share card image and the
   meta that links it, as built.
+- 2026-10-07 — as built (frontend-developer, Class VI and retired-layer follow-ups): §1.6 retired and retiring
+  plants (dashed-ring clusters, legend, contrast and colour-blind figures); §4 fields by kind and the "CO2"
+  rule. The map heading is built from the proposal source groups (`web/viewmodels.py::map_heading`), and the
+  map page's meta, `og:` and `twitter:` descriptions from the same table.

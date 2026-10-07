@@ -348,3 +348,80 @@ def test_asset_index_forwards_the_retirement_filters_and_labels_the_status(web_c
     sent = [p for url, p in transport.calls if url == "/v1/assets"][-1]
     assert sent["status"] == "retired,retiring" and sent["retirement_year[gte]"] == "2020"
     assert "(retired 2024)" in resp.text
+
+
+# ------------------------------------------------- 2026-10-07: retired clusters vs proposal clusters
+# At national and regional zoom the retired layer is all clusters, and they were drawn as the same
+# ring-with-a-number a proposals cluster is, told apart only by hue (magenta against navy): D-5
+# breaks, and under deuteranopia the magenta sits within 7-17 CIELAB units of the neutral and
+# progress family hues. A retired cluster is now a dashed ring; the legend shows that mark.
+_WEB = Path(__file__).parent
+_MAP_JS = (_WEB / "static" / "js" / "map.js").read_text(encoding="utf-8")
+_CSS = (_WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+
+
+def _css_block(start: str) -> dict[str, str]:
+    i = _CSS.index(start)
+    return dict(re.findall(r"(--[a-z0-9-]+):\s*(#[0-9a-fA-F]{6})", _CSS[i : _CSS.index("}", i)]))
+
+
+def _contrast(a: str, b: str) -> float:
+    def lum(h: str) -> float:
+        c = [int(h[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+        lin = [v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4 for v in c]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+_LIGHT = _css_block(":root {")
+_THEMES = {
+    "light": _LIGHT,
+    "dark (media)": {**_LIGHT, **_css_block(':root:not([data-theme="light"]) {')},
+    "dark (toggle)": {**_LIGHT, **_css_block(':root[data-theme="dark"] {')},
+}
+
+
+def test_retired_clusters_are_dashed_rings_and_proposal_clusters_stay_solid() -> None:
+    retired = _MAP_JS.split("function addRetiredLayers() {")[1].split("\n  }\n")[0]
+    assert 'id: "retired-clusters", type: "symbol"' in retired
+    assert '"icon-image": "retired-cluster"' in retired
+    assert "circle-stroke" not in retired  # the old solid ring
+    image = _MAP_JS.split("function addRetiredClusterImage() {")[1].split("\n  }\n")[0]
+    assert "ctx.setLineDash([" in image and "retiredColors.retired" in image and "mapColors.land" in image
+    proposals = _MAP_JS.split('id: "clusters", type: "circle"')[1].split("});")[0]
+    assert '"circle-stroke-width": 2' in proposals and "dash" not in proposals.lower()
+    # Hover says what the dashed ring is, as a proposals cluster's tooltip does (D-10).
+    assert 'map.on("mouseenter", "retired-clusters"' in _MAP_JS
+    assert '"retired or retiring plant"' in _MAP_JS
+
+
+def test_the_retired_key_shows_the_cluster_mark_and_follows_the_layer(web_client: TestClient) -> None:
+    _install({"/v1/sources": (200, {"data": []})})
+    body = web_client.get("/?layers=retired").text
+    legend = body.split('id="retired-legend"')[1].split("</div>\n    </div>")[0]
+    assert 'role="group" aria-label="Retired and retiring plants key"' in legend
+    cluster = re.search(
+        r'<span class="legend__item" data-legend-mark="retired-cluster"[^>]*>(.*?)</span>', legend, re.S
+    )
+    assert cluster is not None and "stroke-dasharray" in cluster.group(1)
+    assert "Dashed ring with a number" in cluster.group(1)
+    assert "Retiring (most capacity scheduled to retire)" in legend and "> Retired</span>" in legend
+    lifecycle = body.split('id="lifecycle-legend"')[1].split("</div>")[0]
+    assert "A solid ring with a number is a cluster of proposals" in lifecycle
+    # Shown whenever the layer is on, including from `?layers=retired` on load.
+    assert 'retiredToggle.checked = filters.layers.indexOf("retired") !== -1;' in _MAP_JS
+    assert "setRetiredLayerVisible(retiredToggle.checked);" in _MAP_JS
+    visible = _MAP_JS.split("function setRetiredLayerVisible(on) {")[1].split("\n  }\n")[0]
+    assert "retiredLegend.hidden = !on;" in visible
+
+
+@pytest.mark.parametrize("theme", sorted(_THEMES))
+def test_retired_hues_read_on_the_land_and_as_legend_text(theme: str) -> None:
+    """Rings are graphical objects (SC 1.4.11, 3:1 on the land); the legend prints its words in the
+    same hue on the page background (SC 1.4.3, 4.5:1)."""
+    tokens = _THEMES[theme]
+    for token in ("--asset-retired", "--asset-retiring"):
+        assert _contrast(tokens[token], tokens["--map-land"]) >= 3.0, (theme, token)
+        assert _contrast(tokens[token], tokens.get("--bg", tokens["--color-paper"])) >= 4.5, (theme, token)

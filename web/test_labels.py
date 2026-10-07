@@ -97,6 +97,38 @@ def test_every_vocabulary_token_has_a_label(name: str, table: dict[str, str], to
     assert not missing, f"{name}: no label for {missing} -- add them to web/labels.py"
 
 
+#: Technology tokens connectors write as a literal (`"technology": "co2_geologic_sequestration"`)
+#: rather than through the classifier, read from the connector sources so a new constant cannot
+#: reach a page through the `humanise` fallback (2026-10-07: "Co2 geologic sequestration").
+_CONNECTOR_TECHNOLOGY = re.compile(r'"technology":\s*"([a-z0-9_]+)"')
+
+
+def _connector_technology_constants() -> list[str]:
+    found: set[str] = set()
+    for path in (REPO_ROOT / "pipeline" / "connectors").rglob("*.py"):
+        if path.name.startswith("test_"):
+            continue
+        found.update(_CONNECTOR_TECHNOLOGY.findall(path.read_text(encoding="utf-8")))
+    return sorted(found)
+
+
+def test_every_connector_technology_constant_has_a_label() -> None:
+    constants = _connector_technology_constants()
+    assert constants, "no constants found, so this test would pass vacuously"
+    missing = [t for t in constants if t not in labels.TECHNOLOGY_LABELS]
+    assert not missing, f"no label for {missing} -- add them to web/labels.py"
+
+
+def test_class_vi_technology_reads_co2_in_capitals_and_without_a_subscript() -> None:
+    """U+2082 is outside every self-hosted Plex `unicode-range`, so "CO2" rather than "CO₂"; the
+    fallback's "Co2" was the defect."""
+    assert "co2_geologic_sequestration" in _connector_technology_constants()
+    assert labels.technology_label("co2_geologic_sequestration") == "CO2 geologic sequestration"
+    css = (REPO_ROOT / "web" / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    assert "U+2080" not in css and "2082" not in css  # if a subscript face is ever added, revisit
+    assert labels.map_labels()["technology"]["co2_geologic_sequestration"] == "CO2 geologic sequestration"
+
+
 ALL_TABLES = {
     "TECHNOLOGY_LABELS": labels.TECHNOLOGY_LABELS,
     "LIFECYCLE_LABELS": labels.LIFECYCLE_LABELS,

@@ -179,6 +179,18 @@
     var el = document.getElementById("map-labels");
     try { return (el && JSON.parse(el.textContent)) || {}; } catch (e) { return {}; }
   })();
+  // The proposal field rows a kind cannot carry (`#proposal-fields`, web/viewmodels.py
+  // PROPOSAL_FIELDS_NOT_APPLICABLE): the drawer leaves out what the record page leaves out, and
+  // only while the record has no value for it.
+  var PROPOSAL_FIELDS = (function () {
+    var el = document.getElementById("proposal-fields");
+    try { return (el && JSON.parse(el.textContent)) || {}; } catch (e) { return {}; }
+  })();
+  function fieldApplies(kind, field, value) {
+    if (value !== null && value !== undefined && value !== "") return true;
+    var rows = (PROPOSAL_FIELDS.not_applicable || {})[kind] || [];
+    return rows.indexOf(field) === -1;
+  }
   function statusName(status) {
     if (!status) return null;
     var names = SERVER_LABELS.asset_status || {};
@@ -1692,21 +1704,36 @@
 
   // Lane R1: its own source and layers, added after the existing-assets layers and still below
   // every proposals layer (same `addLayer(..., "clusters")` stacking rule as `addPlantsLayers`).
+  // A retired-plants cluster is a DASHED ring on the land colour, never the solid ring a proposals
+  // cluster draws (2026-10-07: at national zoom the two read alike, magenta against navy, which is
+  // hue alone and close under deuteranopia -- D-5). Drawn at 2x like the family images; the
+  // diameter steps (20/28/36 px) are `icon-size` 0.5/0.7/0.9 of this 40 px image.
+  var RETIRED_CLUSTER_PX = 40;
+  function addRetiredClusterImage() {
+    var img = familyImage(RETIRED_CLUSTER_PX, function (ctx) {
+      var c = RETIRED_CLUSTER_PX / 2;
+      ctx.beginPath(); ctx.arc(c, c, c - 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = mapColors.land; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.lineWidth = 3.2; ctx.strokeStyle = retiredColors.retired;
+      ctx.setLineDash([5.2, 3.4]);
+      ctx.stroke();
+    });
+    map.addImage("retired-cluster", img.image, { pixelRatio: img.ratio });
+  }
   function addRetiredLayers() {
     map.addImage("retired-crossed", buildShapeIcon("retired-crossed", 24), { sdf: true });
     map.addImage("retiring-dot", buildShapeIcon("retiring-dot", 24), { sdf: true });
+    addRetiredClusterImage();
     map.addSource("retired-plants", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     var isCluster = ["any", ["==", ["get", "feature_kind"], "asset_cluster"], ["==", ["get", "feature_kind"], "plant_cluster"]];
     var isPoint = ["all", ["==", ["geometry-type"], "Point"], ["!", isCluster]];
     map.addLayer({
-      id: "retired-clusters", type: "circle", source: "retired-plants",
+      id: "retired-clusters", type: "symbol", source: "retired-plants",
       filter: isCluster,
-      paint: {
-        "circle-radius": ["step", ["get", "count"], 10, 10, 14, 50, 18],
-        "circle-color": mapColors.land,
-        "circle-opacity": 0.85,
-        "circle-stroke-width": 2,
-        "circle-stroke-color": ["get", "color"]
+      layout: {
+        "icon-image": "retired-cluster",
+        "icon-size": ["step", ["get", "count"], 0.5, 10, 0.7, 50, 0.9],
+        "icon-allow-overlap": true, "icon-ignore-placement": true
       }
     }, "clusters");
     map.addLayer({
@@ -1737,10 +1764,28 @@
     map.on("click", "retired-points", function (e) { openAssetDrawer(e.features[0].properties); });
     map.on("mouseenter", "retired-points", function (e) { map.getCanvas().style.cursor = "pointer"; showAssetTooltip(e, e.features[0].geometry.coordinates); });
     map.on("mouseleave", "retired-points", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
+    map.on("mouseenter", "retired-clusters", function (e) { map.getCanvas().style.cursor = "pointer"; showRetiredClusterTooltip(e); });
+    map.on("mouseleave", "retired-clusters", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
     map.on("click", "retired-clusters", function (e) {
       var f = e.features[0];
       map.easeTo({ center: f.geometry.coordinates, zoom: f.properties.expands_to_zoom || (map.getZoom() + 2), duration: motionMs(600) });
     });
+  }
+
+  // Says what a dashed ring is without a click, as a proposals cluster's tooltip does (D-10).
+  function showRetiredClusterTooltip(e) {
+    var f = e.features[0];
+    var p = f.properties;
+    var mw = Number(p.capacity_mw_sum) || 0;
+    hideTooltip();
+    tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
+      .setLngLat(f.geometry.coordinates)
+      .setHTML(
+        "<strong>" + esc(plural(Number(p.count) || 0, "retired or retiring plant")) + "</strong>" +
+        (mw ? "<br>Nameplate " + Math.round(mw).toLocaleString() + " MW" : "") +
+        "<br>Click to zoom in"
+      )
+      .addTo(map);
   }
 
   function setRetiredLayerVisible(on) {
@@ -2111,7 +2156,9 @@
         "<h2>" + esc(p.name) + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
         "<dl class=\"drawer-fields\">" +
         "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + esc(technologyName(p.technology) || "—") + "</dd></div>" +
-        "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : "—") + "</dd></div>" +
+        (fieldApplies(p.kind, "capacity_mw", p.capacity_mw)
+          ? "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : "—") + "</dd></div>"
+          : "") +
         "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + esc(p.county_name || "—") + ", " + esc(p.state_code || "—") +
         (p.precision_note ? " (" + esc(p.precision_note) + ")" : "") + "</dd></div>" +
         "</dl>" +

@@ -47,6 +47,9 @@ TECHNOLOGY_LABELS: dict[str, str] = {
     "coal": "Coal",
     "oil": "Oil",
     "transmission": "Transmission",
+    # `ccs`: EPA Class VI wells (us.epa.class_vi). "CO2", not "CO₂": the self-hosted IBM Plex subset has
+    # no U+2082, so a subscript would print in the fallback face (docs/31 §4).
+    "co2_geologic_sequestration": "CO2 geologic sequestration",
     # `load`: the data-centre and large-load connectors set technology to the kind. A short label,
     # because the kind label ("Load (data centres, large loads)") wraps every list row.
     "load": TECHNOLOGY_LOAD_LABEL,

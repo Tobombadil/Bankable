@@ -185,6 +185,36 @@ def proposal_sources_phrase() -> str:
     return ", ".join(parts[:-1]) + ", and " + parts[-1]
 
 
+#: What each group of proposal sources puts on the map, in the words the map heading uses. Keyed
+#: by the groups of `PROPOSAL_SOURCE_LABELS`, so a new group cannot reach the map without the
+#: heading naming it (2026-10-07: EPA Class VI wells were drawn under "Planned power plants,
+#: batteries and data centres"); `web/test_layout_states.py` checks every group has words here.
+#: Queue sources also carry a few transmission requests (about 2% of records); the heading names
+#: what most dots are, the Kind filter names every kind.
+PROPOSAL_GROUP_SUBJECTS: dict[str, tuple[str, ...]] = {
+    "queue": ("power plants", "batteries"),
+    "data_centre": ("data centres",),
+    "ccs": ("CO2 storage wells",),
+}
+
+
+def map_heading() -> str:
+    """ "Planned power plants, batteries, data centres and CO2 storage wells": the map's `<h1>`,
+    built from the source groups actually listed in `PROPOSAL_SOURCE_LABELS`."""
+    groups = list(dict.fromkeys(group for _, group in PROPOSAL_SOURCE_LABELS.values()))
+    subjects = [subject for group in groups for subject in PROPOSAL_GROUP_SUBJECTS[group]]
+    return f"Planned {_join_names(subjects)}"
+
+
+def map_description() -> str:
+    """The map page's meta description (and so its `og:description` and `twitter:description`,
+    which `base.html` re-reads): the heading plus where the dots come from, from the same table."""
+    return (
+        f"{map_heading()}, mapped from public grid queues and permit registers in the US and GB, "
+        "each record attributed to its source register."
+    )
+
+
 #: Why a data-centre connector kept a row (`select_basis` on the row, carried by the loader to
 #: `proposal.identifiers.select_basis` as `{source_id: basis}`). Worded from docs/25 §3.3 and
 #: §3.7. `naics_518210` carries its measured weakness in the sentence itself: in the hand check
@@ -329,12 +359,88 @@ def iso_label(token: str | None) -> str | None:
     return ISO_DISPLAY_LABELS.get(token, token)
 
 
+#: The rows of a proposal's field grid (`proposal_detail.html`), in page order. `kind` and
+#: `technology` are always shown (one row when they repeat each other); the rest go through
+#: `proposal_field_rows`.
+PROPOSAL_FIELD_ROWS: tuple[str, ...] = (
+    "kind",
+    "technology",
+    "capacity_mw",
+    "storage_mwh",
+    "jurisdiction",
+    "county",
+    "iso",
+    "connects_at",
+    "sponsor",
+    "queue_ids",
+    "eia_ids",
+)
+
+#: Rows that cannot apply to a record of this kind, so the page leaves them out instead of printing
+#: "—" (2026-10-07, after EPA Class VI went live: a CO2 storage well showed five empty grid rows).
+#: The rule follows docs/30 §3.1's "None gate" for asset pages: the records differ by kind, and a
+#: "—" should mean "the register did not state it", never "this can never have a value". So a row
+#: that applies but is empty keeps its "—" (a data centre's MW is real and often unstated), and a
+#: row is hidden only when no value is present, so an admin override or a merge can never be
+#: hidden by this table. Kinds not listed show every row.
+PROPOSAL_FIELDS_NOT_APPLICABLE: dict[str, frozenset[str]] = {
+    # Class VI CO2 storage wells (EPA, Texas RRC): no grid connection, no generator, no MW or MWh
+    # rating (the permit states injection tonnage, which the record does not carry).
+    "ccs": frozenset({"capacity_mw", "storage_mwh", "iso", "connects_at", "eia_ids"}),
+    # Data centres and other large loads draw power: MW, the ISO, the grid point and a load-queue id
+    # all apply (ERCOT's large-load queue carries them); stored energy and EIA-860 generator ids do not.
+    "load": frozenset({"storage_mwh", "eia_ids"}),
+    # A line or substation stores no energy and is not an EIA-860 generator.
+    "transmission": frozenset({"storage_mwh", "eia_ids"}),
+}
+
+#: The identifier row's words when the record's ids are not queue positions. Class VI ids are
+#: EPA's GSDT project id and the Texas RRC tracking number: permit file numbers.
+PROPOSAL_ID_LABELS: dict[str, tuple[str, str]] = {
+    "ccs": ("Permit project ID", "Permit project IDs"),
+}
+_QUEUE_ID_LABELS = ("Queue ID", "Queue IDs")
+
+
+def proposal_field_rows(record: Mapping[str, Any], *, connected: bool = False) -> frozenset[str]:
+    """The field-grid rows a record shows: every row in `PROPOSAL_FIELD_ROWS` except those its kind
+    cannot have (`PROPOSAL_FIELDS_NOT_APPLICABLE`) and that are empty on this record. `connected`
+    says whether the page found a grid point for the "Connects at" row."""
+    present = {
+        "capacity_mw": record.get("capacity_mw") is not None,
+        "storage_mwh": record.get("storage_mwh") is not None,
+        "iso": bool(record.get("iso")),
+        "connects_at": connected,
+        "eia_ids": bool(record.get("eia_ids")),
+    }
+    hidden = {
+        row
+        for row in PROPOSAL_FIELDS_NOT_APPLICABLE.get(str(record.get("kind") or ""), frozenset())
+        if not present.get(row, True)
+    }
+    return frozenset(row for row in PROPOSAL_FIELD_ROWS if row not in hidden)
+
+
+def proposal_id_label(kind: str | None, count: int) -> str:
+    """ "Queue ID" / "Queue IDs", or the kind's own words (`PROPOSAL_ID_LABELS`)."""
+    singular, plural = PROPOSAL_ID_LABELS.get(str(kind or ""), _QUEUE_ID_LABELS)
+    return plural if count > 1 else singular
+
+
+def proposal_fields_json() -> str:
+    """`PROPOSAL_FIELDS_NOT_APPLICABLE` for `map.js`'s drawer (`#proposal-fields`), so the drawer
+    and the record page leave out the same rows from one table."""
+    table = {kind: sorted(rows) for kind, rows in PROPOSAL_FIELDS_NOT_APPLICABLE.items()}
+    return json.dumps({"not_applicable": table}, separators=(",", ":")).replace("</", "<\\/")
+
+
 def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
     """API `serialize_proposal()` shape -> the flat dict the detail/list templates read."""
     location = entity.get("location") or {}
     primary_source = _primary_provenance(entity.get("provenance") or [])
     identifiers = entity.get("identifiers") or {}
     queue_ids = identifiers.get("queue_ids") or []
+    queue_id_texts = [str(q.get("id")) for q in queue_ids if isinstance(q, Mapping) and q.get("id")]
     return {
         "public_id": entity["public_id"],
         "slug": entity["slug"],
@@ -359,7 +465,8 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
         "lifecycle_family": lifecycle_family(entity.get("lifecycle_state")),
         "status_raw": entity.get("status_raw"),
         "queue_id": queue_ids[0]["id"] if queue_ids else None,
-        "queue_ids": [str(q.get("id")) for q in queue_ids if isinstance(q, Mapping) and q.get("id")],
+        "queue_ids": queue_id_texts,
+        "queue_id_label": proposal_id_label(entity.get("kind"), len(queue_id_texts)),
         "eia_plant_id": identifiers.get("eia_plant_id"),
         "eia_generator_id": identifiers.get("eia_generator_id"),
         "eia_ids": _eia_ids(identifiers),

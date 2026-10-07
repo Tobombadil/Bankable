@@ -21,15 +21,18 @@
   <div><dt>Kind</dt><dd>{{ record.kind_label or '—' }}</dd></div>
   <div><dt>Technology</dt><dd>{{ record.technology_label or '—' }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="field-grid__source-value">source: &ldquo;{{ record.technology_raw }}&rdquo;</span>{% endif %}</dd></div>
   {% endif %}
-  <div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}{% if record.capacity_note %} <span class="field-grid__source-value">{{ record.capacity_note }}</span>{% endif %}</dd></div>
-  <div><dt>Storage (MWh)</dt><dd class="tnum">{{ '%.1f'|format(record.storage_mwh) if record.storage_mwh is not none else '—' }}</dd></div>
+  {#- `fields` is web/viewmodels.py `proposal_field_rows`: the rows this record's kind can carry,
+      from one kind -> rows table. A row that applies but is empty prints "—"; a row that cannot
+      apply (a Class VI well's MW or ISO) is left out. -#}
+  {% if 'capacity_mw' in fields %}<div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}{% if record.capacity_note %} <span class="field-grid__source-value">{{ record.capacity_note }}</span>{% endif %}</dd></div>{% endif %}
+  {% if 'storage_mwh' in fields %}<div><dt>Storage (MWh)</dt><dd class="tnum">{{ '%.1f'|format(record.storage_mwh) if record.storage_mwh is not none else '—' }}</dd></div>{% endif %}
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
   <div><dt>County</dt><dd>{{ record.county or '—' }}{% if record.restricted_precision %} <span class="reuse-badge">county level (source licence)</span>{% elif record.location_precision == 'county_centroid' %} <span class="reuse-badge">county centroid</span>{% endif %}</dd></div>
-  <div><dt>ISO / operator</dt><dd>{{ record.iso_label or '—' }}</dd></div>
-  <div><dt>Connects at</dt><dd>{% if connection %}<a href="{{ connection.href }}">{{ connection.name }}</a> <span class="attribution-line tnum">{{ connection.active_mw_label }} MW active across {{ connection.active_count }} project{{ 's' if connection.active_count != 1 }} queued there ({{ connection.proposal_count }} in all)</span>{% else %}—{% endif %}</dd></div>
+  {% if 'iso' in fields %}<div><dt>ISO / operator</dt><dd>{{ record.iso_label or '—' }}</dd></div>{% endif %}
+  {% if 'connects_at' in fields %}<div><dt>Connects at</dt><dd>{% if connection %}<a href="{{ connection.href }}">{{ connection.name }}</a> <span class="attribution-line tnum">{{ connection.active_mw_label }} MW active across {{ connection.active_count }} project{{ 's' if connection.active_count != 1 }} queued there ({{ connection.proposal_count }} in all)</span>{% else %}—{% endif %}</dd></div>{% endif %}
   <div><dt>Sponsor</dt><dd>{{ record.sponsor or '—' }}</dd></div>
-  <div><dt>Queue ID{{ 's' if record.queue_ids|length > 1 }}</dt><dd class="mono">{{ record.queue_ids | join(', ') if record.queue_ids else '—' }}</dd></div>
-  <div><dt>EIA plant / generator ID</dt><dd class="mono">{{ record.eia_ids or '—' }}</dd></div>
+  <div><dt>{{ record.queue_id_label }}</dt><dd class="mono">{{ record.queue_ids | join(', ') if record.queue_ids else '—' }}</dd></div>
+  {% if 'eia_ids' in fields %}<div><dt>EIA plant / generator ID</dt><dd class="mono">{{ record.eia_ids or '—' }}</dd></div>{% endif %}
 </dl>
 {% include "partials/_proposal_location.html" %}
 

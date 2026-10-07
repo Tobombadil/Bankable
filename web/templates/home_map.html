@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}Infraque{% endblock %}
+{% block meta_description %}{{ map_description }}{% endblock %}
 {% block extra_head %}
 <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
 {% endblock %}
@@ -12,7 +13,7 @@
     saying what a dot is and what to do with it, then the map. The source list that used to open
     the page (seven acronyms before the first verb) is in the attribution line under the map. -#}
 <div class="map-intro">
-  <h1 class="map-intro__title">Planned power plants, batteries and data centres</h1>
+  <h1 class="map-intro__title">{{ map_heading }}</h1>
   <p class="map-intro__lede">Each dot is a proposal filed with a public grid queue or permit register in the US or GB. <strong>Click a cluster to zoom in, or a dot to open its record.</strong></p>
 </div>
 {{ m.delayed_banner(delayed) }}
@@ -149,7 +150,7 @@
       <span class="legend__item" data-legend-family="committed" style="color:var(--family-committed-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-committed"></use></svg> Contracted</span>
       <span class="legend__item" data-legend-family="success" style="color:var(--family-success-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-success"></use></svg> Built</span>
       <span class="legend__item" data-legend-family="danger" style="color:var(--family-danger-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-danger"></use></svg> Withdrawn or cancelled</span>
-      <span class="legend__note">A ring with a number is a cluster, showing its most common status.</span>
+      <span class="legend__note">A solid ring with a number is a cluster of proposals, showing its most common status.</span>
     </div>
     {# One legend group per existing-asset type; map.js hides the groups whose type is not
        checked, so the legend only ever names what is drawn (docs/31 §1.6). Shape + label carry
@@ -187,9 +188,12 @@
         <span class="legend__note">lines FERC Form 1 filers own (LBNL); not the whole grid</span>
       </div>
     </div>
-    <div class="legend legend--retired" id="retired-legend" aria-hidden="true" hidden>
+    {#- Retired clusters are dashed rings and proposal clusters solid ones, so the two never differ by
+        hue alone (D-5; docs/31 §1.6). map.js shows this key whenever the layer is on. -#}
+    <div class="legend legend--retired" id="retired-legend" role="group" aria-label="Retired and retiring plants key" aria-hidden="true" hidden>
       <div class="legend__group">
         <span class="legend__group-name">Retired &amp; retiring plants</span>
+        <span class="legend__item" data-legend-mark="retired-cluster" style="color:var(--asset-retired)"><svg class="legend__sample" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 1.7"/></svg> Dashed ring with a number: a group of retired and retiring plants (zoom in to separate)</span>
         <span class="legend__item" style="color:var(--asset-retiring)"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg> Retiring (most capacity scheduled to retire)</span>
         <span class="legend__item" style="color:var(--asset-retired)"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.3 3.3 8.7 8.7M8.7 3.3 3.3 8.7" stroke="currentColor" stroke-width="1.6"/></svg> Retired</span>
         <span class="legend__note">EIA-860M; larger rings are larger plants. A retired site may keep its grid connection.</span>
@@ -210,6 +214,9 @@
 {# The server's label maps (`web/viewmodels.py::map_labels_json`): map.js names a technology
    token in the in-view list and the drawer from these, exactly as the proposal list does. #}
 <script type="application/json" id="map-labels">{{ map_labels_json | safe }}</script>
+{# The proposal field rows each kind cannot carry (`web/viewmodels.py::proposal_fields_json`), so
+   the drawer leaves out the rows the record page leaves out. #}
+<script type="application/json" id="proposal-fields">{{ proposal_fields_json | safe }}</script>
 <template id="in-view-item-template">
   <li>
     <span class="chip-slot"></span>

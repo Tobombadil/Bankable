@@ -29,6 +29,7 @@ from web.app import map_view_href
 from web.empty_state import range_error
 from web.page import templates
 from web.proposal_location import proposal_location
+from web.viewmodels import PROPOSAL_GROUP_SUBJECTS, PROPOSAL_SOURCE_LABELS, map_description, map_heading
 
 WEB = Path(__file__).resolve().parent
 
@@ -289,13 +290,33 @@ def test_every_page_has_the_menu_disclosure_and_list_pages_a_filters_button(tran
 # ---- D-3: the map page opens with one plain line and the primary action, then the map ----
 
 
+def test_the_map_heading_names_every_group_of_sources_on_the_map() -> None:
+    """2026-10-07: EPA Class VI wells were drawn under "Planned power plants, batteries and data
+    centres". The heading is built from the source groups, so a new group without words fails."""
+    groups = {group for _, group in PROPOSAL_SOURCE_LABELS.values()}
+    assert groups <= set(PROPOSAL_GROUP_SUBJECTS)
+    assert map_heading() == "Planned power plants, batteries, data centres and CO2 storage wells"
+    assert map_description().startswith(map_heading() + ", ")
+
+
+def test_the_map_page_heading_and_its_meta_share_one_source(transport: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        html = client.get("/").text
+    title = re.search(r'<h1 class="map-intro__title">(.*?)</h1>', html, re.S)
+    assert title is not None and unescape(title.group(1)) == map_heading()
+    for attr in ('name="description"', 'property="og:description"', 'name="twitter:description"'):
+        match = re.search(rf'<meta {attr} content="([^"]*)"', html)
+        assert match is not None and unescape(match.group(1)) == map_description(), attr
+    assert "Planned power plants, batteries and data centres<" not in html
+
+
 def test_the_map_page_opens_on_a_plain_line_not_a_source_list(transport: FakeTransport) -> None:
     with TestClient(web_app) as client:
         html = client.get("/").text
     intro = re.search(r'<div class="map-intro">(.*?)</div>', html, re.S)
     assert intro is not None
     text = _text(intro.group(1))
-    assert text.startswith("Planned power plants, batteries and data centres")
+    assert text.startswith(map_heading())
     assert "Click a cluster to zoom in, or a dot to open its record." in text
     assert not re.search(r"\b(ERCOT|CAISO|NYISO|EIA-860M|NESO)\b", text)
     # The map comes before the in-view list and nothing but the filters and one status row sit
