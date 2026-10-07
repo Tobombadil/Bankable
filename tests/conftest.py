@@ -11,6 +11,7 @@ and avoids duplicating the whole public-tier fixture set.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,8 +22,9 @@ from services.api.auth import create_session
 from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
 from services.db.models import Account, ApiKey, User
-from services.db.session import get_engine, get_sessionmaker, init_db
+from services.db.session import get_sessionmaker
 from services.ids import public_id
+from tests.db_template import disposing, fresh_engine
 
 UTC = dt.UTC
 
@@ -54,10 +56,11 @@ def _no_real_dns(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture()
-def db_sessionmaker() -> sessionmaker[Session]:
-    engine = get_engine("sqlite+pysqlite:///:memory:")
-    init_db(engine)
-    return get_sessionmaker(engine)
+def db_sessionmaker() -> Iterator[sessionmaker[Session]]:
+    """A fresh schema copied from a per-process template, disposed of at teardown
+    (`tests/db_template.py`; audit QA-2, QA-3)."""
+    with disposing(fresh_engine()) as engine:
+        yield get_sessionmaker(engine)
 
 
 @pytest.fixture()
@@ -68,8 +71,14 @@ def db(db_sessionmaker: sessionmaker[Session]) -> Session:
 
 @pytest.fixture()
 def client(db_sessionmaker: sessionmaker[Session]) -> TestClient:
+    # FastAPI keeps every dependency callable it has classified in a process-wide
+    # `lru_cache(maxsize=4096)` (fastapi/dependencies/models.py), so this closure outlives the test;
+    # it reaches the sessionmaker through `factory`, which teardown empties, so the engine does not
+    # (audit 2026-10-07 QA-3).
+    factory = [db_sessionmaker]
+
     def _override():
-        s = db_sessionmaker()
+        s = factory[0]()
         try:
             yield s
             s.commit()
@@ -83,6 +92,7 @@ def client(db_sessionmaker: sessionmaker[Session]) -> TestClient:
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+    factory.clear()
 
 
 def make_account(session: Session, *, entitlement: str = "pro", name: str = "Acme Capital") -> Account:

@@ -69,6 +69,29 @@ module = ["pipeline.normalize", "pipeline.resolve", "pipeline.diff"]
 ignore_errors = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "pipeline", "web", "services"]
-addopts = "-q"
+# One definition of "the suite" (audit QA-6): a bare `pytest` runs the core suite, the same paths as
+# `make test-core` and CI's `test-core` + `perf` jobs. `web/` is its own suite (`make test-web`, CI
+# `test-web`) and is always named explicitly, never collected with core (ci.yml header note).
+testpaths = ["tests", "pipeline", "services", "infra"]
+# -rs names every skip and its reason in the log (audit QA-5); --strict-markers turns a typo'd
+# marker into an error instead of a silently unselected test.
+addopts = "-q -rs --strict-markers"
 filterwarnings = ["ignore::FutureWarning", "ignore::UserWarning"]
+markers = [
+    "latency: wall-clock budget test; runs serially without coverage (`make test-perf`, CI `perf` job), deselected from the parallel coverage run. Applied by node id in conftest.py::LATENCY_TESTS.",
+    "network: the test may open a non-loopback connection; the conftest.py socket guard lets it through. Never in CI's blocking jobs.",
+    "production_argon2: run with the production Argon2 parameters instead of conftest.py's cheap test hasher.",
+]
+
+[tool.coverage.run]
+# Production code only (audit QA-7): test modules and fixtures are excluded, so the figure is what the
+# 80 % floor (docs/04 E-7) is about. `relative_files` lets the core and web jobs' data combine on
+# another runner (ci.yml `coverage` job).
+branch = true
+relative_files = true
+source = ["pipeline", "services", "infra", "web"]
+omit = ["*/test_*.py", "*/conftest.py", "tests/*"]
+
+[tool.coverage.report]
+skip_empty = true
+precision = 1

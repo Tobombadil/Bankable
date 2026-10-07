@@ -419,16 +419,29 @@ policy before an external monitor would even notice.
 
 ## 9. CI/CD
 
-`.github/workflows/ci.yml` implements the `docs/04` O-3 blocking gates; `.github/workflows/release.yml`
-(added 2026-09-19) builds and pushes the four images on every push to `main` and every `v*` tag to
-`ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}`, tagged `sha-<7-char sha>` always, `latest`
-on `main`, and the tag name on tags, using the workflow's `GITHUB_TOKEN` (`packages: write`); those are
-the exact names `infra/compose/docker-compose.yml` references (`IMAGE_REGISTRY`/`IMAGE_TAG`, default
+`.github/workflows/ci.yml` implements the `docs/04` O-3 blocking gates. Its test jobs run the Makefile targets
+verbatim (2026-10-07; `docs/04` E-12, "The suite, as run"). `test-core` runs in parallel under coverage,
+`perf` runs the latency budgets serially, `test-web` runs `web/`, and `coverage` combines the core and web data.
+`.github/workflows/release.yml` (added 2026-09-19) builds and pushes the four images to
+`ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}`. Since 2026-10-07 it publishes only a commit
+CI has passed (audit OPS-3: `e38062d` became `latest` while its `ci` run was red):
+- **main.** It runs on `workflow_run` after a successful `ci` push run on `main`.
+- **Tags.** On a `v*` tag push it first checks that the tagged commit has a successful `ci` push run.
+- **Tags it applies.** `sha-<7-char sha>` always; `latest` only when the commit is still main's tip; the tag
+  name on tags. It pushes with the workflow's `GITHUB_TOKEN` (`packages: write`, plus `actions: read` for
+  the check).
+
+The image names are the exact names `infra/compose/docker-compose.yml` references (`IMAGE_REGISTRY`/`IMAGE_TAG`, default
 `latest`) and `deploy.sh` pulls (`infra/test_compose.py` checks the two agree). `.github/workflows/
 connectors-nightly.yml` runs the fixture-only connector suite daily (`docs/04` O-3's E2E/E-12 intent,
 never against live sources in CI, `docs/20` §3.1). See each file's header comment for the job list; this
 section only records what devops-engineer could and could not validate in the sandbox this sprint —
 `docs/CHANGELOG.md` and the task's final summary have the same list, this is the durable copy.
+
+**Gate status, 2026-10-07.** All three gates named below now block merge. The 80 % floor covers
+production code only: 89.4 % over `pipeline/`, `services/` and `infra/`. Per-package ratchet floors
+apply, and the visibility predicate is at 100 % (`docs/04` E-7). The spec check has been blocking since
+2026-09-27. The rest of this paragraph is the 2026-09-18/19 state, kept as history.
 
 **Gate status (measured 2026-09-18/19).** The 80 % coverage floor is a real gate (88 % measured over
 `pipeline/*,services/*`). Two gates stay report-only, each printing its measured gap on every run rather
@@ -464,6 +477,10 @@ complete) but no real cloud resources were created, and no HCLOUD_TOKEN/CLOUDFLA
 this sandbox to go further; a `release.yml` run and GHCR push; `deploy.sh` against real hosts. These are
 §11 items 1 and 9 with the exact commands to run once real credentials exist.
 
+A `release.yml` run on the new trigger has not been observed yet. The first green `main` push after this
+change is its test: a `release-images` run should start only when `ci` finishes, and it should never start
+for a red run.
+
 ### 9.1 Basemap tile refresh
 
 Added 2026-09-15 (`docs/adr/0007-basemap-protomaps-on-r2.md`; `docs/40` §2.7). A fourth workflow,
@@ -489,6 +506,8 @@ toolchain the others use) are both different in kind:
   Protomaps build, a faked `aws` in `PATH` standing in for the real upload so the logic runs without
   real R2 credentials) — see `docs/CHANGELOG.md`; `bash -n` and `shellcheck` clean; the workflow
   YAML passes `actionlint`.
+- **Without the R2 secrets** (2026-10-07, audit OPS-8 item 7) the job stops green with a warning
+  annotation instead of failing every month (run 36856701920 failed this way on 2026-10-01).
 - **Not validated here:** an actual upload to a real R2 bucket (no `R2_ACCOUNT_ID`/credentials exist
   in this sandbox — the same gap as §11 item 1); the manual custom-domain and CORS dashboard/API
   steps `infra/terraform/storage.tf`'s comment block documents (nothing to click against without a

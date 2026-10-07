@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import gzip
+import hashlib
 import http.server
 import json
 import os
@@ -88,12 +90,36 @@ AUSTIN_CENTER = [-97.75, 30.3]
 AUSTIN_ZOOM = 10
 GLYPHS_SPRITE_HOST_PREFIX = "https://protomaps.github.io/basemaps-assets/"
 
-# This sandbox's egress proxy resets Chromium's own TLS handshake to the CDN hosts the rendered
-# page references (a proxy/browser interaction, not a product defect -- plain Python `urllib`
-# through the same proxy works fine, as does `curl`). The smoke test fetches the two MapLibre
-# assets once via Python and serves them to the browser from memory instead, so the check
-# exercises the app's real markup without depending on this environment's browser egress.
-_ASSET_CACHE: dict[str, bytes] = {}
+# The rendered pages load MapLibre from a CDN. The browser never reaches it: the two pinned MapLibre
+# files are served from recorded copies under tests/fixtures/cdn (audit 2026-10-07 QA-4: a live
+# fetch here made CI depend on the CDN), checked against their recorded SHA-256 before serving.
+# Only the opt-in PMTiles proof test (marked `network`) still fetches anything from a real host.
+RECORDED_CDN_DIR = REPO_ROOT / "tests" / "fixtures" / "cdn"
+RECORDED_CDN = {
+    f"https://cdn.jsdelivr.net/npm/maplibre-gl@{MAPLIBRE_VERSION}/dist/maplibre-gl.js": (
+        f"maplibre-gl-{MAPLIBRE_VERSION}.js.gz",
+        "45a9b07a9189ce56054c620a947ccf41e291e58c95e9b61533b740aaa65ee5cb",
+    ),
+    f"https://cdn.jsdelivr.net/npm/maplibre-gl@{MAPLIBRE_VERSION}/dist/maplibre-gl.css": (
+        f"maplibre-gl-{MAPLIBRE_VERSION}.css.gz",
+        "ab1e70d59ec40465bae7e7030da2f3ccf28133fd502e62bd598eefbadfd7a732",
+    ),
+}
+_ASSET_CACHE: dict[str, tuple[int, bytes]] = {}
+
+
+@functools.cache
+def _recorded(url: str) -> bytes:
+    """The recorded copy of a pinned CDN file, integrity-checked. A missing or changed recording is
+    an error naming the file, never a silent fallback to the network (tests/fixtures/cdn/README.md)."""
+    name, sha256 = RECORDED_CDN[url]
+    path = RECORDED_CDN_DIR / name
+    if not path.exists():
+        raise FileNotFoundError(f"no recorded copy of {url} at {path}; see tests/fixtures/cdn/README.md")
+    body = gzip.decompress(path.read_bytes())
+    if hashlib.sha256(body).hexdigest() != sha256:
+        raise ValueError(f"{path} does not match its recorded SHA-256; see tests/fixtures/cdn/README.md")
+    return body
 
 
 def _fetch(url: str) -> tuple[int, bytes]:
@@ -104,6 +130,8 @@ def _fetch(url: str) -> tuple[int, bytes]:
     of real third-party hosts are fetched here, through this sandbox's proxy) a couple of times
     before giving up -- a real timeout/connection error still raises, since that is a genuine
     test-environment failure this function has no honest fallback body for."""
+    if url in RECORDED_CDN:
+        return 200, _recorded(url)
     if url not in _ASSET_CACHE:
         last_exc: OSError | None = None
         for attempt in range(3):
@@ -1107,6 +1135,7 @@ def pmtiles_proof_server(pmtiles_range_server: int) -> object:
         proc.wait(timeout=10)
 
 
+@pytest.mark.network  # fetches the pmtiles/basemaps scripts and Protomaps glyphs from their real hosts
 @pytest.mark.skipif(
     not PMTILES_ARCHIVE_PATH.exists(),
     reason=(

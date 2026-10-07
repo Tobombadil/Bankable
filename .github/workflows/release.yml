@@ -4,31 +4,82 @@ name: release-images
 # so infra/scripts/deploy.sh has something to pull — ci.yml's `images` job only builds and scans,
 # it never pushes (audit 2026-09-18 §3.1: "the deploy script pulls images nobody builds or pushes").
 #
+# Only a commit that passed CI is published (audit 2026-10-07 OPS-3: `e38062d` was pushed as
+# `latest` while its `ci` run failed, because this workflow started on the same push and finished
+# first). A main commit is built when its own `ci` push run completes successfully (`workflow_run`);
+# a v* tag is built only if the tagged commit has a successful `ci` push run. The `ci-green` job
+# checks both cases before any image is built.
+#
 # Names and tags are the contract infra/compose/docker-compose.yml relies on:
-#   ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}:sha-<7-char sha>   every push to main and every v* tag
-#   ...:latest                                                                       every push to main
-#   ...:<git tag>                                                                    pushes of a v* tag
+#   ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}:sha-<7-char sha>   every green main commit and every v* tag
+#   ...:latest                                                                       a green main commit that is still main's tip
+#   ...:<git tag>                                                                    pushes of a v* tag on a green commit
+# `latest` moves only to the current tip of main, so a slow run for an older commit that finishes
+# after a newer one cannot move it backwards.
 # Deploy with the immutable sha-/v* tag (`deploy.sh <env> sha-abc1234`); `latest` exists for
 # rehearsals and for `docker compose up` on a dev box. Pushing uses the workflow's own
 # GITHUB_TOKEN (packages: write) — no long-lived registry credential is stored anywhere.
 # No model identifiers appear anywhere in this file or its output (CLAUDE.md, docs/04 E-15).
 
 on:
-  push:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
     branches: [main]
+  push:
     tags: ["v*"]
 
 permissions:
   contents: read
   packages: write
+  actions: read # ci-green reads the `ci` runs of the commit
 
 env:
   IMAGE_PREFIX: ghcr.io/tobombadil/bankable
 
 jobs:
+  ci-green:
+    name: CI passed on this commit
+    # workflow_run: only a successful `ci` run of a push to main in this repository (a fork's PR
+    # from a branch named `main` also reports head_branch "main", hence the event and repo checks).
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+      latest: ${{ steps.check.outputs.latest }}
+    steps:
+      - id: check
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          api() { curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/$1"; }
+          green="$(api "actions/workflows/ci.yml/runs?head_sha=${SHA}&event=push&status=success&per_page=1" | jq .total_count)"
+          if [[ "${green}" -lt 1 ]]; then
+            echo "::error::no successful ci push run for ${SHA}; nothing is published from a commit CI has not passed"
+            exit 1
+          fi
+          latest=false
+          if [[ "${EVENT}" == "workflow_run" ]]; then
+            tip="$(api "branches/main" | jq -r .commit.sha)"
+            [[ "${tip}" == "${SHA}" ]] && latest=true
+            echo "main tip ${tip}; this commit ${SHA}; move latest: ${latest}"
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+
   push-images:
     name: build and push ${{ matrix.name }}
+    needs: ci-green
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -47,21 +98,26 @@ jobs:
             target: ""
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.ci-green.outputs.sha }} # the commit CI passed, never "whatever main is now"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: compute tags (sha-<short sha>; plus latest on main, plus the git tag on v* tags)
+      - name: compute tags (sha-<short sha>; plus latest at main's tip, plus the git tag on v* tags)
         id: tags
+        env:
+          SHA: ${{ needs.ci-green.outputs.sha }}
+          LATEST: ${{ needs.ci-green.outputs.latest }}
         run: |
-          short="${GITHUB_SHA::7}"
+          short="${SHA::7}"
           tags="${IMAGE_PREFIX}-${{ matrix.name }}:sha-${short}"
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+          if [[ "${LATEST}" == "true" ]]; then
             tags="${tags},${IMAGE_PREFIX}-${{ matrix.name }}:latest"
           fi
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == refs/tags/v* ]]; then
             tags="${tags},${IMAGE_PREFIX}-${{ matrix.name }}:${GITHUB_REF#refs/tags/}"
           fi
           echo "tags=${tags}" >> "$GITHUB_OUTPUT"
@@ -77,9 +133,9 @@ jobs:
           # no .git, so without it every deployed page said "Build unknown" (found 2026-09-26).
           # Dockerfile.browser-worker declares no such ARG and ignores it.
           build-args: |
-            GIT_SHA=${{ github.sha }}
+            GIT_SHA=${{ needs.ci-green.outputs.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.ci-green.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
