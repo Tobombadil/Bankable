@@ -47,7 +47,7 @@ dev: venv
 test: test-core test-web
 
 test-core: venv
-	$(PYTHON) -m pytest tests pipeline services infra/scheduler --ignore=tests/test_web_default_view.py
+	$(PYTHON) -m pytest tests pipeline services infra/scheduler
 
 test-web: venv
 	$(PYTHON) -m playwright install --with-deps chromium

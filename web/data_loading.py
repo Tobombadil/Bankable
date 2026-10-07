@@ -3,7 +3,7 @@ via the real `services/ingest/loader.py` path -- this module never invents its o
 
 `load_dev_database()` -- the nine real per-source `data/normalized/<source_id>/*.parquet` files
 this site has always served (docs/00-PLAN.md Sprint 2 prototype) -- is the one entry point
-`web/dev_up.py`, `web/test_e2e.py` and `tests/test_web_default_view.py` all now use, unsampled by
+`web/dev_up.py`, `web/test_e2e.py` and `web/test_default_view.py` all now use, unsampled by
 default (the full ~11,400-row set across all nine sources): `services/README.md`'s "Sprint 2
 fixes" closed the `services/api/visibility.py` performance gap that used to force this site onto a
 sample (0.127s/page and 0.35-0.53s/geo-request on the full load, both measured there), so there is
@@ -40,7 +40,7 @@ backend's own verdict on each):
   measurement. Re-running this function on top would now be a redundant no-op over a store the
   loader already got right, exactly like the other three; `load_dev_database`'s report dropped the
   `eia_exact_points` key along with it (no test asserts that key -- checked
-  `tests/test_web_default_view.py`, `web/test_e2e.py`, and every `tests/test_web_*.py`/`web/*.py`
+  `web/test_default_view.py`, `web/test_e2e.py`, and every `tests/test_web_*.py`/`web/*.py`
   reference to `load_dev_database`'s return value).
 """
 
@@ -160,7 +160,7 @@ def load_eval_fixture(
     sample instead of the full ~9,500-row set -- `services/ingest/loader.py` upserts row by row
     (no bulk path; each row is several flushes, docs/21 §6.1's idempotency design), which measures
     at roughly 100 rows/second in this environment, so loading the full fixture costs about 90s.
-    The pytest suite (tests/test_web_default_view.py) passes a small cap to stay fast; a full,
+    The pytest suite (web/test_default_view.py) passes a small cap to stay fast; a full,
     unsampled load is still one call away for anything that needs the real volume.
     """
     df = pd.read_parquet(eval_parquet)
@@ -247,7 +247,7 @@ def load_dev_database(
     preview: bool = False,
     sample_per_state: int | None = None,
 ) -> dict[str, Any]:
-    """Everything `web/dev_up.py`, `web/test_e2e.py` and `tests/test_web_default_view.py` need: the
+    """Everything `web/dev_up.py`, `web/test_e2e.py` and `web/test_default_view.py` need: the
     nine real sources under `data/normalized/*` through the real loader (which now geocodes,
     promotes EIA-860M's exact points, and derives licence/publish-state correctly on its own, per
     the module docstring above), and (only with `preview=True`) the lag override. No frontend-side
@@ -281,7 +281,7 @@ def load_test_database(
     """Loads the separate entity-resolution evaluation fixture (`data/eval/normalized.parquet`,
     docs/22) for proposals, plus the real opportunity sources, into `session` -- available for
     whatever else wants that specific fixture, but **not called by anything in `web/` or
-    `tests/test_web_*.py` any more**: `tests/test_web_default_view.py` now loads the real
+    `tests/test_web_*.py` any more**: `web/test_default_view.py` now loads the real
     `data/normalized/*` data through `load_dev_database` directly, the same full-data path
     `web/dev_up.py` and `web/test_e2e.py` use, since that data is now fast enough to test against
     (see the module docstring above).
