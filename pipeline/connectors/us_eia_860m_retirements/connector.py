@@ -9,7 +9,12 @@ change is an event of its own.
 Fetch: inherited unchanged from `pipeline/connectors/us_eia_860m/connector.py` -- the index page,
 `/archive/` links dropped before any request (eia.gov robots.txt `Disallow: /*archive/`), the first
 candidate whose bytes start with the zip magic wins and placeholder months answering HTML are
-recorded and skipped.
+recorded and skipped. The workbook is shared with `us.eia.860m` (`shares_fetch_with`, 2026-10-07):
+the request for it is conditional on the validators that source's latest snapshot recorded, and a
+304 reuses its stored bytes (checked against their SHA-256) instead of downloading the 13.9 MB file
+a second time. Run after `us.eia.860m` in the same cycle, this source therefore costs the index
+page and the placeholder months, not the workbook; run first, or after EIA has replaced the file,
+it downloads as before.
 
 Parse (`pipeline/context/retirements.py::parse_generator_sheets`): both sheets, header on the third
 row; rows whose `Plant ID` is not a number are dropped (the trailing note rows, and twelve pre-2002
@@ -78,6 +83,7 @@ class Connector(PlannedSheetConnector):
     source_id: ClassVar[str] = "us.eia.860m.retirements"
     kind: ClassVar[Kind] = "document"
     ext: ClassVar[str] = "xlsx"
+    shares_fetch_with: ClassVar[str | None] = "us.eia.860m"
     status_key: ClassVar[str] = "eia860m_generators"
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("asset_status_map.yaml")
     parser_version: ClassVar[str] = "1.0.0"

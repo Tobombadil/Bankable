@@ -259,3 +259,109 @@ def test_a_status_map_correction_is_a_reclassification_not_an_event(
     assert ev is not None
     moved = ev[(ev["event_type"] == "status_change")]["record_id"].str.split(":").str[1]
     assert not set(moved) & {"1-WT1", "1-WT2"}
+
+
+# ------------------------------------------------------------------- one download, two sources
+INDEX = "https://www.eia.gov/electricity/data/eia860m/"
+PLACEHOLDER = "https://www.eia.gov/electricity/data/eia860m/xls/october_generator2026.xlsx"
+ETAG = '"8098ac47aa4bdd1:0"'
+LAST_MODIFIED = "Wed, 23 Sep 2026 22:24:21 GMT"
+
+
+def one_workbook() -> bytes:
+    """The two recorded trims as the one workbook EIA publishes: Planned (for `us.eia.860m`),
+    Operating and Retired (for this source), cell values copied unedited."""
+    wb = openpyxl.load_workbook(fixture_path("eia860m_planned.xlsx"))
+    other = openpyxl.load_workbook(fixture_path(FIXTURE))
+    for name in ("Operating", "Retired"):
+        ws = wb.create_sheet(name)
+        for row in other[name].iter_rows(values_only=True):
+            ws.append(list(row))
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
+class _Answer:
+    def __init__(self, status: int, content: bytes, headers: dict[str, str]) -> None:
+        self.status_code = status
+        self.content = content
+        self.text = content.decode("utf-8", "replace")
+        self.headers = headers
+
+
+class _Eia:
+    """www.eia.gov as observed 2026-10-07: the index, a placeholder month answering 200 with
+    HTML, and the August workbook with validators, answering 304 to a matching If-None-Match."""
+
+    def __init__(self, workbook: bytes) -> None:
+        self.workbook = workbook
+        self.calls: list[tuple[str, dict[str, str]]] = []
+
+    def get(self, url: str, headers: dict[str, str] | None = None, **_: object) -> _Answer:
+        self.calls.append((url, dict(headers or {})))
+        if url == INDEX:
+            links = "".join(f'<a href="{u}">x</a>' for u in (PLACEHOLDER, URL))
+            return _Answer(200, links.encode(), {"Content-Type": "text/html"})
+        if url == PLACEHOLDER:
+            return _Answer(200, b"<html>placeholder</html>", {"Content-Type": "text/html"})
+        validators = {"ETag": ETAG, "Last-Modified": LAST_MODIFIED}
+        if (headers or {}).get("If-None-Match") == ETAG:
+            return _Answer(304, b"", validators)
+        xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        return _Answer(200, self.workbook, {"Content-Type": xlsx, **validators})
+
+    def downloads(self) -> int:
+        return sum(1 for url, headers in self.calls if url == URL and not headers)
+
+
+def test_retirements_reuse_the_workbook_the_planned_sheet_run_fetched(store: Store) -> None:
+    """2026-10-07: both sources downloaded the same 13,955,142-byte workbook. Now the second run
+    asks EIA whether the file the first one stored has changed, hears 304, and reuses the stored
+    bytes, so the two runs hold one SHA-256 and the file crosses the wire once."""
+    eia = _Eia(one_workbook())
+    planned = run("us.eia.860m", registry=Registry(), store=store, http=eia)  # type: ignore[arg-type]
+    assert planned.status == "ok", planned.run.get("error")
+    assert planned.run["snapshot"]["meta"]["candidates"][-1]["etag"] == ETAG
+    assert eia.downloads() == 1
+
+    retired = run(SOURCE_ID, registry=Registry(), store=store, http=eia)  # type: ignore[arg-type]
+    assert retired.status == "ok", retired.run.get("error")
+    snap = retired.run["snapshot"]
+    assert snap["sha256"] == planned.run["snapshot"]["sha256"]
+    assert snap["http_status"] == 304
+    last = snap["meta"]["candidates"][-1]
+    assert last["not_modified"] is True and last["xlsx"] is True
+    assert last["reused"] == {
+        "source_id": "us.eia.860m",
+        "run_id": planned.run["id"],
+        "sha256": planned.run["snapshot"]["sha256"],
+    }
+    assert eia.downloads() == 1  # the workbook was not downloaded a second time
+    assert eia.calls[-1] == (URL, {"If-None-Match": ETAG, "If-Modified-Since": LAST_MODIFIED})
+    # The placeholder month ahead of it was still asked for, so a newly real month is not missed.
+    assert [u for u, _ in eia.calls[-3:]] == [INDEX, PLACEHOLDER, URL]
+    assert retired.run["rows_new"] > 0
+
+
+def test_a_304_whose_stored_bytes_fail_their_hash_downloads_the_file(store: Store) -> None:
+    eia = _Eia(one_workbook())
+    planned = run("us.eia.860m", registry=Registry(), store=store, http=eia)  # type: ignore[arg-type]
+    assert planned.status == "ok"
+    stored = pathlib.Path(planned.run["snapshot"]["object_key"])
+    stored.write_bytes(b"PK corrupted")
+    retired = run(SOURCE_ID, registry=Registry(), store=store, http=eia)  # type: ignore[arg-type]
+    assert retired.status == "ok", retired.run.get("error")
+    assert eia.downloads() == 2
+    last = retired.run["snapshot"]["meta"]["candidates"][-1]
+    assert "reused" not in last and last["status"] == 200
+
+
+def test_the_planned_sheet_run_asks_conditionally_for_its_own_workbook(store: Store) -> None:
+    """The same validators serve `us.eia.860m`'s own next run: an unchanged month is a 304 and an
+    `unchanged` run, with no second download."""
+    eia = _Eia(one_workbook())
+    first = run("us.eia.860m", registry=Registry(), store=store, http=eia)  # type: ignore[arg-type]
+    second = run("us.eia.860m", registry=Registry(), store=store, http=eia)  # type: ignore[arg-type]
+    assert first.status == "ok" and second.status == "unchanged"
+    assert eia.downloads() == 1

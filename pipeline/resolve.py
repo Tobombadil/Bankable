@@ -95,6 +95,27 @@ TECH_FAMILIES: dict[str, frozenset[str]] = {
     },
 }
 NON_GENERATION = frozenset({"load", "transmission"})
+#: Proposal `kind` (docs/02 §5, docs/21 §3 `proposal.kind`) -> its identity class, the second half
+#: of rule T (2026-10-07). `generation`, `storage` and `nuclear` are one class, `power`: a hybrid
+#: files generation and storage separately (the technology families above judge those pairs) and
+#: `nuclear` is a generation kind. Every other known kind names a different thing in the world: a
+#: CO2 injection well (`ccs`), a data centre (`load`), a line, a pipeline, an LNG terminal or a
+#: hydrogen production plant is never the power plant beside it, even under one sponsor and one
+#: name (Class VI "Sutter Decarbonization Project" is the CCS project *at* Sutter Energy Center,
+#: not that plant). `other`, `unknown` and a missing kind are compatible with everything. Kinds
+#: are checked before technologies because a connector that sets its own technology vocabulary
+#: (`co2_geologic_sequestration`) is invisible to `TECH_FAMILIES`.
+KIND_CLASSES: dict[str, str] = {
+    "generation": "power",
+    "storage": "power",
+    "nuclear": "power",
+    "load": "load",
+    "transmission": "transmission",
+    "pipeline": "pipeline",
+    "lng": "lng",
+    "ccs": "ccs",
+    "hydrogen": "hydrogen",
+}
 #: Without a sponsor component, name is the only identity evidence; county, capacity and COD are
 #: shared by neighbouring projects. Below this name score such a pair is refused.
 NAME_FLOOR_NO_SPONSOR = 70.0
@@ -127,6 +148,26 @@ def tech_compatible(a: object, b: object) -> bool:
         return True
     both = fa | fb
     return "storage" in both and "thermal" not in both
+
+
+def kind_class(kind: object) -> str | None:
+    """The identity class of a proposal kind (`KIND_CLASSES`); None when unknown (compatible with all)."""
+    if kind is None or kind is pd.NA or (isinstance(kind, float) and pd.isna(kind)):
+        return None
+    return KIND_CLASSES.get(str(kind))
+
+
+def kind_compatible(a: object, b: object) -> bool:
+    """False only when both kinds are known and name different classes of thing (rule T)."""
+    ca, cb = kind_class(a), kind_class(b)
+    return ca is None or cb is None or ca == cb
+
+
+def class_compatible(left: dict, right: dict) -> bool:
+    """Rule T over a pair of records: compatible kinds and compatible technologies."""
+    return kind_compatible(left.get("kind"), right.get("kind")) and tech_compatible(
+        left.get("technology"), right.get("technology")
+    )
 
 
 def _num(value: object) -> float | None:
@@ -427,8 +468,10 @@ def score_pair(left: dict, r: dict, letter_bases: frozenset[str] = frozenset()) 
 
     # Vetoes (docs/22 §22): refuse the pair whatever its score.
     vetoes = []
-    if not tech_compatible(left.get("technology"), r.get("technology")):
-        vetoes.append("veto_tech_class")  # Rule T: a data centre is not a solar plant
+    if not class_compatible(left, r):
+        vetoes.append(
+            "veto_tech_class"
+        )  # Rule T: a data centre is not a solar plant, a CO2 well not a gas plant
     if comp["sponsor"] is None and comp["name"] is not None and comp["name"] < NAME_FLOOR_NO_SPONSOR:
         vetoes.append("veto_name_floor")  # Rule N: geography + MW alone never make two named projects one
     if capacity_veto(left, r):
@@ -558,6 +601,61 @@ def deterministic(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------ clustering
+def kind_chain_veto(df: pd.DataFrame, matches: pd.DataFrame) -> pd.Series:
+    """Rule T across a cluster (2026-10-07): an accepted fuzzy pair that would join two clusters
+    holding different kind classes (`KIND_CLASSES`) is refused, so records of incompatible kinds
+    never end up in one cluster through a record of kind `other` or a missing kind, which the
+    pairwise check lets through on either side. Accepted pairs are taken deterministic passes
+    first (never refused, as for every veto), then by descending score with the row indices as
+    the tie-break, so the strongest evidence decides which side a bridging record joins. Returns a
+    boolean Series over `matches.index`, True where the pair is refused."""
+    refused = pd.Series(False, index=matches.index)
+    if "kind" not in df.columns or "accepted" not in matches.columns:
+        return refused
+    classes = {i: kind_class(k) for i, k in df["kind"].items()}
+    parent: dict[int, int] = {}
+    members: dict[int, frozenset[str]] = {}
+
+    def find(x: int) -> int:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def held(root: int) -> frozenset[str]:
+        if root not in members:
+            own = classes.get(root)
+            members[root] = frozenset({own}) if own else frozenset()
+        return members[root]
+
+    acc = matches[matches["accepted"]]
+    is_det = acc["pass"].astype(str).str.startswith("D")
+    ordered = pd.concat(
+        [
+            acc[is_det],
+            acc[~is_det].sort_values(["score", "li", "ri"], ascending=[False, True, True], kind="mergesort"),
+        ]
+    )
+    for idx, li, ri, det in zip(
+        ordered.index,
+        ordered["li"].astype(int),
+        ordered["ri"].astype(int),
+        ordered["pass"].astype(str).str.startswith("D"),
+        strict=True,
+    ):
+        ra, rb = find(li), find(ri)
+        if ra == rb:
+            continue
+        ca, cb = held(ra), held(rb)
+        if not det and ca and cb and len(ca | cb) > 1:
+            refused.at[idx] = True
+            continue
+        parent[ra] = rb
+        members[rb] = ca | cb
+    return refused
+
+
 def cluster(df: pd.DataFrame, accepted: pd.DataFrame) -> pd.Series:
     parent: dict[int, int] = {}
 
@@ -906,6 +1004,10 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
     matches.loc[surplus, "veto"] = "veto_phase_surplus"
     matches.loc[surplus, "rationale"] = matches.loc[surplus, "rationale"] + "; veto_phase_surplus"
     matches["accepted"] = matches["pass"].str.startswith("D") | (eligible & ~surplus)
+    chained = kind_chain_veto(df, matches)
+    matches.loc[chained, "accepted"] = False
+    matches.loc[chained, "veto"] = "veto_tech_class"
+    matches.loc[chained, "rationale"] = matches.loc[chained, "rationale"] + "; veto_kind_chain"
 
     accepted = matches[matches["accepted"]]
     roots = cluster(df, accepted)

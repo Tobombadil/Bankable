@@ -206,22 +206,20 @@ sources:
   effort: M
   probe: {method: HEAD}
   verified:
-    date: 2026-09-29
+    date: 2026-10-07
     result: ok
-    rows: 514
+    rows: 521
     note: >-
-      Connector run 768140bc (python -m pipeline.connectors run, scratch data root): 4 requests to echo.epa.gov
-      (robots.txt, ICIS zip tail, ICIS facilities member 10,555,976 bytes of the 70,252,181-byte zip, whole
-      Exporter zip), 78.4 s, stored snapshot 258,585 bytes, sha256
-      96782ebdbaf593200922986984570ac3a6451f5cb2467899c005b6f535668d55, DQ pass (no unmapped status, no
-      duplicate id, provenance on every row). Upstream Last-Modified 2026-09-27 (ICIS) and 2026-09-27
-      (Exporter). 633 candidates -> 514 data-centre facilities in 42 states (VA 146, IL 49, GA 30, OH 24, CO 21,
-      NJ 19, PA 19, NE 19, AZ 17, IA 16); basis naics_518210 326, name 162, naics_541513_operator 26.
-      Lifecycle built 466, unknown (blank status) 24, filed 21 (GA 15), under_construction 3. FRS join 509 of
-      514 (5 have no REGISTRY_ID); placement exact 379, county centroid 129, state centroid 6 after load.
-      Loaded with the Virginia connector into a scratch SQLite store and resolved with
-      infra/scheduler/jobs.py::default_resolve: 719 proposals -> 581, 138 Virginia facilities in both sources,
-      each on exactly one proposal, no proposal with more than two links.
+      Connector run 8281d666 2026-10-07T10:35:58Z (python -m pipeline.connectors run us.epa.echo.icis_air, canonical
+      data root, its first run there): 4 requests to echo.epa.gov, 75.5 s, stored snapshot 260,136 bytes, sha256
+      c65ff2cbfd52f292a03b908c822e00850faa6725e81f3ff03a49c2f6e674b85d, DQ pass (no unmapped status, no duplicate id,
+      provenance on every row). ICIS zip 69,793,380 bytes, Last-Modified 2026-10-04, read by range (10,639,818 bytes;
+      facilities member 63,277,549 bytes uncompressed, 280,271 rows); Exporter zip 444,227,767 bytes in full,
+      Last-Modified 2026-10-04, 3,224,627 facilities. 639 candidates -> 521 data-centre facilities (514 on 2026-09-29).
+      Placement exact 379; not passed on: method not site-specific 122, no FRS record 12, accuracy not stated or
+      coarse 7, point outside the stated state 1. Both validators (ETag, Last-Modified) are recorded, so the next run
+      asks conditionally. 2026-09-29 (lane run, scratch root): 514 rows, 138 Virginia facilities in both sources,
+      each on exactly one proposal after resolution.
   notes: >-
     The national second source for data-centre air sites (docs/25 §3.7). Selection (connector docstring):
     not Permanently Closed and a data-centre name, or NAICS 518210 without an extraction co-code or a
@@ -495,7 +493,7 @@ sources:
   effort: S
   connector: PUDL (catalyst.coop) or direct xlsx parse; gridstatus.io mirrors it
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok, rows: 2341, note: 'connector run: index scrape tried 6 links, july_generator2026.xlsx is the first real zip (december/october/september/november/august return HTML with a 200); Planned sheet, DQ pass. 2026-09-15: eia.gov robots.txt disallows /*archive/ (wildcard rule honoured by Python 3.13+ parsers only); the connector now drops /archive/ links before requesting and skips any robots-blocked candidate instead of aborting'}
+  verified: {date: 2026-10-07, result: ok, rows: 2311, note: 'connector run 4fc1cf05 2026-10-07T10:36:13Z (python -m pipeline.connectors run us.eia.860m, canonical data root): index 200; december and october 2026 answered 200 with a 55,922-byte HTML placeholder; xls/august_generator2026.xlsx 200, 13,955,142 bytes, sha256 b4b70abb...9f1c, 4 requests, 10.7 s. Planned sheet 2,311 rows, identical to the 2026-09-27 run (0 new, 0 changed, 0 gone, 0 events), DQ pass. Upstream validators ETag "8098ac47aa4bdd1:0", Last-Modified Wed, 23 Sep 2026 22:24:21 GMT; a conditional GET with them answers 304 (checked 2026-10-07), which the connector now uses for its own next run and us.eia.860m.retirements uses to reuse this snapshot. Since 2026-09-15 /archive/ links are dropped before any request (eia.gov robots.txt disallows /*archive/) and a robots-blocked candidate is skipped, not fatal'}
   notes: >-
     Authoritative for planned units ≥1 MW with plant IDs — the spine for entity resolution against queue
     records. Also feeds the built-infrastructure context layer (`pipeline/context/eia_plants.py` →
@@ -522,7 +520,7 @@ sources:
   rate_limit_rps: 1
   connector: pipeline/connectors/us_eia_860m_retirements (direct xlsx parse; fetch shared with us.eia.860m)
   probe: {method: GET}
-  verified: {date: 2026-10-06, result: ok, rows: 35701, note: 'lane R1 first live run 2026-10-06T19:21:29Z (python -m pipeline.connectors run us.eia.860m.retirements, scratch data root): index 200; december and october 2026 answered 200 with a 55,938-byte HTML placeholder; xls/august_generator2026.xlsx 200, 13,955,142 bytes, sha256 b4b70abb...9f1c, 4 requests. Operating 28,377 + Retired 7,324 generator records (12 Retired appendix rows with no Plant ID dropped), DQ pass, 0 unmapped statuses, 0 duplicate keys, 27.8 s. States: operating 25,625, standby 2,221, retiring 531, retired 7,324. First run: 0 events by construction. 10 sampled rows checked against the sheet cells, 10 match (docs/27 section R1.6)'}
+  verified: {date: 2026-10-07, result: ok, rows: 35701, note: 'connector run 58ab0d41 2026-10-07T10:36:35Z (canonical data root, the first run there; lane R1 ran it into a scratch root on 2026-10-06): the same xls/august_generator2026.xlsx as us.eia.860m, 13,955,142 bytes, sha256 b4b70abb...9f1c, downloaded a second time (4 requests, 26.3 s) - from 2026-10-07 the connector reuses us.eia.860m''s snapshot on a 304 (shares_fetch_with). Operating 28,377 + Retired 7,324 generator records (12 Retired appendix rows with no Plant ID dropped), DQ pass, 0 unmapped statuses, 0 duplicate keys. States: operating 25,625, standby 2,221, retiring 531, retired 7,324; 16,472 plants. First run on this root: 0 events by construction. Loaded onto the power_plant assets after the context file was rebuilt from the same workbook (pipeline/context/eia_plants.py; the 2026-09-15 file held the 14,659 July operating plants only, so 1,814 plants had no asset): every plant now has one'}
   notes: >-
     Same workbook and terms as us.eia.860m; a separate id because its records are existing generators, not
     proposals, and need their own run-over-run diff: a generator gaining, moving or losing a planned
@@ -798,21 +796,21 @@ sources:
   rate_limit_rps: 0.5
   probe: {method: GET}
   verified:
-    date: 2026-09-22
+    date: 2026-10-07
     result: ok
+    rows: 68
     note: >-
-      Landing page 200, 57,652 bytes, sha256 846eb99b92e40bce2612a142396a81362cc6cedf9bd10ea1860d48374cdd08cf,
-      footer "Last updated on May 26, 2026"; www.epa.gov/robots.txt (200, 2,035 bytes) disallows nothing under
-      /uic. The embedded dashboard is a Qlik Sense app (appid 8c074297-7f9e-4217-82f0-fb05f54f28e7) on EPA's
-      EDAP at awsedap.epa.gov; its /public/ virtual proxy answers anonymously, so OpenDoc +
-      GetTablesAndKeys + one session hypercube read the app's own table "External" (243 rows x 143 fields)
-      with no credential and no challenge. Connector snapshot 2026-09-22: 528,803 bytes, sha256
-      f0dfa1b6d3b7ce7ddd71907be9087da4cf5f51f21504afff03a4219530d92151, 243 hypercube rows -> 68 project rows
-      (Technical Review 36, Application Withdrawn 13, Final Permit Decisions Issued 11, Completeness Review 5,
-      Public Comment Period 2, Prepare Draft Permit 1), 235 permit applications across those 68 projects, 7
-      requests. The app's own "Last Updated" field reads 2026-09-11 on every row - fresher than the web page's
-      May 26 footer, so the footer is not the data date. awsedap.epa.gov serves no robots.txt (HTTP 400 Qlik
-      error page), and the engine is a JSON-RPC API rather than a crawled document tree.
+      Connector run 6134ea59 2026-10-07T10:34:16Z (python -m pipeline.connectors run us.epa.class_vi, canonical data
+      root): 7 requests, 7.2 s, snapshot 529,159 bytes, sha256
+      52bf877ca70647ab703f01073add365caa1eed68b77c6b4f553ad0964c3c4e05, 243 hypercube rows -> 68 project rows (Technical
+      Review 36, Application Withdrawn 13, Final Permit Decisions Issued 11, Completeness Review 5, Prepare Draft Permit
+      1, Public Comment Period 1, Prepare Final Permit Decision 1). The app's "Last Updated" reads 2026-09-25; the
+      tracker PDF link moved to documents/2026-09/class-vi-permit-tracker_9-25-26.pdf. DQ warn, not pass: the new Phase
+      "Prepare Final Permit Decision" (1 row, 1.5 %) was unmapped and read `unknown`; status_map.yaml maps it to
+      `studied` from 2026-10-07, so the next run reclassifies that row without an event. 0 duplicate keys, provenance
+      on every row, state null on 2 rows (2.9 %, the tribal-land projects). Loaded into a store copy with the dev
+      sources: 66 of 68 placed. The resolver merged 3 of them into CAISO generation requests (Tulare, Sutter,
+      Montezuma) until the kind rule of 2026-10-07 (pipeline/resolve.py KIND_CLASSES, docs/22 §22.12); with it, 0.
   notes: >-
     One row per PROJECT, not per well: each Class VI well needs its own application and permit, and the
     tracker's "# of Permit Applications for Project" carries the well count (235 applications over 68 projects

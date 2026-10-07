@@ -473,3 +473,55 @@ def test_build_store_resolves_after_the_loads_and_before_points_matches_and_anal
 def test_no_resolve_flag_defaults_to_resolving() -> None:
     assert dev_up._parse_args([]).resolve is True
     assert dev_up._parse_args(["--no-resolve"]).resolve is False
+
+
+# ------------------------------------------------- EIA-860M retirements onto the plant assets
+def test_load_retirements_missing_frame_is_one_log_line(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    with caplog.at_level(logging.INFO, logger=dev_up.log.name):
+        dev_up._load_retirements(object(), tmp_path, tmp_path / "sources.yaml")  # type: ignore[arg-type]
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("retirements:")]
+    assert len(lines) == 1 and "skipping" in lines[0]
+
+
+def test_load_retirements_sets_plant_status_and_creates_no_proposal(tmp_path: Path) -> None:
+    """2026-10-07: the dev store showed every one of 14,659 plants `operating`, because the
+    retirements run was never loaded. Plants loaded the way the pre-R1 context file had them (no
+    status column), then the connector's run of the recorded August 2026 trim through
+    `_load_retirements`: the plants take their retirement state, and nothing becomes a proposal."""
+    from sqlalchemy import func, select
+
+    from conftest import fixture_path, snapshot
+    from pipeline.connectors.registry import Registry
+    from pipeline.connectors.runner import run
+    from pipeline.connectors.store import Store
+    from pipeline.connectors.us_eia_860m_retirements.test_connector import FIXTURE, MONTH1, URL
+    from pipeline.context.eia_plants import aggregate_plants
+    from pipeline.context.retirements import parse_generator_sheets
+    from services.db.models import Asset, Proposal
+    from services.db.session import get_engine, get_sessionmaker, init_db
+    from services.ingest.plants import load_plants
+    from web.data_loading import DEFAULT_SOURCES_YAML
+
+    result = run(
+        "us.eia.860m.retirements",
+        registry=Registry(),
+        store=Store(tmp_path),
+        raw=snapshot(FIXTURE, URL, retrieved_at=MONTH1),  # type: ignore[arg-type]
+    )
+    assert result.status == "ok"
+    sheets = parse_generator_sheets(fixture_path(FIXTURE).read_bytes())
+    plants = aggregate_plants(
+        sheets.operating, retrieved_at=MONTH1, retired=sheets.retired, as_of=sheets.as_of
+    ).drop(columns=["status", "retirement_year", "attributes"])
+    engine = get_engine("sqlite+pysqlite:///:memory:")
+    init_db(engine)
+    with get_sessionmaker(engine)() as session:
+        load_plants(session, plants)
+        assert set(session.scalars(select(Asset.status))) == {"operating"}
+        dev_up._load_retirements(session, tmp_path, DEFAULT_SOURCES_YAML)
+        status = dict(session.execute(select(Asset.source_asset_id, Asset.status)).all())
+        assert status["6155"] == "retired" and status["3122"] == "retired"  # Rush Island, Homer City
+        assert status["6166"] == "retiring" and status["2828"] == "operating"
+        assert session.scalar(select(func.count()).select_from(Proposal)) == 0

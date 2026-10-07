@@ -239,3 +239,32 @@ def test_retired_and_retiring_plants_from_the_recorded_workbook():
 def test_without_a_retired_sheet_the_operating_rows_still_classify(plants):
     assert set(plants["status"]) == {"operating"}
     assert plants["retirement_year"].isna().all()
+
+
+def test_cli_builds_from_another_data_root_with_its_run_record(tmp_path):
+    """`--data-root` (2026-10-07): the plants file on the shared data root had been built from the
+    July workbook before lane R1, so it held operating plants only and 1,814 plants of the
+    retirements run had no asset. Rebuilding it from a worktree must read that root's snapshot and
+    run record (the workbook URL) and write under that root, not the checkout's own `data/`."""
+    import json
+
+    from conftest import fixture_path
+    from pipeline.context.eia_plants import main
+
+    run_ts = "20261007T103613Z"
+    url = "https://www.eia.gov/electricity/data/eia860m/xls/august_generator2026.xlsx"
+    snapshots = tmp_path / "snapshots" / "us.eia.860m"
+    runs = tmp_path / "runs" / "us.eia.860m"
+    snapshots.mkdir(parents=True)
+    runs.mkdir(parents=True)
+    (snapshots / f"{run_ts}.xlsx").write_bytes(fixture_path("eia860m_operating_retired.xlsx").read_bytes())
+    (runs / f"{run_ts}.json").write_text(json.dumps({"snapshot": {"fetched_url": url}}))
+
+    main(["--data-root", str(tmp_path), "--latest-snapshot"])
+
+    out = pd.read_parquet(tmp_path / "normalized" / "context" / "us.eia.860m.plants.parquet")
+    assert set(out["source_url"]) == {url}
+    assert set(out["retrieved_at"]) == {"2026-10-07T10:36:13Z"}
+    assert set(out["status"]) == {"operating", "retiring", "retired"}
+    retired = out[out["status"] == "retired"]
+    assert len(retired) == 2 and retired["lon"].notna().all() and retired["lat"].notna().all()

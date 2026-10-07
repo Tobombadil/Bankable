@@ -95,7 +95,7 @@ def map_labels_json() -> str:
 #: `web/test_data_centre_presentation.py` pins them to the list the dev loader loads
 #: (`web/build_data.py::PROPOSAL_SOURCE_IDS`), so adding a source without naming it fails a test
 #: instead of leaving the copy stale.
-PROPOSAL_SOURCE_LABELS: dict[str, tuple[str, Literal["queue", "data_centre"]]] = {
+PROPOSAL_SOURCE_LABELS: dict[str, tuple[str, Literal["queue", "data_centre", "ccs"]]] = {
     "us.iso.ercot.gen_queue": ("ERCOT", "queue"),
     "us.iso.caiso.gen_queue": ("CAISO", "queue"),
     "us.iso.nyiso.gen_queue": ("NYISO", "queue"),
@@ -103,6 +103,7 @@ PROPOSAL_SOURCE_LABELS: dict[str, tuple[str, Literal["queue", "data_centre"]]] =
     "gb.neso.tec_register": ("NESO", "queue"),
     "us.va.deq.data_center_air_sites": ("Virginia DEQ", "data_centre"),
     "us.epa.echo.icis_air": ("EPA ICIS-Air", "data_centre"),
+    "us.epa.class_vi": ("EPA Class VI", "ccs"),
 }
 
 
@@ -165,17 +166,23 @@ def _join_names(names: list[str]) -> str:
 
 
 def proposal_sources_phrase() -> str:
-    """ "Interconnection queue and generator proposals from ERCOT, …, and data-centre sites from
-    Virginia DEQ and EPA ICIS-Air": the one sentence fragment the map header and the list's meta
+    """ "Interconnection queue and generator proposals from ERCOT, …, data-centre sites from
+    Virginia DEQ and EPA ICIS-Air, and CO2 storage permit applications from EPA Class VI": the one
+    sentence fragment the map header and the list's meta
     description share, built from `PROPOSAL_SOURCE_LABELS` so it cannot fall behind it again."""
     queues = [label for label, group in PROPOSAL_SOURCE_LABELS.values() if group == "queue"]
     data_centres = [label for label, group in PROPOSAL_SOURCE_LABELS.values() if group == "data_centre"]
+    ccs = [label for label, group in PROPOSAL_SOURCE_LABELS.values() if group == "ccs"]
     parts = []
     if queues:
         parts.append(f"Interconnection queue and generator proposals from {_join_names(queues)}")
     if data_centres:
         parts.append(f"data-centre sites from {_join_names(data_centres)}")
-    return ", and ".join(parts)
+    if ccs:
+        parts.append(f"CO2 storage permit applications from {_join_names(ccs)}")
+    if len(parts) <= 2:
+        return ", and ".join(parts)
+    return ", ".join(parts[:-1]) + ", and " + parts[-1]
 
 
 #: Why a data-centre connector kept a row (`select_basis` on the row, carried by the loader to
