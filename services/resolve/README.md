@@ -23,6 +23,9 @@ services/resolve/
                (gated exactly as production would gate it), runs the unmodified
                `pipeline.resolve.run()`, applies the gate and merges, resolves organizations, and
                prints every count below. Nothing in this file is estimated.
+  provenance.py  The provenance quartet on every event this package writes (merge, unmerge,
+               suppression): one evidence row's whole quartet, the most restrictive licence first
+               (docs/22 §13.7, A-22-27). Tests: test_provenance.py, test_provenance_guard.py.
   survivorship.py  Field survivorship (docs/22 §23): each field of a multi-source proposal from all
                its active links, with field-level provenance; run on merge/unmerge, after every
                proposal load and store-wide each resolve tick (a restatement, no events).
