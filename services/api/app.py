@@ -35,6 +35,7 @@ from services.api.coverage import coverage, source_vintages
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
 from services.api.feeds import event_provenance, link_provenance, render_json_feed, render_rss
+from services.api.gc_tuning import lifespan as gc_lifespan
 from services.api.idempotency import IdempotentReplay, idempotency_guard, replay_handler
 from services.api.lifecycle import vocabulary as lifecycle_vocabulary
 from services.api.pagination import clamp_limit, paginate
@@ -97,6 +98,9 @@ app = FastAPI(
     # public bucket (backend audit 2026-09-30 F8; `services/api/auth.py::meter_credentialed_request`).
     # `Idempotency-Key` on mutating calls (backend audit 2026-09-30 F12; services/api/idempotency.py).
     dependencies=[Depends(meter_credentialed_request), Depends(idempotency_guard)],
+    # Freezes the startup heap out of the cyclic collector once every route module is imported
+    # (services/api/gc_tuning.py; a full collection was a third of a national map call).
+    lifespan=gc_lifespan,
 )
 app.add_exception_handler(ProblemError, problem_exception_handler)
 app.add_exception_handler(IdempotentReplay, replay_handler)

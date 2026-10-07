@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from decimal import Decimal
+from typing import Any, NamedTuple
 
 from services.api.common import iso
 from services.db.models import Location, Proposal
@@ -49,7 +51,49 @@ class Placement:
     downgraded: bool
 
 
-def effective_placement(loc: Location) -> Placement:
+class GeoLicence(NamedTuple):
+    """The one licence flag the map reads from a location's licence (`effective_placement`,
+    `_precision_reason`): whether the licence allows raw publication, i.e. an exact point."""
+
+    allows_raw_publication: bool
+
+
+class GeoRow(NamedTuple):
+    """A visible, placed proposal as a map *cluster or region member* reads it (`_cluster_feature`,
+    `_region_feature`): identity, the three summed or counted fields, and exactly the `location`
+    columns `effective_placement`, `_region_key`, `_precision_reason` and `_record_feature` read.
+    Read by `services/api/records.py::_proposal_geo_rows` as plain columns because hydrating ~9,000
+    `Proposal`/`Location`/`Licence` ORM entities, and collecting them, was most of a national map
+    call (docs/CHANGELOG.md, 2026-10-07). One object serves as both the record and its `location`
+    (`GeoRow.location` is the row itself), so every rule here reads it as it reads a `Location`.
+
+    A row drawn as an individual marker is re-read as the full `Proposal` through the caller's
+    `load_records` (`build_geo_feature_collection`), and a row whose served fields differ from the
+    stored ones is never a `GeoRow`: the caller passes its `GatedRecord` view instead."""
+
+    id: Any
+    lifecycle_state: str
+    technology: str | None
+    capacity_mw: Decimal | None
+    geom: tuple[float, float] | None
+    precision: str
+    county_fips: str | None
+    county_name: str | None
+    state_code: str | None
+    country: str | None
+    licence: GeoLicence
+
+    @property
+    def location(self) -> GeoRow:
+        return self
+
+
+#: What the map rules read a location through: the ORM row (a gated view's own location, the
+#: export and nearby-proposals callers) or a column-level `GeoRow`.
+PlacedLocation = Location | GeoRow
+
+
+def effective_placement(loc: PlacedLocation) -> Placement:
     """The restricted-precision rule at the API boundary (docs/04 D-9; docs/21 §8's `precise_geo`
     field class; 2026-09-18 audit, docs/50 §3.1 "exact coordinates publish under licences that
     forbid raw"). An `exact` location whose licence has `allows_raw_publication = false` is served
@@ -69,7 +113,7 @@ def effective_placement(loc: Location) -> Placement:
     return Placement(geom=loc.geom, precision=loc.precision, downgraded=False)
 
 
-def _region_key(loc: Location, precision: str) -> tuple[str, str] | None:
+def _region_key(loc: PlacedLocation, precision: str) -> tuple[str, str] | None:
     """`(region_level, region_id)` for a region-grade location. A county-precision location with
     no `county_fips` (a fixture or source row the gazetteer could not key, e.g. the 2026-09-12
     eval parquet CI's browser test loads) falls back to its state, then its country, rather than
@@ -103,7 +147,7 @@ def _grid_cell(lon: float, lat: float, zoom: int) -> tuple[int, int]:
     return (math.floor(lon / cell_deg), math.floor(lat / cell_deg))
 
 
-def _precision_reason(loc: Location, placement: Placement) -> str | None:
+def _precision_reason(loc: PlacedLocation, placement: Placement) -> str | None:
     if placement.downgraded:
         return "licence"
     if loc.precision == "county_centroid" and not loc.licence.allows_raw_publication:
@@ -117,7 +161,7 @@ def _in_bbox(lon: float, lat: float, bbox: tuple[float, float, float, float]) ->
 
 
 def build_geo_feature_collection(
-    plottable_proposals: list[Proposal],
+    plottable_proposals: Sequence[Proposal | GeoRow],
     *,
     bbox: tuple[float, float, float, float],
     zoom: int,
@@ -125,15 +169,23 @@ def build_geo_feature_collection(
     lifecycle_state_counts: dict[str, int],
     technology_counts: dict[str, int],
     entitlement: str = "public",
-    gate_ids: frozenset[Any] = frozenset(),
+    load_records: Callable[[list[Any]], Mapping[Any, Proposal]] | None = None,
 ) -> dict[str, Any]:
     """`plottable_proposals` must already be tier/licence filtered by the caller
     (services/api/visibility.py) *and* pre-restricted to records with a placeable point
-    (`p.location is not None and p.location.geom is not None`) — the caller computes that
-    restriction in SQL (`services/api/app.py::_proposal_geo_query`) rather than this function
-    filtering it out of a wider, more expensive-to-load set; over the real ~10,400-row proposal
-    set, loading every column of every row (including the ~2,200 that can never be plotted) was
-    most of this endpoint's latency (services/README.md "Sprint 2 fixes").
+    (`p.location is not None and p.location.geom is not None`) whose placement is not from a
+    source the tier may not read -- the caller computes that restriction in SQL
+    (`services/api/records.py::_proposal_geo_rows`) rather than this function filtering it out of
+    a wider, more expensive-to-load set.
+
+    Each item is one of: a `GeoRow` (a row whose stored fields are what the tier is served; read as
+    plain columns), the `GatedRecord` view of a row whose stored name, lifecycle, technology or
+    capacity names a source this tier may not read (`visibility.hidden_provenance_clause`; the
+    caller builds the view, so only served values are drawn, also in the cluster and region sums),
+    or a `Proposal`. A `GeoRow` drawn as an individual marker is re-read through `load_records`
+    (one batched query for the at most `SPLIT_THRESHOLD` markers, with their source links) because
+    a marker prints fields and provenance a cluster member never needs; it is required whenever a
+    `GeoRow` is passed.
 
     `bbox` scopes which of those become map *features* (points/clusters) — a pan or zoom now
     actually changes what's returned (`web/README.md` "Missing from the API" item 4: previously
@@ -141,36 +193,24 @@ def build_geo_feature_collection(
     regardless of viewport). `records_total`, `lifecycle_state_counts` and `technology_counts` are
     the caller's own aggregate over the *full* filter match (not just the plottable/in-view
     subset) — a record with no geometry is not "in" any bbox, and D-8 requires it stays counted
-    rather than silently dropping out the moment a caller narrows the map; `web/app.py`'s sitewide
-    active/withdrawn notice deliberately calls this with a whole-world bbox, which already
-    includes every placed record, so that caller's numbers are unaffected by this scoping.
+    rather than silently dropping out the moment a caller narrows the map.
 
     Returns the feature collection dict (`meta.unplaced_count` is the caller's concern, computed
-    alongside `records_total` from the same aggregate query — not derived here).
+    alongside `records_total` from the same rows — not derived here).
 
-    ADR 0008 (2026-09-18): `plottable_proposals` may now carry region-grade rows too (`precision`
-    `county_centroid`/`state_centroid`/`country_centroid`, not just `exact`) — the caller's SQL
-    query already restricts to placeable rows regardless of grade (`Location.geom.is_not(None)`
-    covers all four). This function splits them by `placement_grade`: `exact` rows keep the
-    point/cluster behaviour above unchanged; region-grade rows are grouped by `region_id`
-    (`_region_id_for`) into one `region` feature per group, geometry = the group's representative
-    point (identical for every member — the vendored gazetteer centroid — so the first member's
-    point is used rather than an average). Both kinds of feature can appear in the same response
-    (a mixed-precision viewport is normal); `SPLIT_THRESHOLD` clustering applies only to the
-    `exact` grade, per docs/23 §3.1's "keep proposal and cluster features for exact precision only".
+    ADR 0008 (2026-09-18): `plottable_proposals` may carry region-grade rows too (`precision`
+    `county_centroid`/`state_centroid`/`country_centroid`, not just `exact`). This function splits
+    them by `placement_grade`: `exact` rows keep the point/cluster behaviour; region-grade rows are
+    grouped by `_region_key` into one `region` feature per group, geometry = the group's
+    representative point (identical for every member — the vendored gazetteer centroid — so the
+    first member's point is used rather than an average). Both kinds of feature can appear in the
+    same response (a mixed-precision viewport is normal); `SPLIT_THRESHOLD` clustering applies only
+    to the `exact` grade, per docs/23 §3.1's "keep proposal and cluster features for exact precision
+    only".
     """
-    from services.api.visibility import gated_proposal
-
     exact: list[_Member] = []
     region: list[_Member] = []
     for p in plottable_proposals:
-        # Field-level gate (services/api/visibility.py::GatedRecord): `gate_ids` are the rows whose
-        # stored name, lifecycle, technology or capacity names a source this tier may not read (the
-        # caller selects them in SQL, `visibility.hidden_provenance_clause`); only they are drawn
-        # from their served view, also in the cluster and region sums. Every other row is drawn as
-        # stored, and the caller's SQL already dropped hidden-source placements.
-        if gate_ids and p.id in gate_ids:
-            p = gated_proposal(p, entitlement)
         loc = p.location
         if loc is None or loc.geom is None:
             continue
@@ -191,8 +231,16 @@ def build_geo_feature_collection(
 
     features: list[dict[str, Any]] = []
     if len(in_view) <= SPLIT_THRESHOLD:
+        wanted = [member[0].id for member in in_view if isinstance(member[0], GeoRow)]
+        if wanted and load_records is None:
+            raise ValueError("a GeoRow drawn as an individual marker needs load_records")
+        full = load_records(wanted) if wanted and load_records is not None else {}
         for p, loc, (lon, lat), placement in in_view:
-            features.append(_record_feature(p, loc, lon, lat, placement, entitlement))
+            record = full.get(p.id) if isinstance(p, GeoRow) else p
+            if record is None:
+                # Gone between the map query and this read (same request): not drawn.
+                continue
+            features.append(_record_feature(record, loc, lon, lat, placement, entitlement))
     else:
         groups: dict[tuple[int, int], list[_Member]] = defaultdict(list)
         for member in in_view:
@@ -227,11 +275,16 @@ def build_geo_feature_collection(
 
 #: `(proposal, location, point to draw, effective placement)` -- the point is `placement.geom`,
 #: never `location.geom` directly (`effective_placement`).
-_Member = tuple[Proposal, Location, tuple[float, float], Placement]
+_Member = tuple[Proposal | GeoRow, PlacedLocation, tuple[float, float], Placement]
 
 
 def _record_feature(
-    p: Proposal, loc: Location, lon: float, lat: float, placement: Placement, entitlement: str = "public"
+    p: Proposal,
+    loc: PlacedLocation,
+    lon: float,
+    lat: float,
+    placement: Placement,
+    entitlement: str = "public",
 ) -> dict[str, Any]:
     """`entitlement` picks which source links the feature's `provenance` may list: a link to a
     source the tier may not read is omitted (docs/21 §8 item 3;

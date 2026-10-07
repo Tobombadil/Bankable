@@ -21,7 +21,7 @@ import datetime as dt
 import math
 import re
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any, Literal, NamedTuple, cast
 
 import sqlalchemy as sa
@@ -30,7 +30,7 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import (
     InstrumentedAttribute,
     Session,
-    contains_eager,
+    lazyload,
     load_only,
     noload,
     selectinload,
@@ -40,7 +40,7 @@ from services.api.auth import AuthContext, get_auth_context
 from services.api.common import WEB_HOST
 from services.api.deps import get_db
 from services.api.errors import validation_error
-from services.api.geo import build_geo_feature_collection
+from services.api.geo import GeoLicence, GeoRow, build_geo_feature_collection
 from services.api.merged_redirect import merged_redirect_or_404
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec, wants_csv
@@ -283,15 +283,24 @@ def _apply_placement_filter(
     stmt: sa.Select[Any], request: Request, *, default: list[str] | None
 ) -> sa.Select[Any]:
     """Applied separately from `_apply_proposal_filters` (docstring there) because it must *not*
-    run inside `_proposal_geo_totals`: `placement` controls which grades are drawn as map
-    features, never `meta.unplaced_count`/`totals.records`/the lifecycle and technology counts,
-    which always cover every visible record matching every other filter (docs/23 §3.1, ADR 0008).
+    narrow the totals `_proposal_geo_features` computes: `placement` controls which grades are
+    drawn as map features, never `meta.unplaced_count`/`totals.records`/the lifecycle and
+    technology counts, which always cover every visible record matching every other filter
+    (docs/23 §3.1, ADR 0008).
     `default` is `None` on `GET /v1/proposals` (every grade returned unless the caller asks
     otherwise) and `["exact", "region"]` on `GET /v1/proposals/geo` (docs/23 §3.1's stated
     default for that endpoint)."""
+    clause = _placement_clause(request, default=default)
+    return stmt if clause is None else stmt.where(clause)
+
+
+def _placement_clause(request: Request, *, default: list[str] | None) -> sa.ColumnElement[bool] | None:
+    """The `?placement=` predicate over `Proposal.location_id` (`_apply_placement_filter`), or
+    `None` for no filter. Also selected as a column by `_proposal_geo_rows`, which needs the rows
+    it excludes for its totals, so the filter and the column are one expression."""
     grades = placement_grades(request.query_params.get("placement"), default, request.url.path)
     if grades is None:
-        return stmt
+        return None
     # Placement is judged on the grade a row is *served* at, not the one it is stored at
     # (restricted-precision rule, docs/04 D-9): an `exact` row whose licence forbids raw
     # publication is a `region` row on every non-admin surface (`services/api/geo.py::
@@ -306,7 +315,7 @@ def _apply_placement_filter(
     if "none" in grades:
         clauses.append(Location.precision == "unknown")
     loc_subquery = select(Location.id).where(sa.or_(*clauses))
-    return stmt.where(Proposal.location_id.in_(loc_subquery))
+    return Proposal.location_id.in_(loc_subquery)
 
 
 def _apply_slip_filter(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]:
@@ -452,7 +461,7 @@ def _apply_proposal_filters(
     if v := qp.get("county_fips"):
         # A subquery on `Proposal.location_id`, not a `.join(Location, ...)`, because this
         # function runs both before and after `Location` is already joined at some call sites
-        # (`_proposal_geo_plottable_query` inner-joins it, `_proposal_geo_totals` outer-joins it)
+        # (`_proposal_geo_rows` outer-joins it)
         # -- a second join to the same table there would be invalid SQL, and a subquery is correct
         # regardless of what the caller already joined.
         loc_subquery = select(Location.id).where(Location.county_fips.in_(csv_param(v)))
@@ -496,7 +505,7 @@ def _proposal_query_with_filters(request: Request, entitlement: str = "public") 
     # `location`, both `lazy="joined"`), so a caller that reads `.sources` over a whole result set
     # (`_proposal_licence_rows`) would otherwise issue one query per proposal -- fine at this list
     # endpoint's page size (<=200), unlike the geo endpoint's unpaginated full-viewport set, which
-    # uses `_proposal_geo_plottable_query` below instead (services/README.md "Sprint 2 fixes").
+    # uses `_proposal_geo_rows` below instead (services/README.md "Sprint 2 fixes").
     #
     # `entitlement` (Pro tier and alerts, task item 2): "public" reads `public_at` as before;
     # "pro"/"api" read `published_at` instead (services/api/visibility.py
@@ -514,16 +523,11 @@ def _proposal_query_with_filters(request: Request, entitlement: str = "public") 
     return _apply_placement_filter(stmt, request, default=None)
 
 
-#: Exactly the `Proposal`/`Location` columns `services/api/geo.py` reads for a placed feature
-#: (individual marker or cluster member) plus its identity/join keys. Kept as an explicit list
-#: (rather than loading every column) because unused-column hydration -- not the join itself --
-#: turned out to be most of the residual cost at the real ~8,200-row placed set: even a bare,
-#: no-relationship `select(Proposal)` over every column took ~0.44s of pure ORM row construction;
-#: narrowing to these columns cuts that to ~0.12-0.25s (services/README.md "Sprint 2 fixes" has the
-#: full before/after). Any column `services/api/geo.py` starts reading later needs adding here too
-#: -- SQLAlchemy's default `load_only` behaviour for a column left out is a silent per-row
-#: deferred-load query on first access, not an error, so a gap here would quietly reintroduce an
-#: N+1 rather than fail loudly; nothing but the endpoint's own timing budget would catch it.
+#: The `Proposal` columns `services/api/geo.py::_record_feature` reads for an individual marker,
+#: plus identity/join keys: `_load_geo_records` loads only these (and the source links), for at most
+#: `SPLIT_THRESHOLD` rows. Any column `_record_feature` starts reading later needs adding here too --
+#: SQLAlchemy's `load_only` turns a column left out into a silent per-row deferred load on first
+#: access, not an error, so a gap here would quietly reintroduce an N+1.
 _GEO_PROPOSAL_COLUMNS = (
     Proposal.id,
     Proposal.public_id,
@@ -539,117 +543,192 @@ _GEO_PROPOSAL_COLUMNS = (
 #: The proposal fields the map prints or sums (`services/api/geo.py`): a row whose provenance for
 #: one of them names a hidden source is drawn from its served view.
 _GEO_GATED_FIELDS = ("name_canonical", "kind", "technology", "lifecycle_state", "capacity_mw")
-_GEO_LOCATION_COLUMNS = (
-    Location.id,
-    Location.geom,
-    Location.precision,
-    Location.county_name,
-    Location.county_fips,
-    Location.state_code,
-    Location.country,
-    Location.licence_id,
-)
+#: The fields `totals` counts: a row whose provenance for one of them names a hidden source is
+#: counted from its served view.
+_GEO_TOTALS_GATED_FIELDS = ("lifecycle_state", "technology")
+#: The printed-only rest of `_GEO_GATED_FIELDS`: the map gate is `totals OR rest`, so the two
+#: clauses `_proposal_geo_rows` evaluates never parse the same field's provenance twice.
+_GEO_PRINTED_ONLY_GATED_FIELDS = tuple(f for f in _GEO_GATED_FIELDS if f not in _GEO_TOTALS_GATED_FIELDS)
 
 
-def _proposal_geo_plottable_query(
+def _proposal_geo_rows(
     request: Request, entitlement: str = "public", *, hidden_sources: frozenset[str] = frozenset()
-) -> sa.Select[tuple[Proposal]]:
-    """Same filters as `_proposal_query_with_filters`, restricted to proposals that can actually
-    be placed on the map (`location` present with a resolved `geom`) and loaded for `GET
-    /v1/proposals/geo`'s access pattern: every visible *placeable* proposal (not one page of ~50),
-    over only the columns `services/api/geo.py` reads (`_GEO_PROPOSAL_COLUMNS`/
-    `_GEO_LOCATION_COLUMNS` above).
+) -> sa.Select[Any]:
+    """Every visible proposal matching `request`'s filters, as plain columns, for `GET
+    /v1/proposals/geo`: one query that both the totals (every matching row, placed or not) and the
+    drawn features (the placeable subset) are computed from, so the visibility predicate is
+    evaluated once rather than once per purpose (docs/CHANGELOG.md, 2026-10-07). Columns, not ORM
+    entities: hydrating ~9,000 `Proposal`/`Location`/`Licence` objects was most of a national map
+    call. Row order is the visibility index's, as it was for the two queries this replaces (no
+    `ORDER BY` either way; Postgres gives no order, `tests/test_postgres.py` compares as sets).
 
-    Restricting to placeable rows in SQL (an inner join, `Location.geom.is_not(None)`) rather than
-    loading every visible proposal and filtering the ~2,200 unplaced ones out in Python matters at
-    the real ~10,400-row proposal set — `_proposal_geo_totals` below still counts every visible
-    proposal (placeable or not) for `records`/`lifecycle_state_counts`/`unplaced_count`, just via a
-    separate, much cheaper column-only query instead of full ORM hydration.
-
-    `sponsor` (the list endpoint's default, `lazy="joined"` on the model, never read here) is
-    dropped entirely; `location`'s own `lazy="joined"` `source` falls back to a per-record lazy
-    load instead of an eager join on every row, while `location.licence` *is* joined (two columns
-    of a table with one row per source) because `services/api/geo.py::effective_placement` reads
-    `allows_raw_publication` for every plotted row to decide whether an `exact` point may be
-    served at all (restricted-precision rule; a lazy load there would be an N+1 over the whole
-    placed set); `.sources` is not loaded here at all -- `_source_licence_aggregate`
-    below computes the licence summary with one SQL aggregate instead, and the individual-feature
-    path lazy-loads `.sources` per record (bounded by `SPLIT_THRESHOLD`, so at most a few hundred
-    small queries). Together with the visibility indexes (services/db/models.py), this is the
-    services/README.md "Sprint 2 fixes" geo timing.
-    """
-    loc_load = contains_eager(Proposal.location)
-    # `hidden_sources` (2026-10-06; `visibility.source_split`): a placement from a source the tier
-    # may not read is not drawn (GatedRecord's rule). A plain `NOT IN` over the few hidden ids.
-    gate_where = [Location.source_id.not_in(sorted(hidden_sources))] if hidden_sources else []
+    What decides whether a row is drawn is selected as columns, each the same SQL expression the
+    separate plottable query used as a filter, so it is exactly as strict:
+    - `drawable`: the `placement` predicate (`_placement_clause`, default `exact,region`, docs/23
+      §3.1), judged on the grade a row is *served* at (`location_exact_permitted`);
+    - `geom` not null, and the placement's own `source_id` not one the tier may not read
+      (`hidden_sources`, `visibility.source_split`; GatedRecord's rule);
+    - `totals_gate`/`printed_gate`: the row's provenance for a counted field (lifecycle,
+      technology), or for one only printed or summed (name, kind, capacity), names a hidden source
+      (`hidden_provenance_clause`); the map's gate over `_GEO_GATED_FIELDS` is their OR. Such a row
+      is read through its `GatedRecord` view.
+    The placement predicate is not a filter here because `placement` never narrows the totals
+    (`_apply_placement_filter`'s docstring; ADR 0008)."""
+    if hidden_sources:
+        totals_gate = hidden_provenance_clause(Proposal, _GEO_TOTALS_GATED_FIELDS, hidden_sources)
+        printed_gate = hidden_provenance_clause(Proposal, _GEO_PRINTED_ONLY_GATED_FIELDS, hidden_sources)
+    else:
+        totals_gate = printed_gate = sa.false()
+    drawable = _placement_clause(request, default=["exact", "region"])
     stmt = (
-        select(Proposal)
-        .join(Location, Location.id == Proposal.location_id)
-        .join(Licence, Licence.id == Location.licence_id)
-        .where(*proposal_visibility_filter(entitlement), Location.geom.is_not(None), *gate_where)
-        .options(
-            load_only(*_GEO_PROPOSAL_COLUMNS),
-            noload(Proposal.sponsor),
-            loc_load.load_only(*_GEO_LOCATION_COLUMNS),
-            loc_load.lazyload(Location.source),
-            loc_load.contains_eager(Location.licence).load_only(Licence.id, Licence.allows_raw_publication),
-        )
-    )
-    stmt = _apply_proposal_filters(stmt, request, entitlement)
-    # Default `exact,region` (docs/23 §3.1): a caller who never passes `placement` sees exactly
-    # the pre-ADR-0008 shape (points/clusters) plus the new region features, never bare `none`
-    # rows -- those have no `geom` anyway and are excluded by this query's own join already.
-    return _apply_placement_filter(stmt, request, default=["exact", "region"])
-
-
-def _proposal_geo_totals(
-    db: Session, request: Request, entitlement: str = "public"
-) -> tuple[int, dict[str, int], dict[str, int], int]:
-    """`(records_total, lifecycle_state_counts, technology_counts, unplaced_count)` over every
-    visible proposal matching `request`'s filters (not just the placeable subset
-    `_proposal_geo_plottable_query` loads) — one column-only query (three plain columns, not full
-    `Proposal`/`Location` ORM entities) rather than four separate `COUNT`/`GROUP BY` round trips
-    each re-evaluating the visibility predicate, or hydrating every row as an ORM object just to
-    tally two of its columns in Python (services/README.md "Sprint 2 fixes").
-    """
-    hidden_sources = source_split(db, entitlement)[1]
-    gate = (
-        hidden_provenance_clause(Proposal, ("lifecycle_state", "technology"), hidden_sources)
-        if hidden_sources
-        else sa.false()
-    )
-    stmt = _apply_proposal_filters(
         select(
             Proposal.id,
             Proposal.lifecycle_state,
             Proposal.technology,
-            # True only for a row whose lifecycle or technology a hidden source supplied.
-            gate.label("gate"),
+            Proposal.capacity_mw,
+            totals_gate.label("totals_gate"),
+            printed_gate.label("printed_gate"),
+            (drawable if drawable is not None else sa.true()).label("drawable"),
             Location.geom,
-            Location.source_id,
+            Location.precision,
+            Location.county_fips,
+            Location.county_name,
+            Location.state_code,
+            Location.country,
+            Location.source_id.label("location_source_id"),
+            Licence.allows_raw_publication,
         )
         .select_from(Proposal)
         .outerjoin(Location, Location.id == Proposal.location_id)
-        .where(*proposal_visibility_filter(entitlement)),
-        request,
-        entitlement,
+        .outerjoin(Licence, Licence.id == Location.licence_id)
+        .where(*proposal_visibility_filter(entitlement))
     )
-    rows = db.execute(stmt).all()
-    views = gated_views(db, Proposal, (r[0] for r in rows if r[3]), entitlement) if hidden_sources else {}
+    return _apply_proposal_filters(stmt, request, entitlement)
+
+
+def _load_geo_records(db: Session, ids: list[Any]) -> dict[Any, Proposal]:
+    """The full records behind the individual markers (at most `SPLIT_THRESHOLD`), with their
+    source links, in one query per 500 plus one for the links -- where a lazy `.sources` read
+    per marker issued one query each."""
+    out: dict[Any, Proposal] = {}
+    for start in range(0, len(ids), 500):
+        stmt = (
+            select(Proposal)
+            .where(Proposal.id.in_(ids[start : start + 500]))
+            .options(
+                load_only(*_GEO_PROPOSAL_COLUMNS),
+                noload(Proposal.sponsor),
+                lazyload(Proposal.location),
+                selectinload(Proposal.sources),
+            )
+        )
+        out.update((p.id, p) for p in db.scalars(stmt))
+    return out
+
+
+class _GeoFeatures(NamedTuple):
+    #: The drawable rows in row order: a `GeoRow`, or the row's `GatedRecord` view when a printed
+    #: field came from a source the tier may not read.
+    plottable: list[GeoRow | Proposal]
+    #: Every visible proposal matching the filters, placed or not (D-8; ADR 0008).
+    records_total: int
+    lifecycle_state_counts: dict[str, int]
+    technology_counts: dict[str, int]
+    unplaced_count: int
+    #: The rows the licence summary credits: every filter plus the placement default.
+    credited_ids: list[Any]
+
+
+def _proposal_geo_features(db: Session, request: Request, entitlement: str = "public") -> _GeoFeatures:
+    """Totals, drawable rows and credited ids for `GET /v1/proposals/geo`, all from the one
+    `_proposal_geo_rows` query."""
+    hidden_sources = source_split(db, entitlement)[1]
+    result = db.connection().execute(_proposal_geo_rows(request, entitlement, hidden_sources=hidden_sources))
+    # Executed on the session's connection, not through `Session.execute`: the ORM path fetches every
+    # row before the first is returned, and ~10,000 `Row`s held for the whole call were a measurable
+    # share of it, mostly as the full garbage collections they triggered. Here rows are streamed
+    # from the cursor and unpacked positionally (`_proposal_geo_rows`'s select order).
+    rows: Iterable[Any] = result
+    views: dict[Any, Any] = {}
+    if hidden_sources:
+        # Read through the served view only the rows whose stored value for a counted or printed
+        # field came from a hidden source; their links are loaded once for the request. This needs
+        # the rows twice, so they are held on this path.
+        rows = held = result.all()
+        gated = set()
+        for pid, _ls, _t, _c, totals_gate, printed_gate, drawable, geom, *_loc, loc_source, _raw in held:
+            if totals_gate or (
+                printed_gate and drawable and geom is not None and loc_source not in hidden_sources
+            ):
+                gated.add(pid)
+        views = gated_views(db, Proposal, gated, entitlement)
     lifecycle_counts: dict[str, int] = defaultdict(int)
     technology_counts: dict[str, int] = defaultdict(int)
     unplaced = 0
-    for row_id, lifecycle_state, technology, gated, geom, location_source in rows:
-        # The served values (GatedRecord), read through the full view only for a row whose stored
-        # lifecycle or technology came from a source this tier may not read.
-        if gated and (view := views.get(row_id)) is not None:
-            lifecycle_state, technology = view.lifecycle_state, view.technology
-        lifecycle_counts[lifecycle_state] += 1
-        if technology:
-            technology_counts[technology] += 1
-        if geom is None or location_source in hidden_sources:
+    licences: dict[Any, GeoLicence] = {}
+    plottable: list[GeoRow | Proposal] = []
+    credited: list[Any] = []
+    records_total = 0
+    for row in rows:
+        records_total += 1
+        (
+            pid,
+            lifecycle_state,
+            technology,
+            capacity_mw,
+            totals_gate,
+            printed_gate,
+            drawable,
+            geom,
+            precision,
+            county_fips,
+            county_name,
+            state_code,
+            country,
+            loc_source,
+            allows_raw,
+        ) = row
+        if totals_gate and (view := views.get(pid)) is not None:
+            # Counted as served (GatedRecord), never as stored; such a row is never a `GeoRow`.
+            lifecycle_counts[view.lifecycle_state] += 1
+            if view.technology:
+                technology_counts[view.technology] += 1
+        else:
+            lifecycle_counts[lifecycle_state] += 1
+            if technology:
+                technology_counts[technology] += 1
+        if drawable:
+            credited.append(pid)
+        if geom is None or loc_source in hidden_sources:
             unplaced += 1
-    return len(rows), dict(lifecycle_counts), dict(technology_counts), unplaced
+            continue
+        if not drawable:
+            continue
+        if totals_gate or printed_gate:
+            # Never the stored values: a gated row with no view is not drawn at all.
+            if (view := views.get(pid)) is not None:
+                plottable.append(view)
+            continue
+        if (licence := licences.get(allows_raw)) is None:
+            licence = licences[allows_raw] = GeoLicence(bool(allows_raw))
+        plottable.append(
+            GeoRow(
+                pid,
+                lifecycle_state,
+                technology,
+                capacity_mw,
+                geom,
+                precision,
+                county_fips,
+                county_name,
+                state_code,
+                country,
+                licence,
+            )
+        )
+    return _GeoFeatures(
+        plottable, records_total, dict(lifecycle_counts), dict(technology_counts), unplaced, credited
+    )
 
 
 def _proposal_licence_rows(proposals: list[Proposal], entitlement: str = "public") -> list[dict[str, Any]]:
@@ -711,18 +790,31 @@ def list_proposals(
     return env
 
 
+#: Ids bound per `_source_licence_aggregate` statement: under SQLite's default limit of 32,766
+#: host parameters (3.32+) and psycopg's 65,535, so a national map stays one statement.
+_AGGREGATE_ID_CHUNK = 10_000
+
+
 def _source_licence_aggregate(
     db: Session,
     link_model: type[ProposalSource] | type[OpportunitySource],
     fk_column: InstrumentedAttribute[Any],
-    id_subquery: sa.Select[Any],
+    record_ids: Sequence[Any],
     entitlement: str = "public",
 ) -> dict[str, Any]:
-    """`licence_summary` for a whole (unpaginated) result set via one `GROUP BY source_id`
+    """`licence_summary` for a whole (unpaginated) result set via a `GROUP BY source_id`
     aggregate query, instead of materialising every visible `proposal_source`/`opportunity_source`
     ORM row just to fold them in Python (`_proposal_licence_rows` — fine at a list page's size, the
     dominant remaining cost at the geo endpoints' full-viewport scale after the visibility-index
-    fix, services/README.md "Sprint 2 fixes")."""
+    fix, services/README.md "Sprint 2 fixes").
+
+    `record_ids` are the records the response credits, as the caller already selected them (the
+    map's drawable rows, `_proposal_geo_features`): binding them, rather than re-running the whole
+    visibility, filter and placement predicate as an `IN (subquery)`, was about 80 ms of a national
+    map call on the full dev store (docs/CHANGELOG.md, 2026-10-07). The
+    link-level clauses below are unchanged. Chunks are merged exactly (sum of counts, max of
+    maxima); sources come out ordered by `(source_id, licence_id)`, which is the order SQLite's
+    `GROUP BY` produced and makes Postgres's order deterministic too."""
     agg_stmt = (
         select(
             Source.id,
@@ -741,7 +833,9 @@ def _source_licence_aggregate(
         .join(Source, Source.id == link_model.source_id)
         .join(Licence, Licence.id == Source.licence_id)
         .where(
-            fk_column.in_(id_subquery),
+            # Bound at execution, not in the statement: SQLAlchemy's compiled cache keeps the
+            # first statement it compiles, and with it any values written into it.
+            fk_column.in_(sa.bindparam("record_ids", expanding=True)),
             link_model.active.is_(True),
             # The same two clauses `visible_source_links` applies row by row (docs/21 §8 item 4).
             Source.publish_state.in_(permitted_source_states(entitlement)),
@@ -749,7 +843,18 @@ def _source_licence_aggregate(
         )
         .group_by(Source.id, Licence.id)
     )
-    rows = [tuple(row) for row in db.execute(agg_stmt).all()]
+    merged: dict[tuple[Any, Any], list[Any]] = {}
+    for start in range(0, len(record_ids), _AGGREGATE_ID_CHUNK):
+        chunk = list(record_ids[start : start + _AGGREGATE_ID_CHUNK])
+        for row in db.execute(agg_stmt, {"record_ids": chunk}).all():
+            key = (row[0], row[3])
+            if (seen := merged.get(key)) is None:
+                merged[key] = list(row)
+                continue
+            seen[10] += row[10]
+            if row[9] is not None and (seen[9] is None or row[9] > seen[9]):
+                seen[9] = row[9]
+    rows = [tuple(merged[key]) for key in sorted(merged)]
     return licence_summary_from_source_aggregates(rows)  # type: ignore[arg-type]
 
 
@@ -769,37 +874,22 @@ def get_proposals_geo(
         zoom = int(zoom_param)
     except ValueError as exc:
         raise validation_error("bbox", "bbox/zoom malformed", request.url.path) from exc
-    hidden_sources = source_split(db, ctx.entitlement)[1]
-    stmt = _proposal_geo_plottable_query(request, ctx.entitlement, hidden_sources=hidden_sources)
-    plottable = list(db.scalars(stmt).all())
-    gated_rows = select(Proposal.id).where(
-        hidden_provenance_clause(Proposal, _GEO_GATED_FIELDS, hidden_sources)
-    )
-    gate_ids: frozenset[Any] = frozenset(db.scalars(gated_rows)) if hidden_sources else frozenset()
-    # Their links, loaded once for the page rather than lazily per drawn row.
-    gated_views(db, Proposal, gate_ids & {p.id for p in plottable}, ctx.entitlement)
-    records_total, lifecycle_counts, technology_counts, unplaced_count = _proposal_geo_totals(
-        db, request, ctx.entitlement
-    )
+    geo = _proposal_geo_features(db, request, ctx.entitlement)
     fc = build_geo_feature_collection(
-        plottable,
+        geo.plottable,
         bbox=bbox,
         zoom=zoom,
-        records_total=records_total,
-        lifecycle_state_counts=lifecycle_counts,
-        technology_counts=technology_counts,
+        records_total=geo.records_total,
+        lifecycle_state_counts=geo.lifecycle_state_counts,
+        technology_counts=geo.technology_counts,
         entitlement=ctx.entitlement,
-        gate_ids=gate_ids,
+        load_records=lambda ids: _load_geo_records(db, ids),
     )
-    meta = build_meta("proposal", tier=ctx.entitlement, extra={"unplaced_count": unplaced_count})
-    id_subquery = _apply_proposal_filters(
-        select(Proposal.id).where(*proposal_visibility_filter(ctx.entitlement)), request, ctx.entitlement
-    )
-    # Same default as the plottable query, so the licence summary credits exactly the sources
-    # behind what is actually drawn.
-    id_subquery = _apply_placement_filter(id_subquery, request, default=["exact", "region"])
+    meta = build_meta("proposal", tier=ctx.entitlement, extra={"unplaced_count": geo.unplaced_count})
+    # The rows matching every filter and the placement default, as the drawn features are, so the
+    # licence summary credits exactly the sources behind what is actually drawn.
     licence_summary = _source_licence_aggregate(
-        db, ProposalSource, ProposalSource.proposal_id, id_subquery, ctx.entitlement
+        db, ProposalSource, ProposalSource.proposal_id, geo.credited_ids, ctx.entitlement
     )
     return build_envelope(fc, meta=meta, licence_summary=licence_summary)
 
