@@ -14,7 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 
-from services.social.editorial import CHANNEL_LIMITS
+from services.social.editorial import CHANNEL_LIMITS, bare_url
 from services.social.models import PostDraft
 from services.social.publishers.base import CredentialsMissing, Publisher, PublishResult
 
@@ -26,16 +26,37 @@ class BlueskyPublisher(Publisher):
         self.feature_flag_live = feature_flag_live
 
     def _payload(self, draft: PostDraft) -> dict[str, object]:
+        """The `app.bsky.feed.post` record (content audit F14). The body shows the bare record
+        address; a link facet over those bytes carries the tagged link (`draft.link_url`), so the
+        link is clickable and its clicks are counted (F15). The card is titled with the record's
+        name and described with the post's fact line, never the event-type token. No thumbnail:
+        that needs an uploaded blob and the pages have no `og:image` yet (open item)."""
+        text = draft.body
+        shown = bare_url(draft.link_url)
+        encoded = text.encode("utf-8")
+        start = encoded.find(shown.encode("utf-8"))
+        facets: list[dict[str, object]] = []
+        if start >= 0:
+            facets.append(
+                {
+                    "index": {"byteStart": start, "byteEnd": start + len(shown.encode("utf-8"))},
+                    "features": [{"$type": "app.bsky.richtext.facet#link", "uri": draft.link_url}],
+                }
+            )
+        snapshot = draft.fields_snapshot or {}
+        title = snapshot.get("proposal_name") or snapshot.get("solicitation_title") or text.split(":", 1)[0]
+        fact_line = text.split(shown, 1)[0].strip() if shown in text else text
         return {
-            "text": draft.body,
+            "text": text,
             "collection": "app.bsky.feed.post",
             "langs": ["en"],
+            "facets": facets,
             "embed": {
                 "$type": "app.bsky.embed.external",
                 "external": {
                     "uri": draft.link_url,
-                    "title": draft.event_type,
-                    "description": draft.attribution_line,
+                    "title": str(title),
+                    "description": fact_line,
                 },
             },
             "createdAt": dt.datetime.now(dt.UTC).isoformat(),

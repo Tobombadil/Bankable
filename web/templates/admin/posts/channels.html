@@ -5,7 +5,10 @@
 <p><a href="/admin/posts">&larr; Back to the queue</a></p>
 <h1>Channel switches</h1>
 <p class="admin-muted">Owner only (US-802 AC2). Default is off for every channel: nothing publishes without a
-  human approval unless an owner has switched it on here.</p>
+  human approval unless an owner has switched it on here, for named event types, each of which must have passed
+  graduation (200 reviewed posts over 30 days, edit rate at most 5%, no wrong-fact rejection; docs/32 §4.6). The worker
+  re-checks graduation for every post. LinkedIn never auto-publishes. An auto-published post carries the line
+  &ldquo;Auto-generated summary from [source]; not human-reviewed.&rdquo;</p>
 {% include "admin/_notice.html" %}
 
 {% if not is_owner %}
@@ -25,7 +28,8 @@
   {% if row %}
   <dl class="admin-dl">
     <dt>Daily cap</dt><dd>{{ row.daily_cap if row.daily_cap is not none else 'unset' }}</dd>
-    <dt>Disclosure label</dt><dd>{{ row.disclosure_label or '—' }}</dd>
+    <dt>Account disclosure</dt><dd>{{ row.disclosure_label or '—' }}</dd>
+    <dt>Event types</dt><dd>{{ row.auto_publish_event_types | join(', ') if row.auto_publish_event_types else '—' }}</dd>
     <dt>Last changed by</dt><dd>{{ row.changed_by_user_id or '—' }}</dd>
     <dt>Last changed</dt><dd class="mono">{{ row.updated_at or '—' }}</dd>
   </dl>
@@ -36,8 +40,18 @@
       <label><input type="checkbox" name="auto_publish" value="1" {% if row and row.auto_publish %}checked{% endif %} {% if not is_owner %}disabled{% endif %}> Auto-publish enabled</label>
     </div>
     <div class="field">
-      <label><input type="checkbox" name="disclosure_label_confirmed" value="1" {% if not is_owner %}disabled{% endif %}> Disclosure label confirmed (required to enable)</label>
+      <label><input type="checkbox" name="disclosure_label_confirmed" value="1" {% if not is_owner or channel in never_auto %}disabled{% endif %}> Disclosure label confirmed (required to enable)</label>
     </div>
+    {% if channel in never_auto %}
+    <p class="admin-muted">LinkedIn posts stay human-reviewed by decision (docs/32 §1.4).</p>
+    {% else %}
+    <fieldset class="field">
+      <legend>Event types to auto-publish</legend>
+      {% for event_type in event_types %}
+      <label><input type="checkbox" name="event_types" value="{{ event_type }}" {% if row and event_type in (row.auto_publish_event_types or []) %}checked{% endif %} {% if not is_owner %}disabled{% endif %}> {{ event_type }}</label>
+      {% endfor %}
+    </fieldset>
+    {% endif %}
     <div class="field">
       <label for="cap-{{ channel }}">Daily cap</label>
       <input id="cap-{{ channel }}" name="daily_cap" inputmode="numeric" value="{{ row.daily_cap if row and row.daily_cap is not none else '' }}" placeholder="unset" {% if not is_owner %}disabled{% endif %}>

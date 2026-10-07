@@ -135,6 +135,20 @@ untouched — nothing in this module calls a social platform; these routes only 
     exact shape for the `PUT`, including the new `updated_at` field, which is a backward-compatible
     addition since the current inline schema has no `additionalProperties: false`).
 
+## 2026-10-07: social review gates (content audit F1, F5, F11; legal L-8)
+
+- **Edits** (decision 9 in the module docstring): a worker draft can now be edited. The body must
+  keep the record address once (the stored `link_url` is the tagged link; Bluesky's body shows the
+  bare address) and the credit line; the account disclosure is metadata and no longer required in
+  the body. A post with `fields_snapshot` (migration 0033) is also validated against every docs/32
+  §4.3 gate the worker applied; a failing edit is a `400 validation_error` naming the failures.
+- **Held drafts**: a post with `gate_failures` cannot be approved (`422 gate_unmet`); a passing edit
+  clears the failures. `gate_failures` is serialised on every post (spec `Post.gate_failures`).
+- **Channel switch** (decision 4, revised): enabling names `event_types`; LinkedIn and any pair that
+  fails docs/32 §4.6 graduation (`services/social/graduation.py`) are `422 gate_unmet`; the stored
+  label is the channel's posture-aware docs/13 §6.5 account disclosure, replacing "Automated post —
+  see disclosure". The worker re-checks graduation per post.
+
 ## Deferred (follow-ups, not silent gaps)
 
 - **Captcha provider.** No provider (hCaptcha, Turnstile, reCAPTCHA, ...) is integrated; `captcha_token`

@@ -1443,6 +1443,14 @@ class Post(Base, TimestampMixin):
     reject_reason: Mapped[str | None] = mapped_column(sa.Text)
     metrics: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
     cost_usd: Mapped[float] = mapped_column(sa.Numeric(10, 4), nullable=False, default=0)
+    #: Migration 0033 (2026-10-07, content audit F1, F5). The structured fields the body was
+    #: rendered from (`editorial.event_to_json_safe`), so a reviewer's edit is validated against
+    #: the same facts (`editorial.event_from_snapshot`); null on rows drafted before 0033.
+    fields_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONVariant())
+    #: The docs/32 §4.3 gates the body fails, or null when it passes. A draft that fails is kept for
+    #: review rather than dropped (before 0033 the event was consumed and lost) and cannot be
+    #: approved until an edit clears every failure.
+    gate_failures: Mapped[list[str] | None] = mapped_column(JSONVariant())
 
     __table_args__ = (
         sa.CheckConstraint(f"channel IN {POST_CHANNELS!r}", name="channel_vocab"),
@@ -1463,6 +1471,10 @@ class ChannelConfig(Base, TimestampMixin):
     disclosure_label: Mapped[str | None] = mapped_column(sa.Text)
     daily_cap: Mapped[int | None] = mapped_column(sa.Integer)
     updated_by_user_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("user.id"))
+    #: Migration 0033 (2026-10-07, content audit F11, legal L-8): the event types the owner enabled
+    #: for auto-publish on this channel, each after its docs/32 §4.6 graduation passed. A post
+    #: auto-publishes only for a listed type, and only while that pair still passes graduation.
+    auto_publish_event_types: Mapped[list[str] | None] = mapped_column(JSONVariant())
 
     __table_args__ = (sa.CheckConstraint(f"channel IN {POST_CHANNELS!r}", name="channel_vocab"),)
 

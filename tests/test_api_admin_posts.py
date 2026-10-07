@@ -20,6 +20,7 @@ from services.api.app import app
 from services.api.conftest import make_event, make_open_licence, make_public_source, make_visible_proposal
 from services.db.models import ApiKey, ChannelConfig, Event, Post, Task
 from tests.conftest import login, make_account, make_user
+from tests.social_support import seed_graduated_pair
 
 UTC = dt.UTC
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -289,18 +290,20 @@ def test_admin_update_post_rejects_non_string_or_blank_body(client, db):
     assert resp.status_code == 400
 
 
-def test_admin_update_post_rejects_removing_disclosure_label(client, db):
+def test_admin_update_post_does_not_require_the_account_disclosure_in_the_body(client, db):
+    """The account disclosure (`disclosure_label`) is metadata the account's bio and the channel
+    carry, never body text; requiring it in the body made every worker draft uneditable (content
+    audit F5). Link and credit stay mandatory."""
     operator = _make_operator(db)
     _proposal, event = _seed_event(db)
-    post = _make_post(db, event, disclosure_label="Automated post — see disclosure")
-    post.body = f"{post.body} Automated post — see disclosure"
+    post = _make_post(db, event, disclosure_label="Automated feed run by Infraque (infraque.com).")
     db.commit()
     login(client, db, operator)
     resp = client.patch(
         f"/admin/v1/posts/{post.public_id}",
-        json={"body": f"{post.credit_line} {post.link_url}", "reason": "r"},
+        json={"body": f"Edited. {post.credit_line} {post.link_url}", "reason": "r"},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200
 
 
 def test_admin_update_post_can_set_and_clear_scheduled_for(client, db):
@@ -618,8 +621,14 @@ def test_admin_list_channels_defaults_for_unconfigured_channels(client, db):
     assert db.query(ChannelConfig).count() == 0, "reading the list must not create rows"
 
 
+def _graduate(db, channel: str = "bluesky", event_type: str = "proposal.new") -> None:
+    _proposal, event = _seed_event(db)
+    seed_graduated_pair(db, event, channel=channel, event_type=event_type)
+
+
 def test_admin_list_channels_shows_the_stored_row_after_a_put(client, db):
     owner = _make_operator(db, role="owner", email="owner-list@example.com")
+    _graduate(db)
     db.commit()
     login(client, db, owner)
 
@@ -628,6 +637,7 @@ def test_admin_list_channels_shows_the_stored_row_after_a_put(client, db):
         json={
             "auto_publish": True,
             "disclosure_label_confirmed": True,
+            "event_types": ["proposal.new"],
             "daily_cap": 15,
             "reason": "graduated after 200 posts",
         },
@@ -669,6 +679,7 @@ def test_admin_set_channel_auto_publish_requires_owner(client, db):
 
 def test_admin_set_channel_auto_publish_happy_path(client, db):
     owner = _make_operator(db, role="owner", email="owner1@example.com")
+    _graduate(db)
     db.commit()
     login(client, db, owner)
 
@@ -677,6 +688,7 @@ def test_admin_set_channel_auto_publish_happy_path(client, db):
         json={
             "auto_publish": True,
             "disclosure_label_confirmed": True,
+            "event_types": ["proposal.new"],
             "daily_cap": 20,
             "reason": "graduated after 200 posts",
         },
@@ -687,7 +699,9 @@ def test_admin_set_channel_auto_publish_happy_path(client, db):
     assert body["data"]["auto_publish"] is True
     assert body["data"]["review_required"] is False
     assert body["data"]["daily_cap"] == 20
-    assert body["data"]["disclosure_label"]
+    assert body["data"]["auto_publish_event_types"] == ["proposal.new"]
+    # The docs/13 §6.5 account disclosure, not the old "Automated post — see disclosure".
+    assert body["data"]["disclosure_label"].startswith("Automated feed run by")
     assert body["data"]["event_id"].startswith("evt_")
 
     events = db.query(Event).filter_by(subject_type="channel_config", event_type="admin_edit").all()
@@ -708,6 +722,7 @@ def test_admin_set_channel_auto_publish_requires_boolean(client, db):
 
 def test_admin_set_channel_auto_publish_updates_existing_row(client, db):
     owner = _make_operator(db, role="owner", email="owner-twice@example.com")
+    _graduate(db)
     db.commit()
     login(client, db, owner)
 
@@ -716,6 +731,7 @@ def test_admin_set_channel_auto_publish_updates_existing_row(client, db):
         json={
             "auto_publish": True,
             "disclosure_label_confirmed": True,
+            "event_types": ["proposal.new"],
             "daily_cap": 10,
             "reason": "enable",
         },

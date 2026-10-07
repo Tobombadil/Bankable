@@ -374,8 +374,11 @@ class ReviewQueue:
 
 
 def _content_hash(body: str, link_url: str) -> str:
-    """docs/32 §4.8 content-hash guard: text minus URL and dates."""
-    text = body.replace(link_url, "")
+    """docs/32 §4.8 content-hash guard: text minus URL and dates. Every URL is removed, not only
+    `link_url`: a tagged link carries the event id (`editorial.utm_url`), and Bluesky's body shows
+    the untagged address (`editorial.body_link`)."""
+    text = re.sub(r"https?://\S+", "", body)
+    text = text.replace(link_url, "")
     text = re.sub(r"\d{1,2} [A-Z][a-z]{2} \d{4}", "", text)  # "12 Sep 2026"
     text = re.sub(r"\s+", " ", text).strip().lower()
     return hashlib.sha256(text.encode()).hexdigest()
@@ -383,16 +386,8 @@ def _content_hash(body: str, link_url: str) -> str:
 
 def _event_from_snapshot(draft: PostDraft) -> editorial.SocialEvent:
     """Rebuild the `SocialEvent` a stored draft was rendered from, for re-validation after an
-    edit. `fields_snapshot` is the JSON-safe dict `editorial.event_to_json_safe` produced."""
-    data = dict(draft.fields_snapshot)
-    for key in ("event_date", "deadline_date"):
-        if data.get(key):
-            data[key] = dt.date.fromisoformat(data[key])
-    if data.get("retrieved_at"):
-        data["retrieved_at"] = dt.datetime.fromisoformat(data["retrieved_at"])
-    if data.get("digest_items") is not None:
-        data["digest_items"] = tuple(data["digest_items"])
-    return editorial.SocialEvent(**data)
+    edit (`editorial.event_from_snapshot`)."""
+    return editorial.event_from_snapshot(dict(draft.fields_snapshot))
 
 
 def load_events_from_diff_frame(

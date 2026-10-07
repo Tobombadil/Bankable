@@ -19,6 +19,8 @@ Rules, in the order they bite:
 * The tables live in Python, not in `data/vocabulary/`, because the web image ships `web/` and
   `data/sources.yaml` only (infra/docker/Dockerfile); a YAML file there would be absent in
   production. The vocabulary files stay the definitions; this module is their reader-facing names.
+  The technology and lifecycle tables are defined in `services/labels.py` and re-exported here,
+  because social posts print the same words from an image that has no `web/`.
 
 `web/viewmodels.py` and `web/retirement.py` re-export the tables they always exported, so existing
 imports keep working; the map receives the same tables as JSON (`map_labels`), so `map.js` names a
@@ -31,91 +33,15 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-#: The proposal `technology` classes (`pipeline.normalize.TECH_RULES` plus its `unknown`/`other`
-#: fallbacks), the opportunity classes (`pipeline.connectors.opportunity.TECH_KEYWORDS`) and the
-#: asset `technology` values the context loaders write (pipeline type, storage field type, LNG
-#: function, RNG family). One table, because one token (`hydro`, `wind`) means the same thing on
-#: every surface.
-TECHNOLOGY_LOAD_LABEL = "Large load"
-TECHNOLOGY_LABELS: dict[str, str] = {
-    # proposals and power plants
-    "solar": "Solar",
-    "solar_storage": "Solar + storage",
-    "solar_thermal": "Solar thermal",
-    "wind": "Wind",
-    "wind_storage": "Wind + storage",
-    "wind_offshore": "Offshore wind",
-    "storage": "Storage",
-    "pumped_storage": "Pumped hydro storage",
-    "hydro": "Hydro",
-    "marine": "Tidal and wave",
-    "nuclear": "Nuclear",
-    "gas_cc": "Gas, combined cycle",
-    "gas_ct": "Gas, combustion turbine",
-    "gas_ice": "Gas, reciprocating engine",
-    "gas_steam": "Gas, steam turbine",
-    "gas_other": "Gas, other",
-    "fuel_cell": "Fuel cell",
-    "hydrogen": "Hydrogen",
-    "geothermal": "Geothermal",
-    "biomass": "Biomass",
-    "waste": "Waste to energy",
-    "coal": "Coal",
-    "oil": "Oil",
-    "transmission": "Transmission",
-    # `load`: the data-centre and large-load connectors set technology to the kind. A short label,
-    # because the kind label ("Load (data centres, large loads)") wraps every list row.
-    "load": TECHNOLOGY_LOAD_LABEL,
-    "other": "Other",
-    "unknown": "Not stated",
-    # opportunities (their own vocabulary, frontend F2)
-    "solar_pv": "Solar PV",
-    "bess": "Battery storage",
-    "ccs": "Carbon capture (CCS)",
-    "gas": "Natural gas",
-    "heat": "Heat networks and heat pumps",
-    "ev_charging": "EV charging",
-    "efficiency": "Energy efficiency",
-    "microgrid": "Microgrids and off-grid",
-    "metering": "Smart metering",
-    # existing assets other than power plants
-    "ethanol": "Fuel ethanol",
-    "gathering": "Gathering",
-    "interstate": "Interstate",
-    "intrastate": "Intrastate",
-    "aquifer": "Aquifer",
-    "depleted_field": "Depleted field",
-    "salt_dome": "Salt dome",
-    "import": "Import",
-    "export": "Export",
-    "import_export": "Import and export",
-    # RNG families (us.epa.lmop, us.epa.agstar)
-    "lfg_electricity": "Landfill gas to electricity",
-    "lfg_direct_use": "Landfill gas direct use",
-    "rng": "Renewable natural gas",
-    "farm_digester": "Farm digester",
-}
-
-#: Proposal lifecycle states and opportunity statuses: the keys of
-#: data/vocabulary/lifecycle_states.yaml (`lifecycle_states`, `opportunity_statuses`). The two
-#: vocabularies share `unknown`, `announced` and `cancelled`; the words are the same in both.
-LIFECYCLE_LABELS: dict[str, str] = {
-    "unknown": "Unknown",
-    "announced": "Announced",
-    "filed": "Filed",
-    "studied": "Studied",
-    "permitted": "Permitted",
-    "contracted": "Contracted",
-    "under_construction": "Under construction",
-    "built": "Built",
-    "withdrawn": "Withdrawn",
-    "cancelled": "Cancelled",
-    "open": "Open",
-    "frozen": "Frozen",
-    "reinstated": "Reinstated",
-    "closed": "Closed",
-    "awarded": "Awarded",
-}
+# The technology and lifecycle tables live in `services/labels.py` (2026-10-07), so the social worker,
+# whose image has no `web/`, prints the same words; they are re-exported here unchanged.
+from services.labels import LIFECYCLE_LABELS as LIFECYCLE_LABELS
+from services.labels import TECHNOLOGY_LABELS as TECHNOLOGY_LABELS
+from services.labels import TECHNOLOGY_LOAD_LABEL as TECHNOLOGY_LOAD_LABEL
+from services.labels import _from
+from services.labels import humanise as humanise
+from services.labels import lifecycle_label as lifecycle_label
+from services.labels import technology_label as technology_label
 
 #: Proposal `kind` (docs/21 §3). The map's Kind select prints these.
 PROPOSAL_KIND_LABELS: dict[str, str] = {
@@ -362,28 +288,6 @@ BOOLEAN_ATTRIBUTE_KEYS: frozenset[str] = frozenset({"awarded_usda_funding", "lcf
 #: Keys whose integer values are years, codes or identifiers: printed without thousands separators.
 _PLAIN_NUMBER_KEY = re.compile(r"(year|period|code|_id$|^id$|zip|vintage)")
 _YEAR_SUFFIX = re.compile(r"^(?P<base>.+)_(?P<year>(19|20)\d{2})$")
-
-
-def humanise(token: str) -> str:
-    """Words for a token no table names: underscores to spaces, first letter capitalised. The
-    safety net described in the module docstring; never the intended path for a vocabulary token."""
-    text = str(token).replace("_", " ").strip()
-    return text[:1].upper() + text[1:]
-
-
-def _from(table: Mapping[str, str], token: Any) -> str | None:
-    if token is None or token == "":
-        return None
-    key = str(token)
-    return table.get(key) or humanise(key)
-
-
-def technology_label(token: Any) -> str | None:
-    return _from(TECHNOLOGY_LABELS, token)
-
-
-def lifecycle_label(token: Any) -> str | None:
-    return _from(LIFECYCLE_LABELS, token)
 
 
 def proposal_kind_label(token: Any) -> str | None:

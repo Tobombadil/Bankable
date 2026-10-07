@@ -150,8 +150,17 @@ carry the old name pending the owner's naming decision (docs/12).
 **LinkedIn About (add one paragraph):**
 > Infraque publishes change events from public energy and infrastructure registers. Posts on this page are generated from structured public data by Infraque's pipeline and reviewed by {owner name} before publication. Every post cites its source. Nothing here is investment advice.
 
-**Per-post disclosure (X, Bluesky; carried as `PostDraft.disclosure_text`):**
-> Automated feed run by Infraque (infraque.com). Posts are generated from public records and are commercial in nature. Not monitored for replies — contact: hello@infraque.com.
+**Per-post disclosure (X, Bluesky; carried as `PostDraft.disclosure_text` and `post.disclosure_label`).**
+The middle sentence follows the platform posture (`PLATFORM_POSTURE`, docs/26 §1; docs/13 §6.5), so the
+account never contradicts what `/v1/health`, `/about` and `/pricing` say (2026-10-07, content audit F6,
+legal L-9):
+> *noncommercial (current):* Automated feed run by Infraque (infraque.com). Posts are generated from public records; the platform operates under a noncommercial posture. Not monitored for replies — contact: hello@infraque.com.
+>
+> *commercial:* Automated feed run by Infraque (infraque.com). Posts are generated from public records and are commercial in nature. Not monitored for replies — contact: hello@infraque.com.
+
+**Per-item line on anything published without human review** (docs/13 §6.5, the EU AI Act Art. 50(4)
+route; appended to the body by the drafting worker):
+> Auto-generated summary from {source name}; not human-reviewed.
 
 **Email footer (every send; rendered by `services/alerts/evaluate.py`, identity from
 `SENDER_LEGAL_NAME` / `SENDER_POSTAL_ADDRESS`, no send in production while either is unset):**
@@ -213,6 +222,20 @@ Events are emitted by the pipeline (`03-agent-operating-model.md` §3 steps 2–
 
 Never posted: source-health events, resolver merges, enrichment-only changes (e.g. a new document linked with no status change), anything from a source whose `reuse` is `restricted` or `unknown` in `sources.yaml` (PJM until licensed; MISO/SPP/NYISO/ISO-NE until terms are recorded), anything derived from news text rather than a register.
 
+**As built, 2026-10-07 (content audit F2, F6, F9, F13):**
+- *"Canonical stages"* means any forward move up the lifecycle ladder `announced < filed < studied <
+  permitted < contracted < under_construction < built`, skips included (EIA-860M routinely jumps
+  stages: 17 of the 22 status changes in the 2026-09-30 store were permitted → under construction).
+  A backward move is a correction, not news; withdrawal is its own event type.
+- *`noncommercial` rows are never posted*, under either posture (§4.3 gate 8). They publish on the
+  site under the noncommercial posture, but a platform post hands the platform a licence over the
+  content, which is the downstream commercial use docs/26 §3 (iii) excludes.
+- *One post per project*: events in one drafting run are grouped per record and per EIA plant
+  (generators of one plant, same new state), sized by summing the records ("300 MW gas (combined
+  cycle) across 6 generators"). A merged-away record posts about its survivor.
+- *Large loads with no stated size* (data centres) post on Bluesky and X, saying "no MW stated";
+  a stated load is judged against the 100 MW load bar.
+
 Assumption recorded: proposal-graph events post on public-tier release, not live, so that live alerts keep their value; open procurement and official funding-status events post live because the source is already public and time matters to the reader. Owner to confirm; change in `00-PLAN.md` decisions log if not.
 
 ### 3.2 Post anatomy
@@ -220,8 +243,8 @@ Assumption recorded: proposal-graph events post on public-tier release, not live
 Every post, on every channel, in this order:
 1. Fact line: what changed, size, technology, place. Built only from structured fields.
 2. Identifiers where useful: queue ID, docket, solicitation number.
-3. Link to the proposal/opportunity page on bankablehq.com (UTM: `utm_source={channel}&utm_medium=social&utm_campaign={event_type}&utm_content={event_id}`).
-4. Attribution line: `Source: {source_name}, {retrieved_date}` (full URL and licence are on the page; on LinkedIn and email include the source URL inline too).
+3. Link to the proposal/opportunity page (UTM: `utm_source={channel}&utm_medium=social&utm_campaign={event_type}&utm_content={event_id}`). The tagged link is what the reader clicks (2026-10-07, content audit F15): in the body on X (every link weighs 23 characters) and LinkedIn; on Bluesky the body shows the bare page address and a link facet over it carries the tagged link.
+4. Attribution line: the source's credit **verbatim**, as every other surface prints it (`services.api.serialize.source_credit`: the manifest's `attribution` plus its `changes_statement`, e.g. NESO's mandated "Supported by National Energy SO Open Data"; `Source: {source_name}` only when the source has no credit of its own), then `Retrieved {retrieved_date}.` On LinkedIn the source URL and the licence's name follow (2026-10-07; was `Source: {source_name}` everywhere, audit L-10).
 5. Delayed-tier notice — **amended 2026-09-19, and moot since 2026-09-21** (owner: the paywall is by shape, and then the ISO change-event delay went too): carried only when the event the post is drawn from actually carries a delay, i.e. `lag_days > 0`, which is now never. `Public feed runs {lag_days} days behind. Live alerts: bankablehq.com/alerts` stays in the template, unreachable, so the clause returns with the delay if one ever does rather than being rewritten from memory. A post must not claim a delay the product does not apply; `services/social/db_events.py` reads `lag_days` back from the event's own `public_at - published_at` for exactly this reason, and that difference is now always zero.
 
 Fields available to templates (nothing else is passed to the model): `event_type, event_date, proposal_name, technology, capacity_mw, capacity_unit, load_mw, voltage_kv, capex_usd, county, state, country, iso_rto, queue_id, docket_id, solicitation_id, status_from, status_to, developer_org, issuer_org, awardee_org, award_usd, deadline_date, source_name, source_url, retrieved_at, licence, page_url, lag_days, digest_items[]`. `developer_org`, `issuer_org`, `awardee_org` are used only when present in the official record; never inferred.
@@ -229,6 +252,18 @@ Fields available to templates (nothing else is passed to the model): `event_type
 ### 3.3 Templates per event type
 
 Placeholders in braces. Omit a clause if its field is null; never invent a value. Character budgets: Bluesky ≤ 300 graphemes, X ≤ 280 (link = 23), LinkedIn ≤ 1,300 (first 140 carry the fact), email/RSS unbounded but structured.
+
+**As built, 2026-10-07 (templates v2; content audit F3, F14).** The templates below are the original
+spec; the shipped copy differs in four ways. (1) It says what the source is: "New in the {ISO} queue"
+only for a queue source; otherwise "Newly listed in {source}" ("EIA-860M" on short formats, "EIA's
+monthly generator inventory (EIA-860M)" on LinkedIn). No ISO or balancing-area code is printed for a
+non-queue source and "proposed" is not used. (2) Tokens are words from the site's label table
+(`services/labels.py`): "gas (combined cycle)", "under construction". (3) Every proposal post names
+size and technology; the county is not suffixed twice. (4) The organisation is "Interconnection
+customer per the record" for a queue and "Named in the record" otherwise. Example (Bluesky, store copy):
+`Marici, 400 MW storage, Los Angeles County, CA: permitted → under construction. Per EIA-860M, observed
+27 Sep 2026. EIA plant 69508. https://infraque.com/proposals/marici-f2a8zc Source: EIA-860M Preliminary
+Monthly Electric Generator Inventory. Retrieved 27 Sep 2026.`
 
 **proposal.new**
 - Short (Bluesky/X): `New in {iso_rto} queue: {capacity_mw} MW {technology}, {county} County, {state}. Queue {queue_id}. {developer_org}. {page_url} Source: {source_name}, {retrieved_at:date}. Public feed {lag_days}d behind; live alerts on the page.`
@@ -302,13 +337,15 @@ Components: `publisher/filter.py`, `publisher/draft.py`, `publisher/validate.py`
 2. Contains `page_url` exactly once, and the URL resolves (HEAD 200) to a page whose canonical proposal ID matches the event.
 3. Contains the attribution line from `sources.yaml` unchanged.
 4. Contains the lag notice when, and only when, the event carries a delay (`lag_days > 0`) — amended 2026-09-19 from "when `event_type` starts with `proposal.`", which was true while every proposal was delayed. Since 2026-09-21 no event carries one, so the gate passes by never adding the clause.
-5. Every number in the text appears in the event fields (regex extract → set membership; allows unit conversion MW↔GW and USD rounding).
+5. Every number in the text appears in the event fields (regex extract → set membership; allows unit conversion MW↔GW and USD rounding). Digits inside quoted names (the credit line, the source's and the licence's names: "EIA-860M", "Search2 API", "TED API v3") are not numbers in this sense (2026-10-07, content audit F1: every EIA-860M draft failed on `860`).
 6. Every organisation name in the text appears in `developer_org|issuer_org|awardee_org`.
 7. No banned words (§3.4 list); no `@` mentions of any account on X and Bluesky (no unsolicited mentions); no URLs other than `page_url`.
 8. Source `reuse` ∈ {open, attribution} and any per-source `publish_after` condition met.
 9. Not a duplicate (§4.8).
 
 Failures write a `validation_failed` record with the reason; three failures for the same event page the owner via the supervision Routine.
+
+*As built, 2026-10-07:* a draft that fails a gate is stored as a draft with its failures (`post.gate_failures`) and shown in the review queue; it cannot be approved until a reviewer's edit passes every gate. Before, the worker raised and the event was consumed and lost. A reviewer's edit is validated against the same gates, using the fields the draft was rendered from.
 
 ### 4.4 Review queue
 
@@ -332,6 +369,8 @@ A `(channel, event_type)` pair may auto-publish only when all hold, and the owne
 - LinkedIn: never; it stays manual by decision (§1.4).
 
 Auto-publish is revoked automatically on any `wrong_fact` correction, any platform enforcement action, or the X budget cap; re-graduation requires a fresh 100-draft window. Digests graduate separately from event posts.
+
+*As built, 2026-10-07 (content audit F11, legal L-8):* the owner's switch (`PUT /admin/v1/channels/{channel}/auto-publish`) takes the event types to enable and refuses LinkedIn and any pair that does not pass the thresholds above, computed from the `post` table (`services/social/graduation.py`). The drafting worker re-checks graduation for every post, so a `wrong_fact` rejection in the trailing 100 drafts returns that pair to review at once, and honours the channel's `daily_cap` (a capped post goes to review). Platform policy incidents are not stored; the owner's enabling attests to none. Enabling a named channel is also a dated decisions-log row (docs/13 §7.4).
 
 ### 4.7 Rate limits and back-off
 

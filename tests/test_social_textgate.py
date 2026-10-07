@@ -72,7 +72,9 @@ _FULL_OPPORTUNITY = {
         # The two the audit counted.
         ("proposal.status_changed", "proposal", _FULL_PROPOSAL, "status_from", ("bluesky", "x", "linkedin")),
         ("proposal.status_changed", "proposal", _FULL_PROPOSAL, "status_to", ("bluesky", "x", "linkedin")),
-        ("proposal.status_changed", "proposal", _FULL_PROPOSAL, "technology", ("linkedin",)),
+        # `technology` on LinkedIn was the third; since the 2026-10-07 copy (content audit F14) every
+        # proposal template omits a missing technology instead of interpolating it
+        # (`test_status_change_without_technology_omits_it` below).
         (
             "opportunity.rfp_closing",
             "opportunity",
@@ -143,6 +145,14 @@ def test_render_passes_when_every_interpolated_field_is_present():
         body, template_id, _version = editorial.render(event, channel)
         assert "None" not in body
         assert template_id == f"proposal.status_changed.{channel}"
+
+
+def test_status_change_without_technology_omits_it():
+    event = _event("proposal.status_changed", **{**_FULL_PROPOSAL, "technology": None})
+    for channel in ("bluesky", "x", "linkedin"):
+        body, *_ = editorial.render(event, channel)
+        assert "None" not in body
+        assert "Kern Solar, 250 MW, Kern County" in body
 
 
 def test_draft_events_skips_the_bad_event_and_keeps_the_batch(caplog):

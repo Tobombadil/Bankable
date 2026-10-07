@@ -304,7 +304,7 @@ current schema/tests did not fully settle it on their own):
    reasoning, same file, guards `opportunity.rfp_opened`/`rfp_closing`/`awarded` on `issuer_org`
    being present (`Opportunity.issuer_org_id` is nullable) since those templates also embed it
    unconditionally.
-4. **`page_url` stays bare; the UTM parameters live only on `post.link_url`.** `editorial.
+4. *(Superseded 2026-10-07, below: the tagged link is now in the X and LinkedIn body and is Bluesky's facet target.)* **`page_url` stays bare; the UTM parameters live only on `post.link_url`.** `editorial.
    SocialEvent.page_url` is the same bare `f"{WEB_HOST}/proposals/{slug}"` `db_events.py` builds
    from the record's own slug, with no query string — `editorial.render`/`validate_draft` are
    unmodified from Sprint 2 and their gate 2 ("`page_url` appears in the body exactly once") is
@@ -363,7 +363,7 @@ current schema/tests did not fully settle it on their own):
    event's already-flushed rows survive to the final `db.commit()`. `services/db/test_models.py`
    already proves SQLite supports `begin_nested()` under this project's engine setup; no new
    dependency.
-8. **`ChannelConfig.disclosure_label` wins over the draft's own `disclosure_text` when a
+8. *(Superseded 2026-10-07, below: every post stores the posture-aware account disclosure.)* **`ChannelConfig.disclosure_label` wins over the draft's own `disclosure_text` when a
    `channel_config` row exists**, per the task brief exactly — `services/api/admin_posts.py`'s
    `admin_set_channel_auto_publish` is the only writer of that column today (a fixed platform
    string, its own decision 4), so in practice this only changes behaviour once an operator has
@@ -486,3 +486,71 @@ it).
 - Metrics collection, scheduling/calendar slots, graduation, and everything else in docs/32 §4.5–
   §4.9 remain exactly where Sprint 2 left them (`queue.py`, untouched) — this task only ever
   writes `draft`/`approved` rows into `post`; nothing publishes.
+
+## 2026-10-07: platform-audit fixes (content F1-F3, F5, F6, F9-F11, F13-F15; legal L-8, L-9, L-12)
+
+Measured on a copy of `shots_main.db` (2026-09-30, upgraded to 0033, credits refreshed from the
+manifest, survivorship restated): before, 981 events gave **0 posts and 12 errors**, all
+`numbers not traceable to event fields: ['860']`, and the watermark consumed them. After, the same
+log gives **39 drafts (Bluesky 15, X 15, LinkedIn 9), 0 errors, 0 held**, from 24 eligible events
+in 15 stories. Decisions:
+
+1. **Gate 5 ignores digits inside quoted names** (F1): the credit line, the source's and the
+   licence's names, the phrase naming the source and the automated-item line are removed before
+   numbers are scanned (`editorial._named_text`), and EIA plant ids and the generator count are
+   allowed. An invented number still fails.
+2. **A draft that fails a gate is kept, not lost** (F1): it is written as a `draft` with
+   `post.gate_failures` (migration 0033), cannot be approved while a failure stands, and an edit
+   that passes every gate clears it. The tick counts it in `posts_held`, not `errors`.
+3. **Status changes post on any forward move up the lifecycle ladder** (F2), skips included; a
+   backward move, `unknown` and `withdrawn` are not status news. A status post states the
+   record's current state, so an event whose record has since moved on is not drafted.
+4. **The copy says what the source is** (F3): "New in the {ISO} queue" only for a
+   `generation_queue`/`load_queue` source; anything else is "Newly listed in {source}" (EIA-860M:
+   "EIA's monthly generator inventory (EIA-860M)" on LinkedIn, "EIA-860M" on the short formats,
+   where the credit line spells the full name). No ISO or balancing-area code is printed for a
+   non-queue source; "proposed" is never used; the organisation is "Interconnection customer per
+   the record" for a queue and "Named in the record" otherwise.
+5. **Credits are verbatim** (W3, L-10, L-12): `attribution_line_for` is the credit the record page
+   prints (`db_events.credit_line_for` over `services.api.serialize.source_credit`: the manifest's
+   `attribution` plus its statement of changes, e.g. NESO's "Supported by National Energy SO Open
+   Data"; `Source: {name}` only for a source with no credit of its own). LinkedIn adds the source
+   URL and the licence's name, not its class token.
+6. **Edits** (F5): checked against what may not be removed (the record address once, the credit,
+   and an auto-published post's trailing line) and against every drafting gate, using the fields
+   the draft was rendered from (`post.fields_snapshot`). The account disclosure is metadata, not
+   body text.
+7. **Disclosure and class** (F6, L-9): the account disclosure's posture clause follows
+   `PLATFORM_POSTURE` (docs/13 §6.5, two variants). `SOCIAL_REUSE_CLASSES` is the posture's
+   publishable set minus `noncommercial`, under either posture: docs/32 §4.3 gate 8 ("reuse ∈
+   {open, attribution}") and docs/26 §3 (iii) (no `noncommercial` row may flow to a downstream
+   commercial use; a platform post grants the platform a licence over the content).
+8. **Auto-publish** (F11, L-8): `graduation.may_auto_publish` is the only path: never LinkedIn; the
+   owner enabled that named channel with the disclosure confirmed and named the event type
+   (`channel_config.auto_publish_event_types`, migration 0033); the pair passes docs/32 §4.6
+   graduation over the `post` table at the time of the draft (so a `wrong_fact` rejection revokes
+   it); and the channel's `daily_cap` is not reached. The switch itself refuses LinkedIn and any
+   ungraduated pair. An auto-published body ends with docs/13 §6.5's "Auto-generated summary from
+   [source]; not human-reviewed." A channel switched on before 0033 lists no event type, so it
+   auto-publishes nothing until re-enabled.
+9. **One post per project** (F9): a tick's events are grouped into stories, one per record
+   (highest-priority event) and one per EIA plant (same source, event type and new state), sized
+   by summing the records (docs/22 §23's inventory rule) and saying "across N generators". A
+   merged-away record posts about its survivor, with the survivor's field-survivorship values and
+   page. The link goes to the largest record's page: no plant page exists yet.
+10. **Data centres** (F13): a `load` record with no size passes the size gate on Bluesky and X and
+    says "large load, no MW stated"; a sized load is judged against the 100 MW load bar.
+11. **Words, not tokens** (F14): technology and lifecycle words come from `services/labels.py`,
+    the tables `web/labels.py` used to define (moved so the worker image, which has no `web/`, can
+    import them; `web/labels.py` re-exports them). A county already ending in County/Parish/... is
+    not suffixed again. Status posts always state size and technology. Over-length fact lines are
+    cut at a word boundary. Bluesky's dry-run record carries a link facet over the shown address
+    and a card titled with the record's name.
+12. **UTM per channel** (F15): `editorial.link_for` is `post.link_url`; X (links weigh 23) and
+    LinkedIn carry it in the body, Bluesky as the facet's URI over the bare address. X length is
+    the weighted count (`editorial.channel_length`).
+
+Open: a plant post links one generator's page; no thumbnail (pages lack `og:image`); `HEAD` on
+page routes (§4.3 gate 2's HEAD 200) is not checked; platform policy incidents and adapter
+errors have no store beyond `post.state = failed`; burst smoothing and cluster posts (§4.5) are not
+built; the weekly digest producer does not exist.
