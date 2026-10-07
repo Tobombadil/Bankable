@@ -32,6 +32,7 @@ from services.posture import DEFAULT_POSTURE
 from web import labels
 from web.api_client import ApiClient, ApiError, build_client
 from web.assets import ASSET_VERSION
+from web.head_requests import is_head_request
 from web.viewmodels import ALL_OPPORTUNITY_STATUSES
 from web.viewmodels import footer_build as vm_footer_build
 
@@ -243,8 +244,9 @@ def count_page_view(request: Request, response: _R, page_type: str) -> _R:
     PM-5): first-party and aggregate only. The site's server records `page.viewed {page_type}` with
     its own service identity after the response is sent (a background task, so the page never
     waits on it and never fails for it). Nothing about the reader is sent or stored: no cookie, IP,
-    user agent, referrer or path. Crawlers, prefetches and HEAD requests are not counted."""
-    if request.method != "GET":
+    user agent, referrer or path. Crawlers, prefetches and HEAD requests are not counted (a HEAD
+    reaches the handler as GET, `web/head_requests.py`, so it is asked for by name)."""
+    if request.method != "GET" or is_head_request(request):
         return response
     agent = request.headers.get("user-agent", "")
     purpose = (request.headers.get("purpose") or request.headers.get("sec-purpose") or "").lower()

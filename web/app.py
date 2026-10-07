@@ -33,6 +33,7 @@ from starlette.types import Scope
 from web.api_client import ApiClient, ApiError, ApiNotFound, VisitorIpMiddleware
 from web.auth import router as auth_router
 from web.empty_state import empty_result_facets, range_error
+from web.head_requests import HeadAsGetMiddleware
 from web.labels import PLANT_FAMILY_LABELS
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
@@ -123,6 +124,9 @@ logger = logging.getLogger("web.app")
 app = FastAPI(title="Infraque -- public site")
 # Every server-side API call carries the visitor's address (web/api_client.py; devops audit F1).
 app.add_middleware(VisitorIpMiddleware)
+# `HEAD` on every `GET` route, page and static alike, with the `GET`'s status and headers and no
+# body (web/head_requests.py). Added last, so it is the outermost of the site's own middleware.
+app.add_middleware(HeadAsGetMiddleware)
 
 
 class _StaticFiles(StaticFiles):

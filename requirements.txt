@@ -12,6 +12,8 @@ websocket-client>=1.8    # pipeline/connectors/us_epa_class_vi: EPA's Class VI t
                          # Qlik Sense app whose only machine route is the Engine JSON API over a
                          # websocket. Imported lazily inside fetch(); parser tests need it not.
 pdfplumber>=0.11         # pipeline/connectors/us_tx_rrc_class_vi: the RRC's Class VI list is a vector-table PDF (ADR 0002, docs/20 §15)
+pillow>=12               # web/og_card.py draws web/static/img/og-card.png (and web/test_og_card.py re-draws it);
+                         # previously only a transitive dependency of pdfplumber
 boto3>=1.36,<2           # pipeline/connectors/objectstore.py: SNAPSHOT_STORE=s3 (Cloudflare R2 over the S3 API,
                          # docs/60 §5). Imported lazily, only when that backend builds a client, so tests and the
                          # local store need neither it nor credentials. 1.36 is the first release with the
