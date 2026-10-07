@@ -505,6 +505,20 @@ def test_proposal_detail_embeds_the_point_with_public_totals(
     assert _get(client, f"/v1/proposals/{gated.public_id}").json()["data"]["interconnection_point"] is None
 
 
+def test_the_proposal_list_carries_the_same_point_as_the_detail(
+    client: TestClient, db: Session, world: dict[str, Any]
+) -> None:
+    """Expert review 2026-10-07: an analyst screening a list needs the point per row. Same embed,
+    same gate (a point named by a register the tier may not see is `null`)."""
+    body = _get(client, "/v1/proposals", limit="200").json()
+    assert_valid("ProposalListResponse", body)
+    listed = {row["public_id"]: row["interconnection_point"] for row in body["data"]}
+    for pid in listed:
+        detail = _get(client, f"/v1/proposals/{pid}").json()["data"]["interconnection_point"]
+        assert listed[pid] == detail, pid
+    assert any(v is not None for v in listed.values()) and any(v is None for v in listed.values())
+
+
 def test_the_proposal_filter_is_no_oracle_for_a_gated_point(
     client: TestClient, db: Session, world: dict[str, Any]
 ) -> None:

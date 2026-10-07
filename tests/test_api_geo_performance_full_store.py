@@ -1,23 +1,31 @@
-"""`GET /v1/proposals/geo` within docs/04 D-13's per-call budget on a store the size and shape of the
-full dev store, in CI.
+"""`GET /v1/proposals/geo` against the one geo latency budget, docs/04 E-16 (`/geo` p95 <= 400 ms; D-13's
+API share), on a store the size and shape of the full dev store, in CI.
 
-`tests/test_api_geo_performance.py` asserts the same budget, but only on EIA-860M (~2,300 rows) and
-only where the git-ignored `data/normalized` exists, so CI never ran it, and the full dev store
-(~10,600 live proposals over every `PROPOSAL_SOURCE_IDS` source) measured 1.1-1.3 s for a warm
-national call (2026-10-07). This module builds a synthetic store of that size and mix from
-committed data (`tests/geo_full_store.py`: 10,652 public proposals, eight sources, 404 merges and
-532 merged-away rows, every placement grade, two derived-only licences, GB rows) in about 3 s, and
-asserts the budget on the map's real requests with the existing test's convention: one warm-up
-call, then the timed call, against 500 ms plus the existing test's margin (1.0 s), here the median
-of three timed calls so one scheduler hiccup does not fail CI.
+`tests/test_api_geo_performance.py` covers the same route, but only on EIA-860M (~2,300 rows) and only
+where the git-ignored `data/normalized` exists, so CI never ran it. This module builds a synthetic store
+of the full dev store's size and mix from committed data (`tests/geo_full_store.py`: 10,652 public
+proposals, eight sources, 404 merges and 532 merged-away rows, every placement grade, two derived-only
+licences, GB rows) in about 4 s and times the map's real requests.
 
-Measured on the dev VM (2026-10-07, median of 9 warm calls; docs/CHANGELOG.md): national zoom 3
-on this store 1,377 ms before the change, about 340 ms after; on main, 6 of the 9 budget cases
-below fail. The whole module runs in about 15-20 s.
+**Two paths.** Since 2026-10-07 the whole-set part of a map answer is cached per filter set on a data
+version (`services/api/geo_cache.py`): a pan is a cache hit, and only the first request per filter set
+after a data change does the national work. The *cold* call is timed with the cache cleared before
+each call; the *warm* pan must be one SQL statement and well under half the cold call.
+
+**Why a ratio, not 400 ms.** Until 2026-10-07 this asserted the median of three calls under 1.0 s
+against a measured ~0.34 s, so a 2x regression passed (backend audit API-1); an absolute number tight
+enough to catch one fails on any runner slower than the machine it was set on. The guard here is
+relative: each cold call's best of five, divided by the best of five runs of a fixed CPU workload
+interleaved with it (`_reference_s`), must stay under `GUARD` times the ratio recorded in
+`RECORDED_RATIO`. A slower runner slows both; a change that doubles the call's cost doubles the ratio
+and fails. Bests, not medians, because the measuring VM is shared and a burst of load only ever adds
+time. The 400 ms itself is checked by the measurement procedure in services/README.md "Geo latency"
+on the dev VM, where the cold calls below measured 0.03-0.45 s under load (2026-10-07).
 """
 
 from __future__ import annotations
 
+import json
 import statistics
 import time
 from collections.abc import Iterator
@@ -27,6 +35,7 @@ import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from services.api import geo_cache
 from services.api.app import app
 from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
@@ -38,8 +47,27 @@ from tests.latency import settle_heap
 CONUS_BBOX = "-125,24,-66,50"
 TEXAS_BBOX = "-106.65,25.84,-93.51,36.5"
 ACTIVE = "announced,filed,studied,permitted,contracted,under_construction"
-#: 500 ms (D-13 as this sprint set it) plus the margin `tests/test_api_geo_performance.py` uses.
-BUDGET_S = 1.0
+#: docs/04 E-16: `/geo` p95 <= 400 ms, the one geo latency number (D-13's API share).
+BUDGET_S = 0.4
+#: Best-of-five cold call / best-of-five `_reference_s()`, per request, on the dev VM (2026-10-07; the
+#: middle of three runs, load average 2-4 on 4 cores; services/README.md "Geo latency" has the method).
+RECORDED_RATIO = {
+    "conus_z3": 6.4,
+    "conus_z2": 5.2,
+    "conus_z4": 5.2,
+    "conus_z6": 5.9,
+    "texas_z7": 7.0,
+    "default_view_z3": 3.1,
+    "withdrawn_included_z3": 3.8,
+    "kind_load_z3": 2.3,
+    "kind_ccs_z3": 0.5,
+}
+#: A ratio this many times the recorded one fails: a 2x regression fails unless the run's noise
+#: hides more than a fifth of it; measured run-to-run spread of the ratio was about +-25%.
+GUARD = 1.6
+#: Below this ratio (about 60 ms of call) noise dominates, so a tiny call is held to it instead.
+RATIO_FLOOR = 1.0
+CALLS = 5
 
 #: The map's own requests (`web/static/js/map.js`): national at zooms 2-6, a state at zoom 7, the
 #: default active-only view, withdrawn included, and two kind filters.
@@ -75,6 +103,7 @@ def store() -> Iterator[tuple[sessionmaker[Session], dict[str, int]]]:
         counts = geo_full_store.build(session)
     yield factory, counts
     engine.dispose()
+    geo_cache.reset()  # drop this store's cached answers so later modules do not carry them
 
 
 @pytest.fixture(scope="module")
@@ -145,13 +174,75 @@ def test_a_national_call_draws_the_full_store_within_the_feature_budget(
     assert 0 < len(data["features"]) <= 2_000  # D-13: a viewport returns at most 2,000 features
 
 
+def _reference_s() -> float:
+    """A fixed CPU workload shaped like the map's Python half (tuples, a sort, grouping, JSON), so
+    its time tracks the runner's speed and load, not this code. Deterministic; ~60-100 ms."""
+    t0 = time.perf_counter()
+    rows = [(i, f"prop_{i:08d}", ("filed", "studied", "built")[i % 3], i * 0.37) for i in range(40_000)]
+    rows.sort(key=lambda r: (r[2], -r[3]))
+    cells: dict[tuple[int, str], list[float]] = {}
+    for i, _name, state, mw in rows:
+        cells.setdefault((i % 97, state), []).append(mw)
+    json.dumps([{"id": n, "s": s, "mw": m} for _, n, s, m in rows[:15_000]])
+    return time.perf_counter() - t0
+
+
 @pytest.mark.parametrize("name", list(REQUESTS))
-def test_geo_call_meets_the_d13_budget_on_a_full_scale_store(client: TestClient, name: str) -> None:
+def test_a_cold_geo_call_has_not_regressed_against_the_reference_workload(
+    client: TestClient, name: str
+) -> None:
     params = REQUESTS[name]
-    _get(client, params)  # warm-up, as tests/test_api_geo_performance.py
-    timings = [_get(client, params)[0] for _ in range(3)]
-    median = statistics.median(timings)
-    assert median < BUDGET_S, (
-        f"{name}: median {median * 1000:.0f} ms over {[round(t * 1000) for t in timings]} ms "
-        f"(budget 500 ms + margin, {BUDGET_S * 1000:.0f} ms)"
+    _get(client, params)  # imports, page cache and the startup heap freeze, not the call itself
+    cold: list[float] = []
+    references: list[float] = []
+    for _ in range(CALLS):
+        references.append(_reference_s())
+        geo_cache.reset()  # the first call per filter set after a data change: the national work
+        cold.append(_get(client, params)[0])
+    ratio = min(cold) / min(references)
+    limit = max(GUARD * RECORDED_RATIO[name], RATIO_FLOOR)
+    assert ratio < limit, (
+        f"{name}: best cold call {min(cold) * 1000:.0f} ms is {ratio:.2f}x the reference workload "
+        f"({min(references) * 1000:.0f} ms); recorded {RECORDED_RATIO[name]}x, limit {limit:.2f}x. "
+        f"Budget: E-16 {BUDGET_S * 1000:.0f} ms p95 (docs/04)."
     )
+
+
+@pytest.mark.parametrize("name", ["conus_z3", "conus_z4", "default_view_z3"])
+def test_a_pan_is_a_cache_hit_well_under_the_cold_call(client: TestClient, name: str) -> None:
+    """The same filters with another viewport reuse the whole-set work (`services/api/geo_cache.py`).
+    Clustered views only: a viewport of at most 500 markers also loads those records, whatever the
+    cache holds, and is timed by the budget test above."""
+    params = REQUESTS[name]
+    pan = {**params, "bbox": "-125,24,-85,50"}
+    geo_cache.reset()
+    cold = [_get(client, params)[0]]
+    warm: list[float] = []
+    for _ in range(CALLS):
+        warm.append(_get(client, pan)[0])
+        geo_cache.reset()
+        cold.append(_get(client, params)[0])
+    warm_median, cold_median = statistics.median(warm), statistics.median(cold)
+    assert warm_median < 0.5 * cold_median, (name, warm_median, cold_median)
+
+
+@pytest.mark.parametrize("name", ["conus_z3", "conus_z4", "default_view_z3"])
+def test_a_pan_runs_one_statement(
+    client: TestClient, store: tuple[sessionmaker[Session], dict[str, int]], name: str
+) -> None:
+    """Deterministic twin of the timing above: a cache hit reads only the data version."""
+    factory, _ = store
+    params = REQUESTS[name]
+    _get(client, params)
+    statements: list[str] = []
+    engine = factory.kw["bind"]
+
+    def grab(_c: object, _cur: object, statement: str, *_a: object) -> None:
+        statements.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", grab)
+    try:
+        _get(client, {**params, "bbox": "-125,24,-85,50"})
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", grab)
+    assert len(statements) == 1, statements

@@ -147,8 +147,12 @@ full record. The drawer is `role="dialog"` with focus trap; closing returns focu
 AC1 without leaving the map.
 
 **D-13 Map performance budget** (measured on the seeded dataset, ≥ 20,000 placed records): first map paint
-within the page LCP budget (D-31); a viewport request returns ≤ 2,000 features and ≤ 300 KB gzipped; pan/zoom
-to updated markers ≤ 200 ms; canvas/WebGL rendering (MapLibre GL JS or equivalent), never one DOM node per
+within the page LCP budget (D-31); a viewport request returns ≤ 2,000 features and ≤ 300 KB gzipped, the asset
+layer included (since 2026-10-07 lines below 5 px at the zoom are not drawn and are counted instead: CONUS
+z4 154 KB, Texas z7 286 KB on the full dev store); pan/zoom to updated markers ≤ 200 ms end to end, of which
+the API's share is E-16's `/geo` budget (≤ 400 ms p95 for the first request per filter set after a data
+change; a pan with the same filters is a cache hit, 30-100 ms measured) — the one API number, recorded
+2026-10-07 after the plan, the README and the CI test had stated 400, 500 and 1,000 ms; canvas/WebGL rendering (MapLibre GL JS or equivalent), never one DOM node per
 marker above 500; map bundle ≤ 350 KB gzipped including the library (re-based from 250 KB on 2026-09-15: MapLibre GL 5.24 alone measures 276 KB, the page script 9.4 KB and the PMTiles scripts 14.6 KB, so the shipped map is ~300 KB and 350 KB leaves room for one more layer before the next decision); basemap tiles self-hosted or from a
 provider whose terms permit commercial use, with attribution rendered (OpenStreetMap ODbL,
 https://www.openstreetmap.org/copyright). *Why:* the heaviest page is the one the owner made primary.
@@ -484,10 +488,15 @@ message, trailer, branch name, code comment, docstring, fixture, log line, test 
 attribution is recorded (`docs/03` §6). *Why:* the guardrail is absolute and covers trailers.
 
 **E-16 Performance budgets** (CI against the seeded 10⁵-record database; production dashboards): API p95 — list
-≤ 300 ms, detail ≤ 200 ms, search `q=` ≤ 500 ms (US-103 AC3), `/geo` ≤ 400 ms, bulk first byte ≤ 1 s; search
+≤ 300 ms, detail ≤ 200 ms, search `q=` ≤ 500 ms (US-103 AC3), `/geo` ≤ 400 ms (D-13's API share; the only geo
+number), bulk first byte ≤ 1 s; search
 p95 > 300 ms sustained a week triggers `docs/20` §13 step 4; pages per D-31; `fetch` jobs ≤ 10 min, browser jobs
 ≤ 5 min (`docs/20` §4.2). A > 10 % regression needs a PR comment and, if accepted, an exception (R-6). *Why:*
-budgets without measurement are wishes.
+budgets without measurement are wishes. *CI and machine speed (2026-10-07):* an absolute
+threshold tight enough to catch a regression fails on a slower runner, so the geo guard
+(`tests/test_api_geo_performance_full_store.py`) asserts each cold call's ratio to a fixed CPU workload timed
+in the same run stays under 1.6x the ratio recorded on the dev VM, which fails a 2x regression on any runner;
+the 400 ms itself is checked by the measurement procedure in services/README.md.
 
 **E-17 Error handling.** API errors are RFC 9457 (https://www.rfc-editor.org/rfc/rfc9457) exactly as `docs/23`
 §8; a new `code` edits `docs/23` §8 first. Internally, typed exceptions per layer (`ConnectorError`, `ParseError`,
@@ -641,7 +650,8 @@ at `/docs` is the public documentation; every operation carries `x-tier`, `x-sto
 
 **API-2 Cursor pagination only** (`docs/23` §7): `limit` default 50, max 200 (1,000 on `/bulk/*`); opaque cursor
 valid 24 h; `page.{next_cursor, prev_cursor, has_more}`; `meta.total` only with `include=count`, honest
-`total_is_estimate` above 10,000; no offset parameter exists. *Why:* concurrent ingestion (US-101 AC2).
+`total_is_estimate` (every count is exact today, so `false`); a `limit` outside its range and an `include` value
+the operation does not implement are `400 validation_error`, never clamped or ignored; no offset parameter exists. *Why:* concurrent ingestion (US-101 AC2).
 
 **API-3 Filter grammar** is `docs/23` §7 exactly: `field=value`, `field=a,b` (OR within facet), `field[op]=value`
 with `gte, lte, gt, lt, from, to`; facets AND; `sort=-field,field` from the per-resource allowlist; unknown

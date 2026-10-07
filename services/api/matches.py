@@ -49,8 +49,8 @@ from services.api.auth import AuthContext, get_auth_context, require_entitlement
 from services.api.common import WEB_HOST, iso
 from services.api.deps import get_db
 from services.api.errors import invalid_cursor, not_found, validation_error
-from services.api.pagination import clamp_limit, decode_cursor, paginate
-from services.api.params import check_allowed, csv_param, int_param, sort_spec
+from services.api.pagination import decode_cursor, paginate
+from services.api.params import check_allowed, csv_param, include_values, page_limit, sort_spec
 from services.api.pro import _rate_limit_headers
 from services.api.records import _opportunity_technologies_filter
 from services.api.serialize import (
@@ -360,7 +360,7 @@ def _render(
 def _page(
     db: Session, request: Request, ctx: AuthContext, stmt: sa.Select[tuple[Match]], *, count: bool = False
 ) -> dict[str, Any]:
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
     field, ascending = sort_spec(request, MATCH_SORT_ALLOWLIST, "-score")
     cursor = _check_cursor(request)
     if _withheld(ctx):
@@ -433,7 +433,7 @@ def list_matches(
     user_id = caller_user_id(ctx)
     if not _bool_param(request, "include_dismissed") and user_id is not None:
         stmt = stmt.where(~_dismissed_by(user_id))
-    count = "count" in (csv_param(qp.get("include")) or [])
+    count = "count" in include_values(request, frozenset({"count"}))
     return _page(db, request, ctx, stmt, count=count)
 
 

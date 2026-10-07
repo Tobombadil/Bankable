@@ -21,7 +21,7 @@ that generation must produce; where the two disagree, the generated document is 
 | Idempotency | All mutating endpoints accept `Idempotency-Key`; replays return the original response for 24 h. |
 | Request id | Every response carries `X-Request-Id`; it appears in error bodies and in support requests. |
 | Compression | `gzip` and `br`. Bulk endpoints stream NDJSON. |
-| Caching | Public GETs carry `Cache-Control: public, max-age=300` and an `ETag`. Pro/API responses are `private, no-store`. (There is no separate delayed view to cache: nothing is time-delayed since 2026-09-21.) |
+| Caching | Public GETs carry `Cache-Control: public, max-age=300` and an `ETag`. Pro/API responses are `private, no-store`. (There is no separate delayed view to cache: nothing is time-delayed since 2026-09-21.) Since 2026-10-07: the `ETag` is weak (`W/"…"`), on every public `200` JSON, GeoJSON, JSON Feed or RSS GET, over the uncompressed body with `meta.request_id`, `generated_at` and `data_as_of` left out, and a matching `If-None-Match` answers `304`; public feeds are `public, max-age=300, stale-while-revalidate=60`, `/v1/geo/regions` `public, max-age=86400`, private saved-search feeds `private, no-store`; `Vary: Authorization, Cookie, Accept-Encoding` on every cacheable response. |
 
 ## 2. Resources
 
@@ -60,7 +60,7 @@ is the minimum entitlement; a higher tier sees more fields — never fresher dat
 
 | Method & path | Purpose | Stories |
 |---|---|---|
-| `GET /v1/proposals` | List with filters, sort, cursor pagination | US-101, US-102 |
+| `GET /v1/proposals` | List with filters, sort, cursor pagination; each row carries its `interconnection_point` as the detail does (since 2026-10-07) | US-101, US-102 |
 | `GET /v1/proposals/{public_id}` | Detail with canonical fields, sources panel, linked orgs | US-201, US-203 |
 | `GET /v1/proposals/{public_id}/events` | Lifecycle timeline, newest first | US-202 |
 | `GET /v1/proposals/{public_id}/sources` | Provenance rows (licence-gated, `docs/21` §8) | US-201 AC1 |
@@ -70,17 +70,25 @@ is the minimum entitlement; a higher tier sees more fields — never fresher dat
 | `GET /v1/organizations` · `/{public_id}` · `/{public_id}/proposals` · `/{public_id}/opportunities` | Sponsor and issuer pages | US-203 AC1, US-303 |
 | `GET /v1/events` | Global change feed, `since` cursor, filterable by subject and type | US-703 AC1 |
 | `GET /v1/documents/{id}` | Document metadata and a link; bytes only where `storage_policy = stored` and the licence allows | US-302 AC1 |
-| `GET /v1/sources` · `/{source_id}` | Source registry: name, operator, cadence, licence, attribution text, publish state | US-105 AC1, US-704 |
+| `GET /v1/sources` · `/{source_id}` | Source registry: name, operator, cadence, licence, attribution text, publish state; `last_success_at` (the newer of the scheduler's column and the newest successful `source_run`), `last_loaded_at` and `freshness` (since 2026-10-07) | US-105 AC1, US-704 |
 | `GET /v1/licences` · `/{licence_id}` | Licence register with reuse class and permissions | US-105, US-704 AC2 |
 | `GET /v1/meta/vocabularies` | Enum vocabularies (kinds, technologies, lifecycle states, event types) so integrators can build filters | US-102, US-703 |
 | `POST /v1/intake/proposals` · `/v1/intake/opportunities` | Submit-a-project / submit-an-RFP; creates a pending record and an admin task; rate-limited and captcha-gated | US-1001, US-1003 |
 | `POST /v1/reports` | Report a problem on a record | US-204 |
-| `GET /v1/health` | Liveness and `data_as_of` | US-604, US-904 |
+| `GET /v1/health` | Liveness and `data_as_of`: the oldest last successful fetch among loaded sources (it was the request time until 2026-10-07), with `data_as_of_newest` | US-604, US-904 |
 | `GET /v1/context/plants/geo` | Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14): clustered `built_plant` points under the proposals map. No lag, no tier gating — every source in scope (EIA-860M) is public domain | US-101, US-104 |
 | `GET /v1/assets` · `/{public_id}` | Asset list and page (ADR 0008): filters `asset_type`, `technology`, `state`, `organization` (public id), `q` (name, operator, owner); detail carries `owners[]` (organisation public id, name, role, share_pct, as_of, source) and `attributes`. No lag, no tier gating: sources are public domain or CC BY | US-104, US-203 |
-| `GET /v1/assets/geo` | Clustered asset points within a bbox: same envelope and cluster shape as `/v1/context/plants/geo`, plus `asset_type` (csv) and `technology` (csv) filters; `feature_kind` is `asset` or `asset_cluster` with `dominant_asset_type`. `/v1/context/plants/geo` stays as an alias for `asset_type=power_plant` | US-104 |
-| `GET /v1/assets/{public_id}/nearby-proposals` | Exact-grade proposals within `radius_km` (default 25, max 100) of the asset's point, public-tier rules applied; region-grade and none-grade proposals are never returned here | US-104, US-203 |
+| `GET /v1/assets/geo` | Clustered asset points within a bbox: same envelope and cluster shape as `/v1/context/plants/geo`, plus `asset_type` (csv) and `technology` (csv) filters; `feature_kind` is `asset` or `asset_cluster` with `dominant_asset_type`. `/v1/context/plants/geo` stays as an alias for `asset_type=power_plant`. Line assets (`asset_line`) are simplified to half a pixel at `zoom`; below zoom 14 a line under 5 px (or a part under 3 px) is not drawn and is counted in `totals.line_count` (since 2026-10-07, so a viewport stays inside D-13's 300 KB) | US-104 |
+| `GET /v1/assets/{public_id}/nearby-proposals` | Exact-grade proposals within `radius_km` (default 25, max 100) of the asset's point, public-tier rules applied; region-grade and none-grade proposals are never returned here. Nearest first, equal distances by public id; `cursor` pages (since 2026-10-07) | US-104, US-203 |
+| `GET /v1/assets/{public_id}/nearby-grid` | The transmission lines and grid interconnection points nearest a point asset (lane R1), each with its distance | US-104 |
+| `GET /v1/organizations/{public_id}/nearby-proposals` | Exact-grade proposals within `radius_km` of any of the organisation's assets (owned or operated; `scope`, `role`, `asset_type`, `technology`), each once at its nearest asset; `totals` with the assets measured and in scope; `cursor` pages | US-203 AC1 |
 | `GET /v1/organizations/{public_id}/assets` | The organisation's assets through `asset_owner`, with role and share; cursor-paginated | US-203 AC1 |
+| `GET /v1/opportunities/geo` | Map payload for opportunities within a bbox (same envelope and cluster shape as the proposals map) | US-104, US-301 |
+| `GET /v1/events/{event_id}` | One change event, visible only when its subject is (`docs/21` §8 item 2) | US-703 |
+| `GET /v1/documents/{document_id}/content` | A document's bytes, only where `storage_policy = stored` and the licence allows | US-302 AC1 |
+| `GET /v1/interconnection-points` · `/{public_id}` | Grid interconnection points (`docs/21` §3.24) with active queued MW and counts per tier; the detail lists its visible proposals and recent changes | US-104, US-203 |
+| `GET /v1/coverage` | What the register does and does not contain, measured at request time: sources registered, loaded and withheld; per source its release (`vintage`), last successful fetch (`last_success_at`, from the recorded runs too), last loaded run (`last_loaded_at`) and `freshness` against the poll allowance | US-105, US-604 |
+| `GET /v1/lifecycle-states` | The published definitions of the lifecycle vocabulary, with the raw source values that map into each | US-201, US-604 |
 | `GET /v1/geo/regions` | Region polygons for the map: `level` (`county \| state \| country`) and `ids` (csv of `county_fips`, `state_code` or `country`, max 500) → GeoJSON `MultiPolygon` features with `region_id`, `name`, `level`; from the vendored Census cartographic boundaries (20m, US) and the existing country outlines; cacheable for a day | US-104 |
 
 | `POST /v1/ui-events` | Identifier-free interaction counter for the context layer (`services/db/models.py::UI_EVENT_NAMES`); no auth, rate-limited 60/min per IP for limiting purposes only (the IP is never stored) | US-104 |
@@ -106,7 +114,7 @@ Everything in §3.1, at the same freshness, plus:
 | `POST /v1/matches/{id}/dismiss` · `DELETE …/dismiss` | Per-user dismissal, never global | pro | US-402 AC2 |
 | `GET /v1/matches` | Cross-entity match list with filters | pro | US-401 |
 | `GET /v1/keys` · `POST` · `DELETE /{id}` | Self-service API keys, shown once, revoked ≤ 60 s | api | US-701 |
-| `GET /v1/bulk/proposals` · `/bulk/opportunities` · `/bulk/events` | NDJSON stream, `updated_since` + cursor, 1,000-row pages | api (`read:bulk`) | US-703 |
+| `GET /v1/bulk/proposals` · `/bulk/opportunities` · `/bulk/events` | NDJSON, `updated_since` + cursor, 1,000-row pages. "Stream" describes the format: the page is built before its first byte is sent, because the first line (`meta`) carries the whole page's licence summary and redactions | api (`read:bulk`) | US-703 |
 | `GET /v1/webhooks` · `POST` · `DELETE /{id}` · `POST /{id}/test` | Webhook endpoints and secrets | api (`write:webhooks`) | US-703 |
 | `GET /v1/webhooks/{id}/deliveries` | Delivery attempts and responses for debugging | api | — |
 
@@ -189,20 +197,21 @@ GET /v1/proposals?limit=50&cursor=eyJzIjoxNjkyLCJpIjoicHJvcF8wMUpCIn0
 
 | Parameter | Default | Max | Notes |
 |---|---|---|---|
-| `limit` | 50 | 200 (1,000 on `/bulk/*`) | Page size |
+| `limit` | 50 | 200 (1,000 on `/bulk/*`) | Page size; outside 1..max is `400 validation_error` (it was clamped silently until 2026-10-07). On a list's `Accept: text/csv` twin it caps the file's rows, up to the plan's export cap |
 | `cursor` | — | — | Opaque base64 of `(sort key, tiebreaker id)`; valid for 24 h; invalid cursor → `400 invalid_cursor` |
-| `include` | — | — | `count`, `sources`, `matches`, `events` — opt-in expansions, each costing a documented extra query |
+| `include` | — | — | Opt-in expansions, each costing a documented extra query. Lists implement `count` only; a record detail accepts `count`, `sources`, `matches`, `events` and builds none of them yet. Any other value is `400 validation_error`, never ignored |
 
 Response paging block: `page: {next_cursor, prev_cursor, has_more}` and, when `include=count`,
-`meta.total` with `meta.total_is_estimate` (exact at ≤ 10,000 rows, estimated above — US-101 AC1 asks for a total,
-and an exact count over a large filtered set is not worth the scan).
+`meta.total` with `meta.total_is_estimate`. The count is exact at every size today, so the flag is `false` (until
+2026-10-07 it said `true` above 10,000 for a count that was still exact); it turns `true` only if an estimate path
+replaces the scan for large sets (US-101 AC1 asks for a total, not an exact one).
 
 **Filtering.** `field=value` for equality, `field=a,b` for OR within a facet, and `field[op]=value` for ranges:
 `gte`, `lte`, `gt`, `lt`, `from`, `to`. Facets combine with AND, values within one facet with OR (US-102 AC3).
 
 | Filter | Applies to | Example |
 |---|---|---|
-| `kind`, `technology`, `lifecycle_state`, `jurisdiction`, `iso`, `state`, `county_fips`, `sponsor_id`, `source_id` | proposals | `?technology=bess,solar_pv&jurisdiction=US-TX` |
+| `kind`, `technology`, `lifecycle_state`, `jurisdiction`, `iso`, `state`, `county_fips`, `sponsor_id`, `source_id` | proposals | `?technology=storage,solar&jurisdiction=US-TX` (values from `/v1/meta/vocabularies`). `sponsor_id`/`issuer_id` take an organisation's public id or its slug (since 2026-10-07); a saved search or webhook stores the id, and refuses with `400 validation_error` a value naming no published organisation (hidden or unknown alike) |
 | `capacity_mw[gte]`, `capacity_mw[lte]`, `storage_mwh[gte]` | proposals | `?capacity_mw[gte]=50&capacity_mw[lte]=500` |
 | `first_seen[from]`, `first_seen[to]`, `last_changed[from]`, `updated_since` | proposals, opportunities | `?updated_since=2026-09-01T00:00:00Z` |
 | `kind`, `issuer_id`, `status`, `technologies`, `due_at[from]`, `due_at[to]` | opportunities | `?status=open&due_at[to]=2026-12-31` |
@@ -241,14 +250,15 @@ Errors are RFC 9457 problem details, `Content-Type: application/problem+json`, w
 
 | HTTP | `code` | When |
 |---|---|---|
-| 400 | `validation_error` | Bad body or parameter; `errors[]` lists fields |
+| 400 | `validation_error` | Bad body or parameter; `errors[]` lists fields. Includes a malformed JSON body or a missing required parameter, which the framework answered as a 422 list until 2026-10-07 |
 | 400 | `unknown_parameter` | Unrecognised filter — never silently ignored (§7) |
 | 400 | `invalid_cursor` | Expired or malformed cursor |
 | 401 | `unauthenticated` | Pro/API/admin path without a valid credential |
 | 403 | `forbidden_tier` | Credential valid but plan does not include the endpoint or scope; body names the required tier |
 | 403 | `licence_gated` | Requested representation withheld by licence; the response may still carry the derived view |
 | 403 | `seat_limit` | Concurrent sessions above the seat count (US-602 AC2) |
-| 404 | `not_found` | No such public id, or the record is not visible to this tier (indistinguishable by design — a 403 on a gated record would disclose its existence, `docs/21` §8 item 3) |
+| 404 | `not_found` | No such public id, or the record is not visible to this tier (indistinguishable by design — a 403 on a gated record would disclose its existence, `docs/21` §8 item 3); also an unknown path |
+| 405 | `method_not_allowed` | The path exists but does not take the method; `Allow` lists the ones it does (added 2026-10-07: the framework answered `{"detail": ...}`) |
 | 301 | — | Merged record: `Location` points at the surviving public id (US-201 AC3) |
 | 410 | `unpublished` | Record withdrawn by takedown or unpublish; the id is reserved, nothing is returned |
 | 409 | `conflict` | Idempotency-key reuse with a different body; merge preview stale |

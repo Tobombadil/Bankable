@@ -219,6 +219,55 @@ def decimals_for_tolerance(tolerance: float) -> int:
     return max(3, min(FULL_DECIMALS, math.ceil(-math.log10(tolerance)) + 1))
 
 
+# ------------------------------------------------------------------------------ map line layer
+#: The map's line layer (`GET /v1/assets/geo`), not an asset page's geometry: below
+#: `NO_SIMPLIFY_ZOOM` a part smaller than `MIN_PART_PX` pixels on each side is not drawn (the
+#: largest part of a line always is), and a line whose whole extent is under `MIN_LINE_PX` pixels
+#: is not drawn at that zoom at all; both are counted in `totals.line_count`, like lines past
+#: `LINE_FEATURE_CAP`. This is the minimum-feature-size rule of a vector-tile pipeline. Measured on
+#: the full dev store (backend audit 2026-10-07, PERF-5; all asset types, gzip -6): CONUS at zoom 4
+#: 335 -> 154 KB, Texas at zoom 7 419 -> 286 KB, inside docs/04 D-13's 300 KB. Dissolved pipeline
+#: systems carry thousands of parts of a pixel or two that cost two vertices each (the
+#: Douglas-Peucker floor, `simplify_parts`), and at zoom 4 a line under 5 px is under ~50 km.
+#: With 3 px / 4 px Texas at zoom 7 was 297 KB, too close to the budget to keep.
+MIN_PART_PX = 3.0
+MIN_LINE_PX = 5.0
+
+
+def pixel_deg(zoom: int) -> float:
+    """Degrees of longitude per CSS pixel on a 256 px Web Mercator tile at `zoom`."""
+    return 360.0 / (256.0 * (2.0 ** max(0, zoom)))
+
+
+def map_decimals_for_zoom(zoom: int) -> int:
+    """Coordinate decimals for the map line layer: the tolerance's own order of magnitude (a
+    rounding step no larger than the half-pixel tolerance), never fewer than 2 (~1.1 km, a ninth of
+    a pixel at zoom 4) and never more than `FULL_DECIMALS`. One decimal coarser than
+    `decimals_for_tolerance`, which asset pages keep: at zoom 4 that is 2 decimals, at zoom 7 3."""
+    tolerance = tolerance_for_zoom(zoom)
+    if tolerance <= 0.0:
+        return FULL_DECIMALS
+    return max(2, min(FULL_DECIMALS, math.ceil(-math.log10(tolerance))))
+
+
+def map_parts_for_zoom(parts: Parts, zoom: int) -> Parts | None:
+    """`parts` as the map line layer draws them at `zoom`: simplified, small parts dropped and
+    rounded (`map_decimals_for_zoom`); `None` when the whole line is under `MIN_LINE_PX` pixels."""
+    tolerance = tolerance_for_zoom(zoom)
+    simplified = simplify_parts(parts, tolerance)
+    if tolerance > 0.0:
+        px = pixel_deg(zoom)
+        min_lon, min_lat, max_lon, max_lat = parts_bbox(simplified)
+        if max(max_lon - min_lon, max_lat - min_lat) < MIN_LINE_PX * px:
+            return None
+        if len(simplified) > 1:
+            longest = max(range(len(simplified)), key=lambda i: _part_extent(simplified[i]))
+            simplified = tuple(
+                p for i, p in enumerate(simplified) if i == longest or _part_extent(p) >= MIN_PART_PX * px
+            )
+    return round_parts(simplified, map_decimals_for_zoom(zoom))
+
+
 def round_parts(parts: Parts, decimals: int) -> Parts:
     if decimals >= FULL_DECIMALS:
         return parts

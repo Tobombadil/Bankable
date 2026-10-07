@@ -115,20 +115,24 @@ def test_geo_clustering_grows_with_zoom(client) -> None:
 
 
 def test_geo_endpoint_meets_its_latency_budget_on_the_real_dataset(client) -> None:
-    """docs/04 D-13 / this sprint's task budget: ≤ 500 ms per geo call on the full dataset in
-    SQLite. Warms up first (import/JIT/page-cache costs that are not the query itself, same
-    reasoning `services/README.md` "Sprint 2 fixes" uses for its own pasted timings), then asserts
-    on the next call.
-    """
+    """docs/04 E-16: `/geo` p95 <= 400 ms, the one geo latency number (D-13's API share; until
+    2026-10-07 this file said "500 ms", the README 400 ms and the plan 500 ms). Real EIA-860M rows,
+    local only (the data is git-ignored). The call is timed *cold*: the map cache
+    (`services/api/geo_cache.py`) is cleared first, or a warm call would time a cache hit. The
+    assertion keeps a 2.5x margin for an unknown machine; the regression guard that can catch a 2x
+    slowdown is `tests/test_api_geo_performance_full_store.py`, which runs in CI."""
     import time
 
+    from services.api import geo_cache
+
     client.get(f"/v1/proposals/geo?bbox={CONUS_BBOX}&zoom=3")  # warm-up
+    geo_cache.reset()
     settle_heap()
     t0 = time.time()
     resp = client.get(f"/v1/proposals/geo?bbox={CONUS_BBOX}&zoom=3")
     elapsed = time.time() - t0
     assert resp.status_code == 200
-    assert elapsed < 1.0, f"geo call took {elapsed:.3f}s on the real EIA-860M set (budget 500ms + margin)"
+    assert elapsed < 1.0, f"cold geo call took {elapsed:.3f}s on the real EIA-860M set (E-16 400 ms x 2.5)"
 
 
 def test_list_proposals_meets_its_latency_budget_on_the_real_dataset(client) -> None:

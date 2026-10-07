@@ -487,6 +487,9 @@ class Organization(Base, TimestampMixin):
     __table_args__ = (
         sa.CheckConstraint(f"publish_state IN {RECORD_PUBLISH_STATES!r}", name="publish_state_vocab"),
         sa.Index("ix_organization_publish_state", "publish_state"),
+        # Migration 0011 (the organisation tree walk); declared here so create_all stores match
+        # production (backend audit 2026-10-07, PERF-12).
+        sa.Index("ix_organization_parent_org_id", "parent_org_id"),
     )
 
 
@@ -538,6 +541,9 @@ class Location(Base):
     __table_args__ = (
         sa.CheckConstraint(f"kind IN {LOCATION_KINDS!r}", name="kind_vocab"),
         sa.CheckConstraint(f"precision IN {LOCATION_PRECISIONS!r}", name="precision_vocab"),
+        # Migration 0001 (GiST on Postgres, nearby queries); declared so create_all stores match
+        # production (PERF-12), as `ix_asset_geom` is.
+        sa.Index("ix_location_geom", "geom", postgresql_using="gist"),
     )
 
 
@@ -604,6 +610,41 @@ class Proposal(Base, TimestampMixin):
         sa.Index("ix_proposal_interconnection_point_id", "interconnection_point_id"),
         # Migration 0028: the organisation detail's sponsor-side count (measured 2026-09-30).
         sa.Index("ix_proposal_sponsor_org_id", "sponsor_org_id"),
+        # Migration 0035 (backend audit 2026-10-07, PERF-3, PERF-2): the paid tiers' timing column,
+        # each list sort exactly as `services/api/pagination.py::paginate` orders it over public
+        # rows, and the map cache's data-version aggregate. Postgres gets `capacity_mw DESC NULLS
+        # LAST` from the migration; SQLite has no NULLS LAST in an index and already sorts NULLs
+        # last under DESC, so the model states the SQLite form.
+        sa.Index("ix_proposal_publish_published_at", "publish_state", sa.text("published_at DESC")),
+        sa.Index(
+            "ix_proposal_public_last_changed",
+            sa.text("last_changed DESC"),
+            sa.text("id DESC"),
+            postgresql_where=sa.text("publish_state = 'public'"),
+            sqlite_where=sa.text("publish_state = 'public'"),
+        ),
+        sa.Index(
+            "ix_proposal_public_capacity_mw",
+            sa.text("capacity_mw DESC"),
+            sa.text("id DESC"),
+            postgresql_where=sa.text("publish_state = 'public'"),
+            sqlite_where=sa.text("publish_state = 'public'"),
+        ),
+        sa.Index(
+            "ix_proposal_public_first_seen",
+            sa.text("first_seen DESC"),
+            sa.text("id DESC"),
+            postgresql_where=sa.text("publish_state = 'public'"),
+            sqlite_where=sa.text("publish_state = 'public'"),
+        ),
+        sa.Index(
+            "ix_proposal_public_name_canonical",
+            "name_canonical",
+            "id",
+            postgresql_where=sa.text("publish_state = 'public'"),
+            sqlite_where=sa.text("publish_state = 'public'"),
+        ),
+        sa.Index("ix_proposal_updated_at", "updated_at"),
     )
 
 
@@ -707,6 +748,8 @@ class Opportunity(Base, TimestampMixin):
         sa.Index("ix_opportunity_publish_public_at", "publish_state", sa.text("public_at DESC")),
         # Migration 0028: the organisation detail's issuer-side count (measured 2026-09-30).
         sa.Index("ix_opportunity_issuer_org_id", "issuer_org_id"),
+        # Migration 0035: the paid tiers' timing column (PERF-3).
+        sa.Index("ix_opportunity_publish_published_at", "publish_state", sa.text("published_at DESC")),
     )
 
 
@@ -816,6 +859,8 @@ class Event(Base):
         sa.CheckConstraint(f"actor_type IN {ACTOR_TYPES!r}", name="actor_type_vocab"),
         sa.Index("ix_event_subject_observed", "subject_type", "subject_id", sa.text("observed_at DESC")),
         sa.Index("ix_event_public_at", "public_at"),
+        # Migration 0035: the paid tiers' timing column (PERF-3).
+        sa.Index("ix_event_published_at", "published_at"),
     )
 
 
@@ -1685,6 +1730,10 @@ class AssetOwner(Base):
     __table_args__ = (
         sa.CheckConstraint(f"role IN {ASSET_OWNER_ROLES!r}", name="role_vocab"),
         sa.UniqueConstraint("asset_id", "organization_id", "role", "source_id", name="uq_asset_owner_edge"),
+        # Migration 0010 (organisation pages, organisation nearby, asset detail); declared so
+        # create_all stores match production (PERF-12).
+        sa.Index("ix_asset_owner_asset_id", "asset_id"),
+        sa.Index("ix_asset_owner_organization_id", "organization_id"),
     )
 
 

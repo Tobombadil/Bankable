@@ -183,7 +183,9 @@ x-filter-grammar:
     parameters → `400 unknown_parameter`. Sorting: `sort=-last_changed,name_canonical`, `-` descending, allowlisted
     per resource. Pagination is cursor-based only: `limit` (default 50, max 200; 1,000 on `/v1/bulk/*`) and an
     opaque `cursor` valid 24 h; `page.{next_cursor, prev_cursor, has_more}` in the envelope; `meta.total` and
-    `meta.total_is_estimate` only with `include=count` (exact ≤ 10,000 rows).
+    `meta.total_is_estimate` only with `include=count` (the count is exact at every size today, so the flag is
+    `false`). `limit` outside its range, and an `include` value the operation does not implement, are a
+    `400 validation_error`, never clamped or ignored (2026-10-07).
   operators: [gte, lte, gt, lt, from, to]
   sort_allowlist:
     proposals: [last_changed, first_seen, capacity_mw, name_canonical]
@@ -287,8 +289,10 @@ paths:
         `storage_mwh`, `jurisdiction`, `location.state_code` / `county_name`, `lifecycle_state`, `last_changed`,
         `source_count`. Default sort `-last_changed`. Public tier returns records whose `public_at <= now()` only
         (US-101 AC3); nothing from a gated, restricted or unknown-terms source at any tier (US-101 AC4).
-        `source_count` is computed over visible sources only. `Accept: text/csv` returns an export stream on Pro+
-        with provenance columns and a leading `#` licence block (US-105 AC2). Append `.rss` or `.json` to the path
+        `source_count` is computed over visible sources only. Each row carries its `interconnection_point` as the
+        detail does (since 2026-10-07). `Accept: text/csv` returns an export on Pro+ with provenance columns and a
+        leading `#` licence block (US-105 AC2); its `limit` caps the file's rows (1 up to the plan's export cap,
+        the cap when absent) and a `cursor` is a `400`. Append `.rss` or `.json` to the path
         for the feed twin (`/feeds/proposals.{format}`).
       x-tier: public
       x-status: live
@@ -298,7 +302,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Include'
+        - $ref: '#/components/parameters/IncludeCount'
         - $ref: '#/components/parameters/SortProposals'
         - $ref: '#/components/parameters/Q'
         - $ref: '#/components/parameters/ProposalKind'
@@ -601,7 +605,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Include'
+        - $ref: '#/components/parameters/IncludeCount'
         - $ref: '#/components/parameters/SortOpportunities'
         - $ref: '#/components/parameters/Q'
         - $ref: '#/components/parameters/OpportunityKind'
@@ -849,7 +853,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Include'
+        - $ref: '#/components/parameters/IncludeCount'
         - $ref: '#/components/parameters/SortOrganizations'
         - $ref: '#/components/parameters/Q'
         - $ref: '#/components/parameters/SlugFilter'
@@ -1007,7 +1011,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Include'
+        - $ref: '#/components/parameters/IncludeCount'
         - $ref: '#/components/parameters/SortEvents'
         - $ref: '#/components/parameters/Since'
         - $ref: '#/components/parameters/SubjectType'
@@ -1617,10 +1621,13 @@ paths:
         alongside the point/cluster features, whenever `asset_type` is unspecified or names its type. Viewport
         membership for a line is intersection (a vertex inside the bbox or a segment crossing it), never centroid
         containment. Lines are never clustered and never counted toward the 500-marker split. Geometry is
-        Douglas-Peucker simplified at `zoom` to about half a pixel (`totals.line_tolerance_deg`; none at zoom ≥ 14),
-        so a national view (zoom 4) of ~3,000 pipelines is a few hundred KB. At most 1,500 lines are returned per
-        response, longest first; `totals.line_count` is the number in view before that cap and `totals.lines_shown`
-        after it. A `technology` filter matches no line (lines carry no technology). A line asset loaded with only
+        Douglas-Peucker simplified at `zoom` to about half a pixel (`totals.line_tolerance_deg`; none at zoom ≥ 14)
+        and served at that precision (coordinates rounded to the tolerance's decimal, at least 2). Below zoom 14 a
+        minimum feature size applies (2026-10-07, docs/04 D-13): a part under 3 px on each side is not drawn (a
+        line's largest part always is), and a line whose whole extent is under 5 px is not drawn at that zoom. At
+        most 1,500 lines are returned per response, longest first; `totals.line_count` is the number in view
+        (including lines too small to draw) and `totals.lines_shown` the number returned. On the full dev store the
+        national view (zoom 4, every asset type) is about 154 KB gzipped and Texas at zoom 7 about 286 KB. A `technology` filter matches no line (lines carry no technology). A line asset loaded with only
         a representative point is drawn as a point, never as a fabricated line.
 
         **Company page map.** `organization=<public id>` (comma-separated for OR) restricts the response to the
@@ -1842,7 +1849,8 @@ paths:
       description: >
         Proposals whose `location.precision = exact` (ADR 0008: region-grade and none-grade proposals are never
         returned here) within `radius_km` of the asset's geometry, public-tier visibility rules applied, nearest
-        first. For a line asset `distance_km` is measured to the nearest point of the line itself, never to its
+        first (equal distances by public id; `cursor` resumes after the last row of a page, since 2026-10-07 --
+        before, `page.has_more` could be true with no cursor to follow). For a line asset `distance_km` is measured to the nearest point of the line itself, never to its
         representative point (2026-09-19); for a point asset it is the great-circle distance to the point. Empty,
         with a `redactions[]` row, when the asset's geometry is withheld under its licence.
         "Exact" is judged as served: a proposal stored `exact` under a licence with `allows_raw_publication = false`
@@ -1856,6 +1864,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/RadiusKm'
         - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
       responses:
         '200':
           description: Nearby proposals inside the attribution envelope.
@@ -1961,8 +1970,9 @@ paths:
         or operated, optionally narrowed by `role` and `asset_type`), deduplicated: each proposal appears once, at
         its distance to the nearest of those assets, which `nearest_asset` names. Distance is to the geometry --
         the pipe for a line asset, the point for a plant. At most 200 assets are measured from (`asset_owner`
-        order; `totals.assets_considered` says how many were); results are nearest first and capped by `limit`,
-        with `page.has_more` when more lie within the radius. Same exact-grade and licence rules as the per-asset
+        order; `totals.assets_considered` says how many were, and `totals.assets_in_scope` how many the cap was
+        taken from, counted before it since 2026-10-07); results are nearest first (equal distances by public id),
+        `limit` per page, with `page.next_cursor` to the next page when more lie within the radius. Same exact-grade and licence rules as the per-asset
         endpoint.
         `technology` narrows the result to the given technology tokens. It is applied after the distance pass, so
         `totals` carries both counts: `proposals_within_radius` is what the filter left, and
@@ -1976,6 +1986,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/RadiusKm'
         - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/AssetOwnerRoleFilter'
         - $ref: '#/components/parameters/AssetType'
         - $ref: '#/components/parameters/Technology'
@@ -3081,7 +3092,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Include'
+        - $ref: '#/components/parameters/IncludeCount'
         - $ref: '#/components/parameters/SortMatches'
         - $ref: '#/components/parameters/ProposalIdFilter'
         - $ref: '#/components/parameters/OpportunityIdFilter'
@@ -6316,11 +6327,18 @@ components:
         type: string
         examples: ['120', 'Sun, 13 Sep 2026 00:00:00 GMT']
     ETag:
-      description: Entity tag on public GETs; honour `If-None-Match` for `304`. Absent on Pro/API responses.
+      description: >-
+        Weak entity tag (`W/"…"`) on every public `200` JSON, GeoJSON, JSON Feed or RSS GET (since 2026-10-07): a hash
+        of the uncompressed body with the per-request `meta.request_id`, `meta.generated_at` and `meta.data_as_of`
+        left out. A matching `If-None-Match` (weak comparison, `*` included) answers `304` with no body. Absent on
+        Pro/API responses, errors and streams (NDJSON, CSV).
       schema:
         type: string
     Cache-Control:
-      description: '`public, max-age=300` on public GETs; `private, no-store` on Pro/API/admin responses.'
+      description: >-
+        `public, max-age=300` on public GETs; `public, max-age=300, stale-while-revalidate=60` on the public feeds;
+        `public, max-age=86400` on `/v1/geo/regions`; `private, no-store` on Pro/API/admin responses and private
+        saved-search feeds. Every cacheable response also carries `Vary: Authorization, Cookie, Accept-Encoding`.
       schema:
         type: string
         examples: ['public, max-age=300', 'private, no-store']
@@ -6346,7 +6364,7 @@ components:
     Limit:
       name: limit
       in: query
-      description: Page size. Default 50, max 200.
+      description: Page size. Default 50, max 200; outside 1..200 is a `400 validation_error` (it was clamped silently until 2026-10-07).
       schema:
         type: integer
         minimum: 1
@@ -6355,7 +6373,7 @@ components:
     BulkLimit:
       name: limit
       in: query
-      description: Page size on bulk streams. Default 1,000, max 1,000.
+      description: Page size on bulk streams. Default 1,000, max 1,000; outside 1..1,000 is a `400 validation_error`.
       schema:
         type: integer
         minimum: 1
@@ -6371,7 +6389,10 @@ components:
     Include:
       name: include
       in: query
-      description: Opt-in expansions, each costing a documented extra query. `count` adds `meta.total`; `sources`, `matches`, `events` inline the related collections (first page only).
+      description: >-
+        On a record detail: the documented expansion names. `sources`, `matches` and `events` are accepted and not
+        built yet (the detail already embeds provenance, members and the interconnection point; the related lists
+        are their own routes); any other value is a `400 validation_error`. Lists take `IncludeCount`.
       style: form
       explode: false
       schema:
@@ -6755,7 +6776,7 @@ components:
     IncludeCount:
       name: include
       in: query
-      description: '`count` adds `meta.total`.'
+      description: '`count` adds `meta.total` (exact) and `meta.total_is_estimate`; any other value is a `400 validation_error`.'
       style: form
       explode: false
       schema:
@@ -6767,27 +6788,32 @@ components:
       name: sponsor_id
       in: query
       description: >-
-        Organization public id of the sponsor; comma-separated for OR. The exact organisation, not its group (the
-        organisation's own `/proposals?scope=` widens). An organisation that is not public (taken down) matches nothing,
-        exactly as an id that does not exist, so the filter never confirms a hidden organisation.
+        Organization public id or slug of the sponsor (the slug since 2026-10-07); comma-separated for OR. The exact
+        organisation, not its group (the organisation's own `/proposals?scope=` widens). On a list, map or feed an
+        organisation that is not public (taken down) matches nothing, exactly as one that does not exist, so the filter
+        never confirms a hidden organisation. In a saved search or webhook `query`, a value naming no published
+        organisation is a `400 validation_error` (the same answer for a hidden one) and the stored value is the public
+        id, which is what the alert matcher compares.
       style: form
       explode: false
       schema:
         type: array
         items:
-          $ref: '#/components/schemas/OrganizationPublicId'
+          type: string
+          description: An `org_…` public id or an organisation slug.
     IssuerId:
       name: issuer_id
       in: query
       description: >-
-        Organization public id of the issuer; comma-separated for OR. Same rules as `sponsor_id`: an organisation that
-        is not public matches nothing, exactly as an unknown id.
+        Organization public id or slug of the issuer; comma-separated for OR. Same rules as `sponsor_id`: on a list an
+        organisation that is not public matches nothing, exactly as an unknown one; in a stored query it is a `400`.
       style: form
       explode: false
       schema:
         type: array
         items:
-          $ref: '#/components/schemas/OrganizationPublicId'
+          type: string
+          description: An `org_…` public id or an organisation slug.
     SourceIdFilter:
       name: source_id
       in: query
@@ -8309,7 +8335,9 @@ components:
           description: Present only with `include=count`.
         total_is_estimate:
           type: boolean
-          description: '`false` when `total ≤ 10,000` and exact; `true` when estimated.'
+          description: >-
+            `true` only when `total` is an estimate. Every count is exact today, so it is `false` (until 2026-10-07 it
+            said `true` above 10,000 for a count that was still exact).
         unplaced_count:
           type: integer
           minimum: 0
@@ -8537,6 +8565,7 @@ components:
         - sor_unavailable
         - unavailable
         - internal_error
+        - method_not_allowed
     Problem:
       type: object
       description: RFC 9457 problem details. No stack traces, internal ids or source payloads ever appear here. `type` is `https://api.infraque.com/errors/{code}`.
@@ -8545,7 +8574,7 @@ components:
         type:
           type: string
           format: uri
-          pattern: '^https://api\.infraque\.com/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|paid_tiers_inactive|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable|internal_error)$'
+          pattern: '^https://api\.infraque\.com/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|paid_tiers_inactive|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable|internal_error|method_not_allowed)$'
         title:
           type: string
         status:
@@ -8947,9 +8976,9 @@ components:
             - $ref: '#/components/schemas/InterconnectionPointEmbed'
             - type: 'null'
           description: >-
-            Proposal detail only: the grid interconnection point the project connects at (docs/21 §3.24), with its
-            active queued MW and counts at the caller's tier; `null` when the register names none or the naming
-            register is not visible to the tier.
+            Proposal detail, the proposal list (since 2026-10-07) and bulk lines: the grid interconnection point the
+            project connects at (docs/21 §3.24), with its active queued MW and counts at the caller's tier; `null`
+            when the register names none or the naming register is not visible to the tier.
         field_provenance:
           $ref: '#/components/schemas/FieldProvenance'
         field_sources:
@@ -9713,6 +9742,20 @@ components:
         last_success_at:
           type: [string, 'null']
           format: date-time
+          description: >-
+            When we last fetched from the source successfully: the newer of the scheduler's
+            `source.last_success_at` and the end of the newest `source_run` that ended `ok` or
+            `unchanged` (a CLI or file-path fetch records the run but not the column). Null only when
+            no successful run is recorded.
+        last_loaded_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            The snapshot time of the newest run whose load committed (`source.last_loaded_ts`): the
+            run the served rows come from. Can be older than `last_success_at` when a fetch found
+            nothing new. Null until a load commits.
+        freshness:
+          $ref: '#/components/schemas/SourceFreshness'
         vintage:
           $ref: '#/components/schemas/SourceVintage'
         provenance:
@@ -10225,11 +10268,11 @@ components:
             line_count:
               type: integer
               minimum: 0
-              description: Line assets intersecting the viewport, before the 1,500-feature cap.
+              description: Line assets intersecting the viewport, before the 1,500-feature cap and the minimum-size rule.
             lines_shown:
               type: integer
               minimum: 0
-              description: '`asset_line` features actually returned (longest first when capped).'
+              description: '`asset_line` features actually returned (longest first when capped; lines under 5 px at this zoom are not drawn).'
             line_tolerance_deg:
               type: number
               minimum: 0
@@ -11039,9 +11082,21 @@ components:
           type: string
           const: v1
         data_as_of:
-          type: string
+          type: [string, 'null']
           format: date-time
-          description: Freshness of the public materialised view.
+          description: >-
+            How old the served data can be: the oldest last successful fetch among the sources whose
+            rows are loaded (a source's last success is the newer of `source.last_success_at` and its
+            newest successful `source_run`), so every served row was fetched at or after it. Null
+            when nothing is loaded. Until 2026-10-07 this was the request time. Per source on
+            `GET /v1/sources` (`last_success_at`, `last_loaded_at`, `freshness`) and `GET /v1/coverage`.
+        data_as_of_newest:
+          type: [string, 'null']
+          format: date-time
+          description: The newest of the same per-source last successful fetches.
+        data_as_of_basis:
+          type: string
+          description: The rule `data_as_of` follows, in words.
         live_as_of:
           type: string
           format: date-time
@@ -11713,6 +11768,15 @@ components:
               type: array
               items:
                 type: string
+            published_source_ids:
+              type: array
+              items:
+                type: string
+              description: >-
+                Sources that supply at least one row a public reader is served (an active link on a public proposal
+                or opportunity, or an asset row, from a source on the public surface). A note in
+                `data/vocabulary/coverage_notes.yaml` with `applies_to.source_without_published_rows: <source id>`
+                holds only while its source is absent from this list (2026-10-07).
             withheld:
               type: array
               description: >-
@@ -11772,14 +11836,22 @@ components:
                     type: [string, 'null']
                     format: date-time
                     description: >-
-                      When *we* last fetched from this source — `source.last_success_at`, falling
+                      When *we* last fetched from this source — `last_success_at` below, falling
                       back to the newest `retrieved_at` on its stored rows. Printed beside the
                       release, never in place of it.
+                  last_success_at:
+                    type: [string, 'null']
+                    format: date-time
+                    description: The newer of `source.last_success_at` and the newest successful `source_run` (as on `GET /v1/sources`).
+                  last_loaded_at:
+                    type: [string, 'null']
+                    format: date-time
+                    description: The snapshot time of the newest run whose load committed (as on `GET /v1/sources`).
                   freshness:
                     type: object
                     description: >-
                       `fetched_at` against the source's poll allowance (`SourceFreshness`: status,
-                      bucket, age_hours, allowance_hours).
+                      bucket, age_hours, allowance_hours, stale_after_hours).
                     properties:
                       status:
                         type: string

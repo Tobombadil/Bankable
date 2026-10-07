@@ -49,6 +49,35 @@ def int_param(request: Request, name: str) -> int | None:
         raise validation_error(name, f"{name} must be an integer", request.url.path) from exc
 
 
+def page_limit(request: Request, *, default: int = 50, maximum: int = 200) -> int:
+    """`limit` on a paged list (docs/23 §7, api/openapi.yaml `Limit`: minimum 1, maximum 200, or
+    `BulkLimit`'s 1,000): absent is `default`; outside `1..maximum` is a `400 validation_error`.
+    It used to be clamped silently, so `limit=500` answered 200 rows and said nothing (backend audit
+    2026-10-07, API-5; docs/04 API-3: nothing a caller sends is silently changed)."""
+    value = int_param(request, "limit")
+    if value is None:
+        return default
+    if not 1 <= value <= maximum:
+        raise validation_error("limit", f"limit must be between 1 and {maximum}", request.url.path)
+    return value
+
+
+def include_values(request: Request, allowed: frozenset[str]) -> frozenset[str]:
+    """`include` as a set, each value one this resource implements (docs/23 §7); any other value is a
+    `400 validation_error` naming the ones it takes, never ignored (backend audit 2026-10-07, API-5:
+    `include=bogus` answered 200)."""
+    values = frozenset(csv_param(request.query_params.get("include") or "") or [])
+    unknown = sorted(values - allowed)
+    if unknown:
+        takes = ", ".join(f"`{v}`" for v in sorted(allowed)) or "nothing"
+        raise validation_error(
+            "include",
+            f"include takes only {takes} on this resource (got {', '.join(unknown)})",
+            request.url.path,
+        )
+    return values
+
+
 def sort_spec(request: Request, allowlist: set[str], default: str) -> tuple[str, bool]:
     raw = request.query_params.get("sort", default)
     token = raw.split(",")[0]

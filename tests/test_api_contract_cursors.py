@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from services.api.app import app
 from services.api.auth import create_session
 from services.api.conftest import (
+    make_asset,
     make_event,
     make_open_licence,
     make_org,
@@ -108,6 +109,7 @@ def world(db_sessionmaker: sessionmaker[Session]) -> Iterator[dict[str, Any]]:
         prop = make_visible_proposal(db, source, sponsor=org)
         make_event(db, prop, source)
         opp = make_visible_opportunity(db, source)
+        asset = make_asset(db, source, source.licence)  # asset nearby-proposals pages since 2026-10-07
         account = make_account(db, entitlement="api")
         owner = make_user(db, account, role="owner")
         _key, secret = make_api_key(db, account, owner, scopes=["read:live", "read:bulk", "write:webhooks"])
@@ -124,7 +126,12 @@ def world(db_sessionmaker: sessionmaker[Session]) -> Iterator[dict[str, Any]]:
         endpoint.public_id = public_id("whe", endpoint.id)
         _row, cookie = create_session(db, owner)
         db.commit()
-        ids = {"proposals": prop.public_id, "opportunities": opp.public_id, "organizations": org.public_id}
+        ids = {
+            "proposals": prop.public_id,
+            "opportunities": opp.public_id,
+            "organizations": org.public_id,
+            "assets": asset.public_id,
+        }
         webhook_id = endpoint.public_id
 
     def _override() -> Iterator[Session]:

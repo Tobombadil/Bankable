@@ -150,6 +150,13 @@ def coerce_tiebreaker(value: str, type_: TypeEngine[Any], instance: str) -> Any:
     return value
 
 
+def _is_not_null(column: InstrumentedAttribute[Any]) -> bool:
+    """True for a mapped table column declared NOT NULL; anything else (an aggregate, a label, a
+    nullable column) keeps the NULL-aware keyset."""
+    expression = getattr(column, "expression", None)
+    return isinstance(expression, sa.Column) and not expression.nullable
+
+
 def clamp_limit(limit: int | None) -> int:
     if limit is None:
         return DEFAULT_LIMIT
@@ -170,7 +177,15 @@ def paginate(
     """Generic keyset pagination (docs/04 API-2). Only forward pagination is implemented this
     sprint — `page.prev_cursor` is always null; reverse iteration is an open decision in
     services/README.md, not a silent gap (the field is present and honestly null, never wrong).
+
+    A sort column declared NOT NULL is ordered and resumed without the NULL handling a nullable
+    one needs: no `NULLS LAST` (it changes nothing there, and it stops Postgres matching the
+    column's index, which sorts `DESC` with NULLs first) and a row-value keyset
+    `(sort, id) > (v, t)` instead of an `OR` with a dead `IS NULL` arm, so an index on
+    `(sort, id)` can start the page at the cursor (backend audit 2026-10-07, PERF-3; migration
+    0035). The rows and their order are the same either way.
     """
+    not_null = _is_not_null(sort_column)
     if cursor:
         decoded = decode_cursor(cursor, instance)
         value = coerce_cursor_value(decoded.sort_value, sort_column.type, instance)
@@ -182,6 +197,12 @@ def paginate(
         if value is None:
             after_id = id_column > tiebreaker if ascending else id_column < tiebreaker
             where = sa.and_(sort_column.is_(None), after_id)
+        elif not_null:
+            key = sa.tuple_(sort_column, id_column)
+            bound = sa.tuple_(
+                sa.literal(value, type_=sort_column.type), sa.literal(tiebreaker, type_=id_column.type)
+            )
+            where = key > bound if ascending else key < bound
         elif ascending:
             where = or_(
                 sort_column > value,
@@ -196,7 +217,9 @@ def paginate(
             )
         stmt = stmt.where(where)
 
-    order = (sort_column.asc() if ascending else sort_column.desc()).nulls_last()
+    order = sort_column.asc() if ascending else sort_column.desc()
+    if not not_null:
+        order = order.nulls_last()
     tiebreak = id_column.asc() if ascending else id_column.desc()
     stmt = stmt.order_by(order, tiebreak).limit(limit + 1)
 

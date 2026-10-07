@@ -29,6 +29,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from services.api.conftest import (
+    make_asset,
     make_event,
     make_open_licence,
     make_org,
@@ -144,6 +145,8 @@ def world(client: TestClient, db: Session) -> dict[str, Any]:
     prop = make_visible_proposal(db, src, sponsor=org)
     opp = make_visible_opportunity(db, src)
     make_event(db, prop, src)
+    # Asset nearby-proposals pages with a cursor since 2026-10-07, so it is walked as a list too.
+    asset = make_asset(db, src, lic)
     account = make_account(db, entitlement="api", name="Drift Probe Co")
     user = make_user(db, account, email="owner-drift@example.com", role="owner")
     _key, secret = make_api_key(db, account, user, scopes=["read:live", "read:bulk", "write:webhooks"])
@@ -156,6 +159,7 @@ def world(client: TestClient, db: Session) -> dict[str, Any]:
             "proposals": prop.public_id,
             "opportunities": opp.public_id,
             "organizations": org.public_id,
+            "assets": asset.public_id,
         },
         "webhook_id": hook.json()["data"]["webhook_id"],
         "bearer": {"Authorization": f"Bearer {secret}"},

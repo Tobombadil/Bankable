@@ -43,8 +43,8 @@ from services.api.auth import AuthContext, get_auth_context
 from services.api.common import WEB_HOST, iso
 from services.api.deps import get_db
 from services.api.errors import invalid_cursor, not_found, validation_error
-from services.api.pagination import clamp_limit, coerce_cursor_value, decode_cursor, encode_cursor
-from services.api.params import check_allowed, csv_param, int_param
+from services.api.pagination import coerce_cursor_value, decode_cursor, encode_cursor
+from services.api.params import check_allowed, csv_param, page_limit
 from services.api.records import _proposal_licence_rows, number_filter
 from services.api.resource_queries import subject_infos
 from services.api.serialize import (
@@ -395,7 +395,7 @@ def list_interconnection_points(
     ctx: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> Any:
     check_allowed(request, LIST_PARAMS)
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
     _field, ascending = _sort(request)
     stmt, sort_expr = _list_statement(request, ctx.entitlement)
     include = (request.query_params.get("include") or "").split(",")

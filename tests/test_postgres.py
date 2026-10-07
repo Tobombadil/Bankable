@@ -663,7 +663,10 @@ def test_nearby_asset_order_follows_first_owner_edge(
     monkeypatch.setattr(assets_module, "ORG_NEARBY_ASSET_CAP", 1)
     with _client(pg) as c:
         body = _get(c, f"/v1/organizations/{public_id('org', _uid(11))}/nearby-proposals")
-    assert body["totals"]["assets_in_scope"] == 1
+    # Both assets are in scope; the cap measures one (`assets_in_scope` is counted before the cap
+    # since 2026-10-07, PERF-4).
+    assert body["totals"]["assets_considered"] == 1
+    assert body["totals"]["assets_in_scope"] == 2
     assert {row["nearest_asset"]["public_id"] for row in body["data"]} == {public_id("asset", _uid(111))}
 
 

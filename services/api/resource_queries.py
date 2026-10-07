@@ -480,14 +480,20 @@ def resource_statement(
     )
 
 
-def lean_load_options(resource: Resource, *, identifiers: bool) -> list[LoaderOption]:
+def lean_load_options(
+    resource: Resource, *, identifiers: bool, link_normalised: bool = False
+) -> list[LoaderOption]:
     """Loader options for a whole-result-set read (an export, a bulk page), measured on the real
     `data/normalized` load (services/README.md "Exports, bulk and documents"):
 
-    - defer the JSON columns neither shape prints -- every source link's `raw`/`normalised`
-      (`raw` is never served off the admin tier at all; `normalised` is read only for the rare
-      field whose provenance source is hidden, `services/api/visibility.py::GatedRecord`);
-      `identifiers=True` keeps `identifiers`, which the bulk line (the detail shape) prints. The
+    - defer the JSON columns neither shape prints -- every source link's `raw` (never served off
+      the admin tier at all) and, unless `link_normalised`, its `normalised` (read by a CSV row
+      only for the rare field whose provenance source is hidden,
+      `services/api/visibility.py::GatedRecord`). The bulk proposal line passes
+      `link_normalised=True`: its `members[]` block (docs/22 §23.4) reads every link's
+      `normalised`, and deferring it cost one lazy load per link, 1,000 queries and ~0.6 s per
+      1,000-row page (backend audit 2026-10-07, PERF-1). `identifiers=True` keeps `identifiers`,
+      which the bulk line (the detail shape) prints. The
       record's `field_provenance` and `overrides` are loaded: the served view reads both for
       every field it prints (2026-10-06);
     - load the many-to-one `source`/`licence` hops lazily instead of by the models' default
@@ -498,9 +504,11 @@ def lean_load_options(resource: Resource, *, identifiers: bool) -> list[LoaderOp
         options: list[LoaderOption] = [
             joinedload(Proposal.location).lazyload(Location.source),
             joinedload(Proposal.location).lazyload(Location.licence),
-            selectinload(Proposal.sources).defer(ProposalSource.raw).defer(ProposalSource.normalised),
+            selectinload(Proposal.sources).defer(ProposalSource.raw),
             selectinload(Proposal.sources).lazyload(ProposalSource.source),
         ]
+        if not link_normalised:
+            options.append(selectinload(Proposal.sources).defer(ProposalSource.normalised))
         return options if identifiers else [*options, defer(Proposal.identifiers)]
     if resource == "opportunity":
         options = [

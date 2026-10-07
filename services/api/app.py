@@ -14,32 +14,51 @@ Deliberately not implemented this sprint (see services/README.md "Open decisions
 
 from __future__ import annotations
 
-import datetime as dt
+import copy
 import uuid as _uuid
 from typing import Any
 
 from fastapi import Depends, FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 
 from pipeline.connectors.opportunity import OPPORTUNITY_TECHNOLOGIES
 from services.alerts.evaluate import describe_change
+from services.api import geo_cache
 from services.api.alert_plan import free_alerts_summary
 from services.api.auth import AuthContext, get_auth_context, meter_credentialed_request
 from services.api.build_info import build_info, data_as_of
 from services.api.client_ip import is_internal_request, rate_limit_address
-from services.api.common import API_HOST, WEB_HOST, utcnow
-from services.api.coverage import coverage, source_vintages
+from services.api.common import API_HOST, WEB_HOST, iso, utcnow
+from services.api.conditional import ConditionalGetMiddleware
+from services.api.coverage import coverage, coverage_version, source_vintages
 from services.api.deps import get_db
-from services.api.errors import ProblemError, not_found, problem_exception_handler, validation_error
+from services.api.errors import (
+    ProblemError,
+    framework_http_exception_handler,
+    not_found,
+    problem_exception_handler,
+    request_validation_handler,
+    validation_error,
+)
 from services.api.feeds import event_provenance, link_provenance, render_json_feed, render_rss
 from services.api.gc_tuning import lifespan as gc_lifespan
 from services.api.idempotency import IdempotentReplay, idempotency_guard, replay_handler
 from services.api.lifecycle import vocabulary as lifecycle_vocabulary
-from services.api.pagination import clamp_limit, paginate
-from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec, wants_csv
+from services.api.pagination import paginate
+from services.api.params import (
+    LIST_COMMON,
+    check_allowed,
+    csv_param,
+    include_values,
+    page_limit,
+    sort_spec,
+    wants_csv,
+)
 from services.api.request_context import (
     CommitBeforeResponseMiddleware,
     RequestContextMiddleware,
@@ -62,6 +81,7 @@ from services.api.serialize import (
     source_credit,
 )
 from services.api.slippage import SLIP_BUCKET_MAX_DAYS, SLIP_GRACE_DAYS
+from services.api.source_freshness import oldest_and_newest_success, source_run_facts
 from services.api.visibility import (
     event_public_filter,
     event_visibility_filter,
@@ -103,12 +123,19 @@ app = FastAPI(
     lifespan=gc_lifespan,
 )
 app.add_exception_handler(ProblemError, problem_exception_handler)
+# The framework's own 404/405 and request-validation errors as problem+json too (docs/23 §8;
+# backend audit 2026-10-07, API-4).
+app.add_exception_handler(StarletteHTTPException, framework_http_exception_handler)
+app.add_exception_handler(RequestValidationError, request_validation_handler)
 app.add_exception_handler(IdempotentReplay, replay_handler)
 # Any other exception is a 500 problem+json carrying the request id (backend audit 2026-09-30 F13).
 app.add_exception_handler(Exception, unhandled_exception_handler)
 # Innermost on purpose (added first): commits the request's sessions when the route emits its status
 # line, before anything reaches the client (backend audit 2026-09-30 F3; services/api/request_context.py).
 app.add_middleware(CommitBeforeResponseMiddleware)
+# Inside the compression, so the entity tag is over the uncompressed body (services/api/conditional.py;
+# docs/23 §1 "an ETag"; backend audit 2026-10-07, API-2).
+app.add_middleware(ConditionalGetMiddleware)
 # Response compression (2026-09-19, line layer): a national `GET /v1/assets/geo` over the 3,000-line
 # synthetic pipeline fixture is ~1.3 MB of JSON and ~200 KB gzipped, because a GeoJSON feature list
 # repeats keys and provenance quartets that compress ~6:1. Every response over 1 KB is compressed
@@ -190,6 +217,7 @@ app.include_router(regions_router)
 # `include_router` call below), so the handful of names this file's own routes still call
 # (the feeds and the organisation-scoped proposal/opportunity lists) are imported back from there.
 from services.api.records import (  # noqa: E402
+    LIST_INCLUDES,
     OPPORTUNITY_FILTERS,
     OPPORTUNITY_SORT_ALLOWLIST,
     PROPOSAL_FILTERS,
@@ -202,6 +230,7 @@ from services.api.records import (  # noqa: E402
     _proposal_query_with_filters,
     check_budget_sort,
     currency_values,
+    exact_total,
     instant_filter,
 )
 from services.api.records import router as records_router  # noqa: E402
@@ -305,14 +334,49 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
         # numbers go on every response, not only on the routes that set them (docs/23 §6, US-702).
         for name, value in getattr(request.state, "credential_rate_limit", {}).items():
             response.headers.setdefault(name, value)
-    if request.url.path.startswith("/v1/") and request.method == "GET":
+    path = request.url.path
+    if request.method == "GET" and (path.startswith("/v1/") or path.startswith("/feeds/")):
         # A response produced for a credential (valid or not) is never shareable: `/v1/me`, live
         # Pro rows and saved searches must not land in a CDN or proxy cache (API audit 2026-09-18,
-        # finding S1; docs/23 §1 "Pro/API responses are private, no-store").
+        # finding S1; docs/23 §1 "Pro/API responses are private, no-store"). A private saved-search
+        # feed is addressed by its secret token, not a credential, and is never shared either.
         credentialed = bool(request.headers.get("authorization")) or bool(request.cookies.get("session"))
-        response.headers["Cache-Control"] = "private, no-store" if credentialed else "public, max-age=300"
-        response.headers["Vary"] = "Authorization, Cookie"
+        if credentialed or path.startswith("/feeds/saved"):
+            response.headers["Cache-Control"] = "private, no-store"
+        else:
+            response.headers["Cache-Control"] = _public_cache_control(path)
+        # Added to, never replaced: the compression middleware's `Accept-Encoding` must survive or a
+        # shared cache can hand a gzip body to a client that cannot read it (backend audit
+        # 2026-10-07, API-3).
+        response.headers["Vary"] = _merged_vary(
+            response.headers.get("vary"), "Authorization", "Cookie", "Accept-Encoding"
+        )
     return response
+
+
+#: Public paths whose answer changes only with a deploy, cached longer than the 300 s default
+#: (docs/23 §3.1: region polygons "cacheable for a day").
+_LONG_CACHED_PATHS = ("/v1/geo/regions",)
+
+
+def _public_cache_control(path: str) -> str:
+    """docs/23 §1: public GETs are `public, max-age=300`; feeds are edge-cached the same and may be
+    served a minute stale while the edge revalidates (§6, §9.2; backend audit 2026-10-07, API-9:
+    feeds carried no `Cache-Control`, so every poll reached the origin)."""
+    if path.startswith(_LONG_CACHED_PATHS):
+        return "public, max-age=86400"
+    if path.startswith("/feeds/"):
+        return "public, max-age=300, stale-while-revalidate=60"
+    return "public, max-age=300"
+
+
+def _merged_vary(existing: str | None, *names: str) -> str:
+    seen: list[str] = []
+    for token in [*(existing or "").split(","), *names]:
+        token = token.strip()
+        if token and token.lower() not in {t.lower() for t in seen}:
+            seen.append(token)
+    return ", ".join(seen)
 
 
 # Outermost (added last): one id per request, in `X-Request-Id`, `meta.request_id` and problem bodies.
@@ -326,7 +390,8 @@ def list_organizations(request: Request, db: Session = Depends(get_db)) -> Any:
         request,
         LIST_COMMON | {"type", "country", "jurisdiction", "is_curated_issuer", "slug", "updated_since"},
     )
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
+    include = include_values(request, LIST_INCLUDES)
     field, ascending = sort_spec(request, {"name_canonical"}, "name_canonical")
     stmt = select(Organization).where(
         Organization.merged_into_id.is_(None), *organization_visibility_filter()
@@ -365,6 +430,8 @@ def list_organizations(request: Request, db: Session = Depends(get_db)) -> Any:
     )
     data = [serialize_organization(o) for o in rows]
     meta = build_meta(lag_days=0)
+    if "count" in include:  # documented (docs/23 §7) and accepted, but ignored until 2026-10-07
+        meta.update(exact_total(db, stmt))
     return build_list_envelope(
         data,
         meta=meta,
@@ -441,7 +508,7 @@ def list_organization_proposals(
         },
     )
     org = visible_organization_or_404(db, public_id, request.url.path)
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
     field, ascending = sort_spec(request, PROPOSAL_SORT_ALLOWLIST, "-last_changed")
     # `scope` (2026-09-20) gives this list the same ownership-tree treatment the asset and
     # nearby-proposal lists have: a holding company sponsors nothing itself, its operating
@@ -501,7 +568,7 @@ def list_organization_opportunities(
 ) -> Any:
     check_allowed(request, {"limit", "cursor", "sort", "kind", "status", "technologies", "budget_currency"})
     org = visible_organization_or_404(db, public_id, request.url.path)
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
     field, ascending = sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
     qp = request.query_params
     # `sort=budget_amount` needs exactly one `budget_currency` (records.check_budget_sort), so this
@@ -551,7 +618,8 @@ def list_events(
     check_allowed(request, EVENT_LIST_PARAMS)
     if wants_csv(request):
         return csv_list_response(request, db, ctx, "event")
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
+    include = include_values(request, LIST_INCLUDES)
     field, ascending = sort_spec(request, EVENT_SORT_ALLOWLIST, "-seq")
     # The filter block lives in `services/api/resource_queries.py` (lane E6b) so `/v1/bulk/events`
     # and an event export apply exactly these filters over exactly this predicate.
@@ -575,6 +643,8 @@ def list_events(
     # ISO change-event delay is gone (owner; `services/ingest/lag.py`), so there is no withheld
     # event from yesterday and the events feed is complete as of now for every reader.
     meta = build_meta(lag_days=0, tier=ctx.entitlement)
+    if "count" in include:  # as on the organisation list: accepted and ignored until 2026-10-07
+        meta.update(exact_total(db, stmt))
     licence_rows = [r for e in rows if (r := event_licence_row(e)) is not None]
     return build_list_envelope(
         data,
@@ -629,7 +699,7 @@ def _event_uuid_from_public_id(event_id: str) -> _uuid.UUID | None:
 @app.get("/v1/sources")
 def list_sources(request: Request, db: Session = Depends(get_db)) -> Any:
     check_allowed(request, {"limit", "cursor", "category", "jurisdiction", "reuse_class", "publish_state"})
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
     stmt = select(Source)
     qp = request.query_params
     if v := qp.get("category"):
@@ -652,7 +722,8 @@ def list_sources(request: Request, db: Session = Depends(get_db)) -> Any:
         limit=limit,
         instance=request.url.path,
     )
-    data = [serialize_source(s) for s in rows]
+    facts = source_run_facts(db, rows)
+    data = [serialize_source(s, facts[s.id]) for s in rows]
     meta = build_meta(lag_days=0)
     return build_list_envelope(
         data,
@@ -668,7 +739,8 @@ def get_source(source_id: str, request: Request, db: Session = Depends(get_db)) 
     if src is None:
         raise not_found(request.url.path)
     meta = build_meta(lag_days=0)
-    return build_envelope(serialize_source(src), meta=meta, licence_summary=build_licence_summary([]))
+    facts = source_run_facts(db, [src])[src.id]
+    return build_envelope(serialize_source(src, facts), meta=meta, licence_summary=build_licence_summary([]))
 
 
 @app.get("/v1/coverage")
@@ -681,11 +753,22 @@ def get_coverage(request: Request, db: Session = Depends(get_db)) -> Any:
     predicate: which technologies have no rows and which sources are withheld are facts about our
     coverage, not rows, and answering them differently per tier would be its own dishonesty."""
     check_allowed(request, set())
+    # Every figure is a whole-store aggregate that changes only with a load: cached on the same
+    # data version and write generation as the proposal map, with its 60 s TTL as the backstop
+    # (`services/api/geo_cache.py`; backend audit 2026-10-07, PERF-9: 0.4-1.3 s per call).
+    key = (geo_cache.engine_token(db), geo_cache.generation(), coverage_version(db))
+    facts = _COVERAGE_CACHE.get(key)
+    if facts is None:
+        facts = coverage(db)
+        _COVERAGE_CACHE.put(key, facts)
     return build_envelope(
-        coverage(db),
+        copy.deepcopy(facts),
         meta=build_meta(lag_days=0),
         licence_summary=build_licence_summary([]),
     )
+
+
+_COVERAGE_CACHE = geo_cache.register(geo_cache.TtlLru(max_entries=4))
 
 
 @app.get("/v1/lifecycle-states")
@@ -705,7 +788,7 @@ def get_lifecycle_states(request: Request, db: Session = Depends(get_db)) -> Any
 @app.get("/v1/licences")
 def list_licences(request: Request, db: Session = Depends(get_db)) -> Any:
     check_allowed(request, {"limit", "cursor", "reuse_class"})
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
     stmt = select(Licence)
     if v := request.query_params.get("reuse_class"):
         stmt = stmt.where(Licence.reuse_class.in_(csv_param(v)))
@@ -963,15 +1046,20 @@ def get_health(
     except Exception:
         database_ok = False
     now = utcnow()
+    oldest, newest = oldest_and_newest_success(db) if database_ok else (None, None)
     data = {
         "status": "ok" if database_ok else "degraded",
         "api_version": "v1",
-        # Nothing is delayed on any tier (owner, 2026-09-19 for records, 2026-09-21 for change
-        # events), so the public view is current: `data_as_of == live_as_of`. `lag_days_default`
-        # keeps its shape -- the public site reads it for the footer and `web/` would break on a
-        # missing key -- and it is now zeros all the way down. The `iso_change_events` key went
-        # with the delay it named.
-        "data_as_of": (now - dt.timedelta(days=RECORD_LAG_DAYS)).isoformat().replace("+00:00", "Z"),
+        # How old the served data can be (expert review 2026-10-07: this was the request time):
+        # the oldest last successful fetch among the sources whose rows are loaded, so every row
+        # was fetched at or after it; `data_as_of_newest` is the newest. Per source, with the poll
+        # allowance, on `GET /v1/sources` and `GET /v1/coverage` (`services/api/source_freshness.py`).
+        # Null when nothing is loaded. Nothing is delayed on any tier (owner, 2026-09-19/21), so
+        # `live_as_of` is the request time and `lag_days_default` is zeros; both keep their shape
+        # because the public site reads them.
+        "data_as_of": iso(oldest),
+        "data_as_of_newest": iso(newest),
+        "data_as_of_basis": "oldest last successful fetch among sources with loaded rows",
         "live_as_of": now.isoformat().replace("+00:00", "Z"),
         "lag_days_default": {
             "supply": RECORD_LAG_DAYS,
