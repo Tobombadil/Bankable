@@ -148,6 +148,7 @@ from services.posture import (
     platform_posture,
     publishable_reuse_classes,
 )
+from services.resolve import survivorship
 
 logger = logging.getLogger("services.visibility_audit")
 
@@ -454,17 +455,29 @@ def field_facts(record: Proposal | Opportunity, surface: str, gated: frozenset[s
     clean = [link for link in record.sources if link.active and link.source_id not in gated]
     overrides = record.overrides or {}
     gated_values: dict[str, tuple[str, Any]] = {}
+    # What field survivorship states over the clean links alone (docs/22 §23): a merged record's
+    # value can be a sum no single link states, and the served fallback is that value.
+    clean_picks = (
+        survivorship.survive(
+            [survivorship.member_from_link(link) for link in clean if isinstance(link, ProposalSource)],
+            survivorship.current_values(record),
+        )
+        if isinstance(record, Proposal)
+        else {}
+    )
     for name in fields:
         prov = (record.field_provenance or {}).get(name)
-        source_id = prov.get("source_id") if isinstance(prov, dict) else None
-        if name in overrides or source_id not in gated:
+        hidden = [sid for sid in survivorship.provenance_source_ids(prov) if sid in gated]
+        if name in overrides or not hidden:
             continue
         stored = getattr(record, name)
         if stored in (None, {}, []):
             continue
         if any(_same((link.normalised or {}).get(name), stored) for link in clean):
             continue
-        gated_values[name] = (str(source_id), stored)
+        if name in clean_picks and _same(survivorship.coerce(name, clean_picks[name].value), stored):
+            continue
+        gated_values[name] = (hidden[0], stored)
     return _FieldFacts(surface, record.public_id, gated, gated_values, len(clean))
 
 
@@ -1050,27 +1063,24 @@ def _clean_field_value(
     """The value of one proposal field that a public sum may count, restated from the store
     without the served view: the stored value unless its `field_provenance` names a gated source
     (or names none while the record has an active gated link) and no admin override pins it, in
-    which case the most recently retrieved clean active link's own `normalised` value, else
-    `None`."""
-    prov = (provenance or {}).get(name)
-    source_id = prov.get("source_id") if isinstance(prov, dict) else None
+    which case what field survivorship states over the clean active links alone (docs/22 §23),
+    else `None`."""
+    named = survivorship.provenance_source_ids((provenance or {}).get(name))
     if name in (overrides or {}):
         return stored
-    if source_id is not None and source_id not in gated_src:
+    if named and not any(sid in gated_src for sid in named):
         return stored
-    links = db.execute(
-        select(ProposalSource.source_id, ProposalSource.normalised, ProposalSource.retrieved_at).where(
+    links = db.scalars(
+        select(ProposalSource).where(
             ProposalSource.proposal_id == proposal_id, ProposalSource.active.is_(True)
         )
     ).all()
-    if source_id is None and not any(sid in gated_src for sid, _, _ in links):
+    if not named and not any(link.source_id in gated_src for link in links):
         return stored
-    clean = sorted((r for r in links if r[0] not in gated_src), key=lambda r: _aware(r[2]), reverse=True)
-    for _, normalised, _ in clean:
-        value = (normalised or {}).get(name)
-        if value is not None:
-            return value
-    return None
+    # The served fallback's rule (docs/22 §23): field survivorship over the clean links alone.
+    clean = [survivorship.member_from_link(link) for link in links if link.source_id not in gated_src]
+    pick = survivorship.survive(clean).get(name)
+    return pick.value if pick is not None else None
 
 
 def _audit_interconnection_points(

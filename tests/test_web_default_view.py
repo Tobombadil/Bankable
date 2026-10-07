@@ -102,14 +102,15 @@ def test_home_page_states_the_active_vs_withdrawn_counts(web_client: TestClient)
 def test_proposals_list_default_excludes_withdrawn_rows(web_client: TestClient) -> None:
     resp = web_client.get("/proposals", params={"sort": "-capacity_mw"})
     assert resp.status_code == 200
-    for state in ("withdrawn", "cancelled"):
+    # Status chips are sentence case since the 2026-10-06 label pass (`web/labels.py`).
+    for state in ("Withdrawn", "Cancelled"):
         assert f">{state}<" not in resp.text
 
 
 def test_proposals_list_toggle_includes_withdrawn_rows(web_client: TestClient) -> None:
     resp = web_client.get("/proposals", params={"include_withdrawn": "1", "sort": "-capacity_mw"})
     assert resp.status_code == 200
-    assert ">withdrawn<" in resp.text
+    assert ">Withdrawn<" in resp.text
 
 
 def test_proposal_detail_provenance_matches_the_api_envelope(web_client: TestClient) -> None:

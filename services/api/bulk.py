@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Iterator
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any, TypeVar, cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -47,6 +47,7 @@ from services.api.errors import ProblemError
 from services.api.interconnection_points import proposal_point_embeds
 from services.api.pagination import paginate
 from services.api.params import check_allowed, int_param
+from services.api.proposal_members import merge_events, merge_history_from, proposal_members
 from services.api.ratelimit import default_limiter, plan_quota, policy_header
 from services.api.resource_queries import (
     Resource,
@@ -66,7 +67,7 @@ from services.api.serialize import (
     serialize_opportunity,
     serialize_proposal,
 )
-from services.api.visibility import gated_record, source_visible
+from services.api.visibility import GatedRecord, gated_record, source_visible
 from services.db.models import Event, Opportunity, OpportunitySource, Proposal, ProposalSource, Source
 
 router = APIRouter()
@@ -200,6 +201,27 @@ def _record_line(
     return data
 
 
+def _add_composition(line: dict[str, Any], record: Proposal, merges: list[Event], entitlement: str) -> None:
+    """The detail route's `field_sources`, `members` and `merge_history` (docs/22 §23.4) for one bulk
+    line, so the line stays the detail shape, over the links this shape may print; a member's
+    record id and identifiers follow the provenance row's bulk-export redaction."""
+    view = gated_record(record, entitlement, _api_redistributable)
+    links = cast("list[ProposalSource]", _redistributable(view.sources))
+    line["field_sources"] = view.field_sources() if isinstance(view, GatedRecord) else {}
+    members = proposal_members(links)
+    exportable = {link.source_id for link in links if link.source.licence.allows_bulk_export}
+    for member in members:
+        if member["source_id"] not in exportable:
+            member["source_record_id"], member["identifiers"] = None, {}
+    line["members"] = members
+    history = merge_history_from(merges, links)
+    for item in history:
+        for member in item["members"]:
+            if member["source_id"] not in exportable:
+                member["source_record_id"] = None
+    line["merge_history"] = history
+
+
 def _stream(meta_line: dict[str, Any], lines: list[dict[str, Any]]) -> Iterator[bytes]:
     yield (json.dumps(meta_line, separators=(",", ":"), default=str) + "\n").encode()
     for line in lines:
@@ -241,6 +263,8 @@ def bulk_response(request: Request, db: Session, ctx: AuthContext, resource: Res
     points = proposal_point_embeds(
         db, [r for r in rows if isinstance(r, Proposal)], ctx.entitlement, redistribution=True
     )
+    # And what each proposal is made of (docs/22 §23.4), merges batched for the page.
+    merges = merge_events(db, [r.id for r in rows if isinstance(r, Proposal)])
     for row in rows:
         if isinstance(row, Event):
             lines.append(serialize_event(row, **subjects[row.subject_id]))
@@ -250,6 +274,7 @@ def bulk_response(request: Request, db: Session, ctx: AuthContext, resource: Res
             line = _record_line(row, redactions, licence_rows, ctx.entitlement)
             if isinstance(row, Proposal):
                 line["interconnection_point"] = points[row.id]
+                _add_composition(line, row, merges.get(row.id, []), ctx.entitlement)
             lines.append(line)
     meta_line = {
         "record_type": "meta",

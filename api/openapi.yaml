@@ -8417,6 +8417,14 @@ components:
           retrieved_at:
             type: string
             format: date-time
+          source_ids:
+            type: array
+            items:
+              $ref: '#/components/schemas/SourceIdValue'
+            description: Every source that supplied the value, when more than one did (a summed capacity, a union of identifiers).
+          rule:
+            type: string
+            description: The field-survivorship rule that chose the value on a merged record (docs/22 §23).
           snapshot_id:
             $ref: '#/components/schemas/SnapshotPublicId'
             description: Admin tier only.
@@ -8633,14 +8641,71 @@ components:
           enum: [source_provided, census_tiger, manual, null]
         provenance:
           $ref: '#/components/schemas/ProvenanceQuartet'
+    ProposalMember:
+      type: object
+      description: One source's own view of a proposal (docs/22 §23.4), read from its link's normalised row.
+      required: [source_id, source_name, role]
+      properties:
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        source_name:
+          type: string
+        role:
+          type: string
+          enum: [request, inventory, other]
+          description: '`request` = an interconnection or load queue row; `inventory` = a plant/generator registry row.'
+        source_record_id:
+          type: [string, 'null']
+        identifiers:
+          $ref: '#/components/schemas/ProposalIdentifiers'
+        name_canonical:
+          type: [string, 'null']
+        kind:
+          type: [string, 'null']
+        technology:
+          type: [string, 'null']
+        technology_raw:
+          type: [string, 'null']
+        capacity_mw:
+          type: [number, 'null']
+        storage_mwh:
+          type: [number, 'null']
+        lifecycle_state:
+          type: [string, 'null']
+        status_raw:
+          type: [string, 'null']
+        proposed_online_date:
+          type: [string, 'null']
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+        first_seen:
+          type: [string, 'null']
+          format: date-time
+        gone_at:
+          type: [string, 'null']
+          format: date-time
     ProposalIdentifiers:
       type: object
-      description: Resolution keys. Identifying class — withheld for sources whose licence withholds identifying fields.
+      description: >-
+        Resolution keys. Identifying class — withheld for sources whose licence withholds identifying fields. On a
+        merged record (docs/22 §23): `queue_ids` is the union of every request's ids, `eia_plant_id` the primary
+        plant, `eia_generator_id` set only when the record holds one generator, `eia_generators` listing them all
+        when it holds several.
       properties:
         eia_plant_id:
           type: [string, 'null']
         eia_generator_id:
           type: [string, 'null']
+        eia_generators:
+          type: array
+          items:
+            type: object
+            properties:
+              plant_id:
+                type: string
+              generator_id:
+                type: string
         queue_ids:
           type: array
           items:
@@ -8796,6 +8861,62 @@ components:
             register is not visible to the tier.
         field_provenance:
           $ref: '#/components/schemas/FieldProvenance'
+        field_sources:
+          type: object
+          description: >-
+            Detail only (docs/22 §23.4). Per served field, the readable sources that supplied the value and the
+            field-survivorship rule that chose it (`rule` is `override` for an admin-pinned value, `null` when the
+            value predates survivorship). A page names these sources, not the first `provenance` row.
+          additionalProperties:
+            type: object
+            required: [source_ids, rule]
+            properties:
+              source_ids:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SourceIdValue'
+              rule:
+                type: [string, 'null']
+                examples: [interconnection_request, interconnection_request_plus_inventory_sum, plant_inventory_sum, most_advanced_of_conflicting]
+        members:
+          type: array
+          description: >-
+            Detail only (docs/22 §23.4). One entry per readable active source link, with that source's own figures,
+            requests first, then the plant inventory, then other sources. Raw-class values and the source's own
+            record id and identifiers are `null`/empty where its licence withholds them.
+          items:
+            $ref: '#/components/schemas/ProposalMember'
+        merge_history:
+          type: array
+          description: >-
+            Detail only (docs/22 §23.4). Each merge into this record that has not been reversed, newest first, naming
+            only the readable links it brought; a merge that brought only hidden links is omitted.
+          items:
+            type: object
+            required: [merged_at, members]
+            properties:
+              merged_at:
+                type: string
+                format: date-time
+              actor_type:
+                type: [string, 'null']
+              confidence:
+                type: [number, 'null']
+              members:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    source_id:
+                      $ref: '#/components/schemas/SourceIdValue'
+                    source_name:
+                      type: string
+                    source_record_id:
+                      type: [string, 'null']
+                    name_canonical:
+                      type: [string, 'null']
+                    capacity_mw:
+                      type: [number, 'null']
         sources:
           type: array
           description: With `include=sources`.

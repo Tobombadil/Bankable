@@ -148,6 +148,8 @@ from services.ingest.interconnection import LinkResult, link_source_points
 from services.ingest.lag import record_public_at
 from services.ingest.org_redirects import OrgRedirects
 from services.ingest.vintage import NOT_STATED_VINTAGE, Vintage, from_source_urls
+from services.resolve.survivorship import RestatementReport
+from services.resolve.survivorship import restate as restate_survivorship
 
 if TYPE_CHECKING:  # the retirement loader imports this module; annotation only, no cycle at run time
     from services.ingest.retirements import RetirementLoadResult
@@ -318,6 +320,10 @@ class LoadResult:
     interconnection: LinkResult | None = None
     #: What this load wrote, `proposal` or `opportunity`: the connector's declared kind.
     kind: str | None = None
+    #: Field survivorship over the touched proposals that hold more than one source link
+    #: (`services/resolve/survivorship.py`; docs/22 §23). No events: a member's news is its own
+    #: source's diff event.
+    survivorship: RestatementReport | None = None
 
 
 def _bump_dq_status(run: SourceRun, level: str) -> None:
@@ -1019,6 +1025,21 @@ def _proposal_fields_from_row(row: Mapping[str, Any], source: Source) -> dict[st
     }
 
 
+def _link_normalised(fields: Mapping[str, Any]) -> dict[str, Any]:
+    """A link's own `normalised` row: the record fields this source states, plus (proposals,
+    2026-10-07) the identifiers it contributes, so field survivorship can union every member's
+    queue ids and EIA ids however many sources a record holds (docs/22 §23). `select_basis` stays
+    on the record (`_keep_other_sources_basis`)."""
+    out: dict[str, Any] = {k: v for k, v in fields.items() if not isinstance(v, dict)}
+    identifiers = fields.get("identifiers")
+    if isinstance(identifiers, dict):
+        own = {k: v for k, v in identifiers.items() if k != SELECT_BASIS_KEY}
+        if own:
+            out["identifiers"] = own
+    normalised: dict[str, Any] = _jsonable(out)
+    return normalised
+
+
 def _opportunity_fields_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
     identifiers = _row_get(row, "identifiers") or {}
     if isinstance(identifiers, str):
@@ -1374,7 +1395,7 @@ def _update_existing_entity(
     entity.field_provenance = provenance  # reassigned so the JSON column is marked dirty
     entity.last_changed = ctx.now
     existing_link.raw = raw_payload
-    existing_link.normalised = _jsonable({k: v for k, v in fields.items() if not isinstance(v, dict)})
+    existing_link.normalised = _link_normalised(fields)
     existing_link.status_raw = fields.get("status_raw")
     existing_link.last_seen = retrieved_at
     existing_link.retrieved_at = retrieved_at
@@ -1466,7 +1487,7 @@ def _create_entity_and_link(
         retrieved_at=retrieved_at,
         licence_id=source.licence_id,
         raw=raw_payload,
-        normalised=_jsonable({k: v for k, v in fields.items() if not isinstance(v, dict)}),
+        normalised=_link_normalised(fields),
         status_raw=fields.get("status_raw"),
         first_seen=retrieved_at,
         last_seen=retrieved_at,
@@ -1660,6 +1681,11 @@ def load_dataframe(
     records, dup_naturals = _index_records(records_df)
     _upsert_records(session, ctx, records, dup_naturals, batch_size)
     if kind == "proposal":
+        # A record several sources feed takes each field by the survivorship rule, not from
+        # whichever source loaded last (docs/22 §23): the update above wrote this source's row.
+        ctx.result.survivorship = restate_survivorship(
+            session, set(ctx.record_id_to_internal.values()), now=ctx.now
+        )
         # Grid interconnection points (owner 2026-09-28; docs/21 §3.24): parsed from each active
         # link's own raw POI text, after the links are flushed and before events, so a re-load
         # moves a proposal whose register revised its POI. A source whose rows carry no POI field

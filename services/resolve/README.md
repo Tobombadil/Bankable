@@ -23,6 +23,9 @@ services/resolve/
                (gated exactly as production would gate it), runs the unmodified
                `pipeline.resolve.run()`, applies the gate and merges, resolves organizations, and
                prints every count below. Nothing in this file is estimated.
+  survivorship.py  Field survivorship (docs/22 §23): each field of a multi-source proposal from all
+               its active links, with field-level provenance; run on merge/unmerge, after every
+               proposal load and store-wide each resolve tick (a restatement, no events).
 
 tests/test_resolve_store.py           canonical choice, the gate (incl. id-reuse refusal), merge
                                        event shape, apply_cluster, organization merge/resolve
