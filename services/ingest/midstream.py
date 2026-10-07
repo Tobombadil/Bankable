@@ -70,7 +70,7 @@ from pipeline.normalize import org_key
 from services.db.models import Asset, AssetOwner, Organization, OrganizationAlias, Source, new_uuid
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id as make_public_id
-from services.ids import slugify
+from services.ids import unique_slug
 from services.ingest.assets import ASSET_TYPE_SOURCE_IDS, resolve_source_id
 from services.ingest.loader import upsert_licence_and_source
 from services.ingest.ownership import _build_norm_org_index, _resolve_organization
@@ -341,9 +341,9 @@ def _get_or_create_parent(
     if org is not None:
         return org, False
     org_id = new_uuid()
-    slug = slugify(name)
-    if slug in set(session.scalars(select(Organization.slug))):
-        slug = f"{slug}-{make_public_id('org', org_id)[-6:].lower()}"
+    slug = unique_slug(
+        name, make_public_id("org", org_id), set(session.scalars(select(Organization.slug))), bare_first=True
+    )
     org = Organization(
         id=org_id,
         public_id=make_public_id("org", org_id),
