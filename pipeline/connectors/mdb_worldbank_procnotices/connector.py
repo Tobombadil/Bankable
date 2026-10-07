@@ -8,14 +8,17 @@ LB biomass, LI geothermal, LN non-renewable generation, LT transmission & distri
 LZ other energy, LP public administration – energy, LE energy (33,950 notices on 2026-09-12).
 Fetch: newest first (`srt=noticedate&order=desc`), 100 per page, until a page is older than the
 window or the page cap is hit; `fl=` names the fields so contact_* personal data is never
-requested (docs/13 §5.4). Rolling window -> `snapshot_mode = incremental`.
+requested (docs/13 §5.4). Window source -> `snapshot_mode = incremental`. The window starts at
+the day before the last promoted run (`Connector.fetch_window`, 2026-10-07; audit 2026-09-30 F3),
+14 days on a first run; a fetch that stops at its page cap before reaching the window start is
+marked `truncated` and held. Row counts are compared on like-for-like weekdays by `open_at`
+(the notice date; audit F6).
 source_record_id: the notice `id` (`OP00468319`).
 Reuse: CC BY 4.0 (World Bank Open Data), credit required.
 """
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 import pathlib
 import time
@@ -98,6 +101,8 @@ class Connector(BaseConnector):
     ext: ClassVar[str] = "json"
     honour_robots: ClassVar[bool] = False
     snapshot_mode: ClassVar[SnapshotMode] = "incremental"
+    window_days: ClassVar[int] = WINDOW_DAYS
+    window_date_column: ClassVar[str | None] = "open_at"
     status_key: ClassVar[str] = "worldbank"
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("status_map.yaml")
     key_source_columns: ClassVar[tuple[str, ...]] = (
@@ -121,10 +126,13 @@ class Connector(BaseConnector):
 
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()
-        now = dt.datetime.now(dt.UTC)
-        cutoff = now - dt.timedelta(days=WINDOW_DAYS)
+        now = self.now()
+        window = self.fetch_window(now)
+        cutoff = window.start
+        cap = self.page_cap(MAX_PAGES, window)
         pages: list[dict[str, Any]] = []
-        for page_no in range(MAX_PAGES):
+        truncated = False
+        for page_no in range(cap):
             r = self.http.get(API_URL, honour_robots=False, params=self.params(page_no * PAGE), timeout=120)
             if r.status_code != 200:
                 raise ConnectorError(f"GET {API_URL} -> HTTP {r.status_code}")
@@ -137,6 +145,10 @@ class Connector(BaseConnector):
             oldest = min(dates) if dates else None
             if oldest is not None and oldest < pd.Timestamp(cutoff):
                 break
+            if len(notices) < PAGE:
+                break
+        else:
+            truncated = True
         url = r.url if pages else API_URL
         payload = json.dumps({"request": self.params(0), "pages": pages}, ensure_ascii=False).encode("utf-8")
         return RawSnapshot(
@@ -152,6 +164,9 @@ class Connector(BaseConnector):
                 "total": pages[0].get("total"),
                 "pages": len(pages),
                 "sector_filter": "sector.sector_code=" + "^".join(SECTOR_CODES),
+                "page_cap": cap,
+                "truncated": truncated,
+                **window.meta(),
             },
         )
 

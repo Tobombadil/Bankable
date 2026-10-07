@@ -376,7 +376,8 @@ reported as built → under_construction).
 
 **Limits.** (i) The runner short-circuits on an unchanged snapshot SHA, so a map change reaches the store with
 the next ERCOT report that differs (monthly), not on the next scheduled tick; there is no force-renormalise
-flag. (ii) Only connectors that implement `restate_status` are covered; the other gridstatus queues (CAISO,
+flag. *Superseded 2026-10-07 (§8.4):* the status map is part of the parser version, the short-circuit also
+compares that version, and `run --reparse` re-normalises the stored snapshot without fetching. (ii) Only connectors that implement `restate_status` are covered; the other gridstatus queues (CAISO,
 NYISO) can opt in with the same one-line override. (iii) A stored frame without a `raw` column is diffed as
 stored.
 
@@ -404,6 +405,61 @@ a copy of the 2026-09-30 dev store: 90 `open` notices had a past `due_at` (TED 5
 re-running each stored frame through the rule at 2026-09-30 and loading it leaves 0 (open 405 → 315). The stored
 status still lags a deadline by at most one run of the notice's source; a read-time rule would close that gap
 but needs the list filter and the alert matcher changed together (open item).
+
+### 8.3 What is news inside one lifecycle state (2026-10-07, audit 2026-09-30 data engineer F7)
+
+The diff compared three fields. Capacity and the target date are compared whatever the state does,
+so a capacity or date change inside one state was already an event. The source's own status text
+was not: on the stored EIA-860M frames (2026-09-13 → 2026-09-27, 2,283 common rows) **64** rows moved
+inside `under_construction`, 23 of them `(V) Under construction, more than 50 percent complete` →
+`(TS) Construction complete, but not yet in commercial operation`, the most useful late-stage signal
+the register carries, and none reached the feed.
+
+| Field | Inside one state | Decision |
+|---|---|---|
+| `lifecycle_state` | n/a | `status_change` / `withdrawn`, as before |
+| `status_raw` | **news** | new `status_raw_change` (field `status_raw`), only when the state did not move (a state change is one event, not two) and the text differs after whitespace and case are normalised; loaded as `field_changed` with `changed_keys = [status_raw]`, so alerts and `/v1/events?changed_key=status_raw` see it |
+| `capacity_mw` | news (unchanged rule) | `capacity_change` above 0.5 MW and 1 % |
+| `proposed_cod` / `due_at` | news (unchanged rule) | `cod_change` |
+| sponsor, name, county, point of connection | not news | written by the loader as field updates. Measured on the same two frames: 0 changes in `sponsor_name`, `name_canonical` or `county`; the noise these fields do carry is normalisation (below), which is not a source change |
+
+Social drafting stays default-deny on `field_changed` (docs/32 §3.1), so a raw-status move is in the
+feed, alerts and webhooks, not in posts. The restatement rules hold: a status-map correction never
+changes `status_raw` (§8.1), and a parser change that rewrites the text is restated before the diff
+(§8.4). `pipeline/diff.py`; tests `tests/test_parser_restatement.py`
+(`test_the_source_status_text_is_news_inside_one_state`,
+`test_construction_complete_inside_under_construction_is_published`).
+
+### 8.4 A parser change is a restatement, and reaches unchanged sources (2026-10-07, audit F10)
+
+Every connector recorded `parser_version = 1.0.0` and the unchanged short-circuit compared only the
+SHA-256, so a parser fix reached a source only when its bytes next changed (a year for annual
+sources), and lineage could not say which code produced a row: between the two EIA-860M runs the
+normaliser rewrote `sponsor_norm` on 1,572 rows and `iso` on 1,039 (1,358 and 854 of them with a
+byte-identical `raw`) under the same `@1.0.0`.
+
+1. *Version.* The run records `{source_id}@{declared}+{digest}`: the connector's declared
+   `parser_version` plus eight hex characters over the parser's code (every connector module in its
+   MRO, its status map, and the shared parsing modules `base`, `canonical`, `dedupe`, `iso_queue`,
+   `opportunity`, `pipeline/normalize.py`, `pipeline/status_map.yaml`). Python is digested as its AST
+   without docstrings and YAML as parsed content, so a comment or docstring edit is not a version.
+2. *Restatement.* When the version differs from the last promoted run's, the runner re-derives that
+   run's output under the current code before the diff: a full-register source from its stored
+   snapshot (parse + normalise), an incremental source from each stored row's own `raw` (normalise,
+   grouped by fetch), opportunities re-closed at that run's time. The run records `parser_restated`
+   (`from`, `to`, and `events_suppressed` by type) and an `info` DQ check; if the old output cannot
+   be re-derived the check is `warn` and the diff compares as stored. After a successful
+   restatement the §8.1/§8.2 map and capacity restatements are skipped (the re-derivation already
+   used the current map and rule).
+3. *Reaching unchanged sources.* The short-circuit is `unchanged` only when the SHA-256 *and* the
+   parser version match. `python -m pipeline.connectors run <id> --reparse` runs the latest stored
+   snapshot through the current parser without fetching; the run points at the original object and
+   keeps its `retrieved_at`.
+
+Consequence on deploy: every source's first run after this change restates its previous output once
+(versions move from `@1.0.0` to `@1.0.0+digest`), with no events from the restatement. Limits: an
+incremental source's restatement re-runs `normalize`, not `parse` (its stored rows are the parsed
+form); a change to `fetch` is not a parser change. Tests: `tests/test_parser_restatement.py`.
 
 ## 9. What an LLM adjudication step would add, and what it costs
 

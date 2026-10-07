@@ -1580,6 +1580,13 @@ def _load_one_event(
         ctx.result.events_skipped_idempotent += 1
         return
 
+    # Provenance quartet (audit 2026-09-30 F8): the event names the record's own page, as its link
+    # row does, not the manifest's landing URL; `retrieved_at` is the fetch the change was seen in.
+    link = ctx.cache.links_by_entity.get(subject_id)
+    if link is None:
+        link = _link_for_event_record_id(ctx.cache, source, record_id)
+    event_source_url = str(getattr(link, "source_url", None) or source.url)
+
     published_at = ctx.now
     # A change event is public the moment it is published, like the record it belongs to
     # (owner, 2026-09-21: the ISO change-event delay is dropped, and its per-source knob
@@ -1595,7 +1602,7 @@ def _load_one_event(
         published_at=published_at,
         public_at=public_at,
         source_id=source.id,
-        source_url=source.url,
+        source_url=event_source_url,
         retrieved_at=observed_at,
         licence_id=source.licence_id,
         before=({field_name: before_val} if before_val is not None else None),

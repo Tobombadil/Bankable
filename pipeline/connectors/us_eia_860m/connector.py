@@ -50,6 +50,8 @@ class Connector(BaseConnector):
     kind: ClassVar[Kind] = "proposal"
     ext: ClassVar[str] = "xlsx"
     status_key: ClassVar[str] = "eia860m"
+    #: Every column a diffed field, the identity or the placement reads (audit 2026-09-30 F5: a
+    #: renamed `Planned Operation Year` used to publish 25 `cod_change` events to null).
     key_source_columns: ClassVar[tuple[str, ...]] = (
         "Plant ID",
         "Generator ID",
@@ -58,6 +60,11 @@ class Connector(BaseConnector):
         "Technology",
         "Nameplate Capacity (MW)",
         "Plant State",
+        "County",
+        "Entity Name",
+        "Planned Operation Year",
+        "Planned Operation Month",
+        "Balancing Authority Code",
     )
     max_candidates: ClassVar[int] = 6
 

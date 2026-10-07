@@ -40,6 +40,26 @@ that implements `Connector.restate_capacity` has the previous frame's `capacity_
 `raw` before the diff, the moved rows are counted as `reclassified.capacity_rows` and an `info`
 check (`capacity_restated`), and no `capacity_change` event is emitted for them.
 
+Incremental windows are anchored (2026-10-07, audit 2026-09-30 F3). Before `fetch()` the runner
+sets `connector.watermark` to the `retrieved_at` of the last *promoted* run (`Store.last_promoted`:
+status `ok` with a normalised output, a released hold included), and an incremental connector asks
+upstream for everything since the start of that day minus its overlap (`Connector.fetch_window`).
+A run after an outage therefore catches up, a held run leaves the watermark where it was, and a
+run right after the last one asks only for what is new. A fetch that stops at its page cap marks
+the snapshot `truncated` and is held. The window is recorded on the snapshot's `meta` and as an
+`info` DQ check (`fetch_window`; `warn` when a gap longer than `max_catchup_days` was clamped).
+
+A parser change is a restatement, not news (2026-10-07, audit F10). The run record names the
+connector's effective parser version (`Connector.effective_parser_version`: the declared version
+plus a digest of the parser's code and status map). When it differs from the previous promoted
+run's, that run's output is first re-derived under the current code: a full-register source's
+stored snapshot is parsed and normalised again, an incremental source's stored rows are normalised
+again from their own `raw` payloads, so the diff sees only what the source changed. The run records
+`parser_restated` (the versions and how many events the restatement kept out of the feed) and an
+`info` check of the same name. The unchanged short-circuit compares the SHA-256 *and* the parser
+version, so new code reaches an unchanged source on its next tick; `reparse=True` (CLI
+`run --reparse`) does the same from the stored snapshot without fetching at all.
+
 `release_held` is the other way a run's output reaches `normalized/`: an operator accepted a
 data-quality hold (`POST /admin/v1/source-runs/{run_id}/release`), so the held frame is diffed
 against the previous normalised snapshot and written exactly as step 6 of `run` would have, the
@@ -51,6 +71,7 @@ runner and the loader apply; a release never makes quarantined output publishabl
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import pathlib
 import time
@@ -70,7 +91,7 @@ from pipeline.connectors.base import (
     utcnow,
 )
 from pipeline.connectors.dedupe import align_previous_keys
-from pipeline.connectors.dq import Check, DQResult, run_gates
+from pipeline.connectors.dq import Check, DQResult, daily_profile, run_gates
 from pipeline.connectors.http import HttpBlocked, HttpFailed, PoliteSession
 from pipeline.connectors.objectstore import StoreError
 from pipeline.connectors.opportunity import close_past_deadline
@@ -219,6 +240,179 @@ def _deadline_closed_check(rows: int) -> Check:
     )
 
 
+def _parse_ts(value: Any) -> dt.datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=dt.UTC)
+
+
+def _promoted_watermark(record: dict[str, Any] | None) -> dt.datetime | None:
+    """The `retrieved_at` of a promoted run's snapshot: the instant up to which its output is known
+    complete, and what an incremental connector anchors its next window on."""
+    if not record:
+        return None
+    snap = record.get("snapshot") or {}
+    return _parse_ts(snap.get("retrieved_at")) or _parse_ts(record.get("started_at"))
+
+
+def _snapshot_from_record(record: dict[str, Any], content: bytes) -> RawSnapshot:
+    snap = record.get("snapshot") or {}
+    retrieved = _promoted_watermark(record) or utcnow()
+    ext = str(snap.get("object_key") or "").rsplit("/", 1)[-1].rpartition(".")[2] or "bin"
+    meta = snap.get("meta")
+    return RawSnapshot(
+        content=content,
+        content_type=str(snap.get("content_type") or "application/octet-stream"),
+        url=str(snap.get("fetched_url") or ""),
+        retrieved_at=retrieved,
+        http_status=int(snap.get("http_status") or 200),
+        ext=ext,
+        meta=dict(meta) if isinstance(meta, dict) else {},
+    )
+
+
+def _reparse_previous(
+    connector: Connector, st: Store, source_id: str, ts: str, record: dict[str, Any], prev_df: pd.DataFrame
+) -> pd.DataFrame | None:
+    """The previous promoted output re-derived under the current parser (module docstring): a
+    full-register source from its stored snapshot, an incremental source from each stored row's own
+    `raw` payload, grouped by the fetch it came from. None when it cannot be re-derived (the
+    snapshot is gone, or the current code cannot read the old bytes)."""
+    try:
+        if connector.snapshot_mode == "full":
+            body = st.snapshot_bytes(source_id, ts, record)
+            if body is None:
+                return None
+            snap = _snapshot_from_record(record, body)
+            out = connector.normalize(connector.parse(snap), snap)
+        else:
+            frames = []
+            for retrieved_at, group in prev_df.groupby("retrieved_at", sort=True, dropna=False):
+                rows = [json.loads(str(v)) for v in group["raw"]]
+                stub = RawSnapshot(
+                    content=b"",
+                    content_type="application/json",
+                    url=str(group["source_url"].iloc[0]),
+                    retrieved_at=_parse_ts(retrieved_at) or utcnow(),
+                    http_status=200,
+                    ext=connector.ext,
+                )
+                frames.append(connector.normalize(rows, stub))
+            out = pd.concat(frames, ignore_index=True) if frames else prev_df.iloc[0:0]
+        if connector.kind == "opportunity":
+            out, _ = close_past_deadline(out, _promoted_watermark(record) or utcnow())
+        return out
+    except GateViolation:
+        raise
+    except Exception:
+        log.warning(
+            "previous output could not be restated under the current parser",
+            extra={"source_id": source_id, "ts": ts},
+            exc_info=True,
+        )
+        return None
+
+
+def _previous_for_diff(
+    connector: Connector,
+    st: Store,
+    source_id: str,
+    df: pd.DataFrame,
+    parser_version: str,
+    record: dict[str, Any],
+) -> tuple[pd.DataFrame | None, str | None]:
+    """The frame this run diffs against: the last promoted output, restated under the current
+    parser when the parser changed, keys aligned, and restated under the current status map and
+    capacity rule. Writes the restatement summaries onto `record`."""
+    promoted = st.last_promoted(source_id)
+    if promoted is None:
+        return None, None
+    prev_ts, prev_record = promoted
+    prev_df = st.read_parquet(st.normalized_path(source_id, prev_ts))
+    prev_run_id = str(prev_record.get("id"))
+    prev_version = str(prev_record.get("parser_version") or "")
+    if prev_version != parser_version and "raw" in prev_df.columns:
+        restated = _reparse_previous(connector, st, source_id, prev_ts, prev_record, prev_df)
+        summary: dict[str, Any] = {"from": prev_version, "to": parser_version}
+        if restated is None:
+            summary["restated"] = False
+        else:
+            suppressed = diff_snapshots(
+                _diff_view(prev_df), _diff_view(align_previous_keys(restated, prev_df))
+            )
+            summary["restated"] = True
+            summary["events_suppressed"] = len(suppressed)
+            summary["by_type"] = {
+                str(k): int(v) for k, v in suppressed["event_type"].value_counts().items() if v
+            }
+            prev_df = restated
+        record["parser_restated"] = summary
+    # Legacy positional `#N` keys, and unique <-> duplicated transitions, are matched to the
+    # current content keys before anything is compared (pipeline/connectors/dedupe.py).
+    prev_df = align_previous_keys(prev_df, df)
+    if (record.get("parser_restated") or {}).get("restated"):
+        # Re-derived by the current code end to end, status map and capacity rule included.
+        return prev_df, prev_run_id
+    prev_df, reclassified = _restate_previous(connector, prev_df)
+    record["rows_reclassified"] = reclassified["rows"]
+    record["reclassified"] = reclassified
+    return prev_df, prev_run_id
+
+
+def _parser_restated_check(summary: dict[str, Any]) -> Check:
+    if not summary.get("restated"):
+        return Check(
+            "parser_restated",
+            "warn",
+            f"parser changed ({summary['from']} -> {summary['to']}) but the previous output could not be "
+            "re-derived; the diff compares against it as stored",
+            summary,
+        )
+    return Check(
+        "parser_restated",
+        "info",
+        f"previous output restated under parser {summary['to']}; {summary['events_suppressed']} "
+        "change events from the parser change were not emitted",
+        summary,
+    )
+
+
+def _window_check(meta: dict[str, Any]) -> Check:
+    anchor = str(meta.get("window_anchor"))
+    return Check(
+        "fetch_window",
+        "warn" if anchor == "clamped" else "info",
+        f"{meta.get('window_start')} .. {meta.get('window_end')} ({anchor}"
+        + (f", watermark {meta.get('watermark')}" if meta.get("watermark") else "")
+        + (
+            "; the gap was longer than the catch-up limit and its start was not fetched"
+            if anchor == "clamped"
+            else ""
+        )
+        + ")",
+        {k: meta.get(k) for k in ("window_start", "window_end", "window_anchor", "watermark")},
+    )
+
+
+def _daily_counts(
+    connector: Connector, df: pd.DataFrame, rows: list[dict[str, Any]], snap: RawSnapshot
+) -> dict[str, int] | None:
+    """Rows per complete UTC day of this run's fetch window (dq `daily_profile`), or None when the
+    connector declares no publication date."""
+    dates = connector.row_dates(df, rows)
+    if dates is None:
+        return None
+    start = _parse_ts(snap.meta.get("window_start"))
+    end = _parse_ts(snap.meta.get("window_end")) or snap.retrieved_at
+    if start is None:
+        start = snap.retrieved_at - dt.timedelta(days=connector.window_days or 1)
+    return daily_profile(dates, start, end)
+
+
 def _source_columns(rows: list[dict[str, Any]]) -> list[str]:
     seen: dict[str, None] = {}
     for r in rows:
@@ -238,10 +432,13 @@ def run(
     http: PoliteSession | None = None,
     raw: RawSnapshot | None = None,
     now: dt.datetime | None = None,
+    reparse: bool = False,
 ) -> RunResult:
     """Run one connector end to end and persist everything the run produced.
 
-    `raw` injects a recorded snapshot (tests, replays) so `fetch()` is skipped.
+    `raw` injects a recorded snapshot (tests, replays) so `fetch()` is skipped. `now` fixes the
+    run's clock (the connector's `now()` too). `reparse` skips the fetch and runs the latest stored
+    snapshot through the current parser (module docstring); it fails when there is none.
     Raises `GateViolation` before any I/O when the source is gated and the flag is absent.
     """
     if trigger not in RUN_TRIGGERS:
@@ -275,7 +472,7 @@ def run(
         "reuse_class": source.reuse,
         "licence_id": source.licence_id,
         "publishable": st.publishable,
-        "parser_version": f"{source_id}@{connector.parser_version}",
+        "parser_version": f"{source_id}@{connector.effective_parser_version()}",
         "attempt": 1,
         "dead_lettered": False,
         "http_status": None,
@@ -322,7 +519,16 @@ def run(
         )
         return result
 
+    if now is not None:
+        connector.clock = lambda: now
     # 1. fetch ------------------------------------------------------------
+    reused_key: str | None = None
+    try:
+        promoted = st.last_promoted(source_id)
+    except StoreError as e:
+        log.warning("promoted run unavailable", extra={"source_id": source_id, "error": repr(e)})
+        promoted = None
+    connector.watermark = _promoted_watermark(promoted[1] if promoted else None)
     if raw is None:
         # The snapshot step 2 compares against, handed over first so a connector that can ask
         # upstream "changed since?" returns these same bytes on a 304 (docs/20 §3.2).
@@ -330,6 +536,15 @@ def run(
             connector.previous = st.last_snapshot(source_id)
         except StoreError as e:
             log.warning("previous snapshot unavailable", extra={"source_id": source_id, "error": repr(e)})
+    if reparse and raw is None:
+        entry = st._last_snapshot_entry(source_id)
+        body = st.snapshot_bytes(source_id, entry[0], entry[1]) if entry else None
+        if entry is None or body is None:
+            return finish("failed", ConnectorError("reparse: no stored snapshot to read"))
+        raw = _snapshot_from_record(entry[1], body)
+        reused_key = (entry[1].get("snapshot") or {}).get("object_key")
+        record["_ts"] = ts_token(started)
+        record["reparse"] = {"of_run": entry[1].get("id"), "of_ts": entry[0]}
     try:
         snap = raw or connector.fetch()
     except (HttpBlocked, BlockedError) as e:
@@ -341,7 +556,7 @@ def run(
     except Exception as e:
         log.exception("fetch crashed", extra={"source_id": source_id, "run_id": run_id})
         return finish("failed", e)
-    ts = ts_token(snap.retrieved_at)
+    ts = record.get("_ts") or ts_token(snap.retrieved_at)
     record["_ts"] = ts
     record["http_status"] = snap.http_status
     content = connector.redact(snap.content)
@@ -365,15 +580,33 @@ def run(
     }
 
     # 2. snapshot (unchanged short-circuit, docs/20 §3.2) ------------------
-    if st.last_snapshot_sha(source_id) == snap.sha256:
+    # Same bytes *and* the same parser: nothing new can come out of this run. Same bytes under a
+    # changed parser go on, so a parser fix reaches an unchanged source (module docstring).
+    last = st._last_snapshot_entry(source_id)
+    last_version = (
+        str((last[1].get("snapshot") or {}).get("parser_version") or last[1].get("parser_version") or "")
+        if last
+        else ""
+    )
+    if (
+        not reparse
+        and last is not None
+        and str(last[1]["snapshot"]["sha256"]) == snap.sha256
+        and last_version == record["parser_version"]
+    ):
         return finish("unchanged")
-    try:
-        path = st.write_snapshot(source_id, ts, snap.ext, content)
-    except StoreError as e:
-        log.error("snapshot write failed", extra={"source_id": source_id, "run_id": run_id, "error": repr(e)})
-        return finish("failed", e)
-    record["snapshot"]["object_key"] = st.locate(path)
-    result.paths["snapshot"] = path
+    if reused_key:
+        record["snapshot"]["object_key"] = reused_key
+    else:
+        try:
+            path = st.write_snapshot(source_id, ts, snap.ext, content)
+        except StoreError as e:
+            log.error(
+                "snapshot write failed", extra={"source_id": source_id, "run_id": run_id, "error": repr(e)}
+            )
+            return finish("failed", e)
+        record["snapshot"]["object_key"] = st.locate(path)
+        result.paths["snapshot"] = path
 
     # 3. parse + normalise ------------------------------------------------
     # Fail closed on *anything* the parser raises (docs/04 E-17): a truncated xlsx surfaces as
@@ -391,16 +624,16 @@ def run(
         return finish("failed", e)
     record["rows_fetched"] = len(df)
     record["snapshot"]["record_count"] = len(df)
-    source_columns = _source_columns(rows)
+    header = snap.meta.get("source_header")
+    source_columns = (
+        [str(c) for c in header] if isinstance(header, list) and header else _source_columns(rows)
+    )
+    daily_counts = (
+        _daily_counts(connector, df, rows, snap) if connector.snapshot_mode == "incremental" else None
+    )
+    fetched_df = df
 
-    prev_df, prev_run_id = st.previous_normalized(source_id)
-    if prev_df is not None:
-        # Legacy positional `#N` keys, and unique <-> duplicated transitions, are matched to the
-        # current content keys before anything is compared (pipeline/connectors/dedupe.py).
-        prev_df = align_previous_keys(prev_df, df)
-        prev_df, reclassified = _restate_previous(connector, prev_df)
-        record["rows_reclassified"] = reclassified["rows"]
-        record["reclassified"] = reclassified
+    prev_df, prev_run_id = _previous_for_diff(connector, st, source_id, df, record["parser_version"], record)
     if connector.snapshot_mode == "incremental" and prev_df is not None:
         keep = prev_df[~prev_df["record_id"].isin(df["record_id"])]
         df = pd.concat([keep[df.columns.intersection(keep.columns)], df], ignore_index=True)
@@ -412,16 +645,34 @@ def run(
     record["snapshot"]["previous_run_id"] = prev_run_id
 
     # 4. DQ gates ---------------------------------------------------------
+    window_start = _parse_ts(snap.meta.get("window_start"))
+    thresholds = source.raw.get("dq_thresholds")
     dq = run_gates(
         df,
         connector.kind,
         source_columns,
         st.dq_history(source_id),
+        thresholds=thresholds if isinstance(thresholds, dict) else None,
         required=connector.dq_required_fields,
         key_source_columns=connector.key_source_columns,
         duplicates_resolved=int(df.attrs.get("duplicates_resolved", 0)),
         rows_fetched=record["rows_fetched"],
+        daily_counts=daily_counts,
+        incremental=connector.snapshot_mode == "incremental",
+        may_be_empty=connector.may_be_empty,
+        window_days=((snap.retrieved_at - window_start).total_seconds() / 86400.0 if window_start else None),
+        previous=prev_df,
+        fetched=fetched_df,
+        truncated=bool(snap.meta.get("truncated")),
     )
+    if snap.meta.get("window_anchor"):
+        dq.checks.append(_window_check(snap.meta))
+    if record.get("parser_restated"):
+        dq.checks.append(_parser_restated_check(record["parser_restated"]))
+        if not record["parser_restated"].get("restated") and dq.status == "pass":
+            dq.status = "warn"
+    if snap.meta.get("window_anchor") == "clamped" and dq.status == "pass":
+        dq.status = "warn"
     if record["rows_reclassified"]:
         dq.checks.append(_reclassified_check(record["reclassified"]))
     if deadline_closed:
@@ -574,12 +825,10 @@ def release_held(
             "not_held", f"the held output of run {run_id} is missing ({st.locate(held_path)})"
         )
     df = st.read_parquet(held_path)
-    prev_df, prev_run_id = st.previous_normalized(source_id)
-    if prev_df is not None:
-        prev_df = align_previous_keys(prev_df, df)
-        prev_df, reclassified = _restate_previous(registry.instantiate(source_id), prev_df)
-        record["rows_reclassified"] = reclassified["rows"]
-        record["reclassified"] = reclassified
+    connector = registry.instantiate(source_id)
+    prev_df, prev_run_id = _previous_for_diff(
+        connector, st, source_id, df, str(record.get("parser_version") or ""), record
+    )
     observed_at = str((record.get("snapshot") or {}).get("retrieved_at") or record.get("started_at"))
     record.setdefault("outputs", {})
     result = RunResult(run=record, records=df)

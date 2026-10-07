@@ -15,9 +15,12 @@ the strategy is documented in each connector's docstring).
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import hashlib
+import inspect
 import json
+import math
 import pathlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -36,6 +39,20 @@ Egress = Literal["plain", "browser", "residential", "api_key"]
 SnapshotMode = Literal["full", "incremental"]
 
 PROVENANCE = ("source_id", "source_url", "retrieved_at", "licence_id")
+
+#: Shared modules whose code decides what `parse`/`normalize` produce for every connector; their
+#: digest is part of each connector's effective parser version (`Connector.parser_digest`).
+_SHARED_PARSER_MODULES = (
+    "pipeline/connectors/base.py",
+    "pipeline/connectors/canonical.py",
+    "pipeline/connectors/dedupe.py",
+    "pipeline/connectors/iso_queue.py",
+    "pipeline/connectors/opportunity.py",
+    "pipeline/normalize.py",
+    "pipeline/status_map.yaml",
+)
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_DIGESTS: dict[type, str] = {}
 
 # docs/21 §3.1 proposal fields as already produced by pipeline/normalize.py, with the store
 # spelling `licence_id` (docs/04 §10) and the jsonb-style `raw` payload appended.
@@ -202,8 +219,68 @@ class PreviousSnapshot:
         return self._content
 
 
+@dataclass(frozen=True)
+class FetchWindow:
+    """The span an incremental connector asks upstream for (audit 2026-09-30 F3, F12).
+
+    `anchor` says how `start` was chosen: `rolling` (no promoted run to anchor on: the connector's
+    `window_days` back from now), `watermark` (the start of the UTC day of the last promoted run's
+    `retrieved_at` minus `window_overlap`, so a run after a gap of any length up to
+    `max_catchup_days` asks for everything since the last run that reached `normalized/`) or
+    `clamped` (the gap is longer than `max_catchup_days`: the window starts there and the run
+    records the loss it cannot recover)."""
+
+    start: dt.datetime
+    end: dt.datetime
+    anchor: str
+    watermark: dt.datetime | None = None
+
+    @property
+    def days(self) -> float:
+        return max((self.end - self.start).total_seconds() / 86400.0, 0.0)
+
+    def meta(self) -> dict[str, Any]:
+        return {
+            "window_start": self.start.astimezone(dt.UTC).isoformat(timespec="seconds"),
+            "window_end": self.end.astimezone(dt.UTC).isoformat(timespec="seconds"),
+            "window_anchor": self.anchor,
+            "watermark": (
+                self.watermark.astimezone(dt.UTC).isoformat(timespec="seconds") if self.watermark else None
+            ),
+        }
+
+
 def utcnow() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
+
+
+def _floor_day(t: dt.datetime) -> dt.datetime:
+    t = t.astimezone(dt.UTC)
+    return dt.datetime(t.year, t.month, t.day, tzinfo=dt.UTC)
+
+
+def _code_digest(path: pathlib.Path) -> str:
+    """Digest of what a file *does*: a Python module's AST without docstrings (so a comment or
+    docstring edit is not a parser change), a YAML file's parsed content, else its bytes."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return "missing"
+    if path.suffix == ".py":
+        tree = ast.parse(text)
+        for node in ast.walk(tree):
+            body = getattr(node, "body", None)
+            if not (isinstance(body, list) and body and isinstance(body[0], ast.Expr)):
+                continue
+            first = body[0].value
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                body.pop(0)
+        text = ast.dump(tree, annotate_fields=False, include_attributes=False)
+    elif path.suffix in (".yaml", ".yml"):
+        import yaml
+
+        text = json.dumps(yaml.safe_load(text), sort_keys=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def json_default(v: Any) -> Any:
@@ -246,8 +323,29 @@ class Connector:
     kind: ClassVar[Kind]
     egress: ClassVar[Egress] = "plain"
     ext: ClassVar[str] = "bin"
+    #: The declared parser version. Bump it on a deliberate change of what the parser produces; the
+    #: version a run records (`effective_parser_version`) also carries a digest of the parser's code
+    #: and status map, so a change nobody bumped still moves it (audit 2026-09-30 F10). A run whose
+    #: effective version differs from the previous promoted run's restates that run's output under
+    #: the current code before the diff: a parser fix is a restatement, never news (runner docstring).
     parser_version: ClassVar[str] = "1.0.0"
     honour_robots: ClassVar[bool] = True
+    #: Incremental windows (audit 2026-09-30 F3, F12): the rolling span a run asks for when no
+    #: promoted run anchors it (`fetch_window`); 0 for full-register sources.
+    window_days: ClassVar[int] = 0
+    #: How far before the last promoted run's `retrieved_at` an anchored window starts (rounded
+    #: down to the UTC day), so late-published and re-dated records are fetched again.
+    window_overlap: ClassVar[dt.timedelta] = dt.timedelta(days=1)
+    #: The longest gap a run catches up on; beyond it the window is clamped and the run says so.
+    max_catchup_days: ClassVar[int] = 60
+    #: How many times its normal page cap a catch-up run may page, so a long gap is not truncated.
+    max_catchup_page_factor: ClassVar[int] = 10
+    #: A register that can legitimately hold no rows (ERCOT's unpublished large-load report); for
+    #: any other source a run of zero rows is held (audit F13).
+    may_be_empty: ClassVar[bool] = False
+    #: Normalised column dating each row's publication, for the weekday-aware row-count gate of an
+    #: incremental source (`pipeline/connectors/dq.py`, audit F6). None: no daily profile.
+    window_date_column: ClassVar[str | None] = None
     #: "full": the payload is the whole register, so a row that disappears is a `removed` event.
     #: "incremental": the payload is a window (last N days); rows are upserted onto the previous
     #: normalised snapshot and disappearance means nothing.
@@ -277,6 +375,77 @@ class Connector:
         #: Set by the runner before `fetch()` (`PreviousSnapshot`); None on a first run, a replay,
         #: or when the stored object is gone. Only a connector that makes conditional requests reads it.
         self.previous: PreviousSnapshot | None = None
+        #: `retrieved_at` of the last promoted run (its output reached `normalized/`), set by the
+        #: runner before `fetch()`; an incremental connector anchors its window on it.
+        self.watermark: dt.datetime | None = None
+        #: The run's clock (the runner sets it when a caller fixes `now`); `fetch` reads `self.now()`.
+        self.clock: Callable[[], dt.datetime] = utcnow
+
+    # ------------------------------------------------------------------ versions
+    @classmethod
+    def parser_digest(cls) -> str:
+        """Eight hex characters over the code that turns bytes into this connector's rows: every
+        connector module in the class's MRO, its status map and the shared parsing modules."""
+        cached = _DIGESTS.get(cls)
+        if cached is not None:
+            return cached
+        paths: list[pathlib.Path] = []
+        for klass in cls.__mro__:
+            if klass is Connector or not (isinstance(klass, type) and issubclass(klass, Connector)):
+                continue
+            src = inspect.getsourcefile(klass)
+            if src:
+                paths.append(pathlib.Path(src))
+        if cls.status_map_path is not None:
+            paths.append(pathlib.Path(cls.status_map_path))
+        paths.extend(_REPO_ROOT / p for p in _SHARED_PARSER_MODULES)
+        h = hashlib.sha256()
+        for path in sorted(set(paths)):
+            h.update(_code_digest(path).encode("ascii"))
+        digest = h.hexdigest()[:8]
+        _DIGESTS[cls] = digest
+        return digest
+
+    @classmethod
+    def effective_parser_version(cls) -> str:
+        """`{declared}+{digest}`: what a run record names as the code that produced its rows."""
+        return f"{cls.parser_version}+{cls.parser_digest()}"
+
+    # ------------------------------------------------------------------ windows
+    def now(self) -> dt.datetime:
+        return self.clock()
+
+    def fetch_window(self, now: dt.datetime | None = None) -> FetchWindow:
+        """The span this run asks upstream for (`FetchWindow`). Anchored on the last promoted run
+        when there is one, so a gap of any length up to `max_catchup_days` is caught up and a run
+        right after the last one asks only for what is new plus the overlap; otherwise the rolling
+        `window_days`."""
+        now = now or self.now()
+        if self.watermark is None or self.watermark > now:
+            return FetchWindow(now - dt.timedelta(days=self.window_days), now, "rolling")
+        start = _floor_day(self.watermark - self.window_overlap)
+        floor = now - dt.timedelta(days=self.max_catchup_days)
+        if start < floor:
+            return FetchWindow(floor, now, "clamped", self.watermark)
+        return FetchWindow(start, now, "watermark", self.watermark)
+
+    def page_cap(self, base_pages: int, window: FetchWindow) -> int:
+        """Pages a run may request: the connector's normal cap, scaled up in proportion when a
+        catch-up window is longer than its rolling `window_days` (bounded by
+        `max_catchup_page_factor`). A run that still hits the cap marks its snapshot
+        `meta["truncated"]` and is held (audit F3: a page cap used to truncate silently)."""
+        if not self.window_days or window.days <= self.window_days:
+            return base_pages
+        factor = min(math.ceil(window.days / self.window_days), self.max_catchup_page_factor)
+        return base_pages * max(factor, 1)
+
+    def row_dates(self, df: pd.DataFrame, rows: list[dict[str, Any]]) -> pd.Series | None:
+        """Publication date per normalised row (index-aligned with `df`) for the weekday-aware
+        row-count gate; None when the connector declares no `window_date_column`."""
+        col = self.window_date_column
+        if not col or col not in df.columns:
+            return None
+        return pd.to_datetime(df[col], errors="coerce", utc=True)
 
     # ------------------------------------------------------------------ contract
     def fetch(self) -> RawSnapshot:

@@ -28,6 +28,12 @@ of: a release month is known at month granularity and the release day inside it 
 release month would almost always precede the release and then wait a year, while a run on the
 2nd of the following month follows any in-month release, at a cost of at most a few weeks of
 latency on an annual dataset. A release that slips past its month is caught by "Run now".
+
+Poll cadence (2026-10-07, audit 2026-09-30 F12). `cadence` in `data/sources.yaml` says how often the
+*source* changes. An entry may also carry `poll`, how often we ask it, when that should differ:
+FERC eLibrary is `realtime` upstream but polled `daily` (12 POSTs a run at 0.5 rps, 1,152 a day at
+the 15-minute floor, for a document feed that loads nothing yet), Find a Tender and grants.gov are
+polled `hourly`. `poll_cadence` is what the bucket, `is_due` and freshness (`freshness.py`) read.
 """
 
 from __future__ import annotations
@@ -41,6 +47,7 @@ from typing import Any
 # the top of the hour (docs/20 §4.2 "enqueues `fetch` jobs with jitter").
 CRON_BY_BUCKET: dict[str, str] = {
     "15min": "*/15 * * * *",
+    "hourly": "11 * * * *",
     "daily": "7 3 * * *",
     "weekly": "13 4 * * 1",  # Monday 04:13 UTC
     "monthly": "21 5 1 * *",  # 1st of the month, 05:21 UTC
@@ -61,6 +68,7 @@ _KEYWORD_BUCKET: tuple[tuple[str, str], ...] = (
     ("15-min", "15min"),
     ("realtime", "15min"),
     ("continuous", "15min"),
+    ("hourly", "hourly"),
     ("daily", "daily"),
     ("twice weekly", "weekly"),
     ("weekly", "weekly"),
@@ -103,6 +111,11 @@ def bucket_for_cadence(cadence: str) -> BucketDecision:
     return BucketDecision(DEFAULT_BUCKET, None)
 
 
+def poll_cadence(source: dict[str, Any]) -> str:
+    """How often the scheduler asks the source: its `poll` override, else its `cadence`."""
+    return str(source.get("poll") or source.get("cadence", ""))
+
+
 def release_month(source: dict[str, Any]) -> int | None:
     """The source's optional `release_month` (1-12, the month its annual data is published), or
     None when absent. Raises `ValueError` for any other value, so a typo in the manifest fails
@@ -125,7 +138,7 @@ def annual_run_month(source: dict[str, Any]) -> int:
 def schedule_for_source(source: dict[str, Any]) -> str:
     """The effective cron for one source: its bucket's cron, narrowed to the run month for an
     annual source (for display and tests; the scheduler itself ticks per bucket)."""
-    bucket = bucket_for_cadence(str(source.get("cadence", ""))).bucket
+    bucket = bucket_for_cadence(poll_cadence(source)).bucket
     cron = CRON_BY_BUCKET[bucket]
     if bucket != "annual":
         return cron
@@ -135,7 +148,7 @@ def schedule_for_source(source: dict[str, Any]) -> str:
 
 def is_due(source: dict[str, Any], bucket: str, month: int) -> bool:
     """Whether a tick of `bucket` in calendar `month` (UTC) should fetch `source`."""
-    if bucket_for_cadence(str(source.get("cadence", ""))).bucket != bucket:
+    if bucket_for_cadence(poll_cadence(source)).bucket != bucket:
         return False
     return bucket != "annual" or annual_run_month(source) == month
 

@@ -24,6 +24,12 @@
 #   tier     : 1 = MVP, 2 = second wave, 3 = later / opportunistic
 #   effort   : S (<1 day connector) | M (1–3 days) | L (>3 days or needs agreements/browser automation)
 #   verified : result of scripts/probe_sources.py on the date shown (see data/probes/)
+#   poll     : optional, how often the scheduler asks the source when that should differ from `cadence`
+#              (how often the source changes). Any cadence keyword (hourly, daily, weekly, ...);
+#              infra/scheduler/cadence.py `poll_cadence` buckets it and infra/scheduler/freshness.py
+#              measures staleness against it (2026-10-07).
+#   dq_thresholds : optional mapping overriding pipeline/connectors/dq.py DEFAULT_THRESHOLDS for one
+#              source (row_drift_hold_pct, null_spike_hold_pp, ...); the runner passes it to the gates.
 #   release_month : optional, 1–12, only on sources whose cadence falls in the scheduler's annual bucket:
 #              the month the source publishes its annual data, with the page that says so cited in a
 #              comment above it. The scheduler runs the source on the 2nd of the *following* month
@@ -602,6 +608,10 @@ sources:
   auth: none
   format: json
   cadence: realtime
+  # Polled daily, not at the 15-minute floor (2026-10-07, audit 2026-09-30 data engineer F12): a run
+  # is ~12 POSTs at 0.5 rps whatever the window (the server ignores filterDate), 1,152 a day at the
+  # floor, and document frames load nothing yet (2026-09-30 lane FX2).
+  poll: daily
   license: public domain
   reuse: open
   publication: raw_ok
@@ -1833,6 +1843,9 @@ sources:
   auth: none
   format: json
   cadence: realtime
+  # Polled hourly (2026-10-07, audit F12): the full posted|forecasted search is 2 POSTs a run, 192 a
+  # day at the 15-minute floor; notices are posted on business days with deadlines weeks out.
+  poll: hourly
   license: public domain
   reuse: open
   publication: raw_ok
@@ -2131,6 +2144,9 @@ sources:
   auth: none
   format: json (OCDS)
   cadence: realtime
+  # Polled hourly with a watermark-anchored window (2026-10-07, audit F12): ~1 energy release in 100,
+  # and tender deadlines run weeks; the 15-minute floor re-read a rolling 2 days (~576 requests a day).
+  poll: hourly
   license: OGL v3
   reuse: attribution
   publication: raw_ok

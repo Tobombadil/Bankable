@@ -39,6 +39,7 @@ contributes its registry entry and nothing else, which is exactly what the gate 
 
 from __future__ import annotations
 
+import datetime as dt
 import functools
 import pathlib
 from typing import Any
@@ -142,7 +143,9 @@ def source_vintages(db: Session, *, with_fetched: bool = False) -> dict[str, Any
     # `vintage_basis IS NOT NULL` is precisely "a load has examined this source", which is both
     # the right population for this statement and one indexed table read -- `/v1/health` calls
     # this on every probe and must not scan the link tables to do it.
+    now = dt.datetime.now(dt.UTC)
     for source in db.scalars(select(Source).where(Source.vintage_basis.is_not(None)).order_by(Source.id)):
+        fetched_at = source.last_success_at.isoformat() if source.last_success_at else fetched.get(source.id)
         rows.append(
             {
                 "source_id": source.id,
@@ -153,9 +156,11 @@ def source_vintages(db: Session, *, with_fetched: bool = False) -> dict[str, Any
                 # state because it is the absence of one (`services/ingest/vintage.py`).
                 "vintage_basis": source.vintage_basis or UNDETERMINED,
                 # Ours, and labelled as ours wherever it renders.
-                "fetched_at": (
-                    source.last_success_at.isoformat() if source.last_success_at else fetched.get(source.id)
-                ),
+                "fetched_at": fetched_at,
+                # How old that fetch is against how often we poll the source (audit 2026-09-30 F2,
+                # `infra/scheduler/freshness.py`): `stale` past twice the allowance, `never` for a
+                # scheduled source with no fetch, `unscheduled` when no connector runs it.
+                "freshness": _freshness(source, fetched_at, now),
             }
         )
     stated = [r for r in rows if r["vintage"]]
@@ -181,6 +186,21 @@ def source_vintages(db: Session, *, with_fetched: bool = False) -> dict[str, Any
             db, select(func.count()).select_from(Source).where(Source.vintage_basis.is_(None))
         ),
     }
+
+
+def _freshness(source: Source, fetched_at: str | None, now: dt.datetime) -> dict[str, Any]:
+    from infra.scheduler.freshness import assess, manifest_poll
+
+    last = dt.datetime.fromisoformat(fetched_at.replace("Z", "+00:00")) if fetched_at else None
+    fr = assess(
+        manifest_poll(source.id) or source.cadence or "",
+        last,
+        now,
+        scheduled=bool(source.implemented),
+        paused=bool(source.paused),
+    )
+    keep = ("status", "bucket", "age_hours", "allowance_hours")
+    return {k: v for k, v in fr.to_dict().items() if k in keep}
 
 
 def _loaded_source_ids(db: Session) -> set[str]:

@@ -1,10 +1,16 @@
 """eu.ted.api — TED (Tenders Electronic Daily) Search API v3, energy CPV notices.
 
 Fetch: POST `/v3/notices/search` with expert query
-`(classification-cpv=09* OR 31* OR 45231* OR 71314*) AND publication-date>=<today-3d>`, 100
-notices per page, bundled into one JSON document. The window is a rolling 3 days, so the
-run is `snapshot_mode = incremental`: rows are upserted onto the previous snapshot and never
-"removed". `links` is not requested (it is ~7 KB per notice); the canonical URL is derived.
+`(classification-cpv=09* OR 31* OR 45231* OR 71314*) AND publication-date>=<window start>`, 100
+notices per page, bundled into one JSON document. The run is `snapshot_mode = incremental`: rows
+are upserted onto the previous snapshot and never "removed". The window starts at the day before
+the last promoted run (`Connector.fetch_window`, 2026-10-07): a run after an outage catches up
+(audit 2026-09-30 F3 measured 2,786 notices a rolling 3-day window would never have fetched), and
+the first run, with nothing to anchor on, looks back 3 days. A catch-up may page up to ten times
+the normal cap; a fetch that still stops at the cap is marked `truncated` and held.
+`links` is not requested (it is ~7 KB per notice); the canonical URL is derived.
+TED publishes on business days, so the row-count gate compares like-for-like weekdays by
+`open_at` (the publication date; `pipeline/connectors/dq.py`, audit F6).
 Parse: `notices[]` as returned (multilingual title dict, list-valued fields).
 source_record_id: `publication-number` (e.g. `626048-2026`).
 Personal data: no contact fields are requested (docs/13 §5.4 rule 1); buyer name is an organisation.
@@ -124,6 +130,8 @@ class Connector(BaseConnector):
     ext: ClassVar[str] = "json"
     honour_robots: ClassVar[bool] = False
     snapshot_mode: ClassVar[SnapshotMode] = "incremental"
+    window_days: ClassVar[int] = WINDOW_DAYS
+    window_date_column: ClassVar[str | None] = "open_at"
     status_key: ClassVar[str] = "ted"
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("status_map.yaml")
     key_source_columns: ClassVar[tuple[str, ...]] = (
@@ -134,17 +142,20 @@ class Connector(BaseConnector):
         "publication-date",
     )
 
-    def query(self, now: dt.datetime) -> str:
-        since = (now - dt.timedelta(days=WINDOW_DAYS)).strftime("%Y%m%d")
-        return f"{CPV_QUERY} AND publication-date>={since}"
+    def query(self, since: dt.datetime) -> str:
+        """The expert query for notices published on or after `since`'s UTC date."""
+        return f"{CPV_QUERY} AND publication-date>={since.astimezone(dt.UTC).strftime('%Y%m%d')}"
 
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()
-        now = dt.datetime.now(dt.UTC)
-        query = self.query(now)
+        now = self.now()
+        window = self.fetch_window(now)
+        query = self.query(window.start)
+        cap = self.page_cap(MAX_PAGES, window)
         pages: list[dict[str, Any]] = []
         seen = 0
-        for page_no in range(1, MAX_PAGES + 1):
+        truncated = False
+        for page_no in range(1, cap + 1):
             body = {"query": query, "fields": FIELDS, "limit": PAGE, "page": page_no, "scope": "ALL"}
             r = self.http.post(API_URL, json=body, timeout=120)
             if r.status_code != 200:
@@ -154,6 +165,8 @@ class Connector(BaseConnector):
             seen += len(page.get("notices") or [])
             if not page.get("notices") or seen >= int(page.get("totalNoticeCount", 0)):
                 break
+        else:
+            truncated = seen < int(pages[-1].get("totalNoticeCount", 0)) if pages else False
         payload = json.dumps(
             {"request": {"query": query, "fields": FIELDS}, "pages": pages}, ensure_ascii=False
         ).encode("utf-8")
@@ -166,7 +179,14 @@ class Connector(BaseConnector):
             ext="json",
             elapsed_s=round(time.monotonic() - t0, 2),
             requests_made=len(pages),
-            meta={"query": query, "total": pages[0].get("totalNoticeCount"), "pages": len(pages)},
+            meta={
+                "query": query,
+                "total": pages[0].get("totalNoticeCount"),
+                "pages": len(pages),
+                "page_cap": cap,
+                "truncated": truncated,
+                **window.meta(),
+            },
         )
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import datetime as dt
 import functools
+import hashlib
 import io
 import json
 import os
@@ -202,17 +203,49 @@ class Store:
                 return PreviousSnapshot(record=record, load=functools.partial(self.read_bytes, path))
         return None
 
+    def last_promoted(self, source_id: str) -> tuple[str, dict[str, Any]] | None:
+        """`(ts, record)` of the latest run whose output reached `normalized/` (status `ok`, a
+        passing run or a released hold) and whose parquet still exists: the run
+        `previous_normalized` reads, whose `snapshot.retrieved_at` is the incremental watermark
+        (`Connector.fetch_window`) and whose snapshot a parser change restates (runner docstring)."""
+        for ts, r in reversed(self._run_entries(source_id)):
+            if r.get("status") != "ok" or not (r.get("outputs") or {}).get("normalized"):
+                continue
+            if self.exists(self.normalized_path(source_id, ts)):
+                return ts, r
+        return None
+
     def previous_normalized(self, source_id: str) -> tuple[pd.DataFrame | None, str | None]:
         """Latest normalised parquet written by a successful (non-held) run. The object is found
         from the run's own `ts` (the key the runner wrote it under), not from the location the
         record carries, so a record written on another host or backend still resolves."""
-        for ts, r in reversed(self._run_entries(source_id)):
-            if r.get("status") != "ok" or not (r.get("outputs") or {}).get("normalized"):
+        entry = self.last_promoted(source_id)
+        if entry is None:
+            return None, None
+        ts, r = entry
+        return self.read_parquet(self.normalized_path(source_id, ts)), str(r.get("id"))
+
+    def snapshot_bytes(self, source_id: str, ts: str, record: dict[str, Any]) -> bytes | None:
+        """The raw bytes run `ts` stored (or matched: an `unchanged` run points at the newest run
+        that wrote the same SHA-256), checked against the recorded digest; None when the object is
+        gone. Used to restate a run's output under a changed parser without fetching again."""
+        snap = record.get("snapshot") or {}
+        sha = snap.get("sha256")
+        if not sha:
+            return None
+        for run_ts, r in reversed(self._run_entries(source_id)):
+            rs = r.get("snapshot") or {}
+            if rs.get("sha256") != sha or not rs.get("object_key"):
                 continue
-            path = self.normalized_path(source_id, ts)
-            if self.exists(path):
-                return self.read_parquet(path), str(r.get("id"))
-        return None, None
+            if run_ts > ts:
+                continue
+            ext = str(rs["object_key"]).rsplit("/", 1)[-1].rpartition(".")[2]
+            path = self.snapshot_path(source_id, run_ts, ext)
+            if ext and self.exists(path):
+                body = self.read_bytes(path)
+                if hashlib.sha256(body).hexdigest() == sha:
+                    return body
+        return None
 
     def dq_history(self, source_id: str) -> list[dict[str, Any]]:
         return [r["stats"] for r in self.successful_runs(source_id) if r.get("stats")]

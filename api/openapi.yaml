@@ -11775,6 +11775,21 @@ components:
                       When *we* last fetched from this source — `source.last_success_at`, falling
                       back to the newest `retrieved_at` on its stored rows. Printed beside the
                       release, never in place of it.
+                  freshness:
+                    type: object
+                    description: >-
+                      `fetched_at` against the source's poll allowance (`SourceFreshness`: status,
+                      bucket, age_hours, allowance_hours).
+                    properties:
+                      status:
+                        type: string
+                        enum: [fresh, late, stale, never, paused, unscheduled]
+                      bucket:
+                        type: [string, 'null']
+                      age_hours:
+                        type: [number, 'null']
+                      allowance_hours:
+                        type: [number, 'null']
             oldest:
               type: [object, 'null']
               properties:
@@ -12854,6 +12869,32 @@ components:
           type: string
           minLength: 3
           maxLength: 1000
+    SourceFreshness:
+      type: object
+      description: >-
+        How old the source's last successful run is against how often we poll it (2026-10-07,
+        `infra/scheduler/freshness.py`). `health` counts failures only, so a source nothing runs
+        stays `ok`; this is the other half. Allowance per poll bucket: 15min 1 h, hourly 3 h, daily
+        2 d, weekly 8 d, monthly 32 d, quarterly 93 d, annual 397 d; `stale` past twice it.
+      required: [status, bucket, alert]
+      properties:
+        status:
+          type: string
+          enum: [fresh, late, stale, never, paused, unscheduled]
+        bucket:
+          type: [string, 'null']
+        last_success_at:
+          type: [string, 'null']
+          format: date-time
+        age_hours:
+          type: [number, 'null']
+        allowance_hours:
+          type: [number, 'null']
+        stale_after_hours:
+          type: [number, 'null']
+        alert:
+          type: boolean
+          description: True when `stale` or `never`; the scheduler's `freshness_tick` fails while any source alerts.
     AdminSource:
       allOf:
         - $ref: '#/components/schemas/Source'
@@ -12877,6 +12918,8 @@ components:
               type: boolean
             health:
               $ref: '#/components/schemas/SourceHealth'
+            freshness:
+              $ref: '#/components/schemas/SourceFreshness'
             consecutive_failures:
               type: integer
             last_error:

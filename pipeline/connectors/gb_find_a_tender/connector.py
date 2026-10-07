@@ -1,8 +1,13 @@
 """gb.find_a_tender — UK Find a Tender Service, OCDS release packages.
 
-Fetch: GET `/api/1.0/ocdsReleasePackages?updatedFrom=<now-2d>&limit=100`, following
-`links.next` cursors (capped); pages are bundled into one JSON document. Rolling window, so
-`snapshot_mode = incremental`.
+Fetch: GET `/api/1.0/ocdsReleasePackages?updatedFrom=<window start>&limit=100`, following
+`links.next` cursors (capped); pages are bundled into one JSON document. Window source, so
+`snapshot_mode = incremental`. The window starts at the day before the last promoted run
+(`Connector.fetch_window`, 2026-10-07): a run after an outage catches up (audit 2026-09-30 F3),
+and an hourly run asks for about a day and a half of releases rather than re-reading a rolling
+two days every 15 minutes (audit F12: ~576 requests a day before). A first run looks back 2 days.
+A fetch that stops at its page cap is marked `truncated` and held. The row-count gate compares
+like-for-like weekdays by each release's own `date` (`row_dates`; audit F6).
 Parse: keep releases with an energy CPV (09*, 31*, 45231*, 71314*) in `tender.classification`,
 `tender.items[].classification` / `additionalClassifications` or lot items; when one ocid has
 several releases in the window the latest by `date` wins.
@@ -79,24 +84,34 @@ class Connector(BaseConnector):
     ext: ClassVar[str] = "json"
     honour_robots: ClassVar[bool] = False
     snapshot_mode: ClassVar[SnapshotMode] = "incremental"
+    window_days: ClassVar[int] = WINDOW_DAYS
     status_key: ClassVar[str] = "find_a_tender"
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("status_map.yaml")
     personal_data_columns: ClassVar[tuple[str, ...]] = ("contactPoint",)
     key_source_columns: ClassVar[tuple[str, ...]] = ("ocid", "id", "tag", "tender", "buyer")
 
+    def row_dates(self, df: pd.DataFrame, rows: list[dict[str, Any]]) -> pd.Series | None:
+        """Each kept release's own `date` (the update the `updatedFrom` window selects on)."""
+        return pd.to_datetime(
+            pd.Series([r.get("date") for r in rows], index=df.index), errors="coerce", utc=True
+        )
+
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()
-        now = dt.datetime.now(dt.UTC)
-        since = (now - dt.timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
+        now = self.now()
+        window = self.fetch_window(now)
+        since = window.start.astimezone(dt.UTC).strftime("%Y-%m-%dT%H:%M:%S")
+        cap = self.page_cap(MAX_PAGES, window)
         url: str | None = f"{API_URL}?updatedFrom={since}&limit=100"
         pages: list[dict[str, Any]] = []
-        while url and len(pages) < MAX_PAGES:
+        while url and len(pages) < cap:
             r = self.http.get(url, honour_robots=False, timeout=120)
             if r.status_code != 200:
                 raise ConnectorError(f"GET {url} -> HTTP {r.status_code}")
             page = r.json()
             pages.append(page)
             if not page.get("releases"):
+                url = None
                 break
             url = (page.get("links") or {}).get("next")
         payload = json.dumps({"request": {"updatedFrom": since}, "pages": pages}, ensure_ascii=False).encode(
@@ -111,7 +126,13 @@ class Connector(BaseConnector):
             ext="json",
             elapsed_s=round(time.monotonic() - t0, 2),
             requests_made=len(pages),
-            meta={"updated_from": since, "pages": len(pages)},
+            meta={
+                "updated_from": since,
+                "pages": len(pages),
+                "page_cap": cap,
+                "truncated": bool(url),
+                **window.meta(),
+            },
         )
 
     def redact(self, content: bytes) -> bytes:

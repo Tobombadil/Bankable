@@ -211,6 +211,21 @@ def evidence_countries(session: Session) -> dict[Any, set[str]]:
     return dict(out)
 
 
+def _row_retrieved_at(row: dict[str, Any]) -> dt.datetime | None:
+    value = row.get("retrieved_at")
+    if value is None or (isinstance(value, float) and pd.isna(value)) or str(value) in ("", "NaT"):
+        return None
+    try:
+        ts = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(ts):
+        return None
+    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    out: dt.datetime = ts.to_pydatetime()
+    return out
+
+
 def _get_or_create_org(
     session: Session,
     index: dict[str, list[Organization]],
@@ -385,7 +400,8 @@ def load_gleif_parents(
                 index,
                 parent_name,
                 source=source,
-                now=now,
+                # The GLEIF file's fetch, not this load (audit 2026-09-30 F8).
+                now=_row_retrieved_at(row) or now,
                 source_url=_text(row.get("source_url")) or source.url,
             )
             if created:

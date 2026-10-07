@@ -326,6 +326,11 @@ def _serialize_admin_source(source: Source) -> dict[str, Any]:
     )
     last_run = source.__dict__.get("_admin_last_run")  # set by callers that pre-fetch it
     out = serialize_source(source)
+    from infra.scheduler.freshness import assess_source
+
+    # Freshness (audit 2026-09-30 F2): `health` counts failures only, so a source nothing runs
+    # stayed `ok`; this is the age of the last success against its poll allowance.
+    freshness = assess_source(source, dt.datetime.now(dt.UTC)).to_dict()
     out.update(
         {
             "effort": source.effort,
@@ -335,6 +340,7 @@ def _serialize_admin_source(source: Source) -> dict[str, Any]:
             "next_run_at": _iso_or_none(source.next_run_at),
             "paused": source.paused,
             "health": source.health,
+            "freshness": freshness,
             "consecutive_failures": source.consecutive_failures,
             "last_error": source.last_error,
             "last_error_at": _iso_or_none(source.last_error_at),

@@ -288,6 +288,7 @@ def _resolve_organization(
     source: Source,
     now: dt.datetime,
     created_counter: list[int],
+    source_url: str | None = None,
 ) -> Organization:
     """Resolves `raw_name` to an organisation via `norm_index` (module docstring: `org_key`, not
     a raw casefold), creating a new organisation plus a `filing_spelling` alias only when no
@@ -296,6 +297,10 @@ def _resolve_organization(
     so two owner names in the same run that share an `org_key` (e.g. "NextEra Energy
     Resources, LLC" and "NEXTERA ENERGY RESOURCES LLC") resolve to the same row rather than
     creating it twice.
+
+    `now` is stamped on a new alias as its `retrieved_at`, so callers pass the fetch the spelling
+    was read in, and `source_url` the page it came from (audit 2026-09-30 F8: aliases carried the
+    load time and the manifest landing URL).
     """
     key = org_key(raw_name)
     exact_key = raw_name.strip().lower()
@@ -334,7 +339,7 @@ def _resolve_organization(
                 alias_normalised=exact_key,
                 kind="filing_spelling",
                 source_id=source.id,
-                source_url=source.url,
+                source_url=source_url or source.url,
                 retrieved_at=now,
                 licence_id=source.licence_id,
                 # 0.9, not the loader's exact/punctuation-match 1.0
@@ -409,19 +414,25 @@ def load_owner_shares(
             continue
 
         share_pct, method, as_of, owner_name_raw = _aggregate_group(rows)
-        created_before = created_counter[0]
-        org = _resolve_organization(
-            session, norm_index, owner_name_raw, source=source, now=now, created_counter=created_counter
-        )
-        if created_counter[0] == created_before and org.id not in seen_org_ids:
-            result.organizations_matched += 1
-        seen_org_ids.add(org.id)
         source_url = next(
             (str(r["source_url"]) for r in rows if _none_if_missing(r.get("source_url"))), source.url
         )
         retrieved_at = max(
             (d for r in rows if (d := _to_datetime(r.get("retrieved_at"))) is not None), default=now
         )
+        created_before = created_counter[0]
+        org = _resolve_organization(
+            session,
+            norm_index,
+            owner_name_raw,
+            source=source,
+            now=retrieved_at,
+            created_counter=created_counter,
+            source_url=source_url,
+        )
+        if created_counter[0] == created_before and org.id not in seen_org_ids:
+            result.organizations_matched += 1
+        seen_org_ids.add(org.id)
 
         edge_key = (str(asset.id), str(org.id), "owner")
         edge = existing_edges.get(edge_key)

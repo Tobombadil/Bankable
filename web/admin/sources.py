@@ -91,6 +91,31 @@ def _health_chip(health: str) -> tuple[str, str]:
     return _HEALTH_CHIP.get(health, (health, "chip--neutral"))
 
 
+#: Freshness (2026-10-07, audit 2026-09-30 F2; `infra/scheduler/freshness.py`): the age of the last
+#: success against the poll allowance. Labelled in words, like the health chip.
+_FRESHNESS_CHIP: dict[str, tuple[str, str]] = {
+    "fresh": ("✓", "chip--success"),
+    "late": ("⚠", "chip--progress"),
+    "stale": ("✗", "chip--danger"),
+    "never": ("✗", "chip--danger"),
+    "paused": ("⏸", "chip--neutral"),
+    "unscheduled": ("–", "chip--neutral"),
+}
+
+
+def _freshness_chip(freshness: dict[str, Any] | None) -> tuple[str, str, str]:
+    """(icon, chip class, label) for a source's `freshness` block; the label carries the age."""
+    if not freshness:
+        return ("–", "chip--neutral", "freshness unknown")
+    status = str(freshness.get("status") or "unknown")
+    icon, chip = _FRESHNESS_CHIP.get(status, ("–", "chip--neutral"))
+    age = freshness.get("age_hours")
+    label = status
+    if isinstance(age, int | float):
+        label += f" · {age / 24:.1f} d" if age >= 48 else f" · {age:.0f} h"
+    return (icon, chip, label)
+
+
 #: D5: the reuse classes the chip calls gated — the posture's complement of the publishable set,
 #: read once at import like `services/api/visibility.py::PUBLISHABLE_REUSE_CLASSES`.
 GATED_REUSE_CLASSES: tuple[str, ...] = gated_reuse_classes(platform_posture())
@@ -104,6 +129,7 @@ def _is_gated(source: dict[str, Any]) -> bool:
 
 
 templates.env.globals["source_health_chip"] = _health_chip
+templates.env.globals["source_freshness_chip"] = _freshness_chip
 templates.env.globals["source_is_gated"] = _is_gated
 
 

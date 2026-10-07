@@ -61,6 +61,8 @@ class Connector(BaseConnector):
         "capacity_mw",
         "technology_raw",
     )
+    #: Every column a diffed field, the record id or the placement reads (audit 2026-09-30 F5:
+    #: a renamed `Connection Site` nulled the 1,204 GB grid points, a renamed `Stage` re-keyed rows).
     key_source_columns: ClassVar[tuple[str, ...]] = (
         "Project ID",
         "Project Name",
@@ -70,6 +72,10 @@ class Connector(BaseConnector):
         "MW Increase / Decrease",
         "Cumulative Total Capacity (MW)",
         "MW Effective From",
+        "Stage",
+        "Connection Site",
+        "Customer Name",
+        "Project Number",
     )
 
     def restate_capacity(self, df: pd.DataFrame) -> pd.Series | None:

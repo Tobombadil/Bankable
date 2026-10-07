@@ -54,6 +54,7 @@ def test_new_and_removed():
     assert counts(ev) == {
         "new": 1,
         "status_change": 0,
+        "status_raw_change": 0,
         "capacity_change": 0,
         "cod_change": 0,
         "withdrawn": 0,
