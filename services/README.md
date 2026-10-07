@@ -2038,3 +2038,13 @@ Closes the two defects lane E15 left open. Both choices apply the rule an earlie
      breaches, and 25 of them are confirmed served.
    - In this twin case the public organisation's canonical name is the same string. It is still shown,
      because that organisation is public in its own right.
+
+## Geo latency at full-store scale (2026-10-07, backend-developer)
+
+Measured on the full dev store (10,636 live proposals), warm, median of 9 calls, FastAPI TestClient:
+national `/v1/proposals/geo` at zoom 3 went from 1,206 ms to 338 ms (403 ms without the GC freeze).
+The breakdown before the change, the list of what changed and the equivalence evidence are in the
+2026-10-07 decisions row in `docs/00-PLAN.md`. The regression guard is
+`tests/test_api_geo_performance_full_store.py`, which builds a dev-store-sized store from committed
+data (`tests/geo_full_store.py`) so CI measures the budget at the scale the site runs at. Still above
+budget: a national call where a hidden source contributes fields (0.53–0.68 s).
