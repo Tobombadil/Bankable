@@ -19,6 +19,7 @@ import contextlib
 import io
 import json
 import pathlib
+import uuid as _uuid
 from collections import Counter
 from collections.abc import Iterator
 
@@ -31,7 +32,7 @@ from pipeline import resolve as resolve_module
 from pipeline.connectors.registry import SourceEntry
 from pipeline.normalize import org_key
 from services.db.base import Base
-from services.db.models import Event, Source
+from services.db.models import Event, ProposalSource, Source
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ingest.loader import load_dataframe, upsert_licence_and_source
 from services.resolve import merge as merge_mod
@@ -193,3 +194,30 @@ def test_every_resolver_quartet_is_one_registered_sources_own(realistic_run: Ses
         if e.source_id not in sources or sources[e.source_id].licence_id != e.licence_id
     ]
     assert not bad, bad[:5]
+
+
+def test_every_link_a_standing_merge_moved_names_it_and_every_unmerged_link_is_back(
+    realistic_run: Session,
+) -> None:
+    """docs/21 §6.3: a re-pointed link's `link_event_id` is the merge that moved it; an unmerge puts
+    each such link back on the absorbed record with the value it had before (null here)."""
+    merges = realistic_run.scalars(
+        select(Event).where(Event.event_type == "merged", Event.subject_type == "proposal")
+    ).all()
+    reversed_ids = set(
+        realistic_run.scalars(select(Event.reverses_event_id).where(Event.event_type == "unmerged"))
+    )
+    standing = Counter[str]()
+    for event in merges:
+        absorbed = (event.before or {})["absorbed"]
+        for raw in absorbed["proposal_source_ids"]:
+            link = realistic_run.get(ProposalSource, _uuid.UUID(raw))
+            assert link is not None
+            if event.id in reversed_ids:
+                ok = link.proposal_id == _uuid.UUID(absorbed["id"]) and link.link_event_id is None
+                standing["unmerged ok" if ok else "unmerged wrong"] += 1
+            else:
+                ok = link.proposal_id == event.subject_id and link.link_event_id == event.id
+                standing["merged ok" if ok else "merged wrong"] += 1
+    assert set(standing) == {"merged ok", "unmerged ok"}, standing
+    assert standing["unmerged ok"] >= UNMERGE_EACH
