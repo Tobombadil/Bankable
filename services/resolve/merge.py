@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import logging
 import uuid as _uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -62,8 +63,10 @@ from services.db.models import (
     ProposalSource,
 )
 from services.ingest.loader import SELECT_BASIS_KEY
-from services.resolve import survivorship
+from services.resolve import provenance, survivorship
 from services.resolve.models import ResolutionDecision
+
+logger = logging.getLogger(__name__)
 
 #: docs/22 §6's chosen threshold. Re-measured with the docs/22 §22 rules on 2026-09-29: resolver
 #: 0.974 / 0.925 sample (0.958 / 0.910 weighted, n=85); through the store 1.000 / 0.892 (77 usable).
@@ -116,6 +119,25 @@ def restore_row(obj: Proposal | Organization, data: dict[str, Any]) -> None:
         elif value is not None and key in _DATE_COLUMNS:
             value = dt.date.fromisoformat(value)
         setattr(obj, key, value)
+
+
+def _all_links(session: Session, proposal_id: _uuid.UUID) -> list[ProposalSource]:
+    """Every link of a record, active or not: the evidence of a record whose links are all inactive."""
+    return list(
+        session.scalars(
+            select(ProposalSource)
+            .where(ProposalSource.proposal_id == proposal_id)
+            .order_by(ProposalSource.id)
+        ).all()
+    )
+
+
+def _required(quartet: provenance.Quartet | None, what: str) -> provenance.Quartet:
+    """A resolver event must carry a provenance quartet (CLAUDE.md; docs/22 §13.7): an event with no
+    stored record behind it is a store defect, refused rather than written unattributed."""
+    if quartet is None:
+        raise ValueError(f"{what}: no stored record carries a provenance quartet to attribute it to")
+    return quartet
 
 
 def utcnow() -> dt.datetime:
@@ -422,6 +444,16 @@ def merge_proposal(
             ProposalSource.proposal_id == absorbed.id, ProposalSource.active.is_(True)
         )
     ).all()
+    # The provenance quartet: the most restrictive member link's, read before the links move
+    # (docs/22 §13.7, `services/resolve/provenance.py`).
+    quartet = _required(
+        provenance.for_proposal_merge(
+            session,
+            canonical.id,
+            absorbed_sources or _all_links(session, absorbed.id),
+        ),
+        f"merge of proposal {absorbed.id} into {canonical.id}",
+    )
 
     before_payload = {
         "surviving": {
@@ -488,6 +520,7 @@ def merge_proposal(
         subject_id=canonical.id,
         event_type="merged",
         observed_at=utcnow(),
+        **quartet.columns(),
         before=before_payload,
         after=after_payload,
         changed_keys=changed_keys,
@@ -536,6 +569,20 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
             f"({absorbed_id}) proposal row is missing"
         )
 
+    # The quartet of the merge being reversed (docs/21 §6.2); a merge written before docs/22 §13.7
+    # carries none, and the same rule derives one from the links that move back.
+    listed = [
+        ps
+        for ps in (
+            session.get(ProposalSource, _uuid.UUID(x)) for x in before["absorbed"]["proposal_source_ids"]
+        )
+        if ps is not None
+    ]
+    quartet = provenance.of_event(merge_event) or _required(
+        provenance.for_proposal_merge(session, canonical.id, listed or _all_links(session, absorbed.id)),
+        f"unmerge {merge_event.id}",
+    )
+
     restore_row(absorbed, before["absorbed"]["entity"])
 
     for source_id_str in before["absorbed"]["proposal_source_ids"]:
@@ -577,6 +624,7 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
         subject_id=canonical.id,
         event_type="unmerged",
         observed_at=utcnow(),
+        **quartet.columns(),
         before=None,
         after={"restored_proposal_id": str(absorbed.id)},
         changed_keys=changed_keys,
@@ -736,8 +784,13 @@ def merge_organization(
     `proposal_source` of a proposal the absorbed row sponsored, else the absorbed row's first
     ownership edge -- the record the spelling was read from; with neither, no alias is written.
 
-    `source_url`/`retrieved_at` stamp the event with the document a curated merge cites
-    (`services/ingest/organizations.py::load_merges`); the resolver's key-based merges pass none.
+    **Provenance.** `source_id`/`source_url`/`retrieved_at`/`licence_id` stamp the event with the
+    document a curated merge cites (`services/ingest/organizations.py::load_merges`); given, all four
+    are required. The resolver's key-based merges pass none, and the event takes the quartet of the
+    most restrictive stored row naming either organisation (docs/22 §13.7,
+    `services/resolve/provenance.py`). Until 2026-10-07 those events carried no quartet, and the
+    spelling alias's licence leaked into the event's `licence_id` alone (the alias tuple below
+    rebound the `licence_id` argument): 139 of 151 key-based merges on the eval store.
     """
     if absorbed.id == canonical.id:
         raise ValueError("cannot merge an organization into itself")
@@ -749,6 +802,17 @@ def merge_organization(
         raise ValueError(
             f"{absorbed.id} is already merged into {absorbed.merged_into_id}, not {canonical.id}"
         )
+    quartet: provenance.Quartet | None
+    if any(v is not None for v in (source_id, source_url, retrieved_at, licence_id)):
+        if source_id is None or source_url is None or retrieved_at is None or licence_id is None:
+            raise ValueError(
+                "an explicit merge provenance needs all four of "
+                "source_id, source_url, retrieved_at, licence_id"
+            )
+        quartet = provenance.Quartet(source_id, source_url, retrieved_at, licence_id)
+    else:
+        # Read before anything moves, so each side's evidence is still its own.
+        quartet = _organization_quartet(session, canonical, absorbed, "merge")
 
     sponsored = session.scalars(
         select(Proposal).where(Proposal.sponsor_org_id == absorbed.id).order_by(Proposal.id)
@@ -846,16 +910,16 @@ def merge_organization(
 
     written_alias: OrganizationAlias | None = None
     if alias_provenance is not None and absorbed.name_normalised not in survivor_alias_keys:
-        src_id, src_url, src_retrieved, licence_id = alias_provenance
+        alias_source_id, alias_url, alias_retrieved, alias_licence_id = alias_provenance
         written_alias = OrganizationAlias(
             organization_id=canonical.id,
             alias=absorbed.name_canonical,
             alias_normalised=absorbed.name_normalised,
             kind="filing_spelling",
-            source_id=src_id,
-            source_url=src_url,
-            retrieved_at=src_retrieved,
-            licence_id=licence_id,
+            source_id=alias_source_id,
+            source_url=alias_url,
+            retrieved_at=alias_retrieved,
+            licence_id=alias_licence_id,
             confidence=1.0,
             created_by="pipeline",
         )
@@ -876,10 +940,7 @@ def merge_organization(
         subject_id=canonical.id,
         event_type="merged",
         observed_at=utcnow(),
-        source_id=source_id,
-        source_url=source_url,
-        retrieved_at=retrieved_at,
-        licence_id=licence_id,
+        **(quartet.columns() if quartet is not None else {}),
         before=before_payload,
         after=after_payload,
         changed_keys=changed_keys,
@@ -891,6 +952,25 @@ def merge_organization(
     session.add(event)
     session.flush()
     return event
+
+
+def _organization_quartet(
+    session: Session, canonical: Organization, absorbed: Organization, what: str
+) -> provenance.Quartet | None:
+    """The derived quartet of an organisation merge or unmerge (docs/22 §13.7). Unlike a proposal, an
+    organisation can exist with no stored row naming it (a parent known only through its
+    children's `parent_source_id`, which records a source but no URL or retrieval time): such an
+    event is written without a quartet and logged, never given an invented one. Every loader that
+    creates an organisation also writes an alias with a full quartet, so a loaded store has none
+    (measured: 0 of 151 on the eval store, docs/22 §13.7)."""
+    quartet = provenance.for_organization_merge(session, canonical, absorbed)
+    if quartet is None:
+        logger.warning(
+            "organization %s with no stored row naming either side; event written without provenance",
+            what,
+            extra={"canonical": str(canonical.id), "absorbed": str(absorbed.id)},
+        )
+    return quartet
 
 
 def _absorbed_spelling_provenance(
@@ -944,6 +1024,13 @@ def unmerge_organization(session: Session, merge_event_id: _uuid.UUID, *, reason
             f"cannot unmerge {merge_event.id}: canonical or absorbed organization row is missing"
         )
 
+    # The quartet of the merge being reversed; a merge written before docs/22 §13.7 carries none, and
+    # the merge rule derives one over both organisations (their combined evidence is the same set
+    # before and after the rows move back).
+    quartet = provenance.of_event(merge_event) or _organization_quartet(
+        session, canonical, absorbed, "unmerge"
+    )
+
     absorbed_payload = before["absorbed"]
     restore_row(absorbed, absorbed_payload["entity"])
 
@@ -975,6 +1062,7 @@ def unmerge_organization(session: Session, merge_event_id: _uuid.UUID, *, reason
         subject_id=canonical.id,
         event_type="unmerged",
         observed_at=utcnow(),
+        **(quartet.columns() if quartet is not None else {}),
         before=None,
         after={"restored_organization_id": str(absorbed.id)},
         changed_keys=["merged_into_id"],

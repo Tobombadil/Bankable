@@ -11,9 +11,11 @@ payload carries the id, follows each to its live proposal (through `merged_into_
 
 - if every active link of that proposal is a suppressed one, sets `publish_state = unpublished`
   and writes one `unpublished` event (actor `pipeline`, `reason` from the file, before/after
-  publish state, never published itself). The event's idempotency key is fixed per proposal and
-  registry id, so the step is idempotent, and a record an admin re-publishes afterwards stays
-  published: the suppression has already been recorded and is not applied twice;
+  publish state, never published itself), carrying the provenance quartet of the suppressed link
+  (the most restrictive of them when several, the listed registry id's on a tie; docs/22 §13.7).
+  The event's idempotency key is fixed per proposal and registry id, so the step is idempotent,
+  and a record an admin re-publishes afterwards stays published: the suppression has already been
+  recorded and is not applied twice;
 - if another source also supports the proposal, leaves it published and reports it
   (`kept_other_sources`), because that source's claim is independent evidence;
 - a listed id with no active link is reported (`not_found`), so a stale entry is visible.
@@ -36,6 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from services.db.models import Event, Proposal, ProposalSource
+from services.resolve import provenance
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SUPPRESSION_FILES: tuple[pathlib.Path, ...] = (
@@ -144,6 +147,10 @@ def apply_suppressions(
         if session.scalar(select(Event.id).where(Event.idempotency_key == idem)) is not None:
             report.already_recorded += 1
             continue
+        triggering = {link.id for link in active if _registry_id(link) == first.registry_id}
+        quartet = provenance.choose(session, provenance.for_suppression(active, triggering))
+        if quartet is None:  # pragma: no cover -- `hits` holds only records with an active link
+            raise ValueError(f"suppression of {proposal.id}: no active link to attribute it to")
         before = proposal.publish_state
         proposal.publish_state = "unpublished"
         proposal.last_changed = stamp
@@ -153,6 +160,7 @@ def apply_suppressions(
                 subject_id=proposal.id,
                 event_type="unpublished",
                 observed_at=stamp,
+                **quartet.columns(),
                 before={"publish_state": before},
                 after={
                     "publish_state": "unpublished",

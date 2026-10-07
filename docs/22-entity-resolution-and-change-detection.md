@@ -641,6 +641,94 @@ loader; both are recorded in full, with the exact failing case, in `services/res
   measured justification is §13.2 above. Owner should confirm; `services/resolve/merge.py`'s
   module docstring and `services/resolve/README.md` carry the same argument for any future review.
 
+### 13.7 Provenance on resolver events (as built 2026-10-07)
+
+**The defect.** `CLAUDE.md` requires `source_id`, `source_url`, `retrieved_at`, `licence` on every stored record;
+docs/21 §3.10 lets an `event` leave them null "only for `actor_type = user` events". The resolver wrote its
+machine events with none. Measured on the full committed eval pull (`data/eval/normalized.parquet`, the
+`services/resolve/report.py` chain in an in-memory store, then 25 proposal and 25 organisation unmerges and the
+reviewed ICIS-Air suppression list applied to rows carrying its 5 registry ids):
+
+| Event (subject / type / actor) | Rows | Before: quartet | After: quartet |
+|---|---|---|---|
+| proposal / `merged` / model | 407 | null 407 | complete 407 |
+| proposal / `unmerged` / user | 25 | null 25 | complete 25 |
+| organization / `merged` / pipeline | 151 | null 12, **`licence_id` only** 139 | complete 151 |
+| organization / `unmerged` / user | 25 | null 25 | complete 25 |
+| proposal / `unpublished` (suppression) / pipeline | 5 | null 5 | complete 5 |
+
+The 139 licence-only rows were a second bug: in `merge_organization` the spelling alias's provenance tuple was
+unpacked into a variable named `licence_id`, rebinding the function's own argument, so the event got the alias's
+licence and no source. Field survivorship (§23) writes no events, and `resolution_decision` rows are a review
+queue, not records (no quartet columns; each names two proposals whose links carry theirs), so neither changes.
+
+**How these events are served, before and after.** None reaches a non-admin reader: the resolver never sets
+`published_at`/`public_at`, which `event_visibility_filter`'s timing clause requires on `/v1/events`, a record's
+events route, feeds/RSS, saved-search alerts and webhooks; the same filter's `EXISTS` on `licence_id` and
+`source_id` also dropped every null-quartet event, so the gap was filtered, fail closed, rather than rendered. The
+social worker maps only `created`/`status_change`/`withdrawn`/`cancelled` and checks the event's licence.
+Organisation-subject events are invisible on every non-admin surface by design. The admin timeline
+(`serialize_event`) rendered `provenance: null` for all of them, the licence-only ones included (it needs both a
+source and a licence); it now renders the cited record's quartet and credit. The public `merge_history` reads the
+moved links' own provenance and is unchanged. Stamping the quartet changes no visibility: no timing column is set.
+
+**The rule** (`services/resolve/provenance.py`). docs/20 and docs/21 settle that a derived artefact is gated by
+the most restrictive source it rests on (docs/21 §8 checklist item 2, "no `event` whose `licence_id` resolves to
+such a licence"; the mixed-provenance paragraph) and that a reversal restores provenance (§6.2), but not which
+quartet a merge of several sources carries. Chosen, consistent with survivorship's per-field provenance (§23.1)
+and the spelling alias's "the record the spelling was read from" (§20.2):
+
+1. *Evidence*: proposal merge and unmerge, the active links of the survivor and of the absorbed record (inactive
+   links only when neither has an active one); organisation merge and unmerge, every stored row naming either
+   organisation: links of the proposals it sponsors (a sponsored proposal merged away is followed through its own
+   merge event's `proposal_source_ids`; without that step 4 of the 151 eval-store merges have no evidence on either
+   side), its `asset_owner` edges and its `organization_alias` rows; suppression, the suppressed
+   record's active links.
+2. *One member's whole quartet, never a mix*, so the event's URL, retrieval time and licence describe one stored
+   record and the credit line is one a source actually states. Guard: every resolver event's `licence_id` equals
+   its source's (0 of 613 differ).
+3. *The most restrictive licence wins*: reuse class (`open` < `attribution` < `noncommercial` < `restricted` <
+   `unknown`), then an uncleared gate, then each `allows_*` permission withheld. A merge with a `restricted` or
+   `unknown` member carries that member's licence and is therefore off every non-admin surface, so a restricted
+   `source_url` sits only on an event no public reader is served. Among publishable classes a raw-withheld licence
+   (CAISO, NYISO) outranks an open one.
+4. *Ties*: the triggering evidence (the absorbed side; the listed registry id), then the most recent retrieval,
+   then source id and record key.
+5. An unmerge copies the quartet of the merge it reverses; a merge stored before this rule has none, and its
+   unmerge derives one by rules 1-4. A caller's explicit quartet (curated merges, §20.9) is used whole and must
+   have all four values.
+
+Citations on the eval store after the change: proposal merges ERCOT 231, CAISO 80, NYISO 54, EIA-860M 42;
+organisation merges NYISO 89, ERCOT 56, EIA-860M 6; suppressions ICIS-Air 5. No `restricted` licence is cited
+because the loader refuses restricted sources at ingest; the restricted path is exercised by a licence
+reclassified after load (`services/resolve/test_provenance.py`).
+
+**Refusals.** A proposal merge or unmerge with no stored link on either side raises (every loader and the admin
+intake write a link, so this is a store defect, not a state to attribute). An organisation can exist with nothing
+naming it (a parent known only through children's `parent_source_id`, which records no URL or retrieval time); its
+merge is written without a quartet and logged, never given an invented one. Measured: 0 such events of 151 on the
+eval store; every loader that creates an organisation also writes an alias with a full quartet.
+
+**Tests.** `services/resolve/test_provenance.py` (10; all fail on `52fba5d`): each event type, the
+pre-rule-merge unmerge, a merged-away sponsor, a restricted absorbed and a restricted survivor link, a
+raw-withheld licence, and the explicit-quartet contract. `services/resolve/test_provenance_guard.py` (3; the two
+quartet guards fail on `52fba5d`): the production chain on the 279 loadable multi-member eval clusters plus their
+plants' generators, 10 unmerges of each kind and the real suppression list; asserts every resolver event type
+occurs, none lacks a quartet value, and each cites a registered source under that source's own licence (about 11 s).
+
+**Not done here.** Events already stored are not rewritten (`event` is append-only, docs/21 §6.1); their unmerges
+derive a quartet. A source unpublished by an admin (`source.publish_state`, mutable) is not considered when
+choosing: the licence is the immutable gate (invariant L2) and the visibility filter reads the cited source's
+state at serve time; if merge events are ever published, the choice should also prefer a member whose source is
+hidden, and `before.absorbed.entity` would need the publish-time field-class gating docs/21 §6.2 describes.
+docs/21 §6.3's `link_event_id` on re-pointed links is still not set by `merge_proposal`.
+
+- **A-22-27:** a resolver event's provenance is one evidence row's whole quartet, the most restrictive licence
+  first and the triggering record on a tie (rules above). docs/20 and docs/21 settle gating by the most
+  restrictive source but not which quartet a multi-source event cites. If the owner prefers the triggering
+  record's URL under the strictest member's licence (a mixed quartet), only `provenance.choose` changes; the
+  visibility outcome is the same, the credit line would no longer be one any source states.
+
 ## 14. FERC filer-name backfill (Sprint 3)
 
 **Status:** measured 2026-09-13, live against FERC eLibrary and the three reachable ISO queues (ERCOT,
