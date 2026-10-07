@@ -229,3 +229,58 @@ def test_construction_complete_inside_under_construction_is_published(tmp_path):
     second = run("us.eia.860m", store=st, raw=snap(out.getvalue(), T1))
     assert second.status == "ok"
     assert list(second.events["event_type"].astype(str)) == ["status_raw_change"]
+
+
+# --------------------------------------------------- re-parse every stored snapshot (DATA-1/RES-1)
+def _run_records(tmp_path, source_id: str) -> list[dict[str, Any]]:
+    return Store(tmp_path).runs(source_id)
+
+
+def test_reparse_all_restates_every_stale_snapshot_once_and_is_idempotent(tmp_path, monkeypatch, registry):
+    """`run --all --reparse` (`make reparse`, docs/61 §4a): every implemented source whose stored
+    snapshot the current parser would read differently is restated, with no change events; sources
+    with no snapshot are skipped, not failed; a second pass writes nothing. Before: `--all
+    --reparse` failed every source that had never been fetched (exit 1) and re-wrote a run and a
+    frame for every source on every pass."""
+    from pipeline.connectors import __main__ as cli
+
+    body = (FIXTURES / "neso_tec_register.csv").read_bytes()
+    first = run(NESO, registry=registry, store=Store(tmp_path), raw=_neso(body, T0))
+    assert first.status == "ok"
+    monkeypatch.setattr(cli, "Registry", lambda: registry)
+
+    def no_fetch(self):  # pragma: no cover - the point is that it is never called
+        raise AssertionError("reparse must not fetch")
+
+    for row in registry.status():
+        if row["state"] == "implemented":
+            monkeypatch.setattr(registry.connector_class(row["id"]), "fetch", no_fetch)
+
+    # Nothing changed in the parser: nothing to do, and nothing is written.
+    assert cli.main(["run", "--all", "--reparse", "--data-dir", str(tmp_path)]) == 0
+    assert len(_run_records(tmp_path, NESO)) == 1
+
+    _change_parser(monkeypatch, registry, NESO, _relabel)
+    assert cli.main(["run", "--all", "--reparse", "--data-dir", str(tmp_path)]) == 0
+    records = _run_records(tmp_path, NESO)
+    assert len(records) == 2
+    restated = records[-1]
+    assert restated["status"] == "ok" and restated["reparse"]["of_run"] == first.run["id"]
+    assert restated["events_emitted"] == 0
+    assert restated["parser_restated"]["events_suppressed"] > 0
+    assert not (tmp_path / "events" / NESO).exists() or not any((tmp_path / "events" / NESO).iterdir())
+    # sources never fetched were skipped, not failed or written
+    assert sorted(p.name for p in (tmp_path / "runs").iterdir()) == [NESO]
+
+    # idempotent: the second pass finds the snapshot already read by the current parser
+    assert cli.main(["run", "--all", "--reparse", "--data-dir", str(tmp_path)]) == 0
+    assert len(_run_records(tmp_path, NESO)) == 2
+
+
+def test_a_named_source_with_no_snapshot_still_fails_a_reparse(tmp_path, monkeypatch, registry):
+    from pipeline.connectors import __main__ as cli
+    from pipeline.connectors.runner import reparse_skip_reason
+
+    monkeypatch.setattr(cli, "Registry", lambda: registry)
+    assert reparse_skip_reason(NESO, registry=registry, store=Store(tmp_path)) == "no_snapshot"
+    assert cli.main(["run", NESO, "--reparse", "--data-dir", str(tmp_path)]) == 1

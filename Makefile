@@ -11,10 +11,10 @@ SHELL := /usr/bin/env bash
 PYTHON ?= .venv/bin/python
 PIP ?= .venv/bin/pip
 
-.PHONY: help venv dev test test-core test-web lint typecheck build deploy-stub backup restore-drill clean
+.PHONY: help venv dev reparse test test-core test-web lint typecheck build deploy-stub backup restore-drill clean
 
 help:
-	@echo "Targets: venv dev hooks test test-core test-web lint typecheck build deploy-stub backup restore-drill clean"
+	@echo "Targets: venv dev reparse hooks test test-core test-web lint typecheck build deploy-stub backup restore-drill clean"
 
 ## One-time local setup (docs/00-PLAN.md install command). Re-runs only when requirements.txt
 ## changes (the stamp file), not on every target invocation.
@@ -41,6 +41,12 @@ hooks:
 
 dev: venv
 	$(PYTHON) -m web.dev_up --preview
+
+## reparse: restate every stored snapshot under the current parsers, no fetch (docs/61 §4a, docs/22
+## §8.4). Idempotent: a source whose latest snapshot the current parser already read is skipped.
+## Restatements emit no change events. DATA_DIR overrides the data root (default data/).
+reparse: venv
+	$(PYTHON) -m pipeline.connectors run --all --reparse $(if $(DATA_DIR),--data-dir $(DATA_DIR),)
 
 ## test: the full suite this task can validate in one shared-session snapshot (docs/60 §9 explains
 ## why web/ is a separate job from pipeline/services rather than one combined run).

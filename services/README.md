@@ -123,6 +123,8 @@ services/ingest/
   loader.py          Idempotent parquet+events -> store loader; the licence/reuse-class gate
   lag.py             public_at == published_at for every row, records and events alike;
                      no delay and no knob anywhere (owner 2026-09-19 and 2026-09-21)
+  opportunity_status.py  open notice past its due_at -> closed, at every opportunity load
+                     and hourly (`deadline_tick`); no event (docs/22 §8.2, 2026-10-07)
   test_loader.py     Idempotency, gate refusal (both independent checks), lag computation
 
 services/ids.py      Crockford-base32 public ids (prop_/opp_/org_/evt_) and slugify()
@@ -2048,3 +2050,35 @@ The breakdown before the change, the list of what changed and the equivalence ev
 `tests/test_api_geo_performance_full_store.py`, which builds a dev-store-sized store from committed
 data (`tests/geo_full_store.py`) so CI measures the budget at the scale the site runs at. Still above
 budget: a national call where a hidden source contributes fields (0.53–0.68 s).
+
+## Load correctness: last_changed, GB settlement placement, deadlines (2026-10-07, lane L1)
+
+From the 2026-10-07 data-pipeline audit (DATA-5, DATA-13, DATA-14). Measured by loading the shared
+data root's latest frames into an empty SQLite store, base code against this change.
+
+- **`last_changed` moves only when a served value changes** (`loader.py::_stamp_last_changed`). The
+  loader used to stamp every row it rewrote. Now each updated record's served values (this source's
+  fields plus, for a proposal, the fields survivorship writes) are captured before the load touches
+  it and compared once survivorship has run. A record whose values come back the same keeps its stamp,
+  even where survivorship touched it after the loader wrote a member's value. `LoadResult.records_changed`
+  counts the records that moved. EIA-860M 09-27 → 10-07 frame: 2,311 → 0 stamps moved (no served
+  value differs). An identical reload: 2,311 → 0. 09-13 → 09-27 (real changes: `iso` 1,039,
+  `proposed_cod` 273, `status_raw` 86, `lifecycle_state` 22, `capacity_mw` 5): 2,311 → 1,218, which is
+  the 1,190 changed rows plus the 28 new records.
+- **GB settlement fallback reached** (`loader.py::_get_or_create_location`). The row's `HOST TO`
+  (transmission owner) is now passed as `region`, so the settlement tier runs when the substation
+  list misses. A settlement hit is stamped `geocoder = gb_settlement`. NESO register (2,198 rows):
+  `gb_substation` 739 → 739; `gb_settlement` 0 → 310; `unknown` 1,459 → 1,149 (66 % → 52 %). A name that
+  is ambiguous (105), outside the named owner's area (19) or names an unknown owner (15) stays unplaced.
+  Locations are written once, when a record is created, so existing records move only on a rebuild
+  (`web.dev_up` rebuilds the store each start).
+- **Opportunity deadlines** (`opportunity_status.py`). After each opportunity load, and hourly, an
+  `open` notice whose `due_at` has passed is `closed`. `field_provenance.status.rule` is
+  `opportunity.deadline_passed`. No event is written: the source's next run publishes it (docs/22
+  §8.2). Served `open` past the deadline, measured at 2026-10-07T19:00Z: TED 70 → 0, World Bank
+  22 → 0, grants.gov 31 → 0. Undated `open` notices (TED 29, grants.gov 16) are unchanged.
+
+Tests: `services/ingest/test_loader.py`
+(`test_a_reload_with_nothing_changed_leaves_last_changed_alone_and_a_real_change_moves_it`,
+`test_loader_places_a_gb_site_off_the_substation_list_by_its_settlement_within_its_owner_region`) and
+`services/ingest/test_opportunity_status.py`. All fail on base.

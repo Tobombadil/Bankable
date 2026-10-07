@@ -8,6 +8,11 @@ defaults to `manual` (a human at a terminal); `infra/scheduler/app.py::run_conne
 admin "run now" route already created, so the run completes that row instead of adding another.
 `--reparse` runs the latest stored snapshot through the current parser without fetching (audit
 2026-09-30 F10): the output is restated, never published as change events (runner docstring).
+A source whose latest snapshot was already read by the current parser, or that has no stored
+snapshot, is skipped with a `reparse skipped` line (`runner.reparse_skip_reason`), so
+`run --all --reparse` (`make reparse`, docs/61 §4a) re-parses every stored snapshot that current
+code would read differently and is idempotent: run twice, the second pass writes nothing. A named
+source with no snapshot is still a failure (exit 1); under `--all` it is only skipped.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ from typing import Any
 from pipeline.connectors.base import GateViolation
 from pipeline.connectors.objectstore import StoreConfigError
 from pipeline.connectors.registry import RegistrationError, Registry
-from pipeline.connectors.runner import RUN_TRIGGERS, run
+from pipeline.connectors.runner import RUN_TRIGGERS, reparse_skip_reason, run
 from pipeline.connectors.store import DATA_DIR, open_store
 
 _STD = {
@@ -130,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     ids = list(args.source_ids)
     if args.all:
         ids += [s["id"] for s in registry.status() if s["state"] == "implemented"]
+    ids = list(dict.fromkeys(ids))
     if not ids:
         ap.error("give source ids or --all")
     if args.run_id is not None and len(ids) != 1:
@@ -141,6 +147,22 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     rc = 0
     for sid in ids:
+        if args.reparse:
+            try:
+                skip = reparse_skip_reason(
+                    sid, registry=registry, store=store, allow_restricted=args.allow_restricted
+                )
+            except GateViolation as e:
+                log.error("gate refused", extra={"source_id": sid, "error": str(e)})
+                rc = 2
+                continue
+            except RegistrationError as e:
+                log.error("not registered", extra={"source_id": sid, "error": str(e)})
+                rc = 2
+                continue
+            if skip == "up_to_date" or (skip == "no_snapshot" and args.all and sid not in args.source_ids):
+                log.info("reparse skipped", extra={"source_id": sid, "reason": skip})
+                continue
         try:
             res = run(
                 sid,

@@ -638,6 +638,44 @@ def test_release_held_job_promotes_the_run_and_marks_its_row_ok(
             raise AssertionError(row and (row.status, row.rows_gone, row.events_emitted))
 
 
+def test_a_release_returns_a_source_degraded_only_by_its_hold_to_ok(
+    tmp_path: pathlib.Path, factory: _Factory
+) -> None:
+    """A held run degrades health, and identical refetches of it are held again rather than
+    counted as successes (runner docstring "A hold stays held", audit 2026-10-07 DATA-2); the
+    release is what ends the degradation, and the promoted run's fetch is the last success."""
+    jobs.record_source_run(
+        factory,
+        SOURCE_ID,
+        {
+            "id": "00000000-0000-4000-8000-0000000000c0",
+            "status": "ok",
+            "started_at": "2026-09-17T03:07:00+00:00",
+            "finished_at": "2026-09-17T03:07:09+00:00",
+        },
+    )
+    run_id = "00000000-0000-4000-8000-0000000000d3"
+    _held_row(factory, run_id)
+    with factory() as session:
+        source = session.get(Source, SOURCE_ID)
+        if source is None or source.health != "degraded":
+            raise AssertionError(source and source.health)
+
+    def release(source_id: str, rid: str, *, released_by: str, store: Any) -> _Released:
+        return _Released(run={"id": rid, "status": "ok"}, ts="20260918T030700Z", already_released=False)
+
+    jobs.release_held_job(
+        SOURCE_ID, run_id, "usr_OPERATOR", _release=release, _session_factory=factory, _data_root=tmp_path
+    )
+    with factory() as session:
+        source = session.get(Source, SOURCE_ID)
+        if source is None or source.health != "ok":
+            raise AssertionError(source and source.health)
+        last = source.last_success_at
+        if last is None or last.replace(tzinfo=dt.UTC) != dt.datetime(2026, 9, 18, 3, 7, 9, tzinfo=dt.UTC):
+            raise AssertionError(last)
+
+
 def test_a_refused_release_fails_the_job_and_leaves_the_row_held(
     tmp_path: pathlib.Path, factory: _Factory
 ) -> None:

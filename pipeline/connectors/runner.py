@@ -60,6 +60,22 @@ again from their own `raw` payloads, so the diff sees only what the source chang
 version, so new code reaches an unchanged source on its next tick; `reparse=True` (CLI
 `run --reparse`) does the same from the stored snapshot without fetching at all.
 
+Re-parsing every source (2026-10-07, audit DATA-1/RES-1): `reparse_skip_reason` says whether a
+reparse can change anything (`no_snapshot`, or `up_to_date` when the latest stored snapshot was
+already read by the current parser). The CLI's `run --all --reparse` (`make reparse`) skips those,
+so the operation is idempotent: a second pass writes nothing.
+
+A hold stays held (2026-10-07, audit DATA-2). The unchanged short-circuit used to compare with the
+latest run that recorded a snapshot, `partial` runs included, so after a DQ hold the next fetch of
+the same bytes ended `unchanged`: the scheduler counted that as a success (`health = ok`, freshness
+`fresh`) while `normalized/` still served the pre-hold frame. Now the same bytes as an unreleased
+hold (the newest snapshot run is still `partial`) are not short-circuited: the run goes on from the
+stored object (no second copy of the bytes), its gates are checked again and, with the same bytes
+and code, it is held again (`rechecked_hold` names the run it repeats). Health stays `degraded`,
+`last_success_at` stays at the last promoted or unchanged-after-promoted run, so freshness ages
+and alerts, and the newest held run is the one to release (an older one is superseded by it).
+Once a hold is released (its record is rewritten `ok`) the same bytes are `unchanged` again.
+
 `release_held` is the other way a run's output reaches `normalized/`: an operator accepted a
 data-quality hold (`POST /admin/v1/source-runs/{run_id}/release`), so the held frame is diffed
 against the previous normalised snapshot and written exactly as step 6 of `run` would have, the
@@ -421,6 +437,44 @@ def _source_columns(rows: list[dict[str, Any]]) -> list[str]:
     return list(seen)
 
 
+def _snapshot_parser_version(record: dict[str, Any]) -> str:
+    """The parser version a run record says its snapshot was read under."""
+    return str((record.get("snapshot") or {}).get("parser_version") or record.get("parser_version") or "")
+
+
+def reparse_skip_reason(
+    source_id: str,
+    *,
+    registry: Registry | None = None,
+    store: Store | None = None,
+    allow_restricted: bool = False,
+) -> str | None:
+    """Why `run(..., reparse=True)` would produce nothing new for `source_id`, or None when it
+    would (the reparse-all operation, `python -m pipeline.connectors run --all --reparse`):
+
+    * `no_snapshot`: no run has stored a snapshot to read (a source never fetched, or only
+      context-loaded);
+    * `up_to_date`: the latest stored snapshot was already read by the current parser, so the
+      same bytes through the same code give the same output (the unchanged short-circuit's own
+      condition). Skipping it is what makes the operation idempotent: a second pass writes no
+      run record and no frame.
+
+    Raises `GateViolation`, before any I/O, for a gated source without `allow_restricted`, exactly
+    as `run` does; a gated source's runs are looked up in the quarantine store, where they live."""
+    registry = registry or Registry()
+    source = registry.get(source_id)
+    connector = registry.instantiate(source_id, allow_restricted=allow_restricted)
+    base = store if store is not None else open_store()
+    st: Store = QuarantineStore(base.base_root, backend=base.backend) if source.gated else base
+    entry = st._last_snapshot_entry(source_id)
+    if entry is None or st.snapshot_bytes(source_id, entry[0], entry[1]) is None:
+        return "no_snapshot"
+    current = f"{source_id}@{connector.effective_parser_version()}"
+    if _snapshot_parser_version(entry[1]) == current:
+        return "up_to_date"
+    return None
+
+
 def run(
     source_id: str,
     *,
@@ -587,19 +641,24 @@ def run(
     # 2. snapshot (unchanged short-circuit, docs/20 §3.2) ------------------
     # Same bytes *and* the same parser: nothing new can come out of this run. Same bytes under a
     # changed parser go on, so a parser fix reaches an unchanged source (module docstring).
+    # Same bytes as a run still held by its DQ gates are not `unchanged` either: the run goes on
+    # from the stored object and is held again, so the hold stays visible until it is released
+    # (module docstring, "A hold stays held").
     last = st._last_snapshot_entry(source_id)
-    last_version = (
-        str((last[1].get("snapshot") or {}).get("parser_version") or last[1].get("parser_version") or "")
-        if last
-        else ""
-    )
     if (
         not reparse
         and last is not None
         and str(last[1]["snapshot"]["sha256"]) == snap.sha256
-        and last_version == record["parser_version"]
+        and _snapshot_parser_version(last[1]) == record["parser_version"]
     ):
-        return finish("unchanged")
+        if last[1].get("status") != "partial":
+            return finish("unchanged")
+        reused_key = (last[1].get("snapshot") or {}).get("object_key") or None
+        record["rechecked_hold"] = {"run_id": last[1].get("id"), "ts": last[0]}
+        log.warning(
+            "same bytes as an unreleased DQ hold: re-checked, not short-circuited",
+            extra={"source_id": source_id, "run_id": run_id, "held_run_id": last[1].get("id")},
+        )
     if reused_key:
         record["snapshot"]["object_key"] = reused_key
     else:
@@ -859,5 +918,6 @@ __all__ = [
     "ReleaseResult",
     "RunResult",
     "release_held",
+    "reparse_skip_reason",
     "run",
 ]

@@ -23,6 +23,7 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
                           -> resolve_tick             organisations + proposal clusters, store-wide
                              -> enrich_tick           geocode backfill and later enrichment stages
     tick_resolve (daily)  ->  resolve_tick            safety net for rows loaded outside the chain
+    tick_deadline (hourly) -> deadline_tick           open opportunities past due_at -> closed
     admin release         ->  release_held_run        a DQ-held run an operator released (2026-09-27):
                               -> load_source ...      promote `held/` -> `normalized/`, then the chain
 
@@ -72,6 +73,7 @@ from infra.scheduler.jobs import (
     ConnectorRunFailed,
     TransientConnectorFailure,
     alert_tick_job,
+    deadline_tick_job,
     freshness_tick_job,
     post_draft_tick_job,
     visibility_audit_tick_job,
@@ -430,6 +432,23 @@ def _tick_freshness(timestamp: int) -> None:
         freshness_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous freshness_tick still queued or running")
+
+
+@app.task(name="deadline_tick", queue="normalise", retry=0, queueing_lock="deadline_tick")
+def deadline_tick() -> dict[str, Any]:
+    """An opportunity past its deadline is served `closed` (audit 2026-10-07 DATA-14, docs/22
+    §8.2): an hourly store sweep, so a notice closes within the hour of its deadline however
+    long ago its source last ran. Body in `jobs.py`; the next tick is the retry."""
+    return _run_with_timeout(deadline_tick_job, timeout_s=ALERT_TICK_TIMEOUT_S)
+
+
+@app.periodic(cron="23 * * * *", periodic_id="tick:deadline")  # off every fetch bucket's minute
+@app.task(name="tick_deadline", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_deadline(timestamp: int) -> None:
+    try:
+        deadline_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous deadline_tick still queued or running")
 
 
 # The rest of the loop (module docstring). Queues are ones the compose `worker` service already

@@ -16,11 +16,14 @@ from __future__ import annotations
 import datetime as dt
 import json
 import pathlib
+from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import pandas as pd
 import pytest
 
+from infra.scheduler import jobs
+from infra.scheduler.freshness import assess, last_success_from_runs
 from pipeline.connectors import __main__ as cli
 from pipeline.connectors.base import Connector, RawSnapshot
 from pipeline.connectors.registry import Registry
@@ -191,10 +194,11 @@ def test_a_held_run_is_released_into_normalized_and_becomes_the_baseline(
     tmp_path: pathlib.Path, sized: Registry
 ) -> None:
     store = Store(tmp_path)
-    baseline, held = _held_after_a_baseline(sized, store)
-    # The same bytes again: `unchanged`, because the held run's sha counts. Before the release
-    # route, this is where a held source stayed until its data changed or someone edited rows.
-    assert _run(sized, store, 50, 2)["status"] == "unchanged"
+    baseline, first_hold = _held_after_a_baseline(sized, store)
+    # The same bytes again are held again (audit 2026-10-07 DATA-2; they used to end `unchanged`
+    # and hide the hold), and the newest held run is the one to release.
+    held = _run(sized, store, 50, 2)
+    assert held["status"] == "partial" and held["rechecked_hold"]["run_id"] == first_hold["id"]
     assert store.previous_normalized(SOURCE_ID)[1] == baseline["id"]
 
     result = release_held(SOURCE_ID, held["id"], released_by="usr_TEST", registry=sized, store=store)
@@ -257,3 +261,66 @@ def test_a_gated_source_is_never_released(tmp_path: pathlib.Path, registry: Regi
         release_held(GATED_ID, "any", released_by="usr_A", registry=registry, store=Store(tmp_path))
     assert exc.value.code == "gated"
     assert not any(tmp_path.iterdir()), "refused before any read or write"
+
+
+# ----------------------------------------------------------- a hold stays held (DATA-2)
+def _health_after(statuses: list[tuple[str, dt.datetime]]) -> SimpleNamespace:
+    """`source.health` and `last_success_at` after the scheduler records these run outcomes."""
+    source = SimpleNamespace(
+        health="ok", consecutive_failures=0, last_success_at=None, last_error=None, last_error_at=None
+    )
+    for status, finished in statuses:
+        jobs._update_health(source, status, None, finished)
+    return source
+
+
+def test_identical_refetches_of_a_held_run_stay_held_until_it_is_released(
+    tmp_path: pathlib.Path, sized: Registry
+) -> None:
+    """ok -> partial (held) -> same bytes -> same bytes. Before: the two refetches ended
+    `unchanged`, the scheduler set health `ok` and moved `last_success_at`, and freshness read
+    `fresh` while `normalized/` kept serving the pre-hold frame (audit 2026-10-07 DATA-2)."""
+    store = Store(tmp_path)
+    baseline, held = _held_after_a_baseline(sized, store)
+    third = _run(sized, store, 50, 2)
+    fourth = _run(sized, store, 50, 3)
+
+    statuses = [r["status"] for r in store.runs(SOURCE_ID)]
+    assert statuses == ["ok", "partial", "partial", "partial"]
+    assert third["rechecked_hold"]["run_id"] == held["id"]
+    assert fourth["rechecked_hold"]["run_id"] == third["id"]
+    assert fourth["hold_reasons"] == held["hold_reasons"] and fourth["dq_status"] == "fail"
+    # the stored bytes are reused, never written twice
+    assert fourth["snapshot"]["object_key"] == held["snapshot"]["object_key"]
+    assert len(list((tmp_path / "snapshots" / SOURCE_ID).iterdir())) == 2
+    # nothing new is served: the baseline is still the promoted frame
+    assert store.previous_normalized(SOURCE_ID)[1] == baseline["id"]
+
+    # health stays degraded, and the last success stays at the last promoted run
+    times = [dt.datetime.fromisoformat(r["finished_at"]) for r in (baseline, held, third, fourth)]
+    source = _health_after(list(zip(statuses, times, strict=True)))
+    assert source.health == "degraded"
+    assert source.last_success_at == times[0]
+    last, latest_status = last_success_from_runs(store.runs(SOURCE_ID))
+    assert last == times[0] and latest_status == "partial"
+    # so freshness ages from the promoted run and alerts past twice its allowance
+    assert assess("monthly", last, times[0] + dt.timedelta(days=70)).alert
+
+    # The older holds are superseded by the newest; releasing the newest promotes it, and the
+    # same bytes after that are `unchanged` again.
+    with pytest.raises(ReleaseRefused) as exc:
+        release_held(SOURCE_ID, held["id"], released_by="usr_A", registry=sized, store=store)
+    assert exc.value.code == "superseded"
+    release_held(SOURCE_ID, fourth["id"], released_by="usr_A", registry=sized, store=store)
+    after = _run(sized, store, 50, 4)
+    assert after["status"] == "unchanged"
+    assert store.previous_normalized(SOURCE_ID)[1] == fourth["id"]
+
+
+def test_a_refetch_with_different_bytes_after_a_hold_is_judged_on_its_own(
+    tmp_path: pathlib.Path, sized: Registry
+) -> None:
+    store = Store(tmp_path)
+    _held_after_a_baseline(sized, store)
+    recovered = _run(sized, store, 100, 2, variant="d")
+    assert recovered["status"] == "ok" and "rechecked_hold" not in recovered

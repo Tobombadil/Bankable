@@ -403,8 +403,22 @@ the run's `retrieved_at`, with `status_rule = opportunity.deadline_passed`. This
 publishes it as `status_change` open → closed, and the run records an `info` check `deadline_closed`. Measured on
 a copy of the 2026-09-30 dev store: 90 `open` notices had a past `due_at` (TED 59, World Bank 16, grants.gov 15);
 re-running each stored frame through the rule at 2026-09-30 and loading it leaves 0 (open 405 → 315). The stored
-status still lags a deadline by at most one run of the notice's source; a read-time rule would close that gap
-but needs the list filter and the alert matcher changed together (open item).
+status still lagged a deadline by up to one run of the notice's source, and indefinitely for a source that stopped
+running: on 2026-10-07, 121 notices were served `open` past their deadline (audit DATA-14, designer UX-2).
+
+*Closed against the clock (2026-10-07).* The same rule now also runs as a store sweep
+(`services/ingest/opportunity_status.py::close_past_deadline`): at the end of every opportunity load, over the
+records that load wrote, at the load's time, and hourly over the whole store (`infra/scheduler/app.py`
+`deadline_tick`). So a notice is served `closed` within the hour of its deadline, and the list filter and alert
+matcher need no change (they read the stored status). The sweep writes no event, which keeps exactly one: the
+source's next run diffs its previous frame (`open`) against the closed one and publishes the `status_change` as
+above, onto a record that already reads `closed`; a source that never runs again closes its notices without an
+event, as a read-time rule would. `field_provenance.status` gains `rule = opportunity.deadline_passed` and
+`derived_at`; the link row keeps what the source stated. An operator override of `status` is never touched. An
+undated `open` notice keeps its stated status (docs/21 §7.2 has no rule for it; 45 on 2026-10-07, TED 29,
+grants.gov 16), and its `due_at` is served null. Measured on the 2026-10-07 frames loaded into an empty store:
+`open` past deadline TED 70 → 0, World Bank 22 → 0, grants.gov 31 → 0. Tests:
+`services/ingest/test_opportunity_status.py`.
 
 ### 8.3 What is news inside one lifecycle state (2026-10-07, audit 2026-09-30 data engineer F7)
 
@@ -455,9 +469,19 @@ byte-identical `raw`) under the same `@1.0.0`.
    parser version match. `python -m pipeline.connectors run <id> --reparse` runs the latest stored
    snapshot through the current parser without fetching; the run points at the original object and
    keeps its `retrieved_at`.
+4. *All sources at once (2026-10-07, audit DATA-1/RES-1).* `run --all --reparse` (`make reparse`;
+   `docs/61` §4a, `docs/63` §4.1) restates every implemented source whose latest stored snapshot was
+   read by an older parser, and skips (`reparse skipped`) a source whose snapshot the current parser
+   already read (`up_to_date`) or that has none (`no_snapshot`): `runner.reparse_skip_reason`. A
+   second pass writes nothing. Run on the shared data root on 2026-10-07: 17 sources restated with 0
+   events emitted; suppressed ERCOT 475 `status_change` (built 580 → 117, contracted 0 → 465), NESO
+   136 `capacity_change` (731,514 → 680,307 MW; offshore wind 0 → 145 rows), Class VI 1
+   (`unknown` → `studied`), NYISO 4 `new` + 4 `removed` (suffix keys).
 
 Consequence on deploy: every source's first run after this change restates its previous output once
-(versions move from `@1.0.0` to `@1.0.0+digest`), with no events from the restatement. Limits: an
+(versions move from `@1.0.0` to `@1.0.0+digest`), with no events from the restatement. A DQ hold is not
+short-circuited by the same rule: the same bytes as a run still held are re-checked and held again, never
+`unchanged`, until the hold is released (runner docstring "A hold stays held", audit DATA-2). Limits: an
 incremental source's restatement re-runs `normalize`, not `parse` (its stored rows are the parsed
 form); a change to `fetch` is not a parser change. Tests: `tests/test_parser_restatement.py`.
 

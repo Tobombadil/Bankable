@@ -1297,3 +1297,93 @@ def test_a_standalone_load_without_a_run_record_still_records_one_run(tmp_path, 
     rows = session.scalars(select(SourceRun)).all()
     assert len(rows) == 1 and rows[0].id == result.source_run_id
     assert (rows[0].trigger, rows[0].status, rows[0].rows_seen) == ("manual", "ok", 1)
+
+
+# ------------------------------------------- GB settlement fallback is reached (audit DATA-13)
+def _gb_row(entry: SourceEntry, key: str, site: str, host_to: str | None) -> dict[str, object]:
+    row = sample_proposal_row(key)
+    raw: dict[str, object] = {"Project ID": key, "Connection Site": site}
+    if host_to is not None:
+        raw["HOST TO"] = host_to
+    row.update(
+        source_id=entry.id,
+        record_id=f"{entry.id}:{key}",
+        name_canonical=f"GB project {key}",
+        name_norm=f"gb project {key.lower()}",
+        state=None,
+        county=site,
+        raw=json.dumps(raw),
+    )
+    return row
+
+
+def test_loader_places_a_gb_site_off_the_substation_list_by_its_settlement_within_its_owner_region(
+    session: Session,
+) -> None:
+    """The settlement tier needs the row's transmission owner (`HOST TO`) and the loader never
+    passed it, so every Connection Site the substation list missed stayed `unknown` (1,459 of 2,198
+    NESO rows on the 2026-10-07 dev store). "Tealing 275/33kV Substation" is not on the list;
+    Tealing lies in SHET's area."""
+    entry = gb_source_entry()
+    src = upsert_licence_and_source(session, entry, "2026-09-13")
+    site = "Tealing 275/33kV Substation"
+    rows = [
+        _gb_row(entry, "S1", site, "SHET"),
+        _gb_row(entry, "S2", site, None),  # no owner: the tier stays off
+        _gb_row(entry, "S3", site, "NGET"),  # the place is outside the named owner's area
+    ]
+    load_dataframe(session, src, "proposal", pd.DataFrame(rows), None)
+
+    def location(key: str) -> Location:
+        prop = session.scalar(select(Proposal).where(Proposal.name_canonical == f"GB project {key}"))
+        assert prop is not None and prop.location_id is not None
+        loc = session.get(Location, prop.location_id)
+        assert loc is not None
+        return loc
+
+    placed = location("S1")
+    assert placed.precision == "county_centroid" and placed.geocoder == "gb_settlement"
+    assert placed.geom is not None
+    lon, lat = placed.geom
+    assert 56 < lat < 57 and -3.5 < lon < -2.5  # Tealing, Angus
+    for key in ("S2", "S3"):
+        loc = location(key)
+        assert loc.precision == "unknown" and loc.geom is None and loc.geocoder is None
+
+
+# --------------------------------------- last_changed moves only on a served change (DATA-5)
+def test_a_reload_with_nothing_changed_leaves_last_changed_alone_and_a_real_change_moves_it(
+    session: Session,
+) -> None:
+    """`last_changed` is "the latest change to a canonical field" (docs/21 §3.1); every load used to
+    stamp it on every row it rewrote (2,311 of 2,311 on an EIA-860M reload that changed 4 rows),
+    which reordered the default `-last_changed` sort and the feeds and woke `updated_since`."""
+    entry = open_source_entry()
+    src = upsert_licence_and_source(session, entry, "2026-09-12")
+    rows = [sample_proposal_row("Q1"), sample_proposal_row("Q2")]
+    rows[1]["name_canonical"] = "Second Project"
+    load_dataframe(session, src, "proposal", pd.DataFrame(rows), None)
+    session.commit()
+    then = dt.datetime(2026, 9, 1, tzinfo=UTC)
+    for prop in session.scalars(select(Proposal)):
+        prop.last_changed = then
+    session.commit()
+
+    def stamps() -> dict[str, dt.datetime]:
+        session.expire_all()  # read back from the store, as the next process would
+        return {
+            p.name_canonical: p.last_changed.replace(tzinfo=UTC) for p in session.scalars(select(Proposal))
+        }
+
+    again = load_dataframe(session, src, "proposal", pd.DataFrame(rows), None)
+    session.commit()
+    assert again.proposals_updated == 2 and again.records_changed == 0
+    assert stamps() == {"Test Storage Project": then, "Second Project": then}
+
+    rows[0]["capacity_mw"] = 120.0
+    changed = load_dataframe(session, src, "proposal", pd.DataFrame(rows), None)
+    session.commit()
+    assert changed.records_changed == 1
+    after = stamps()
+    assert after["Second Project"] == then
+    assert after["Test Storage Project"] > then
