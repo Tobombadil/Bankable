@@ -214,7 +214,10 @@ def test_me_returns_identity_and_entitlement_for_a_session(client, db):
     assert body["user"]["user_id"] == user.public_id
     assert body["account"]["account_id"] == account.public_id
     assert body["tier"] == "pro"
-    assert body["api_licence"]["current_version"]
+    # No API licence is published yet (docs/13-legal-customer-terms.md is a draft; legal audit L-3).
+    assert body["api_licence"]["current_version"] is None
+    assert body["api_licence"]["status"] == "not_published"
+    assert body["api_licence"]["url"].endswith("/legal/reuse")
 
 
 def test_account_requires_pro_entitlement(client, db):

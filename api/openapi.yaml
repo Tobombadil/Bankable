@@ -52,14 +52,17 @@ info:
 
     **Rate limits** per `x-rate-limits` below (docs/23 §6); `RateLimit-*` headers on every response, `429` with
     `Retry-After` on breach.
-  termsOfService: https://infraque.com/legal/api-licence
+  termsOfService: https://infraque.com/legal/reuse
   contact:
     name: Platform API support
     url: https://infraque.com/docs/api
     email: api@infraque.com
   license:
-    name: Platform API licence (drafted by legal-compliance; acceptance recorded per key, US-704 AC2)
-    url: https://infraque.com/legal/api-licence
+    name: >-
+      No API licence is published yet (a draft awaits counsel, docs/13-legal-customer-terms.md); the data is
+      under its sources' licences, summarised at the URL below, and keys record no acceptance until a licence
+      is published (US-704 AC2)
+    url: https://infraque.com/legal/reuse
 
 servers:
   - url: https://api.infraque.com
@@ -1763,7 +1766,7 @@ paths:
                       data_as_of: '2026-09-19T12:00:00Z'
                       generated_at: '2026-09-19T12:00:00Z'
                       request_id: req_9f2c1a
-                      terms_url: https://infraque.com/terms
+                      terms_url: https://infraque.com/legal/reuse
                     licence_summary:
                       sources:
                         - source_id: us.eia.atlas.pipelines
@@ -3214,9 +3217,11 @@ paths:
       description: |
         Up to 5 keys per user (US-701 AC1). The secret (`bk_live_…` or `bk_test_…`) is returned **once** in `secret`
         and stored as SHA-256 (US-701 AC2). Requested `scopes` are intersected with the plan tier at every request;
-        `admin:*` is never issued (docs/23 §5). Creation requires accepting the current API licence:
-        `licence_accepted_version` must equal the version this document's `info.license.url` publishes, and the
-        acceptance is recorded with a timestamp (US-704 AC2). Session-only: a key cannot mint keys.
+        `admin:*` is never issued (docs/23 §5). Licence acceptance (US-704 AC2): while no API licence is
+        published (`GET /v1/me` → `api_licence.status` is `not_published`), `licence_accepted_version` must be
+        omitted or null and the key records no acceptance; once one is published it must equal
+        `api_licence.current_version` and the acceptance is recorded with a timestamp. Session-only: a key
+        cannot mint keys.
       x-tier: api
       x-status: live
       x-sprint: 2
@@ -6023,6 +6028,10 @@ paths:
         - name: kind
           in: query
           schema: {type: string, enum: [erasure, correction]}
+        - name: overdue
+          in: query
+          description: '`true`: open or in progress past `due_at` (docs/13 §5.4 rule 6); `false`: everything else.'
+          schema: {type: string, enum: ['true', 'false']}
       responses:
         '400':
           $ref: '#/components/responses/BadRequest'
@@ -6064,7 +6073,7 @@ paths:
     patch:
       operationId: adminUpdatePrivacyRequest
       tags: [Admin — tasks]
-      summary: Set status; closing (done or rejected) clears contact_email
+      summary: Set status; closing (done or rejected) clears contact_email and message
       x-tier: admin
       x-status: live
       x-sprint: 3
@@ -6090,6 +6099,36 @@ paths:
                 $ref: '#/components/schemas/PrivacyRequestAdminResponse'
         <<: *common_errors
 
+  /admin/v1/privacy-requests/{request_id}/checklist:
+    servers: *admin_servers
+    parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema: {type: string, pattern: '^prq_[0-9A-HJKMNP-TV-Z]+$'}
+    get:
+      operationId: adminPrivacyRequestChecklist
+      tags: [Admin — tasks]
+      summary: Every record that names the subject of a privacy request, with what remains to do
+      description: >-
+        Widens the record the person named to its sponsor, issuer or owners, then lists the organisation, its
+        aliases, the proposals it sponsors, the opportunities it issues, its ownership edges and proposals whose
+        name or slug carries its name (2026-09-30 legal audit L-6). Read-only: each item names the admin route
+        that acts on it.
+      x-tier: admin
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-910]
+      security: *sec_admin
+      responses:
+        '200':
+          description: The checklist.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivacyRequestChecklistResponse'
+        <<: *common_errors
 # ───────────────────────────── §9.1 Outbound webhooks — API tier, scope write:webhooks ─────────────────────────────
 webhooks:
   event.published:
@@ -7836,6 +7875,13 @@ components:
         record_public_id: {type: string}
         status: {type: string, enum: [open, in_progress, done, rejected]}
         created_at: {type: string, format: date-time}
+        due_at:
+          type: string
+          format: date-time
+          description: '`created_at` + 30 days: the date an answer is owed by (docs/13 §5.4 rule 6).'
+        overdue:
+          type: boolean
+          description: Open or in progress after `due_at`.
         completed_at: {type: [string, "null"], format: date-time}
     PrivacyRequestAdmin:
       allOf:
@@ -7843,7 +7889,39 @@ components:
         - type: object
           properties:
             contact_email: {type: [string, "null"]}
-            message: {type: [string, "null"]}
+            message:
+              type: [string, "null"]
+              description: Cleared, like `contact_email`, when the request is closed.
+    PrivacyRequestChecklistItem:
+      type: object
+      required: [kind, public_id, label, url, state, done, action]
+      properties:
+        kind: {type: string, enum: [organization, alias, proposal, opportunity, asset_owner, search, unresolved]}
+        public_id: {type: string}
+        label: {type: string}
+        url: {type: [string, "null"], format: uri}
+        state: {type: string}
+        done: {type: boolean}
+        action: {type: string}
+        personal_data: {type: boolean}
+    PrivacyRequestChecklistResponse:
+      type: object
+      required: [data, meta, licence_summary]
+      properties:
+        data:
+          type: object
+          required: [request, items, remaining, notes]
+          properties:
+            request: {$ref: '#/components/schemas/PrivacyRequestAdmin'}
+            items:
+              type: array
+              items: {$ref: '#/components/schemas/PrivacyRequestChecklistItem'}
+            remaining: {type: integer, minimum: 0}
+            notes:
+              type: array
+              items: {type: string}
+        meta: {$ref: '#/components/schemas/Meta'}
+        licence_summary: {$ref: '#/components/schemas/LicenceSummary'}
     PrivacyRequestResponse:
       type: object
       required: [data, meta, licence_summary]
@@ -8221,7 +8299,10 @@ components:
         terms_url:
           type: string
           format: uri
-          description: The API licence version this response was served under.
+          description: >-
+            Where the terms this response is served under are stated. Until an API licence is published this is
+            the reuse-conditions page, a factual summary of each source's licence and the credit it requires,
+            not a contract.
         total:
           type: integer
           minimum: 0
@@ -8538,6 +8619,15 @@ components:
           type: string
           format: uri
           description: Detail page on the product host.
+        personal_data:
+          $ref: '#/components/schemas/OrganizationPersonalData'
+    OrganizationPersonalData:
+      type: boolean
+      description: >-
+        `true` when the row names a natural person rather than a company (an EIA-860 owner, a GHGRP parent, a
+        queue's interconnection customer), as classified by a name rule plus a curated list (migration 0033;
+        docs/13 §5.5). Such an organisation stays readable but is left out of the sitemap, its page is served
+        `noindex`, and `share_pct` is `null` on every ownership edge that names it, whatever the source states.
     GeoJsonPoint:
       type: object
       required: [type, coordinates]
@@ -9132,7 +9222,9 @@ components:
           description: The stake the parent holds, where a source states one. Null means "not stated", never zero and never an assumed 100.
     Organization:
       type: object
-      description: docs/21 §3.5. Holds no personal data.
+      description: >-
+        docs/21 §3.5. Usually a company or public body; where a register names a natural person in the owner or
+        sponsor column, the row is that person's name and `personal_data` is `true` (docs/13 §5.5).
       required: [public_id, slug, url, name_canonical, type, country, ids, is_curated_issuer, first_seen, last_changed, provenance]
       properties:
         public_id:
@@ -9171,6 +9263,8 @@ components:
         is_curated_issuer:
           type: boolean
           description: On the curated RFP issuer list (US-303).
+        personal_data:
+          $ref: '#/components/schemas/OrganizationPersonalData'
         first_seen:
           type: string
           format: date-time
@@ -12175,8 +12269,12 @@ components:
                   required: [current_version, url]
                   properties:
                     current_version:
-                      type: string
+                      type: [string, 'null']
+                      description: '`null` while no API licence is published.'
                       examples: [api-licence-1.0]
+                    status:
+                      type: string
+                      enum: [published, not_published]
                     url:
                       type: string
                       format: uri
@@ -12507,16 +12605,17 @@ components:
           type: [string, 'null']
           format: date-time
         licence_accepted_version:
-          type: string
+          type: [string, 'null']
+          description: '`null` when the key was created while no API licence was published: no acceptance is recorded.'
         licence_accepted_at:
-          type: string
+          type: [string, 'null']
           format: date-time
         created_at:
           type: string
           format: date-time
     ApiKeyCreate:
       type: object
-      required: [name, licence_accepted_version]
+      required: [name]
       properties:
         name:
           type: string
@@ -12536,8 +12635,10 @@ components:
           type: [string, 'null']
           format: date-time
         licence_accepted_version:
-          type: string
-          description: Must equal the current API licence version (`GET /v1/me` → `api_licence.current_version`).
+          type: [string, 'null']
+          description: >-
+            Omit or `null` while `GET /v1/me` → `api_licence.status` is `not_published`; otherwise must equal
+            `api_licence.current_version`.
     AdminApiKeyCreate:
       allOf:
         - $ref: '#/components/schemas/ApiKeyCreate'
@@ -14704,7 +14805,7 @@ components:
           data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1a
-          terms_url: https://infraque.com/legal/api-licence
+          terms_url: https://infraque.com/legal/reuse
           total: 1834
           total_is_estimate: false
         licence_summary:
@@ -14830,7 +14931,7 @@ components:
           data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1b
-          terms_url: https://infraque.com/legal/api-licence
+          terms_url: https://infraque.com/legal/reuse
         licence_summary:
           sources:
             - source_id: us.iso.caiso.gen_queue
@@ -14933,7 +15034,7 @@ components:
           data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1c
-          terms_url: https://infraque.com/legal/api-licence
+          terms_url: https://infraque.com/legal/reuse
         licence_summary:
           sources:
             - source_id: us.utility_rfps
@@ -14993,7 +15094,7 @@ components:
           data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1d
-          terms_url: https://infraque.com/legal/api-licence
+          terms_url: https://infraque.com/legal/reuse
         licence_summary:
           sources:
             - source_id: us.iso.caiso.gen_queue
@@ -15087,7 +15188,7 @@ components:
           data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1e
-          terms_url: https://infraque.com/legal/api-licence
+          terms_url: https://infraque.com/legal/reuse
           unplaced_count: 37
         licence_summary:
           sources:
@@ -15177,7 +15278,7 @@ components:
           data_as_of: '2026-09-12T08:58:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c1f
-          terms_url: https://infraque.com/legal/api-licence
+          terms_url: https://infraque.com/legal/reuse
         licence_summary:
           sources:
             - source_id: us.iso.caiso.gen_queue
@@ -15223,8 +15324,8 @@ components:
           last_used_at: null
           last_used_ip: null
           revoked_at: null
-          licence_accepted_version: api-licence-1.0
-          licence_accepted_at: '2026-09-12T09:00:00Z'
+          licence_accepted_version: null
+          licence_accepted_at: null
           created_at: '2026-09-12T09:00:00Z'
           secret: bk_live_7Hq3mZp9Xk2LwT4vN8bR1cD5yF6gJ0aS3eU2iO9f31a
         meta:
@@ -15233,7 +15334,7 @@ components:
           data_as_of: '2026-09-12T09:00:00Z'
           generated_at: '2026-09-12T09:00:00Z'
           request_id: req_9f2c20
-          terms_url: https://infraque.com/legal/api-licence
+          terms_url: https://infraque.com/legal/reuse
         licence_summary:
           sources: []
           attribution_line: ''
@@ -15324,7 +15425,7 @@ components:
           data_as_of: '2026-09-11T05:04:12Z'
           generated_at: '2026-09-11T05:04:13Z'
           request_id: req_9f2c21
-          terms_url: https://infraque.com/legal/api-licence
+          terms_url: https://infraque.com/legal/reuse
         licence_summary:
           sources:
             - source_id: us.iso.caiso.gen_queue

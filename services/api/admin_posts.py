@@ -77,7 +77,7 @@ from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import check_allowed, csv_param, int_param
-from services.api.pro import API_LICENCE_VERSION
+from services.api.pro import current_api_licence_version
 from services.api.ratelimit import default_limiter
 from services.api.serialize import (
     build_envelope,
@@ -860,11 +860,17 @@ def admin_create_key(
     user = _require_user(ctx)
     instance = request.url.path
     name = _require_field(body, "name", instance)
-    licence_version = body.get("licence_accepted_version")
-    if licence_version != API_LICENCE_VERSION:
+    # Same rule as `POST /v1/keys` (legal audit L-3): a key records acceptance of a published API
+    # licence only. Until one is published the version is NULL and a claimed one is refused; the
+    # operator's `licence_acceptance_ref` (the contract or ticket) is the evidence either way.
+    licence_version = current_api_licence_version()
+    claimed = body.get("licence_accepted_version")
+    if claimed is not None and claimed != licence_version:
         raise validation_error(
             "licence_accepted_version",
-            f"Must equal the current API licence version ({API_LICENCE_VERSION!r}).",
+            "No API licence is published yet, so there is nothing to accept: omit licence_accepted_version."
+            if licence_version is None
+            else f"Must equal the current API licence version ({licence_version!r}).",
             instance,
         )
     account_public_id = _require_field(body, "account_id", instance)
@@ -899,7 +905,7 @@ def admin_create_key(
         scopes=requested_scopes,
         tier=tier,
         licence_accepted_version=licence_version,
-        licence_accepted_at=utcnow(),
+        licence_accepted_at=utcnow() if licence_version is not None else None,
         **key_kwargs,
     )
     db.add(key)

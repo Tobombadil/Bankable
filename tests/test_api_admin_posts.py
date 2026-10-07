@@ -803,7 +803,6 @@ def test_admin_create_key_happy_path_shows_secret_once(client, db):
         "/admin/v1/keys",
         json={
             "name": "customer-etl",
-            "licence_accepted_version": "api-licence-1.0",
             "account_id": customer_account.public_id,
             "licence_acceptance_ref": "contract-123",
             "reason": "customer requested a key",
@@ -820,6 +819,9 @@ def test_admin_create_key_happy_path_shows_secret_once(client, db):
     import hashlib
 
     assert stored.key_hash == hashlib.sha256(secret.encode()).hexdigest()
+    # No API licence is published (legal audit L-3): the key records no acceptance; the
+    # operator's contract reference is the evidence.
+    assert stored.licence_accepted_version is None and stored.licence_accepted_at is None
 
     events = db.query(Event).filter_by(subject_type="api_key", event_type="key_issued").all()
     assert len(events) == 1
@@ -841,7 +843,6 @@ def test_admin_list_keys_filters_by_account_and_revoked(client, db):
         "/admin/v1/keys",
         json={
             "name": "a",
-            "licence_accepted_version": "api-licence-1.0",
             "account_id": account_a.public_id,
             "licence_acceptance_ref": "ref-a",
             "reason": "r",
@@ -851,7 +852,6 @@ def test_admin_list_keys_filters_by_account_and_revoked(client, db):
         "/admin/v1/keys",
         json={
             "name": "b",
-            "licence_accepted_version": "api-licence-1.0",
             "account_id": account_b.public_id,
             "licence_acceptance_ref": "ref-b",
             "reason": "r",
@@ -880,7 +880,6 @@ def test_admin_create_key_rejects_admin_star_scope(client, db):
         "/admin/v1/keys",
         json={
             "name": "n",
-            "licence_accepted_version": "api-licence-1.0",
             "account_id": customer_account.public_id,
             "licence_acceptance_ref": "ref",
             "reason": "r",
@@ -899,7 +898,6 @@ def test_admin_create_key_honours_explicit_rate_limit(client, db):
         "/admin/v1/keys",
         json={
             "name": "n",
-            "licence_accepted_version": "api-licence-1.0",
             "account_id": customer_account.public_id,
             "licence_acceptance_ref": "ref",
             "reason": "r",
@@ -928,6 +926,26 @@ def test_admin_create_key_rejects_wrong_licence_version(client, db):
     assert resp.status_code == 400
 
 
+def test_admin_create_key_refuses_acceptance_of_an_unpublished_licence(client, db):
+    operator = _make_operator(db, email="ops-keys-l3@example.com")
+    customer_account = make_account(db, entitlement="api", name="Customer Co L3")
+    db.commit()
+    login(client, db, operator)
+    resp = client.post(
+        "/admin/v1/keys",
+        json={
+            "name": "n",
+            "licence_accepted_version": "api-licence-1.0",
+            "account_id": customer_account.public_id,
+            "licence_acceptance_ref": "ref",
+            "reason": "r",
+        },
+    )
+    assert resp.status_code == 400
+    assert resp.json()["errors"][0]["field"] == "licence_accepted_version"
+    assert db.query(ApiKey).count() == 0
+
+
 def test_admin_create_key_unknown_account_is_404(client, db):
     operator = _make_operator(db, email="ops-keys3@example.com")
     db.commit()
@@ -936,7 +954,6 @@ def test_admin_create_key_unknown_account_is_404(client, db):
         "/admin/v1/keys",
         json={
             "name": "n",
-            "licence_accepted_version": "api-licence-1.0",
             "account_id": "acc_doesnotexist0000000000",
             "licence_acceptance_ref": "ref",
             "reason": "r",
@@ -956,7 +973,6 @@ def test_admin_revoke_key_happy_path_and_requires_reason(client, db):
         "/admin/v1/keys",
         json={
             "name": "n",
-            "licence_accepted_version": "api-licence-1.0",
             "account_id": customer_account.public_id,
             "licence_acceptance_ref": "ref",
             "reason": "issue",

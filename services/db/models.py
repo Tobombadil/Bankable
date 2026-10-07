@@ -30,6 +30,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from services.db.base import Base
 from services.db.types import GUID, GeographyLine, GeographyPoint, JSONVariant, TextArray, uuid7
+from services.personal_names import classify as classify_personal_name
 from services.posture import platform_posture, publishable_reuse_classes
 
 # ---------------------------------------------------------------------------------------------
@@ -405,6 +406,11 @@ class Snapshot(Base):
 
 
 # ============================================================================ organization (§3.5)
+def _classify_new_organization(ctx: Any) -> Any:
+    """The `personal_data` column default: classify the row being inserted by its name."""
+    return classify_personal_name(ctx.get_current_parameters().get("name_canonical"))
+
+
 class Organization(Base, TimestampMixin):
     __tablename__ = "organization"
 
@@ -456,6 +462,27 @@ class Organization(Base, TimestampMixin):
     #: no `published_at`/`public_at` pair here: nothing on an organisation is time-gated
     #: (docs/21 §5.4's paywall-by-shape amendment), so the predicate is the state alone.
     publish_state: Mapped[str] = mapped_column(sa.Text, nullable=False, default="public")
+    #: Migration 0034 (2026-10-07), docs/13 §5.5, 2026-09-30 legal audit L-5: the row names a natural
+    #: person, not a company (an EIA-860 owner, a GHGRP parent, a queue's interconnection customer).
+    #: Set at insert from `name_canonical` by `services/personal_names.py` (the column default below,
+    #: so every creation path classifies without remembering to) and re-applied to existing rows by
+    #: `python -m services.ingest.personal_data classify`. A flagged row stays public but is left out
+    #: of the sitemap, served `noindex`, shows no ownership share and has street addresses cut from
+    #: the names of proposals it sponsors: the conservative, reversible default while the owner
+    #: decides whether such rows are dropped at ingest (docs/13 §5.5 options).
+    personal_data: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        default=lambda ctx: _classify_new_organization(ctx).personal,
+        server_default=sa.false(),
+    )
+    #: Why `personal_data` holds its value: `heuristic`, `curated_personal`, `curated_not_personal`,
+    #: `structure` or `no_person_shape` (`services.personal_names.Basis`). NULL only on a row written
+    #: before migration 0034 and not yet classified.
+    personal_data_basis: Mapped[str | None] = mapped_column(
+        sa.Text,
+        default=lambda ctx: _classify_new_organization(ctx).basis,
+    )
 
     __table_args__ = (
         sa.CheckConstraint(f"publish_state IN {RECORD_PUBLISH_STATES!r}", name="publish_state_vocab"),
@@ -980,10 +1007,12 @@ class ApiKey(Base, TimestampMixin):
     last_used_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
     last_used_ip: Mapped[str | None] = mapped_column(sa.Text)
     revoked_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
-    licence_accepted_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    licence_accepted_at: Mapped[dt.datetime] = mapped_column(
-        sa.DateTime(timezone=True), nullable=False, default=utcnow
-    )
+    #: NULL since migration 0034 (2026-10-07, legal audit L-3): no API licence or customer terms are
+    #: published yet (`docs/13-legal-customer-terms.md` is a draft awaiting counsel), so a key records
+    #: no acceptance rather than acceptance of a document that does not exist. Set again, with the
+    #: time, once `services.api.pro.API_LICENCE_PUBLISHED` is true.
+    licence_accepted_version: Mapped[str | None] = mapped_column(sa.Text)
+    licence_accepted_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
 
     account: Mapped[Account] = relationship(lazy="joined")
 
@@ -1817,6 +1846,14 @@ class UiEvent(Base):
 SUPPRESSION_REASONS = ("erasure", "unsubscribe", "bounce", "complaint")
 PRIVACY_REQUEST_KINDS = ("erasure", "correction")
 PRIVACY_REQUEST_STATUSES = ("open", "in_progress", "done", "rejected")
+#: docs/13 §5.4 rule 6: deletion and objection requests are honoured within 30 days. GDPR Art. 12(3)
+#: says "without undue delay and in any event within one month of receipt"; 30 days is the shorter
+#: reading of a month and the one the register adopted.
+PRIVACY_REQUEST_RESPONSE_DAYS = 30
+
+
+def privacy_request_due_at(created_at: dt.datetime) -> dt.datetime:
+    return created_at + dt.timedelta(days=PRIVACY_REQUEST_RESPONSE_DAYS)
 
 
 class Suppression(Base):
@@ -1847,9 +1884,10 @@ class PrivacyRequest(Base, TimestampMixin):
     the platform indexes), the route the privacy notice promises (`web/templates/legal/
     privacy.html` §3; US-910). Written by the public, unauthenticated
     `POST /v1/privacy/requests` (`services/api/privacy_routes.py`) and read by operators under
-    `/admin/v1/privacy-requests`. Nothing is emailed automatically. `contact_email` is the one
-    piece of personal data the flow needs (to answer the person) and is cleared when the request
-    is closed by an operator."""
+    `/admin/v1/privacy-requests`. Nothing is emailed automatically. `contact_email` (to answer the
+    person) and `message` (free text that usually names them, and sometimes their address) are the
+    personal data the row holds; both are cleared when an operator closes the request, and the
+    audit event keeps only their peppered hashes (2026-09-30 legal audit L-6)."""
 
     __tablename__ = "privacy_request"
 
@@ -1861,10 +1899,18 @@ class PrivacyRequest(Base, TimestampMixin):
     message: Mapped[str | None] = mapped_column(sa.Text)
     status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="open")
     completed_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    #: Migration 0034 (2026-10-07, legal audit L-6): the date the 30-day clock of docs/13 §5.4 rule 6
+    #: runs out, `created_at + PRIVACY_REQUEST_RESPONSE_DAYS`. Stored rather than computed so the
+    #: admin list can filter and sort on it, and so a later change to the period does not move the
+    #: deadline of a request already received.
+    due_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=lambda: privacy_request_due_at(utcnow())
+    )
 
     __table_args__ = (
         sa.CheckConstraint(f"kind IN {PRIVACY_REQUEST_KINDS!r}", name="kind_vocab"),
         sa.CheckConstraint(f"status IN {PRIVACY_REQUEST_STATUSES!r}", name="status_vocab"),
         sa.Index("ix_privacy_request_status_created", "status", "created_at"),
         sa.Index("ix_privacy_request_record", "record_public_id"),
+        sa.Index("ix_privacy_request_status_due", "status", "due_at"),
     )

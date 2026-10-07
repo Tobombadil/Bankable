@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from html import escape
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Request
@@ -65,6 +68,16 @@ SITEMAP_STATIC_PATHS = (
 )
 
 
+_RowFilter = Callable[[dict[str, Any]], bool]
+
+
+def _not_personal_data(row: dict[str, Any]) -> bool:
+    """An organisation the API marks `personal_data` (a natural person named in a register,
+    migration 0033; docs/13 §5.5, legal audit L-5) is left out of the sitemap: its page stays
+    readable but is served `noindex`, and listing it here would invite the crawl it declines."""
+    return not row.get("personal_data")
+
+
 def _sitemap_paths_for(
     api: ApiClient,
     path: str,
@@ -72,10 +85,14 @@ def _sitemap_paths_for(
     *,
     extra_params: dict[str, str] | None = None,
     key: str = "slug",
+    include: _RowFilter | None = None,
+    ids: dict[str, str] | None = None,
 ) -> list[str]:
     """Every page of one resource's public list, as `{url_prefix}/{row[key]}`. `key` is the field
     the detail route takes: a slug for records, assets and organisations, the `public_id` for an
-    interconnection point (which has no slug, docs/21 §3.24)."""
+    interconnection point (which has no slug, docs/21 §3.24). `include` drops rows a crawler should
+    not be pointed at; `ids`, when given, collects `public_id -> path` so a takedown can remove the
+    path from the cached sitemap without another walk (`forget_sitemap_records`)."""
     paths: list[str] = []
     cursor: str | None = None
     for _ in range(SITEMAP_MAX_PAGES_PER_RESOURCE):
@@ -84,8 +101,10 @@ def _sitemap_paths_for(
         envelope = api.get(path, params=params)
         for row in envelope["data"]:
             ident = row.get(key)
-            if ident:
+            if ident and (include is None or include(row)):
                 paths.append(f"{url_prefix}/{ident}")
+                if ids is not None and row.get("public_id"):
+                    ids[str(row["public_id"])] = paths[-1]
         page = envelope.get("page") or {}
         if not page.get("has_more"):
             break
@@ -118,34 +137,9 @@ def _render_sitemap_index_xml(base_url: str, paths: list[str]) -> str:
     )
 
 
-def _build_sitemap_documents(api: ApiClient, base: str) -> dict[str, str]:
-    """Every sitemap document this site serves, keyed by path, from one walk of every resource.
-
-    Proposals, opportunities, assets, organisations and grid interconnection points,
-    cursor-paginated per resource to the last page (`SITEMAP_MAX_PAGES_PER_RESOURCE` is a loop
-    guard, not a cap). Points are read
-    from `GET /v1/interconnection-points` at the anonymous tier like every other resource, so a
-    point is listed only when that route lists it: its register is visible and at least one of its
-    proposals is (docs/21 D-17). A gated or emptied point is absent, exactly as it is from the
-    index page, so the sitemap is no oracle for it (lane H2, 2026-09-29). A resource whose list
-    call errors is skipped rather than blanking the whole sitemap. When the URLs fit one file,
-    `/sitemap.xml` is that `<urlset>`; above that it becomes a `<sitemapindex>` over
-    `/sitemaps/{n}.xml` (`docs/23` §3.1's split-by-file shape), so the protocol's 50,000-URL and
-    50 MB limits stay out of reach.
-    """
-    paths: list[str] = list(SITEMAP_STATIC_PATHS)
-    resources: list[tuple[str, str, dict[str, str], str]] = [
-        ("/v1/proposals", "/proposals", {"lifecycle_state": ALL_PROPOSAL_LIFECYCLE_STATES_CSV}, "slug"),
-        ("/v1/opportunities", "/opportunities", {"status": ALL_OPPORTUNITY_STATUSES_CSV}, "slug"),
-        ("/v1/assets", "/assets", {}, "slug"),
-        ("/v1/organizations", "/organizations", {}, "slug"),
-        ("/v1/interconnection-points", "/interconnection-points", {}, "public_id"),
-    ]
-    for api_path, prefix, extra, key in resources:
-        try:
-            paths += _sitemap_paths_for(api, api_path, prefix, extra_params=extra, key=key)
-        except (ApiError, httpx.HTTPError):
-            continue  # one resource's list call failing must not blank the whole sitemap
+def _render_documents(base: str, paths: list[str]) -> dict[str, str]:
+    """`{sitemap path: xml}` for one ordered list of page paths: a single `<urlset>` when they fit
+    one file, else a `<sitemapindex>` over `/sitemaps/{n}.xml`."""
     if len(paths) <= SITEMAP_URLS_PER_FILE:
         return {"/sitemap.xml": _render_sitemap_xml(base, paths)}
     documents: dict[str, str] = {}
@@ -158,6 +152,58 @@ def _build_sitemap_documents(api: ApiClient, base: str) -> dict[str, str]:
     return documents
 
 
+@dataclass
+class SitemapBuild:
+    """One walk's output, cached per base URL: the ordered page paths, `public_id -> path` for the
+    records among them, and the rendered documents."""
+
+    built_at: float
+    paths: list[str]
+    ids: dict[str, str] = field(default_factory=dict)
+    documents: dict[str, str] = field(default_factory=dict)
+
+
+def _build_sitemap(api: ApiClient, base: str) -> SitemapBuild:
+    ids: dict[str, str] = {}
+    paths = _walk_sitemap_paths(api, ids)
+    return SitemapBuild(time.monotonic(), paths, ids, _render_documents(base, paths))
+
+
+def _walk_sitemap_paths(api: ApiClient, ids: dict[str, str]) -> list[str]:
+    """Every page path the sitemap lists, in order, from one walk of every resource; `ids` collects
+    `public_id -> path` on the way. `_render_documents` turns the list into the served documents.
+
+    Proposals, opportunities, assets, organisations (less those marked `personal_data`) and grid
+    interconnection points,
+    cursor-paginated per resource to the last page (`SITEMAP_MAX_PAGES_PER_RESOURCE` is a loop
+    guard, not a cap). Points are read
+    from `GET /v1/interconnection-points` at the anonymous tier like every other resource, so a
+    point is listed only when that route lists it: its register is visible and at least one of its
+    proposals is (docs/21 D-17). A gated or emptied point is absent, exactly as it is from the
+    index page, so the sitemap is no oracle for it (lane H2, 2026-09-29). A resource whose list
+    call errors is skipped rather than blanking the whole sitemap. When the URLs fit one file,
+    `/sitemap.xml` is that `<urlset>`; above that it becomes a `<sitemapindex>` over
+    `/sitemaps/{n}.xml` (`docs/23` §3.1's split-by-file shape), so the protocol's 50,000-URL and
+    50 MB limits stay out of reach.
+    """
+    paths: list[str] = list(SITEMAP_STATIC_PATHS)
+    resources: list[tuple[str, str, dict[str, str], str, _RowFilter | None]] = [
+        ("/v1/proposals", "/proposals", {"lifecycle_state": ALL_PROPOSAL_LIFECYCLE_STATES_CSV}, "slug", None),
+        ("/v1/opportunities", "/opportunities", {"status": ALL_OPPORTUNITY_STATUSES_CSV}, "slug", None),
+        ("/v1/assets", "/assets", {}, "slug", None),
+        ("/v1/organizations", "/organizations", {}, "slug", _not_personal_data),
+        ("/v1/interconnection-points", "/interconnection-points", {}, "public_id", None),
+    ]
+    for api_path, prefix, extra, key, include in resources:
+        try:
+            paths += _sitemap_paths_for(
+                api, api_path, prefix, extra_params=extra, key=key, include=include, ids=ids
+            )
+        except (ApiError, httpx.HTTPError):
+            continue  # one resource's list call failing must not blank the whole sitemap
+    return paths
+
+
 def _sitemap_documents(request: Request) -> dict[str, str]:
     """The cached `{path: xml}` for this base URL, built on a miss.
 
@@ -168,15 +214,35 @@ def _sitemap_documents(request: Request) -> dict[str, str]:
     rather than one file's XML, so a crawler fetching the index and then twenty child sitemaps
     still costs one walk, not twenty-one."""
     base = str(request.base_url).rstrip("/")
-    cache: dict[str, tuple[float, dict[str, str]]] = request.app.state.__dict__.setdefault(
-        "sitemap_cache", {}
-    )
+    cache: dict[str, SitemapBuild] = request.app.state.__dict__.setdefault("sitemap_cache", {})
     cached = cache.get(base)
-    if cached and time.monotonic() - cached[0] < SITEMAP_CACHE_SECONDS:
-        return cached[1]
-    documents = _build_sitemap_documents(get_api(request), base)
-    cache[base] = (time.monotonic(), documents)
-    return documents
+    if cached and time.monotonic() - cached.built_at < SITEMAP_CACHE_SECONDS:
+        return cached.documents
+    build = _build_sitemap(get_api(request), base)
+    cache[base] = build
+    return build.documents
+
+
+def forget_sitemap_records(app: Any, public_ids: Iterable[str]) -> int:
+    """Drop the pages of these records from every cached sitemap, at once (legal audit L-6 (c)).
+
+    The publish-state write answers `effective_within_seconds: 60`, but the walk above is cached for
+    an hour, so a taken-down organisation stayed listed for up to an hour after its page went 404.
+    The admin site calls this when it unpublishes or takes down a record; the documents are
+    re-rendered from the cached path list without another walk. Returns the number of paths
+    removed. A takedown made directly against the API, outside this process, still reaches the
+    sitemap only at the next rebuild (an open item in docs/13 §5.5)."""
+    cache: dict[str, SitemapBuild] = app.state.__dict__.get("sitemap_cache") or {}
+    wanted = set(public_ids)
+    removed = 0
+    for base, build in cache.items():
+        drop = {build.ids.pop(pid) for pid in wanted if pid in build.ids}
+        if not drop:
+            continue
+        build.paths = [p for p in build.paths if p not in drop]
+        build.documents = _render_documents(base, build.paths)
+        removed += len(drop)
+    return removed
 
 
 @router.get("/sitemap.xml")

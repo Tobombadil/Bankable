@@ -16,7 +16,11 @@ from urllib.parse import urlparse
 DOMAIN = "infraque.com"
 API_HOST = f"https://api.{DOMAIN}"
 WEB_HOST = f"https://{DOMAIN}"
-TERMS_URL = f"{WEB_HOST}/legal/api-licence"
+#: `meta.terms_url`, the CSV `# terms=` line and the bulk meta. Until counsel approves customer
+#: terms and an API licence (`docs/13-legal-customer-terms.md`, a draft), this points at the factual
+#: summary of the source licences the data is under (`web/legal.py` `/legal/reuse`), not at a
+#: contract: `/legal/api-licence` was a 404 that every response cited (2026-09-30 legal audit L-3).
+TERMS_URL = f"{WEB_HOST}/legal/reuse"
 
 _REQUEST_ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 

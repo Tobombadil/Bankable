@@ -86,6 +86,7 @@ from services.api.serialize import (
     event_licence_row,
     licence_summary_from_source_aggregates,
     licence_summary_row,
+    personal_share,
     provenance_quartet,
     serialize_asset,
     serialize_asset_summary,
@@ -1769,7 +1770,7 @@ def list_organization_assets(
             edge.asset, withheld=withheld, include_owners=False, include_geometry=False
         )
         asset_row["role"] = edge.role
-        asset_row["share_pct"] = float(edge.share_pct) if edge.share_pct is not None else None
+        asset_row["share_pct"] = personal_share(edge.organization, edge.share_pct)
         asset_row["as_of"] = edge.as_of.isoformat() if edge.as_of is not None else None
         asset_row["held_by"] = serialize_organization_summary(edge.organization)
         data.append(asset_row)

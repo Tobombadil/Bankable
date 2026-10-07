@@ -1,51 +1,108 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% block title %}Privacy notice -- Infraque{% endblock %}
-{% block meta_description %}What personal data Infraque stores, why, for how long, and how to ask for it to be deleted.{% endblock %}
+{% block meta_description %}Who is responsible for personal data on Infraque, what is held and why, where it comes from, how long it is kept, and how to use your rights.{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>Privacy notice</h1>
-  <p>What personal data this platform stores, the lawful basis for each use, how long it is kept, and how to have it deleted.</p>
+  <p>Who is responsible for personal data on this platform, what we hold and why, where it comes from, how long we keep it, and how to use your rights. It covers people who use the site and people who are named in the public records we index.</p>
   <p class="reuse-badge">Infraque is a placeholder codename, not the permanent product name. Last updated <span class="tnum">{{ last_updated }}</span>.</p>
 </div>
 
+<section id="who-we-are">
+  {{ m.section_heading("1.", "Who is responsible") }}
+  {% if controller.name %}
+  <p>The controller of the personal data described here is <strong id="controller-name">{{ controller.name }}</strong>.</p>
+  {% else %}
+  <p id="controller-name">The legal entity responsible for this platform has not yet been named on this page. Until it is, write to the address below and we will tell you.</p>
+  {% endif %}
+  <dl>
+    <dt>Email</dt>
+    <dd><a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a></dd>
+    <dt>Postal address</dt>
+    <dd id="controller-address">{% if controller.address %}{{ controller.address }}{% else %}Not yet published on this page. Ask at the email address above and we will give it to you.{% endif %}</dd>
+  </dl>
+</section>
+
+<section id="people-in-records">
+  {{ m.section_heading("2.", "If you are named in a record we index") }}
+  <p>This platform collects public records about energy and infrastructure projects: interconnection queues, permits, regulatory filings, procurement notices and ownership registers. Some of those records name a person, for example where a person is listed as a plant owner, a parent company, a project sponsor or a contact on a filing. We did not collect this from you; we read it from the public source, and this section is how we tell you about it.</p>
+  <dl>
+    <dt>What we hold</dt>
+    <dd>Your name as the register prints it, your role in the record (owner, sponsor, operator, filer), the project or asset it concerns, and, where the register states one, an ownership share. We do not keep email addresses, phone numbers or signatures: we remove them before anything is stored. Where a project&rsquo;s name gives a street address and the project is sponsored by a person, we do not show the address.</dd>
+    <dt>Where it comes from</dt>
+    <dd>The public register named on each record&rsquo;s page, with a link to it, for example the US Energy Information Administration&rsquo;s generator survey, the US Environmental Protection Agency&rsquo;s greenhouse gas reporting program, or a grid operator&rsquo;s interconnection queue.</dd>
+    <dt>Why</dt>
+    <dd>To identify and follow energy projects and who holds them, which is the reason the registers are public. Our legal basis is legitimate interests: making public infrastructure records searchable in one place. We weigh that against your interests by holding only the identity fields a record needs, never your contact details.</dd>
+    <dt>What we do to limit it</dt>
+    <dd>Where a record names a person rather than a company, we keep the page out of our sitemap and ask search engines not to index it, we do not show the person&rsquo;s ownership share, and we remove street addresses from project names shown next to a person&rsquo;s name. We never use names from these records to contact anyone.</dd>
+    <dt>Who sees it</dt>
+    <dd>Anyone who reads the site, the API, its feeds or exports, as with the source register itself.</dd>
+    <dt>To have it corrected or removed</dt>
+    <dd>Use the <a href="/privacy/request">privacy request form</a> with the record&rsquo;s id. An operator handles every request by hand; nothing is sent automatically. We remove or correct your details on every record that names you, not only the one you cite, and the removal holds when the source is next read. The same request can be sent by software to <code>POST /v1/privacy/requests</code>.</dd>
+  </dl>
+</section>
+
 <section id="what-we-store">
-  {{ m.section_heading("1.", "What we store") }}
+  {{ m.section_heading("3.", "If you use the site") }}
   <dl>
     <dt>Accounts</dt>
-    <dd>Email address, name, and a password hash (never the password itself). Used to sign you in and to identify which saved searches and alerts belong to you.</dd>
+    <dd>Email address, name, and a password hash (never the password itself), plus the sessions and API keys you create (a key is stored only as a hash). Used to sign you in and to know which saved searches and alerts are yours. Legal basis: providing the service you asked for.</dd>
     <dt>Alerts</dt>
-    <dd>Your saved-search definitions (the filters you asked to be notified about) and a delivery log of alerts sent -- recipient, saved search, the matched records, and send status. Every alert email carries a one-click unsubscribe link tied to that saved search.</dd>
-    <dt>Intake and reports</dt>
-    <dd>If you submit a project or a report through the site, we store the contact block you provide (name and email) alongside the submission so we can follow up on it.</dd>
-    <dt>CRM (business contacts)</dt>
-    <dd>Where our own outreach is concerned, we hold business contact details (name, work email, job title) sourced from public professional sources such as filings and company sites -- never a personal email or a private social profile. This is the CRM system of record's People object; see the data-handling rules in <code>docs/34-crm-system-of-record.md</code> &sect;2.2. The platform is not the system of record for this data; the CRM is.</dd>
-    <dt>Map interactions</dt>
-    <dd>We count map layer toggles, region jumps, basemap failures and sign-ups made from the map page, with no cookie, IP address, user agent or referrer attached to any of these counts, so they are not personal data.</dd>
+    <dd>Your saved searches and a log of alerts sent: recipient, saved search, matched records and send status. You choose which searches send email and can stop any of them with the unsubscribe link in every alert email or on the <a href="/unsubscribe">unsubscribe page</a>. Legal basis: providing the service, and your choice to receive email.</dd>
+    <dt>Reports, submissions and privacy requests</dt>
+    <dd>If you report a problem, submit a project or send a privacy request, we keep the contact details and message you give so we can act on it and answer you. When a privacy request is closed, the address and message are deleted from it. Legal basis: legitimate interests in correcting the record and answering you.</dd>
+    <dt>Our own business contacts</dt>
+    <dd>For our own outreach we hold business contact details (name, work email, job title, company) taken from public professional sources such as company websites, never from the records we index and never a personal email address. Every message we send says who we are, how we found you and how to stop hearing from us, and we stop at once if you object. Legal basis: legitimate interests; you can object at any time and that objection is absolute for direct marketing.</dd>
+    <dt>Server logs and usage counts</dt>
+    <dd>Our servers record each request (IP address, time, address requested) for security and rate limiting. These logs are rotated by size and not archived. Forms may use Cloudflare Turnstile to block automated abuse, which processes your IP address. Map interaction counts (layer toggles, region jumps) carry no cookie, IP address or other identifier.</dd>
   </dl>
-  <p>We do not store more personal data than the categories above. We do not sell personal data.</p>
+  <p>We do not sell personal data, and we do not share it for advertising.</p>
 </section>
 
-<section id="lawful-bases">
-  {{ m.section_heading("2.", "Why we use it") }}
+<section id="processors">
+  {{ m.section_heading("4.", "Who processes it for us") }}
+  <p>Service providers that process personal data on our instructions: our server and database hosts, Cloudflare (network, backups storage and form protection), Resend (sending email), Attio (our customer relationship records) and, if paid plans are offered, Stripe (payments). We are based in the United States; data may be processed there and in the countries where these providers operate.</p>
+</section>
+
+<section id="retention">
+  {{ m.section_heading("5.", "How long we keep it") }}
   <ul>
-    <li><strong>Contract / providing the service</strong> -- your account and alert data: we need it to run the account you asked for and deliver the alerts you configured.</li>
-    <li><strong>Consent</strong> -- you choose which saved searches send email alerts, and can withdraw that consent at any time via the unsubscribe link on every alert email or the form below.</li>
-    <li><strong>Legitimate interest</strong> -- business contact details reached through public professional sources, used only to reach out about a specific, relevant project (never for unrelated marketing), per the outreach rules in <code>docs/13-legal-outreach-and-social.md</code> &sect;7.2. A recorded consent basis (legitimate interest, consent, or existing customer) is kept per contact in the CRM.</li>
+    <li><strong>Accounts and alerts</strong>: while your account is active. When you ask us to delete your account, your user record is anonymised, your sessions and API keys are revoked and your alerts stop.</li>
+    <li><strong>Privacy requests</strong>: the contact address and message are deleted when the request is closed; we keep the request&rsquo;s id, dates, status and the record it concerned, as evidence that it was handled.</li>
+    <li><strong>Suppression list</strong>: if you unsubscribe or have your data erased, we keep a one-way hash of your email address on a suppression list, not the address itself, so that we never write to you again.</li>
+    <li><strong>Names in indexed records</strong>: while the project record is active. Records of withdrawn or cancelled projects remain as history; our rule is to remove the names of people from them 24 months after the project ended. That removal is not yet automated; until it is, ask and we will do it on request.</li>
+    <li><strong>Backups</strong>: an erased value can remain in database backups until they expire: up to 7 days in our database host&rsquo;s point-in-time recovery, 35 days in local dumps, 14 days in daily off-site dumps and 8 weeks in weekly off-site dumps. Backups are used only to restore the service.</li>
   </ul>
-  <p>Every outbound message we send states who we are, how we found you, what we want, and how to stop hearing from us -- the five points in <code>docs/13</code> &sect;7.2.</p>
 </section>
 
-<section id="retention-and-deletion">
-  {{ m.section_heading("3.", "Retention and deletion") }}
-  <p>We keep account and alert data for as long as your account is active. A deletion request -- from you, or from someone named in a filing we index -- is handled as a deletion task: it removes or redacts the personal-data fields above from every surface and export, and the action itself is recorded (US-910). Sessions and API keys are revoked and alerts are suppressed as part of the same task.</p>
-  <p>If you are named in a record we index (a filing, a docket, a procurement notice) and want that record corrected or your details removed from it, use the <a href="/privacy/request">privacy request form</a>: it records the request against the record's id and an operator handles it as a deletion task; nothing is sent automatically. Once a request is closed, the contact address you gave is deleted from it. The same form is available to software as <code>POST /v1/privacy/requests</code>.</p>
-  <p>To request deletion of your own account, or ask a question about your data, email <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>. An unsubscribed or erased address goes on a suppression list and is never written to again, even if another saved search still names it. To stop email alerts for a specific saved search without deleting your account, use the unsubscribe link in that alert's email, or the <a href="/unsubscribe">unsubscribe page</a>.</p>
+<section id="rights">
+  {{ m.section_heading("6.", "Your rights") }}
+  <p>Depending on where you live, you can ask us to:</p>
+  <ul>
+    <li>tell you what personal data we hold about you and give you a copy (access);</li>
+    <li>correct it (rectification);</li>
+    <li>delete it (erasure);</li>
+    <li>stop or limit using it (restriction and objection; an objection to direct marketing always succeeds);</li>
+    <li>give you the data you provided to us in a reusable format (portability, for account data);</li>
+    <li>withdraw a consent you gave, such as to alert emails, at any time.</li>
+  </ul>
+  <p>We make no decisions about you by automated means that have legal or similarly significant effects. To use a right, use the <a href="/privacy/request">privacy request form</a> (for records that name you) or email <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a> (for anything else). We answer within 30 days. We may ask for enough information to confirm the request is yours, and we will not ask for more than that.</p>
 </section>
 
-<section id="contact">
-  {{ m.section_heading("4.", "Contact") }}
-  <p>Email: <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a></p>
-  <p>Postal address: <span class="mono">{{ postal_address }}</span> <span class="reuse-badge">placeholder -- not yet set</span></p>
+<section id="complaints">
+  {{ m.section_heading("7.", "Complaints") }}
+  <p>Please tell us first, and we will try to put it right. You also have the right to complain to a data protection authority: in the European Union, the authority in the country where you live or work (listed by the <a href="https://www.edpb.europa.eu/about-edpb/about-edpb/members_en" rel="noopener">European Data Protection Board</a>); in the United Kingdom, the <a href="https://ico.org.uk/make-a-complaint/" rel="noopener">Information Commissioner&rsquo;s Office</a>; in California, the <a href="https://cppa.ca.gov/" rel="noopener">California Privacy Protection Agency</a>.</p>
+</section>
+
+<section id="california">
+  {{ m.section_heading("8.", "California residents") }}
+  <p>This section gives the notice California law requires. In the last 12 months we have collected these categories of personal information: identifiers (name, email address, IP address); professional information (job title, company, and a person&rsquo;s role in a public record); and internet activity (server logs). The sources, purposes and retention for each are in sections 2, 3 and 5. We do not sell or share personal information as California law defines those terms. The only sensitive personal information we collect is your account login with its password (stored as a hash), used only to sign you in.</p>
+  <p>You have the right to know what we collect and how we use it, to delete it, to correct it, to opt out of sale or sharing (which we do not do), and not to be treated differently for using these rights. You can use them through the <a href="/privacy/request">privacy request form</a> or by email at <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>, yourself or through an authorised agent. We honour these rights whether or not the law&rsquo;s thresholds apply to us.</p>
+</section>
+
+<section id="changes">
+  {{ m.section_heading("9.", "Changes") }}
+  <p>When this notice changes, the date at the top changes with it. The licences under which the data itself may be reused are summarised separately in <a href="/legal/reuse">Reuse conditions</a>.</p>
 </section>
 {% endblock %}

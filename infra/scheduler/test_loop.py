@@ -525,6 +525,10 @@ def test_default_resolve_runs_over_the_store_without_a_normalised_frame(
     report = jobs.resolve_tick_job(_run=None, _session_factory=factory, _data_root=tmp_path)
     if report.get("organizations_merged") != 0 or report.get("proposal_clusters") != 0:
         raise AssertionError(report)
+    # The natural-person pass runs on every tick (legal audit L-5), so a newly loaded
+    # person-sponsored record does not keep a street address until someone runs the CLI.
+    if set(report.get("personal_data", {})) != {"classify", "redact"}:
+        raise AssertionError(report)
 
 
 def test_resolver_frames_are_only_sources_the_loader_loads(tmp_path: pathlib.Path) -> None:

@@ -25,8 +25,8 @@ from services.ingest.loader import load_dataframe, upsert_licence_and_source
 from services.resolve.merge import merge_proposal, unmerge_proposal
 from tests.conftest import login, make_account, make_user
 
-REDACTED = "NY - Michigan Hill project 2"
-REGISTER_SPELLING = "NY - 74 Michigan Hill Rd - 2"
+REDACTED = "NY - Larkspur Ridge project 2"
+REGISTER_SPELLING = "NY - 12 Larkspur Ridge Rd - 2"
 
 
 def _entry(source_id: str) -> SourceEntry:
@@ -144,7 +144,7 @@ def test_a_merge_carries_the_absorbed_records_override_and_a_reload_does_not_und
     queue = upsert_licence_and_source(db, _entry("us.test.queue"), "2026-09-18")
     inventory = upsert_licence_and_source(db, _entry("us.test.inventory"), "2026-09-18")
     _load(db, queue, [_row("us.test.queue", "Q1", REGISTER_SPELLING, 5.0)])
-    _load(db, inventory, [_row("us.test.inventory", "P1", "Michigan Hill Solar", 5.0)])
+    _load(db, inventory, [_row("us.test.inventory", "P1", "Larkspur Ridge Solar", 5.0)])
     absorbed = _proposal(db, "us.test.queue", "Q1")
     survivor = _proposal(db, "us.test.inventory", "P1")
     _override(absorbed, "name_canonical", REDACTED)
@@ -158,7 +158,7 @@ def test_a_merge_carries_the_absorbed_records_override_and_a_reload_does_not_und
 
     # Both registers load again; the queue's link now points at the survivor.
     _load(db, queue, [_row("us.test.queue", "Q1", REGISTER_SPELLING, 6.0)])
-    _load(db, inventory, [_row("us.test.inventory", "P1", "Michigan Hill Solar", 6.0)])
+    _load(db, inventory, [_row("us.test.inventory", "P1", "Larkspur Ridge Solar", 6.0)])
     db.expire_all()
     survivor = db.get(Proposal, survivor.id)
     assert survivor is not None and survivor.name_canonical == REDACTED
@@ -170,7 +170,7 @@ def test_a_merge_carries_the_absorbed_records_override_and_a_reload_does_not_und
     survivor = db.get(Proposal, survivor.id)
     absorbed = db.get(Proposal, absorbed.id)
     assert survivor is not None and absorbed is not None
-    assert survivor.name_canonical == "Michigan Hill Solar"
+    assert survivor.name_canonical == "Larkspur Ridge Solar"
     assert "name_canonical" not in (survivor.overrides or {})
     assert absorbed.name_canonical == REDACTED and "name_canonical" in absorbed.overrides
 
@@ -179,16 +179,16 @@ def test_the_survivors_own_override_wins_over_the_absorbed_records(db: Session) 
     queue = upsert_licence_and_source(db, _entry("us.test.queue"), "2026-09-18")
     inventory = upsert_licence_and_source(db, _entry("us.test.inventory"), "2026-09-18")
     _load(db, queue, [_row("us.test.queue", "Q1", REGISTER_SPELLING, 5.0)])
-    _load(db, inventory, [_row("us.test.inventory", "P1", "Michigan Hill Solar", 5.0)])
+    _load(db, inventory, [_row("us.test.inventory", "P1", "Larkspur Ridge Solar", 5.0)])
     absorbed = _proposal(db, "us.test.queue", "Q1")
     survivor = _proposal(db, "us.test.inventory", "P1")
     _override(absorbed, "name_canonical", REDACTED)
-    _override(survivor, "name_canonical", "Michigan Hill (operator's name)")
+    _override(survivor, "name_canonical", "Larkspur Ridge (operator's name)")
     _override(survivor, "identifiers", {"queue_ids": []})
     db.commit()
 
     event = merge_proposal(db, canonical=survivor, absorbed=absorbed, score=92.0, rationale="test")
     db.commit()
-    assert survivor.name_canonical == "Michigan Hill (operator's name)"
+    assert survivor.name_canonical == "Larkspur Ridge (operator's name)"
     assert survivor.identifiers == {"queue_ids": []}  # a pinned `identifiers` takes no carried basis
     assert "overrides_carried" not in (event.after or {}).get("surviving", {})

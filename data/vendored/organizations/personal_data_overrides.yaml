@@ -1,0 +1,27 @@
+# Curated corrections to `services/personal_names.py`, the rule that decides whether an organisation row
+# is a natural person (`organization.personal_data`; docs/13 §5.5; 2026-09-30 legal audit L-5).
+#
+# not_personal: names the heuristic flags as a person that are in fact companies, projects or public
+#   bodies. Plain text, because they are not people. Matched after normalisation (case-folded,
+#   punctuation dropped, whitespace collapsed).
+# personal_sha256: people the heuristic misses. NEVER write a person's name in this file: add the
+#   SHA-256 of the normalised name instead, printed by
+#     python -m services.personal_names hash "<name as it appears in the register>"
+#   The digest keeps a plain list of names out of the repository; it is pseudonymisation, not
+#   anonymisation (anyone holding a candidate name can hash and compare it).
+#
+# Every change here is applied to the store by `python -m services.ingest.personal_data classify`
+# (new rows are classified at insert). Removing a line reverses its effect on the next run.
+# Each entry should say, in a comment, who checked it and when.
+
+not_personal:
+  # Checked 2026-10-07 by the legal-compliance lane against the store copy measured in docs/13 §5.5:
+  # an insurer named after a historical person, not a natural person holding the asset.
+  - John Hancock
+
+personal_sha256:
+  # Checked 2026-10-07 by the legal-compliance lane on the store copy measured in docs/13 §5.5: an
+  # EIA-860 owner row whose given name is not in the Census 1990 list.
+  - 40eb24256f96d47ef962d043fcc8b4190b8a07bb0223ce30c2b3257e3abd7d48
+  # Same check, same date: a GHGRP parent-company row naming a person.
+  - 08b8ae0269c7607daabc463d36ae217ecdf9eb4f63af9937fd8d8f96cd0d7c30
