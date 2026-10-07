@@ -94,6 +94,12 @@ functions below):
     `UNIQUE constraint failed: organization.slug` error. Two names that differ in letters (not
     just punctuation) still become two organisations, per `services/resolve/merge.py`'s separate,
     heavier corp-suffix-stripping fuzzy pass for anything beyond that.
+  - **Entity slug collisions** (2026-10-07). A new proposal/opportunity slug is the slugified
+    title plus the last six digits of its public id, which for a uuid v7 are 30 random bits: two
+    records with one title ("Untitled") collided about once per 1,200 full eval-fixture loads and
+    the flush raised `UNIQUE constraint failed: proposal.slug`. `services.ids.unique_slug` now
+    checks every new slug against the table's (`_LoadCache.entity_slugs`) and lengthens the tail
+    on a clash. Only creation assigns a slug; a reload never touches one.
 """
 
 from __future__ import annotations
@@ -142,7 +148,7 @@ from services.db.models import (
     SourceRun,
     new_uuid,
 )
-from services.ids import public_id, slugify
+from services.ids import public_id, unique_slug
 from services.ingest.geocode import CountyGazetteer, default_gazetteer, geocode
 from services.ingest.interconnection import LinkResult, link_source_points
 from services.ingest.lag import record_public_at
@@ -629,6 +635,12 @@ class _LoadCache:
     alias_keys: set[tuple[_uuid.UUID, str]]
     #: every `organization.slug` already taken, any organisation — the old collision re-check's scope.
     existing_slugs: set[str]
+    #: every `proposal.slug` / `opportunity.slug` (whichever `entity_cls` this call loads) already
+    #: taken, merged rows included, plus each slug this call assigns: the `taken` set
+    #: `services.ids.unique_slug` checks a new entity's slug against (2026-10-07: two "Untitled"
+    #: proposals drew the same 30-bit random suffix and the flush raised `UNIQUE constraint
+    #: failed: proposal.slug`).
+    entity_slugs: set[str]
     #: one gazetteer instance for the whole call instead of a `default_gazetteer()` cache check
     #: per row (`services/ingest/geocode.py` already caches it process-wide; this just avoids
     #: paying that lookup 14,000+ times).
@@ -689,6 +701,7 @@ def _build_load_cache(
         org_by_punct=org_by_punct,
         alias_keys=alias_keys,
         existing_slugs=existing_slugs,
+        entity_slugs=set(session.scalars(select(entity_cls.slug))),
         gaz=default_gazetteer(),
     )
 
@@ -803,13 +816,11 @@ def _get_or_create_organization(
 
     org_id = new_uuid()
     org_public_id = public_id("org", org_id)
-    slug = slugify(raw_name)
-    if slug in cache.existing_slugs:
-        # Defence in depth: two letter-distinct names should never coincidentally collide once
-        # `_org_punct_key` above has already ruled out a punctuation-only match, but a lowest-cost
-        # deterministic suffix here means a bug in that reasoning fails safe (no row, no crash)
-        # rather than raising `UNIQUE constraint failed: organization.slug` at ingestion.
-        slug = f"{slug}-{org_public_id[-6:].lower()}"
+    # Defence in depth: two letter-distinct names should never coincidentally collide once
+    # `_org_punct_key` above has already ruled out a punctuation-only match, but a checked
+    # suffix here means a bug in that reasoning fails safe (no row, no crash) rather than
+    # raising `UNIQUE constraint failed: organization.slug` at ingestion.
+    slug = unique_slug(raw_name, org_public_id, cache.existing_slugs, bare_first=True)
     org = Organization(
         id=org_id,
         public_id=org_public_id,
@@ -1429,10 +1440,12 @@ def _create_entity_and_link(
     entity_id = new_uuid()
     entity_public_id = public_id("prop" if kind == "proposal" else "opp", entity_id)
     title = fields.get("name_canonical") or fields.get("title") or "record"
+    slug = unique_slug(title, entity_public_id, cache.entity_slugs)
+    cache.entity_slugs.add(slug)
     entity = ctx.entity_cls(
         id=entity_id,
         public_id=entity_public_id,
-        slug=f"{slugify(title)}-{entity_public_id[-6:].lower()}",
+        slug=slug,
         publish_state="public",
         published_at=published_at,
         public_at=public_at,

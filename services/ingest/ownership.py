@@ -80,7 +80,7 @@ from pipeline.normalize import org_key as _org_key
 from services.db.models import Asset, AssetOwner, Organization, OrganizationAlias, Source, new_uuid
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id as make_public_id
-from services.ids import slugify
+from services.ids import unique_slug
 from services.ingest.loader import upsert_licence_and_source
 from services.ingest.org_redirects import OrgRedirects
 
@@ -308,10 +308,8 @@ def _resolve_organization(
     org = norm_index.get(key)
     if org is None:
         org_id = new_uuid()
-        slug = slugify(raw_name.strip())
         existing_slugs = set(session.scalars(select(Organization.slug)))
-        if slug in existing_slugs:
-            slug = f"{slug}-{make_public_id('org', org_id)[-6:].lower()}"
+        slug = unique_slug(raw_name.strip(), make_public_id("org", org_id), existing_slugs, bare_first=True)
         org = Organization(
             id=org_id,
             public_id=make_public_id("org", org_id),

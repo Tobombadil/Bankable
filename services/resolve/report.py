@@ -36,7 +36,7 @@ from pipeline.connectors.registry import PUBLISHABLE_REUSE, Registry
 from pipeline.normalize import org_key
 from services.db.models import Organization, Proposal, ProposalSource
 from services.db.session import get_engine, get_sessionmaker, init_db
-from services.ids import public_id, slugify
+from services.ids import public_id, unique_slug
 from services.ingest.loader import GateRefused, load_dataframe, upsert_licence_and_source
 from services.resolve import merge as merge_mod
 from services.resolve import survivorship
@@ -67,17 +67,16 @@ def _report(message: str = "") -> None:
 
 
 def preseed_organizations(session: Session, df: pd.DataFrame, loadable_shorts: set[str]) -> int:
-    """Work around a `services/ingest/loader.py` slug limitation without editing that file (out
-    of this task's assigned paths): `_get_or_create_organization` slugifies the raw sponsor name
-    with no collision suffix, so two spellings that differ only in punctuation ("CED Development,
-    Inc." vs "Ced Development Inc") both slugify to `ced-development-inc` and the second raises a
-    unique-constraint error. Pre-creating every distinct (loader's own dedup key =
-    `name.strip().lower()`) organization here first, with a collision-proof slug, means the
-    loader's lookup always finds an existing row and never reaches its own creation path."""
+    """Pre-create every distinct sponsor (the loader's own dedup key, `name.strip().lower()`) so the
+    loader's organisation lookup always finds an existing row. Written when the loader's org slug had
+    no collision check, so two spellings that differ only in punctuation ("CED Development, Inc." vs
+    "Ced Development Inc") raised a unique-constraint error; since 2026-10-07 both paths use
+    `services/ids.py::unique_slug`, and this pre-seed keeps the report's organisation set explicit."""
     sub = df[df["source_id"].isin(loadable_shorts)]
     names = sub["sponsor_name"].dropna().astype(str).str.strip()
     names = names[names != ""]
     seen: set[str] = set()
+    taken = set(session.scalars(select(Organization.slug)))
     created = 0
     for name in names:
         key = name.lower()
@@ -92,7 +91,8 @@ def preseed_organizations(session: Session, df: pd.DataFrame, loadable_shorts: s
         session.add(org)
         session.flush()
         org.public_id = public_id("org", org.id)
-        org.slug = f"{slugify(name)}-{org.public_id[-8:].lower()}"
+        org.slug = unique_slug(name, org.public_id, taken, min_suffix=8)
+        taken.add(org.slug)
         created += 1
     session.flush()
     return created

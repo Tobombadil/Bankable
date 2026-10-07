@@ -262,7 +262,7 @@ Every table below also has `created_at timestamptz NOT NULL DEFAULT now()` and, 
 |---|---|---|---|---|
 | `id` | uuid | No | Internal key | `018f3c…` |
 | `public_id` | text | No | API/URL identifier, immutable | `prop_01JBQ7Z8KD` |
-| `slug` | text | No | Human-readable URL segment; regenerated on rename, old slug kept in `slug_history` | `gemini-solar-bess-clark-nv` |
+| `slug` | text | No | Human-readable URL segment, set once at creation and never regenerated (as built 2026-10-07: a rename keeps the slug, so public URLs stay stable; docs/22 survivorship "slugs never change"). Title slug plus the shortest tail of `public_id` (≥6 chars) not already taken in the table (`services/ids.py::unique_slug`). A merged record's old slug resolves to its survivor (`services/api/merged_redirect.py`) | `gemini-solar-bess-clark-nv-7k2m9q` |
 | `kind` | text | No | `generation \| storage \| load \| transmission \| pipeline \| lng \| nuclear \| ccs \| hydrogen \| other` (`docs/02` §5) | `storage` |
 | `name_canonical` | text | No | Chosen display name after resolution | `Gemini Solar + Storage` |
 | `sponsor_org_id` | uuid | Yes | FK `organization` — developer/IPP behind it | `018f3d…` |
