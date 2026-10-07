@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import logging
 import pathlib
 import sys
 import uuid as _uuid
@@ -38,8 +39,10 @@ from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id, slugify
 from services.ingest.loader import GateRefused, load_dataframe, upsert_licence_and_source
 from services.resolve import merge as merge_mod
+from services.resolve import survivorship
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+logger = logging.getLogger(__name__)
 EVAL = ROOT / "data" / "eval"
 
 #: pipeline/resolve.py & pipeline/normalize.py short source tags -> the real data/sources.yaml
@@ -278,6 +281,10 @@ def apply_all_clusters(
     members: dict[str, list[merge_mod.ClusterMember]],
     edges: dict[str, list[merge_mod.ClusterEdge]],
 ) -> list[merge_mod.ClusterApplication]:
+    """Apply every cluster through the confidence gate, then restate field survivorship store-wide
+    (docs/22 §23). The restatement is how a survivorship rule change reaches records merged before
+    it, and the safety net for links loaded outside the load chain; it writes no event and is a
+    no-op on a record already consistent with the rules."""
     applications = []
     for cluster_key, member_list in members.items():
         application = merge_mod.apply_cluster(
@@ -285,6 +292,9 @@ def apply_all_clusters(
         )
         applications.append(application)
     session.flush()
+    restated = survivorship.restate_all(session)
+    if restated.records_changed:
+        logger.info("survivorship restated", extra={"survivorship": restated.as_dict()})
     return applications
 
 

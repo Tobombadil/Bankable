@@ -2396,3 +2396,167 @@ python -m pytest tests/test_resolve_rules.py tests/test_resolve_cluster_gate.py 
 
 The dev-store runs used a scratch copy of the H4 pre-resolution store and data root, with
 `infra.scheduler.jobs.default_resolve(factory, data_root=...)`. That is the same call `web.dev_up` makes.
+
+## 23. Field survivorship on a merged proposal (lane FS, 2026-10-07)
+
+**Status:** implemented and measured. Code: `services/resolve/survivorship.py` (the rules), called from
+`services/resolve/merge.py` (merge, unmerge), `services/ingest/loader.py::load_dataframe` (after every proposal
+load), `services/resolve/report.py::apply_all_clusters` (store-wide at every resolve tick) and
+`services/api/visibility.py::GatedRecord` (the served fallback). Read side: `services/api/proposal_members.py`,
+`web/viewmodels.py`, `web/templates/proposal_detail.html`. Tests: `services/resolve/test_survivorship.py` (13),
+`tests/test_field_survivorship.py` (9; 8 fail on `daeae11`, the ninth guards that no event is added).
+
+**The defect** (audit 2026-09-30, data scientist F2, designer D-5). `merge_proposal` moved source links and
+recomputed nothing, so the survivor (the EIA-keyed member, `choose_canonical`) kept one generator's name, MW,
+status and date. Every later load of any member then wrote that member's row over the record
+(`_update_existing_entity`), so the record showed whichever source loaded last. `darden-ii-solar-vdtde2` showed
+342.7 MW (one EIA solar generator) against CAISO's 1,150 MW request, and the timeline credited CAISO with EIA's
+"(T) Regulatory approvals received", because `web/viewmodels.py` credited `provenance[0]`. The proposal page
+showed nothing of what had been merged.
+
+### 23.1 The rules
+
+A member is one active `proposal_source` link, read from its own `normalised` row. Its role comes from the
+source's `category`: `generation_queue`/`load_queue` is a **request**, `registry` (EIA-860M) the **inventory**,
+anything else **other**. A request is *live* unless its state is withdrawn/cancelled or it has left its register
+(`gone_at`).
+
+| Field | Rule | Why |
+|---|---|---|
+| `capacity_mw` (and `storage_mwh`) | Sum of the live requests, one source's rows with the same technology, MW and phase number counted once; plus any inventory generator of a technology family no live request covers. Else the inventory summed (the plant rollup). Else every request summed. Else the largest stated value. | The request is what is proposed at the grid: its MW is the point-of-interconnection limit. EIA nameplate counts a hybrid's halves separately (§22.1: "Bellefield 2: 500 MW solar + 500 MW storage behind one 500 MW request"; `coherence_ratio`: "its MW is the point-of-interconnection total"). So the inventory total is shown beside it, not instead of it (§23.4). The phase-aware dedupe is §22.1's NYISO reading ("KCE NY 30" as C24-008 and 1448) without collapsing equal phases (Roseland Solar and Roseland Solar II, 254 MW each). The uncovered-family term exists because ERCOT files a hybrid as two requests and may hold only one (Albatross: a 50.4 MW storage request beside EIA's 101 MW solar). |
+| `technology`, `technology_raw`, `kind` | From the members that supplied capacity: one value when they agree; solar + storage is `solar_storage`, wind + storage `wind_storage`; otherwise the largest member's. | The class describes the MW printed beside it. |
+| `lifecycle_state` with `status_raw` | One member supplies both: the most advanced state among members still on their register (announced < filed < studied < permitted < contracted < under_construction < built). A withdrawn member does not end a project another member shows progressing; the record is withdrawn/cancelled only when every member is. `unknown` never wins. Ties: most recent retrieval, larger member, source id, record id. | Registers lag rather than regress: an EIA-860M "(T) approvals received" row beside a CAISO request with an executed IA is the same project behind on paperwork. The audit's 20 survivors reading `announced` while ERCOT had the IA signed are this case. The conflict is not hidden: the rule is `most_advanced_of_conflicting` and the page lists every member's own status. |
+| `proposed_online_date` | The lifecycle winner's date, else the next member in the same order that states one. | The status line and the date read with it come from one register (the slip note says "X still reports ..."). |
+| `name_canonical` | The inventory plant with the most MW (the stored name kept when it is a tied candidate); else the largest live request's; else the stored name when a member states it; else the most recent member's. | Queue names are often codes or upper case ("DARDEN", "NY128 - Foothills Solar"). Keeping a tied stored name means a restatement does not rename a record for nothing; slugs never change. |
+| `jurisdiction`, `iso` | The most common subdivision-level value (stored wins a tie); the requests' operator. | |
+| `identifiers` | Union: every request's `queue_ids`; `eia_plant_id` = the plant the name came from; `eia_generator_id` only when the record holds one generator; `eia_generators` listing all when it holds several. `select_basis` and admin keys are left as stored. | The Queue ID used to render "—" on Darden. |
+| `first_seen`, `location_id` (store only) | Earliest `first_seen` of the record and the rows merged into it (the store's clock; a link's `first_seen` is its source's retrieval time and is not compared). The most precise location among them. | |
+
+A field no member states keeps its stored value. `field_provenance[field]` is `{source_id, licence_id,
+retrieved_at, rule}`, plus `source_ids` when several sources supplied it (a sum, a union, a hybrid).
+
+### 23.2 When it runs
+
+- **Merge:** after links and overrides move. The merge event's `before.surviving.survivorship` snapshots the
+  survivor's fields and provenance, and `after.surviving.survivorship` lists the fields that moved.
+- **Unmerge:** the snapshot is restored, then the rule reruns when the survivor still holds more than one link.
+  Exact reversal holds for the merge being undone (tested through two stacked merges).
+- **A member's source changes:** after every proposal load, for each touched record with more than one active
+  link. A reload of one member no longer writes its row over the record. The loader now also records each link's
+  own identifiers in `normalised.identifiers`. Links stored before this read their ids from the record id
+  (EIA-860M `plant-generator`, US ISO queue ids).
+- **Every resolve tick:** `restate_all` over every live multi-source record. This is how a rule change reaches
+  records merged earlier. On an already consistent store it is a no-op: the second pass on the measured copy
+  changed 0 records and restamped 0 provenance entries.
+
+### 23.3 With the served view and admin overrides
+
+Survivorship decides the **stored** value. `GatedRecord` still decides what is **served**:
+
+1. An admin override is served as made. Survivorship never writes an overridden field. Overrides carried by a
+   merge (W3) are pinned before the rule runs, and unmerge gives them back.
+2. A stored value is served only when **every** source its provenance names is readable at the caller's tier
+   (bulk and export: and permits the shape).
+3. Otherwise the value is re-derived by **the same rule over the readable links only**. With CAISO unpublished,
+   the Darden fixture serves EIA's 646.4 MW plant sum, EIA's status and EIA's date, never the 1,150 MW request.
+   (`tests/test_field_survivorship.py::test_a_hidden_supplier_falls_back_to_the_rule_over_readable_members`.)
+
+`hidden_provenance_clause` (the SQL test by which whole-set surfaces, the map and grid-point totals, pick the
+rows to re-read through the served view) now also matches an id listed under `source_ids`. Without that, a sum
+with a hidden secondary supplier would have been totalled as stored. The visibility audit's store restatement
+(`services/visibility_audit/run.py`) uses the same rule, so it does not report a summed value as a leak.
+
+### 23.4 What the page and the API show (D-5)
+
+`GET /v1/proposals/{id}`, and each bulk line, which keeps the detail shape, gains three parts. All three are
+built from readable links only:
+
+- `field_sources`: per served field, the sources that supplied it and the rule that chose it (`override` for
+  an admin value). The timeline's status and date lines name these sources. `provenance[0]` is no longer used:
+  on a record with several provenance rows and no named supplier, the page names none.
+- `members`: one row per link, with that source's own name, technology, MW, MWh, state, COD and dates.
+  Raw-class values, record ids and identifiers follow the provenance row's licence rule.
+- `merge_history`: unreversed merges that brought a readable link. The event payload itself is never served.
+
+The proposal page adds:
+
+- a capacity note naming the rule: on Darden, the CAISO request, beside the 8 EIA-860M generators that total
+  2,585.6 MW nameplate;
+- a "What this record combines" table, one row per member, each with its own figures;
+- a History list, built from the merges and the record's public change events.
+
+### 23.5 A restatement, not news
+
+Survivorship writes fields and no events. Change events come from each source's own snapshot diff
+(`pipeline/diff.py`, per source frame), never from record-level values. So a recomputed canonical value cannot
+surface as `capacity_changed`: it reclassifies what the store already held, as a status-map correction (§8.1,
+FX1) and a capacity-rule correction (§8.2, W1) do. Real news about a member (a CAISO request revised from 1,150
+to 1,200 MW) is still that source's own `capacity_change` with its own before and after. The record then follows
+it through the load step above. `last_changed` moves forward on a record whose values moved, so `updated_since`
+and bulk sync pick up the correction. The first tick after deploy therefore re-syncs the corrected records once.
+The measured copy wrote 981 → 981 events.
+
+### 23.6 Measured on a store copy
+
+Copy of the 2026-09-30 dev store (`shots_main.db`), stamped at 0026 and upgraded to 0032. Its ERCOT links still
+carried the pre-FX1 map ("Completed" → built), so they were first restated under the current map, which is what
+ERCOT's next load does: 465 built → contracted, 4 built → under_construction, 2 + 4 → built. Then
+`restate_all`. Script and outputs are in the lane's scratch directory; numbers are from the run.
+
+- **Records.** 403 live records hold more than one active link: 265 generation records and 138 data-centre
+  records (VA DEQ + ICIS-Air, no MW). All **265 of 265** changed at least one served field (identifiers on all
+  265); 245 changed a non-identifier field. The 138 data-centre records changed no served value. All 403 had
+  `first_seen` moved, by microseconds on this copy, where every row came from one load.
+- **Fields (265).** `capacity_mw` 190 (150 up, 40 down; 40,017.9 → 53,480.5 MW over those 190),
+  `lifecycle_state` 175, `status_raw` 176, `proposed_online_date` 167, `technology` 76, `kind` 31, `iso` 4,
+  `name_canonical` 3.
+- **Capacity rule used (265):** request 211, request sum 32, request plus uncovered inventory 15, inventory sum 2,
+  single inventory 5.
+- **Served MW against the audit's yardstick**, max(EIA plant sum, largest request), 265 records, before → after:
+  under 50 % 20 → 3; 50–75 % 43 → 22; 75–99.9 % 88 → 33; exactly 100 % 114 → 180; over 100 % 0 → 27. The 63
+  under 75 % become 25. They are hybrids whose single request is the POI limit while EIA lists both halves
+  (Darden 1,150 vs 2,585.6; Bellefield 2 500 vs 1,000; Grace, Lycan, Purple Sage), or a live request smaller than
+  the plant (Hoffman Falls Wind 2: the live NYISO request is 29.8 MW, its 102.5 MW predecessor is withdrawn).
+  Over 100 % are ERCOT hybrids filed as two requests (Duffy 502.46 + 241.05 = 743.51 MW; Briggs 323.7 + 336).
+  "Served" equals "stored" on this copy because every source of these records is public.
+- **Lifecycle (265):** announced → studied 47, announced → contracted 28, filed → contracted 28, filed → studied
+  28, under_construction → built 29, permitted → contracted 13, filed → under_construction 1, filed → built 1.
+- **Darden** (`darden-ii-solar-vdtde2`):
+  - before: 342.7 MW, solar, permitted, "(T) Regulatory approvals received. Not under construction", COD
+    2028-03-01, no queue id;
+  - after: 1,150 MW, solar_storage, contracted, "ACTIVE" (CAISO), COD 2027-07-19, queue 1949, 8 EIA generators
+    across plants 69661–69664 listed;
+  - name unchanged.
+- **Sanborn Hybrid 3:** 55 → 1,400 MW, solar_storage. Its status stays under construction, now from EIA's
+  largest generator.
+- **Attribution.** After the restatement, 91 of 265 generation records have a status supplier that is not
+  `provenance[0]`; on each of them the old page named the wrong register. (The 138 data-centre records differ
+  too, but both of their sources say "Operating".)
+- **Grid points:** the public active MW of 186 of 4,730 points moves. Those 186 total 62,900.7 → 68,103.6 MW;
+  all points together 1,077,944.1 → 1,083,147.0 MW (+0.48 %). Largest moves:
+  - Windhub 500 kV: 405 → 1,750;
+  - Manning-Midway 500 kV, Darden's point: 342.7 → 1,150;
+  - Riverton–Sand Lake tap: 722.5 → 1,350;
+  - Elm Creek–Old Hickory tap: 600 → 1,202.02;
+  - Hillje 345 kV: 1,150.14 → 550.14, because Danish Fields Solar is built per ERCOT's synchronisation
+    milestone and leaves "active".
+- **Events:** 981 before, 981 after.
+- **Request dedupe:** 7 groups of one source's same-technology, same-MW requests sit on one record. 4 count once
+  (KCE NY 30, KCE NY 31, Foothills, Moonlight Flats). 3 keep every request (Roseland Solar / II, Indigo Storage
+  1–4, Vast Sands Power I / II).
+
+### 23.7 Assumptions and open items
+
+- A-23-1: registers lag rather than regress, so the most advanced state wins. A stale EIA "operating" against a
+  request withdrawn for a *different* phase would read built. The member table shows both.
+- A-23-2: a live request's MW is the project's capacity even when the plant inventory is larger. A wrong merge
+  of a phase-2 request with a phase-1 plant (Rough Hat: CAISO "ROUGH HAT 2" 200 MW with EIA "Rough Hat"
+  400 MW) shows the request's MW under the plant's name. That is a resolver question (§22, rule Q), not a
+  survivorship one.
+- Open: a record holding several EIA plants (Darden I–IV) is named after one of them ("Darden II Solar"). A
+  project-level name would need the request's name cleaned or an admin override.
+- Open: the web page fetches the detail route a second time (the slug lookup goes through the list, which does
+  not carry `members`). `proposal_connection` makes the same call; the two could share it.
+- Open: the store-wide restatement runs at every resolve tick over all multi-source records (403 here: 1.4 s for
+  the first pass, 0.9 s for a no-op pass on the SQLite copy, with absorbed rows read in one query). If that
+  grows, scope it to records touched since the last tick.

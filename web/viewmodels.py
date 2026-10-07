@@ -374,8 +374,10 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
         "lifecycle_family": lifecycle_family(entity.get("lifecycle_state")),
         "status_raw": entity.get("status_raw"),
         "queue_id": queue_ids[0]["id"] if queue_ids else None,
+        "queue_ids": [str(q.get("id")) for q in queue_ids if isinstance(q, Mapping) and q.get("id")],
         "eia_plant_id": identifiers.get("eia_plant_id"),
         "eia_generator_id": identifiers.get("eia_generator_id"),
+        "eia_ids": _eia_ids(identifiers),
         "queue_date": None,
         "proposed_online_date": entity.get("proposed_online_date"),
         "slip": slip_display(entity.get("schedule_slip")),
@@ -389,7 +391,185 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
         "attribution_text": primary_source.get("attribution_text"),
         "allows_raw": primary_source.get("source_record_id") is not None,
         "provenance": entity.get("provenance") or [],
+        # The source that supplied each served value (docs/22 §23.4), so the status and date lines
+        # name the register they came from rather than the first provenance row (audit F2).
+        "status_source": field_source(entity, "lifecycle_state"),
+        "cod_source": field_source(entity, "proposed_online_date"),
+        "capacity_note": capacity_note(entity),
+        "members": member_rows(entity.get("members") or []),
+        "merge_history": entity.get("merge_history") or [],
     }
+
+
+def _eia_ids(identifiers: Mapping[str, Any]) -> str | None:
+    """ "69662 / IPD2S", or every generator of a merged record ("69661 / IPD1B, 69661 / IPD1S, …")."""
+    generators = identifiers.get("eia_generators")
+    if isinstance(generators, list) and generators:
+        return ", ".join(
+            f"{g.get('plant_id')} / {g.get('generator_id')}" for g in generators if isinstance(g, Mapping)
+        )
+    plant = identifiers.get("eia_plant_id")
+    if not plant:
+        return None
+    generator = identifiers.get("eia_generator_id")
+    return f"{plant} / {generator}" if generator else str(plant)
+
+
+def field_source(entity: Mapping[str, Any], field: str) -> dict[str, Any]:
+    """The provenance row of the source that supplied `field`'s served value (the API's
+    `field_sources`; the latest-retrieved row when one source has several links). Without a
+    supplier named, only a record with a single provenance row can be credited (audit F2: the first
+    row of a merged record is not the source of its status); otherwise nothing is named."""
+    rows: list[dict[str, Any]] = [dict(r) for r in entity.get("provenance") or [] if isinstance(r, Mapping)]
+    supplied = (entity.get("field_sources") or {}).get(field) or {}
+    if supplied.get("rule") == "override":
+        return {}  # an admin decision: no register stated this value
+    named = supplied.get("source_ids")
+    if not named:
+        return dict(rows[0]) if len(rows) == 1 else {}
+    supplying = [r for r in rows if r.get("source_id") in set(named)]
+    if not supplying:
+        return {}
+    latest: dict[str, Any] = max(supplying, key=lambda r: str(r.get("retrieved_at") or ""))
+    row = dict(latest)
+    row["source_label"] = source_label(row.get("source_id"))
+    return row
+
+
+def capacity_note(entity: Mapping[str, Any]) -> str | None:
+    """One sentence on what the capacity figure is, for a record that several sources feed: the
+    request MW stands beside the plant inventory's own total, which can differ (a hybrid's solar and
+    storage generators are listed separately; the request is the grid-connection limit)."""
+    members = [m for m in entity.get("members") or [] if isinstance(m, Mapping)]
+    if len(members) < 2:
+        return None
+    rule = ((entity.get("field_sources") or {}).get("capacity_mw") or {}).get("rule") or ""
+    inventory = [m for m in members if m.get("role") == "inventory" and m.get("capacity_mw")]
+    requests = [m for m in members if m.get("role") == "request" and m.get("capacity_mw")]
+    if rule.startswith("interconnection_request_plus_inventory"):
+        return (
+            "Capacity is the interconnection request plus the generators listed below whose "
+            "technology no request covers."
+        )
+    if rule.startswith("interconnection_request") and inventory:
+        names = sorted({str(m.get("source_name")) for m in requests}) or ["the interconnection queue"]
+        total = sum(float(m["capacity_mw"]) for m in inventory)
+        inventory_names = sorted({str(m.get("source_name")) for m in inventory})
+        return (
+            f"Capacity is the interconnection request in {_join_names(names)}. "
+            f"The {len(inventory)} generator{'s' if len(inventory) != 1 else ''} listed in "
+            f"{_join_names(inventory_names)} below total {total:,.1f} MW nameplate."
+        )
+    if rule.startswith("plant_inventory") and len(inventory) > 1:
+        return f"Capacity is the sum of the {len(inventory)} generators listed below."
+    if rule.endswith("_sum") and len(requests) > 1:
+        return f"Capacity is the sum of the {len(requests)} interconnection requests listed below."
+    return None
+
+
+_ROLE_LABELS = {"request": "Request", "inventory": "Generator"}
+
+
+def member_rows(members: list[Any]) -> list[dict[str, Any]]:
+    """`members` from the API, with reader labels."""
+    out: list[dict[str, Any]] = []
+    for m in members:
+        if not isinstance(m, Mapping):
+            continue
+        out.append(
+            {
+                **m,
+                "source_label": source_label(m.get("source_id")) or m.get("source_name"),
+                "technology_label": technology_label(m.get("technology")),
+                "lifecycle_label": lifecycle_label(m.get("lifecycle_state")),
+                "role_label": _ROLE_LABELS.get(str(m.get("role")), "Record"),
+            }
+        )
+    return out
+
+
+#: How a change event reads on the record's history (D-5).
+_EVENT_FIELD_LABELS: dict[str, str] = {
+    "lifecycle_state": "status",
+    "capacity_mw": "capacity (MW)",
+    "proposed_online_date": "proposed commercial-operation date",
+    "storage_mwh": "storage (MWh)",
+}
+
+
+def _event_line(event: Mapping[str, Any]) -> str | None:
+    kind = event.get("event_type")
+    source = (event.get("provenance") or {}).get("source_name") or "its source"
+    before, after = event.get("before") or {}, event.get("after") or {}
+    if kind == "created":
+        return f"First published from {source}."
+    if kind == "removed":
+        return f"Left the {source} register."
+    keys = list(event.get("changed_keys") or [])
+    key = keys[0] if keys else next(iter(after or before), None)
+    if key is None:
+        return None
+    label = _EVENT_FIELD_LABELS.get(str(key), labels.humanise(str(key)))
+
+    def shown(value: Any) -> str:
+        if value is None:
+            return "none"
+        if key == "lifecycle_state":
+            return str(lifecycle_label(value) or value).lower()
+        return str(value)
+
+    return f"{source}: {label} {shown(before.get(key))} → {shown(after.get(key))}."
+
+
+#: Detail-only parts of `GET /v1/proposals/{id}` the page reads (docs/22 §23.4); the page resolves
+#: the record through the slug-filtered list, which does not carry them.
+_COMPOSITION_KEYS: tuple[str, ...] = ("field_sources", "members", "merge_history")
+
+
+def with_composition(api: ApiClient, entity: Mapping[str, Any]) -> dict[str, Any]:
+    """`entity` with the detail route's `field_sources`, `members` and `merge_history`. A failed
+    detail call leaves them out: the page then names a status source only for a single-source
+    record (`field_source`) and shows no member table, never a wrong credit."""
+    out = dict(entity)
+    public_id = entity.get("public_id")
+    if not public_id:
+        return out
+    try:
+        detail = api.get(f"/v1/proposals/{public_id}")["data"]
+    except (ApiError, KeyError, TypeError):
+        return out
+    if isinstance(detail, Mapping):
+        out.update({key: detail[key] for key in _COMPOSITION_KEYS if key in detail})
+    return out
+
+
+def proposal_history(api: ApiClient, record: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The record's history, newest first (designer audit D-5): its public change events
+    (`/v1/proposals/{id}/events`, first page) and the merges that brought its readable source rows
+    (`merge_history`). Each item is `{date, text}`; a failed events call leaves the merges."""
+    items: list[dict[str, Any]] = []
+    for merge in record.get("merge_history") or []:
+        parts = []
+        for m in merge.get("members") or []:
+            name = m.get("name_canonical") or "a record"
+            ref = f" ({m['source_record_id']})" if m.get("source_record_id") else ""
+            label = source_label(m.get("source_id")) or m.get("source_name")
+            parts.append(f"{name}{ref} from {label}")
+        if parts:
+            items.append(
+                {"date": merge.get("merged_at"), "text": f"Merged into this record: {_join_names(parts)}."}
+            )
+    try:
+        events = api.get(f"/v1/proposals/{record['public_id']}/events", params={"limit": "20"})["data"]
+    except (ApiError, KeyError, TypeError):
+        events = []
+    for event in events:
+        if not isinstance(event, Mapping):
+            continue
+        text = _event_line(event)
+        if text:
+            items.append({"date": event.get("observed_at"), "text": text})
+    return sorted(items, key=lambda i: str(i.get("date") or ""), reverse=True)
 
 
 def _mapping_or_empty(value: Any) -> dict[str, Any]:

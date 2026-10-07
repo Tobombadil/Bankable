@@ -62,6 +62,7 @@ from services.db.models import (
     ProposalSource,
 )
 from services.ingest.loader import SELECT_BASIS_KEY
+from services.resolve import survivorship
 from services.resolve.models import ResolutionDecision
 
 #: docs/22 §6's chosen threshold. Re-measured with the docs/22 §22 rules on 2026-09-29: resolver
@@ -338,6 +339,11 @@ def _drop_select_basis(canonical: Proposal, source_ids: Sequence[str]) -> bool:
     return True
 
 
+#: Key under the merge event's `before.surviving` for the survivor's surviving fields and their
+#: provenance before the merge (`survivorship.snapshot`), and under `after.surviving` for the fields
+#: the merge's survivorship pass changed, `{field: new value}` (docs/22 §23).
+SURVIVORSHIP_KEY = "survivorship"
+
 #: Keys under the merge event's `before.surviving` / `after.surviving` for the admin overrides the
 #: merge carried from the absorbed record onto the survivor (2026-10-06, L-1). `before` holds the
 #: survivor's own value of each such column, so unmerge restores it exactly.
@@ -422,6 +428,8 @@ def merge_proposal(
             "source_count": canonical.source_count,
             "resolution_confidence": canonical.resolution_confidence,
             "last_changed": _json_safe(canonical.last_changed),
+            # The survivor's fields as they were, for an exact unmerge (docs/22 §23).
+            SURVIVORSHIP_KEY: survivorship.snapshot(canonical),
         },
         "absorbed": {
             "id": str(absorbed.id),
@@ -452,6 +460,10 @@ def merge_proposal(
     overrides_carried = _carry_overrides(canonical, absorbed)
     if overrides_carried:
         before_payload["surviving"][OVERRIDES_CARRIED_KEY] = overrides_carried
+    # Field-level survivorship over every link the survivor now holds (docs/22 §23); overridden
+    # fields, including the ones just carried, are skipped.
+    session.flush()
+    survived = survivorship.apply_survivorship(session, canonical, touch=False)
 
     after_payload: dict[str, Any] = {
         "surviving": {
@@ -467,6 +479,9 @@ def merge_proposal(
     if overrides_carried:
         after_payload["surviving"][OVERRIDES_CARRIED_KEY] = sorted(overrides_carried)
         changed_keys.extend(k for k in sorted(overrides_carried) if k not in changed_keys)
+    if survived.changes:
+        after_payload["surviving"][SURVIVORSHIP_KEY] = {c.field: c.after for c in survived.changes}
+        changed_keys.extend(c.field for c in survived.changes if c.field not in changed_keys)
 
     event = Event(
         subject_type="proposal",
@@ -538,6 +553,20 @@ def unmerge_proposal(session: Session, merge_event_id: _uuid.UUID, *, reason: st
     carried = surviving.get(OVERRIDES_CARRIED_KEY) or {}
     if _uncarry_overrides(canonical, carried):
         changed_keys.extend(k for k in sorted(carried) if k not in changed_keys)
+    # The survivor's fields: back to what they were before this merge, then recomputed over the
+    # links it still holds when that is more than one (docs/22 §23). A survivor left with its own
+    # link only is that source's record again, exactly as the loader wrote it.
+    if SURVIVORSHIP_KEY in surviving:
+        survivorship.restore_snapshot(canonical, surviving[SURVIVORSHIP_KEY])
+        changed_keys.extend(
+            k
+            for k in (merge_event.after or {}).get("surviving", {}).get(SURVIVORSHIP_KEY, {})
+            if k not in changed_keys
+        )
+    session.flush()
+    if len(survivorship.proposal_members(session, canonical.id)) > 1:
+        survived = survivorship.apply_survivorship(session, canonical, touch=False)
+        changed_keys.extend(c.field for c in survived.changes if c.field not in changed_keys)
     # The restore above put both rows' sync columns back to their pre-merge values; the unmerge is
     # itself a change, so both move forward or `updated_since` and bulk sync never see it (backend
     # audit 2026-09-30 F6).

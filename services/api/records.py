@@ -44,6 +44,7 @@ from services.api.geo import build_geo_feature_collection
 from services.api.merged_redirect import merged_redirect_or_404
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec, wants_csv
+from services.api.proposal_members import merge_history, proposal_members
 from services.api.serialize import (
     build_envelope,
     build_licence_summary,
@@ -62,6 +63,7 @@ from services.api.slippage import SLIP_BUCKETS, slip_filter
 from services.api.slippage import today as slip_today
 from services.api.visibility import (
     PUBLISHABLE_REUSE_CLASSES,
+    GatedRecord,
     event_visibility_filter,
     gated_record,
     gated_views,
@@ -822,6 +824,13 @@ def get_proposal(
     from services.api.interconnection_points import proposal_point_embed
 
     data["interconnection_point"] = proposal_point_embed(db, prop, ctx.entitlement)
+    # What the record is made of and which source supplied each served field (docs/22 §23.4):
+    # detail only, from the links the served view admits (the same view `serialize_proposal` built).
+    view = gated_record(prop, ctx.entitlement)
+    readable = cast("list[ProposalSource]", list(view.sources))
+    data["field_sources"] = view.field_sources() if isinstance(view, GatedRecord) else {}
+    data["members"] = proposal_members(readable)
+    data["merge_history"] = merge_history(db, prop, readable)
     meta = build_meta("proposal", tier=ctx.entitlement)
     return build_envelope(
         data,

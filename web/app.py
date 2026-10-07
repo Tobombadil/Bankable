@@ -550,13 +550,16 @@ def proposal_detail(request: Request, slug: str) -> Response:
         if survivor := _survivor_slug(api, "proposals", slug):
             return RedirectResponse(f"/proposals/{quote(survivor, safe='')}", status_code=301)
         return not_found_response(request, "proposal")
-    record = flatten_proposal(entity)
+    from web.viewmodels import proposal_history, with_composition  # local: off the shared import block
+
+    record = flatten_proposal(with_composition(api, entity))
     path = f"/proposals/{record['slug']}"
     response = templates.TemplateResponse(
         request,
         "proposal_detail.html",
         {
             "record": record,
+            "history": proposal_history(api, record),
             "provenance_rows": attach_select_basis(record, provenance_panel_rows(api, record["provenance"])),
             "connection": proposal_connection(api, record.get("public_id")),
             "delayed": delayed_notice(request, "proposal"),

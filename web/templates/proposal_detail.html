@@ -21,33 +21,76 @@
   <div><dt>Kind</dt><dd>{{ record.kind_label or '—' }}</dd></div>
   <div><dt>Technology</dt><dd>{{ record.technology_label or '—' }}{% if record.technology_raw and record.technology_raw != record.technology %} <span class="field-grid__source-value">source: &ldquo;{{ record.technology_raw }}&rdquo;</span>{% endif %}</dd></div>
   {% endif %}
-  <div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}</dd></div>
+  <div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}{% if record.capacity_note %} <span class="field-grid__source-value">{{ record.capacity_note }}</span>{% endif %}</dd></div>
   <div><dt>Storage (MWh)</dt><dd class="tnum">{{ '%.1f'|format(record.storage_mwh) if record.storage_mwh is not none else '—' }}</dd></div>
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
   <div><dt>County</dt><dd>{{ record.county or '—' }}{% if record.restricted_precision %} <span class="reuse-badge">county level (source licence)</span>{% elif record.location_precision == 'county_centroid' %} <span class="reuse-badge">county centroid</span>{% endif %}</dd></div>
   <div><dt>ISO / operator</dt><dd>{{ record.iso_label or '—' }}</dd></div>
   <div><dt>Connects at</dt><dd>{% if connection %}<a href="{{ connection.href }}">{{ connection.name }}</a> <span class="attribution-line tnum">{{ connection.active_mw_label }} MW active across {{ connection.active_count }} project{{ 's' if connection.active_count != 1 }} queued there ({{ connection.proposal_count }} in all)</span>{% else %}—{% endif %}</dd></div>
   <div><dt>Sponsor</dt><dd>{{ record.sponsor or '—' }}</dd></div>
-  <div><dt>Queue ID</dt><dd class="mono">{{ record.queue_id or '—' }}</dd></div>
-  <div><dt>EIA plant / generator ID</dt><dd class="mono">{{ (record.eia_plant_id ~ ' / ' ~ record.eia_generator_id) if record.eia_plant_id else '—' }}</dd></div>
+  <div><dt>Queue ID{{ 's' if record.queue_ids|length > 1 }}</dt><dd class="mono">{{ record.queue_ids | join(', ') if record.queue_ids else '—' }}</dd></div>
+  <div><dt>EIA plant / generator ID</dt><dd class="mono">{{ record.eia_ids or '—' }}</dd></div>
 </dl>
 
 {{ m.provenance_panel(provenance_rows, number="1.") }}
 
+{#- The status and date lines name the source that supplied each value (`field_sources`, docs/22
+    §23.4), not the first provenance row: on a merged record they can be different registers. -#}
+{% set status_src = record.status_source %}
+{% set cod_src = record.cod_source %}
 <section aria-label="Lifecycle timeline">
   {{ m.section_heading("2.", "Lifecycle timeline") }}
-  <p class="attribution-line">Built from this record&rsquo;s single most recent source snapshot: the current state and the dates the source provides, not a full change history.</p>
+  <p class="attribution-line">{% if record.members|length > 1 %}The current state is the most advanced one the sources below report; the date is read from the same source where it gives one.{% else %}Built from this record&rsquo;s most recent source snapshot: the current state and the dates the source provides.{% endif %} Changes recorded since are listed under History.</p>
   <ul class="timeline">
     <li>
-      <time datetime="{{ record.retrieved_at }}">{{ record.retrieved_at[:10] if record.retrieved_at else 'unknown date' }}</time>
-      <span class="timeline__event">Observed as <strong>{{ record.lifecycle_state | lifecycle_label | lower }}</strong> in {{ record.source_name }}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.</span>
+      <time datetime="{{ status_src.retrieved_at }}">{{ status_src.retrieved_at[:10] if status_src.retrieved_at else 'unknown date' }}</time>
+      <span class="timeline__event">Observed as <strong>{{ record.lifecycle_state | lifecycle_label | lower }}</strong>{% if status_src.source_name %} in {{ status_src.source_name }}{% endif %}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.</span>
     </li>
     {% if record.proposed_online_date %}
-    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date }}</time> <span class="timeline__event">Proposed commercial-operation date (source-stated; not a commitment).{% if record.slip %} This date passed <strong>{{ record.slip.amount }}</strong> ago and {{ record.source_name }} still reports the project as {{ record.lifecycle_state | lifecycle_label | lower }}.{% endif %}</span></li>
+    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date }}</time> <span class="timeline__event">Proposed commercial-operation date{% if cod_src.source_name %} stated by {{ cod_src.source_name }}{% endif %} (not a commitment).{% if record.slip %} This date passed <strong>{{ record.slip.amount }}</strong> ago and {{ status_src.source_name or 'its source' }} still reports the project as {{ record.lifecycle_state | lifecycle_label | lower }}.{% endif %}</span></li>
     {% endif %}
   </ul>
   {% if record.slip %}
   <p class="attribution-line">Overdue is derived at read time by comparing the source-stated date above with today&rsquo;s date; it is not a status the source publishes, and it is only claimed once the date is more than 90 days past. Some registers stop maintaining this date once a project is built, which would leave a finished project reading as overdue &mdash; check the retrieval date on the source row above before relying on it.</p>
+  {% endif %}
+</section>
+
+{% if record.members|length > 1 %}
+<section aria-label="What this record combines">
+  {{ m.section_heading("3.", "What this record combines") }}
+  <p class="attribution-line">Each row is one source&rsquo;s own record of this project, with its own figures. The record above takes capacity from the interconnection request where there is one, and the most advanced status any source reports.</p>
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption>Source records merged into this proposal</caption>
+    <thead><tr><th scope="col">Source</th><th scope="col">Record</th><th scope="col">Name</th><th scope="col">Technology</th><th scope="col" class="num">MW</th><th scope="col">Status</th><th scope="col">Proposed COD</th></tr></thead>
+    <tbody>
+      {% for mbr in record.members %}
+      <tr>
+        <td data-label="Source">{{ mbr.source_label }} <span class="reuse-badge">{{ mbr.role_label }}</span></td>
+        <td data-label="Record" class="mono">{{ mbr.source_record_id or '—' }}</td>
+        <td data-label="Name">{{ mbr.name_canonical or '—' }}</td>
+        <td data-label="Technology">{{ mbr.technology_label or '—' }}</td>
+        <td data-label="MW" class="num tnum">{{ '%.1f'|format(mbr.capacity_mw) if mbr.capacity_mw is not none else '—' }}</td>
+        <td data-label="Status">{{ mbr.lifecycle_label or '—' }}{% if mbr.status_raw %} <span class="field-grid__source-value">&ldquo;{{ mbr.status_raw }}&rdquo;</span>{% endif %}{% if mbr.gone_at %} <span class="field-grid__source-value">no longer listed since {{ mbr.gone_at[:10] }}</span>{% endif %}</td>
+        <td data-label="Proposed COD" class="tnum">{{ mbr.proposed_online_date[:10] if mbr.proposed_online_date else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+<section aria-label="History">
+  {{ m.section_heading("4." if record.members|length > 1 else "3.", "History") }}
+  {% if history %}
+  <ul class="timeline">
+    {% for item in history %}
+    <li><time datetime="{{ item.date }}">{{ item.date[:10] if item.date else 'unknown date' }}</time> <span class="timeline__event">{{ item.text }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="attribution-line">No changes recorded since this record was first published.</p>
   {% endif %}
 </section>
 

@@ -98,6 +98,7 @@ from services.db.models import (
     Source,
 )
 from services.posture import platform_posture, publishable_reuse_classes
+from services.resolve import survivorship
 
 #: The three non-admin entitlements this predicate distinguishes. Typed as plain `str` at every
 #: function boundary below (not a `Literal["public","pro","api"]`) because the real caller-facing
@@ -583,13 +584,18 @@ def visible_source_link_filter(
 #
 # Per field `f` of `PROPOSAL_SOURCED_FIELDS` / `OPPORTUNITY_SOURCED_FIELDS`:
 #   1. an admin override (`overrides[f]`) is a human decision (docs/21 §6.4) and is served as stored;
-#   2. else, when `field_provenance[f].source_id` is a source the caller may read (and, for bulk
-#      and export, one whose licence permits the shape), the stored value is served;
-#   3. else the value is re-derived from the readable links' own `normalised` rows, most recently
-#      retrieved first, so the value printed is one the credited source actually states;
+#   2. else, when every source `field_provenance[f]` names (`source_ids`, else `source_id`) is one
+#      the caller may read (and, for bulk and export, one whose licence permits the shape), the
+#      stored value is served;
+#   3. else the value is re-derived from the readable links' own `normalised` rows: for a proposal
+#      by the same field survivorship rule that chose the stored value from all links
+#      (`services/resolve/survivorship.py`, docs/22 §23), over the readable links only; for an
+#      opportunity, most recently retrieved first. Either way the value printed is one the
+#      credited readable sources actually state;
 #   4. else it is withheld (`None`; a required field takes a neutral placeholder).
 # A field with no recorded provenance is served as stored only while every active link is
-# readable; otherwise it is re-derived as in 3.
+# readable; otherwise it is re-derived as in 3. `field_sources()` names, per served field, the
+# sources that supplied it, so a page credits the right register (docs/22 §23.4).
 #
 # Raw field class (docs/21 §8 "no raw, no `status_raw`" for a derived-only licence; L-4 of the
 # legal audit): `status_raw`/`technology_raw` are withheld when the source that supplies the
@@ -679,6 +685,9 @@ class GatedRecord:
         self._values: dict[str, Any] = {}
         #: field -> source id whose licence withheld its raw value (for `redactions[]`).
         self._raw_withheld: dict[str, str] = {}
+        #: field -> (source ids that supplied the served value, rule name or None).
+        self._supplied: dict[str, tuple[list[str], str | None]] = {}
+        self._survived: dict[str, survivorship.Pick] | None = None
 
     # -- plumbing
     def __getattr__(self, name: str) -> Any:
@@ -708,6 +717,18 @@ class GatedRecord:
             return self._values[name]
         return getattr(self._record, name)
 
+    def field_sources(self) -> dict[str, dict[str, Any]]:
+        """`{field: {"source_ids": [...], "rule": ...}}` for each sourced field, naming the readable
+        sources that supplied the served value (an override reads `{"source_ids": [], "rule":
+        "override"}`). A field served with no supplier is left out."""
+        out: dict[str, dict[str, Any]] = {}
+        for name in self._fields:
+            getattr(self, name)
+            ids, rule = self._supplied.get(name, ([], None))
+            if ids or rule == "override":
+                out[name] = {"source_ids": ids, "rule": rule}
+        return out
+
     def raw_withheld(self) -> dict[str, str]:
         """`{field: source_id}` for each raw field withheld under its supplier's licence, after
         every raw field has been read (so a caller can list them in `redactions[]`)."""
@@ -730,16 +751,21 @@ class GatedRecord:
     def _field(self, name: str) -> Any:
         stored = getattr(self._record, name)
         if name in (self._record.overrides or {}):
+            self._supplied[name] = ([], "override")
             return stored  # rule 1: a human decision is served as made
         prov = (self._record.field_provenance or {}).get(name)
-        source_id = prov.get("source_id") if isinstance(prov, dict) else None
+        source_ids = survivorship.provenance_source_ids(prov)
+        allowed = [self._source_allowed(sid) for sid in source_ids]
         suppliers: list[Source]
-        if source_id is not None and (supplier := self._source_allowed(str(source_id))) is not None:
-            value, suppliers = stored, [supplier]  # rule 2
-        elif source_id is None and not self._any_hidden:
+        rule: str | None = None
+        if source_ids and all(a is not None for a in allowed):
+            value, suppliers = stored, [a for a in allowed if a is not None]  # rule 2
+            rule = prov.get("rule") if isinstance(prov, dict) else None
+        elif not source_ids and not self._any_hidden:
             value, suppliers = stored, [link.source for link in self._allowed_links]
         else:
-            value, suppliers = self._fallback(name)  # rules 3 and 4
+            value, suppliers, rule = self._fallback(name)  # rules 3 and 4
+        self._supplied[name] = (sorted({s.id for s in suppliers}), rule)
         if name == "identifiers":
             return self._visible_identifiers(value)
         if name in RAW_RECORD_FIELDS and value is not None:
@@ -752,14 +778,38 @@ class GatedRecord:
                 return None
         return value
 
-    def _fallback(self, name: str) -> tuple[Any, list[Source]]:
+    def _fallback(self, name: str) -> tuple[Any, list[Source], str | None]:
+        if isinstance(self._record, Proposal):
+            return self._survivorship_fallback(name)
         if name != "identifiers":
             ordered = sorted(self._allowed_links, key=lambda link: link.retrieved_at, reverse=True)
             for link in ordered:
                 value = (link.normalised or {}).get(name)
                 if value is not None:
-                    return _coerce(name, value), [link.source]
-        return self._placeholder(name), []
+                    return _coerce(name, value), [link.source], None
+        return self._placeholder(name), [], None
+
+    def _survivorship_fallback(self, name: str) -> tuple[Any, list[Source], str | None]:
+        """Rule 3 for a proposal: the survivorship rule over the readable links only, so the
+        served value is the one the stored rule would choose had the hidden sources never been
+        linked (docs/22 §23.3)."""
+        if self._survived is None:
+            members = [
+                survivorship.member_from_link(link)
+                for link in self._allowed_links
+                if isinstance(link, ProposalSource)
+            ]
+            current = {f: getattr(self._record, f) for f in survivorship.SURVIVING_FIELDS}
+            self._survived = survivorship.survive(members, current)
+        pick = self._survived.get(name)
+        if pick is None:
+            return self._placeholder(name), [], None
+        suppliers = [self._allowed_sources[sid] for sid in pick.source_ids if sid in self._allowed_sources]
+        if name == "identifiers":
+            stored = dict(self._record.identifiers or {})
+            kept = {_SELECT_BASIS_KEY: stored[_SELECT_BASIS_KEY]} if _SELECT_BASIS_KEY in stored else {}
+            return {**kept, **pick.value}, suppliers, pick.rule
+        return survivorship.coerce(name, pick.value), suppliers, pick.rule
 
     def _placeholder(self, name: str) -> Any:
         """Rule 4: a field no readable source states. Nullable fields are `None`; the record's
@@ -845,9 +895,15 @@ def hidden_provenance_clause(
     can differ from the stored one, which such a surface then reads through `GatedRecord`. JSON
     path access renders as `json_extract` on SQLite and `->` on Postgres."""
     ids = sorted(hidden)
-    return or_(
-        *(func.coalesce(model.field_provenance[(f, "source_id")].as_string(), "").in_(ids) for f in fields)
-    )
+    clauses: list[ColumnElement[bool]] = []
+    for f in fields:
+        clauses.append(func.coalesce(model.field_provenance[(f, "source_id")].as_string(), "").in_(ids))
+        # A value several sources supplied (a summed capacity, a union of identifiers; field
+        # survivorship, docs/22 §23) lists them all under `source_ids`, read here as the array's JSON
+        # text on both dialects; a quoted id cannot match inside another id.
+        listed = func.coalesce(model.field_provenance[(f, "source_ids")].as_string(), "")
+        clauses.extend(listed.contains(f'"{sid}"', autoescape=True) for sid in ids)
+    return or_(*clauses)
 
 
 def gated_views(
