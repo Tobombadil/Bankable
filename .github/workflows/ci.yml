@@ -11,10 +11,9 @@ name: ci
 #     test fails only when web/'s tests are collected in the same process) — the same reason
 #     services/README.md and web/README.md's own verbatim test runs already exclude each other.
 #     Isolating them is the fix, not a workaround for "web is mid-edit".
-#   - `tests/test_web_default_view.py` is excluded from `test-core` (it imports `web.data_loading`,
-#     which has a documented pre-existing bug outside this task's write scope — services/README.md
-#     "Loader fixes (2026-09-13)" section names it) and belongs with `test-web` in spirit, not
-#     `test-core`; it is left for whoever owns `web/` to un-skip.
+#   - The default-view guarantees (docs/00-PLAN.md task item 6) live in `web/test_default_view.py`
+#     and run in `test-web` against committed data; its real-data variant skips when
+#     `data/normalized` is absent, as it is in CI.
 #   - The OpenAPI "generated == committed" check (docs/04 E-8, docs/23 §12): the hand-written
 #     api/openapi.yaml is the contract. The step compares every operation it documents under
 #     `paths:` with what the API and the public site serve. It was report-only while the app
@@ -122,8 +121,7 @@ jobs:
           echo "CADDY_BIN=/tmp/caddy" >> "$GITHUB_ENV"
       - name: pytest with branch coverage, 80% floor (docs/04 E-7)
         run: |
-          coverage run --branch -m pytest tests pipeline services infra \
-            --ignore=tests/test_web_default_view.py
+          coverage run --branch -m pytest tests pipeline services infra
           coverage report --include="pipeline/*,services/*" --fail-under=80
         # `infra` covers infra/scheduler plus infra/test_compose.py, test_scripts.py,
         # test_entrypoint.py, test_logging_config.py and test_observability.py (2026-09-18).

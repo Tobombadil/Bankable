@@ -163,7 +163,7 @@ would now be a redundant no-op — so they are removed here, not merely unused:
    D-9 derived-only check the county/state path already honoured. This was the one correction this
    file's docstring used to call out as a real, still-needed frontend-side patch — it is not
    needed any more. **Removed**, along with the `eia_exact_points` key `load_dev_database()` used
-   to report (no test asserts that key; checked `tests/test_web_default_view.py`, `web/test_e2e.py`
+   to report (no test asserts that key; checked `web/test_default_view.py`, `web/test_e2e.py`
    and every other reference to `load_dev_database`'s return value before dropping it).
 
 `tests/test_web_provenance.py` proves defect C's redaction note works *independent* of any
@@ -178,17 +178,17 @@ workaround for that specific case no longer exists.
 ruff check web/
 ruff format --check web/
 mypy web
-pytest web tests/test_web_default_view.py tests/test_web_provenance.py -v
+pytest web tests/test_web_provenance.py -v
 ```
 
 See "Full-data run" below for this sprint's verbatim output — the pytest command above now loads
 the full `data/normalized/*` set (no sample), so it costs minutes, not seconds; run
-`pytest -k "not (test_e2e or test_web_default_view)"` for a fast local loop that skips both
+`pytest -k "not (test_e2e or test_default_view)"` for a fast local loop that skips both
 full-data loads.
 
 ### What each test proves (docs/00-PLAN.md task item 6, updated by "Switch to full data")
 
-- `tests/test_web_default_view.py` — now loads the full, unsampled `data/normalized/*` connector
+- `web/test_default_view.py` — now loads the full, unsampled `data/normalized/*` connector
   output (via `web/data_loading.py::load_dev_database`, the same path `web/dev_up.py` and
   `web/test_e2e.py` use), not a sampled fixture — see "Full-data run" below for why that switch was
   possible. Asserts: the default `/api/proposals/geo` and `/proposals` exclude
@@ -220,7 +220,7 @@ full-data loads.
 (30-75s/page unsampled, down to 0.127s/page and 0.35-0.53s/geo-request on the full load) that used
 to force this site's dev script and test suite onto a sample. This task switched `web/dev_up.py`
 (now `--sample` instead of `--sample-per-state`, unrelated to that fix — see "Data-layer
-corrections" above), `web/test_e2e.py` and `tests/test_web_default_view.py` to the full, unsampled
+corrections" above), `web/test_e2e.py` and `web/test_default_view.py` to the full, unsampled
 `data/normalized/*` load — 10,409 proposals across ERCOT/CAISO/NYISO/EIA-860M/NESO TEC, 960
 opportunities across grants.gov/TED/Find a Tender/World Bank, matching `services/README.md`'s
 counts exactly.
@@ -320,7 +320,7 @@ command actually does (it follows imports into `services/` by default) and a rea
 today would see the same result until the other agent's work lands cleanly.
 
 ```
-$ pytest web tests/test_web_default_view.py tests/test_web_provenance.py -v
+$ pytest web tests/test_web_provenance.py -v
 ============================= test session starts ==============================
 platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0
 rootdir: /home/user/Bankable
@@ -330,7 +330,7 @@ collected 18 items
 
 web/test_build_data.py .......                                           [ 38%]
 web/test_e2e.py .                                                        [ 44%]
-tests/test_web_default_view.py .......                                   [ 83%]
+web/test_default_view.py .......                                   [ 83%]
 tests/test_web_provenance.py ...                                         [100%]
 
 ======================== 18 passed, 1 warning in 451.41s (0:07:31) ========================
