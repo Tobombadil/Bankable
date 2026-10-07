@@ -104,9 +104,34 @@
   var AGSTAR_HERD_KEYS = ["dairy", "swine", "cattle", "poultry"];
   var IN_VIEW_LIMIT = 500;
   var IN_VIEW_ASSET_LIMIT = 200;
+  // Designer D-4 / frontend F6: the in-view list renders a page of rows per group and a "Show
+  // more" button, not every row (at 400px it was 11,181px of county names below the map).
+  var IN_VIEW_PAGE = 25;
   var WORLD_BBOX = [-179, -85, 179, 85];
   var WORLD_CENTER = [-98.5, 39.8];
   var WORLD_ZOOM = 3.2;
+
+  // ---- the viewport in the URL (frontend audit F7; docs/04 D-17) ----
+  // `center=<lng>,<lat>&zoom=<z>` beside the filter parameters, written with replaceState after
+  // the map settles and read back on load, so a shared or bookmarked link opens on the place the
+  // sender was looking at. The default national view writes nothing, so the home URL stays clean.
+  function readView(params) {
+    if (!params.has("center") || !params.has("zoom")) return null;
+    var c = (params.get("center") || "").split(",").map(Number);
+    var z = Number(params.get("zoom"));
+    if (c.length !== 2 || !isFinite(c[0]) || !isFinite(c[1]) || !isFinite(z)) return null;
+    if (Math.abs(c[0]) > 180 || Math.abs(c[1]) > 85 || z < 0 || z > 22) return null;
+    return { center: [c[0], c[1]], zoom: z };
+  }
+  function isDefaultView(view) {
+    return Math.abs(view.center[0] - WORLD_CENTER[0]) < 0.001 && Math.abs(view.center[1] - WORLD_CENTER[1]) < 0.001 &&
+      Math.abs(view.zoom - WORLD_ZOOM) < 0.01;
+  }
+  function appendView(params, view) {
+    if (!view || isDefaultView(view)) return;
+    params.set("center", view.center[0].toFixed(4) + "," + view.center[1].toFixed(4));
+    params.set("zoom", view.zoom.toFixed(2));
+  }
 
   var cssVar = Basemap.cssVar;
 
@@ -432,7 +457,10 @@
       region: params.get("region") || "",
       plant_technology: PLANT_FAMILY_CLASSES[params.get("plant_technology") || ""] ? params.get("plant_technology") : "",
       asset_types: readAssetTypes(params),
-      placement: readPlacement(params)
+      placement: readPlacement(params),
+      view: readView(params),
+      // A record page's "Show on map" link (designer D-8) names the proposal to open on arrival.
+      focus: /^prop_[A-Za-z0-9]+$/.test(params.get("focus") || "") ? params.get("focus") : ""
     };
   }
 
@@ -450,15 +478,34 @@
     // other filters above, omitting it would leave the default state ambiguous with "not yet
     // loaded", and the URL-reflects-view rule wants every load of this page to round-trip.
     params.set("placement", (filters.placement && filters.placement.length ? filters.placement : DEFAULT_PLACEMENT).join(","));
+    var filterQs = params.toString();
+    appendView(params, filters.view);
     var qs = params.toString();
     var url = window.location.pathname + (qs ? "?" + qs : "");
     window.history.replaceState(null, "", url);
-    var listLink = document.getElementById("mf-view-list");
-    if (listLink) listLink.href = "/proposals" + (qs ? "?" + qs : "");
-    // "Save this search as an alert" carries the current view too (web/alerts.py drops the map's
+    // "View as: List" (designer D-8) carries the filters and the viewport, so the list's own
+    // "View as: Map" link can bring the reader back to this place.
+    // The map's default placement is a drawing choice, not a filter: the list shows unplaced
+    // proposals too, which is where the unplaced note sends readers.
+    var listLink = document.getElementById("view-as-list");
+    if (listLink) {
+      var listParams = new URLSearchParams(qs);
+      if (listParams.get("placement") === DEFAULT_PLACEMENT.join(",")) listParams.delete("placement");
+      ["layers", "region", "plant_technology", "asset_type"].forEach(function (k) { listParams.delete(k); });
+      var listQs = listParams.toString();
+      listLink.href = "/proposals" + (listQs ? "?" + listQs : "");
+    }
+    // "Save this search as an alert" carries the current filters (web/alerts.py drops the map's
     // own default placement and the layer/asset keys, which are not proposal filters).
     var alertLink = document.getElementById("mf-save-alert");
-    if (alertLink) alertLink.href = "/alerts/new?entity=proposal&origin=map" + (qs ? "&" + qs : "");
+    if (alertLink) alertLink.href = "/alerts/new?entity=proposal&origin=map" + (filterQs ? "&" + filterQs : "");
+    // The collapsed "Filters" button names how many are set (site.js); filters that arrived in
+    // the link with no control here count too.
+    var form = document.getElementById("map-filters");
+    if (form) {
+      form.setAttribute("data-extra-active", String(Object.keys(filters.url_only || {}).length));
+      if (typeof Event === "function") form.dispatchEvent(new Event("filters:changed"));
+    }
     // Task item 5: the header "Sign in" link carries the current view (chiefly `layers`) as
     // `next` so a sign-up started from the map still knows which layers were on when
     // `web/auth.py::register_submit` posts `auth.registered {layers}` after the round trip.
@@ -489,6 +536,8 @@
     var params = new URLSearchParams();
     appendProposalFilters(params, filters);
     params.set("placement", (filters.placement && filters.placement.length ? filters.placement : DEFAULT_PLACEMENT).join(","));
+    // Not counted: only so the notice's "Remove this filter" links keep the reader's place.
+    appendView(params, filters.view);
     return "/api/proposals/notice?" + params.toString();
   }
 
@@ -665,8 +714,8 @@
   var map = new maplibregl.Map({
     container: "map",
     style: Basemap.fallbackStyle(mapColors),
-    center: WORLD_CENTER,
-    zoom: WORLD_ZOOM,
+    center: filters.view ? filters.view.center : WORLD_CENTER,
+    zoom: filters.view ? filters.view.zoom : WORLD_ZOOM,
     attributionControl: false
   });
   map.dragRotate.disable();
@@ -693,8 +742,9 @@
     });
   });
   // Restore a `region=` view from a shared/reloaded URL on load, instantly (this is page setup,
-  // not a user-initiated jump, so it does not re-emit `map.region_jumped`).
-  if (filters.region) {
+  // not a user-initiated jump, so it does not re-emit `map.region_jumped`). A `center`/`zoom` in
+  // the link is more precise than the region it started from, so it wins.
+  if (filters.region && !filters.view) {
     var restoreBtn = document.querySelector('.region-btn[data-region="' + filters.region + '"]');
     if (restoreBtn) {
       var restoreBbox = restoreBtn.getAttribute("data-bbox").split(",").map(Number);
@@ -758,6 +808,75 @@
     map.getSource("regions").setData({ type: "FeatureCollection", features: out });
   }
 
+  var mapErrorEl = document.getElementById("map-error");
+  var hasLoadedOnce = false;
+  function hideMapError() {
+    hasLoadedOnce = true;
+    if (mapErrorEl) { mapErrorEl.hidden = true; mapErrorEl.innerHTML = ""; }
+  }
+  function showMapError(err) {
+    var problem = (err && err.problem) || {};
+    var title = problem.title || (err && err.status ? "The server answered " + err.status : "The request did not complete");
+    var listHref = (document.getElementById("view-as-list") || {}).href || "/proposals";
+    if (!hasLoadedOnce) {
+      countEl.textContent = "Proposals could not be loaded.";
+      countEl.removeAttribute("aria-hidden");
+    }
+    if (!mapErrorEl) return;
+    mapErrorEl.innerHTML =
+      "<p><strong>Couldn\u2019t load proposals for this view.</strong> " + esc(title) +
+      (problem.request_id ? " (request <span class=\"mono\">" + esc(problem.request_id) + "</span>)" : "") + ". " +
+      (hasLoadedOnce ? "The map still shows the last view that loaded. " : "") +
+      "<button type=\"button\" class=\"map-error__retry\">Retry</button> " +
+      "<a href=\"" + esc(safeUrl(listHref) || "/proposals") + "\">Try the list view</a></p>";
+    mapErrorEl.hidden = false;
+    mapErrorEl.querySelector(".map-error__retry").addEventListener("click", function () { refetch(); });
+  }
+
+  // A record page's "Show on map" link (`?focus=prop_...`) opens that proposal's drawer once it is
+  // drawn as a point in the first view that holds it. One shot: the URL drops `focus` on load.
+  var focusPending = filters.focus;
+  function openFocusedProposal() {
+    if (!focusPending) return;
+    var hit = latestCollection.features.filter(function (f) {
+      return f.properties.feature_kind === "proposal" && f.properties.public_id === focusPending;
+    })[0];
+    if (!hit) return;
+    focusPending = "";
+    openDrawer(hit.properties);
+  }
+
+  // In-view paging: how many rows each group shows; a new view or filter starts again at a page.
+  var inViewShown = {};
+  function resetInViewPages() {
+    inViewShown = { proposals: IN_VIEW_PAGE, regions: IN_VIEW_PAGE, assets: IN_VIEW_PAGE, retired: IN_VIEW_PAGE };
+  }
+  resetInViewPages();
+  var focusAfterRender = null;
+  // "Show N more" after a group's rows; on click the next page renders and focus moves to its
+  // first row, so a keyboard reader carries on from where they were.
+  function appendShowMore(group, shown, total, nouns) {
+    if (total <= shown) return;
+    var li = document.createElement("li");
+    li.className = "in-view-list__more";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "show-more-btn";
+    var next = Math.min(IN_VIEW_PAGE, total - shown);
+    btn.textContent = "Show " + next + " more " + nouns + " (" + fmtCount(total - shown) + " not listed)";
+    btn.addEventListener("click", function () {
+      focusAfterRender = { group: group, index: shown };
+      inViewShown[group] = shown + IN_VIEW_PAGE;
+      render();
+    });
+    li.appendChild(btn);
+    listEl.appendChild(li);
+  }
+  function markRow(node, group, index) {
+    var li = node.nodeType === 11 ? node.querySelector("li") : node;
+    if (li) { li.setAttribute("data-group", group); li.setAttribute("data-index", String(index)); }
+  }
+
   // Audit 2026-09-30 F3: a slow answer for an earlier viewport or filter set used to land after
   // the current one and redraw the map, the list and the count for a view no longer on screen.
   // Each request now carries a sequence number and only the newest is applied, as the assets and
@@ -768,10 +887,21 @@
     var seq = ++proposalsFetchSeq;
     if (proposalsAbort) proposalsAbort.abort();
     proposalsAbort = typeof AbortController === "function" ? new AbortController() : null;
+    resetInViewPages();
     fetch(geoUrl(filters, currentBbox(), currentZoom()), proposalsAbort ? { signal: proposalsAbort.signal } : undefined)
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (r.ok) return r.json();
+        // An RFC 9457 problem body names the failure and its request id (docs/31 §6).
+        return r.json().catch(function () { return {}; }).then(function (problem) {
+          var err = new Error("proposals request failed");
+          err.problem = problem || {};
+          err.status = r.status;
+          throw err;
+        });
+      })
       .then(function (envelope) {
         if (seq !== proposalsFetchSeq) return; // a newer request owns the view
+        hideMapError();
         var fc = envelope.data;
         var pointFeatures = [];
         var regionFeatures = [];
@@ -797,9 +927,13 @@
         }
         ensureRegionPolygons(regionFeatures, function () { updateRegionsLayer(regionFeatures); });
         render();
+        openFocusedProposal();
       })
-      .catch(function () {
-        // docs/31 §6 error state: keep the last-known view rather than blanking it.
+      .catch(function (err) {
+        // docs/31 §6 error state: keep the last-known view rather than blanking it, and say so,
+        // with the problem's title and request id and a way to try again (designer D-11).
+        if (seq !== proposalsFetchSeq || (err && err.name === "AbortError")) return;
+        showMapError(err);
       });
     if (plantsToggle.checked) refetchAssets();
     if (retiredToggle.checked) refetchRetired();
@@ -1022,9 +1156,9 @@
 
   function render() {
     var totals = latestCollection.totals || {};
+    // The in-view list says when the view is clustered; this line stays one short sentence.
     countEl.textContent =
-      (totals.records || 0) + " proposal" + (totals.records === 1 ? "" : "s") + " match these filters" +
-      (totals.clustered ? " (grouped into clusters at this zoom)." : ".");
+      (totals.records || 0) + " proposal" + (totals.records === 1 ? "" : "s") + " match these filters.";
     countEl.removeAttribute("aria-hidden");
 
     var individual = latestCollection.features.filter(function (f) {
@@ -1037,9 +1171,20 @@
         (totals.records || 0) + " match in clustered form above.";
       listEl.appendChild(li);
     } else {
-      groupProposalFeatures(individual).slice(0, IN_VIEW_LIMIT).forEach(function (g) {
+      var groups = groupProposalFeatures(individual).slice(0, IN_VIEW_LIMIT);
+      if (!groups.length) {
+        var none = document.createElement("li");
+        none.className = "in-view-list__empty";
+        none.textContent = (totals.records || 0) === 0
+          ? "No proposals match these filters. The note above names each one; Clear all removes them."
+          : "No proposals in this part of the map. Zoom out or move the map to see the " + fmtCount(totals.records) + " that match.";
+        if (!latestRegionFeatures.length) listEl.appendChild(none);
+      }
+      var shownProposals = Math.min(inViewShown.proposals, groups.length);
+      groups.slice(0, shownProposals).forEach(function (g, index) {
         var p = g.properties;
         var node = template.content.cloneNode(true);
+        markRow(node, "proposals", index);
         node.querySelector(".chip-slot").innerHTML = chipHtml(p.family, p.lifecycle_state);
         var a = node.querySelector(".name-link");
         a.textContent = p.name;
@@ -1063,15 +1208,19 @@
         }
         listEl.appendChild(node);
       });
+      appendShowMore("proposals", shownProposals, groups.length, "proposals");
     }
 
     // Region records (ADR 0008 placement grade "region") in the list as well as on the map, so a
     // keyboard or screen-reader user reaches them without a pointer (web audit 2026-09-18).
     if (latestRegionFeatures.length) {
       appendGroupName("Regions (" + latestRegionFeatures.length + ")");
-      latestRegionFeatures.slice(0, IN_VIEW_LIMIT).forEach(function (f) {
+      var regionRows = latestRegionFeatures.slice(0, IN_VIEW_LIMIT);
+      var shownRegions = Math.min(inViewShown.regions, regionRows.length);
+      regionRows.slice(0, shownRegions).forEach(function (f, index) {
         var p = f.properties;
         var item = document.createElement("li");
+        markRow(item, "regions", index);
         var a = document.createElement("a");
         a.href = regionListUrl(p);
         a.textContent = regionName(p);
@@ -1082,6 +1231,7 @@
         item.appendChild(meta);
         listEl.appendChild(item);
       });
+      appendShowMore("regions", shownRegions, regionRows.length, "regions");
     }
 
     // Existing assets in view (points and lines alike): name linked to the asset page where the
@@ -1099,9 +1249,12 @@
         cl.textContent = "Zoom in to list existing assets individually; " + latestPlantsTotal + " are grouped in clusters above.";
         listEl.appendChild(cl);
       }
-      assetsIndividual.slice(0, IN_VIEW_ASSET_LIMIT).forEach(function (f) {
+      var assetRows = assetsIndividual.slice(0, IN_VIEW_ASSET_LIMIT);
+      var shownAssets = Math.min(inViewShown.assets, assetRows.length);
+      assetRows.slice(0, shownAssets).forEach(function (f, index) {
         var p = f.properties;
         var item = document.createElement("li");
+        markRow(item, "assets", index);
         var kind = document.createElement("span");
         kind.className = "in-view-list__kind";
         kind.textContent = assetTypeLabel(p.asset_type);
@@ -1131,6 +1284,7 @@
         item.appendChild(meta);
         listEl.appendChild(item);
       });
+      appendShowMore("assets", shownAssets, assetRows.length, "assets");
     }
 
     // Lane R1: retired and retiring plants in view, one row each, the status in words.
@@ -1144,9 +1298,12 @@
         rcl.textContent = "Zoom in to list retired and retiring plants individually; " + latestRetiredTotal + " are grouped in clusters above.";
         listEl.appendChild(rcl);
       }
-      retiredIndividual.slice(0, IN_VIEW_ASSET_LIMIT).forEach(function (f) {
+      var retiredRows = retiredIndividual.slice(0, IN_VIEW_ASSET_LIMIT);
+      var shownRetired = Math.min(inViewShown.retired, retiredRows.length);
+      retiredRows.slice(0, shownRetired).forEach(function (f, index) {
         var p = f.properties;
         var item = document.createElement("li");
+        markRow(item, "retired", index);
         var kind = document.createElement("span");
         kind.className = "in-view-list__kind";
         kind.textContent = statusName(p.status) || "Plant";
@@ -1174,6 +1331,13 @@
         item.appendChild(meta);
         listEl.appendChild(item);
       });
+      appendShowMore("retired", shownRetired, retiredRows.length, "plants");
+    }
+    if (focusAfterRender) {
+      var target = listEl.querySelector('[data-group="' + focusAfterRender.group + '"][data-index="' + focusAfterRender.index + '"]');
+      var focusable = target && target.querySelector("a, button");
+      if (focusable) focusable.focus();
+      focusAfterRender = null;
     }
 
     // What the live region says is what the view holds (audit 2026-09-30 F4). `totals.records`
@@ -1688,7 +1852,19 @@
     map.on("mouseleave", "points", function () { map.getCanvas().style.cursor = ""; });
 
     var moveTimer = null;
-    map.on("moveend", function () { window.clearTimeout(moveTimer); moveTimer = window.setTimeout(refetch, 200); });
+    var viewTimer = null;
+    map.on("moveend", function () {
+      window.clearTimeout(moveTimer);
+      moveTimer = window.setTimeout(refetch, 200);
+      // F7: the URL follows the view, debounced so a fling writes once, with replaceState so
+      // panning does not fill the Back button's history.
+      window.clearTimeout(viewTimer);
+      viewTimer = window.setTimeout(function () {
+        var c = map.getCenter();
+        filters.view = { center: [c.lng, c.lat], zoom: map.getZoom() };
+        writeFilters(filters);
+      }, 300);
+    });
     refetch();
   });
 
@@ -1758,7 +1934,9 @@
       region: filters.region,
       plant_technology: plantTypeSelect.value,
       asset_types: picked.length ? picked : ASSET_TYPES_LIVE.slice(),
-      placement: currentPlacement()
+      placement: currentPlacement(),
+      view: filters.view,
+      focus: ""
     };
     writeFilters(filters);
     syncAssetControls();

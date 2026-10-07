@@ -407,9 +407,10 @@ rewrite); item 6 remains open, unrelated to this task.
 Unchanged from the previous sprint except where noted above: tokens as CSS custom properties
 (`web/static/css/styles.css`), the status chip/provenance-panel/delayed-notice/table components
 from `docs/31` §5, `dark`/`light` via `prefers-color-scheme`, responsive to 400px (filter bars
-stack, tables collapse to key/value rows, the map keeps its side list as a stacked panel). Google
-Fonts CDN instead of self-hosted (docs/31 D-21) remains a pre-production departure, unchanged by
-this task.
+stack, tables collapse to key/value rows, the map keeps its side list as a stacked panel). Fonts
+are self-hosted from `web/static/fonts` as docs/31 D-21 requires (since 2026-10-07; before that
+they came from the Google Fonts CDN): IBM Plex Sans and Mono are IBM's own released files,
+Newsreader is the Google Fonts latin subsets; origins and licences in `web/static/fonts/README.md`.
 
 ## Login and registration (Sprint 3 "login and registration surface", first wave)
 

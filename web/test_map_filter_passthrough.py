@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 from web.api_client import ApiClient
 from web.app import PROPOSAL_PASSTHROUGH_FILTERS
 from web.app import app as web_app
-from web.viewmodels import PROPOSAL_KIND_LABELS
+from web.viewmodels import ALL_PROPOSAL_LIFECYCLE_STATES, PROPOSAL_KIND_LABELS
 
 
 class FakeTransport:
@@ -33,9 +33,10 @@ class FakeTransport:
         self.responses = dict(responses)
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
 
-    def _respond(self, url: str) -> httpx.Response:
+    def _respond(self, url: str, params: Mapping[str, Any] | None = None) -> httpx.Response:
         if url in self.responses:
-            status, body = self.responses[url]
+            answer = self.responses[url]
+            status, body = answer(params or {}) if callable(answer) else answer
             return httpx.Response(status, json=body)
         return httpx.Response(404, json={"title": "not_found", "detail": url})
 
@@ -43,7 +44,7 @@ class FakeTransport:
         self, url: str, *, params: Mapping[str, Any] | None = None, cookies: dict[str, str] | None = None
     ) -> httpx.Response:
         self.calls.append(("GET", url, dict(params or {})))
-        return self._respond(url)
+        return self._respond(url, params)
 
     def post(
         self, url: str, *, json: Mapping[str, Any] | None = None, cookies: dict[str, str] | None = None
@@ -87,17 +88,19 @@ VOCAB: dict[str, Any] = {
     }
 }
 # 46 active (the measured `kind=load` answer), 2 withdrawn, 3 built.
-GEO_COUNTS: dict[str, Any] = {
-    "data": {
-        "type": "FeatureCollection",
-        "features": [],
-        "totals": {
-            "records": 46,
-            "clustered": False,
-            "lifecycle_state_counts": {"announced": 40, "filed": 6, "withdrawn": 2, "built": 3},
-        },
+STATE_COUNTS: dict[str, int] = {"announced": 40, "filed": 6, "withdrawn": 2, "built": 3}
+
+
+def counted_list(params: Mapping[str, Any]) -> tuple[int, dict[str, Any]]:
+    """`GET /v1/proposals?limit=1&include=count&lifecycle_state=...`: the lifecycle notice's counts
+    (frontend audit F9: they used to come from a world-wide `/v1/proposals/geo` at zoom 1)."""
+    states = str(params.get("lifecycle_state") or "").split(",")
+    total = sum(STATE_COUNTS.get(state, 0) for state in states)
+    return 200, {
+        "data": [],
+        "meta": {"total": total, "total_is_estimate": False},
+        "page": {"next_cursor": None, "prev_cursor": None, "has_more": False},
     }
-}
 
 
 @pytest.fixture()
@@ -107,7 +110,7 @@ def transport() -> Iterator[FakeTransport]:
             "/v1/health": (200, HEALTH),
             "/v1/meta/vocabularies": (200, VOCAB),
             "/v1/sources": (200, {"data": []}),
-            "/v1/proposals/geo": (200, GEO_COUNTS),
+            "/v1/proposals": counted_list,
         }
     )
     web_app.state.api_client = ApiClient(fake)
@@ -205,10 +208,13 @@ def test_a_linked_kind_and_state_reach_the_map_page(transport: FakeTransport) ->
     assert "state" in names
     assert "utm_source" not in names
     # The server-rendered breakdown counted the same filtered set the map will draw.
-    breakdown = transport.params_for("/v1/proposals/geo")
-    assert breakdown
+    breakdown = transport.params_for("/v1/proposals")
+    assert len(breakdown) == 3  # active, withdrawn, other: one `include=count` call each
     assert all(p.get("kind") == "load" and p.get("state") == "US-VA" for p in breakdown)
+    assert all(p.get("limit") == 1 and p.get("include") == "count" for p in breakdown)
     assert all("utm_source" not in p for p in breakdown)
+    # Frontend audit F9: no world-wide clustered geo query is run just to count states.
+    assert transport.params_for("/v1/proposals/geo") == []
     assert "Showing 46 active proposals" in _squash(page.notice_text)
     # The Kind select shows the linked value, so the control and the URL agree before any JS runs.
     assert [value for value, _label, selected in page.kind_options if selected] == ["load"]
@@ -248,12 +254,19 @@ def test_notice_fragment_counts_the_filters_map_js_applied(transport: FakeTransp
         )
     assert fragment.status_code == 200
     assert fragment.headers["content-type"].startswith("text/html")
-    (params,) = transport.params_for("/v1/proposals/geo")
-    assert params["kind"] == "load"
-    assert params["state"] == "US-VA"
-    assert params["placement"] == "exact,region"
-    assert "utm_source" not in params
-    assert "lifecycle_state" not in params  # the breakdown counts every state, then splits them
+    counts = transport.params_for("/v1/proposals")
+    assert len(counts) == 3
+    assert transport.params_for("/v1/proposals/geo") == []
+    for params in counts:
+        assert params["kind"] == "load"
+        assert params["state"] == "US-VA"
+        # The map's count line counts every placement grade, so its notice does too.
+        assert "placement" not in params
+        assert "utm_source" not in params
+    # Every lifecycle state is counted exactly once across the three buckets.
+    states = [s for params in counts for s in params["lifecycle_state"].split(",")]
+    assert len(states) == len(set(states))
+    assert set(states) == set(ALL_PROPOSAL_LIFECYCLE_STATES)
     fragment_text = _parse(f'<div id="map-notice">{fragment.text}</div>').notice_text
     assert _squash(fragment_text) == _squash(page_notice)
     assert "Showing 46 active proposals" in _squash(fragment_text)

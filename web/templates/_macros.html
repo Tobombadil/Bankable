@@ -47,6 +47,43 @@
   {%- if free_alerts %} <span class="save-alert__hint">Free: a daily or weekly email of what changed.</span>{% endif %}</p>
 {%- endmacro %}
 
+{#- Designer audit D-8 / docs/30 §2: "View as: Map · List" beside the results, each a link carrying
+    the current query, so a reader moves between the two views of one result set without losing
+    the filters. The current view is `aria-current="page"`; the heavier rule is its visible echo. -#}
+{% macro view_switch(current, map_href, list_href) -%}
+<nav class="view-switch" aria-label="View these proposals as">
+  <span class="view-switch__label">View as</span>
+  <a class="view-switch__link" id="view-as-map" href="{{ map_href }}"{% if current == 'map' %} aria-current="page"{% endif %}>Map</a>
+  <a class="view-switch__link" id="view-as-list" href="{{ list_href }}"{% if current == 'list' %} aria-current="page"{% endif %}>List</a>
+</nav>
+{%- endmacro %}
+
+{#- docs/31 §6 empty state (designer audit D-11): name the filter that emptied the result, say what
+    removing it would show (`web/empty_state.py` counts each), and link to the view without it.
+    `noun`/`nouns` are the singular and plural the counts read in. -#}
+{% macro empty_facets(facets, noun, nouns) -%}
+{%- if facets %}
+<ul class="empty-state__facets">
+  {%- for f in facets %}
+  <li><span class="empty-state__facet">{{ f.label }}: &ldquo;{{ f.value }}&rdquo;</span>
+    {%- if f.without %} &middot; without it, {{ '{:,}'.format(f.without) }} {{ noun if f.without == 1 else nouns }} match{{ 'es' if f.without == 1 }}.
+    {%- elif f.without == 0 %} &middot; removing it alone still matches nothing.{% endif %}
+    <a href="{{ f.href }}">Remove this filter</a></li>
+  {%- endfor %}
+</ul>
+{%- if facets | selectattr('key', 'equalto', 'jurisdiction') | list %}
+<p class="empty-state__hint">Jurisdiction codes look like US-TX, GB or DE.</p>
+{%- endif %}
+{%- endif %}
+{%- endmacro %}
+
+{#- docs/31 §3 and §5.9 (designer audit D-4): below 720px a filter bar collapses to one "Filters"
+    button. This is the button; the form it controls carries `data-collapse`. Without scripts the
+    button is never shown and the bar stays open (styles.css `.js` rules; site.js wires it). -#}
+{% macro filter_toggle(form_id) -%}
+<button type="button" class="filter-toggle" aria-expanded="false" aria-controls="{{ form_id }}" data-filter-toggle>Filters<span class="filter-toggle__count" data-filter-count></span></button>
+{%- endmacro %}
+
 {% macro attribution_line(record) -%}
 {#- The licence's credit line is printed verbatim, never prefixed: it already says "Source: ..."
     where it is the generic line, and a mandated statement (NESO's "Supported by National Energy SO
@@ -59,15 +96,22 @@
 <h2{% if id %} id="{{ id }}"{% endif %}><span class="section-num">{{ number }}</span> {{ text }}</h2>
 {%- endmacro %}
 
-{% macro active_states_notice(breakdown, include_withdrawn) -%}
+{#- `surface`: "map" or "list". The default-view sentence used to give the map's reason ("so the
+    map isn't dominated by dead projects") on the list page too (designer audit 2026-09-30 D-11);
+    each surface now says what it hides in its own terms, with the same counts. -#}
+{% macro active_states_notice(breakdown, include_withdrawn, surface="map") -%}
 <p class="view-notice" role="status">
   {%- if include_withdrawn -%}
   Showing {{ breakdown.active + breakdown.withdrawn }} proposals, including {{ breakdown.withdrawn }} withdrawn or cancelled
   {%- if breakdown.other %} ({{ breakdown.other }} built or unknown-state proposals are outside this view){% endif -%}.
+  {%- elif surface == "list" -%}
+  Showing {{ breakdown.active }} active proposals (announced through under construction).
+  Withdrawn and cancelled proposals ({{ breakdown.withdrawn }}) are hidden by default
+  {%- if breakdown.other %}, as are {{ breakdown.other }} built or unknown-state ones{% endif -%}.
   {%- else -%}
   Showing {{ breakdown.active }} active proposals (announced through under construction).
-  {{ breakdown.withdrawn }} withdrawn/cancelled {{ 'is' if breakdown.withdrawn == 1 else 'are' }} hidden by default so the map isn&rsquo;t dominated by dead projects
-  {%- if breakdown.other %} ({{ breakdown.other }} built or unknown-state proposals are also outside this default view){% endif -%}.
+  {{ breakdown.withdrawn }} withdrawn or cancelled {{ 'is' if breakdown.withdrawn == 1 else 'are' }} hidden by default
+  {%- if breakdown.other %}, as {{ 'is' if breakdown.other == 1 else 'are' }} {{ breakdown.other }} built or unknown-state{% endif -%}.
   {%- endif %}
 </p>
 {%- endmacro %}

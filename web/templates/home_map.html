@@ -8,18 +8,17 @@
     second skip link goes straight to it past the filters and the canvas. -#}
 {% block skip_links %}<a class="skip-link" href="#in-view-list">Skip to results in view</a>{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>Map</h1>
-  <p>{{ sources_phrase }}, with existing power plants, gas infrastructure and transmission lines as a context layer. Filters apply to the map and the list together; the URL always reflects the current view.</p>
+{#- Designer D-3 / frontend F6: the map is the landing surface, so the page opens with one line
+    saying what a dot is and what to do with it, then the map. The source list that used to open
+    the page (seven acronyms before the first verb) is in the attribution line under the map. -#}
+<div class="map-intro">
+  <h1 class="map-intro__title">Planned power plants, batteries and data centres</h1>
+  <p class="map-intro__lede">Each dot is a proposal filed with a public grid queue or permit register in the US or GB. <strong>Click a cluster to zoom in, or a dot to open its record.</strong></p>
 </div>
 {{ m.delayed_banner(delayed) }}
-<div id="map-notice">{% include "_map_notice.html" %}</div>
 
-{# `data-passthrough`: every proposal filter the site passes through (web/app.py
-   PROPOSAL_PASSTHROUGH_FILTERS). map.js keeps each one in the URL and forwards it to
-   `/api/proposals/geo`, whether or not a control below sets it, so `/?state=US-VA` narrows the
-   map exactly as it narrows `/proposals`; a name not listed here is never forwarded. #}
-<form id="map-filters" class="filter-bar" aria-label="Map filters" data-passthrough="{{ passthrough_filters|join(',') }}">
+{{ m.filter_toggle("map-filters") }}
+<form id="map-filters" class="filter-bar filter-bar--map" data-collapse aria-label="Map filters" data-passthrough="{{ passthrough_filters|join(',') }}">
   <div class="filter-field">
     <label for="mf-technology">Technology</label>
     <select id="mf-technology" name="technology">
@@ -66,7 +65,7 @@
     <legend>Asset types</legend>
     {% for value, label, live in asset_types %}
     <label for="mf-asset-type-{{ value }}"{% if not live %} class="is-disabled"{% endif %}>
-      <input id="mf-asset-type-{{ value }}" type="checkbox" name="asset_type" value="{{ value }}"{% if not live %} disabled{% endif %}>
+      <input id="mf-asset-type-{{ value }}" type="checkbox" name="asset_type" value="{{ value }}" data-default="checked"{% if not live %} disabled{% endif %}>
       {{ label }}{% if not live %} (coming){% endif %}
     </label>
     {% endfor %}
@@ -78,14 +77,20 @@
       {% for value, label in plant_families %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
     </select>
   </div>
+  {#- Placement changes which grades are drawn, not which proposals match, and is rarely changed:
+      a closed disclosure, so the bar stays short and the map starts higher (designer D-3). It opens
+      on arrival when the link set a non-default placement. -#}
+  <details class="filter-more" id="mf-more"{% if filters.get('placement') and filters.get('placement') != 'exact,region' %} open{% endif %}>
+  <summary>Location precision</summary>
+  <div class="filter-more__body">
   <fieldset class="filter-field filter-field--placement">
     <legend>Show proposals located</legend>
     <label for="mf-placement-exact">
-      <input id="mf-placement-exact" type="checkbox" name="placement_exact" value="1" checked>
+      <input id="mf-placement-exact" type="checkbox" name="placement_exact" value="1" data-default="checked" checked>
       At a site
     </label>
     <label for="mf-placement-region">
-      <input id="mf-placement-region" type="checkbox" name="placement_region" value="1" checked>
+      <input id="mf-placement-region" type="checkbox" name="placement_region" value="1" data-default="checked" checked>
       By county or state
     </label>
     <label for="mf-placement-none">
@@ -93,16 +98,32 @@
       Count those with no location
     </label>
   </fieldset>
+  </div>
+  </details>
   <button class="filter-bar__submit" type="button" id="mf-clear">Clear all</button>
-  <a class="filter-bar__clear" href="/proposals" id="mf-view-list">View as list &rarr;</a>
-  <a class="filter-bar__clear" href="{{ save_alert_href }}" id="mf-save-alert">Save this search as an alert</a>
+  <button type="button" class="filter-bar__done" data-filter-done>Show the map</button>
 </form>
 
-<p class="result-count" id="map-result-count" aria-hidden="true">Loading proposals&hellip;</p>
+{#- One status row: how many match, the lifecycle notice, saving the search and the view switch.
+    The save link sits with the result it saves (as on the list page), so it is in view at 400px
+    while the filters are collapsed, and the filter bar stays one row at 1440px. -#}
+<div class="map-status">
+  <p class="result-count" id="map-result-count" aria-hidden="true">Loading proposals&hellip;</p>
+  {#- docs/31 §6 error state: the RFC 9457 title and request id, a retry, and the list as a way on
+      (map.js fills it; designer D-11 found the map stuck on "Loading proposals…" for good). -#}
+  <div class="map-error" id="map-error" role="alert" hidden></div>
+  <div id="map-notice">{% include "_map_notice.html" %}</div>
+  <a class="map-status__save" href="{{ save_alert_href }}" id="mf-save-alert">Save this search as an alert</a>
+  {{ m.view_switch("map", "/", list_href) }}
+</div>
 
 <div class="map-layout">
   <div>
-    <div class="map-controls" role="group" aria-label="Map zoom">
+    <div class="map-frame">
+    {#- Zoom and region jumps sit on the map, top left, as map controls do, so nothing stands
+        between the filters and the canvas (D-3). -#}
+    <div class="map-overlay">
+    <div class="map-controls map-controls--zoom" role="group" aria-label="Map zoom">
       <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
       <button type="button" id="zoom-out" aria-label="Zoom out">&minus;</button>
       <button type="button" id="zoom-reset" aria-label="Reset view">Reset</button>
@@ -114,7 +135,9 @@
       {% endfor %}
     </div>
     {% endif %}
+    </div>
     <div id="map" role="application" aria-label="Map of proposal locations. Use the in-view list for a keyboard- and screen-reader-accessible equivalent." data-tile-url="{{ tile_url or '' }}" data-tile-mode="{{ tile_mode }}"></div>
+    </div>
     {#- Designer D-2: the legend names only marks the map draws -- each proposal and each cluster
         carries its family's glyph (map.js `addFamilyImages`), the same glyph as the status chips --
         in reader words for the states in each family, and it is no longer hidden from assistive
@@ -172,7 +195,7 @@
         <span class="legend__note">EIA-860M; larger rings are larger plants. A retired site may keep its grid connection.</span>
       </div>
     </div>
-    <p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposal data: <a href="/about#sources">see About &amp; sources</a>. Full credits: <a href="/attribution">Attribution</a>.</p>
+    <p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposals: {{ sources_phrase }} (<a href="/about#sources">About &amp; sources</a>). Full credits: <a href="/attribution">Attribution</a>.</p>
   </div>
   <aside class="map-side" aria-label="Proposals, regions and existing assets in view">
     <a id="in-view-list" tabindex="-1"></a>

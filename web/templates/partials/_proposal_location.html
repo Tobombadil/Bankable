@@ -1,0 +1,19 @@
+{#- Designer audit D-8: where the proposal is, how precisely, and the way back to the map
+    (`web/proposal_location.py`). Included by proposal_detail.html; renders nothing when the record
+    has no location row. The locator is inline SVG, no script (docs/04 D-31 target page). -#}
+{%- if location %}
+<section class="proposal-location" aria-labelledby="proposal-location-heading">
+  <h2 id="proposal-location-heading" class="proposal-location__heading">Location</h2>
+  <p class="proposal-location__line">
+    {%- if location.place %}{{ location.place }} &middot; {% endif %}{{ location.grade }}
+    {%- if location.map_href %} &middot; <a href="{{ location.map_href }}">Show on map</a>{% endif %}
+    &middot; <a href="/proposals?{{ {'jurisdiction': record.jurisdiction} | urlencode if record.jurisdiction else '' }}">More proposals{% if record.jurisdiction %} in {{ record.state or record.jurisdiction }}{% endif %}</a>
+  </p>
+  {%- if location.svg %}
+  <figure class="proposal-location__figure">
+    <div class="mini-map mini-map--locator">{{ location.svg | safe }}</div>
+    <figcaption class="mini-map__caption">{{ location.caption }}</figcaption>
+  </figure>
+  {%- endif %}
+</section>
+{%- endif %}

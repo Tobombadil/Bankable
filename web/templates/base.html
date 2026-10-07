@@ -35,9 +35,15 @@
 {%- for graph in jsonld | default([], true) %}
 <script type="application/ld+json">{{ graph | safe }}</script>
 {%- endfor %}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,200..800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+{#- `.js` before first paint, so the 400px collapsed header and filter bars (styles.css) are laid
+    out collapsed from the start rather than collapsing after paint (a layout shift). -#}
+<script>document.documentElement.classList.add("js")</script>
+{#- Self-hosted fonts (docs/31 D-21; styles.css @font-face). The latin files the first paint sets
+    most text in are preloaded so they are usually ready before layout, and the swap that moved
+    `/assets` by 37px at 1440px (frontend audit F8, CLS 0.48-0.55) does not happen. -#}
+<link rel="preload" href="/static/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/IBMPlexSans-SemiBold-Latin1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/newsreader-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/css/styles.css?v={{ asset_version }}">
 {% block extra_head %}{% endblock %}
 </head>
@@ -59,6 +65,11 @@
   </div>
   <div class="site-header__bar">
     <a class="wordmark" href="/">Infraque</a>
+    {#- Designer audit D-4, docs/31 §3: below 720px the nine links and the search box collapse
+        behind one "Menu" button (a disclosure; site.js). Without scripts the button is not shown
+        and the links stay open, as before. -#}
+    <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav-panel">Menu</button>
+    <div class="site-nav-panel" id="site-nav-panel">
     <nav class="primary-nav" aria-label="Primary">
       <a href="/">Map</a>
       <a href="/proposals">Proposals</a>
@@ -80,6 +91,7 @@
       <input id="site-search-q" type="search" name="q" placeholder="Search by name, sponsor, queue ID&hellip;" value="{{ request.query_params.get('q', '') }}">
       <button type="submit">Search</button>
     </form>
+    </div>
   </div>
 </header>
 <main id="main">
@@ -95,6 +107,7 @@
   <p class="site-footer__build">Build <code class="tnum">{{ build.commit or 'unknown' }}</code>{% if build.dirty %} <span class="site-footer__dirty">(modified working tree)</span>{% endif %}{% if build.source_data_as_of %} &middot; fetched <time datetime="{{ build.source_data_as_of }}">{{ build.source_data_as_of[:10] }}</time>{% endif %}{% if build.oldest_vintage_label %} &middot; oldest source release <a href="/methodology#vintage">{{ build.oldest_vintage_label }}</a>{% elif build.source_data_as_of %} &middot; <a href="/methodology#vintage">no source states a release</a>{% endif %}.</p>
   {%- endif %}
 </footer>
+<script src="/static/js/site.js?v={{ asset_version }}" defer></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -32,7 +32,8 @@
 {{ m.pager(prev_cursor, next_cursor, querystring, "/opportunities") }}
 {% else %}
 <div class="empty-state">
-  <p>No open opportunities match these filters.</p>
+  <p>No {{ 'open ' if filters and filters.get('status') == 'open' }}opportunities match these filters.</p>
+  {{ m.empty_facets(empty_facets, "opportunity", "opportunities") }}
   <p><a href="/opportunities">Clear all filters</a></p>
 </div>
 {% endif %}

@@ -1,5 +1,10 @@
 {% import "_macros.html" as m %}
+<div class="results-bar">
 <p class="result-count" aria-live="polite">{{ total }} proposal{{ 's' if total != 1 }} match{{ 'es' if total == 1 }} these filters.</p>
+{%- if map_href %}
+{{ m.view_switch("list", map_href, list_href) }}
+{%- endif %}
+</div>
 {% if save_alert_href %}{{ m.save_alert(save_alert_href, delayed.free_alerts if delayed else None) }}{% endif %}
 {% if records %}
 <div class="table-scroll">
@@ -34,7 +39,12 @@
 {{ m.pager(prev_cursor, next_cursor, querystring, "/proposals") }}
 {% else %}
 <div class="empty-state">
+  {%- if capacity_error %}
+  <p class="empty-state__error" id="capacity-error">{{ capacity_error }}</p>
+  {%- else %}
   <p>No proposals match these filters.</p>
+  {{ m.empty_facets(empty_facets, "proposal", "proposals") }}
+  {%- endif %}
   {#- An empty result is where an absence gets read as a fact about the world. These lines are
       measured, not written, and appear only here (web/viewmodels.py::absence_note). -#}
   {% if absence %}

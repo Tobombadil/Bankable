@@ -8,9 +8,10 @@
   <p>Supply-side records: interconnection queue positions, planned generation and storage units, and data-centre sites from air-permit registers. Where two sources describe one project and have been matched, it is one row.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
-{% if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn) }}{% endif %}
+{% if breakdown and not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn, surface="list") }}{% endif %}
 
-<form id="filters" class="filter-bar" method="get" action="/proposals" hx-get="/proposals" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
+{{ m.filter_toggle("filters") }}
+<form id="filters" class="filter-bar" data-collapse method="get" action="/proposals" hx-get="/proposals" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit">
   <div class="filter-field">
     <label for="f-technology">Technology</label>
     <select id="f-technology" name="technology">
@@ -30,14 +31,17 @@
     <input id="f-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX" value="{{ filters.get('jurisdiction', '') }}">
   </div>
   <div class="filter-field">
-    <span id="f-capacity-label">Capacity (MW)</span>
+    <span id="f-capacity-label" class="filter-field__label">Capacity (MW)</span>
     <div class="filter-bar__range" role="group" aria-labelledby="f-capacity-label">
       <label class="visually-hidden" for="f-capacity-min">Minimum capacity, megawatts</label>
-      <input id="f-capacity-min" type="number" min="0" step="1" name="capacity_mw[gte]" placeholder="Min" value="{{ filters.get('capacity_mw[gte]', '') }}">
+      <input id="f-capacity-min" type="number" min="0" step="1" name="capacity_mw[gte]" placeholder="Min" value="{{ filters.get('capacity_mw[gte]', '') }}"{% if capacity_error %} aria-invalid="true" aria-describedby="f-capacity-error"{% endif %}>
       <span aria-hidden="true">&ndash;</span>
       <label class="visually-hidden" for="f-capacity-max">Maximum capacity, megawatts</label>
-      <input id="f-capacity-max" type="number" min="0" step="1" name="capacity_mw[lte]" placeholder="Max" value="{{ filters.get('capacity_mw[lte]', '') }}">
+      <input id="f-capacity-max" type="number" min="0" step="1" name="capacity_mw[lte]" placeholder="Max" value="{{ filters.get('capacity_mw[lte]', '') }}"{% if capacity_error %} aria-invalid="true" aria-describedby="f-capacity-error"{% endif %}>
     </div>
+    {#- docs/31 §5.9: inline validation text under the control, in words (SC 3.3.1). site.js keeps
+        it current as the reader types; the server sets it when the page arrives with a bad pair. -#}
+    <p class="filter-field__error" id="f-capacity-error" data-range-error="f-capacity-min f-capacity-max"{% if not capacity_error %} hidden{% endif %}>{{ capacity_error or '' }}</p>
   </div>
   <div class="filter-field">
     <label for="f-slip">Schedule</label>
@@ -52,6 +56,9 @@
       Include withdrawn &amp; cancelled
     </label>
   </div>
+  {#- The map's viewport, when the list was opened from the map, so "View as map" returns there
+      after the filters change (designer D-8). Not a filter: the API never sees it. -#}
+  {% if view_center and view_zoom %}<input type="hidden" name="center" value="{{ view_center }}"><input type="hidden" name="zoom" value="{{ view_zoom }}">{% endif %}
   <button class="filter-bar__submit" type="submit">Apply filters</button>
   {% if filters.get('technology') or filters.get('kind') or filters.get('jurisdiction') or filters.get('capacity_mw[gte]') or filters.get('capacity_mw[lte]') or filters.get('slip_bucket') or include_withdrawn %}
   <a class="filter-bar__clear" href="/proposals">Clear all</a>

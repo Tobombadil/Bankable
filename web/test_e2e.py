@@ -905,6 +905,160 @@ def test_report_a_problem_creates_a_review_task(server: object) -> None:
 # basemap, with real glyphs, end to end. Its own DB (a 5-row sample, not the full load above) and
 # its own uvicorn subprocess/port, both module-scoped so the whole class of tests here pays the
 # archive-serving setup cost once.
+def _ok_ui_events(page: Any) -> None:
+    page.route(
+        "**/api/ui-events", lambda r: r.fulfill(status=202, content_type="application/json", body="{}")
+    )
+
+
+def test_map_viewport_round_trips_through_the_url_and_the_list(server: object) -> None:
+    """Frontend audit F7 (docs/04 D-17): a pan or zoom changed nothing in the URL, so a shared or
+    reloaded link opened on the national view. The view is now `center=&zoom=` beside the
+    filters, restored on load, and carried by "View as: List" and back (designer D-8)."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            _ok_ui_events(page)
+            page.goto(BASE_URL + "/?technology=solar")
+            page.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
+            page.evaluate("window.__map.jumpTo({center: [-77.5, 38.9], zoom: 8})")
+            page.wait_for_function("() => location.search.includes('zoom=8.00')", timeout=10000)
+            query = parse_qs(urlsplit(page.url).query)
+            assert query["center"] == ["-77.5000,38.9000"] and query["technology"] == ["solar"]
+
+            page.reload()
+            page.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
+            view = page.evaluate(
+                "() => { const c = window.__map.getCenter(); return [c.lng, c.lat, window.__map.getZoom()]; }"
+            )
+            assert [round(v, 2) for v in view] == [-77.5, 38.9, 8.0]
+            assert page.input_value("#mf-technology") == "solar"
+
+            list_href = page.get_attribute("#view-as-list", "href") or ""
+            assert parse_qs(urlsplit(list_href).query) == {
+                "technology": ["solar"],
+                "center": ["-77.5000,38.9000"],
+                "zoom": ["8.00"],
+            }
+            page.click("#view-as-list")
+            page.wait_for_selector("#view-as-map")
+            back = parse_qs(urlsplit(page.get_attribute("#view-as-map", "href") or "").query)
+            assert back == {"technology": ["solar"], "center": ["-77.5000,38.9000"], "zoom": ["8.00"]}
+        finally:
+            browser.close()
+
+
+def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(server: object) -> None:
+    """Designer D-3/D-4, frontend F6. Measured on the base build: at 1440x900 the map started at
+    787px (113px visible); at 400x800 at 1,658px, below a 421px header and a 600px filter bar,
+    with an 11,121px in-view list beneath it."""
+    many = _geo_envelope(
+        [_in_view_feature(f"row-{i:02d}", "solar", -77.6 + i * 0.004) for i in range(60)], records=60
+    )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            wide = browser.new_page(viewport={"width": 1440, "height": 900})
+            _install_offline_routes(wide)
+            _ok_ui_events(wide)
+            wide.goto(BASE_URL + "/")
+            wide.wait_for_selector("#map canvas", timeout=10000)
+            top = wide.evaluate("document.getElementById('map').getBoundingClientRect().top")
+            assert top < 450, f"map starts at {top}px at 1440x900"
+            assert wide.locator(".nav-toggle").is_hidden() and wide.locator("#map-filters").is_visible()
+
+            page = browser.new_page(viewport={"width": 400, "height": 800})
+            _install_offline_routes(page)
+            _ok_ui_events(page)
+            page.route(
+                "**/api/proposals/geo?**",
+                lambda r: r.fulfill(status=200, content_type="application/json", body=many),
+            )
+            page.goto(BASE_URL + "/")
+            page.wait_for_function("() => document.querySelectorAll('#in-view-items a.name-link').length > 0")
+            top = page.evaluate("document.getElementById('map').getBoundingClientRect().top")
+            assert top < 640, f"map starts at {top}px at 400x800"
+            assert page.evaluate("document.documentElement.scrollWidth") <= 401
+
+            # Menu: a disclosure; the links are out of the way until it opens.
+            menu = page.locator(".nav-toggle")
+            assert page.locator(".primary-nav").is_hidden() and menu.get_attribute("aria-expanded") == "false"
+            menu.click()
+            assert menu.get_attribute("aria-expanded") == "true" and page.locator(".primary-nav").is_visible()
+            # Escape from inside the open panel closes it and returns focus to "Menu".
+            page.locator(".primary-nav a").first.focus()
+            page.keyboard.press("Escape")
+            assert page.locator(".primary-nav").is_hidden()
+            assert page.evaluate("document.activeElement.classList.contains('nav-toggle')")
+
+            # Filters: one button naming how many are set, opening the bar in place.
+            toggle = page.locator("[data-filter-toggle]")
+            assert page.locator("#map-filters").is_hidden()
+            toggle.click()
+            page.select_option("#mf-technology", "solar")
+            assert "(1 active)" in toggle.inner_text()
+            page.click("[data-filter-done]")
+            assert page.locator("#map-filters").is_hidden()
+            assert page.evaluate("document.activeElement.hasAttribute('data-filter-toggle')")
+
+            # The in-view list is a page of 25 with "Show more", not every row.
+            page.wait_for_function(
+                "() => document.querySelectorAll('#in-view-items a.name-link').length === 25"
+            )
+            more = page.locator(".show-more-btn")
+            assert more.inner_text() == "Show 25 more proposals (35 not listed)"
+            more.click()
+            page.wait_for_function(
+                "() => document.querySelectorAll('#in-view-items a.name-link').length === 50"
+            )
+            # Focus lands on the first new row, so a keyboard reader carries on from there.
+            assert page.evaluate("document.activeElement.textContent") == "row-25"
+        finally:
+            browser.close()
+
+
+def test_map_says_when_proposals_fail_to_load_with_the_request_id_and_a_retry(server: object) -> None:
+    """Designer D-11 (docs/31 §6): with `/api/proposals/geo` failing, the count line said "Loading
+    proposals..." for good and the in-view list stayed empty with no word of why."""
+    failing = {"on": True}
+    good = _geo_envelope([_in_view_feature("after-retry", "solar", -77.5)], records=1)
+    problem = json.dumps(
+        {"type": "about:blank", "title": "Internal server error", "status": 500, "request_id": "req_e2e500"}
+    )
+
+    def answer(route: Route) -> None:
+        if failing["on"]:
+            route.fulfill(status=500, content_type="application/problem+json", body=problem)
+        else:
+            route.fulfill(status=200, content_type="application/json", body=good)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            _ok_ui_events(page)
+            page.route("**/api/proposals/geo?**", answer)
+            page.goto(BASE_URL + "/")
+            page.wait_for_selector("#map-error:not([hidden])", timeout=30000)
+            error = page.inner_text("#map-error")
+            assert "Couldn\u2019t load proposals for this view." in error
+            assert "Internal server error" in error and "req_e2e500" in error
+            assert page.get_attribute("#map-error", "role") == "alert"
+            assert page.inner_text("#map-result-count") == "Proposals could not be loaded."
+            assert page.get_attribute("#map-error a", "href", timeout=1000)
+
+            failing["on"] = False
+            page.click(".map-error__retry")
+            page.wait_for_selector("#map-error", state="hidden")
+            assert page.inner_text("#map-result-count") == "1 proposal match these filters."
+            assert page.locator("#in-view-items a.name-link").inner_text() == "after-retry"
+        finally:
+            browser.close()
+
+
 _PMTILES_PROOF_DB_PATH = REPO_ROOT / "web" / ".data" / "pmtiles-proof-test.db"
 _PMTILES_PROOF_PORT = 8798
 _PMTILES_PROOF_BASE_URL = f"http://127.0.0.1:{_PMTILES_PROOF_PORT}"
@@ -1049,6 +1203,8 @@ def test_smoke_pricing_page_reached_from_the_nav_and_legible_at_400px(server: ob
             page = browser.new_page(viewport=NARROW_VIEWPORT)
             _install_offline_routes(page)
             page.goto(BASE_URL + "/about")
+            # Below 720px the links sit behind "Menu" (designer audit D-4, docs/31 §3).
+            page.click(".nav-toggle")
             page.click('.primary-nav a[href="/pricing"]')
             page.wait_for_url("**/pricing")
 

@@ -31,6 +31,7 @@
   <div><dt>Queue ID{{ 's' if record.queue_ids|length > 1 }}</dt><dd class="mono">{{ record.queue_ids | join(', ') if record.queue_ids else '—' }}</dd></div>
   <div><dt>EIA plant / generator ID</dt><dd class="mono">{{ record.eia_ids or '—' }}</dd></div>
 </dl>
+{% include "partials/_proposal_location.html" %}
 
 {{ m.provenance_panel(provenance_rows, number="1.") }}
 
