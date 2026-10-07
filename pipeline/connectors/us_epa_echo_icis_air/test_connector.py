@@ -525,3 +525,59 @@ def test_conditional_headers():
         "If-None-Match": '"a-1"',
         "If-Modified-Since": "Sun, 27 Sep 2026 10:11:26 GMT",
     }
+
+
+# ------------------------------------------------------------------ re-registrations and county text
+# Real ICIS-AIR_FACILITIES.csv rows (2026-10-07 store frame), one string per row with "|" between the
+# fixture's columns, in its order.
+_REREGISTERED = [
+    "NE0000003105500430|110045442124|NEBRASKA COLOCATION CENTER|1623 FARNAM ST|OMAHA|Douglas|NE|681022107|07|7374|518210|POF|MIN|Minor Emissions|OPR|Operating|No Violation Identified||",  # noqa: E501
+    "NECOO0003105500430|110045442124|NEBRASKA COLOCATION CENTER|1623 FARNAM ST|OMAHA|Douglas|NE|68102-2107|07|7374|518210|POF|MIN|Minor Emissions|OPR|Operating|No Violation Identified|COO|City Of Omaha",  # noqa: E501
+    "IN00010900094|110072198023|WOODLAND CARIBOU LLC|1598 W SR 42|MOORESVILLE|Morgan|IN|46158|05|7374|518210||||CNS|Under Construction|No Violation Identified||",  # noqa: E501
+    "IN0000001810900094|110072198023|WOODLAND CARIBOU LLC|1598 W SR 42|MOORESVILLE|Morgan|IN|46158|05|7374|518210||||OPR|Operating|No Violation Identified||",  # noqa: E501
+    # Same FRS id, different names: one campus's buildings, or a renamed entity. Never folded.
+    "KY0000002101500236|110070526398|CYRUSONE LLC - FLORENCE DATA CENTER|7190 INDUSTRIAL RD|FLORENCE|Boone|KY|41042|04|7374|518210|POF|SMI|Synthetic Minor Emissions|OPR|Operating|No Violation Identified||",  # noqa: E501
+    "KY0002101500236|110070526398|CYRUS ONE LLC|7190 INDUSTRIAL RD|FLORENCE|Boone|KY|41042|04|7374|518210|POF|SMI|Synthetic Minor Emissions|OPR|Operating|No Violation Identified||",  # noqa: E501
+    # No exact FRS point: county comes from ICIS-Air's own text, "Harrisonburg (city)".
+    "VA0000005166000169|110040513209|ANTHEM CDC 3|1175 NORTH MAIN STREET|HARRISONBURG|Harrisonburg (city)|VA|22802|03||518210|NON|SMI|Synthetic Minor Emissions|OPR|Operating|No Violation Identified||",  # noqa: E501
+]
+
+
+def _run_rows(icis_rows: list[str]) -> tuple[list[dict[str, Any]], pd.DataFrame, object]:
+    c = connector_for(SOURCE_ID)
+    raw = snapshot(FIXTURE, ICIS_URL, "application/json")
+    doc = json.loads(raw.content)
+    doc["icis"]["rows"] = [r.split("|") for r in icis_rows]
+    doc["frs"]["rows"] = []
+    raw.content = json.dumps(doc).encode()
+    rows = c.parse(raw)
+    return rows, c.normalize(rows, raw), raw
+
+
+def test_a_facility_registered_twice_under_one_frs_id_and_name_is_one_record():
+    """Audit RES-14: re-padded / re-prefixed programme ids made two live proposals of one site."""
+    rows, df, raw = _run_rows(_REREGISTERED)
+    ids = list(df["source_record_id"])
+    assert "NECOO0003105500430" not in ids and "IN00010900094" not in ids
+    assert ids.count("NE0000003105500430") == 1 and ids.count("IN0000001810900094") == 1
+    assert raw.meta["reregistrations_folded"] == 2
+    caribou = df[df["source_record_id"] == "IN0000001810900094"].iloc[0]
+    assert caribou["lifecycle_state"] == "built"  # the kept registration's own status
+    assert json.loads(caribou["raw"])["duplicate_pgm_sys_ids"] == [
+        {"PGM_SYS_ID": "IN00010900094", "AIR_OPERATING_STATUS_DESC": "Under Construction"}
+    ]
+    # Either id still pairs with a record that cites it (Virginia DEQ's PLA_ICIS_ID).
+    assert caribou["cross_refs"] == "icis_air:IN0000001810900094|icis_air:IN00010900094|frs:110072198023"
+    assert not resolve.shared_id_conflict(caribou["cross_refs"], "icis_air:IN00010900094")
+    # Different names under one FRS id stay two records.
+    assert {"KY0000002101500236", "KY0002101500236"} <= set(ids)
+    assert len(rows) == len(_REREGISTERED) - 2
+
+
+def test_county_text_uses_the_shared_spelling():
+    _, df, _ = _run_rows(_REREGISTERED)
+    county = dict(zip(df["source_record_id"], df["county"], strict=True))
+    assert county["VA0000005166000169"] == "Harrisonburg city"
+    assert connector_module.county_for_point(-119.7674, 39.1638) == "Carson City"  # not "Carson City city"
+    assert connector_module.county_for_point(-77.3064, 38.8462) == "Fairfax city"
+    assert connector_module.county_for_point(-77.4311, 38.8942) == "Fairfax"

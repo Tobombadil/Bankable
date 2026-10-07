@@ -120,6 +120,30 @@ def normalize_county_name(name: str | None) -> str | None:
     return _COUNTY_ALIASES.get(normalized, normalized)
 
 
+#: Key suffix for an independent city (2026-10-07). The Census Gazetteer writes them "<Name> city"
+#: with a lower-case "city" (Fairfax city, Baltimore city, St. Louis city), while a consolidated
+#: city-county named for itself keeps a capital (Carson City). Without the suffix "Fairfax city"
+#: and "Fairfax County" both normalise to ("VA", "FAIRFAX") and the later TSV row (the city) won,
+#: so every Fairfax County record carried the city's FIPS (51600, not 51059) and centroid.
+_INDEPENDENT_CITY_KEY = " CITY"
+_WORDS_RE = re.compile(r"[A-Z]+")
+
+
+def county_lookup_keys(name: str | None) -> list[str]:
+    """Gazetteer keys to try for a source's county text, most specific first. A name that ends in
+    the word "city" ("Fairfax city", "Suffolk City", "Harrisonburg (city)") asks for the
+    independent city first and falls back to the bare name, which is how "Carson City" and
+    "Charles City" (no independent city of that name) still resolve. A bare name means the county:
+    "Fairfax" is Fairfax County."""
+    norm = normalize_county_name(name)
+    if not norm:
+        return []
+    words = _WORDS_RE.findall((name or "").upper())
+    if words and words[-1] == "CITY":
+        return [norm + _INDEPENDENT_CITY_KEY, norm]
+    return [norm]
+
+
 @dataclass
 class CountyGazetteer:
     """US county centroids (Census Gazetteer 2024, public domain) plus a derived state centroid
@@ -130,11 +154,10 @@ class CountyGazetteer:
     state_centroids: dict[str, tuple[float, float]] = field(default_factory=dict)
     #: US county FIPS (docs/21 §3.7 `county_fips`, char(5): 2-digit state + 3-digit county), keyed
     #: identically to `counties` and populated in the same pass over the same TSV line, so a given
-    #: `(state, norm)` key's FIPS always names the same row that key's lat/lon came from -- even
-    #: for the half-dozen state/independent-city pairs that collide under `normalize_county_name`
-    #: (e.g. VA's "Fairfax County" vs "Fairfax city" both normalise to `("VA", "FAIRFAX")`; the
-    #: last row in the TSV wins for both dicts together, never a mismatched pairing of one row's
-    #: point with another row's FIPS).
+    #: `(state, norm)` key's FIPS always names the same row that key's lat/lon came from. The
+    #: county/independent-city pairs that share a name (VA's "Fairfax County" and "Fairfax city")
+    #: are two keys since 2026-10-07: `("VA", "FAIRFAX")` and `("VA", "FAIRFAX CITY")`
+    #: (`county_lookup_keys`). Before, both normalised to `("VA", "FAIRFAX")` and the city won.
     fips: dict[tuple[str, str], str] = field(default_factory=dict)
 
     @classmethod
@@ -148,6 +171,8 @@ class CountyGazetteer:
                 lat, lon = float(lat_s), float(lon_s)
                 norm = normalize_county_name(county_name)
                 if norm:
+                    if county_name.endswith(" city"):  # Census spelling of an independent city
+                        norm += _INDEPENDENT_CITY_KEY
                     gaz.counties[(state, norm)] = (lat, lon)
                     gaz.fips[(state, norm)] = fips_s
                 slat, slon, n = sums.get(state, (0.0, 0.0, 0))
@@ -158,10 +183,11 @@ class CountyGazetteer:
     def county_point(self, state: str | None, county_name: str | None) -> tuple[float, float] | None:
         if not state:
             return None
-        norm = normalize_county_name(county_name)
-        if not norm:
-            return None
-        return self.counties.get((state.upper(), norm))
+        for key in county_lookup_keys(county_name):
+            point = self.counties.get((state.upper(), key))
+            if point is not None:
+                return point
+        return None
 
     def county_fips(self, state: str | None, county_name: str | None) -> str | None:
         """The county's 5-digit FIPS (Census Gazetteer `GEOID`), or `None` if `state`/`county_name`
@@ -169,10 +195,11 @@ class CountyGazetteer:
         (docs/21 §3.7: `county_fips` is set only when a source's own county name resolves)."""
         if not state:
             return None
-        norm = normalize_county_name(county_name)
-        if not norm:
-            return None
-        return self.fips.get((state.upper(), norm))
+        for key in county_lookup_keys(county_name):
+            fips = self.fips.get((state.upper(), key))
+            if fips is not None:
+                return fips
+        return None
 
     def state_point(self, state: str | None) -> tuple[float, float] | None:
         if not state:
@@ -616,6 +643,40 @@ def backfill_county_fips(session: Session, gaz: CountyGazetteer | None = None) -
     }
 
 
+def correct_county_fips(session: Session, gaz: CountyGazetteer | None = None) -> dict[str, Any]:
+    """Re-derive `location.county_fips` on every US row from its own `state_code`/`county_name`
+    and fix the rows where the stored code differs; a `county_centroid` row also gets the matching
+    centroid. `backfill_county_fips` only fills NULLs, so it cannot repair a code that was set
+    wrongly, which is what the gazetteer's independent-city collision did until 2026-10-07 (every
+    "Fairfax"/"Fairfax County" row carried Fairfax city's 51600, not 51059; `county_lookup_keys`).
+    A name that no longer resolves is left as it is. Idempotent: a second run changes nothing.
+    Returns the number of rows examined and changed, and the changes as `"old->new": count`."""
+    from services.db.models import Location  # local import: see module note above
+
+    county_gaz = gaz if gaz is not None else default_gazetteer()
+    seen = changed = moved = 0
+    changes: dict[str, int] = {}
+    stmt = select(Location).where(Location.country == "US", Location.county_name.is_not(None))
+    for loc in session.scalars(stmt):
+        seen += 1
+        state = loc.state_code[3:] if loc.state_code and loc.state_code.startswith("US-") else None
+        fips = county_gaz.county_fips(state, loc.county_name)
+        if not fips or fips == loc.county_fips:
+            continue
+        key = f"{loc.county_fips}->{fips}"
+        changes[key] = changes.get(key, 0) + 1
+        loc.county_fips = fips
+        changed += 1
+        if loc.precision == "county_centroid":
+            point = county_gaz.county_point(state, loc.county_name)
+            if point is not None:
+                lat, lon = point
+                loc.geom = (lon, lat)
+                moved += 1
+    session.commit()
+    return {"rows_seen": seen, "changed": changed, "centroids_moved": moved, "changes": changes}
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -624,9 +685,14 @@ def main(argv: list[str] | None = None) -> None:
         help="Fill location.county_fips on existing rows where it is NULL and resolvable.",
     )
     backfill_parser.add_argument("--db", type=Path, default=Path("web/.data/dev.db"))
+    correct_parser = subparsers.add_parser(
+        "correct-fips",
+        help="Re-derive location.county_fips from each row's own county name and fix mismatches.",
+    )
+    correct_parser.add_argument("--db", type=Path, default=Path("web/.data/dev.db"))
     args = parser.parse_args(argv)
 
-    if args.command == "backfill-fips":
+    if args.command in ("backfill-fips", "correct-fips"):
         from services.db.session import get_engine, get_sessionmaker, init_db  # local: see note above
 
         db_url = os.environ.get("DATABASE_URL") or f"sqlite+pysqlite:///{args.db}"
@@ -634,7 +700,8 @@ def main(argv: list[str] | None = None) -> None:
         init_db(engine)
         session_factory = get_sessionmaker(engine)
         with session_factory() as session:
-            result = backfill_county_fips(session)
+            fix = backfill_county_fips if args.command == "backfill-fips" else correct_county_fips
+            result = fix(session)
         print(json.dumps(result))  # noqa: T201 — CLI summary line
 
 

@@ -285,6 +285,9 @@ def generic_load_kind(registry: Registry, source_id: str, requested: Kind | None
 SPECIALISED_LOADERS: dict[str, str] = {
     # Lane R1 (2026-10-06): generator retirements -> power_plant assets and their events.
     "us.eia.860m.retirements": "services.ingest.retirements:load_retirement_run",
+    # 2026-10-07: ERCOT's large-load catalogue watch. Its rows are report products, not projects,
+    # so they never become proposals (services/ingest/large_load_watch.py).
+    "us.iso.ercot.large_load_queue": "services.ingest.large_load_watch:load_catalogue_watch_run",
 }
 
 

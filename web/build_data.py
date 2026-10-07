@@ -221,6 +221,8 @@ class CountyGazetteer:
                 lat, lon = float(lat_s), float(lon_s)
                 norm = normalize_county_name(county_name)
                 if norm:
+                    if county_name.endswith(" city"):  # independent city (Fairfax city, 51600)
+                        norm += " CITY"
                     gaz.counties[(state, norm)] = (lat, lon)
                 slat, slon, n = sums.get(state, (0.0, 0.0, 0))
                 sums[state] = (slat + lat, slon + lon, n + 1)
@@ -233,7 +235,16 @@ class CountyGazetteer:
         norm = normalize_county_name(county_name)
         if not norm:
             return None
-        return self.counties.get((state.upper(), norm))
+        # Same keys as `services/ingest/geocode.py::county_lookup_keys` (2026-10-07): a name ending
+        # in "city" asks for the independent city first; a bare name is the county. Before, the
+        # city's later TSV row overwrote the county of the same name (Fairfax, Richmond, ...).
+        last_word = re.findall(r"[A-Z]+", (county_name or "").upper())[-1:]
+        keys = [norm + " CITY", norm] if last_word == ["CITY"] else [norm]
+        for key in keys:
+            point = self.counties.get((state.upper(), key))
+            if point is not None:
+                return point
+        return None
 
     def state_point(self, state: str | None) -> tuple[float, float] | None:
         if not state:

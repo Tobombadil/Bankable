@@ -76,6 +76,9 @@ ICIS-Air facility, `kind = technology = load`, `capacity_mw` null (ICIS-Air publ
   others are mostly independent-city lines (Manassas) and a few ICIS entries that name the wrong
   county (Microsoft MKE 3B, Mount Pleasant WI: ICIS "Richland", point in Racine). `COUNTY_NAME` stays
   in `raw`.
+- re-registrations: one facility ICIS carries under two programme ids (same FRS id, same
+  normalised name) is one row (`fold_reregistrations`, audit RES-14); the other id is kept in
+  `raw.duplicate_pgm_sys_ids` and in `cross_refs`.
 - cross_refs: `icis_air:<PGM_SYS_ID>|frs:<REGISTRY_ID>`. Virginia DEQ emits the same
   `icis_air:<PLA_ICIS_ID>` token, and `pipeline/resolve.py`'s D3 pass pairs records of two sources
   that cite the same identifier, so a Virginia facility present in both becomes one proposal.
@@ -112,7 +115,7 @@ import pandas as pd
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, utcnow
 from pipeline.connectors.canonical import harmonise_status, norm_county, norm_name
-from pipeline.context.geo import StateIndex
+from pipeline.context.geo import StateIndex, county_label
 
 log = logging.getLogger(__name__)
 
@@ -262,15 +265,13 @@ def _counties() -> tuple[_PreciseIndex, dict[str, str]]:
 
 
 def county_for_point(lon: float, lat: float) -> str | None:
-    """County name for a WGS84 point (independent cities, FIPS xx510+, keep a "city" suffix)."""
+    """County name for a WGS84 point, in the shared spelling (`county_label`): "Loudoun",
+    "Fairfax city". Carson City stays "Carson City" (its Census name already says so)."""
     index, names = _counties()
     geoid = index.lookup(lon, lat)
     if not geoid:
         return None
-    name = names.get(geoid)
-    if name and int(geoid[-3:]) >= 510 and geoid[:2] in {"24", "29", "32", "51"}:
-        return f"{name} city"
-    return name
+    return county_label(geoid, names.get(geoid))
 
 
 def _float(value: Any) -> float | None:
@@ -300,9 +301,69 @@ def placement_for(frs: dict[str, Any] | None, state: str) -> tuple[str, float | 
     return "exact", round(lat, COORD_DECIMALS), round(lon, COORD_DECIMALS)
 
 
+_CITY_PAREN = re.compile(r"\s*\(\s*city\s*\)\s*$", re.I)
+
+
 def _clean_county(value: Any) -> str | None:
+    """ICIS-Air's own `COUNTY_NAME` for a row with no exact point. "Undetermined" and blank read
+    as missing; "Harrisonburg (city)" is written "Harrisonburg city", the shared spelling."""
     v = str(value or "").strip()
-    return None if not v or v.upper() in {"UNDETERMINED", "UNKNOWN", "N/A"} else v
+    if not v or v.upper() in {"UNDETERMINED", "UNKNOWN", "N/A"}:
+        return None
+    return _CITY_PAREN.sub(" city", v)
+
+
+# ------------------------------------------------------------------ re-registrations
+def _pgm_rank(pgm_sys_id: str) -> tuple[int, str]:
+    """Sort key for which programme id of one facility is kept: the longest (the fully padded
+    18-character form ICIS uses today), then the lowest."""
+    return (-len(pgm_sys_id), pgm_sys_id)
+
+
+def fold_reregistrations(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """One row per facility where ICIS-Air carries it twice (audit RES-14).
+
+    ICIS re-registers some facilities under a re-padded or re-prefixed programme id
+    (`KS0000002009100359` / `KS000000200910359`, `NE0000003105500430` / `NECOO0003105500430`) and
+    keeps both rows. Two selected rows are one facility when they share the FRS `REGISTRY_ID` and
+    their names normalise identically (`norm_name`); a shared registry id alone is not enough,
+    because FRS also groups neighbouring buildings of one campus under one id with different names
+    (Amazon IAD-6 and "VADATA INC MEG FOUR"). The kept row is the one with the longest programme
+    id, then the lowest (`_pgm_rank`); the others' ids go to `duplicate_pgm_sys_ids` (with their
+    own status) and into `cross_refs`, so a Virginia DEQ record citing either id still pairs.
+    Returns (rows, number folded away)."""
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    order: list[tuple[str, str] | int] = []
+    for i, row in enumerate(rows):
+        reg = str(row.get("REGISTRY_ID") or "").strip()
+        name = norm_name(row.get("FACILITY_NAME")) or ""
+        if not reg or not name:
+            order.append(i)
+            continue
+        key = (reg, name)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(row)
+    out: list[dict[str, Any]] = []
+    folded = 0
+    for item in order:
+        if isinstance(item, int):
+            out.append(rows[item])
+            continue
+        members = sorted(groups[item], key=lambda r: _pgm_rank(str(r.get("PGM_SYS_ID") or "").strip()))
+        keep = dict(members[0])
+        if len(members) > 1:
+            keep["duplicate_pgm_sys_ids"] = [
+                {
+                    "PGM_SYS_ID": str(m.get("PGM_SYS_ID") or "").strip(),
+                    "AIR_OPERATING_STATUS_DESC": m.get("AIR_OPERATING_STATUS_DESC") or None,
+                }
+                for m in members[1:]
+            ]
+            folded += len(members) - 1
+        out.append(keep)
+    return out, folded
 
 
 # ------------------------------------------------------------------ zip members over HTTP ranges
@@ -764,7 +825,9 @@ class Connector(BaseConnector):
                 row["Latitude"], row["Longitude"] = lat, lon
             placements[placement] = placements.get(placement, 0) + 1
             rows.append(row)
+        rows, folded = fold_reregistrations(rows)
         raw.meta["rows_selected"] = len(rows)
+        raw.meta["reregistrations_folded"] = folded
         raw.meta["placement"] = dict(sorted(placements.items()))
         return rows
 
@@ -811,8 +874,12 @@ class Connector(BaseConnector):
                 "eia_plant_id": None,
                 "eia_generator_id": None,
                 "cross_refs": [
-                    "|".join([f"icis_air:{i}"] + ([f"frs:{g}"] if g else []))
-                    for i, g in zip(ids, regs, strict=True)
+                    "|".join(
+                        [f"icis_air:{i}"]
+                        + [f"icis_air:{d['PGM_SYS_ID']}" for d in r.get("duplicate_pgm_sys_ids") or []]
+                        + ([f"frs:{g}"] if g else [])
+                    )
+                    for i, g, r in zip(ids, regs, rows, strict=True)
                 ],
             },
             index=range(len(rows)),

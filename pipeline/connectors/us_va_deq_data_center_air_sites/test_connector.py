@@ -106,12 +106,29 @@ def test_points_are_carried_at_source_precision_and_county_is_derived():
         assert isinstance(r["Longitude"], float) and -83.8 < r["Longitude"] < -75.0
         assert round(r["Latitude"], 6) == r["Latitude"]
     counties = dict(zip(df["source_record_id"], df["county"], strict=False))
-    assert counties["74349"] == "Prince William County"  # Gainesville
+    assert counties["74349"] == "Prince William"  # Gainesville
     assert counties["74129"] == "Manassas city"  # independent city, a county equivalent
-    assert counties["53198"] == "Mecklenburg County"  # Chase City
+    assert counties["53198"] == "Mecklenburg"  # Chase City
     assert df["county"].notna().all()
     assert county_for_point(None, None) == (None, None)
     assert county_for_point(-0.1, 51.5) == (None, None)  # outside Virginia
+
+
+def test_county_spelling_is_the_one_icis_air_and_eia_use():
+    """One county, one spelling: DEQ wrote "Loudoun County" where ICIS-Air and EIA-860M write
+    "Loudoun", so a county column split ten Virginia counties in two (review 2026-10-07)."""
+    from pipeline.connectors.us_epa_echo_icis_air.connector import county_for_point as icis_county
+
+    _, _, df = _run()
+    assert not df["county"].str.endswith(" County").any()
+    for lon, lat, geoid, name in (
+        (-77.4875, 39.0438, "51107", "Loudoun"),  # Ashburn
+        (-77.4311, 38.8942, "51059", "Fairfax"),  # Chantilly, Fairfax County
+        (-77.3064, 38.8462, "51600", "Fairfax city"),  # the independent city
+        (-77.4753, 38.7509, "51683", "Manassas city"),
+    ):
+        assert county_for_point(lon, lat) == (geoid, name)
+        assert icis_county(lon, lat) == name
 
 
 def test_disclaimer_and_staff_columns_never_reach_raw():
