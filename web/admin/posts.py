@@ -41,6 +41,20 @@ REJECT_REASONS: tuple[str, ...] = (
     "duplicate",
     "other",
 )
+#: `services/social/editorial.py`'s `POSTABLE_EVENT_TYPES`, the pairs an owner may enable for
+#: auto-publish (each must pass graduation server-side), and the channels that never auto-publish.
+AUTO_PUBLISH_EVENT_TYPES: tuple[str, ...] = (
+    "proposal.new",
+    "proposal.status_changed",
+    "proposal.withdrawn",
+    "opportunity.rfp_opened",
+    "opportunity.rfp_closing",
+    "opportunity.awarded",
+    "funding.cancelled",
+    "funding.reinstated",
+    "digest.weekly",
+)
+NEVER_AUTO_PUBLISH: tuple[str, ...] = ("linkedin",)
 #: docs/32 §4.3 item 1 -- the same limits `services/api/admin_posts.py` enforces server-side.
 CHANNEL_BODY_LIMITS: dict[str, int] = {"bluesky": 300, "x": 280, "linkedin": 3000}
 
@@ -152,7 +166,12 @@ def posts_list(request: Request, ctx: Annotated[AdminContext, Depends(require_op
 def channels_list(request: Request, ctx: Annotated[AdminContext, Depends(require_operator)]) -> Response:
     flash = request.query_params.get("flash")
     result = ctx.api.get("/admin/v1/channels")
-    context: dict[str, Any] = {"channels": POST_CHANNELS, "is_owner": ctx.is_owner}
+    context: dict[str, Any] = {
+        "channels": POST_CHANNELS,
+        "is_owner": ctx.is_owner,
+        "event_types": AUTO_PUBLISH_EVENT_TYPES,
+        "never_auto": NEVER_AUTO_PUBLISH,
+    }
     if result.status_code == 200:
         context["channel_rows"] = {row["channel"]: row for row in result.body.get("data", [])}
     else:
@@ -179,6 +198,7 @@ def channel_set_auto_publish(
     disclosure_label_confirmed: Annotated[str, Form()] = "",
     daily_cap: Annotated[str, Form()] = "",
     reason: Annotated[str, Form()] = "",
+    event_types: Annotated[list[str] | None, Form()] = None,
 ) -> Response:
     origin_error = require_same_origin(request)
     if origin_error is not None:
@@ -189,6 +209,8 @@ def channel_set_auto_publish(
         "disclosure_label_confirmed": bool(disclosure_label_confirmed),
         "reason": reason,
     }
+    if auto_publish:
+        body["event_types"] = list(event_types or [])
     if daily_cap.strip():
         try:
             body["daily_cap"] = int(daily_cap.strip())
@@ -206,6 +228,8 @@ def channel_set_auto_publish(
     context: dict[str, Any] = {
         "channels": POST_CHANNELS,
         "is_owner": ctx.is_owner,
+        "event_types": AUTO_PUBLISH_EVENT_TYPES,
+        "never_auto": NEVER_AUTO_PUBLISH,
         "channel_rows": channel_rows,
         "notice": problem_notice(result),
         "notice_channel": channel,

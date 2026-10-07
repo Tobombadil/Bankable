@@ -22,8 +22,10 @@ import logging
 import os
 import re
 from typing import Any, Literal
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from services.api.common import DOMAIN, WEB_HOST
+from services.labels import lifecycle_label, technology_label
 from services.posture import platform_posture, publishable_reuse_classes
 from services.social.models import PostDraft, ValidationResult
 from services.social.textgate import BareNoneError, contains_bare_none, reject_bare_none
@@ -50,20 +52,30 @@ POSTABLE_EVENT_TYPES: frozenset[str] = frozenset(
     }
 )
 
-#: Canonical proposal lifecycle transitions docs/32 §3.1 treats as "any transition between
-#: canonical stages" worth a status_changed post (docs/21 §7.1).
-PROPOSAL_CANONICAL_TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("filed", "studied"),
-        ("studied", "permitted"),
-        ("filed", "permitted"),
-        ("permitted", "contracted"),
-        ("studied", "contracted"),
-        ("contracted", "under_construction"),
-        ("under_construction", "built"),
-        ("contracted", "built"),
-    }
+#: The proposal lifecycle ladder (`data/vocabulary/lifecycle_states.yaml`; docs/22 §23's survivorship
+#: order). `withdrawn`, `cancelled` and `unknown` are off the ladder: a withdrawal is its own event type
+#: (`proposal.withdrawn`) and `unknown` is not a stage.
+LIFECYCLE_LADDER: tuple[str, ...] = (
+    "announced",
+    "filed",
+    "studied",
+    "permitted",
+    "contracted",
+    "under_construction",
+    "built",
 )
+
+#: docs/32 §3.1 "any transition between canonical stages": every *forward* move on the ladder, skips
+#: included (2026-10-07, content audit F2). The old stepwise whitelist had no `announced` and no skips,
+#: and EIA-860M routinely jumps stages (permitted -> under_construction is 17 of the 22 status changes
+#: in the 2026-09-30 store), so it refused every real transition. A backward move is not posted: it is
+#: a correction or a reclassification, never news.
+PROPOSAL_CANONICAL_TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
+    (a, b) for i, a in enumerate(LIFECYCLE_LADDER) for b in LIFECYCLE_LADDER[i + 1 :]
+)
+
+#: States before construction: the only ones a post may call "proposed" (content audit F3).
+PRE_CONSTRUCTION_STATES: frozenset[str] = frozenset(LIFECYCLE_LADDER[:5])
 
 #: docs/32 §3.1: LinkedIn joins a status_changed post only "for reaching interconnection
 #: agreement, construction or operation".
@@ -72,7 +84,17 @@ LINKEDIN_STATUS_TARGETS: frozenset[str] = frozenset({"contracted", "under_constr
 #: Reuse classes allowed to leave the building at all (docs/21 §8, CLAUDE.md guardrails), from the
 #: platform posture (`services/posture.py`, docs/26) so a post can never be drafted for a class the
 #: API predicate would not show.
-PUBLISHABLE_REUSE_CLASSES: frozenset[str] = frozenset(publishable_reuse_classes(platform_posture()))
+POSTURE: str = platform_posture()
+PUBLISHABLE_REUSE_CLASSES: frozenset[str] = frozenset(publishable_reuse_classes(POSTURE))
+
+#: The classes a social post may draw on: docs/32 §4.3 gate 8, "Source `reuse` ∈ {open, attribution}",
+#: under either posture (2026-10-07, content audit F6, legal L-9). The `noncommercial` class publishes
+#: on the site under the noncommercial posture (docs/26 §1), but a post is a copy handed to a platform
+#: whose terms take a licence over it to use, adapt and distribute the content, which is the downstream
+#: commercial use docs/26 §3 (iii) says no `noncommercial` row may flow to, and the RRC's grant is for
+#: unaltered copies only. A `noncommercial` record is still reachable from the site; it is never the
+#: subject of a post until the owner and counsel decide otherwise (docs/13 §7 item 15).
+SOCIAL_REUSE_CLASSES: frozenset[str] = frozenset(PUBLISHABLE_REUSE_CLASSES - {"noncommercial"})
 
 #: docs/32 §3.4 banned words (facts-only style guide).
 BANNED_WORDS: tuple[str, ...] = (
@@ -175,24 +197,49 @@ def product_identity() -> tuple[str, str, str]:
     return name, url, contact
 
 
+#: The posture clause of the automated-account disclosure (docs/13 §6.5, two variants; 2026-10-07,
+#: content audit F6, legal L-9). The text used to say "commercial in nature" while the platform runs
+#: under the noncommercial posture (docs/26 §1) and says so on `/v1/health`, `/about` and `/pricing`:
+#: two public statements that contradict each other, on exactly the question the posture turns on.
+#: The clause now follows the posture this process applies (`POSTURE`, read once at import like the
+#: reuse-class gate), so the account can never claim a posture the gates are not applying.
+POSTURE_DISCLOSURE: dict[str, str] = {
+    "commercial": "Posts are generated from public records and are commercial in nature.",
+    "noncommercial": (
+        "Posts are generated from public records; the platform operates under a noncommercial posture."
+    ),
+}
+
+
 def disclosure_texts() -> dict[str, str]:
     """The docs/13 §6.5 texts with the current operator identity filled in. Built per call, not
     at import, so a process that sets `PRODUCT_*` after importing this module still discloses
     the right operator."""
     name, url, contact = product_identity()
     host = url.removeprefix("https://").removeprefix("http://").rstrip("/")
+    posture_clause = POSTURE_DISCLOSURE.get(POSTURE, POSTURE_DISCLOSURE["commercial"])
     automated = (
-        f"Automated feed run by {name} ({host}). Posts are generated from public "
-        f"records and are commercial in nature. Not monitored for replies — contact: {contact}."
+        f"Automated feed run by {name} ({host}). {posture_clause} "
+        f"Not monitored for replies — contact: {contact}."
     )
     return {
         "bluesky": automated,
         "x": automated,
         "linkedin": (
+            # docs/13 §6.5's human-reviewed text; the internal document reference it used to end
+            # with is not something a reader of the page can open, so it is no longer printed.
             f"Human-reviewed: generated from structured public data by {name}'s pipeline and "
-            "reviewed by a named editor before publication (docs/13-legal-outreach-and-social.md §6.5)."
+            "reviewed by a named editor before publication."
         ),
     }
+
+
+def automated_line_for(event: SocialEvent) -> str:
+    """docs/13 §6.5's trailing line for an item published without human review (the EU AI Act
+    Art. 50(4) route): carried in the body of every auto-published post, never on a reviewed one
+    (content audit F11, legal L-8). The source is named as the register, not the credit line, which
+    may be a mandated statement that names no source."""
+    return f"Auto-generated summary from {event.source_name}; not human-reviewed."
 
 
 def disclosure_text_for(channel: str) -> str:
@@ -241,7 +288,7 @@ class EditorialConfig:
     proposal_new_high_volume_iso_mw: float = 100.0
     high_volume_isos: frozenset[str] = frozenset({"CAISO", "ERCOT", "SPP", "MISO"})
     high_volume_technologies: frozenset[str] = frozenset(
-        {"solar", "storage", "battery storage", "solar+storage"}
+        {"solar", "storage", "battery storage", "solar+storage", "solar_storage"}
     )
     proposal_new_load_mw: float = 100.0
     proposal_new_voltage_kv: float = 100.0
@@ -315,6 +362,25 @@ class SocialEvent:
     withdrawal_reason_code: str | None = None
     funding_program: str | None = None
     digest_items: tuple[dict[str, Any], ...] | None = None
+
+    # 2026-10-07 (content audit F3, F9, F13, F14, L-10): what the copy needs to say what the source
+    # is, credit it verbatim and draft one post per project.
+    #: The credit every other surface prints for this source (`services.api.serialize.source_credit`:
+    #: the manifest's `attribution` verbatim, plus its statement of changes), already prefixed
+    #: `Source: ` when it is only the source's name, as the record page does. Empty means
+    #: `Source: {source_name}`.
+    credit_line: str = ""
+    #: `data/sources.yaml` category of the event's source (`generation_queue`, `registry`, ...):
+    #: a post says "queue" only for a queue source.
+    source_category: str | None = None
+    #: The licence's name, printed on LinkedIn instead of the reuse-class token.
+    licence_name: str | None = None
+    #: The proposal `kind` (`load` for data centres and other large loads).
+    kind: str | None = None
+    #: EIA plant code when the record is an EIA generator or plant; and how many records of that
+    #: plant one post covers (`None` or 1 for a single record).
+    eia_plant_id: str | None = None
+    member_count: int | None = None
 
 
 # --------------------------------------------------------------------------------- adapter
@@ -482,7 +548,11 @@ def _tech_is_high_volume(technology: str | None, config: EditorialConfig) -> boo
 def meets_proposal_size_threshold(event: SocialEvent, config: EditorialConfig = DEFAULT_CONFIG) -> bool:
     """docs/32 §3.1 `proposal.new` row, reused for `status_changed`/`withdrawn` ("on a proposal
     that met the size threshold"). True only when at least one qualifying field is present and
-    clears its bar -- an event with no size field at all never qualifies (never invent a value)."""
+    clears its bar -- an event with no size field at all never qualifies (never invent a value).
+    A large-load record's MW is a load, judged against the load bar, not the generation one."""
+    if event.kind == "load":
+        load = event.load_mw if event.load_mw is not None else event.capacity_mw
+        return load is not None and load >= config.proposal_new_load_mw
     if event.capacity_mw is not None:
         bar = (
             config.proposal_new_high_volume_iso_mw
@@ -500,6 +570,20 @@ def meets_proposal_size_threshold(event: SocialEvent, config: EditorialConfig = 
     return False
 
 
+def _unsized_load(event: SocialEvent) -> bool:
+    """A large-load record (a data centre, mostly) that states no size at all. Every one of the
+    581 live load records in the 2026-09-30 store has no MW (content audit F13): the size rule could
+    never admit one. Such a record clears the size gate on Bluesky and X only, and its post says no
+    MW is stated; a load record that does state a size meets the ordinary `load_mw` bar instead."""
+    return (
+        event.kind == "load"
+        and event.capacity_mw is None
+        and event.load_mw is None
+        and event.voltage_kv is None
+        and event.capex_usd is None
+    )
+
+
 def meets_linkedin_size_threshold(event: SocialEvent, config: EditorialConfig = DEFAULT_CONFIG) -> bool:
     if event.capacity_mw is not None and event.capacity_mw >= config.linkedin_mw:
         return True
@@ -512,16 +596,23 @@ def meets_linkedin_size_threshold(event: SocialEvent, config: EditorialConfig = 
     return False
 
 
+def is_forward_transition(status_from: str | None, status_to: str | None) -> bool:
+    return (status_from, status_to) in PROPOSAL_CANONICAL_TRANSITIONS
+
+
 def channels_for_event(event: SocialEvent, config: EditorialConfig = DEFAULT_CONFIG) -> tuple[str, ...]:
     """Which channels (of `services.social.models.CHANNELS`) this event earns a post on, per
-    docs/32 §3.1. Returns `()` for anything not itemised there (default-deny), for a gated
-    source, or for a proposal event below its size threshold."""
+    docs/32 §3.1. Returns `()` for anything not itemised there (default-deny), for a source whose
+    class may not be posted (`SOCIAL_REUSE_CLASSES`), or for a proposal event below its size
+    threshold."""
     if event.event_type not in POSTABLE_EVENT_TYPES:
         return ()
-    if event.reuse_class not in PUBLISHABLE_REUSE_CLASSES:
+    if event.reuse_class not in SOCIAL_REUSE_CLASSES:
         return ()
 
     if event.event_type == "proposal.new":
+        if _unsized_load(event):
+            return ("bluesky", "x")
         if not meets_proposal_size_threshold(event, config):
             return ()
         channels = ["bluesky", "x"]
@@ -530,10 +621,13 @@ def channels_for_event(event: SocialEvent, config: EditorialConfig = DEFAULT_CON
         return tuple(channels)
 
     if event.event_type == "proposal.status_changed":
-        if not meets_proposal_size_threshold(event, config):
+        if event.status_to not in LIFECYCLE_LADDER:
             return ()
-        transition = (event.status_from, event.status_to)
-        if event.status_from and event.status_to and transition not in PROPOSAL_CANONICAL_TRANSITIONS:
+        if event.status_from and not is_forward_transition(event.status_from, event.status_to):
+            return ()
+        if _unsized_load(event):
+            return ("bluesky", "x")
+        if not meets_proposal_size_threshold(event, config):
             return ()
         channels = ["bluesky", "x"]
         if event.status_to in LINKEDIN_STATUS_TARGETS:
@@ -656,173 +750,340 @@ def strip_trailing_zero(text: str) -> str:
     return text
 
 
-# --------------------------------------------------------------------------------- templates
+# --------------------------------------------------------------------------------- links
+
+#: X counts every link as 23 characters whatever its length (docs/32 §3.3, §4.3 gate 1).
+X_LINK_WEIGHT = 23
+
+
+def bare_url(url: str) -> str:
+    """`url` without its query string and fragment: the record page a UTM-tagged link points at."""
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
+def utm_url(page_url: str, *, channel: str, event_type: str, event_id: str) -> str:
+    """docs/32 §3.2 item 3's tagged link (content audit F15): what a reader clicks, so clicks and
+    alert sign-ups can be counted per channel and per event (§4.9, §6.1)."""
+    query = urlencode(
+        {
+            "utm_source": channel,
+            "utm_medium": "social",
+            "utm_campaign": event_type,
+            "utm_content": event_id,
+        }
+    )
+    separator = "&" if "?" in page_url else "?"
+    return f"{page_url}{separator}{query}"
+
+
+def link_for(event: SocialEvent, channel: str) -> str:
+    """The tagged link a post carries (`PostDraft.link_url`)."""
+    return utm_url(event.page_url, channel=channel, event_type=event.event_type, event_id=event.event_id)
+
+
+def body_link(event: SocialEvent, channel: str) -> str:
+    """The link text in the body. X and LinkedIn carry the tagged link itself (X shortens every
+    link to 23 characters; LinkedIn has room). Bluesky shows the bare page address and the post's
+    link facet carries the tagged link (`publishers/bluesky.py`), so the visible text stays short."""
+    return event.page_url if channel == "bluesky" else link_for(event, channel)
+
+
+def channel_length(text: str, channel: str) -> int:
+    """Length as the channel counts it: X weighs each link at 23 characters; Bluesky and LinkedIn
+    count characters (graphemes are a follow-up, `services/api/admin_posts.py` decision 8)."""
+    if channel == "x":
+        return len(_URL_RE.sub("x" * X_LINK_WEIGHT, text))
+    return len(text)
+
+
+# --------------------------------------------------------------------------------- words
+
+#: Sources whose own name does not say what they are, phrased for a sentence (content audit F3: an
+#: EIA-860M row was posted as "New in TEPC queue"; EIA-860M is a generator inventory, not a queue).
+SOURCE_PHRASES: dict[str, tuple[str, str]] = {
+    # (long form for LinkedIn, short form for Bluesky and X, where the credit line that follows
+    # spells the register's full name: "EIA-860M Preliminary Monthly Electric Generator Inventory")
+    "us.eia.860m": ("EIA's monthly generator inventory (EIA-860M)", "EIA-860M"),
+}
+
+#: `data/sources.yaml` categories whose rows are interconnection requests: the only sources a post
+#: may describe as a queue.
+QUEUE_CATEGORIES: frozenset[str] = frozenset({"generation_queue", "load_queue"})
+
+
+def is_queue_source(event: SocialEvent) -> bool:
+    if event.source_category is not None:
+        return event.source_category in QUEUE_CATEGORIES
+    # An event built without the source row (`from_diff_row`, the CLI) carries no category; a
+    # queue position is then the only evidence the row came from a queue.
+    return bool(event.iso_rto and event.queue_id)
+
+
+def source_phrase(event: SocialEvent, *, short: bool = False) -> str:
+    """What the source is, in words a reader can place, never a queue it is not."""
+    if event.source_id in SOURCE_PHRASES:
+        long_form, short_form = SOURCE_PHRASES[event.source_id]
+        return short_form if short else long_form
+    if is_queue_source(event):
+        if short:
+            return f"the {event.iso_rto} queue" if event.iso_rto else "an interconnection queue"
+        return f"the {event.iso_rto} interconnection queue" if event.iso_rto else "an interconnection queue"
+    return event.source_name
+
+
+def _in_sentence(label: str) -> str:
+    """A sentence-case label as it reads mid-sentence: "Gas, combined cycle" -> "gas (combined
+    cycle)"; an acronym-led label ("LNG export", "EV charging") keeps its capitals."""
+    if ", " in label:
+        head, tail = label.split(", ", 1)
+        label = f"{head} ({tail})"
+    if len(label) > 1 and label[1].isupper():
+        return label
+    return label[:1].lower() + label[1:]
+
+
+def tech_words(event: SocialEvent) -> str | None:
+    """The technology as words (`services/labels.py`, the site's own table; content audit F14:
+    `150 MW bess_li_ion`)."""
+    if event.kind == "load" and event.technology in (None, "load"):
+        return "large load"
+    label = technology_label(event.technology)
+    return _in_sentence(label) if label else None
+
+
+def state_words(token: str | None) -> str | None:
+    """A lifecycle token as words ("under_construction" -> "under construction"). `None` stays
+    `None`, so a template that interpolates a missing state still trips the bare-None gate."""
+    label = lifecycle_label(token)
+    return _in_sentence(label) if label else None
+
+
+_COUNTY_SUFFIXES = (" County", " Parish", " Borough", " Census Area", " Municipality", " city", " City")
+
+
+def county_words(event: SocialEvent) -> str | None:
+    """The county as a place name: "Loudoun" -> "Loudoun County", and a name that already carries
+    its suffix is left alone (content audit F14: "Loudoun County County" on 39 records). Outside
+    the US the stored name is printed as it stands."""
+    if not event.county:
+        return None
+    county = event.county.strip()
+    if event.country != "US" or county.endswith(_COUNTY_SUFFIXES):
+        return county
+    return f"{county} County"
 
 
 def _size_tech(event: SocialEvent) -> str:
-    """`{capacity_mw} MW {technology}`, or just the capacity when technology is unrecorded."""
-    if event.technology:
-        return f"{fmt_mw(event.capacity_mw)} {event.technology}".strip()
-    return fmt_mw(event.capacity_mw)
+    """`{capacity_mw} MW {technology}`, the technology alone when no size is stated, and the number
+    of generators when one post covers several records of one EIA plant (content audit F9)."""
+    words = " ".join(p for p in (fmt_mw(event.capacity_mw), tech_words(event) or "") if p)
+    if event.member_count and event.member_count > 1:
+        words += f" across {event.member_count} generators"
+    if _unsized_load(event):
+        words += ", no MW stated"
+    return words
 
 
 def _place(event: SocialEvent, *, full_state: bool) -> str:
-    county = f"{event.county} County" if event.county else None
     state = fmt_state(event.state, full=full_state)
-    return ", ".join(p for p in (county, state) if p)
+    return ", ".join(p for p in (county_words(event), state) if p)
 
 
-def _clauses_new(event: SocialEvent, *, full_state: bool) -> dict[str, str]:
-    return {
-        "size_tech": _size_tech(event),
-        "place": _place(event, full_state=full_state),
-        "developer": event.developer_org or "",
-    }
+def _subject(event: SocialEvent, *, full_state: bool) -> str:
+    """`{name}, {size} {technology}, {county}, {state}`: every proposal post states the size and
+    technology, with or without a name (content audit F14: status posts dropped the MW)."""
+    parts = (event.proposal_name, _size_tech(event), _place(event, full_state=full_state))
+    return ", ".join(p for p in parts if p)
 
 
-def render_proposal_new(event: SocialEvent, channel: str) -> str:
+def _identifier_clauses(event: SocialEvent) -> list[str]:
+    clauses = []
+    if event.queue_id and is_queue_source(event):
+        clauses.append(f"Queue {event.queue_id}.")
+    if event.eia_plant_id:
+        clauses.append(f"EIA plant {event.eia_plant_id}.")
+    return clauses
+
+
+def _org_clause(event: SocialEvent) -> str | None:
+    """The organisation the record names, labelled by what the source says it is (content audit F3:
+    EIA's "Entity Name" was printed as "Developer"). A queue names the interconnection customer;
+    any other register is quoted only as naming the party."""
+    if not event.developer_org:
+        return None
+    if is_queue_source(event):
+        return f"Interconnection customer per the record: {event.developer_org}."
+    return f"Named in the record: {event.developer_org}."
+
+
+def attribution_line_for(event: SocialEvent) -> str:
+    """The credit line, verbatim, as every other surface prints it (2026-10-07, content audit
+    credits, legal L-10/L-12): `services.api.serialize.source_credit` -- the manifest's
+    `attribution` (NESO's mandated "Supported by National Energy SO Open Data", OGL's statement, a
+    CC BY citation) followed by its statement of changes -- and `Source: {source_name}` only when
+    the source has no credit of its own, as the record page does. Gate 3 checks it is in the body
+    unchanged, and a reviewer's edit cannot remove it."""
+    return event.credit_line or f"Source: {event.source_name}"
+
+
+def credit_clause(event: SocialEvent, *, full: bool = False, dated: bool = True) -> str:
+    """The attribution clause: the credit line verbatim, then the retrieval date; on LinkedIn also
+    the source URL and the licence's name (docs/32 §3.2 item 4; content audit F14 printed the class
+    token `open` where the licence belongs)."""
+    credit = attribution_line_for(event)
+    stop = "" if credit.endswith(".") else "."
+    date = fmt_date(event.retrieved_at.date())
+    if not full:
+        return f"{credit}{stop} Retrieved {date}." if dated else f"{credit}{stop}"
+    url = f" {event.source_url}" if event.source_url else ""
+    licence = f"; licence: {event.licence_name}" if event.licence_name else ""
+    return f"{credit}{stop}{url} (retrieved {date}{licence})."
+
+
+# --------------------------------------------------------------------------------- templates
+
+
+def render_proposal_new(event: SocialEvent, channel: str, *, automated: bool = False) -> str:
     full = channel == "linkedin"
-    c = _clauses_new(event, full_state=full)
-    place = c["place"]
-    if channel in ("bluesky", "x"):
-        head = (
-            f"New in {event.iso_rto} queue: {c['size_tech']}" if event.iso_rto else f"New: {c['size_tech']}"
-        )
-        head += f", {place}." if place else "."
-        parts = [head]
-        if event.queue_id:
-            parts.append(f"Queue {event.queue_id}.")
-        if event.developer_org:
-            parts.append(f"{event.developer_org}.")
-        parts.append(event.page_url)
-        parts.append(f"Source: {event.source_name}, {fmt_date(event.retrieved_at.date())}.")
+    subject = _subject(event, full_state=full)
+    lead = (
+        f"New in {source_phrase(event, short=not full)}"
+        if is_queue_source(event)
+        else f"Newly listed in {source_phrase(event, short=not full)}"
+    )
+    head = f"{lead}: {subject}"
+    state = state_words(event.status_to)
+    if state:
+        head += f"; status: {state}"
+    head += "."
+    optional = _identifier_clauses(event)
+    if org := _org_clause(event):
+        optional.append(org)
+    link = body_link(event, channel)
+    if not full:
+        parts = [head, *optional, link, credit_clause(event)]
         if event.lag_days:
             parts.append(f"Public feed {event.lag_days}d behind; live alerts on the page.")
         return _join_and_fit(
-            parts, CHANNEL_LIMITS[channel], event, tail_count=2 + (1 if event.lag_days else 0)
+            parts, channel, event, tail_count=2 + (1 if event.lag_days else 0), automated=automated
         )
 
-    # linkedin
-    head = f"{c['size_tech']} proposed"
-    if place:
-        head += f" in {place}"
-    if event.iso_rto and event.queue_id:
-        head += f" ({event.iso_rto} queue {event.queue_id})"
-    head += "."
-    body_lines = [head]
-    if event.developer_org:
-        body_lines.append(f"Developer: {event.developer_org} (per the official record).")
-    body_lines.append(f"Details, provenance and alert sign-up: {event.page_url}")
-    body_lines.append(
-        f"Source: {event.source_name} — {event.source_url} "
-        f"(retrieved {fmt_date(event.retrieved_at.date())}; {event.reuse_class})."
-    )
-    if event.lag_days:
-        body_lines.append(f"This public feed runs {event.lag_days} days behind our live tier.")
-    return _join_and_fit(
-        body_lines, CHANNEL_LIMITS[channel], event, tail_count=2 + (1 if event.lag_days else 0), sep="\n"
-    )
-
-
-def render_proposal_status_changed(event: SocialEvent, channel: str) -> str:
-    full = channel == "linkedin"
-    name = event.proposal_name or _size_tech(event)
-    state = fmt_state(event.state, full=full)
-    queue = f"{event.iso_rto} {event.queue_id}" if event.iso_rto and event.queue_id else (event.iso_rto or "")
-    if channel in ("bluesky", "x"):
-        if state:
-            head = f"{name}, {state}: status {event.status_from} → {event.status_to}"
-        else:
-            head = f"{name}: status {event.status_from} → {event.status_to}"
-        head += f" ({queue})." if queue else "."
-        parts = [head, event.page_url, f"Source: {event.source_name}, {fmt_date(event.retrieved_at.date())}."]
-        if event.lag_days:
-            parts.append(f"Public feed {event.lag_days}d behind.")
-        return _join_and_fit(
-            parts, CHANNEL_LIMITS[channel], event, tail_count=2 + (1 if event.lag_days else 0)
-        )
-
-    head = f"{fmt_mw(event.capacity_mw)} {event.technology} in {state} moves to {event.status_to}.".strip()
     body_lines = [
         head,
-        f"Status: {event.status_from} → {event.status_to}, per {event.source_name} "
-        f"(observed {fmt_date(event.event_date)}).",
-        f"Details, provenance and alert sign-up: {event.page_url}",
-        f"Source: {event.source_name} — {event.source_url} "
-        f"(retrieved {fmt_date(event.retrieved_at.date())}; {event.reuse_class}).",
+        *optional,
+        f"Details, provenance and alert sign-up: {link}",
+        credit_clause(event, full=True),
     ]
     if event.lag_days:
         body_lines.append(f"This public feed runs {event.lag_days} days behind our live tier.")
     return _join_and_fit(
-        body_lines, CHANNEL_LIMITS[channel], event, tail_count=2 + (1 if event.lag_days else 0), sep="\n"
+        body_lines,
+        channel,
+        event,
+        tail_count=2 + (1 if event.lag_days else 0),
+        sep="\n",
+        automated=automated,
     )
 
 
-def render_proposal_withdrawn(event: SocialEvent, channel: str) -> str:
+def render_proposal_status_changed(event: SocialEvent, channel: str, *, automated: bool = False) -> str:
     full = channel == "linkedin"
-    place = _place(event, full_state=full)
-    size_tech = _size_tech(event)
-    head = (
-        f"Withdrawn from {event.iso_rto} queue: {size_tech}" if event.iso_rto else f"Withdrawn: {size_tech}"
+    subject = _subject(event, full_state=full)
+    # Both states are interpolated unguarded on purpose: a missing one is a bare `None` the gate
+    # refuses (services/social/textgate.py), never a guessed stage.
+    head = f"{subject}: {state_words(event.status_from)} → {state_words(event.status_to)}."
+    optional = [f"Per {source_phrase(event, short=not full)}, observed {fmt_date(event.event_date)}."]
+    optional += _identifier_clauses(event)
+    link = body_link(event, channel)
+    if not full:
+        parts = [head, *optional, link, credit_clause(event)]
+        if event.lag_days:
+            parts.append(f"Public feed {event.lag_days}d behind.")
+        return _join_and_fit(
+            parts, channel, event, tail_count=2 + (1 if event.lag_days else 0), automated=automated
+        )
+
+    body_lines = [head, *optional]
+    if org := _org_clause(event):
+        body_lines.append(org)
+    body_lines += [f"Details, provenance and alert sign-up: {link}", credit_clause(event, full=True)]
+    if event.lag_days:
+        body_lines.append(f"This public feed runs {event.lag_days} days behind our live tier.")
+    return _join_and_fit(
+        body_lines,
+        channel,
+        event,
+        tail_count=2 + (1 if event.lag_days else 0),
+        sep="\n",
+        automated=automated,
     )
-    if place:
-        head += f", {place}"
-    if event.queue_id:
-        head += f" ({event.queue_id})"
-    head += "."
-    parts = [head, event.page_url, f"Source: {event.source_name}, {fmt_date(event.retrieved_at.date())}."]
+
+
+def render_proposal_withdrawn(event: SocialEvent, channel: str, *, automated: bool = False) -> str:
+    full = channel == "linkedin"
+    subject = _subject(event, full_state=full)
+    lead = (
+        f"Withdrawn from {source_phrase(event, short=not full)}"
+        if is_queue_source(event)
+        else f"Withdrawn per {source_phrase(event, short=not full)}"
+    )
+    head = f"{lead}: {subject}."
+    optional = []
     if event.withdrawal_reason_code:
-        parts.insert(1, f"Reason per record: {event.withdrawal_reason_code}.")
+        optional.append(f"Reason per record: {event.withdrawal_reason_code}.")
+    optional += _identifier_clauses(event)
+    parts = [head, *optional, body_link(event, channel), credit_clause(event, full=full)]
     if event.lag_days:
         parts.append(f"Public feed {event.lag_days}d behind.")
-    return _join_and_fit(parts, CHANNEL_LIMITS[channel], event, tail_count=2 + (1 if event.lag_days else 0))
+    return _join_and_fit(
+        parts, channel, event, tail_count=2 + (1 if event.lag_days else 0), automated=automated
+    )
 
 
-def render_opportunity_rfp_opened(event: SocialEvent, channel: str) -> str:
+def render_opportunity_rfp_opened(event: SocialEvent, channel: str, *, automated: bool = False) -> str:
     scope = _size_tech(event) if (event.technology or event.capacity_mw) else ""
+    link = body_link(event, channel)
     if channel in ("bluesky", "x"):
         head = f"RFP open: {event.issuer_org} — {event.solicitation_title}."
         parts = [head]
         if scope:
             parts.append(f"{scope}.")
         parts.append(f"Responses due {fmt_date(event.deadline_date)}.")
-        parts.append(event.page_url)
-        parts.append(f"Source: {event.source_name}, {fmt_date(event.retrieved_at.date())}.")
-        return _join_and_fit(parts, CHANNEL_LIMITS[channel], event, tail_count=2)
+        parts.append(link)
+        parts.append(credit_clause(event))
+        return _join_and_fit(parts, channel, event, tail_count=2, automated=automated)
 
     deadline = fmt_date(event.deadline_date)
     body_lines = [f"{event.issuer_org} opens {event.solicitation_title}: responses due {deadline}."]
     if scope:
         body_lines.append(f"Scope: {scope}.")
-    body_lines.append(f"Details and alert sign-up: {event.page_url}")
-    body_lines.append(
-        f"Source: {event.source_name} — {event.source_url} "
-        f"(retrieved {fmt_date(event.retrieved_at.date())}; {event.reuse_class})."
-    )
-    return _join_and_fit(body_lines, CHANNEL_LIMITS[channel], event, tail_count=2, sep="\n")
+    body_lines.append(f"Details and alert sign-up: {link}")
+    body_lines.append(credit_clause(event, full=True))
+    return _join_and_fit(body_lines, channel, event, tail_count=2, sep="\n", automated=automated)
 
 
-def render_opportunity_rfp_closing(event: SocialEvent, channel: str) -> str:
+def render_opportunity_rfp_closing(event: SocialEvent, channel: str, *, automated: bool = False) -> str:
     days_left = (event.deadline_date - event.event_date).days if event.deadline_date else None
     parts = [
         f"Closing in {days_left} days: {event.issuer_org} — {event.solicitation_title}.",
         f"Due {fmt_date(event.deadline_date)}.",
-        event.page_url,
-        f"Source: {event.source_name}.",
+        body_link(event, channel),
+        credit_clause(event, dated=False),
     ]
-    return _join_and_fit(parts, CHANNEL_LIMITS[channel], event, tail_count=2)
+    return _join_and_fit(parts, channel, event, tail_count=2, automated=automated)
 
 
-def render_opportunity_awarded(event: SocialEvent, channel: str) -> str:
+def render_opportunity_awarded(event: SocialEvent, channel: str, *, automated: bool = False) -> str:
     award = f", {fmt_usd(event.award_usd)}" if event.award_usd else ""
     head = f"Awarded: {event.issuer_org} selects {event.awardee_org} for {event.solicitation_title}{award}."
-    parts = [head, event.page_url, f"Source: {event.source_name}, {fmt_date(event.retrieved_at.date())}."]
+    parts = [head, body_link(event, channel), credit_clause(event, full=channel == "linkedin")]
     if channel == "linkedin" and event.award_prior_status:
         parts.insert(1, f"Prior status per record: {event.award_prior_status}.")
-    return _join_and_fit(parts, CHANNEL_LIMITS[channel], event, tail_count=2)
+    return _join_and_fit(parts, channel, event, tail_count=2, automated=automated)
 
 
-def render_funding_change(event: SocialEvent, channel: str) -> str:
+def render_funding_change(event: SocialEvent, channel: str, *, automated: bool = False) -> str:
     verb = "Cancelled" if event.event_type == "funding.cancelled" else "Reinstated"
     full = channel == "linkedin"
     head = (
@@ -830,13 +1091,13 @@ def render_funding_change(event: SocialEvent, channel: str) -> str:
         f"for {event.proposal_name}, {fmt_state(event.state, full=full)}, "
         f"per {event.source_name} record dated {fmt_date(event.event_date)}."
     )
-    parts = [head, event.page_url]
+    parts = [head, body_link(event, channel), credit_clause(event, full=full)]
     if channel == "linkedin" and event.award_prior_status:
         parts.insert(1, f"Prior status per record: {event.award_prior_status}.")
-    return _join_and_fit(parts, CHANNEL_LIMITS[channel], event, tail_count=1)
+    return _join_and_fit(parts, channel, event, tail_count=2, automated=automated)
 
 
-def render_digest_weekly(event: SocialEvent, channel: str) -> str:
+def render_digest_weekly(event: SocialEvent, channel: str, *, automated: bool = False) -> str:
     items = event.digest_items or ()
     n_new = sum(1 for i in items if i.get("event_type") == "proposal.new")
     sum_mw = sum(float(i.get("capacity_mw") or 0) for i in items if i.get("event_type") == "proposal.new")
@@ -846,8 +1107,8 @@ def render_digest_weekly(event: SocialEvent, channel: str) -> str:
         f"This week in US energy proposals: {n_new} new proposals ({fmt_mw(sum_mw)}), "
         f"{n_rfps} RFPs open, {n_awards} awards."
     )
-    parts = [head, event.page_url]
-    return _join_and_fit(parts, CHANNEL_LIMITS[channel], event, tail_count=1)
+    parts = [head, body_link(event, channel)]
+    return _join_and_fit(parts, channel, event, tail_count=1, automated=automated)
 
 
 _RENDERERS = {
@@ -862,11 +1123,13 @@ _RENDERERS = {
     "digest.weekly": render_digest_weekly,
 }
 
-_TEMPLATE_VERSION = "v1"
+#: v2 (2026-10-07): source-aware copy, verbatim credits, words for tokens, tagged links.
+_TEMPLATE_VERSION = "v2"
 
 
-def render(event: SocialEvent, channel: str) -> tuple[str, str, str]:
-    """Render a draft body for `(event.event_type, channel)`.
+def render(event: SocialEvent, channel: str, *, automated: bool = False) -> tuple[str, str, str]:
+    """Render a draft body for `(event.event_type, channel)`. `automated` adds docs/13 §6.5's
+    trailing line, for a post that will publish without human review.
 
     Returns `(body, template_id, template_version)`.
     """
@@ -876,20 +1139,8 @@ def render(event: SocialEvent, channel: str) -> tuple[str, str, str]:
     template_id = f"{event.event_type}.{channel}"
     # The "None" gate (services/social/textgate.py; docs/50 §3.2): a template that interpolated a
     # null field is refused here, before attribution, validation or the review queue see it.
-    body = reject_bare_none(renderer(event, channel), template_id=template_id)
+    body = reject_bare_none(renderer(event, channel, automated=automated), template_id=template_id)
     return body, template_id, _TEMPLATE_VERSION
-
-
-def attribution_line_for(event: SocialEvent) -> str:
-    """The credit line (docs/21 §3.18 `credit_line`) as a substring guaranteed present in every
-    channel's rendering of this event. Most templates say `Source: {source_name}` (date on short
-    formats, URL+licence on LinkedIn -- docs/32 §3.2 item 4); the funding template instead reads
-    "... per {source_name} record dated ..." (docs/32 §3.3), so the bare source name is the
-    substring common to both phrasings.
-    """
-    if event.event_type in ("funding.cancelled", "funding.reinstated"):
-        return event.source_name
-    return f"Source: {event.source_name}"
 
 
 def delayed_tier_notice_for(event: SocialEvent, channel: str) -> str | None:
@@ -909,32 +1160,43 @@ def delayed_tier_notice_for(event: SocialEvent, channel: str) -> str | None:
 
 def _join_and_fit(
     head_then_optional_then_tail: list[str],
-    limit: int,
+    channel: str,
     event: SocialEvent,
     *,
     tail_count: int,
     sep: str = " ",
+    automated: bool = False,
 ) -> str:
     """Join clauses and, on overflow, drop optional clauses first -- docs/32 §4.2's deterministic
     fallback ("the deterministic template is used with clauses dropped in the order defined in
     the template file") -- before falling back to a hard truncation of the fact line.
 
-    `head_then_optional_then_tail[0]` (the fact line) and its last `tail_count` items (page_url,
-    the attribution line, and the lag notice when present -- the docs/32 §4.3 gate-checked
-    clauses) are never dropped, only truncated as a last resort; everything strictly between
-    them is optional and is dropped one at a time, most-recently-added first, until the body
-    fits or nothing optional is left.
+    `head_then_optional_then_tail[0]` (the fact line) and its last `tail_count` items (the link,
+    the attribution line, the lag notice when present, and the automated-item line when
+    `automated`) are never dropped, only truncated as a last resort; everything strictly between
+    them is optional and is dropped one at a time, the one nearest the tail first, until the body
+    fits or nothing optional is left. Length is measured as the channel counts it
+    (`channel_length`).
     """
     parts = list(head_then_optional_then_tail)
+    if automated:
+        parts.append(automated_line_for(event))
+        tail_count += 1
+    limit = CHANNEL_LIMITS[channel]
     protected = 1 + tail_count  # head + mandatory tail
     text = sep.join(parts)
-    while len(text) > limit and len(parts) > protected:
+    while channel_length(text, channel) > limit and len(parts) > protected:
         del parts[-tail_count - 1]  # the optional clause immediately before the mandatory tail
         text = sep.join(parts)
-    if len(text) > limit:
-        # last resort: trim the fact clause; never trim page_url, attribution or the lag notice.
-        overflow = len(text) - limit
-        parts[0] = parts[0][: max(0, len(parts[0]) - overflow - 1)].rstrip() + "…"
+    if channel_length(text, channel) > limit:
+        # last resort: trim the fact clause at a word boundary; never trim the link, attribution or
+        # the notices.
+        overflow = channel_length(text, channel) - limit
+        keep = max(0, len(parts[0]) - overflow - 1)
+        cut = parts[0][:keep]
+        if " " in cut and keep < len(parts[0]) and parts[0][keep] != " ":
+            cut = cut.rsplit(" ", 1)[0]
+        parts[0] = cut.rstrip(" ,;:") + "…"
         text = sep.join(parts)
     return text
 
@@ -994,10 +1256,31 @@ def _allowed_numbers(event: SocialEvent) -> set[str]:
         event.awardee_org,
         event.funding_program,
         event.county,
+        event.eia_plant_id,
     ):
         if text_field:
             allowed.update(re.findall(r"\d+", text_field))
+    if event.member_count:
+        allowed.add(str(event.member_count))
     return allowed
+
+
+def _named_text(event: SocialEvent, attribution_line: str) -> tuple[str, ...]:
+    """Text a body quotes verbatim rather than claims: the credit line, the source's and the
+    licence's names, the phrase naming the source and the automated-item line. Digits inside them
+    ("EIA-860M", "Grants.gov Search2 API", "TED API v3", a CC BY citation year) are part of a name,
+    not a size, date or amount (docs/32 §4.3 gate 5; content audit F1: every EIA-860M draft failed
+    on `860`, and the event was lost). Longest first, so a name inside the credit is removed with it."""
+    fragments = {
+        attribution_line,
+        attribution_line_for(event),
+        event.source_name,
+        event.licence_name or "",
+        source_phrase(event),
+        source_phrase(event, short=True),
+        automated_line_for(event),
+    }
+    return tuple(sorted((f for f in fragments if f), key=len, reverse=True))
 
 
 def _org_names_in(text: str, event: SocialEvent) -> bool:
@@ -1032,9 +1315,12 @@ def validate_draft(
     failures: list[str] = []
     is_digest = event.event_type == "digest.weekly"
 
-    if len(body) > CHANNEL_LIMITS[channel]:
-        failures.append(f"length {len(body)} exceeds {channel} limit {CHANNEL_LIMITS[channel]}")
+    length = channel_length(body, channel)
+    if length > CHANNEL_LIMITS[channel]:
+        failures.append(f"length {length} exceeds {channel} limit {CHANNEL_LIMITS[channel]}")
 
+    # The bare record address, once: the tagged link (`link_for`) carries it as its prefix, and
+    # Bluesky shows it untagged (`body_link`).
     if body.count(event.page_url) != 1:
         failures.append("page_url must appear exactly once")
 
@@ -1048,10 +1334,12 @@ def validate_draft(
         failures.append("delayed-tier notice present on a live (non-proposal) event")
 
     if not is_digest:
-        # identifiers inside URLs (utm params, slugs) are not "a number in the text" (gate 5) --
-        # strip every URL before scanning so a page_url or source_url digit never trips the gate.
-        text_without_urls = _URL_RE.sub(" ", body)
-        stray_numbers = _numbers_in(text_without_urls) - _allowed_numbers(event)
+        # Identifiers inside URLs (UTM parameters, slugs) and digits inside quoted names (the
+        # credit, the register's name) are not "a number in the text" (gate 5).
+        text = _URL_RE.sub(" ", body)
+        for fragment in _named_text(event, attribution_line):
+            text = text.replace(fragment, " ")
+        stray_numbers = _numbers_in(text) - _allowed_numbers(event)
         if stray_numbers:
             failures.append(f"numbers not traceable to event fields: {sorted(stray_numbers)}")
 
@@ -1070,13 +1358,15 @@ def validate_draft(
     # addition to page_url; gate 7's "no URLs other than page_url" is read as barring any
     # *third*, unsanctioned URL (e.g. one introduced by a reviewer's edit), not that second,
     # deliberate one.
-    allowed_urls = {event.page_url} | ({event.source_url} if channel == "linkedin" else set())
+    allowed_urls = {event.page_url, link_for(event, channel)} | (
+        {event.source_url} if channel == "linkedin" else set()
+    )
     urls = set(_URL_RE.findall(body))
     if urls - allowed_urls:
         failures.append("URL other than page_url (or, on LinkedIn, source_url) present")
 
-    if event.reuse_class not in PUBLISHABLE_REUSE_CLASSES:
-        failures.append(f"source reuse_class {event.reuse_class!r} is not publishable")
+    if event.reuse_class not in SOCIAL_REUSE_CLASSES:
+        failures.append(f"source reuse_class {event.reuse_class!r} is not publishable on social channels")
 
     if is_duplicate:
         failures.append("duplicate")
@@ -1110,11 +1400,18 @@ def event_to_json_safe(event: SocialEvent) -> dict[str, Any]:
     return out
 
 
-def build_draft(event: SocialEvent, channel: str, config: EditorialConfig = DEFAULT_CONFIG) -> PostDraft:
+def build_draft(
+    event: SocialEvent,
+    channel: str,
+    config: EditorialConfig = DEFAULT_CONFIG,
+    *,
+    automated: bool = False,
+) -> PostDraft:
     """Render, attribute, disclose and validate one `(event, channel)` draft. Does not check the
     review queue's stored history -- `services.social.queue.ReviewQueue.add_draft` re-runs
-    `validate_draft` with `is_duplicate` set once it knows the store's state."""
-    body, template_id, template_version = render(event, channel)
+    `validate_draft` with `is_duplicate` set once it knows the store's state. `automated` is for
+    a post that will publish without review: its body carries docs/13 §6.5's trailing line."""
+    body, template_id, template_version = render(event, channel, automated=automated)
     attribution = attribution_line_for(event)
     disclosure = disclosure_text_for(channel)
     lag_notice = delayed_tier_notice_for(event, channel)
@@ -1126,6 +1423,10 @@ def build_draft(event: SocialEvent, channel: str, config: EditorialConfig = DEFA
         disclosure_text=disclosure,
         delayed_tier_notice=lag_notice,
     )
+    if automated and automated_line_for(event) not in body:  # pragma: no cover -- _join_and_fit adds it
+        validation = ValidationResult(
+            passed=False, failures=(*validation.failures, "automated-item line missing")
+        )
     return PostDraft(
         channel=channel,
         event_id=event.event_id,
@@ -1135,7 +1436,7 @@ def build_draft(event: SocialEvent, channel: str, config: EditorialConfig = DEFA
         template_id=template_id,
         template_version=template_version,
         body=body,
-        link_url=event.page_url,
+        link_url=link_for(event, channel),
         attribution_line=attribution,
         disclosure_text=disclosure,
         delayed_tier_notice=lag_notice,
@@ -1145,6 +1446,23 @@ def build_draft(event: SocialEvent, channel: str, config: EditorialConfig = DEFA
         cost_estimate_usd=cost_estimate_usd(channel),
         validation=validation,
     )
+
+
+def event_from_snapshot(data: dict[str, Any]) -> SocialEvent:
+    """Inverse of `event_to_json_safe`: the `SocialEvent` a stored draft was rendered from, so an
+    edited body can be validated against the same fields (`services/api/admin_posts.py`,
+    `queue.ReviewQueue.edit`). Keys a later version added and an older snapshot lacks take their
+    defaults; keys this version does not know are ignored."""
+    known = {f.name for f in dataclasses.fields(SocialEvent)}
+    fields = {k: v for k, v in data.items() if k in known}
+    for key in ("event_date", "deadline_date"):
+        if fields.get(key):
+            fields[key] = dt.date.fromisoformat(fields[key])
+    if fields.get("retrieved_at"):
+        fields["retrieved_at"] = dt.datetime.fromisoformat(fields["retrieved_at"])
+    if fields.get("digest_items") is not None:
+        fields["digest_items"] = tuple(fields["digest_items"])
+    return SocialEvent(**fields)
 
 
 def draft_events(events: list[SocialEvent], config: EditorialConfig = DEFAULT_CONFIG) -> list[PostDraft]:

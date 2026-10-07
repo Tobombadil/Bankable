@@ -16,13 +16,23 @@
   <dt>Subject</dt><dd>{% if post.subject %}<a href="{{ post.subject.url }}">{{ post.subject.name }}</a> ({{ post.subject_type }}){% endif %}</dd>
   <dt>Event</dt><dd>{% if post.event %}<span class="mono">{{ post.event_id }}</span> &mdash; {{ post.event.headline }}{% else %}&mdash;{% endif %}</dd>
   <dt>Credit line</dt><dd>{{ post.credit_line }}</dd>
-  <dt>Disclosure label</dt><dd>{{ post.disclosure_label or '—' }}</dd>
+  <dt>Account disclosure</dt><dd>{{ post.disclosure_label or '—' }}</dd>
+  <dt>Link (tagged)</dt><dd class="mono">{{ post.link_url }}</dd>
+  <dt>Publishing</dt><dd>{% if post.auto_published %}Automated, without review: the body carries the &ldquo;not human-reviewed&rdquo; line{% else %}Human review{% endif %}</dd>
   <dt>Gate checked at</dt><dd class="mono">{{ post.gate_checked_at }}</dd>
   <dt>Approved by</dt><dd>{{ post.approved_by_user_id or '—' }}</dd>
   <dt>Scheduled for</dt><dd class="mono">{{ post.scheduled_for or '—' }}</dd>
   <dt>Published at</dt><dd class="mono">{{ post.published_at or '—' }}</dd>
   {% if post.reject_reason %}<dt>Reject reason</dt><dd>{{ post.reject_reason }}</dd>{% endif %}
 </dl>
+
+{% if post.gate_failures %}
+<section class="notice" role="status">
+  <h2>Held: fails its validation gates</h2>
+  <p>This draft was kept for review rather than dropped. It cannot be approved until an edit clears every failure.</p>
+  <ul>{% for failure in post.gate_failures %}<li>{{ failure }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
 
 <h2>Body</h2>
 <p class="admin-muted">

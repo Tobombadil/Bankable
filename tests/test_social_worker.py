@@ -33,6 +33,7 @@ from services.db.models import ChannelConfig, Event, Licence, Post, WorkerWaterm
 from services.social import worker as worker_module
 from services.social.db_events import SubjectNotFoundError, social_event_from_db
 from services.social.worker import draft_posts_tick
+from tests.social_support import seed_graduated_pair
 
 UTC = dt.UTC
 
@@ -206,9 +207,11 @@ def test_event_with_no_published_at_is_a_gate_skip(
     assert report.posts_skipped_gate == 1
 
 
-def test_auto_publish_channel_creates_an_approved_post(
+def test_channel_switch_alone_never_auto_publishes(
     db: Session, db_sessionmaker: sessionmaker[Session]
 ) -> None:
+    """Content audit F11, legal L-8: the stored switch used to auto-publish a whole channel with no
+    graduation and no named event type. A switch with neither now drafts for review."""
     licence = make_open_licence(db)
     source = make_public_source(db, licence)
     proposal = make_visible_proposal(db, source)
@@ -220,17 +223,91 @@ def test_auto_publish_channel_creates_an_approved_post(
 
     report = draft_posts_tick(db_sessionmaker)
     assert report.posts_created == 2
+    assert report.posts_auto_published == 0
+    for post in db.scalars(select(Post)):
+        assert post.state == "draft"
+        assert post.auto_published is False
+        assert "not human-reviewed" not in post.body
 
-    bluesky_post = db.scalar(select(Post).where(Post.channel == "bluesky"))
-    x_post = db.scalar(select(Post).where(Post.channel == "x"))
-    assert bluesky_post is not None
+
+def test_auto_publish_needs_the_owner_switch_a_named_event_type_and_graduation(
+    db: Session, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    licence = make_open_licence(db)
+    source = make_public_source(db, licence)
+    history = make_visible_proposal(db, source, public_id_suffix="9")
+    history_event = make_event(db, history, source, event_type="created")
+    seed_graduated_pair(db, history_event, channel="bluesky", event_type="proposal.new")
+    seed_graduated_pair(db, history_event, channel="x", event_type="proposal.new")
+    db.add(
+        ChannelConfig(
+            channel="bluesky",
+            auto_publish=True,
+            disclosure_label="Automated feed run by Infraque (infraque.com).",
+            auto_publish_event_types=["proposal.new"],
+        )
+    )
+    # X is graduated but its owner switch names another event type: still reviewed.
+    db.add(
+        ChannelConfig(
+            channel="x",
+            auto_publish=True,
+            disclosure_label="Automated feed run by Infraque (infraque.com).",
+            auto_publish_event_types=["proposal.withdrawn"],
+        )
+    )
+    proposal = make_visible_proposal(db, source)
+    proposal.capacity_mw = 150.0
+    db.flush()
+    db.query(WorkerWatermark).delete()
+    db.add(WorkerWatermark(name="social.draft_posts", seq=history_event.seq))
+    event = make_event(db, proposal, source, event_type="created")
+    db.commit()
+
+    report = draft_posts_tick(db_sessionmaker)
+
+    assert report.posts_auto_published == 1
+    bluesky_post = db.scalar(select(Post).where(Post.channel == "bluesky", Post.event_id == event.id))
+    x_post = db.scalar(select(Post).where(Post.channel == "x", Post.event_id == event.id))
+    assert bluesky_post is not None and x_post is not None
     assert bluesky_post.state == "approved"
     assert bluesky_post.auto_published is True
     assert bluesky_post.approved_by_user_id is None
-    assert bluesky_post.disclosure_label == "Automated — Bankable"
-    assert x_post is not None
+    # docs/13 §6.5: an item published without review says so in its own text.
+    assert bluesky_post.body.endswith(f"Auto-generated summary from {source.name}; not human-reviewed.")
     assert x_post.state == "draft"
     assert x_post.auto_published is False
+    assert "not human-reviewed" not in x_post.body
+
+
+def test_a_wrong_fact_rejection_revokes_auto_publish(
+    db: Session, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    licence = make_open_licence(db)
+    source = make_public_source(db, licence)
+    history = make_visible_proposal(db, source, public_id_suffix="9")
+    history_event = make_event(db, history, source, event_type="created")
+    seed_graduated_pair(
+        db, history_event, channel="bluesky", event_type="proposal.new", reject_wrong_fact=True
+    )
+    db.add(
+        ChannelConfig(
+            channel="bluesky",
+            auto_publish=True,
+            disclosure_label="Automated feed run by Infraque (infraque.com).",
+            auto_publish_event_types=["proposal.new"],
+        )
+    )
+    proposal = make_visible_proposal(db, source)
+    proposal.capacity_mw = 150.0
+    db.flush()
+    db.add(WorkerWatermark(name="social.draft_posts", seq=history_event.seq))
+    make_event(db, proposal, source, event_type="created")
+    db.commit()
+
+    report = draft_posts_tick(db_sessionmaker)
+    assert report.posts_auto_published == 0
+    assert report.posts_created == 2
 
 
 def test_duplicate_content_within_seven_days_is_skipped(

@@ -315,7 +315,8 @@ class TestTemplates:
         event = FIXTURE[event_type]
         for channel in channels_for_event(event):
             draft = editorial.build_draft(event, channel)
-            assert len(draft.body) <= CHANNEL_LIMITS[channel], draft.body
+            # As the channel counts it: X weighs every link at 23 characters (docs/32 §4.3 gate 1).
+            assert editorial.channel_length(draft.body, channel) <= CHANNEL_LIMITS[channel], draft.body
 
     @pytest.mark.parametrize("event_type", sorted(editorial.POSTABLE_EVENT_TYPES))
     def test_every_draft_carries_attribution_link_and_disclosure(self, event_type: str) -> None:
@@ -323,8 +324,12 @@ class TestTemplates:
         for channel in channels_for_event(event):
             draft = editorial.build_draft(event, channel)
             assert draft.attribution_line
-            assert draft.link_url == event.page_url
-            assert draft.body.count(draft.link_url) == 1
+            # The tagged link (content audit F15); the record address appears once in the body,
+            # inside the tagged link on X and LinkedIn and bare under a facet on Bluesky.
+            assert draft.link_url == editorial.link_for(event, channel)
+            assert f"utm_source={channel}" in draft.link_url
+            assert draft.body.count(event.page_url) == 1
+            assert (draft.link_url in draft.body) == (channel != "bluesky")
             assert draft.disclosure_text  # present as metadata on every draft, per task brief
 
     @pytest.mark.parametrize("event_type", sorted(editorial.POSTABLE_EVENT_TYPES))
@@ -376,7 +381,7 @@ class TestTemplates:
         )
         for channel in ("bluesky", "x"):
             draft = editorial.build_draft(event, channel)
-            assert len(draft.body) <= CHANNEL_LIMITS[channel]
+            assert editorial.channel_length(draft.body, channel) <= CHANNEL_LIMITS[channel]
             assert draft.body.count(event.page_url) == 1
             assert draft.attribution_line in draft.body
 
@@ -386,7 +391,7 @@ class TestTemplates:
             solicitation_title="Request for Proposals " * 30,
         )
         draft = editorial.build_draft(event, "x")
-        assert len(draft.body) <= CHANNEL_LIMITS["x"]
+        assert editorial.channel_length(draft.body, "x") <= CHANNEL_LIMITS["x"]
         assert draft.body.count(event.page_url) == 1
 
     def test_banned_words_fail_validation(self) -> None:

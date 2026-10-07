@@ -10,7 +10,7 @@ import dataclasses
 import datetime as dt
 from typing import Any, ClassVar
 
-from services.social.editorial import CHANNEL_LIMITS
+from services.social.editorial import CHANNEL_LIMITS, bare_url, channel_length
 from services.social.models import PostDraft, ValidationResult
 
 
@@ -75,9 +75,12 @@ class Publisher(abc.ABC):
         if draft.channel != self.channel:
             failures.append(f"draft is for channel {draft.channel!r}, not {self.channel!r}")
         limit = CHANNEL_LIMITS[self.channel]
-        if len(draft.body) > limit:
-            failures.append(f"length {len(draft.body)} exceeds {self.channel} limit {limit}")
-        if draft.body.count(draft.link_url) != 1:
+        length = channel_length(draft.body, self.channel)
+        if length > limit:
+            failures.append(f"length {length} exceeds {self.channel} limit {limit}")
+        # `link_url` is the tagged link; the body carries it (X, LinkedIn) or the bare record address
+        # under a link facet (Bluesky), so the bare address is what must appear once.
+        if draft.body.count(bare_url(draft.link_url)) != 1:
             failures.append("link_url must appear exactly once")
         if not draft.disclosure_text:
             failures.append("disclosure text missing")

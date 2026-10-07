@@ -25,6 +25,7 @@ from services.db.models import Event, Post, Proposal
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id
 from tests.conftest import make_account, make_user
+from tests.social_support import seed_graduated_pair
 from web.admin.posts import router as posts_router
 from web.api_client import ApiClient
 from web.app import app as web_app
@@ -288,9 +289,18 @@ def test_channels_owner_put_refused_without_disclosure(web_client: TestClient, d
 
 def test_channels_owner_put_succeeds_with_disclosure(web_client: TestClient, db_sessionmaker) -> None:
     _sign_in(web_client, db_sessionmaker, role="owner")
+    with db_sessionmaker() as db:
+        _proposal, event = _seed_event(db)
+        seed_graduated_pair(db, event, channel="bluesky", event_type="proposal.new")
+        db.commit()
     resp = web_client.post(
         "/admin/posts/channels/bluesky/auto-publish",
-        data={"auto_publish": "1", "disclosure_label_confirmed": "1", "reason": "graduation"},
+        data={
+            "auto_publish": "1",
+            "disclosure_label_confirmed": "1",
+            "event_types": "proposal.new",
+            "reason": "graduation",
+        },
         headers={"origin": "http://testserver"},
     )
     assert resp.status_code == 303

@@ -32,8 +32,9 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from services.api.common import WEB_HOST, ensure_aware
+from services.api.serialize import source_credit
 from services.api.visibility import gated_opportunity, gated_proposal, organization_visible
-from services.db.models import Event, Opportunity, Proposal
+from services.db.models import Event, Opportunity, Proposal, Source
 from services.social.editorial import SocialEvent
 
 
@@ -133,26 +134,70 @@ def _lifecycle_value(payload: dict[str, Any] | None, key: str = "lifecycle_state
     return (payload or {}).get(key) if payload else None
 
 
-def _proposal_social_event(event: Event, event_type: str, proposal: Proposal) -> SocialEvent:
+def credit_line_for(source: Source | None) -> str:
+    """The credit the record page prints for `source` (`web/templates/_macros.html`): the licence's
+    credit verbatim (`services.api.serialize.source_credit`: an operator override, else the
+    manifest's `attribution` plus its statement of changes), else `Source: {name}`. `source_credit`
+    falls back to the bare name, which the page prefixes, so the prefix is added only then."""
+    if source is None:
+        return ""
+    credit = source_credit(source)
+    return f"Source: {credit}" if credit == source.name else credit
+
+
+def _source_fields(event: Event) -> dict[str, Any]:
+    source = event.source
+    licence = event.licence
+    return {
+        "source_id": event.source_id or "",
+        "source_name": source.name if source else "",
+        "source_url": event.source_url or (source.url if source else ""),
+        "reuse_class": licence.reuse_class if licence else "unknown",
+        "credit_line": credit_line_for(source),
+        "source_category": source.category if source else None,
+        "licence_name": licence.name if licence else None,
+    }
+
+
+def live_survivor(db: Session, proposal: Proposal) -> Proposal:
+    """The record a merged-away proposal now lives in (`merged_into_id`, followed to its end; a
+    cycle or a missing row stops at the last good one). A post is about the project as the site
+    shows it now, with the survivor's field-survivorship values and page (content audit F9;
+    docs/22 §23), never about a record whose page redirects."""
+    seen = {proposal.id}
+    current = proposal
+    while current.merged_into_id is not None and current.merged_into_id not in seen:
+        nxt = db.get(Proposal, current.merged_into_id)
+        if nxt is None:
+            break
+        seen.add(nxt.id)
+        current = nxt
+    return current
+
+
+def _proposal_social_event(event: Event, event_type: str, proposal: Proposal) -> SocialEvent | None:
     # A post is a public surface: every field is the record's public served view
     # (`services/api/visibility.py::GatedRecord`), never a value from a hidden source.
     proposal = gated_proposal(proposal, "public")
+    if event_type == "proposal.status_changed" and proposal.lifecycle_state != _lifecycle_value(event.after):
+        # The post states the record's status now. A record that has since moved on (a later
+        # event, or a merged survivor whose own survivorship status differs) is not drafted from
+        # this event: the later event, if any, is the news.
+        return None
     location = proposal.location
     retrieved_at = ensure_aware(event.retrieved_at or event.recorded_at)
     withdrawal_reason = (
         _lifecycle_value(event.after, "status_raw") if event_type == "proposal.withdrawn" else None
     )
+    identifiers = proposal.identifiers or {}
+    plant = identifiers.get("eia_plant_id")
     return SocialEvent(
         event_id=_social_event_id(event),
         event_type=event_type,
         event_date=ensure_aware(event.observed_at).date(),
         subject_type="proposal",
         subject_id=str(proposal.id),
-        source_id=event.source_id or "",
-        source_name=event.source.name if event.source else "",
-        source_url=event.source_url or (event.source.url if event.source else ""),
         retrieved_at=retrieved_at,
-        reuse_class=event.licence.reuse_class if event.licence else "unknown",
         page_url=f"{WEB_HOST}/proposals/{proposal.slug}",
         lag_days=_event_lag_days(event),
         proposal_name=proposal.name_canonical,
@@ -160,6 +205,7 @@ def _proposal_social_event(event: Event, event_type: str, proposal: Proposal) ->
         capacity_mw=float(proposal.capacity_mw) if proposal.capacity_mw is not None else None,
         county=location.county_name if location else None,
         state=_state_code(location.state_code if location else None, proposal.jurisdiction),
+        country=(location.country if location and location.country else "US"),
         iso_rto=proposal.iso,
         queue_id=_queue_id(proposal.identifiers),
         docket_id=_docket_id(proposal.identifiers),
@@ -173,6 +219,9 @@ def _proposal_social_event(event: Event, event_type: str, proposal: Proposal) ->
             else None
         ),
         withdrawal_reason_code=withdrawal_reason,
+        kind=proposal.kind,
+        eia_plant_id=str(plant) if plant else None,
+        **_source_fields(event),
     )
 
 
@@ -218,11 +267,7 @@ def _opportunity_social_event(event: Event, event_type: str, opportunity: Opport
         event_date=ensure_aware(event.observed_at).date(),
         subject_type="opportunity",
         subject_id=str(opportunity.id),
-        source_id=event.source_id or "",
-        source_name=event.source.name if event.source else "",
-        source_url=event.source_url or (event.source.url if event.source else ""),
         retrieved_at=retrieved_at,
-        reuse_class=event.licence.reuse_class if event.licence else "unknown",
         page_url=f"{WEB_HOST}/opportunities/{opportunity.slug}",
         lag_days=_event_lag_days(event),
         technology=technology,
@@ -234,6 +279,7 @@ def _opportunity_social_event(event: Event, event_type: str, opportunity: Opport
         solicitation_title=opportunity.title,
         issuer_org=issuer_org,
         deadline_date=deadline_date,
+        **_source_fields(event),
     )
 
 
@@ -256,7 +302,7 @@ def social_event_from_db(db: Session, event: Event) -> SocialEvent | None:
             raise SubjectNotFoundError(
                 f"proposal {event.subject_id} referenced by event seq={event.seq} not found"
             )
-        return _proposal_social_event(event, event_type, proposal)
+        return _proposal_social_event(event, event_type, live_survivor(db, proposal))
 
     opportunity = db.get(Opportunity, event.subject_id)
     if opportunity is None:
@@ -266,4 +312,4 @@ def social_event_from_db(db: Session, event: Event) -> SocialEvent | None:
     return _opportunity_social_event(event, event_type, opportunity)
 
 
-__all__ = ["SubjectNotFoundError", "social_event_from_db"]
+__all__ = ["SubjectNotFoundError", "credit_line_for", "live_survivor", "social_event_from_db"]

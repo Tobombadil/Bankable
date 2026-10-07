@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session, selectinload
 from starlette.middleware.gzip import GZipMiddleware
 
 from pipeline.connectors.opportunity import OPPORTUNITY_TECHNOLOGIES
+from services.alerts.evaluate import describe_change
 from services.api.alert_plan import free_alerts_summary
 from services.api.auth import AuthContext, get_auth_context, meter_credentialed_request
 from services.api.build_info import build_info, data_as_of
@@ -1115,13 +1116,15 @@ def feed_events(format: str, request: Request, db: Session = Depends(get_db)) ->
         info = infos[e.subject_id]
         items.append(
             {
-                "title": f"{info['subject_name']}: {e.event_type}",
+                # What changed, in words (content audit F10: every item read "{name}: field_changed"),
+                # from the event row's own before/after, as the alert emails say it.
+                "title": f"{info['subject_name']}: {describe_change(e)}",
                 "url": info["subject_url"],
                 "guid": _event_public_id_for(e),
                 "pub_date": e.public_at,
                 "creator": source_credit(e.source) if e.source else "the platform",
                 "categories": [e.event_type, e.subject_type],
-                "description": f"{info['subject_name']}: {e.event_type}",
+                "description": f"{info['subject_name']}: {describe_change(e)}",
                 "platform_ext": {
                     "event_type": e.event_type,
                     "subject": {

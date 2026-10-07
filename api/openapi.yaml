@@ -4777,8 +4777,9 @@ paths:
         Owner role only. Default `false` for every channel: nothing publishes without a human approval unless
         the owner has switched the channel on here (US-802 AC2). Audited as an event with `actor_type = user` and
         the mandatory `reason`. Turning a channel on also requires `disclosure_label_confirmed = true` — the
-        automated-account label is set on the platform where required (US-803 AC3). Only Bluesky, LinkedIn and X
-        exist; there is no channel with reply or DM capability (US-804).
+        automated-account label is set on the platform where required (US-803 AC3) — and `event_types`, each of
+        which must pass docs/32 §4.6 graduation; LinkedIn never auto-publishes (`422 gate_unmet`). Only Bluesky,
+        LinkedIn and X exist; there is no channel with reply or DM capability (US-804).
       x-tier: admin
       x-status: live
       x-sprint: 2
@@ -13840,6 +13841,13 @@ components:
           type: [string, 'null']
         reject_reason:
           type: [string, 'null']
+        gate_failures:
+          type: array
+          description: |
+            The docs/32 §4.3 validation gates this draft fails. A failing draft is kept for review rather than
+            dropped; it cannot be approved until an edit clears every failure. Empty when it passes.
+          items:
+            type: string
         metrics:
           type: object
           properties:
@@ -13905,6 +13913,14 @@ components:
         disclosure_label_confirmed:
           type: boolean
           description: Required `true` when enabling.
+        event_types:
+          type: array
+          description: |
+            Required when enabling: the event types to auto-publish on this channel. Each (channel, event type)
+            pair must pass docs/32 §4.6 graduation at the time of the request, else `422 gate_unmet` naming the
+            unmet thresholds; the drafting worker re-checks graduation for every post. LinkedIn is refused.
+          items:
+            type: string
         daily_cap:
           type: [integer, 'null']
           description: Posts per day; X also has a budget cap in config.
@@ -13940,6 +13956,11 @@ components:
           type: [number, 'null']
         disclosure_label:
           type: [string, 'null']
+        auto_publish_event_types:
+          type: array
+          description: The event types the owner enabled for auto-publish on this channel (empty when off).
+          items:
+            type: string
         capabilities:
           type: array
           description: The only operations the integration layer exposes (US-804 AC1).

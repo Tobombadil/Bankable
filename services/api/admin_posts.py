@@ -21,8 +21,18 @@ Decisions (numbered; see `services/api/admin_posts.md` for the full rationale an
    enforces it as non-empty (`400 validation_error`), per the task brief's audit rule.
 4. `ChannelAutoPublishRequest` carries no disclosure-label *text*, only the
    `disclosure_label_confirmed` boolean gate (CLAUDE.md: automated accounts are labelled).
-   Enabling a channel stores a fixed platform label (`_DEFAULT_DISCLOSURE_LABEL`); disabling clears
-   it. The actual per-platform label copy is a follow-up (see the .md).
+   Enabling stores the channel's docs/13 §6.5 account disclosure (`editorial.disclosure_text_for`,
+   posture-aware); disabling clears it. Since 2026-10-07 (content audit F11, legal L-8) enabling
+   also names the event types (`event_types`), refuses LinkedIn, and refuses any pair that does
+   not pass docs/32 §4.6 graduation now (`services/social/graduation.py`); the worker re-checks
+   graduation at every draft, and an auto-published post carries §6.5's trailing line in its body.
+9. Edits (content audit F5): a body is checked against what a reviewer may not remove -- the record
+   address once (the tagged `link_url` carries it; Bluesky's body shows it bare) and the credit
+   line -- and, for a post drafted with a fields snapshot (migration 0033), against every docs/32
+   §4.3 gate the drafting worker applied (`editorial.validate_draft`). The account disclosure
+   (`disclosure_label`) is account metadata, not body text, so it is not required in the body; an
+   auto-published post's trailing automated line is. A draft held by the gates (`gate_failures`)
+   cannot be approved until an edit clears them.
 5. `channel_config` has no surrogate UUID key (its PK is the channel name); audit events for it use
    a `uuid5` derived deterministically from the channel name as `Event.subject_id`, the same
    escape hatch `docs/21` already allows for id-less rows.
@@ -93,6 +103,8 @@ from services.db.models import (
     User,
 )
 from services.ids import public_id
+from services.social import editorial
+from services.social.graduation import NEVER_AUTO_PUBLISH, graduation_status
 from services.social.models import REJECT_REASONS
 
 router = APIRouter()
@@ -140,7 +152,6 @@ CHANNEL_BODY_LIMITS = {"bluesky": 300, "x": 280, "linkedin": 3000}
 _GATE_MAX_AGE = dt.timedelta(hours=24)
 _APPROVE_REASON = "Approved via the social review queue (US-802)."
 _CHANNEL_CAPABILITIES = ["create_post", "read_metrics"]  # US-804 AC1: nothing else is exposed.
-_DEFAULT_DISCLOSURE_LABEL = "Automated post — see disclosure"
 
 _JURISDICTION_RE = re.compile(r"^[A-Z]{2}(-[A-Z0-9]{1,3})?$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -288,6 +299,7 @@ def serialize_post(db: Session, post: Post) -> dict[str, Any]:
         "metrics": post.metrics or {},
         "cost_usd": float(post.cost_usd),
         "created_at": iso(post.created_at),
+        "gate_failures": list(post.gate_failures or []),
     }
 
 
@@ -374,6 +386,29 @@ def admin_get_post(
     return _post_envelope(serialize_post(db, post))
 
 
+def _edit_failures(post: Post, new_body: str) -> list[str]:
+    """The docs/32 §4.3 gates an edited body fails (decision 9). Without a fields snapshot (a post
+    drafted before migration 0033) only the substring checks in the caller apply."""
+    if not post.fields_snapshot:
+        return []
+    event = editorial.event_from_snapshot(dict(post.fields_snapshot))
+    failures: list[str] = []
+    if post.auto_published:
+        line = editorial.automated_line_for(event)
+        if line not in new_body:
+            failures.append("an edit cannot remove the automated-item line")
+    result = editorial.validate_draft(
+        new_body,
+        event,
+        post.channel,
+        attribution_line=post.credit_line,
+        disclosure_text=post.disclosure_label or editorial.disclosure_text_for(post.channel),
+        delayed_tier_notice=editorial.delayed_tier_notice_for(event, post.channel),
+    )
+    failures.extend(result.failures)
+    return failures
+
+
 @router.patch("/admin/v1/posts/{post_id}")
 def admin_update_post(
     post_id: str,
@@ -408,15 +443,18 @@ def admin_update_post(
         if not isinstance(new_body, str) or not new_body.strip():
             raise validation_error("body", "body must be non-empty text", instance)
         limit = CHANNEL_BODY_LIMITS.get(post.channel)
-        if limit is not None and len(new_body) > limit:
+        length = editorial.channel_length(new_body, post.channel)
+        if limit is not None and length > limit:
             detail = f"exceeds the {post.channel} limit of {limit} characters"
             raise validation_error("body", detail, instance)
-        if post.link_url not in new_body or post.credit_line not in new_body:
+        if new_body.count(editorial.bare_url(post.link_url)) != 1 or post.credit_line not in new_body:
             raise validation_error(
                 "body", "an edit cannot remove the detail-page link or the source credit line", instance
             )
-        if post.disclosure_label and post.disclosure_label not in new_body:
-            raise validation_error("body", "an edit cannot remove the disclosure label", instance)
+        failures = _edit_failures(post, new_body)
+        if failures:
+            raise validation_error("body", "; ".join(failures), instance)
+        post.gate_failures = None
         post.body = new_body
         after["body"] = new_body
 
@@ -459,6 +497,15 @@ def admin_approve_post(
             "conflict",
             "Post not in draft",
             detail=f"state is {post.state!r}; only a draft can be approved.",
+            instance=instance,
+        )
+    if post.gate_failures:
+        raise ProblemError(
+            "gate_unmet",
+            "Draft fails its validation gates",
+            detail=(
+                "Edit the body until every gate passes before approving: " + "; ".join(post.gate_failures)
+            ),
             instance=instance,
         )
     _check_gate(db, post, instance=instance)  # US-801 AC3, re-checked here
@@ -608,6 +655,7 @@ def serialize_channel_config(
         "daily_cap": config.daily_cap if config else None,
         "budget_usd_monthly": None,
         "disclosure_label": config.disclosure_label if config else None,
+        "auto_publish_event_types": list(config.auto_publish_event_types or []) if config else [],
         "capabilities": list(_CHANNEL_CAPABILITIES),
         "changed_by_user_id": changed_by_user_id,
         "event_id": event_id,
@@ -662,21 +710,55 @@ def admin_set_channel_auto_publish(
     if not reason:
         raise validation_error("reason", "reason is required", instance)
     disclosure_confirmed = bool(body.get("disclosure_label_confirmed", False))
-    if auto_publish and not disclosure_confirmed:
-        raise ProblemError(
-            "gate_unmet",
-            "Disclosure not confirmed",
-            detail=(
-                "Enabling auto-publish requires disclosure_label_confirmed=true "
-                "(CLAUDE.md: automated accounts are labelled)."
-            ),
-            instance=instance,
-        )
+    event_types: list[str] = []
+    if auto_publish:
+        if channel in NEVER_AUTO_PUBLISH:
+            raise ProblemError(
+                "gate_unmet",
+                "Channel never auto-publishes",
+                detail="LinkedIn posts stay human-reviewed by decision (docs/32 §1.4, §4.6).",
+                instance=instance,
+            )
+        if not disclosure_confirmed:
+            raise ProblemError(
+                "gate_unmet",
+                "Disclosure not confirmed",
+                detail=(
+                    "Enabling auto-publish requires disclosure_label_confirmed=true "
+                    "(CLAUDE.md: automated accounts are labelled)."
+                ),
+                instance=instance,
+            )
+        raw_types = body.get("event_types")
+        if (
+            not isinstance(raw_types, list)
+            or not raw_types
+            or not all(isinstance(t, str) and t in editorial.POSTABLE_EVENT_TYPES for t in raw_types)
+        ):
+            raise validation_error(
+                "event_types",
+                f"name one or more event types to enable, from {sorted(editorial.POSTABLE_EVENT_TYPES)}",
+                instance,
+            )
+        event_types = sorted(set(raw_types))
+        now = utcnow()
+        unmet = []
+        for event_type in event_types:
+            result = graduation_status(db, channel, event_type, now=now)
+            if not result.eligible:
+                unmet.append(f"{event_type}: {'; '.join(result.reasons)}")
+        if unmet:
+            raise ProblemError(
+                "gate_unmet",
+                "Graduation not met",
+                detail="Auto-publish needs docs/32 §4.6 graduation for each pair. " + " | ".join(unmet),
+                instance=instance,
+            )
 
     config = db.get(ChannelConfig, channel)
     before: dict[str, Any]
     if config is None:
-        before = {"auto_publish": False, "daily_cap": None, "disclosure_label": None}
+        before = {"auto_publish": False, "daily_cap": None, "disclosure_label": None, "event_types": []}
         config = ChannelConfig(channel=channel, auto_publish=False)
         db.add(config)
         db.flush()
@@ -685,11 +767,14 @@ def admin_set_channel_auto_publish(
             "auto_publish": config.auto_publish,
             "daily_cap": config.daily_cap,
             "disclosure_label": config.disclosure_label,
+            "event_types": list(config.auto_publish_event_types or []),
         }
     config.auto_publish = auto_publish
     if "daily_cap" in body:
         config.daily_cap = body["daily_cap"]
-    config.disclosure_label = _DEFAULT_DISCLOSURE_LABEL if auto_publish else None  # decision 4
+    # decision 4: the docs/13 §6.5 account disclosure, posture-aware, while auto-publish is on.
+    config.disclosure_label = editorial.disclosure_text_for(channel) if auto_publish else None
+    config.auto_publish_event_types = event_types or None
     config.updated_by_user_id = user.id
     db.flush()
 
@@ -705,6 +790,7 @@ def admin_set_channel_auto_publish(
             "auto_publish": config.auto_publish,
             "daily_cap": config.daily_cap,
             "disclosure_label": config.disclosure_label,
+            "event_types": event_types,
         },
     )
     data = serialize_channel_config(
