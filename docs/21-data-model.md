@@ -1289,8 +1289,11 @@ longer takes C's links (before this change it did, because it moved every listed
 change has no previous-value map and its links were never stamped; its unmerge still moves its listed ids, as
 before. Measured on the eval pull (docs/22 §13.7): 407 of 407 re-pointed links had no `link_event_id` before,
 0 after. Departures from this section and §3.2, recorded rather than changed: (1) `link_event_id` is nullable in
-the model and nothing writes `source_linked` events, so a link attached by its loader has null, not "the event that
-created this row"; the column means "the merge that attached this row to its current record". (2) Finding links a
+the model and the loaders write no `source_linked` events, so a link attached by its loader has null, not "the event that
+created this row"; the column means "the merge that attached this row to its current record". Since 2026-10-07 one
+writer does: the operating close-out (`services/resolve/closeout.py`, docs/22 §23.8) attaches an EIA operating plant to a
+queue record with a `source_linked` event and stamps that event on the link, as §3.2 specifies; its reversal is a
+`source_unlinked` event with `reverses_event_id`. (2) Finding links a
 later merge carried onward reads that merge's event, so M1 ("without reading any other row") holds for in-order
 unmerges only. (3) `organization_alias`, `asset_owner` and `match` have no `link_event_id`; an organisation merge
 moves aliases and edges by the ids listed in its payload, and no merge moves matches or opportunity links

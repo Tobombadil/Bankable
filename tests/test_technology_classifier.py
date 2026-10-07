@@ -17,7 +17,7 @@ import pathlib
 import pandas as pd
 import pytest
 
-from pipeline.normalize import TECH_RULES, classify_tech
+from pipeline.normalize import TECH_RULES, caiso_technology, classify_tech, technologies_of
 from pipeline.resolve import TECH_FAMILIES
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -87,6 +87,74 @@ def test_every_raw_string_in_the_table_gets_its_pinned_class() -> None:
 )
 def test_the_audited_rule_order_cases(raw: str, tech: str) -> None:
     assert classify_tech(raw)[0] == tech
+
+
+@pytest.mark.parametrize(
+    ("raw", "tech"),
+    [
+        # Firm generation with co-located storage is the generation (review finding 11).
+        ("CCGT (Combined Cycle Gas Turbine);Energy Storage System;OCGT (Open Cycle Gas Turbine)", "gas_cc"),
+        ("Combined Cycle + Storage", "gas_cc"),
+        ("Storage + Gas Turbine", "gas_ct"),
+        ("Energy Storage System;Tidal", "marine"),
+        # Solar or wind with storage keep their hybrid classes; storage with nothing firm stays.
+        ("Energy Storage System;PV Array (Photo Voltaic/solar)", "solar_storage"),
+        (
+            "CCGT (Combined Cycle Gas Turbine);Energy Storage System;"
+            "PV Array (Photo Voltaic/solar);Wind Onshore",
+            "solar_storage",
+        ),
+        ("Energy Storage System;Wind Onshore", "wind_storage"),
+        ("Demand;Energy Storage System;Reactive Compensation", "storage"),
+        ("Storage + Other", "storage"),
+        ("Energy Storage System;Pump Storage;Thermal", "pumped_storage"),
+        ("Interconnector;Wind Offshore", "wind_offshore"),
+    ],
+)
+def test_compound_strings(raw: str, tech: str) -> None:
+    assert classify_tech(raw)[0] == tech
+
+
+@pytest.mark.parametrize(
+    ("types", "fuels", "tech"),
+    [
+        # CAISO's "Steam Turbine" is the turbine, not the plant (review: 148 of 2,278 rows were
+        # gas steam; Ivanpah, Diablo Canyon Unit 1, Edwards Creek geothermal).
+        (["Steam Turbine"], ["Solar"], "solar_thermal"),
+        (["Steam Turbine"], ["Geothermal"], "geothermal"),
+        (["Steam Turbine"], ["Biofuel"], "biomass"),
+        (["Steam Turbine"], ["Nuclear"], "nuclear"),
+        (["Steam Turbine"], ["Natural Gas"], "gas_steam"),
+        (["Steam Turbine", "Steam Turbine"], ["Biofuel", "Biofuel"], "biomass"),
+        (["Reciprocating Engine"], ["Biofuel"], "biomass"),
+        (["Reciprocating Engine"], ["Natural Gas"], "gas_ice"),
+        (["Cogeneration"], ["Natural Gas"], "gas_other"),
+        (["Other"], ["Natural Gas"], "gas_other"),
+        (["Storage"], ["Pumped-Storage hydro"], "pumped_storage"),
+        (["Storage"], ["Battery"], "storage"),
+        (["Steam Turbine", "Storage"], ["Geothermal", "Battery"], "geothermal"),
+        (["Steam Turbine", "Storage"], ["Natural Gas", "Battery"], "gas_steam"),
+        (["Photovoltaic", "Storage"], ["Solar", "Battery"], "solar_storage"),
+        (["Wind Turbine", "Storage"], ["Wind Turbine", "Battery"], "wind_storage"),
+    ],
+)
+def test_caiso_type_and_fuel(types: list[str], fuels: list[str], tech: str) -> None:
+    row = {f"Type-{i}": t for i, t in enumerate(types, 1)} | {f"Fuel-{i}": f for i, f in enumerate(fuels, 1)}
+    assert caiso_technology(row) is not None
+    assert caiso_technology(row)[0] == tech
+
+
+def test_a_caiso_frame_is_classified_from_type_and_fuel_not_generation_type() -> None:
+    frame = pd.DataFrame(
+        {
+            "Generation Type": ["Steam Turbine", "Steam Turbine", "Photovoltaic"],
+            "Type-1": ["Steam Turbine", "Steam Turbine", "Photovoltaic"],
+            "Fuel-1": ["Nuclear", "Natural Gas", "Solar"],
+        }
+    )
+    assert [t for t, _ in technologies_of(frame)] == ["nuclear", "gas_steam", "solar"]
+    # A frame without component columns (ERCOT, NYISO) is classified from Generation Type.
+    assert [t for t, _ in technologies_of(frame[["Generation Type"]])] == ["gas_steam", "gas_steam", "solar"]
 
 
 def test_every_class_the_rules_emit_has_a_resolver_family() -> None:

@@ -34,8 +34,9 @@ PJM (API key) and MISO (Cloudflare 403) are out of scope until the gates in `doc
 One row per source record, columns from `docs/02` §5 plus resolution keys:
 `record_id, source_id, source_record_id, source_url, retrieved_at, licence | kind, name_canonical, name_norm,
 sponsor_name, sponsor_norm, technology, technology_raw, capacity_mw, storage_mwh | iso, state, county, county_norm |
-lifecycle_state, status_raw, status_rule, status_conflict, queue_date, proposed_cod | queue_id, eia_plant_id,
-eia_generator_id, cross_refs`.
+lifecycle_state, status_raw, status_rule, status_conflict, queue_date, proposed_cod | study_phase, ia_date,
+withdrawn_date, actual_cod | queue_id, eia_plant_id, eia_generator_id, cross_refs`. The four milestone columns were added
+2026-10-07 (§3.2).
 
 Field coverage across the 14,388 records (non-null): state 97.5%, capacity 86.9%, county 89.0%, queue_date
 74.0%, name **69.2%**, proposed_cod 68.3%, sponsor **39.8%** (only ERCOT and EIA publish one), eia_plant_id 16.3%
@@ -72,8 +73,34 @@ Decisions taken in normalisation, each of which changed a measured number:
   `other`→`marine` 7, `wind_storage`→`pumped_storage` 1 for "Pump Storage;Wind Onshore"), permits dashboard 26 of
   104 (21 federal offshore wind, 5 LNG terminals), ERCOT 1 of 1,778; EIA-860M, its plant context, CAISO, NYISO and
   Virginia DEQ 0. Every distinct raw string in those frames (163) is pinned raw → class in
-  `data/eval/technology_classes.csv` by `tests/test_technology_classifier.py`. Not fixed: a NESO compound string
-  takes its first matching rule, so "CCGT;Demand;Energy Storage System;Hydrogen;OCGT" is `storage`.
+  `data/eval/technology_classes.csv` by `tests/test_technology_classifier.py`. Not fixed then: a NESO compound string
+  took its first matching rule, so "CCGT;Demand;Energy Storage System;Hydrogen;OCGT" was `storage`.
+  **Corrected 2026-10-07** (lane L10, interconnection analyst review findings 2.3 and 11). (i) *CAISO is classified
+  from each component's type and fuel*, not from gridstatus's `Generation Type`, which joins the types alone
+  (`pipeline/normalize.py::caiso_technology`, `CAISO_FUEL_LABELS`). "Steam Turbine" is the turbine, not the plant: 148
+  of 2,278 CAISO rows were `gas_steam` with Fuel-1 Solar (96, Ivanpah, Mojave Solar), Geothermal (34, Edwards Creek),
+  Biofuel (15) or Nuclear (3, Diablo Canyon Unit 1). A steam turbine on solar is `solar_thermal`, on geothermal
+  `geothermal`, on biofuel `biomass`, on nuclear `nuclear`; a reciprocating engine or cogeneration unit on biofuel is
+  `biomass`; "Other"/"Cogeneration" on natural gas is `gas_other`; "Storage" on pumped-storage hydro or water is
+  `pumped_storage`. A gas steam turbine stays `gas_steam`. `technology_raw` stays gridstatus's text verbatim; the
+  fuels are in `raw`. (ii) *Firm generation with co-located storage is the generation*
+  (`classify_components`): when a compound (NESO ";", CAISO " + ") holds storage and a firm component (gas,
+  nuclear, geothermal, biomass, hydro, pumped storage, marine) and no solar or wind, it is classified from its
+  non-storage components. Eggborough "CCGT;Energy Storage System;OCGT" (1,999 MW) is `gas_cc`, not `storage`.
+  Solar or wind with storage keep their hybrid classes. Rows that change class on the latest frames, before → after:
+
+  | Source | Class: before → after |
+  |---|---|
+  | CAISO (191 of 2,278 rows) | gas_steam 160 → 14; solar_thermal 3 → 100; geothermal 0 → 35; biomass 0 → 21; nuclear 0 → 3; pumped_storage 0 → 9; gas_other 0 → 7; storage 511 → 482; gas_ct 118 → 131; gas_cc 95 → 96; gas_ice 15 → 11; other 11 → 2; solar_storage 434 → 437; solar 701 → 700 |
+  | NESO (25 of 2,198 rows) | storage 804 → 779; gas_cc 56 → 67; gas_ice 7 → 13; marine 7 → 12; gas_ct 18 → 21 |
+  | ERCOT, NYISO, EIA-860M | 0 |
+
+  Of the 14 CAISO rows still `gas_steam`, 11 have Fuel-1 Natural Gas, among them "DIABLO CANYON P.P. UNIT 2" (a CAISO
+  data error: Unit 1 says Nuclear) and "TITAN SOLAR"; the classifier follows the register. One CAISO row "Photovoltaic +
+  Steam Turbine" on solar moves `solar` → `solar_thermal` (the solar-thermal rule precedes plain solar). The 14 table
+  rows these rules move are listed in `tests/test_technology_classifier.py::AMENDED`, because this lane may not write
+  under `data/`; they should be folded into `data/eval/technology_classes.csv`. The classifier change reaches stored
+  frames as a parser restatement (§8.4): no events. Resolver effect in §23.11.
 - **Cross-references** in names (`"Chazy Lake BESS (NYISO-C24-308)"`) are extracted into `cross_refs`
   only when the id contains a digit; the first version matched prose ("PJM Rainey") and was wrong.
 
@@ -175,6 +202,39 @@ synchronisation approval (116,684 MW; 464 with a projected COD after 2026-09-30)
 contracted state; that text is gridstatus's label and reads as completion. The rendering belongs to the
 frontend lane. `data/vocabulary/lifecycle_states.yaml`'s `studied` note names ERCOT's energisation approval as
 its refine column; IA signed and synchronisation now also apply.
+
+### 3.2 Milestones the registers state (2026-10-07, lane L10)
+
+The analyst review (§5 item 3) asked for queue date, study phase, IA date and withdrawn date as first-class fields.
+They were in the raw rows and nowhere else. `pipeline/normalize.py::MILESTONE_SOURCES` now reads them into four
+canonical columns beside `queue_date`, one table for the frame and for a stored row's `raw` (`milestones_from_raw`):
+
+| Field | CAISO | ERCOT | NYISO | NESO, EIA-860M |
+|---|---|---|---|---|
+| `queue_date` | Queue Date (2,278 of 2,278) | Queue Date (1,778 of 1,778) | Queue Date (1,814 of 1,814) | not stated |
+| `study_phase` (verbatim text) | Study Process, the cluster or serial process: "C14", "Serial LGIP" (2,277) | GIM Study Phase: "SS Completed, FIS Started, No IA" (1,778) | Availability of Studies: "SRIS, FS" (226; empty on every active row in the gridstatus parse) | not stated |
+| `ia_date` | not stated (CAISO publishes the agreement's status, not its date) | IA Signed (580) | not stated (SGIA Tender Date empty) | not stated |
+| `withdrawn_date` | Withdrawn Date (1,723, every withdrawn row) | not stated (withdrawn projects leave the file) | Withdrawn Date (1,371 of 1,453 withdrawn) | not stated |
+| `actual_cod` | Actual Completion Date (238, every one on a built row) | Actual Completion Date, else Approved for Synchronization (117, every built row) | Actual Completion Date (132 of 151 built) | not stated (an EIA operating plant gives its first operating year, §23.8) |
+
+Counts are rows of the latest frames (2026-10-07 re-parse). Where they go:
+
+- **Each link** (`proposal_source.normalised`) carries the milestones its row states
+  (`services/ingest/loader.py::_proposal_milestones_from_row`). A frame written before the columns existed is read
+  from the row's `raw` payload by the same table, so the first reload carries them, and survivorship reads them from
+  `raw` on a link stored earlier (`survivorship.link_values`).
+- **The record**: the proposal table has no column for them, so each is stored as `field_provenance[<milestone>]`,
+  the usual provenance entry plus `value`. A single-source record takes its row's; a merged record takes them by the
+  §23.1 rule. No migration.
+- **Not yet served.** The API and web lanes surface them. The served rule is the one every field has: a value is
+  served only when its `source_id` is readable at the caller's tier, else re-derived over readable links
+  (`survivorship.milestones`). `study_phase` is the register's verbatim text, a raw-class value like `status_raw`: it
+  must be withheld under a derived-only licence (CAISO).
+
+Measured on a dev store built from the latest frames re-derived under this code (§23.11): live records with a
+`queue_date` 5,882; `study_phase` 4,238; `ia_date` 557; `withdrawn_date` 3,081 of 3,215 withdrawn; `actual_cod` 491 of
+1,387 built (CAISO 238 of 251, ERCOT 113 of 113, NYISO 132 of 151, the 8 operating close-outs; NESO's 375 and the
+489 data-centre records state none).
 
 ## 4. Entity resolution (`pipeline/resolve.py`)
 
@@ -2645,6 +2705,33 @@ the `other` bridge; the ordering of the cluster check).
 even when the two share a site and a sponsor. If the product later wants "CCS at plant X" linked to plant X,
 that is a relation between two proposals, not a merge.
 
+### 22.13 Two cluster checks: two plants each with its own request; a completed request against a planned unit (lane L10, 2026-10-07)
+
+From the 2026-10-07 resolution audit (RES-3, RES-4 recommendation 1). Both are whole-cluster checks in
+`services/resolve/merge.py::gate_cluster`, after rule K; a cluster that fails goes to review, not to merge, like rule K.
+`ClusterMember` gains `name`, `lifecycle_state`, `status_rule` and a date (`services/resolve/report.py::build_clusters`).
+
+- **Multi-plant** (`multi_plant_conflict`, RES-3). Two EIA plants of one technology family, each with a request of its
+  own name (the resolver's `mean` score over `norm_name` at least 95, equal phase numbers) that the other plant lacks,
+  are two projects bridged by weaker cross edges. "Barton Branch IA" + "Bee Branch IA" (ERCOT 22INR0504 and 23INR0421;
+  EIA 69392 and 70400) was one 407.37 MW record. One request over several plants (Darden) and a hybrid filed as two
+  plants of different technologies (Hermes) do not fire.
+- **Completed against planned** (`completed_planned_conflict`, RES-4). A request its register reports completed,
+  beside an EIA-860M Planned unit (the sheet lists units not yet operating), is an expansion or another project unless
+  the two dates are within 365 days. The request is dated by its completion date where the frame states one
+  (`actual_cod`, §3.2), else its proposed date; a missing date does not clear the pair. ERCOT's `built` is its
+  synchronisation milestone (§3.1), which precedes EIA's commercial operation, so ERCOT requests are not judged.
+  Interpretation recorded: RES-4 left "the CODs" open for a completed request; its completion date is the one that
+  means something.
+
+Measured. Dev store (§23.10): fires on exactly the Barton/Bee cluster and CAISO 1211 "ROSAMOND SOUTH EAST" (completed
+2025-08-12) against "Rosamond South II" (EIA 69648, under construction, 2026-11); merges 544 → 538, review decisions
+16 → 22. "CENTENNIAL FLATS" (CAISO 1529, completed 2026-07-20, against EIA 68466's units due 2026-09) is within the
+window and stays merged: RES-4 judged it "uncertain, probably an expansion"; with a frame that lacks the completion date
+(any frame written before §3.2) it goes to review. Eval pull (§23.11): the same two clusters go to review, P/R unchanged.
+RES-4 recommendations 2-4 (direction words against phase tokens, rule Q with a no-MW sibling, labels for all 10) are
+not done. Tests: `services/resolve/test_cluster_guards.py` (3).
+
 ## 23. Field survivorship on a merged proposal (lane FS, 2026-10-07)
 
 **Status:** implemented and measured. Code: `services/resolve/survivorship.py` (the rules), called from
@@ -2673,7 +2760,8 @@ anything else **other**. A request is *live* unless its state is withdrawn/cance
 |---|---|---|
 | `capacity_mw` (and `storage_mwh`) | Sum of the live requests, one source's rows with the same technology, MW and phase number counted once; plus any inventory generator of a technology family no live request covers. Else the inventory summed (the plant rollup). Else every request summed. Else the largest stated value. | The request is what is proposed at the grid: its MW is the point-of-interconnection limit. EIA nameplate counts a hybrid's halves separately (§22.1: "Bellefield 2: 500 MW solar + 500 MW storage behind one 500 MW request"; `coherence_ratio`: "its MW is the point-of-interconnection total"). So the inventory total is shown beside it, not instead of it (§23.4). The phase-aware dedupe is §22.1's NYISO reading ("KCE NY 30" as C24-008 and 1448) without collapsing equal phases (Roseland Solar and Roseland Solar II, 254 MW each). The uncovered-family term exists because ERCOT files a hybrid as two requests and may hold only one (Albatross: a 50.4 MW storage request beside EIA's 101 MW solar). |
 | `technology`, `technology_raw`, `kind` | From the members that supplied capacity: one value when they agree; solar + storage is `solar_storage`, wind + storage `wind_storage`; otherwise the largest member's. | The class describes the MW printed beside it. |
-| `lifecycle_state` with `status_raw` | One member supplies both: the most advanced state among members still on their register (announced < filed < studied < permitted < contracted < under_construction < built). A withdrawn member does not end a project another member shows progressing; the record is withdrawn/cancelled only when every member is. `unknown` never wins. Ties: most recent retrieval, larger member, source id, record id. | Registers lag rather than regress: an EIA-860M "(T) approvals received" row beside a CAISO request with an executed IA is the same project behind on paperwork. The audit's 20 survivors reading `announced` while ERCOT had the IA signed are this case. The conflict is not hidden: the rule is `most_advanced_of_conflicting` and the page lists every member's own status. |
+| `lifecycle_state` with `status_raw` | One member supplies both, in this precedence (amended 2026-10-07, §23.9): (1) **a withdrawn queue position decides** (`withdrawn_request_wins`): a request withdrawn or cancelled on its register ends the record unless a live request carries the project on, that is, a request filed later (a re-filing) or one the withdrawn request was a smaller add-on to; it outranks the plant inventory and an operating plant; (2) **an EIA operating plant outranks a stale queue status** (`operating_plant_outranks_queue`, §23.8); (3) otherwise the most advanced state among members still on their register (announced < filed < studied < permitted < contracted < under_construction < built); the record is withdrawn/cancelled when every member is. `unknown` never wins. Ties: most recent retrieval, larger member, source id, record id. | (1) The vocabulary's own rule, "withdrawal wins over later-looking evidence" (`data/vocabulary/lifecycle_states.yaml`), applied across members: an EIA-860M Planned row naming a withdrawn queue position is the inventory lagging, not the project progressing (High Bridge Wind). (3) Registers lag rather than regress: an EIA-860M "(T) approvals received" row beside a CAISO request with an executed IA is the same project behind on paperwork. The conflict is not hidden: the rule is named and the page lists every member's own status. |
+| milestones (`queue_date`, `study_phase`, `ia_date`, `withdrawn_date`, `actual_cod`; §3.2) | Each from the member that supplies the lifecycle when it states one, else the next member in lifecycle precedence that does. `withdrawn_date` only on a withdrawn or cancelled record, from a terminal member; `actual_cod` only on a built record, from a built member. Stored as `field_provenance[<milestone>]` with `value`. | The status line, its queue position and its dates read together. A live record never shows another member's withdrawal, and a planned record never shows an operation date. |
 | `proposed_online_date` | The lifecycle winner's date, else the next member in the same order that states one. | The status line and the date read with it come from one register (the slip note says "X still reports ..."). |
 | `name_canonical` | The inventory plant with the most MW (the stored name kept when it is a tied candidate); else the largest live request's; else the stored name when a member states it; else the most recent member's. | Queue names are often codes or upper case ("DARDEN", "NY128 - Foothills Solar"). Keeping a tied stored name means a restatement does not rename a record for nothing; slugs never change. |
 | `jurisdiction`, `iso` | The most common subdivision-level value (stored wins a tie); the requests' operator. | |
@@ -2795,8 +2883,9 @@ ERCOT's next load does: 465 built → contracted, 4 built → under_construction
 
 ### 23.7 Assumptions and open items
 
-- A-23-1: registers lag rather than regress, so the most advanced state wins. A stale EIA "operating" against a
-  request withdrawn for a *different* phase would read built. The member table shows both.
+- A-23-1: registers lag rather than regress, so the most advanced state wins among members that are not a deciding
+  withdrawal. *Amended 2026-10-07 (§23.9):* a withdrawn queue position no live request carries on now decides the
+  record, also against an operating plant matched to it (the withdrawal is newer evidence than the match).
 - A-23-2: a live request's MW is the project's capacity even when the plant inventory is larger. A wrong merge
   of a phase-2 request with a phase-1 plant (Rough Hat: CAISO "ROUGH HAT 2" 200 MW with EIA "Rough Hat"
   400 MW) shows the request's MW under the plant's name. That is a resolver question (§22, rule Q), not a
@@ -2808,3 +2897,144 @@ ERCOT's next load does: 465 built → contracted, 4 built → under_construction
 - Open: the store-wide restatement runs at every resolve tick over all multi-source records (403 here: 1.4 s for
   the first pass, 0.9 s for a no-op pass on the SQLite copy, with absorbed rows read in one query). If that
   grows, scope it to records touched since the last tick.
+
+### 23.8 Queue requests closed out against operating EIA plants (lane L10, 2026-10-07)
+
+**The defect** (interconnection analyst review, "queue records that are already operating are shown as overdue").
+The store holds EIA-860M's operating inventory as `power_plant` assets, but nothing tied a queue request to the plant
+it became. CAISO "MONTEZUMA II" read "Contracted, overdue by 14.7 years" while Montezuma Wind II (78.2 MW, EIA plant
+57701) was operating in the same product; "DAGGETT SOLAR 3" read "Contracted, overdue 3.2 years" beside Daggett 3.
+A second defect sat under it: the plants loader dropped EIA's first operating year
+(`pipeline/context/eia_plants.py` writes `earliest_operating_year`; migration 0009 renamed the column
+`commissioned_year`), so 16,472 of 16,472 power plants in the dev store had no year. `services/ingest/plants.py` now
+renames it.
+
+**The rule** (`services/resolve/closeout.py`, run on each resolve tick after the cluster merges and before the
+store-wide restatement, `services/resolve/report.py::apply_all_clusters`):
+
+1. Candidates: a live record of a power kind in a pre-built state, with a live request and **no EIA-860M Planned
+   member** (the Planned row is EIA's own statement that the unit is not yet operating).
+2. Blocking: operating, standby or retiring plants in the record's state and county.
+3. Every condition must hold: names at least 90 on the resolver's `mean` scorer over `norm_name`; equal phase
+   numbers (`phase_key`); the plant holds a generator of a technology family the request names (a storage request
+   beside a same-named operating solar plant is its add-on: Long Point, Peregrine, Big Elm); plant MW within 2x of the
+   request's either way; the plant entered service no earlier than the request's queue year and within 3 years of the
+   request's proposed date (a repower or expansion request at an old plant fails this); the request has an executed or
+   filed agreement (permitted, contracted, under construction) or its proposed date has passed. One plant per record
+   and one record per plant; an ambiguous pair links nothing.
+4. The plant joins the record as a `proposal_source` row of `us.eia.860m` keyed `plant:<EIA plant id>`, `link_method
+   = "rule"`, `link_confidence` the name score, its `normalised` row stating `built`, the plant's name, MW, technology,
+   `eia_plant_id` and `actual_cod` (the first operating year; EIA's plant inventory carries the year, not the month).
+   A `source_linked` event records it, with the most restrictive member's provenance quartet (A-22-27), unpublished
+   like every resolver event, and `link_event_id` names it (docs/21 §3.2, as specified; §6.3 records the first writer).
+5. Survivorship serves the record as built from the plant (`operating_plant_outranks_queue`), keeps the request's MW
+   as the grid-connection figure, names the record after the plant (slugs never change), adds `eia_plant_id`, and gives
+   `actual_cod`.
+
+**Reversal.** `unlink_operating_plant` deactivates the link, writes a `source_unlinked` event with
+`reverses_event_id`, and restates the record; a pair once unlinked is never relinked (its unlink idempotency key is
+checked first). Tests: `services/resolve/test_closeout.py` (7).
+
+**Measured** on a copy of the base dev store (§23.10) with the plants' years filled in: 3,647 candidate records; 10
+pairs pass; 2 are ambiguous (CAISO "ARATINA SOLAR
+CENTER 1", 200 MW, against plants Aratina Solar Center 1A and 1B) and link nothing; 8 link. The after store links the same 8, and all 8 records move to built:
+
+| Request (CAISO) | State before | Plant (EIA id, first year) | MW request / plant | Judgement |
+|---|---|---|---|---|
+| MONTEZUMA II | contracted, COD 2012-01-29 | Montezuma Wind II (57701, 2012) | 78 / 78.2 | same project (the review's example) |
+| DAGGETT SOLAR 3 | contracted, COD 2023-08-06 | Daggett 3 (64852, 2023) | 300 / 449 (300 solar + 149 storage) | same project (the review's example) |
+| BELLEFIELD SOLAR FARM (1510) | contracted, COD 2025-08-01 | Bellefield Solar and Energy Storage Farm (64210, 2025) | 500 / 1,000 (500 + 500) | same project (hybrid nameplate counted twice by EIA) |
+| OBERON | contracted, COD 2026 | Oberon Solar Project (65734, 2023) | 500 / 375 | likely; Oberon II (375 MW) is a second plant, so the request may span both |
+| SCARLET | contracted, COD 2027 | Scarlet Solar (CA) (64908, 2024) | 400 / 240 | likely; Scarlet II Hybrid is a second plant, as Oberon |
+| LUNA VALLEY SOLAR | contracted, COD 2028 | Luna Valley (67848, 2025) | 200 / 200 | likely |
+| CAMINO SOLAR | contracted, COD 2027 | Camino Solar Hybrid (63508, 2025) | 54.28 / 44 | likely |
+| FALLBROOK ENERGY STORAGE | contracted, COD 2026 | Fallbrook Energy Storage (61365, 2023) | 69.6 / 40 | uncertain: the request may include an uprate not yet built |
+
+The judgements are mine, from the store's own fields (names, MW, technologies, dates), not from an outside record;
+on that reading precision is 2 of 8 certain, 7 of 8 at least likely. Recall is not measured: the rule is deliberately
+narrow. On this store, 12 CAISO pairs with an equal normalised name and plant MW within 2x are refused by the date guard
+alone (for example "LITTLE BEAR 4" proposed 2029 against Little Bear 4, 2020; "WRIGHT SOLAR" proposed 2026 against
+Wright Solar Park, 2019; "OCOTILLO EXPRESS" proposed 2030 against Ocotillo Express, 2012). They are more likely stale
+requests than repowers, but the register gives no way to tell; they are the first candidates for a review queue.
+No ERCOT or NYISO pair passes (ERCOT's synchronisation milestone already marks its built rows).
+
+- A-23-3: an operating EIA plant of the same name, phase, technology family, county and size that entered service
+  within 3 years of a request's proposed date is that request's project. Its first operating year stands in for the
+  request's actual COD.
+
+### 23.9 A withdrawn queue position wins under merge (lane L10, 2026-10-07)
+
+**The defect** (review §2.3, "cross-source survivorship hides withdrawals"). 15 merged records on the fresh dev store
+held a NYISO or CAISO queue position withdrawn on its register and were served active, because §23.1 picked the most
+advanced member. High Bridge Wind (NYISO 0706 withdrawn 2026-05-31, 0784 withdrawn) read "Announced" from EIA-860M
+"(P) Planned", and counted 103.2 MW active at its grid point.
+
+**The rule as briefed:** "a withdrawn queue position on a member link wins for the merged record unless another member
+is a later, active request for the same project." No earlier text of docs/22 stated it; §23.1 said the opposite
+("a withdrawn member does not end a project another member shows progressing"). §23.1 is amended.
+
+**Interpretation recorded (A-23-4).** Read literally, "later" (filed after the withdrawn request) would end five
+projects whose own main request is still active, because the withdrawn request was a small storage add-on filed after
+it: Excelsior Energy Center (0721, 280 MW solar, 2018, active; EIA-860M under construction) beside 1169 (20 MW storage,
+2021, withdrawn), and Homer, Tracy, Rich Road and South Ripley the same way (5-20 MW against 90-280 MW). "For the same
+project" is read so that a smaller add-on's withdrawal ends the add-on, not the project: a live request carries the
+project past a withdrawal when it was filed later **or** the withdrawn request is smaller than it
+(`survivorship._carries_past`). The status text and `withdrawn_date` come from the deciding request with the most MW.
+Requests that left the register (ERCOT has no withdrawn rows) are not withdrawals.
+
+**Measured** on the dev store: 15 records → 5 move to withdrawn (High Bridge Wind, Alfred Oaks Solar, Foothills
+Solar (NY), SunEast Manchester, all NYISO; Kingsley Solar Farm, CAISO 1665 withdrawn 2026-08-25); 10 stay live by the
+rule: 4 have a later live request (Hoffman Falls Wind 2, KCE NY 30, KCE NY 31, Moonlight Flats: 2024 cluster
+re-filings; Somerset Solar: 2020 request after a 2008 withdrawal) and 5 a withdrawn smaller add-on (Excelsior, Homer,
+Tracy, Rich Road, South Ripley). Tests: `services/resolve/test_survivorship.py` (4 new).
+
+### 23.10 Measured before and after (lane L10, 2026-10-07)
+
+Two dev stores built with `web.dev_up.build_store` from the shared data root: *base* from the 2026-10-07 frames (lane L1
+re-parse) under the code at `acfa192`; *after* from the same frames, with the CAISO, ERCOT, NYISO and NESO frames
+re-derived from each row's own `raw` under this code (what `run --reparse` writes; every column other than
+technology, kind and the milestones checked equal), under this code.
+
+**Review finding 1 (465 ERCOT IA-only rows served built) is resolved by lane L1's re-parse alone.** On the base store
+the ERCOT links read built 117, contracted 465, under_construction 4, studied 1,192 (§3.1's numbers). Of 120 records
+holding an ERCOT link and served built, 117 are built by their own ERCOT row and 3 (Arroyo Storage, Yaupon Solar,
+Piedra Solar) by a sibling ERCOT request of the same project that is synchronised, which is the §23.1 rule. 44 of the
+120 carry a proposed COD after 2026-10-07; each now has its synchronisation date as `actual_cod`.
+
+**Review finding 2 (the 20-record sample) is not resolved by the re-parse:** both technology errors (Edwards Creek
+geothermal as `gas_steam`; Eggborough CCGT-OCGT-BESS as `storage`) and all four missing actual CODs were present on the
+base store. After: Edwards Creek `geothermal`, Eggborough `gas_cc` (both of its rows), actual COD stored on #5 (2015-06-25),
+#7 (2017-10-12), #9 (2019-07-31), #10 (2008-02-26). The other 16 records are unchanged. Not in this lane: #1's blank
+capacity (raw 0 MW, by design, §2) and #18's precision label.
+
+| Measure (live records) | Base | After |
+|---|---|---|
+| Lifecycle: built / contracted / under_construction / withdrawn / announced | 1,379 / 595 / 984 / 3,210 / 582 | 1,387 / 590 / 987 / 3,215 / 578 |
+| Multi-source lifecycle rule: most_advanced / agree / withdrawn wins / operating plant | 268 / 141 / 0 / 0 | 260 / 141 / 5 / 8 |
+| Records with a withdrawn queue member served live | 15 | 10 (all carried by the §23.9 rule) |
+| Queue-only live records more than a year past their own date | 67 | 64 |
+| Built records with an actual COD | 0 | 491 of 1,387 |
+| Proposal merges (resolve tick) / review decisions | 544 / 16 | 538 / 22 |
+| Events: merged / unpublished / source_linked | 629 / 5 / 0 | 623 / 6 / 8 (the extra unpublished is the ICIS-Air suppression added in this lane; source_linked events are unpublished) |
+
+The merge change is §22.13 (Barton/Bee and Rosamond South to review) and one resolver pair lost to the technology fix
+(§23.11).
+
+### 23.11 Effect on the labelled sets (lane L10, 2026-10-07)
+
+`pipeline/normalize.py::build` re-run on the 2026-09-12 eval pull under this code, then `pipeline.resolve.run` at 75 and
+the store path (`services.resolve.report`); script and outputs in the lane's scratch directory.
+
+| | Base (`acfa192`) | After |
+|---|---|---|
+| Resolver, 85 labels at 75: tp / fp / fn / tn | 37 / 1 / 3 / 44 (P 0.974, R 0.925) | 37 / 1 / 3 / 44 (P 0.974, R 0.925) |
+| Accepted pairs (unordered) | 565 | 564 |
+| Store path, 77 usable labels: tp / fp / fn / tn | 33 / 0 / 4 / 40 (P 1.000, R 0.892) | 33 / 0 / 4 / 40 (P 1.000, R 0.892) |
+| Clusters merged / records absorbed / sent to review | 271 / 407 / 2 | 268 / 401 / 4 (Rosamond South and Barton/Bee, §22.13) |
+
+The one pair lost is CAISO 54 "MIDWAY PEAKING" (types Gas Turbine + Storage, now `gas_ct`) against EIA "Midway BESS"
+(storage): rule T refuses thermal against storage. It is unlabelled; the BESS is plausibly the request's storage
+component, so this is a probable recall loss of one pair, accepted because the class is now right. The two clusters the §22.13 guards send to review on the eval pull
+(Rosamond South, Barton/Bee) hold no labelled pair (RES-10: the set has no multi-plant or completed-against-planned
+labels), so the labels cannot see them either way; P/R is unchanged.
+

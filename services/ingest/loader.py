@@ -135,6 +135,7 @@ from pipeline.connectors.registry import (
     SourceEntry,
 )
 from pipeline.connectors.store import Store
+from pipeline.normalize import MILESTONE_COLUMNS, milestones_from_raw
 from services.db.models import (
     Event,
     Licence,
@@ -1074,12 +1075,60 @@ def _proposal_fields_from_row(row: Mapping[str, Any], source: Source) -> dict[st
     }
 
 
-def _link_normalised(fields: Mapping[str, Any]) -> dict[str, Any]:
+def _proposal_milestones_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """The milestones a proposal row states (`pipeline.normalize.MILESTONE_COLUMNS`: queue date,
+    study phase, IA date, withdrawn date, actual COD), non-null only, dates as `date`. A frame
+    written before 2026-10-07 lacks the columns; its rows are read from their `raw` payload by the
+    same table (`milestones_from_raw`), so a reload of a stored frame also carries them."""
+    out: dict[str, Any] = {}
+    for name in MILESTONE_COLUMNS:
+        value = _row_get(row, name)
+        if value is None:
+            continue
+        if name == "study_phase":
+            text = str(value).strip()
+            if text:
+                out[name] = text
+            continue
+        date = _to_date(value)
+        if date is not None:
+            out[name] = date
+    if set(out) - {"queue_date"}:
+        return out
+    from_raw = milestones_from_raw(str(_row_get(row, "source_id") or ""), _parse_raw(_row_get(row, "raw")))
+    return {**from_raw, **out}
+
+
+def _milestones_provenance(
+    milestones: Mapping[str, Any], source: Source, retrieved_at: dt.datetime
+) -> dict[str, Any]:
+    """`field_provenance[<milestone>]` for a record one source states: the usual provenance entry plus
+    the milestone's `value` (the proposal table has no column for them). Survivorship rewrites them
+    for a record with several links (`services.resolve.survivorship.milestones`). A reader serves a
+    value only when its `source_id` is readable, as for any other field."""
+    return {
+        name: {
+            "value": _jsonable(value),
+            "source_id": source.id,
+            "licence_id": source.licence_id,
+            "retrieved_at": retrieved_at.isoformat(),
+            "rule": "stated_by_member",
+        }
+        for name, value in milestones.items()
+    }
+
+
+def _link_normalised(
+    fields: Mapping[str, Any], milestones: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """A link's own `normalised` row: the record fields this source states, plus (proposals,
     2026-10-07) the identifiers it contributes, so field survivorship can union every member's
-    queue ids and EIA ids however many sources a record holds (docs/22 §23). `select_basis` stays
+    queue ids and EIA ids however many sources a record holds (docs/22 §23), and (2026-10-07,
+    lane L10) the milestones it states (`_proposal_milestones_from_row`). `select_basis` stays
     on the record (`_keep_other_sources_basis`)."""
     out: dict[str, Any] = {k: v for k, v in fields.items() if not isinstance(v, dict)}
+    for name, value in (milestones or {}).items():
+        out.setdefault(name, value)
     identifiers = fields.get("identifiers")
     if isinstance(identifiers, dict):
         own = {k: v for k, v in identifiers.items() if k != SELECT_BASIS_KEY}
@@ -1499,11 +1548,16 @@ def _update_existing_entity(
                 "retrieved_at": retrieved_at.isoformat(),
             }
         setattr(entity, k, v)
+    milestones = _proposal_milestones_from_row(row) if ctx.kind == "proposal" else {}
+    if ctx.kind == "proposal":
+        for name in MILESTONE_COLUMNS:
+            provenance.pop(name, None)
+        provenance.update(_milestones_provenance(milestones, ctx.source, retrieved_at))
     entity.field_provenance = provenance  # reassigned so the JSON column is marked dirty
     # `last_changed` is decided once the whole load (survivorship included) has run: it moves only
     # when a served value differs from what the record served before this load (`_stamp_last_changed`).
     existing_link.raw = raw_payload
-    existing_link.normalised = _link_normalised(fields)
+    existing_link.normalised = _link_normalised(fields, milestones)
     existing_link.status_raw = fields.get("status_raw")
     existing_link.last_seen = retrieved_at
     existing_link.retrieved_at = retrieved_at
@@ -1587,6 +1641,9 @@ def _create_entity_and_link(
         for k in fields
         if fields[k] is not None
     }
+    milestones = _proposal_milestones_from_row(row) if kind == "proposal" else {}
+    if milestones:
+        entity.field_provenance.update(_milestones_provenance(milestones, source, retrieved_at))
     session.add(entity)
     cache.entities[entity.id] = entity
     existing_link = ctx.link_cls(
@@ -1597,7 +1654,7 @@ def _create_entity_and_link(
         retrieved_at=retrieved_at,
         licence_id=source.licence_id,
         raw=raw_payload,
-        normalised=_link_normalised(fields),
+        normalised=_link_normalised(fields, milestones),
         status_raw=fields.get("status_raw"),
         first_seen=retrieved_at,
         last_seen=retrieved_at,

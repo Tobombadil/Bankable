@@ -93,6 +93,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from pipeline.normalize import MILESTONE_COLUMNS, MILESTONE_SOURCE_KEYS, milestones_from_raw
 from pipeline.resolve import phase_key, tech_families
 from services.db.models import Location, Proposal, ProposalSource
 
@@ -113,6 +114,15 @@ SURVIVING_FIELDS: tuple[str, ...] = (
 )
 #: Store-only columns `apply_survivorship` may also move (not source-attributed fields).
 ROW_FIELDS: tuple[str, ...] = ("first_seen", "location_id")
+
+#: Prefix of the `survive` picks for the record's milestones (queue date, study phase, IA date,
+#: withdrawn date, actual COD; `pipeline.normalize.MILESTONE_COLUMNS`). The proposal table has no
+#: column for them, so each is stored as `field_provenance[<milestone>]`: the usual provenance
+#: entry plus its `value` (`milestones_entry`).
+MILESTONES_KEY = "milestones"
+#: `normalised` flag on a link that records an EIA operating plant as a member (the operating
+#: close-out, `services/resolve/closeout.py`).
+OPERATING_PLANT_FLAG = "operating_plant"
 
 #: `identifiers` keys survivorship owns; every other key is left as stored.
 MANAGED_IDENTIFIER_KEYS: frozenset[str] = frozenset(
@@ -215,6 +225,20 @@ class Member:
         value = self.identifiers.get("eia_plant_id")
         return str(value) if value else None
 
+    @property
+    def operating_plant(self) -> bool:
+        """An EIA operating plant linked by the close-out (`OPERATING_PLANT_FLAG`)."""
+        return bool(self.values.get(OPERATING_PLANT_FLAG)) and self.state == "built"
+
+    def date(self, name: str) -> str | None:
+        """A milestone or date value as ISO text (`YYYY-MM-DD`, or `YYYY` for a year)."""
+        value = self.values.get(name)
+        if value is None or value == "":
+            return None
+        if isinstance(value, (dt.date, dt.datetime)):
+            return value.isoformat()[:10]
+        return str(value)[:10]
+
 
 def link_identifiers(source_id: str, source_record_id: str, normalised: Mapping[str, Any]) -> dict[str, Any]:
     """The identifiers one link contributes. The loader records them on the link's `normalised`
@@ -234,8 +258,21 @@ def link_identifiers(source_id: str, source_record_id: str, normalised: Mapping[
     return {}
 
 
-def member_from_link(link: ProposalSource) -> Member:
+def link_values(link: ProposalSource) -> dict[str, Any]:
+    """A link's `normalised` row, plus the milestones its `raw` row states when `normalised` does
+    not carry them yet (every link stored before 2026-10-07; the loader now writes them)."""
     normalised = dict(link.normalised or {})
+    if link.source_id in MILESTONE_SOURCE_KEYS and not any(
+        name in normalised for name in MILESTONE_COLUMNS if name != "queue_date"
+    ):
+        raw = link.raw if isinstance(link.raw, Mapping) else {}
+        for name, value in milestones_from_raw(link.source_id, dict(raw)).items():
+            normalised.setdefault(name, value.isoformat() if isinstance(value, dt.date) else value)
+    return normalised
+
+
+def member_from_link(link: ProposalSource) -> Member:
+    normalised = link_values(link)
     return Member(
         source_id=link.source_id,
         category=str(getattr(link.source, "category", "") or ""),
@@ -397,13 +434,49 @@ def _lifecycle_order(members: Sequence[Member]) -> list[Member]:
     return sorted(pool, key=key)
 
 
+def _carries_past(live: Member, withdrawn: Member) -> bool:
+    """Whether a live request keeps the project alive past `withdrawn`'s withdrawal: it is a later
+    request (filed after the withdrawn one: a re-filing such as NYISO's 2024 cluster positions), or
+    the withdrawn request is a smaller add-on beside it (a 5-20 MW storage request filed next to a
+    90-280 MW solar request, as at Excelsior, Homer and Tracy). docs/22 §23.1 records why "later"
+    alone would end projects whose own request is still active."""
+    lq, wq = live.date("queue_date"), withdrawn.date("queue_date")
+    if lq and wq and lq > wq:
+        return True
+    return live.mw is not None and withdrawn.mw is not None and withdrawn.mw < live.mw
+
+
+def deciding_withdrawals(members: Sequence[Member]) -> list[Member]:
+    """Withdrawn or cancelled requests still on their register that no live request carries past
+    (`_carries_past`), largest first, then the most recently filed. Any of them decides the record
+    (docs/22 §23.1, "withdrawal wins")."""
+    requests = [m for m in members if m.role == "request" and not m.gone]
+    terminal = [m for m in requests if m.state in TERMINAL_STATES]
+    live = [m for m in requests if m.live]
+    deciding = [w for w in terminal if not any(_carries_past(a, w) for a in live)]
+    ordered = sorted(deciding, key=_recency)
+    ordered.sort(key=lambda m: m.date("queue_date") or "", reverse=True)
+    ordered.sort(key=lambda m: -(m.mw or 0.0))
+    return ordered
+
+
 def _lifecycle(members: Sequence[Member]) -> tuple[Pick, Pick, Pick | None] | None:
     ordered = _lifecycle_order(members)
     if not ordered:
         return None
     winner = ordered[0]
     states = {m.state for m in ordered}
-    if winner.state in TERMINAL_STATES:
+    deciding = deciding_withdrawals(members) if winner.state not in TERMINAL_STATES else []
+    operating = [m for m in ordered if m.operating_plant]
+    if deciding:
+        # A withdrawn queue position ends the project unless a live request carries it on; it
+        # outranks the plant inventory and an operating plant matched to it (docs/22 §23.1).
+        winner = deciding[0]
+        ordered = [winner, *(m for m in ordered if m is not winner)]
+        rule = "withdrawn_request_wins"
+    elif operating and winner is operating[0]:
+        rule = "operating_plant_outranks_queue"
+    elif winner.state in TERMINAL_STATES:
         rule = "every_member_terminal"
     elif len(states) > 1:
         rule = "most_advanced_of_conflicting"
@@ -418,6 +491,49 @@ def _lifecycle(members: Sequence[Member]) -> tuple[Pick, Pick, Pick | None] | No
         date_rule = "with_lifecycle" if first is winner else "next_most_advanced"
         date_pick = Pick(first.values["proposed_online_date"], (first,), date_rule)
     return state_pick, raw_pick, date_pick
+
+
+def milestones(members: Sequence[Member], lifecycle: Pick | None = None) -> dict[str, Pick]:
+    """The record's milestones (`MILESTONE_COLUMNS`), each from one member: the member that supplies
+    the lifecycle when it states one (its queue position, phase and dates read with its status),
+    else the next member in lifecycle precedence that does. `withdrawn_date` only on a withdrawn or
+    cancelled record and `actual_cod` only on a built one, so a live record never shows another
+    member's withdrawal or a planned record an operation date. `lifecycle` is `survive`'s pick."""
+    if lifecycle is None:
+        picked = _lifecycle(members)
+        lifecycle = picked[0] if picked is not None else None
+    ordered = _lifecycle_order(members)
+    if lifecycle is not None:
+        winner = lifecycle.primary
+        ordered = [winner, *(m for m in ordered if m is not winner)]
+    state = lifecycle.value if lifecycle is not None else None
+    out: dict[str, Pick] = {}
+    for name in MILESTONE_COLUMNS:
+        if name == "withdrawn_date" and state not in TERMINAL_STATES:
+            continue
+        if name == "actual_cod" and state != "built":
+            continue
+        pool = ordered
+        if name == "actual_cod":
+            pool = [m for m in ordered if m.state == "built"]
+        if name == "withdrawn_date":
+            pool = [m for m in ordered if m.state in TERMINAL_STATES]
+        stating = [m for m in pool if m.values.get(name) not in (None, "")]
+        if not stating:
+            continue
+        first = stating[0]
+        value = first.values[name] if name == "study_phase" else first.date(name)
+        rule = (
+            "with_lifecycle" if lifecycle is not None and first is lifecycle.primary else "next_most_advanced"
+        )
+        out[name] = Pick(value, (first,), rule)
+    return out
+
+
+def milestones_entry(picks: Mapping[str, Pick]) -> dict[str, Any]:
+    """`field_provenance` entries for `milestones` picks: per milestone, a provenance entry plus
+    its `value`."""
+    return {name: {"value": pick.value, **provenance_entry(pick)} for name, pick in picks.items()}
 
 
 def _plants(members: Sequence[Member]) -> dict[str, list[Member]]:
@@ -569,6 +685,8 @@ def survive(members: Sequence[Member], current: Mapping[str, Any] | None = None)
             picks["proposed_online_date"] = Pick(
                 dated[0].values["proposed_online_date"], (dated[0],), "most_recent"
             )
+    for milestone, milestone_pick in milestones(members, lifecycle[0] if lifecycle else None).items():
+        picks[f"{MILESTONES_KEY}.{milestone}"] = milestone_pick
 
     plant = _primary_plant(members, current)
     name = _name(members, current, plant)
@@ -697,6 +815,21 @@ def apply_picks(proposal: Proposal, picks: Mapping[str, Pick]) -> SurvivorshipRe
             setattr(proposal, name, new)
             result.changes.append(Change(name, _json_safe(stored), _json_safe(new)))
         provenance[name] = provenance_entry(pick)
+        result.provenance_restamped.append(name)
+    prefix = f"{MILESTONES_KEY}."
+    entries = milestones_entry({k[len(prefix) :]: p for k, p in picks.items() if k.startswith(prefix)})
+    for name in MILESTONE_COLUMNS:
+        new_entry, old_entry = entries.get(name), provenance.get(name)
+        if new_entry == old_entry:
+            continue
+        old_value = old_entry.get("value") if isinstance(old_entry, Mapping) else None
+        new_value = new_entry["value"] if new_entry is not None else None
+        if old_value != new_value:
+            result.changes.append(Change(name, old_value, new_value))
+        if new_entry is None:
+            provenance.pop(name, None)
+        else:
+            provenance[name] = new_entry
         result.provenance_restamped.append(name)
     if result.provenance_restamped:
         proposal.field_provenance = provenance  # reassigned so the JSON column is marked dirty
@@ -831,7 +964,9 @@ def snapshot(proposal: Proposal) -> dict[str, Any]:
     }
     return {
         "values": values,
-        "provenance": {name: provenance[name] for name in SURVIVING_FIELDS if name in provenance},
+        "provenance": {
+            name: provenance[name] for name in (*SURVIVING_FIELDS, *MILESTONE_COLUMNS) if name in provenance
+        },
     }
 
 
@@ -858,6 +993,13 @@ def restore_snapshot(proposal: Proposal, data: Mapping[str, Any]) -> None:
                 provenance.pop(name, None)
             else:
                 provenance[name] = entry
+    if "values" in data:
+        for name in MILESTONE_COLUMNS:
+            milestone_entry = (data.get("provenance") or {}).get(name)
+            if milestone_entry is None:
+                provenance.pop(name, None)
+            else:
+                provenance[name] = milestone_entry
     proposal.field_provenance = provenance
 
 

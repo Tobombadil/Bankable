@@ -38,8 +38,8 @@ from services.db.models import Organization, Proposal, ProposalSource
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id, unique_slug
 from services.ingest.loader import GateRefused, load_dataframe, upsert_licence_and_source
+from services.resolve import closeout, survivorship
 from services.resolve import merge as merge_mod
-from services.resolve import survivorship
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 logger = logging.getLogger(__name__)
@@ -257,6 +257,14 @@ def build_clusters(
             row.get("capacity_mw"),
             row.get("technology"),
         )
+        name, state, rule = row.get("name_canonical"), row.get("lifecycle_state"), row.get("status_rule")
+        # A completed request is dated by its completion, where the frame states it (docs/22 §22.13).
+        actual = row.get("actual_cod")
+        cod = (
+            actual
+            if state == "built" and actual is not None and pd.notna(actual)
+            else row.get("proposed_cod")
+        )
         members[keys[find(pid)]].append(
             merge_mod.ClusterMember(
                 proposal_id=pid,
@@ -267,6 +275,10 @@ def build_clusters(
                 capacity_mw=(float(cap) if pd.notna(cap) and float(cap) > 0 else None),
                 technology=(str(tech) if pd.notna(tech) and tech else None),
                 eia_plant_id=(str(eia_id) if pd.notna(eia_id) and eia_id else None),
+                name=(str(name) if pd.notna(name) and name else None),
+                lifecycle_state=(str(state) if pd.notna(state) and state else None),
+                status_rule=(str(rule) if pd.notna(rule) and rule else None),
+                proposed_cod=(pd.Timestamp(cod).date().isoformat() if pd.notna(cod) and cod else None),
             )
         )
 
@@ -281,7 +293,8 @@ def apply_all_clusters(
     members: dict[str, list[merge_mod.ClusterMember]],
     edges: dict[str, list[merge_mod.ClusterEdge]],
 ) -> list[merge_mod.ClusterApplication]:
-    """Apply every cluster through the confidence gate, then restate field survivorship store-wide
+    """Apply every cluster through the confidence gate, close out queue requests against operating
+    EIA plants (`services/resolve/closeout.py`), then restate field survivorship store-wide
     (docs/22 §23). The restatement is how a survivorship rule change reaches records merged before
     it, and the safety net for links loaded outside the load chain; it writes no event and is a
     no-op on a record already consistent with the rules."""
@@ -292,6 +305,11 @@ def apply_all_clusters(
         )
         applications.append(application)
     session.flush()
+    # Queue requests that became operating EIA plants (docs/22 §23.8), after the merges so a
+    # record holding an EIA-860M Planned member is left to that member.
+    closed = closeout.close_out(session)
+    if closed.linked:
+        logger.info("operating close-out", extra={"closeout": closed.as_dict()})
     restated = survivorship.restate_all(session)
     if restated.records_changed:
         logger.info("survivorship restated", extra={"survivorship": restated.as_dict()})

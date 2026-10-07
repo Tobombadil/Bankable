@@ -58,6 +58,11 @@ CANONICAL_COLUMNS = [
     "status_conflict",
     "queue_date",
     "proposed_cod",
+    # milestones the register states (2026-10-07, lane L10; `MILESTONE_COLUMNS`)
+    "study_phase",
+    "ia_date",
+    "withdrawn_date",
+    "actual_cod",
     # resolution keys
     "queue_id",
     "eia_plant_id",
@@ -406,14 +411,120 @@ def org_key(v) -> str:
     return norm_org(text) or text.upper()
 
 
-def classify_tech(raw) -> tuple[str, str]:
-    if raw is None or pd.isna(raw) or not str(raw).strip():
-        return "unknown", "other"
-    s = str(raw).lower()
+#: Separators of a compound technology string: NESO's `Plant Type` joins its components with ";"
+#: (in alphabetical order, so the first one is not the main one), CAISO's `Generation Type` with
+#: " + " (gridstatus joins `Type-1..3`).
+COMPOUND_SEPARATOR = re.compile(r"\s*;\s*|\s+\+\s+")
+#: Classes a firm generation component must not be to count as "the plant" of a compound: storage
+#: is the add-on being classified away, the renewables keep their hybrid classes, and an
+#: unplaceable component (NESO "Demand", "Reactive Compensation") says nothing.
+_NOT_FIRM_GENERATION = frozenset(
+    {
+        "storage",
+        "solar",
+        "solar_thermal",
+        "solar_storage",
+        "wind",
+        "wind_offshore",
+        "wind_storage",
+        "other",
+        "unknown",
+        "transmission",
+        "load",
+    }
+)
+_RENEWABLE_HYBRID_PARTS = frozenset(
+    {"solar", "solar_thermal", "solar_storage", "wind", "wind_offshore", "wind_storage"}
+)
+
+
+def _classify_text(s: str) -> tuple[str, str]:
     for pattern, tech, kind in TECH_RULES:
         if re.search(pattern, s):
             return tech, kind
     return "other", "other"
+
+
+def classify_components(components) -> tuple[str, str]:
+    """(technology, kind) of a project described by several technology components.
+
+    Firm generation with co-located storage is the generation (2026-10-07, interconnection analyst
+    review finding 11, lane L10): NESO's "CCGT (Combined Cycle Gas Turbine);Energy Storage
+    System;OCGT (Open Cycle Gas Turbine)" (Eggborough, 1,999 MW) and CAISO's "Combined Cycle +
+    Storage" were `storage`, because the storage rule precedes the gas rules. When a compound holds
+    storage and at least one firm generation component (gas, nuclear, geothermal, biomass, hydro,
+    pumped storage, marine, ...) and no solar or wind, it is classified from its non-storage
+    components. Solar or wind with storage keep their hybrid classes, and every other compound is
+    classified as one string, as before."""
+    parts = [str(c).strip() for c in components if c is not None and str(c).strip()]
+    if not parts:
+        return "unknown", "other"
+    if len(parts) == 1:
+        return _classify_text(parts[0].lower())
+    classes = [_classify_text(p.lower()) for p in parts]
+    techs = {t for t, _ in classes}
+    firm = [p for p, (t, _) in zip(parts, classes, strict=True) if t not in _NOT_FIRM_GENERATION]
+    if "storage" in techs and firm and not techs & _RENEWABLE_HYBRID_PARTS:
+        return _classify_text(" + ".join(firm).lower())
+    return _classify_text(" + ".join(parts).lower())
+
+
+def classify_tech(raw) -> tuple[str, str]:
+    if raw is None or pd.isna(raw) or not str(raw).strip():
+        return "unknown", "other"
+    s = str(raw)
+    parts = COMPOUND_SEPARATOR.split(s.strip())
+    if len(parts) > 1:
+        return classify_components(parts)
+    return _classify_text(s.lower())
+
+
+# ---------------------------------------------------------------- CAISO technology from type + fuel
+#: CAISO's `Type-n` is the conversion technology and `Fuel-n` the energy source. gridstatus builds
+#: `Generation Type` from the types alone, so a concentrating solar plant (Ivanpah, Mojave Solar),
+#: a geothermal flash plant, a biomass boiler and Diablo Canyon all read "Steam Turbine", which the
+#: rules call `gas_steam`: 148 of 2,278 CAISO rows on the 2026-09-12 pull (96 solar, 34
+#: geothermal, 15 biofuel, 3 nuclear). Each component is relabelled from its fuel where the type
+#: alone does not say what the plant is; the type stands where the fuel adds nothing (a gas steam
+#: turbine stays "Steam Turbine"). Keys are lower-case (type, fuel).
+CAISO_FUEL_LABELS: dict[tuple[str, str], str] = {
+    ("steam turbine", "solar"): "Solar Thermal",
+    ("steam turbine", "geothermal"): "Geothermal",
+    ("steam turbine", "biofuel"): "Biomass",
+    ("steam turbine", "nuclear"): "Nuclear",
+    ("reciprocating engine", "biofuel"): "Biomass",
+    ("cogeneration", "biofuel"): "Biomass",
+    ("cogeneration", "natural gas"): "Natural Gas Cogeneration",
+    ("other", "natural gas"): "Natural Gas",
+    ("other", "biofuel"): "Biomass",
+    ("other", "geothermal"): "Geothermal",
+    ("storage", "pumped-storage hydro"): "Pumped Storage",
+    ("storage", "water"): "Pumped Storage",
+}
+
+
+def caiso_component_label(type_, fuel) -> str | None:
+    """One CAISO component's technology text: its type, relabelled from its fuel where
+    `CAISO_FUEL_LABELS` says the type alone misnames it."""
+    t = "" if type_ is None or (isinstance(type_, float) and pd.isna(type_)) else str(type_).strip()
+    f = "" if fuel is None or (isinstance(fuel, float) and pd.isna(fuel)) else str(fuel).strip()
+    if not t:
+        return None
+    return CAISO_FUEL_LABELS.get((t.lower(), f.lower()), t)
+
+
+def caiso_technology(row) -> tuple[str, str] | None:
+    """(technology, kind) of a CAISO queue row from its `Type-n`/`Fuel-n` columns, or None when
+    the row carries no component types (the caller then classifies `Generation Type`)."""
+    labels = [
+        caiso_component_label(row.get(f"Type-{i}"), row.get(f"Fuel-{i}"))
+        for i in (1, 2, 3)
+        if row.get(f"Type-{i}") is not None
+    ]
+    labels = [label for label in labels if label]
+    if not labels:
+        return None
+    return classify_components(labels)
 
 
 def to_date(v):
@@ -456,6 +567,113 @@ def cross_refs(name) -> str:
         return ""
     out = {f"{m.group(1).upper().replace('-', '')}:{m.group(2).upper()}" for m in XREF.finditer(str(name))}
     return "|".join(sorted(out))
+
+
+# ---------------------------------------------------------------- milestones
+#: Dates and the study phase a gridstatus-shaped queue states for a request, beside `queue_date`
+#: (2026-10-07, interconnection analyst review §5 item 3). Each entry is the raw columns tried in
+#: order; the first non-blank wins. A source that does not state a milestone has no entry, so its
+#: value is null, never inferred. `study_phase` is the register's own text (verbatim, a raw-class
+#: value like `status_raw`); the others are dates.
+#:   CAISO  Study Process (the cluster or serial process: "C14", "Serial LGIP"), Withdrawn Date,
+#:          Actual Completion Date. CAISO publishes the agreement's status, not its date.
+#:   ERCOT  GIM Study Phase, IA Signed, Approved for Synchronization (equal to the report's Actual
+#:          Completion Date on all 117 rows carrying either; docs/22 §3.1). ERCOT drops withdrawn
+#:          projects from the file, so it states no withdrawal date.
+#:   NYISO  Availability of Studies (the studies completed: FES, SRIS/SIS, FS, class year), Withdrawn
+#:          Date, Actual Completion Date. NYISO's SGIA Tender Date is empty on every row.
+MILESTONE_SOURCES: dict[str, dict[str, tuple[str, ...]]] = {
+    "caiso": {
+        "study_phase": ("Study Process",),
+        "withdrawn_date": ("Withdrawn Date",),
+        "actual_cod": ("Actual Completion Date",),
+    },
+    "ercot": {
+        "study_phase": ("GIM Study Phase",),
+        "ia_date": ("IA Signed",),
+        "actual_cod": ("Actual Completion Date", "Approved for Synchronization"),
+    },
+    "nyiso": {
+        "study_phase": ("Availability of Studies",),
+        "withdrawn_date": ("Withdrawn Date",),
+        "actual_cod": ("Actual Completion Date",),
+    },
+}
+MILESTONE_COLUMNS: tuple[str, ...] = ("queue_date", "study_phase", "ia_date", "withdrawn_date", "actual_cod")
+#: Registry source ids of the queues above (the store and the connectors key on these).
+MILESTONE_SOURCE_KEYS: dict[str, str] = {
+    "us.iso.caiso.gen_queue": "caiso",
+    "us.iso.ercot.gen_queue": "ercot",
+    "us.iso.nyiso.gen_queue": "nyiso",
+}
+
+
+def _blank_value(v) -> bool:
+    if v is None or v is pd.NA or v is pd.NaT:
+        return True
+    if isinstance(v, float) and pd.isna(v):
+        return True
+    return isinstance(v, str) and not v.strip()
+
+
+def milestones_from_raw(source_key: str, raw: dict) -> dict[str, object]:
+    """The milestones one raw queue row states (`MILESTONE_SOURCES`): `study_phase` as stripped
+    text, the dates as `datetime.date`; plus `queue_date` from `Queue Date`. Unstated ones are
+    left out. `source_key` is the short key ("caiso") or the registry id."""
+    key = MILESTONE_SOURCE_KEYS.get(source_key, source_key)
+    out: dict[str, object] = {}
+    spec = (
+        {"queue_date": ("Queue Date",), **MILESTONE_SOURCES.get(key, {})} if key in MILESTONE_SOURCES else {}
+    )
+    for name, columns in spec.items():
+        for column in columns:
+            value = raw.get(column)
+            if _blank_value(value):
+                continue
+            if name == "study_phase":
+                out[name] = re.sub(r"\s+", " ", str(value)).strip()
+            else:
+                ts = to_date(value)
+                if pd.isna(ts):
+                    continue
+                out[name] = ts.date()
+            break
+    return out
+
+
+def milestone_frame(df: pd.DataFrame, source_key: str) -> pd.DataFrame:
+    """`study_phase`, `ia_date`, `withdrawn_date`, `actual_cod` for every row of a gridstatus-shaped
+    queue frame (`queue_date` is built by the caller as before)."""
+    n = len(df)
+    spec = MILESTONE_SOURCES.get(source_key, {})
+    out = {}
+    for name in ("study_phase", "ia_date", "withdrawn_date", "actual_cod"):
+        columns = [c for c in spec.get(name, ()) if c in df.columns]
+        if not columns:
+            out[name] = (
+                _blank(n) if name == "study_phase" else pd.Series([pd.NaT] * n, dtype="datetime64[ns]")
+            )
+            continue
+        if name == "study_phase":
+            first = df[columns[0]]
+            for c in columns[1:]:
+                first = first.where(~first.map(_blank_value), df[c])
+            out[name] = pd.Series(
+                [None if _blank_value(v) else re.sub(r"\s+", " ", str(v)).strip() for v in first],
+                dtype="object",
+            )
+        else:
+            values = []
+            for row in df[columns].itertuples(index=False):
+                value = pd.NaT
+                for v in row:
+                    if not _blank_value(v):
+                        value = to_date(v)
+                        if not pd.isna(value):
+                            break
+                values.append(value)
+            out[name] = pd.Series(values, dtype="datetime64[ns]")
+    return pd.DataFrame(out).reset_index(drop=True)
 
 
 # ---------------------------------------------------------------- status harmonisation
@@ -537,6 +755,20 @@ def harmonise_iso_frame(df: pd.DataFrame, source_id: str, status_map: dict) -> l
     return [harmonise_status(source_id, r, status_map) for r in ctxs.to_dict("records")]
 
 
+def technologies_of(df: pd.DataFrame) -> list[tuple[str, str]]:
+    """(technology, kind) per row of a gridstatus-shaped queue frame: from CAISO's component
+    types and fuels where the frame carries them (`caiso_technology`), else from `Generation
+    Type`. `technology_raw` stays gridstatus's `Generation Type` verbatim; the fuels are in `raw`."""
+    gen_type = df["Generation Type"] if "Generation Type" in df.columns else _blank(len(df))
+    if "Type-1" not in df.columns:
+        return [classify_tech(v) for v in gen_type]
+    cols = [c for c in ("Type-1", "Type-2", "Type-3", "Fuel-1", "Fuel-2", "Fuel-3") if c in df.columns]
+    out: list[tuple[str, str]] = []
+    for raw_type, row in zip(gen_type, df[cols].to_dict("records"), strict=True):
+        out.append(caiso_technology(row) or classify_tech(raw_type))
+    return out
+
+
 def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict, retrieved_at: str) -> pd.DataFrame:
     iso, url, licence = SOURCE_META[source_id]
     n = len(df)
@@ -545,7 +777,7 @@ def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict, retrieved_
     ctxs = iso_status_contexts(df)
     harmonised = [harmonise_status(source_id, r, status_map) for r in ctxs.to_dict("records")]
 
-    tech = [classify_tech(v) for v in get("Generation Type")]
+    tech = technologies_of(df)
     qid = get("Queue ID").astype("string").str.strip()
     name = get("Project Name")
     sponsor = get("Interconnecting Entity")
@@ -616,6 +848,9 @@ def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict, retrieved_
         "ia_status"
     ].eq("Executed")
     out["status_conflict"] = (out["lifecycle_state"].eq("withdrawn") & later).fillna(False)
+    milestones = milestone_frame(df.reset_index(drop=True), source_id)
+    for name in milestones.columns:
+        out[name] = milestones[name].values
     out["record_id"] = out["source_id"] + ":" + out["source_record_id"].fillna("")
     return out
 
@@ -677,6 +912,10 @@ def normalize_eia(df: pd.DataFrame, status_map: dict, retrieved_at: str) -> pd.D
             "status_rule": [r for _, r in harmonised],
             "status_conflict": False,
             "queue_date": pd.array([pd.NaT] * n, dtype="datetime64[ns]"),
+            "study_phase": pd.array([None] * n, dtype="string"),
+            "ia_date": pd.array([pd.NaT] * n, dtype="datetime64[ns]"),
+            "withdrawn_date": pd.array([pd.NaT] * n, dtype="datetime64[ns]"),
+            "actual_cod": pd.array([pd.NaT] * n, dtype="datetime64[ns]"),
             "proposed_cod": list(
                 map(cod, zip(get("Planned Operation Year"), get("Planned Operation Month"), strict=True))
             ),
@@ -720,6 +959,7 @@ def build(date: str, raw_dir: pathlib.Path = RAW) -> pd.DataFrame:
         "county",
         "county_norm",
         "status_raw",
+        "study_phase",
         "queue_id",
         "eia_plant_id",
         "eia_generator_id",

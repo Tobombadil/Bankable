@@ -194,12 +194,165 @@ def test_the_most_advanced_state_wins_with_its_own_status_text_and_date() -> Non
     assert picks["proposed_online_date"].rule == "with_lifecycle"
 
 
-def test_a_withdrawn_member_does_not_end_a_project_another_member_shows_progressing() -> None:
-    picks = survive([_req("1949", 1150.0, state="withdrawn"), _gen("69662-IPD2S", 342.7, state="permitted")])
-    assert picks["lifecycle_state"].value == "permitted"
+def test_a_withdrawn_queue_position_wins_over_the_plant_inventory() -> None:
+    """docs/22 §23.1 (2026-10-07, lane L10): High Bridge Wind, NYISO 0706 withdrawn 2026-05-31 and
+    0784 withdrawn, served "announced" from EIA-860M (P). A withdrawn request decides the record
+    unless a live request carries the project on; the inventory does not."""
+    nyiso = "us.iso.nyiso.gen_queue"
+    picks = survive(
+        [
+            _m(
+                nyiso,
+                "0706",
+                "generation_queue",
+                capacity_mw=100.8,
+                technology="wind",
+                lifecycle_state="withdrawn",
+                status_raw="Withdrawn",
+                queue_date="2018-04-25",
+                withdrawn_date="2026-05-31",
+            ),
+            _m(
+                nyiso,
+                "0784",
+                "generation_queue",
+                capacity_mw=5.0,
+                technology="storage",
+                lifecycle_state="withdrawn",
+                status_raw="Withdrawn",
+                queue_date="2018-12-11",
+                withdrawn_date="2024-06-30",
+            ),
+            _gen("62894-WT", 103.2, tech="wind", state="announced", status_raw="(P) Planned"),
+        ]
+    )
+    assert picks["lifecycle_state"].value == "withdrawn"
+    assert picks["lifecycle_state"].rule == "withdrawn_request_wins"
+    assert picks["lifecycle_state"].primary.record_id == "0706"  # the largest deciding request
+    assert picks["status_raw"].value == "Withdrawn"
+    assert picks["milestones.withdrawn_date"].value == "2026-05-31"
     every = survive([_req("A", 10.0, state="withdrawn"), _req("B", 10.0, state="cancelled")])
     assert every["lifecycle_state"].value in {"withdrawn", "cancelled"}
     assert every["lifecycle_state"].rule == "every_member_terminal"
+
+
+def test_a_later_live_request_carries_the_project_past_a_withdrawal() -> None:
+    """Hoffman Falls Wind 2: 1335 (2022) withdrawn, C24-042 (2024 cluster) active."""
+    nyiso = "us.iso.nyiso.gen_queue"
+    picks = survive(
+        [
+            _m(
+                nyiso,
+                "C24-042",
+                "generation_queue",
+                capacity_mw=29.8,
+                lifecycle_state="studied",
+                queue_date="2024-08-01",
+            ),
+            _m(
+                nyiso,
+                "1335",
+                "generation_queue",
+                capacity_mw=102.5,
+                lifecycle_state="withdrawn",
+                queue_date="2022-02-24",
+                withdrawn_date="2024-05-31",
+            ),
+            _gen("67346-Q1335", 103.5, tech="wind", state="announced"),
+        ]
+    )
+    assert picks["lifecycle_state"].value == "studied"
+    assert picks["lifecycle_state"].rule == "most_advanced_of_conflicting"
+    assert "milestones.withdrawn_date" not in picks  # a live record shows no member's withdrawal
+    assert picks["milestones.queue_date"].value == "2024-08-01"
+
+
+def test_a_withdrawn_smaller_add_on_does_not_end_the_project_its_main_request_carries() -> None:
+    """Excelsior Energy Center: 0721 (2018, 280 MW solar) active, its 20 MW storage add-on 1169
+    (2021) withdrawn, EIA-860M under construction. "Later" alone would end it (docs/22 §23.1)."""
+    nyiso = "us.iso.nyiso.gen_queue"
+    members = [
+        _m(
+            nyiso,
+            "0721",
+            "generation_queue",
+            capacity_mw=280.0,
+            lifecycle_state="studied",
+            queue_date="2018-06-07",
+        ),
+        _m(
+            nyiso,
+            "1169",
+            "generation_queue",
+            capacity_mw=20.0,
+            lifecycle_state="withdrawn",
+            queue_date="2021-05-11",
+        ),
+        _gen("68507-EEC", 280.0, state="under_construction"),
+    ]
+    assert survive(members)["lifecycle_state"].value == "under_construction"
+    # The same pair with the add-on as large as the request: an earlier live request does not
+    # carry a later withdrawal, so the withdrawal decides.
+    same_size = [
+        members[0],
+        _m(
+            nyiso,
+            "1169",
+            "generation_queue",
+            capacity_mw=280.0,
+            lifecycle_state="withdrawn",
+            queue_date="2021-05-11",
+        ),
+        members[2],
+    ]
+    assert survive(same_size)["lifecycle_state"].value == "withdrawn"
+
+
+def test_an_operating_plant_outranks_a_stale_queue_status_and_gives_the_actual_cod() -> None:
+    """MONTEZUMA II: CAISO contracted with a 2012 COD; the EIA plant Montezuma Wind II operating
+    since 2012 (the close-out link, `services/resolve/closeout.py`)."""
+    plant = _m(
+        "us.eia.860m",
+        "plant:57701",
+        "registry",
+        identifiers={"eia_plant_id": "57701"},
+        capacity_mw=78.2,
+        technology="wind",
+        lifecycle_state="built",
+        status_raw="Operating",
+        operating_plant=True,
+        actual_cod="2012",
+        name_canonical="Montezuma Wind II",
+    )
+    request = _req(
+        "1037",
+        78.0,
+        state="contracted",
+        technology="wind_storage",
+        proposed_online_date="2012-01-29",
+        queue_date="2007-01-31",
+        name_canonical="MONTEZUMA II",
+    )
+    picks = survive([request, plant])
+    assert picks["lifecycle_state"].value == "built"
+    assert picks["lifecycle_state"].rule == "operating_plant_outranks_queue"
+    assert picks["milestones.actual_cod"].value == "2012"
+    assert picks["milestones.actual_cod"].source_ids == ["us.eia.860m"]
+    assert picks["capacity_mw"].value == 78.0  # the request is still the grid-connection figure
+    assert picks["identifiers"].value["eia_plant_id"] == "57701"
+    # A later withdrawal of the request is newer evidence than the match and decides.
+    withdrawn = _req("1037", 78.0, state="withdrawn", technology="wind_storage", queue_date="2007-01-31")
+    assert survive([withdrawn, plant])["lifecycle_state"].value == "withdrawn"
+
+
+def test_a_planned_record_shows_no_actual_cod_and_a_built_one_shows_its_own() -> None:
+    built = _req("188", 198.0, state="built", actual_cod="2015-06-25", queue_date="2006-01-01")
+    planned = _gen("1-G", 200.0, state="under_construction")
+    picks = survive([built, planned])
+    assert picks["milestones.actual_cod"].value == "2015-06-25"
+    assert picks["milestones.queue_date"].value == "2006-01-01"
+    not_built = survive([_req("188", 198.0, state="studied", actual_cod="2015-06-25"), planned])
+    assert "milestones.actual_cod" not in not_built
 
 
 def test_unknown_never_wins_and_a_gone_member_yields_to_a_present_one() -> None:

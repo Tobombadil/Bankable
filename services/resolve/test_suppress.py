@@ -189,5 +189,6 @@ def test_the_reviewed_file_lists_only_the_audited_offices_each_with_a_reason() -
         "110059984744": "US LIABILITY INS GROUP/WAYNE",
         "110035370504": "CONCORDANCE HEALTHCARE SOLUTIONS",
         "110054888298": "FCA US LLC",
+        "110055591328": "HEALTH AND HOSPITAL CORPORATION",
     }
     assert all("docs/25" in s.reason for s in listed)
