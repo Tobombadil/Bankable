@@ -308,7 +308,8 @@ column; the map drawer drops the Capacity row for a load with no MW (the in-view
 chosen over "last changed" because every record's `last_changed` is currently its load date, which orders nothing;
 revisit once change events flow. `/methodology` explains why there is no Texas large-load request: ERCOT publishes its
 large-load queue only as system-wide charts in PDF decks (`data/vocabulary/coverage_notes.yaml`,
-`ercot_large_load_not_request_level`).
+`ercot_large_load_not_request_level`), and drops the note by itself once the ERCOT large-load source has a
+published row (`applies_to.source_without_published_rows`).
 
 **Status control, as built 2026-10-07 (audit UX-1).** The `lifecycle▾` filter of §5.1 is a "Status: active"
 disclosure on both the map and the list bar (one macro, `status_filter`), with one checkbox per group: Announced,
