@@ -28,10 +28,10 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from services.ingest.context_layers import CONTEXT_ASSET_FILES, ETHANOL_ATLAS_FILE, ETHANOL_CAPACITY_FILE
 from web.api_client import ApiClient
 from web.app import app as web_app
 from web.build_data import OPPORTUNITY_SOURCE_IDS
-from web.dev_up import _CONTEXT_ASSET_FILES, _ETHANOL_ATLAS_FILE, _ETHANOL_CAPACITY_FILE
 from web.labels import map_labels
 from web.page import _asset_extras, templates
 from web.retirement import ASSET_STATUS_LABELS
@@ -264,7 +264,7 @@ def test_opportunity_labels_cover_the_sources_the_site_loads() -> None:
 
 
 def test_asset_labels_cover_the_registries_the_dev_loader_loads() -> None:
-    files = [name for name, _type in _CONTEXT_ASSET_FILES] + [_ETHANOL_ATLAS_FILE, _ETHANOL_CAPACITY_FILE]
+    files = [name for name, _type in CONTEXT_ASSET_FILES] + [ETHANOL_ATLAS_FILE, ETHANOL_CAPACITY_FILE]
     loaded = {name.removesuffix(".parquet") for name in files}
     assert set(ASSET_SOURCE_LABELS) == loaded
     # Power plants come from EIA-860M, which the proposal map names once for both.

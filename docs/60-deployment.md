@@ -376,6 +376,22 @@ python -m services.visibility_audit.run   # exit 1 when M-11 > 0; --no-persist, 
 
 The `audit` queue is consumed by the `worker` service (`infra/compose/docker-compose.yml`), added to its `--queues` list with this job.
 
+### 6.2 Matches and context layers (2026-10-09)
+
+Two store-wide passes the scheduler did not run before 2026-10-09 (`docs/64` §7). Both are bodies in
+`infra/scheduler/jobs.py`, registered in `app.py`, on queues the `worker` service already consumes:
+
+| Job | When | Queue | `lock` | Timeout | Calls |
+|---|---|---|---|---|---|
+| `match_tick` | after every `enrich_tick`, so after every load's resolve chain and the daily 04:37 resolve tick | `resolve` | `resolve` | 30 min | `services.match.run.run_matches`, incremental against its watermark (full on a first run or a rule-set change) |
+| `context_build` | `tick_context`, `43 2 3 * *` (the 3rd, after the monthly EIA-860M and the annual EIA-860/GHGRP fetches) | `fetch` | `context_build` | 30 min per builder | each `pipeline.context` builder in `jobs.CONTEXT_BUILDERS` as its own process; a failure is logged and the rest run |
+| `context_load` | after `context_build` | `resolve` | `resolve` | 60 min; `LOAD_RETRY` | `services.ingest.context_layers.load_context_layers` over `INFRAQUE_DATA_DIR`: plants, EIA-860M retirements, asset layers, owner shares, features, organisation graph |
+
+Each carries a `queueing_lock` of its own name. `python -m infra.scheduler.bootstrap context [--build]` queues the load (or
+the build and then the load) by hand. Every builder writes under `INFRAQUE_DATA_DIR`
+(`pipeline.connectors.store.DATA_DIR`), the same root the connectors and the loader use. The chain assumes one data
+root on one host (`docs/64` §7).
+
 ## 7. Observability
 
 | Signal | Mechanism | Where |

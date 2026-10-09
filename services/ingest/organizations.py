@@ -83,6 +83,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from pipeline.connectors.registry import Registry
+from pipeline.connectors.store import DATA_DIR
 from pipeline.normalize import org_key
 from services.db.models import (
     Asset,
@@ -106,7 +107,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = pathlib.Path("web/.data/dev.db")
 DEFAULT_ALIASES_PATH = ROOT / "data" / "vendored" / "organizations" / "aliases.yaml"
 DEFAULT_MERGES_PATH = ROOT / "data" / "vendored" / "organizations" / "merges.yaml"
-DEFAULT_GLEIF_PARQUET = ROOT / "data" / "normalized" / "context" / "global.gleif.lei.parents.parquet"
+#: Under the connector data root (`INFRAQUE_DATA_DIR`, else data/), where `pipeline.context.gleif` writes it.
+DEFAULT_GLEIF_PARQUET = DATA_DIR / "normalized" / "context" / "global.gleif.lei.parents.parquet"
 
 GLEIF_SOURCE_ID = "global.gleif.lei"
 ALIASES_SOURCE_ID = "curated.organization_aliases"

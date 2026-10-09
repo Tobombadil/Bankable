@@ -109,6 +109,11 @@ it.
 .venv/bin/python -m pipeline.context.gleif
 ```
 
+Every builder writes under `INFRAQUE_DATA_DIR` when it is set, and under `data/` otherwise: the same
+root the connectors use. A deployed server rebuilds every layer above except GLEIF on the 3rd of each
+month, plus three more (EIA-860 grid fields, GHGRP, LBNL transmission lines), then loads them
+(`docs/60` §6.2; the list is `CONTEXT_BUILDERS` in `infra/scheduler/jobs.py`).
+
 ## 4a. Re-read what is already stored under the current code
 
 New code does not change rows you already have. A parser or status-map fix reaches a source only when

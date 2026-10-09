@@ -43,6 +43,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from services.db.session import get_engine, get_sessionmaker, init_db
+from services.ingest.context_layers import load_context_layers as load_context_files
 from services.ingest.interconnection import link_all_points
 from services.match.run import run_matches
 from web.data_loading import DEFAULT_DATA_ROOT, DEFAULT_SOURCES_YAML, load_dev_database, load_test_database
@@ -87,320 +88,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--context-only",
         action="store_true",
-        help="Load only what the scheduler never loads (the context asset layers, the EIA-860M "
-        "retirements onto them, proposal-opportunity matches) into the existing store DATABASE_URL "
-        "names, from --data-dir, then exit: no schema, no proposal load, no servers (docs/64).",
+        help="Reload only the context layers (the asset layers, the EIA-860M retirements onto them) "
+        "and proposal-opportunity matches into the existing store DATABASE_URL names, from "
+        "--data-dir, then exit: no schema, no proposal load, no servers (docs/64).",
     )
     parser.add_argument("--api-host", default="127.0.0.1")
     parser.add_argument("--api-port", type=int, default=8001)
     parser.add_argument("--web-host", default="127.0.0.1")
     parser.add_argument("--web-port", type=int, default=8000)
     return parser.parse_args(argv)
-
-
-def _load_plants_context_layer(session: Session, data_dir: Path) -> None:
-    """Task item 7: the existing-plants context layer (docs/00-PLAN.md 2026-09-14/15 owner
-    decision), loaded through the plants ingest lane's own `load_plants_parquet(session, path)` --
-    this script never invents its own load path for that data, matching `load_dev_database`'s rule
-    for every other source. Both the parquet file and the loader function are a separate,
-    parallel-built lane (`python -m services.ingest.plants`) that may not exist yet when this
-    runs, so both are optional: missing skips silently past the parquet check, and an import
-    failure (the module not landed yet) is caught the same way and logged once -- either way this
-    prints exactly one line, per the task brief, and never fails the rest of `dev_up`."""
-    parquet_path = data_dir / "normalized" / "context" / "us.eia.860m.plants.parquet"
-    if not parquet_path.exists():
-        log.info("plants context layer: %s not found, skipping", parquet_path)
-        return
-    try:
-        from services.ingest.plants import load_plants_parquet
-    except ImportError as exc:
-        log.info("plants context layer: services.ingest.plants not available yet (%s), skipping", exc)
-        return
-    report = load_plants_parquet(session, parquet_path)
-    log.info("plants context layer: loaded from %s (%s)", parquet_path, report)
-
-
-def _load_retirements(session: Session, data_dir: Path, sources_yaml: Path) -> None:
-    """Generator retirements (lane R1, docs/27 §R1) onto the `power_plant` assets
-    `_load_plants_context_layer` just loaded, through the scheduler's own path:
-    `services.ingest.loader.load_from_files`, which routes `us.eia.860m.retirements` to
-    `services/ingest/retirements.py` (`SPECIALISED_LOADERS`). That loader updates each plant's
-    `status`, `retirement_year` and `attributes.retirement` and writes retirement events; it never
-    creates a proposal or an asset, so it must run after the plants layer. A first load (no
-    previous run to diff against) writes no events by construction. The connector's latest frame
-    missing, or the source gated in `sources.yaml`, is one log line, never a failure of the rest
-    of `dev_up`. Not sampled by `--sample`: it touches assets, not proposals, and is quick."""
-    from pipeline.connectors.registry import Registry
-    from services.ingest.loader import GateRefused, load_from_files
-    from services.ingest.retirements import SOURCE_ID
-
-    files = sorted((data_dir / "normalized" / SOURCE_ID).glob("*.parquet"))
-    if not files:
-        log.info("retirements: no %s frame under %s, skipping", SOURCE_ID, data_dir / "normalized")
-        return
-    try:
-        result = load_from_files(
-            session, SOURCE_ID, files[-1].stem, data_root=data_dir, registry=Registry(sources_yaml)
-        )
-    except GateRefused as exc:
-        log.info("retirements: %s refused (%s), skipping", SOURCE_ID, exc)
-        return
-    log.info("retirements: loaded %s (%s)", files[-1].name, result)
-
-
-def _load_ownership(session: Session, data_dir: Path) -> None:
-    """ADR 0008 task item 4: the EIA-860 Schedule 4 ownership-share parquet, loaded through the
-    ownership ingest lane's own `load_owner_shares_parquet(session, path)` -- same rule as
-    `_load_plants_context_layer` above: this script never invents its own load path, both the
-    parquet and the loader module are optional (a parallel-built lane that may not exist yet when
-    this runs), and either kind of "not ready" is one log line, never a failure of the rest of
-    `dev_up`."""
-    parquet_path = data_dir / "normalized" / "context" / "us.eia.860.owners.parquet"
-    if not parquet_path.exists():
-        log.info("asset ownership: %s not found, skipping", parquet_path)
-        return
-    try:
-        from services.ingest.ownership import load_owner_shares_parquet  # type: ignore[import-not-found]
-    except ImportError as exc:
-        log.info("asset ownership: services.ingest.ownership not available yet (%s), skipping", exc)
-        return
-    report = load_owner_shares_parquet(session, parquet_path)
-    # `as_report()` where it exists: its unmatched-plant list is a sample, so this stays one line.
-    summary = report.as_report() if hasattr(report, "as_report") else report
-    log.info("asset ownership: loaded from %s (%s)", parquet_path, summary)
-
-
-def _load_organization_graph(session: Session, data_dir: Path) -> None:
-    """The ownership graph's organisation layer (docs/22 §17), after every asset, edge, owner-share
-    and curated-parent load because it reads what they created: GLEIF Level 2 parent links from
-    `data/normalized/context/global.gleif.lei.parents.parquet`, then the curated alias file, then the
-    curated merge file. Same rule as `_load_ownership` above -- this script never invents a load
-    path, both the parquet and the loader module are optional, and a missing module, a missing file
-    or an unreadable YAML is one log line each, never a failure of the rest of `dev_up`. GLEIF runs
-    after the curated parents and wins where it has a record; `services/ingest/midstream.py::
-    load_parents` defers to it on a later re-run, so the order here is a preference, not a
-    correctness requirement."""
-    try:
-        from services.ingest.organizations import (  # type: ignore[import-not-found]
-            load_aliases,
-            load_gleif_parents_parquet,
-            load_merges,
-        )
-    except ImportError as exc:
-        log.info("organisation graph: services.ingest.organizations not available yet (%s), skipping", exc)
-        return
-    parquet_path = data_dir / "normalized" / "context" / "global.gleif.lei.parents.parquet"
-    if not parquet_path.exists():
-        log.info("organisation graph: %s not found, skipping GLEIF parents", parquet_path)
-    else:
-        report = load_gleif_parents_parquet(session, parquet_path)
-        log.info("organisation graph: GLEIF parents from %s (%s)", parquet_path, report.as_report())
-    try:
-        aliases = load_aliases(session)
-    except (FileNotFoundError, ValueError) as exc:
-        log.info("organisation graph: curated alias file unusable (%s), skipping", exc)
-    else:
-        log.info("organisation graph: curated aliases applied (%s)", aliases.as_report())
-    # Curated merges run last: they read the rows every loader above created, and a merge is the
-    # decision the alias loader refuses to make (its `conflicts`). docs/22 §20.5.
-    try:
-        merges = load_merges(session)
-    except (FileNotFoundError, ValueError) as exc:
-        log.info("organisation graph: curated merge file unusable (%s), skipping", exc)
-    else:
-        log.info("organisation graph: curated merges applied (%s)", merges.as_report())
-
-
-#: `data/normalized/context/<file>` -> `asset_type` for the midstream and fuels context layers
-#: (owner option (a), 2026-09-19; file names and types as the data lanes landed them, coordinator
-#: note 2026-09-19). Two files may feed one type (ethanol from EIA capacity and the Atlas layer;
-#: RNG from EPA LMOP and AgSTAR); the `*.proposals.parquet` siblings of the EPA files hold planned
-#: rows that are proposals, not assets, and are not listed here. A file that is not there is one
-#: log line, never a failure.
-#: `ethanol_plant` is loaded separately (`_load_ethanol_plants`, docs/24 §5(a)): its two files are
-#: resolved to one asset per plant, not one row per file, so it does not go through this generic
-#: per-file loop at all.
-_CONTEXT_ASSET_FILES: tuple[tuple[str, str], ...] = (
-    ("us.eia.atlas.gas_pipelines.parquet", "gas_pipeline"),
-    ("us.eia.atlas.gas_processing_plants.parquet", "gas_processing_plant"),
-    ("us.eia.atlas.gas_storage.parquet", "gas_storage"),
-    ("us.eia.atlas.lng_terminals.parquet", "lng_terminal"),
-    ("us.epa.lmop.parquet", "rng_project"),
-    ("us.epa.agstar.parquet", "rng_project"),
-    # Grid lane G2, 2026-09-28: LBNL's FERC x HIFLD transmission lines (CC BY 4.0), one row per line.
-    # The loop's edge step writes nothing for it: the owner rides in `attributes` until LBNL's
-    # owner strings have a reviewed alias table (pipeline/context/lbnl_transmission.py docstring).
-    ("us.lbnl.ferc_hifld_transmission_lines.parquet", "transmission_line"),
-)
-
-_ETHANOL_ATLAS_FILE = "us.eia.atlas.ethanol_plants.parquet"
-_ETHANOL_CAPACITY_FILE = "us.eia.ethanol_capacity.parquet"
-
-
-def _load_ethanol_plants(session: Session, data_dir: Path) -> bool:
-    """`ethanol_plant`: one asset per real plant, not one row per registry (docs/24 §5(a), measured
-    48.2% cross-source duplication with no resolution). Both files are read together through
-    `services.ingest.assets.load_ethanol_plants`; either file missing is one log line, same rule as
-    the rest of this module.
-
-    **Operator edges** (coordinator correction, 2026-09-26, docs/24 §7): `load_ethanol_plants`
-    itself now writes the `operator` edge for every merged asset, from the capacity report's
-    current name where it states one (docs/24 §7.1 -- a merged asset's operator must be current,
-    not stale by construction because Atlas happens to be the primary source). The generic
-    per-file loader (`services.ingest.midstream.load_operator_edges`) is still the right tool for
-    the two remaining cases -- the Atlas-only and capacity-only singles -- so it still runs, but:
-
-    - against the **full** Atlas file, because every merged asset also keeps the Atlas source's own
-      `(source_id, source_asset_id)` identity (docs/24 §5(a): Atlas is primary), so the Atlas edge
-      the generic loader writes for a merged row is a second, correctly-attributed source view
-      alongside the capacity-derived one `load_ethanol_plants` wrote -- not a duplicate of it (they
-      differ on `source_id`, and often on the organisation too, exactly docs/24 §7.1's stale-owner
-      finding made visible as two edges rather than hidden as one).
-    - against the capacity file **with the 184 merged rows filtered out** first. Measured before
-      this filter (`services/ingest/test_assets.py::
-      test_capacity_operator_edges_are_not_requested_for_merged_rows_after_the_fix` and this
-      module's own docstring history): calling the generic loader on the *unfiltered* capacity file
-      after a merge does not corrupt anything -- `load_operator_edges`'s own `Asset.source_id ==
-      source.id` filter already can't find a merged row under the capacity source, so those 184
-      ids just come back in `unmatched_asset_ids` every run, wasted but harmless. Filtering removes
-      that reliance on an incidental property of a module outside this lane's file area, rather
-      than leaving it as a load-bearing accident."""
-    context_dir = data_dir / "normalized" / "context"
-    atlas_path, capacity_path = context_dir / _ETHANOL_ATLAS_FILE, context_dir / _ETHANOL_CAPACITY_FILE
-    if not atlas_path.exists() or not capacity_path.exists():
-        log.info(
-            "context asset layers: ethanol_plant needs both %s and %s, skipping", atlas_path, capacity_path
-        )
-        return False
-    import pandas as pd
-
-    from services.ingest.assets import load_ethanol_plants
-
-    atlas_df = pd.read_parquet(atlas_path)
-    capacity_df = pd.read_parquet(capacity_path)
-    report = load_ethanol_plants(session, atlas_df, capacity_df)
-    log.info(
-        "context asset layers: loaded ethanol_plant from %s + %s (%s)", atlas_path, capacity_path, report
-    )
-    try:
-        from services.ingest.midstream import load_operator_edges
-    except ImportError as exc:
-        log.info("context asset layers: services.ingest.midstream not available yet (%s); rows only", exc)
-        return True
-    atlas_edges = load_operator_edges(session, atlas_df, "ethanol_plant")
-    log.info("context asset layers: operator edges from %s (%s)", atlas_path, atlas_edges)
-    merged = set(report.merged_capacity_source_asset_ids)
-    capacity_singles_df = capacity_df[~capacity_df["source_asset_id"].astype(str).isin(merged)]
-    capacity_edges = load_operator_edges(session, capacity_singles_df, "ethanol_plant")
-    log.info(
-        "context asset layers: operator edges from %s, %d merged rows excluded (%s)",
-        capacity_path,
-        len(merged),
-        capacity_edges,
-    )
-    return True
-
-
-def _load_ghgrp(session: Session, data_dir: Path) -> None:
-    """docs/02 §12: EPA GHGRP parent-company shares as `asset_owner` edges (`as_of` = 31 December
-    of the reporting year) and `asset.attributes["ghgrp"]` on assets the other loaders already
-    created -- through the GHGRP lane's own `load_ghgrp_parquet(session, path)`, which never
-    inserts an `asset` row (docs/24). Same rule as `_load_ownership` above: the parquet and the
-    module are both optional and either kind of "not ready" is one log line. Runs after the
-    EIA-860 owner shares (both write owner edges; GHGRP's are the dated ones) and before the
-    features pass, so anything derived from ownership sees these edges too."""
-    parquet_path = data_dir / "normalized" / "context" / "us.epa.ghgrp.parquet"
-    if not parquet_path.exists():
-        log.info("ghgrp ownership: %s not found, skipping", parquet_path)
-        return
-    try:
-        from services.ingest.ghgrp import load_ghgrp_parquet
-    except ImportError as exc:
-        log.info("ghgrp ownership: services.ingest.ghgrp not available yet (%s), skipping", exc)
-        return
-    result, _matches = load_ghgrp_parquet(session, parquet_path)
-    summary = result.as_report() if hasattr(result, "as_report") else result
-    log.info("ghgrp ownership: loaded from %s (%s)", parquet_path, summary)
-
-
-def _apply_context_features(session: Session, data_root: Path) -> None:
-    """The enrichment lane's `services.ingest.enrich.apply_context_features(session, data_root)`
-    (derived asset features such as nearby-asset and ownership context), called exactly once, after
-    every asset, edge and owner-share load and before the curated parent links are applied. The
-    module is a separate lane that may not exist yet when this runs, and its parquet inputs may be
-    absent, so a missing module, a missing file or an unwired feature is one log line, never a
-    failure of the rest of `dev_up`."""
-    try:
-        from services.ingest.enrich import apply_context_features  # type: ignore[import-not-found]
-    except ImportError as exc:
-        log.info("context features: services.ingest.enrich not available yet (%s), skipping", exc)
-        return
-    try:
-        report = apply_context_features(session, data_root)
-    except FileNotFoundError as exc:
-        log.info("context features: input not found (%s), skipping", exc)
-        return
-    log.info("context features: applied (%s)", report)
-
-
-def _load_context_asset_layers(session: Session, data_dir: Path) -> None:
-    """Load the midstream/fuels asset layers through the ingest lanes' own loaders -- same rule as
-    `_load_plants_context_layer`: this script never invents a load path. Per file, in order:
-    `services.ingest.assets.load_assets_parquet(session, path, asset_type)` (the rows) then
-    `services.ingest.midstream.load_operator_edges_parquet(session, path, asset_type)` (the
-    `asset_owner` operator edges); once every file is done, `_load_ownership` writes the EIA-860
-    Schedule 4 owner shares (they join onto the `power_plant` rows `_load_plants_context_layer`
-    loaded first, so this runs after the plants and after every other asset and edge load), then
-    `_load_ghgrp` writes the GHGRP parent-company shares onto matched assets (docs/02 §12), then
-    `_apply_context_features` runs the enrichment lane once, and last `services.ingest.midstream.
-    load_parents(session)` applies the curated parent links (`data/vendored/organizations/
-    parents.yaml`) over every organisation the loads above created. Any file or module that is
-    not there yet, or an `asset_type` the loader has not wired, is one log line with the reason,
-    never a failure of the rest of `dev_up`; every successful step logs its counts."""
-    context_dir = data_dir / "normalized" / "context"
-    try:
-        from services.ingest.assets import UnsupportedAssetTypeError, load_assets_parquet
-    except ImportError as exc:
-        log.info("context asset layers: services.ingest.assets not available yet (%s), skipping", exc)
-        return
-    try:
-        from services.ingest.midstream import load_operator_edges_parquet, load_parents
-    except ImportError as exc:
-        log.info("context asset layers: services.ingest.midstream not available yet (%s); rows only", exc)
-        load_operator_edges_parquet = None  # type: ignore[assignment]
-        load_parents = None  # type: ignore[assignment]
-
-    loaded = 0
-    for file_name, asset_type in _CONTEXT_ASSET_FILES:
-        parquet_path = context_dir / file_name
-        if not parquet_path.exists():
-            log.info("context asset layers: %s not found, skipping", parquet_path)
-            continue
-        try:
-            report = load_assets_parquet(session, parquet_path, asset_type)
-        except UnsupportedAssetTypeError as exc:
-            log.info("context asset layers: %s skipped (%s)", file_name, exc)
-            continue
-        loaded += 1
-        log.info("context asset layers: loaded %s rows from %s (%s)", asset_type, file_name, report)
-        if load_operator_edges_parquet is not None:
-            edges = load_operator_edges_parquet(session, parquet_path, asset_type)
-            log.info("context asset layers: operator edges from %s (%s)", file_name, edges)
-    if _load_ethanol_plants(session, data_dir):
-        loaded += 1
-    _load_ownership(session, data_dir)
-    _load_ghgrp(session, data_dir)
-    _apply_context_features(session, data_dir)
-    if loaded and load_parents is not None:
-        try:
-            parents = load_parents(session)
-        except FileNotFoundError as exc:
-            log.info("context asset layers: curated parents file not found (%s), skipping", exc)
-        else:
-            log.info("context asset layers: curated parents applied (%s)", parents)
-    _load_organization_graph(session, data_dir)
-    if not loaded:
-        log.info("context asset layers: no midstream/fuels parquet under %s yet, skipping", context_dir)
 
 
 def _link_interconnection_points(session: Session) -> None:
@@ -462,9 +158,9 @@ def build_store(
             sample_per_state=sample_per_state,
         )
         load_fixture_if_empty(session, report, sample_per_state=sample_per_state)
-        _load_plants_context_layer(session, data_dir)
-        _load_retirements(session, data_dir, sources_yaml)
-        _load_context_asset_layers(session, data_dir)  # includes owner shares + features
+        # Plants, then retirements onto them, then the other asset layers with owner shares and
+        # features (services/ingest/context_layers.py, the scheduler's `context_load` body).
+        load_context_files(session, data_dir, sources_yaml=sources_yaml)
         if resolve:
             _resolve_clusters(session, engine, data_dir)
         else:
@@ -479,19 +175,15 @@ def build_store(
 
 
 def load_context_layers(database_url: str, *, data_dir: Path, sources_yaml: Path) -> None:
-    """The part of `build_store` a deployed store gets from nowhere else (docs/64): the scheduler
-    loads proposals and opportunities, resolves and enriches, but builds no context layer and runs
-    no matcher. Loads the plants context layer, the EIA-860M retirements onto it (a retirements run
-    the scheduler loaded before any plant existed matched nothing), the other context asset layers
-    with owner shares and features, then proposal-opportunity matches and `ANALYZE`. Creates no
-    schema: the deploy's migrations made it. Each loader logs and skips a file that is absent, so a
-    data root holding only some layers loads those."""
+    """Reload the context layers into an existing store without rebuilding it (`--context-only`):
+    the plants, the EIA-860M retirements onto them, the other asset layers with owner shares and
+    features (services/ingest/context_layers.py), then proposal-opportunity matches and `ANALYZE`.
+    Creates no schema. A deployed store gets the same from the scheduler's monthly `context_build`
+    -> `context_load` chain and its `match_tick` (docs/64 §7)."""
     engine = get_engine(database_url)
     session: Session = get_sessionmaker(engine)()
     try:
-        _load_plants_context_layer(session, data_dir)
-        _load_retirements(session, data_dir, sources_yaml)
-        _load_context_asset_layers(session, data_dir)
+        load_context_files(session, data_dir, sources_yaml=sources_yaml)
         _run_matches(session)
         session.commit()
         refresh_planner_statistics(session)

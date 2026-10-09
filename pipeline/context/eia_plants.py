@@ -33,6 +33,7 @@ from typing import Any
 import pandas as pd
 
 from pipeline.connectors.base import ParseError, to_parquet_safe
+from pipeline.connectors.store import DATA_DIR
 from pipeline.context.retirements import (
     GeneratorSheets,
     PlantRetirement,
@@ -44,9 +45,11 @@ from pipeline.context.retirements import (
 from pipeline.normalize import SOURCE_META, capacity, classify_tech
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SNAPSHOT_DIR = ROOT / "data" / "snapshots" / "us.eia.860m"
-RUNS_DIR = ROOT / "data" / "runs" / "us.eia.860m"
-DEFAULT_OUT = ROOT / "data" / "normalized" / "context" / "us.eia.860m.plants.parquet"
+#: Writable data (snapshots/, runs/, normalized/) lives under the connector data root, `INFRAQUE_DATA_DIR`
+#: when set (a container's volume), else this checkout's data/ (`pipeline.connectors.store.DATA_DIR`).
+SNAPSHOT_DIR = DATA_DIR / "snapshots" / "us.eia.860m"
+RUNS_DIR = DATA_DIR / "runs" / "us.eia.860m"
+DEFAULT_OUT = DATA_DIR / "normalized" / "context" / "us.eia.860m.plants.parquet"
 
 SOURCE_ID = "us.eia.860m"
 _, INDEX_URL, LICENCE = SOURCE_META["eia860m"]
@@ -266,14 +269,14 @@ def main(argv: list[str] | None = None) -> None:
         "--data-root",
         type=pathlib.Path,
         default=None,
-        help="Data root holding snapshots/, runs/ and normalized/ (default: this checkout's data/). "
-        "A worktree or a deployment whose data lives elsewhere names it here, so the snapshot, its "
-        "run record (the workbook URL) and the default --out all come from the same root.",
+        help="Data root holding snapshots/, runs/ and normalized/ (default: INFRAQUE_DATA_DIR, else "
+        "this checkout's data/). A worktree whose data lives elsewhere names it here, so the snapshot, "
+        "its run record (the workbook URL) and the default --out all come from the same root.",
     )
     parser.add_argument("--out", type=pathlib.Path, default=None)
     args = parser.parse_args(argv)
 
-    data_root = args.data_root or ROOT / "data"
+    data_root = args.data_root or DATA_DIR
     snapshot_dir = data_root / "snapshots" / SOURCE_ID
     runs_dir = data_root / "runs" / SOURCE_ID
     out = args.out or data_root / "normalized" / "context" / DEFAULT_OUT.name

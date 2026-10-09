@@ -22,15 +22,18 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
                                                      normalised snapshot (`status == "ok"`)
                           -> resolve_tick             organisations + proposal clusters, store-wide
                              -> enrich_tick           geocode backfill and later enrichment stages
-    tick_resolve (daily)  ->  resolve_tick            safety net for rows loaded outside the chain
+                                -> match_tick         proposal-opportunity matches (incremental)
+    tick_resolve (daily)  ->  resolve_tick ...        safety net for rows loaded outside the chain
+    tick_context (monthly) -> context_build           rebuild normalized/context/ (builder CLIs)
+                              -> context_load         plants, retirements, asset layers, owners
     tick_deadline (hourly) -> deadline_tick           open opportunities past due_at -> closed
     admin release         ->  release_held_run        a DQ-held run an operator released (2026-09-27):
                               -> load_source ...      promote `held/` -> `normalized/`, then the chain
 
 Overlap guards: `run_connector` and `load_source` share the per-source Procrastinate `lock`
 (`cadence.execution_lock_for`), so one source is never fetched and loaded at the same moment;
-`resolve_tick`/`enrich_tick` carry a `queueing_lock` (one queued at a time) and a shared `lock`
-(never two store-wide passes at once). Failures: `run_connector` retries only
+`resolve_tick`/`enrich_tick`/`match_tick`/`context_load` carry a `queueing_lock` (one queued at a
+time) and a shared `lock` (never two store-wide passes at once). Failures: `run_connector` retries only
 `TransientConnectorFailure` (network, 5xx, crash, timeout) with exponential backoff and
 dead-letters on the fifth attempt; a block, a corrupt payload or a gate refusal is recorded once
 and left for the next tick (`FETCH_RETRY` below; `infra/scheduler/jobs.py`).
@@ -150,6 +153,8 @@ LOAD_RETRY = procrastinate.RetryStrategy(
 LOAD_TIMEOUT_S = 1800  # a full NYISO/EIA frame loads in well under this on the reference laptop
 RESOLVE_TIMEOUT_S = 3600
 ENRICH_TIMEOUT_S = 1800
+MATCH_TIMEOUT_S = 1800  # ~1,200 scored pairs of 7.4 million on the full store (services/match/run.py)
+CONTEXT_LOAD_TIMEOUT_S = 3600
 
 
 # Named, like every task here: unnamed, Procrastinate names a task after its module, and
@@ -521,8 +526,65 @@ def resolve_tick() -> dict[str, Any]:
 
 @app.task(name="enrich_tick", queue="resolve", retry=0, queueing_lock="enrich_tick", lock="resolve")
 def enrich_tick() -> dict[str, Any]:
-    """Enrichment (docs/20 §3.6): the geocode backfill today; body in `infra/scheduler/jobs.py`."""
-    return _run_with_timeout(jobs.enrich_tick_job, timeout_s=ENRICH_TIMEOUT_S)
+    """Enrichment (docs/20 §3.6): the geocode backfill today; body in `infra/scheduler/jobs.py`.
+    Chains to `match_tick`."""
+    report = _run_with_timeout(jobs.enrich_tick_job, timeout_s=ENRICH_TIMEOUT_S)
+    try:
+        match_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: match_tick already queued")
+    return report
+
+
+@app.task(name="match_tick", queue="resolve", retry=0, queueing_lock="match_tick", lock="resolve")
+def match_tick() -> dict[str, Any]:
+    """Proposal-opportunity matches (docs/10 US-401), incremental, after the passes that change what
+    matches: loads, merges, enrichment. Under the store-wide lock, so it never reads a cluster a
+    resolve pass is merging. `retry=0`: the next resolve chain (at the latest the daily
+    `tick_resolve`) is the retry. Body in `infra/scheduler/jobs.py`."""
+    return _run_with_timeout(jobs.match_tick_job, timeout_s=MATCH_TIMEOUT_S)
+
+
+@app.task(name="context_build", queue="fetch", retry=0, queueing_lock="context_build", lock="context_build")
+def context_build() -> dict[str, Any]:
+    """Rebuild the context layers' files under the connector data root (docs/61 §4,
+    `jobs.CONTEXT_BUILDERS`): each builder as its own process with its own timeout, a failed one
+    logged and skipped. Touches no table, so it holds no store-wide lock; then chains to
+    `context_load`. `retry=0`: next month's tick is the retry, and a builder that failed keeps its
+    previous file."""
+    report = jobs.context_build_job()
+    try:
+        context_load.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: context_load already queued")
+    return report
+
+
+@app.task(
+    name="context_load", queue="resolve", retry=LOAD_RETRY, queueing_lock="context_load", lock="resolve"
+)
+def context_load() -> dict[str, Any]:
+    """Load the context layers from `normalized/context/` into the store
+    (`services/ingest/context_layers.py`, the same path `web.dev_up` uses). Under the store-wide
+    lock, because it writes organisations a resolve pass may be merging; retried on the same
+    database conflicts with a concurrent load as `load_source` (`LOAD_RETRY`): every step is
+    idempotent. Body in `infra/scheduler/jobs.py`."""
+    return _run_with_timeout(jobs.context_load_job, timeout_s=CONTEXT_LOAD_TIMEOUT_S)
+
+
+#: The 3rd of the month, 02:43 UTC: after the monthly bucket's EIA-860M fetch (the 1st) and the
+#: annual bucket's EIA-860 and GHGRP fetches in their run month (the 2nd), whose snapshots the
+#: first builders read; before the daily bucket (03:07), which it does not otherwise touch.
+CONTEXT_CRON = "43 2 3 * *"
+
+
+@app.periodic(cron=CONTEXT_CRON, periodic_id="tick:context")
+@app.task(name="tick_context", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_context(timestamp: int) -> None:
+    try:
+        context_build.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous context_build still queued or running")
 
 
 @app.periodic(cron="37 4 * * *", periodic_id="tick:resolve")  # after the daily fetch bucket (03:07)

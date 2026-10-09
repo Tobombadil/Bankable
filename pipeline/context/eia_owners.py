@@ -61,12 +61,15 @@ from typing import Any
 import pandas as pd
 
 from pipeline.connectors.base import ParseError
+from pipeline.connectors.store import DATA_DIR
 from pipeline.connectors.us_eia_860.connector import find_owner_member, parse_owner_sheet
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SNAPSHOT_DIR = ROOT / "data" / "snapshots" / "us.eia.860"
-RUNS_DIR = ROOT / "data" / "runs" / "us.eia.860"
-DEFAULT_OUT = ROOT / "data" / "normalized" / "context" / "us.eia.860.owners.parquet"
+#: Writable data (snapshots/, runs/, normalized/) lives under the connector data root, `INFRAQUE_DATA_DIR`
+#: when set (a container's volume), else this checkout's data/ (`pipeline.connectors.store.DATA_DIR`).
+SNAPSHOT_DIR = DATA_DIR / "snapshots" / "us.eia.860"
+RUNS_DIR = DATA_DIR / "runs" / "us.eia.860"
+DEFAULT_OUT = DATA_DIR / "normalized" / "context" / "us.eia.860.owners.parquet"
 
 SOURCE_ID = "us.eia.860"
 LICENCE = "public-domain"
