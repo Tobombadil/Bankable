@@ -2266,11 +2266,11 @@
         "<h2>" + esc(p.name) + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
         "<dl class=\"drawer-fields\">" +
         "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + esc(technologyName(p.technology) || "—") + "</dd></div>" +
-        // A field the kind cannot carry (PROPOSAL_FIELDS_NOT_APPLICABLE) and a large load with no MW
-        // (lane L11) get no Capacity row rather than a row of "—".
-        (fieldApplies(p.kind, "capacity_mw", p.capacity_mw) && !(p.technology === "load" && !p.capacity_mw)
-          ? "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? fmtMW(p.capacity_mw) : "—") + "</dd></div>"
-          : "") +
+        // A kind that cannot carry a capacity (PROPOSAL_FIELDS_NOT_APPLICABLE) and a large load with no
+        // MW (lane L11) get no Capacity row rather than a row of "—".
+        (!fieldApplies(p.kind, "capacity_mw", p.capacity_mw) ? "" :
+          p.technology === "load" && !p.capacity_mw ? "" :
+          "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? fmtMW(p.capacity_mw) : "—") + "</dd></div>") +
         "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + esc(p.county_name || "—") + ", " + esc(p.state_code || "—") +
         (p.precision_note ? " (" + esc(p.precision_note) + ")" : "") + "</dd></div>" +
         "</dl>" +

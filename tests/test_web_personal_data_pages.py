@@ -37,6 +37,7 @@ from web.admin import records as web_records
 from web.admin.tasks import router as tasks_router
 from web.api_client import ApiClient
 from web.app import app as web_app
+from web.formatting import rfc3339
 
 UTC = dt.UTC
 ORIGIN = {"origin": "http://testserver"}
@@ -198,7 +199,7 @@ def test_the_privacy_queue_shows_deadlines_overdue_requests_and_the_checklist(
     assert detail.status_code == 200
     assert 'id="privacy-checklist"' in detail.text
     assert world["person_id"] in detail.text and "Quillfeather Landfill" in detail.text
-    assert on_time["due_at"] in detail.text
+    assert rfc3339(on_time["due_at"]) in detail.text  # to the second, UTC (web/formatting.py)
 
     closed = web_client.post(
         f"/admin/tasks/privacy/{on_time['public_id']}/update",

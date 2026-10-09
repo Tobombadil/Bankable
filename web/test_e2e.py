@@ -361,11 +361,14 @@ def server() -> object:
     database_url = _ensure_db_loaded(DB_PATH)
     env = dict(os.environ, DATABASE_URL=database_url, WEB_DEV_PREVIEW="1", MAP_TILE_URL=FAKE_PMTILES_URL)
     env.pop("API_BASE_URL", None)  # in-process API mount, backed by the same SQLite file
+    # The server's log goes to a file, never an unread pipe: a full 64 KiB pipe buffer blocks the
+    # server's next write, so every later request (and SIGTERM's graceful shutdown) hangs.
+    server_log = DB_PATH.with_suffix(".server.log").open("wb")
     proc = subprocess.Popen(  # noqa: S603 -- fixed argv; the port is an int parsed above
         [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", str(E2E_PORT)],
         cwd=REPO_ROOT,
         env=env,
-        stdout=subprocess.PIPE,
+        stdout=server_log,
         stderr=subprocess.STDOUT,
     )
     try:
@@ -374,6 +377,7 @@ def server() -> object:
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+        server_log.close()
 
 
 def test_smoke_map_list_detail_with_attribution(server: object) -> None:
@@ -1165,11 +1169,14 @@ def pmtiles_proof_server(pmtiles_range_server: int) -> object:
     tile_url = f"http://127.0.0.1:{pmtiles_range_server}/{PMTILES_ARCHIVE_PATH.name}"
     env = dict(os.environ, DATABASE_URL=database_url, WEB_DEV_PREVIEW="1", MAP_TILE_URL=tile_url)
     env.pop("API_BASE_URL", None)
+    # The server's log goes to a file, never an unread pipe: a full 64 KiB pipe buffer blocks the
+    # server's next write, so every later request (and SIGTERM's graceful shutdown) hangs.
+    server_log = _PMTILES_PROOF_DB_PATH.with_suffix(".server.log").open("wb")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", "8798"],
         cwd=REPO_ROOT,
         env=env,
-        stdout=subprocess.PIPE,
+        stdout=server_log,
         stderr=subprocess.STDOUT,
     )
     try:
@@ -1178,6 +1185,7 @@ def pmtiles_proof_server(pmtiles_range_server: int) -> object:
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+        server_log.close()
 
 
 @pytest.mark.network  # fetches the pmtiles/basemaps scripts and Protomaps glyphs from their real hosts

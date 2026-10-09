@@ -1839,6 +1839,20 @@ def web_active_mw_label(html: str) -> str | None:
     return match.group(1) if match else None
 
 
+def web_active_mw_matches(label: str | None, expected_mw: float) -> bool:
+    """Whether a printed active-MW label states the expected total. Compared as a number to the
+    page's one decimal (`web/formatting.py::mw` prints `2,000` and `1,300.5`), so the check is
+    about the total a reader is served, not its spelling; a missing or unreadable label is a
+    disagreement."""
+    if label is None:
+        return False
+    try:
+        printed = float(label.replace(",", ""))
+    except ValueError:
+        return False
+    return abs(printed - round(float(expected_mw), 1)) < 0.05
+
+
 @contextmanager
 def site_client() -> Iterator[Any | None]:
     """The public site, reading the audited store through the in-process API with the site's own
@@ -1990,10 +2004,11 @@ def _served_point_checks(
             )
             if site is not None:
                 page = site.get(f"/interconnection-points/{pub}")
-                label = f"{float(facts.expected[pub]['active_mw']):,.1f}"
+                expected_mw = float(facts.expected[pub]["active_mw"])
                 reason = (
                     "point_total_served:web_detail:active_mw"
-                    if page.status_code == 200 and web_active_mw_label(page.text) != label
+                    if page.status_code == 200
+                    and not web_active_mw_matches(web_active_mw_label(page.text), expected_mw)
                     else None
                 )
                 record(
