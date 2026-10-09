@@ -76,9 +76,13 @@ from web.viewmodels import (
     flatten_opportunity,
     flatten_organization,
     flatten_proposal,
+    map_description,
+    map_heading,
     map_labels_json,
     opportunity_kind_label,
     opportunity_status_param,
+    proposal_field_rows,
+    proposal_fields_json,
     proposal_kind_label,
     proposal_sources_phrase,
     provenance_panel_rows,
@@ -411,6 +415,12 @@ def home_map(request: Request) -> HTMLResponse:
             "kind_options": _proposal_kind_options(vocab),
             "plant_families": list(PLANT_FAMILY_LABELS.items()),
             "sources_phrase": proposal_sources_phrase(),
+            # The heading and the meta description (so og:/twitter: description) from one table.
+            "map_heading": map_heading(),
+            "map_description": map_description(),
+            # Which field rows each proposal kind cannot carry, so the drawer leaves out the rows
+            # the record page leaves out (`#proposal-fields`).
+            "proposal_fields_json": proposal_fields_json(),
             # map.js reads, keeps in the URL and forwards to `/api/proposals/geo` exactly these
             # names (2026-09-29: it knew four by hand and `/?kind=load` drew 5,853 proposals under
             # a notice counting 46). One list, rendered from here, so the two cannot drift.
@@ -726,6 +736,7 @@ def proposal_detail(request: Request, slug: str) -> Response:
 
     record = flatten_proposal(with_composition(api, entity))
     path = f"/proposals/{record['slug']}"
+    connection = proposal_connection(api, record.get("public_id"))
     response = templates.TemplateResponse(
         request,
         "proposal_detail.html",
@@ -733,7 +744,10 @@ def proposal_detail(request: Request, slug: str) -> Response:
             "record": record,
             "history": proposal_history(api, record),
             "provenance_rows": attach_select_basis(record, provenance_panel_rows(api, record["provenance"])),
-            "connection": proposal_connection(api, record.get("public_id")),
+            "connection": connection,
+            # The field-grid rows this record's kind can carry (web/viewmodels.py
+            # `PROPOSAL_FIELDS_NOT_APPLICABLE`): a Class VI well shows no MW, ISO or grid rows.
+            "fields": proposal_field_rows(record, connected=bool(connection)),
             "location": proposal_location(entity),
             "delayed": delayed_notice(request, "proposal"),
             "canonical_path": path,

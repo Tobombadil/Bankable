@@ -41,6 +41,7 @@ from services.api.lines import (
     tolerance_for_zoom,
 )
 from services.db.models import Asset, Licence
+from tests.latency import settle_heap
 from tests.test_api_contract import assert_valid
 
 UTC = dt.UTC
@@ -786,6 +787,7 @@ def test_national_and_regional_views_over_3000_synthetic_lines_are_small_and_war
     db.commit()
 
     def timed(params: dict) -> tuple[float, int, dict]:
+        settle_heap()
         t0 = time.perf_counter()
         resp = client.get("/v1/assets/geo", params=params)
         elapsed = time.perf_counter() - t0

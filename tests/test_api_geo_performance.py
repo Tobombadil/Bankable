@@ -32,6 +32,7 @@ from services.api.deps import get_db
 from services.db.models import Location, Proposal
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ingest.loader import load_from_files
+from tests.latency import settle_heap
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DATA_ROOT = REPO_ROOT / "data"
@@ -122,6 +123,7 @@ def test_geo_endpoint_meets_its_latency_budget_on_the_real_dataset(client) -> No
     import time
 
     client.get(f"/v1/proposals/geo?bbox={CONUS_BBOX}&zoom=3")  # warm-up
+    settle_heap()
     t0 = time.time()
     resp = client.get(f"/v1/proposals/geo?bbox={CONUS_BBOX}&zoom=3")
     elapsed = time.time() - t0
@@ -134,6 +136,7 @@ def test_list_proposals_meets_its_latency_budget_on_the_real_dataset(client) -> 
     import time
 
     client.get("/v1/proposals?limit=50")  # warm-up
+    settle_heap()
     t0 = time.time()
     resp = client.get("/v1/proposals?limit=50")
     elapsed = time.time() - t0

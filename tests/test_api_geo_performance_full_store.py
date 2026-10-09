@@ -33,6 +33,7 @@ from services.api.ratelimit import default_limiter
 from services.db.models import Location, Proposal, ProposalSource
 from services.db.session import get_engine, get_sessionmaker, init_db
 from tests import geo_full_store
+from tests.latency import settle_heap
 
 CONUS_BBOX = "-125,24,-66,50"
 TEXAS_BBOX = "-106.65,25.84,-93.51,36.5"
@@ -95,6 +96,7 @@ def client(store: tuple[sessionmaker[Session], dict[str, int]]) -> Iterator[Test
 
 def _get(client: TestClient, params: dict[str, str]) -> tuple[float, dict[str, object]]:
     default_limiter.reset()  # 13+ anonymous calls from one address would pass the hourly bucket
+    settle_heap()
     t0 = time.perf_counter()
     resp = client.get("/v1/proposals/geo", params=params)
     elapsed = time.perf_counter() - t0
