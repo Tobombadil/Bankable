@@ -12,6 +12,7 @@ imports `postgresql.*` types directly outside this file and the migration.
 
 from __future__ import annotations
 
+import decimal
 import json
 import os
 import time
@@ -64,8 +65,24 @@ class GUID(TypeDecorator[_uuid.UUID]):
         return value if isinstance(value, _uuid.UUID) else _uuid.UUID(str(value))
 
 
+def _json_numbers(value: Any) -> Any:
+    """`Decimal` -> `float` anywhere in a payload: JSON has no decimal type and `json.dumps` refuses
+    one. A `Numeric` column reads back as `Decimal` (always from Postgres NUMERIC), so any payload
+    built from a stored row can carry one; the first was a merge event's `resolution_confidence`,
+    which stopped every resolve pass on Postgres once a survivor absorbed a second record
+    (2026-10-09 single-host rehearsal, docs/64)."""
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {k: _json_numbers(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_numbers(v) for v in value]
+    return value
+
+
 class JSONVariant(TypeDecorator[Any]):
-    """`jsonb` on Postgres (docs/21 §1: "raw payloads: jsonb"); `JSON` text on SQLite."""
+    """`jsonb` on Postgres (docs/21 §1: "raw payloads: jsonb"); `JSON` text on SQLite. A `Decimal`
+    in the value is stored as a JSON number (`_json_numbers`)."""
 
     impl = JSON
     cache_ok = True
@@ -74,6 +91,9 @@ class JSONVariant(TypeDecorator[Any]):
         if dialect.name == "postgresql":
             return dialect.type_descriptor(PG_JSONB())
         return dialect.type_descriptor(JSON())
+
+    def process_bind_param(self, value: Any, dialect: Dialect) -> Any:
+        return _json_numbers(value)
 
 
 class TextArray(TypeDecorator[Any]):

@@ -1064,3 +1064,97 @@ def test_event_horizon_trigger_is_installed_with_the_reader_constants(pg_engine:
         ).scalar()
     assert trigger is not None  # BEFORE, statement-level, INSERT
     assert cache == 1
+
+
+def _merge_source(session: Session) -> Any:
+    from pipeline.connectors.registry import SourceEntry
+    from services.ingest.loader import upsert_licence_and_source
+
+    entry = SourceEntry.from_yaml(
+        {
+            "id": "test.merge.pg",
+            "name": "Test merge source",
+            "jurisdiction": "US",
+            "category": "generation_queue",
+            "operator": "Test operator",
+            "url": "https://example.org/test.merge.pg",
+            "access": "bulk_file",
+            "reuse": "open",
+            "cadence": "weekly",
+            "tier": 1,
+            "license": "licence for test.merge.pg",
+        }
+    )
+    return upsert_licence_and_source(session, entry, "test-manifest")
+
+
+def _merge_proposal(session: Session, source: Any, record_id: str) -> Proposal:
+    from services.db.models import ProposalSource
+    from services.ids import slugify
+
+    t0 = dt.datetime(2026, 9, 1, tzinfo=dt.UTC)
+    proposal = Proposal(
+        public_id="",
+        slug="",
+        kind="solar",
+        name_canonical=f"Merge project {record_id}",
+        jurisdiction="US-TX",
+        lifecycle_state="filed",
+        identifiers={},
+        publish_state="public",
+        min_reuse_class="open",
+        source_count=1,
+    )
+    session.add(proposal)
+    session.flush()
+    proposal.public_id = public_id("prop", proposal.id)
+    proposal.slug = f"{slugify(proposal.name_canonical)}-{proposal.public_id[-6:].lower()}"
+    session.add(
+        ProposalSource(
+            proposal_id=proposal.id,
+            source_id=source.id,
+            source_record_id=record_id,
+            source_url=f"{source.url}/{record_id}",
+            retrieved_at=t0,
+            licence_id=source.licence_id,
+            raw={},
+            normalised={},
+            first_seen=t0,
+            last_seen=t0,
+        )
+    )
+    session.flush()
+    return proposal
+
+
+def test_a_second_merge_into_a_reloaded_survivor_writes_its_event(pg: sessionmaker[Session]) -> None:
+    """Postgres reads NUMERIC back as `Decimal`: a survivor reloaded after its first merge carries
+    `resolution_confidence = Decimal('0.900')`, which the next merge copies into its event payload.
+    Before `services/db/types.py::JSONVariant` stored a Decimal as a JSON number, that flush raised
+    `TypeError: Object of type Decimal is not JSON serializable` and every resolve pass on Postgres
+    stopped at the first such merge (2026-10-09 single-host rehearsal, docs/64). SQLite never
+    showed it here: this survivor is never reloaded in the SQLite merge tests."""
+    import decimal
+
+    from services.resolve import merge as merge_mod
+
+    with pg() as s:
+        source = _merge_source(s)
+        survivor, first, second = (_merge_proposal(s, source, rid) for rid in ("a", "b", "c"))
+        merge_mod.merge_proposal(s, canonical=survivor, absorbed=first, score=90.0, rationale="first")
+        s.commit()
+        ids = (survivor.id, second.id)
+    with pg() as s:  # a fresh session: every column comes back from Postgres
+        survivor = s.get(Proposal, ids[0])
+        second = s.get(Proposal, ids[1])
+        assert survivor is not None and second is not None
+        assert isinstance(survivor.resolution_confidence, decimal.Decimal)
+        event = merge_mod.merge_proposal(
+            s, canonical=survivor, absorbed=second, score=95.0, rationale="second"
+        )
+        s.commit()
+        event_id = event.id
+    with pg() as s:
+        stored = s.get(Event, event_id)
+        assert stored is not None and stored.before is not None
+        assert stored.before["surviving"]["resolution_confidence"] == 0.9

@@ -15,6 +15,9 @@
 #   5. start caddy/api/web on the app VM and wait, bounded, until every api/web replica is healthy
 #      and /v1/health answers with `checks.queue: true` — on failure roll back to the previous tag;
 #   6. start the workers; 7. start the scheduler last (it never enqueues work no worker is up for).
+# With SINGLE_HOST=1 (the private beta, docs/64) every service runs on APP_HOST: compose.single.yml
+# joins the compose files, the in-stack Postgres starts and must be healthy before step 4, the
+# worker starts on APP_HOST and no browser-worker starts at all.
 # Re-running with the same tag is a no-op at every step (pull, migrate, queue schema, up -d are
 # idempotent). Before any of it, the decrypted secrets must carry a non-empty API_INTERNAL_TOKEN:
 # without it every call `web` makes shares the anonymous 60/hour bucket and pages turn into 429s
@@ -35,8 +38,10 @@ Usage: deploy.sh <environment> [image-tag]
 
 Required environment variables:
   APP_HOST, WORKER_HOSTS (space-separated), BROWSER_WORKER_HOST   — from 'tofu output' (infra/terraform)
+                    (APP_HOST alone with SINGLE_HOST=1)
   SOPS_AGE_KEY      the environment's private age key (see infra/sops/README.md)
 Optional:
+  SINGLE_HOST=1     one VM runs everything, its own Postgres included (compose.single.yml, docs/64)
   SSH_USER          (default: root, matching the docker-ce marketplace image)
   DEPLOY_REF        git ref whose infra/compose files are shipped (default: the working tree)
   GHCR_USER/GHCR_READ_TOKEN   log the VMs into ghcr.io first (needed while the packages are private)
@@ -53,13 +58,25 @@ image_tag="${2:-${IMAGE_TAG:-latest}}"
 }
 
 : "${APP_HOST:?set APP_HOST (tofu output app_ipv4)}"
-: "${WORKER_HOSTS:?set WORKER_HOSTS (space-separated tofu output worker_ipv4s)}"
-: "${BROWSER_WORKER_HOST:?set BROWSER_WORKER_HOST (tofu output browser_worker_ipv4)}"
+single_host="${SINGLE_HOST:-}"
+[[ -z "$single_host" || "$single_host" == "1" ]] || { echo "SINGLE_HOST must be 1 or unset" >&2; exit 1; }
+if [[ -n "$single_host" ]]; then
+  # Asked for, never inferred: a three-VM deploy that forgot WORKER_HOSTS must not start a
+  # database on the app VM.
+  [[ -z "${WORKER_HOSTS:-}${BROWSER_WORKER_HOST:-}" ]] || {
+    echo "SINGLE_HOST=1 runs everything on APP_HOST: unset WORKER_HOSTS and BROWSER_WORKER_HOST" >&2; exit 1;
+  }
+  WORKER_HOSTS="$APP_HOST"
+  BROWSER_WORKER_HOST=""
+else
+  : "${WORKER_HOSTS:?set WORKER_HOSTS (space-separated tofu output worker_ipv4s)}"
+  : "${BROWSER_WORKER_HOST:?set BROWSER_WORKER_HOST (tofu output browser_worker_ipv4)}"
+fi
 : "${SOPS_AGE_KEY:?set SOPS_AGE_KEY to the private age key contents for this environment}"
 ssh_user="${SSH_USER:-root}"
 remote_dir="/opt/infraque"
 env_file="${remote_dir}/secrets/.env"
-compose_files="-f docker-compose.yml -f compose.prod.yml"
+compose_files="-f docker-compose.yml -f compose.prod.yml${single_host:+ -f compose.single.yml}"
 health_timeout="${HEALTH_TIMEOUT_SECONDS:-180}"
 health_interval="${HEALTH_INTERVAL_SECONDS:-5}"
 deploy_ref="${DEPLOY_REF:-}"
@@ -81,7 +98,7 @@ stage_file() { # <repo path> <staged path>
     cp "$1" "$2"
   fi
 }
-for f in docker-compose.yml compose.prod.yml Caddyfile; do
+for f in docker-compose.yml compose.prod.yml compose.single.yml Caddyfile; do
   stage_file "infra/compose/$f" "$stage_dir/compose/$f"
 done
 stage_file infra/scripts/backup.sh "$stage_dir/scripts/backup.sh"
@@ -123,7 +140,31 @@ case "$(dotenv_value PLATFORM_POSTURE)" in
   commercial|noncommercial) ;;
   *) refuse "PLATFORM_POSTURE must be commercial or noncommercial, not '$(dotenv_value PLATFORM_POSTURE)' (docs/60 §5.1)" ;;
 esac
-[[ "$(dotenv_value SNAPSHOT_STORE)" == "s3" ]] || refuse "SNAPSHOT_STORE must be s3: fetch and load run on different hosts (docs/60 §5)"
+if [[ -n "$single_host" ]]; then
+  # One host: fetch and load share the connector_data volume, so `local` works too; and the
+  # database is the in-stack container, which DATABASE_URL must name with its password.
+  case "$(dotenv_value SNAPSHOT_STORE)" in
+    local|s3) ;;
+    *) refuse "SNAPSHOT_STORE must be local or s3 on a single host, not '$(dotenv_value SNAPSHOT_STORE)'" ;;
+  esac
+  db_password="$(dotenv_value POSTGRES_PASSWORD)"
+  [[ -n "$db_password" ]] || refuse "POSTGRES_PASSWORD is empty or missing: SINGLE_HOST=1 runs its own database (docs/64)"
+  [[ "$(dotenv_value DATABASE_URL)" == "postgresql+psycopg://infraque:${db_password}@postgres:5432/infraque" ]] \
+    || refuse "DATABASE_URL must be postgresql+psycopg://infraque:<POSTGRES_PASSWORD>@postgres:5432/infraque on a single host"
+else
+  [[ "$(dotenv_value SNAPSHOT_STORE)" == "s3" ]] || refuse "SNAPSHOT_STORE must be s3: fetch and load run on different hosts (docs/60 §5)"
+fi
+# The access gate (Caddyfile `gate_*`, docs/64): `basic` needs its login, and the hash must be the
+# base64 of a bcrypt hash (`caddy hash-password`), which carries no `$` into the env file.
+case "$(dotenv_value SITE_ACCESS)" in
+  ""|open) ;;
+  basic)
+    [[ -n "$(dotenv_value SITE_ACCESS_USER)" ]] || refuse "SITE_ACCESS=basic needs SITE_ACCESS_USER"
+    printf '%s' "$(dotenv_value SITE_ACCESS_HASH)" | base64 -d 2>/dev/null | grep -qE '^\$2[aby]\$' \
+      || refuse "SITE_ACCESS_HASH must be the base64 of a bcrypt hash: caddy hash-password | base64 -w0 (docs/64)"
+    ;;
+  *) refuse "SITE_ACCESS must be open or basic, not '$(dotenv_value SITE_ACCESS)'" ;;
+esac
 declared_environment="$(dotenv_value ENVIRONMENT)"
 if [[ -n "$declared_environment" && "$declared_environment" != "$environment" ]]; then
   refuse "infra/sops/secrets.${environment}.enc.yaml says ENVIRONMENT=${declared_environment}"
@@ -196,24 +237,33 @@ trap on_error ERR
 
 # ---------------------------------------------------------------- the deploy
 log "1/7 syncing files and secrets to every host (target tag ${image_tag}, compose files from ${commit})"
-for host in "$APP_HOST" $WORKER_HOSTS "$BROWSER_WORKER_HOST"; do
+hosts=("$APP_HOST")
+[[ -n "$single_host" ]] || hosts+=($WORKER_HOSTS "$BROWSER_WORKER_HOST")
+for host in "${hosts[@]}"; do
   sync_host "$host"
 done
 
 log "2/7 pulling images on every host"
-remote_compose "$APP_HOST" pull --quiet caddy api web scheduler
-for host in $WORKER_HOSTS; do
-  remote_compose "$host" pull --quiet worker
-done
-remote_compose "$BROWSER_WORKER_HOST" pull --quiet browser-worker
+remote_compose "$APP_HOST" pull --quiet caddy api web scheduler${single_host:+ worker postgres}
+if [[ -z "$single_host" ]]; then
+  for host in $WORKER_HOSTS; do
+    remote_compose "$host" pull --quiet worker
+  done
+  remote_compose "$BROWSER_WORKER_HOST" pull --quiet browser-worker
+fi
 
 log "3/7 stopping workers and the scheduler"
 rollback_armed=1
 for host in $WORKER_HOSTS; do
   remote_compose "$host" stop worker
 done
-remote_compose "$BROWSER_WORKER_HOST" stop browser-worker
+[[ -n "$single_host" ]] || remote_compose "$BROWSER_WORKER_HOST" stop browser-worker
 remote_compose "$APP_HOST" stop scheduler
+if [[ -n "$single_host" ]]; then
+  log "4/7 starting the single host's database and waiting for it"
+  remote_compose "$APP_HOST" up -d --no-build postgres
+  wait_healthy "$APP_HOST" postgres
+fi
 
 log "4/7 running migrations once (expand phase, docs/04 E-11) in a one-off container of ${image_tag}"
 remote_compose "$APP_HOST" run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini upgrade head
@@ -233,14 +283,14 @@ log "6/7 starting workers"
 for host in $WORKER_HOSTS; do
   remote_compose "$host" up -d --no-build worker
 done
-remote_compose "$BROWSER_WORKER_HOST" up -d --no-build browser-worker
+[[ -n "$single_host" ]] || remote_compose "$BROWSER_WORKER_HOST" up -d --no-build browser-worker
 
 log "7/7 starting the scheduler (singleton) last"
 remote_compose "$APP_HOST" up -d --no-build scheduler
 
 remote "$APP_HOST" "printf '%s\n' '${image_tag}' > ${remote_dir}/current-tag"
 {
-  echo "| $(date -u +%FT%TZ) | $environment | $image_tag | $(whoami) | $commit |"
+  echo "| $(date -u +%FT%TZ) | $environment${single_host:+ (single host)} | $image_tag | $(whoami) | $commit |"
 } >> "$deploy_log"
 
 log "done. Recorded in $deploy_log. Run the E-10 smoke suite against $environment next."

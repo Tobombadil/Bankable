@@ -29,7 +29,7 @@ A `SourceRunner` Protocol (`enqueue(db, source, *, trigger, requested_by) -> Sou
 
 - `QueuedSourceRunner` (production, returned by `get_source_runner()`): creates the `source_run`
   row (`trigger="manual"`, `status="running"`, `started_at=now()`) so the panel shows it
-  immediately, then lazily imports `infra.scheduler.app.run_connector` and defers it with
+  immediately, then lazily imports `run_connector` from `infra.scheduler.app` and defers it with
   `infra.scheduler.cadence.queueing_lock_for(source_id)` on the queue `queue_for_source` picks.
   Every failure to reach the queue (no Postgres, a `procrastinate` import error, `AlreadyEnqueued`)
   is wrapped into a fixed `503 unavailable` `ProblemError` — no driver text or stack trace reaches

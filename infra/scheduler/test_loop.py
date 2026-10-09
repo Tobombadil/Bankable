@@ -258,7 +258,7 @@ def test_run_connector_retries_with_exponential_backoff_only_on_transient_failur
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
     import infra.scheduler.app as scheduler_app
 
-    strategy = scheduler_app.app.tasks["infra.scheduler.app.run_connector"].retry_strategy
+    strategy = scheduler_app.app.tasks["run_connector"].retry_strategy
     if not isinstance(strategy, procrastinate.RetryStrategy):
         raise AssertionError(f"run_connector must carry a RetryStrategy, got {strategy!r}")
     if strategy.max_attempts != 4:  # five runs, the fifth failure dead-letters (docs/21 D-13)

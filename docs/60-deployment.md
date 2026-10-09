@@ -668,6 +668,9 @@ secret is a data-source credential covered by a licence term.
 
 ## 11. What is unvalidated here, and the exact next steps
 
+A one-server private beta (every service and its own Postgres on one VM, behind one shared login) is
+`docs/64-private-beta.md`; it reuses this document's deploy order with `SINGLE_HOST=1`.
+
 In the order the owner needs to act, per the task brief:
 
 1. **No real cloud accounts exist.** Create the Hetzner Cloud project and the Cloudflare account/zone (or

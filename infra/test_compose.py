@@ -17,6 +17,7 @@ import yaml
 COMPOSE_DIR = pathlib.Path(__file__).resolve().parent / "compose"
 BASE = COMPOSE_DIR / "docker-compose.yml"
 PROD = COMPOSE_DIR / "compose.prod.yml"
+SINGLE = COMPOSE_DIR / "compose.single.yml"  # one host, the private beta (docs/64)
 APP_SERVICES = ("api", "web", "scheduler", "worker", "browser-worker")
 IMAGE_FOR = {"scheduler": "worker"}  # the scheduler runs the worker image with a different command
 IMAGE_PREFIX = "${IMAGE_REGISTRY:-ghcr.io/tobombadil}/bankable-"  # .github/workflows/release.yml pushes these
@@ -199,10 +200,11 @@ def _documented_env(tmp_path: pathlib.Path, environment: str, **overrides: str) 
     return env_file
 
 
-def _render(env_file: pathlib.Path) -> subprocess.CompletedProcess[str]:
+def _render(env_file: pathlib.Path, *extra: pathlib.Path) -> subprocess.CompletedProcess[str]:
     docker = DOCKER or "docker"
+    files = [arg for path in (BASE, PROD, *extra) for arg in ("-f", str(path))]
     return subprocess.run(  # noqa: S603 -- fixed argv, no shell
-        [docker, "compose", "-f", str(BASE), "-f", str(PROD), "--env-file", str(env_file), "config"],
+        [docker, "compose", *files, "--env-file", str(env_file), "config"],
         capture_output=True,
         text=True,
         check=False,
@@ -257,6 +259,9 @@ def test_the_documented_keys_render_a_complete_config(tmp_path: pathlib.Path, en
         expect(env["BANKABLE_DOMAIN"] == domain, f"{name}: BANKABLE_DOMAIN {env['BANKABLE_DOMAIN']}")
         expect(env["PLATFORM_POSTURE"] == "noncommercial", f"{name}: PLATFORM_POSTURE")
     expect(services["web"]["environment"]["MAP_TILE_URL"].startswith("https://"), "MAP_TILE_URL")
+    expect(
+        services["caddy"]["environment"]["SITE_ACCESS"] == "open", "the access gate is off unless asked for"
+    )
 
 
 @pytest.mark.parametrize("missing", ["DOMAIN", "PLATFORM_POSTURE", "MAP_TILE_URL", "ENVIRONMENT"])
@@ -266,3 +271,52 @@ def test_prod_refuses_to_render_without_a_required_key(tmp_path: pathlib.Path, m
         result = _render(_documented_env(tmp_path, "production", **{missing: override}))  # type: ignore[arg-type]
         expect(result.returncode != 0, f"{missing}={override!r} rendered")
         expect(missing in result.stderr, result.stderr)
+
+
+SINGLE_DB_PASSWORD = "pw-single"  # noqa: S105 -- a rendering placeholder, never a real password
+
+
+def test_single_uses_merge_tags_and_touches_only_known_services(base: dict[str, Any]) -> None:
+    doc, tags = load(SINGLE)
+    expect(set(tags) <= {"!reset", "!override"}, tags)
+    expect(set(doc["services"]) <= set(base["services"]), sorted(doc["services"]))
+    expect("caddy" not in doc["services"], "the single host serves through the same Caddy as production")
+
+
+def test_single_host_renders_its_own_database_one_replica_each_and_no_browser(tmp_path: pathlib.Path) -> None:
+    """docs/64: base + prod + single on one VM. The database is the base file's PostGIS container,
+    reachable from the host's loopback only (the nightly backup runs on the host), every app
+    service waits for it, one api and one worker, no browser-worker unless its profile is asked for."""
+    _needs_compose()
+    env_file = _documented_env(
+        tmp_path,
+        "production",
+        POSTGRES_PASSWORD=SINGLE_DB_PASSWORD,
+        SNAPSHOT_STORE="local",
+        SITE_ACCESS="basic",
+        SITE_ACCESS_USER="beta",
+        SITE_ACCESS_HASH="JDJhJDE0JGFiYw==",
+    )
+    result = _render(env_file, SINGLE)
+    expect(result.returncode == 0, result.stderr)
+    services = yaml.safe_load(result.stdout)["services"]
+    expect(set(services) == {"postgres", "api", "web", "scheduler", "worker", "caddy"}, sorted(services))
+    expect(
+        services["postgres"]["environment"]["POSTGRES_PASSWORD"] == SINGLE_DB_PASSWORD, "POSTGRES_PASSWORD"
+    )
+    for port in services["postgres"].get("ports", []):
+        expect(port["host_ip"] == "127.0.0.1", f"the database must not listen beyond loopback: {port}")
+    for name in ("api", "scheduler", "worker"):
+        expect(services[name]["depends_on"]["postgres"]["condition"] == "service_healthy", name)
+    for name in ("api", "worker"):
+        expect(services[name]["deploy"]["replicas"] == 1, f"{name}: one replica on one host")
+    caddy = services["caddy"]["environment"]
+    expect((caddy["SITE_ACCESS"], caddy["SITE_ACCESS_USER"]) == ("basic", "beta"), "the gate reaches Caddy")
+
+
+def test_single_host_refuses_to_render_without_a_database_password(tmp_path: pathlib.Path) -> None:
+    _needs_compose()
+    for value in (None, ""):
+        result = _render(_documented_env(tmp_path, "production", POSTGRES_PASSWORD=value), SINGLE)  # type: ignore[arg-type]
+        expect(result.returncode != 0, f"POSTGRES_PASSWORD={value!r} rendered")
+        expect("POSTGRES_PASSWORD" in result.stderr, result.stderr)

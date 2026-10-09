@@ -9,8 +9,8 @@ output "worker_ipv4s" {
 }
 
 output "browser_worker_ipv4" {
-  description = "Public IPv4 of the browser-worker VM."
-  value       = hcloud_server.browser_worker.ipv4_address
+  description = "Public IPv4 of the browser-worker VM (null with single_host)."
+  value       = try(hcloud_server.browser_worker[0].ipv4_address, null)
 }
 
 output "r2_bucket_name" {

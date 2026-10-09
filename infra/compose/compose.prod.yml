@@ -39,6 +39,10 @@ services:
     environment:
       DOMAIN: ${DOMAIN:?DOMAIN must be the registered apex domain}
       ENVIRONMENT: ${ENVIRONMENT:?ENVIRONMENT must be staging or production}
+      # The access gate (Caddyfile `gate_*`, docs/64): `open` unless the env file says `basic`.
+      SITE_ACCESS: ${SITE_ACCESS:-open}
+      SITE_ACCESS_USER: ${SITE_ACCESS_USER:-}
+      SITE_ACCESS_HASH: ${SITE_ACCESS_HASH:-}
     networks:
       default:
         # Fixed, outside the dynamic range below, because api and web believe X-Forwarded-For from

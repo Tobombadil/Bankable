@@ -95,6 +95,9 @@ resource "hcloud_server" "app" {
   ssh_keys     = [hcloud_ssh_key.operator.id]
   firewall_ids = [hcloud_firewall.web.id]
   labels       = merge(local.common_labels, { role = "app" })
+  # The single host keeps the database on this VM's disk (docs/64): Hetzner's daily backups are the
+  # second copy beside the nightly pg_dump to R2 (+20 % of the server price).
+  backups = var.single_host
 
   network {
     network_id = hcloud_network.app.id
@@ -107,7 +110,7 @@ resource "hcloud_server" "app" {
 }
 
 resource "hcloud_server" "worker" {
-  count        = var.vm_count_workers
+  count        = var.single_host ? 0 : var.vm_count_workers
   name         = "${local.name_prefix}-worker-${count.index + 1}"
   server_type  = var.worker_server_type
   image        = "docker-ce"
@@ -126,7 +129,14 @@ resource "hcloud_server" "worker" {
   depends_on = [hcloud_network_subnet.app]
 }
 
+# `count` since single_host (2026-10-09): any state written before keeps its one server.
+moved {
+  from = hcloud_server.browser_worker
+  to   = hcloud_server.browser_worker[0]
+}
+
 resource "hcloud_server" "browser_worker" {
+  count        = var.single_host ? 0 : 1
   name         = "${local.name_prefix}-browser-worker"
   server_type  = var.browser_worker_server_type
   image        = "docker-ce"

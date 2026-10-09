@@ -525,3 +525,34 @@ def test_load_retirements_sets_plant_status_and_creates_no_proposal(tmp_path: Pa
         assert status["6155"] == "retired" and status["3122"] == "retired"  # Rush Island, Homer City
         assert status["6166"] == "retiring" and status["2828"] == "operating"
         assert session.scalar(select(func.count()).select_from(Proposal)) == 0
+
+
+def test_context_only_refuses_without_a_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """docs/64: `--context-only` loads into the store a deploy migrated; it never invents one."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(dev_up, "load_context_layers", lambda *a, **k: pytest.fail("loaded without a store"))
+    assert dev_up.main(["--context-only"]) == 2
+
+
+def test_context_only_loads_the_layers_into_database_url_and_starts_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """In order: plants, retirements onto them, the other asset layers, then matches; no schema,
+    no proposal load, no servers (a deployed store's proposals come from the scheduler)."""
+    order: list[str] = []
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'store.db'}")
+    monkeypatch.setattr(dev_up, "init_db", lambda engine: pytest.fail("--context-only creates no schema"))
+    monkeypatch.setattr(
+        dev_up, "build_store", lambda *a, **k: pytest.fail("--context-only loads no proposals")
+    )
+    monkeypatch.setattr(
+        dev_up.subprocess, "Popen", lambda *a, **k: pytest.fail("--context-only starts no server")
+    )
+    monkeypatch.setattr(dev_up, "_load_plants_context_layer", lambda s, d: order.append(f"plants:{d.name}"))
+    monkeypatch.setattr(dev_up, "_load_retirements", lambda s, d, y: order.append("retirements"))
+    monkeypatch.setattr(dev_up, "_load_context_asset_layers", lambda s, d: order.append("assets"))
+    monkeypatch.setattr(dev_up, "_run_matches", lambda s: order.append("matches"))
+    monkeypatch.setattr(dev_up, "refresh_planner_statistics", lambda s: order.append("analyze"))
+    root = tmp_path / "root"
+    assert dev_up.main(["--context-only", "--data-dir", str(root)]) == 0
+    assert order == ["plants:root", "retirements", "assets", "matches", "analyze"]

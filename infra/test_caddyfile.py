@@ -18,6 +18,8 @@ Checks use `expect` instead of bare `assert` (ruff S101, see infra/scheduler/tes
 
 from __future__ import annotations
 
+import base64
+import contextlib
 import ipaddress
 import json
 import os
@@ -290,12 +292,13 @@ class LiveCaddy:
         return body
 
 
-@pytest.fixture(scope="module")
-def live(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> Iterator[LiveCaddy]:
+@contextlib.contextmanager
+def _running_caddy(
+    tmp: pathlib.Path, *, trust_loopback: bool, extra_env: dict[str, str] | None = None
+) -> Iterator[LiveCaddy]:
     """The real Caddyfile with its upstreams pointed at stubs and a local CA, run by real Caddy.
-    `request.param` is True to add loopback to the trusted proxies (standing in for Cloudflare)."""
-    trust_loopback: bool = request.param
-    tmp = tmp_path_factory.mktemp("caddy-trusted" if trust_loopback else "caddy")
+    `trust_loopback` adds loopback to the trusted proxies (standing in for Cloudflare); `extra_env`
+    reaches the Caddyfile's `{$...}` placeholders (the access gate's three keys)."""
     api, api_port = _stub("api")
     web, web_port = _stub("web")
     http_port, https_port = _free_port(), _free_port()
@@ -324,7 +327,7 @@ def live(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureReques
     with log.open("w") as log_file:
         process = subprocess.Popen(  # noqa: S603 -- fixed argv, no shell
             [CADDY or "caddy", "run", "--config", str(config), "--adapter", "caddyfile"],
-            env=_env(tmp, "production"),
+            env=_env(tmp, "production") | (extra_env or {}),
             stdout=log_file,
             stderr=subprocess.STDOUT,
         )
@@ -345,6 +348,37 @@ def live(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureReques
         process.wait(timeout=10)
         api.shutdown()
         web.shutdown()
+
+
+@pytest.fixture(scope="module")
+def live(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> Iterator[LiveCaddy]:
+    """`request.param` is True to add loopback to the trusted proxies (standing in for Cloudflare)."""
+    trust_loopback: bool = request.param
+    tmp = tmp_path_factory.mktemp("caddy-trusted" if trust_loopback else "caddy")
+    with _running_caddy(tmp, trust_loopback=trust_loopback) as caddy:
+        yield caddy
+
+
+GATE_USER, GATE_PASSWORD = "beta", "correct horse battery staple"
+
+
+@pytest.fixture(scope="module")
+def gated(tmp_path_factory: pytest.TempPathFactory) -> Iterator[LiveCaddy]:
+    """The private-beta access gate (docs/64): `SITE_ACCESS=basic` with a hash made the way the
+    runbook makes it, `caddy hash-password` then base64."""
+    hashed = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+        [CADDY or "caddy", "hash-password", "--plaintext", GATE_PASSWORD],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    env = {
+        "SITE_ACCESS": "basic",
+        "SITE_ACCESS_USER": GATE_USER,
+        "SITE_ACCESS_HASH": base64.b64encode(hashed.encode()).decode(),
+    }
+    with _running_caddy(tmp_path_factory.mktemp("caddy-gated"), trust_loopback=False, extra_env=env) as caddy:
+        yield caddy
 
 
 ROUTES = [
@@ -433,3 +467,84 @@ def test_a_trusted_edge_passes_only_cf_connecting_ip(live: LiveCaddy, path: str)
     two = live.upstream(DOMAIN, path, headers={"CF-Connecting-IP": "2001:db8::7"})["headers"]
     expect(two["x-forwarded-for"] == "2001:db8::7", two)
     expect("x-internal-token" not in headers and "x-visitor-ip" not in headers, headers)
+
+
+GATED_PAGES = [
+    (DOMAIN, "GET", "/", "web"),
+    (DOMAIN, "GET", "/proposals", "web"),
+    (DOMAIN, "GET", "/v1/sources", "api"),
+    (DOMAIN, "GET", "/feeds/proposals.rss", "api"),
+    (f"admin.{DOMAIN}", "GET", "/admin", "web"),
+    (f"api.{DOMAIN}", "GET", "/v1/proposals", "api"),
+]
+
+
+def _basic(user: str, password: str) -> dict[str, str]:
+    return {"Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()}
+
+
+@needs_caddy
+@pytest.mark.parametrize(("host", "method", "path", "upstream"), GATED_PAGES)
+def test_the_beta_gate_asks_for_the_login_and_forwards_none_of_it(
+    gated: LiveCaddy, host: str, method: str, path: str, upstream: str
+) -> None:
+    for headers in ({}, _basic(GATE_USER, "wrong"), _basic("someone", GATE_PASSWORD)):
+        refused = gated.request(host, path, method, headers=headers)
+        expect(refused.status_code == 401, f"{host}{path} with {headers}: {refused.status_code}")
+        expect(refused.headers.get("www-authenticate", "").startswith("Basic"), refused.headers)
+    answered = gated.request(host, path, method, headers=_basic(GATE_USER, GATE_PASSWORD))
+    expect(answered.status_code == 200, f"{host}{path}: {answered.status_code} {answered.text[:200]}")
+    body = answered.json()
+    expect(body["upstream"] == upstream, body)
+    expect("authorization" not in body["headers"], "the beta login reached the upstream")
+    expect(answered.headers.get("x-robots-tag") == "noindex, nofollow", answered.headers)
+    expect(answered.headers.get("cache-control") == "private, no-store", answered.headers)
+
+
+@needs_caddy
+@pytest.mark.parametrize(
+    ("host", "method", "path", "upstream"),
+    [
+        (DOMAIN, "POST", "/webhooks/stripe", "api"),
+        (f"api.{DOMAIN}", "POST", "/webhooks/attio", "api"),
+        (DOMAIN, "GET", "/health", "web"),
+        (f"api.{DOMAIN}", "GET", "/v1/health", "api"),
+    ],
+)
+def test_the_beta_gate_lets_webhooks_and_health_checks_through(
+    gated: LiveCaddy, host: str, method: str, path: str, upstream: str
+) -> None:
+    body = gated.upstream(host, path, method=method, headers={"Authorization": "Bearer whsec-test"})
+    expect(body["upstream"] == upstream, body)
+    expect(body["headers"].get("authorization") == "Bearer whsec-test", "an ungated request keeps its own")
+
+
+@needs_caddy
+@pytest.mark.parametrize("access", [None, "open"])
+def test_without_site_access_basic_the_gate_is_open(tmp_path: pathlib.Path, access: str | None) -> None:
+    env = _env(tmp_path, "production") | ({} if access is None else {"SITE_ACCESS": access})
+    result = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+        [CADDY or "caddy", "adapt", "--config", str(CADDYFILE)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    expect(result.returncode == 0, result.stderr)
+    expect("authentication" not in result.stdout, f"SITE_ACCESS={access!r} gated the site")
+
+
+@needs_caddy
+@pytest.mark.parametrize("access", ["", "basik", "Basic"])
+def test_caddy_refuses_a_site_access_it_does_not_know(tmp_path: pathlib.Path, access: str) -> None:
+    """Fail closed: an empty or misspelt value stops Caddy rather than serving the site open
+    (Caddy's `{$VAR:default}` covers an unset variable only; compose always passes a value)."""
+    env = _env(tmp_path, "production") | {"SITE_ACCESS": access}
+    result = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+        [CADDY or "caddy", "adapt", "--config", str(CADDYFILE)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    expect(result.returncode != 0, f"SITE_ACCESS={access!r} adapted")

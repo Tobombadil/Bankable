@@ -28,6 +28,9 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 dump_file="${backup_dir}/infraque-${timestamp}.dump"
 r2_endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 plain_url="${DATABASE_URL/postgresql+psycopg/postgresql}"
+# One host (compose.single.yml, docs/64): DATABASE_URL names the Compose service `postgres`, which
+# only containers resolve. This script runs on the host, where that database listens on loopback.
+plain_url="${plain_url/@postgres:5432\//@127.0.0.1:5432/}"
 export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
 
 mkdir -p "$backup_dir"

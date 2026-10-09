@@ -595,3 +595,47 @@ def test_ui_event_name_vocab_and_no_identifier_columns(session: Session) -> None
     with pytest.raises(IntegrityError):
         session.commit()
     session.rollback()
+
+
+def test_a_decimal_in_a_json_payload_is_stored_as_a_number(session: Session) -> None:
+    """A `Numeric` column reads back as `Decimal`, and a payload built from a stored row carries it
+    into a JSON column (a merge event's `resolution_confidence`, 2026-10-09, docs/64): stored as a
+    JSON number at any depth instead of raising `Object of type Decimal is not JSON serializable`."""
+    import decimal
+
+    lic = make_licence(session)
+    src = make_source(session, lic)
+    now = dt.datetime.now(UTC)
+    prop = Proposal(
+        public_id="prop_01TESTDEC",
+        slug="test-decimal-proposal",
+        kind="storage",
+        name_canonical="Decimal Test",
+        jurisdiction="US-TX",
+        lifecycle_state="filed",
+        publish_state="public",
+        min_reuse_class="open",
+    )
+    session.add(prop)
+    session.flush()
+    event = Event(
+        subject_type="proposal",
+        subject_id=prop.id,
+        event_type="merged",
+        observed_at=now,
+        source_id=src.id,
+        source_url="https://example.org",
+        retrieved_at=now,
+        licence_id=lic.id,
+        idempotency_key="decimal-payload",
+        before={
+            "surviving": {"resolution_confidence": decimal.Decimal("0.875"), "mw": [decimal.Decimal("12.5")]}
+        },
+    )
+    session.add(event)
+    session.flush()
+    session.expire_all()
+    stored = session.get(Event, event.id)
+    assert stored is not None and stored.before == {
+        "surviving": {"resolution_confidence": 0.875, "mw": [12.5]}
+    }
