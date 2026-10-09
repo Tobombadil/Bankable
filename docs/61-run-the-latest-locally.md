@@ -63,10 +63,11 @@ this before, your existing files are still there and you only need the layers yo
 .venv/bin/python -m pipeline.connectors run --all
 ```
 
-**Existing plants** — the original context layer:
+**Existing plants** — the original context layer, built from the EIA-860M workbook the connectors
+just stored (the module has no `--fetch` flag; corrected 2026-10-09):
 
 ```bash
-.venv/bin/python -m pipeline.context.eia_plants --fetch
+.venv/bin/python -m pipeline.context.eia_plants --latest-snapshot
 ```
 
 **Gas infrastructure** — pipelines, processing plants, storage, LNG terminals:

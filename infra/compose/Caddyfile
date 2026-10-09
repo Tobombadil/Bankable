@@ -52,7 +52,32 @@
 	}
 }
 
+# Who may reach the site (docs/64). `SITE_ACCESS` unset or `open`: everyone, as production
+# serves. `basic` (the private beta): every request needs the one shared login, the browser's
+# own password prompt, except `/webhooks/*` (Stripe and Attio carry their own signatures and
+# cannot answer a prompt) and the health checks. Gated answers are `private, no-store` and
+# `noindex`, so neither an edge cache nor a search engine keeps a copy. SITE_ACCESS_HASH is
+# `caddy hash-password`'s bcrypt hash, base64-encoded so no `$` meets the env file's
+# interpolation; deploy.sh refuses `basic` without both values.
+(gate_open) {
+}
+
+(gate_basic) {
+	@gated not path /webhooks/* /health /v1/health
+	basic_auth @gated {
+		{$SITE_ACCESS_USER} {$SITE_ACCESS_HASH}
+	}
+	# The beta login is Caddy's, not the API's: never forward it, or the API would read it as a
+	# credential (it reads `Authorization` for API keys). Runs after basic_auth (Caddy's order).
+	request_header @gated -Authorization
+	header @gated {
+		>Cache-Control "private, no-store"
+		X-Robots-Tag "noindex, nofollow"
+	}
+}
+
 (common) {
+	import gate_{$SITE_ACCESS:open}
 	request_header -X-Internal-Token
 	request_header -X-Visitor-IP
 	encode gzip

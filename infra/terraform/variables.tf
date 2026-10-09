@@ -71,6 +71,12 @@ variable "vm_count_workers" {
   }
 }
 
+variable "single_host" {
+  description = "One VM runs every service and its own Postgres (the private beta: infra/compose/compose.single.yml, docs/64). No worker or browser-worker VM is created, and the app VM gets Hetzner's daily backups as a second copy beside the nightly pg_dump to R2. Deploy with SINGLE_HOST=1 infra/scripts/deploy.sh."
+  type        = bool
+  default     = false
+}
+
 variable "r2_bucket_name" {
   description = "Cloudflare R2 bucket for raw snapshots, documents, exports and post media (docs/20 §4.4)."
   type        = string

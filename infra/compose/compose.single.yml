@@ -1,0 +1,58 @@
+# One host (the private beta, docs/64): apply after compose.prod.yml, as infra/scripts/deploy.sh does
+# when it is given APP_HOST alone:
+#
+#   cd /opt/infraque/compose && IMAGE_TAG=<tag> INFRAQUE_ENV_FILE=/opt/infraque/secrets/.env \
+#     docker compose -f docker-compose.yml -f compose.prod.yml -f compose.single.yml \
+#       --env-file /opt/infraque/secrets/.env up -d
+#
+# What changes against the three-VM topology (docs/60 §2):
+# - Postgres runs here, the base file's `local`-profile PostGIS container on its named volume, instead
+#   of a managed provider. DATABASE_URL names it: postgresql+psycopg://infraque:<POSTGRES_PASSWORD>@postgres:5432/infraque.
+#   Its port stays on the host's loopback only (the base file's 127.0.0.1:5432), where the nightly
+#   backup (infra/scripts/backup.sh, run by systemd on the host) reaches it; the firewall allows
+#   only 22/80/443 in any case (infra/terraform main.tf `hcloud_firewall.web`).
+# - One api and one worker replica: the measured peaks (api 606-638 MB, docs/60 §2) and the
+#   limits below fit a 4 vCPU / 8 GB VM with headroom: 1 + 1 + 0.75 + 0.25 + 1 + 0.25 GB = 4.25 GB.
+# - No browser-worker: no implemented source fetches through a browser (data/sources.yaml
+#   `egress: browser` appears only on gated or unimplemented entries). `--profile browser` starts it.
+# - The connector data root stays the `connector_data` volume: fetch and load run on this host, so
+#   SNAPSHOT_STORE may be `local` (deploy.sh allows it only here).
+#
+# `!override` / `!reset` are merge directives, as in compose.prod.yml; infra/test_compose.py renders
+# the three files together.
+
+services:
+  postgres:
+    profiles: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for the single-host database (docs/64)}
+    shm_size: "256mb"
+    mem_limit: 1g
+    cpus: "1.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+
+  scheduler:
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+
+  worker:
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+
+  browser-worker:
+    profiles: ["browser"]

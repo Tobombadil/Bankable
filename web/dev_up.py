@@ -84,6 +84,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "more (services/README.md 'Sprint 2 fixes' closed that gap) -- the full set is the "
         "default; this only trades real volume for a shorter load time when you want that.",
     )
+    parser.add_argument(
+        "--context-only",
+        action="store_true",
+        help="Load only what the scheduler never loads (the context asset layers, the EIA-860M "
+        "retirements onto them, proposal-opportunity matches) into the existing store DATABASE_URL "
+        "names, from --data-dir, then exit: no schema, no proposal load, no servers (docs/64).",
+    )
     parser.add_argument("--api-host", default="127.0.0.1")
     parser.add_argument("--api-port", type=int, default=8001)
     parser.add_argument("--web-host", default="127.0.0.1")
@@ -471,6 +478,27 @@ def build_store(
     return report
 
 
+def load_context_layers(database_url: str, *, data_dir: Path, sources_yaml: Path) -> None:
+    """The part of `build_store` a deployed store gets from nowhere else (docs/64): the scheduler
+    loads proposals and opportunities, resolves and enriches, but builds no context layer and runs
+    no matcher. Loads the plants context layer, the EIA-860M retirements onto it (a retirements run
+    the scheduler loaded before any plant existed matched nothing), the other context asset layers
+    with owner shares and features, then proposal-opportunity matches and `ANALYZE`. Creates no
+    schema: the deploy's migrations made it. Each loader logs and skips a file that is absent, so a
+    data root holding only some layers loads those."""
+    engine = get_engine(database_url)
+    session: Session = get_sessionmaker(engine)()
+    try:
+        _load_plants_context_layer(session, data_dir)
+        _load_retirements(session, data_dir, sources_yaml)
+        _load_context_asset_layers(session, data_dir)
+        _run_matches(session)
+        session.commit()
+        refresh_planner_statistics(session)
+    finally:
+        session.close()
+
+
 def refresh_planner_statistics(session: Session) -> None:
     """`ANALYZE` after a bulk load, so the query planner has row counts to choose indexes from.
     Without statistics SQLite picked `ix_proposal_publish_public_at` over the interconnection-point
@@ -551,6 +579,13 @@ def load_fixture_if_empty(session: Session, report: dict[str, Any], *, sample_pe
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     args = _parse_args(argv)
+    if args.context_only:
+        database_url = os.environ.get("DATABASE_URL", "")
+        if not database_url:
+            log.error("--context-only loads into the store DATABASE_URL names; it is not set")
+            return 2
+        load_context_layers(database_url, data_dir=args.data_dir, sources_yaml=args.sources_yaml)
+        return 0
     args.db.parent.mkdir(parents=True, exist_ok=True)
     database_url = f"sqlite+pysqlite:///{args.db}"
 

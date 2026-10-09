@@ -9,7 +9,7 @@ social channels. The existing Bankable deal workflow at bankablehq.com is a late
 ```
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pipeline.connectors run --all        # proposals and opportunities, a few minutes
-.venv/bin/python -m pipeline.context.eia_plants --fetch  # existing power plants
+.venv/bin/python -m pipeline.context.eia_plants --latest-snapshot  # existing power plants, from the stored EIA-860M
 .venv/bin/python -m pipeline.context.eia_atlas --layer all   # gas pipelines, processing, storage, LNG
 .venv/bin/python -m web.dev_up --preview                 # site on http://127.0.0.1:8000, API on :8001
 .venv/bin/python -m services.api.bootstrap owner --email you@example.com --db web/.data/dev.db

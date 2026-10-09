@@ -5,6 +5,7 @@ rollback.sh and backup.sh against PATH shims that record every ssh/scp/sops/aws/
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import os
 import pathlib
@@ -28,6 +29,7 @@ case "$*" in  # swallow piped stdin (secrets, tokens); keep what would land in t
 esac
 healthy_body='{"status":"ok","checks":{"database":true,"queue":true}}'
 case "$*" in
+  *"procrastinate_jobs"*) printf '%s\n' "${FAKE_PENDING:-0}" ;;  # before current-tag: seed's compose reads it
   *"cat /opt/infraque/current-tag"*) printf '%s\n' "${FAKE_PREVIOUS_TAG:-}" ;;
   *"docker inspect"*) printf '%s\n' "${FAKE_HEALTH:-healthy}" ;;
   *"/v1/health"*) printf '%s\n' "${FAKE_HEALTH_BODY:-$healthy_body}" ;;
@@ -413,3 +415,179 @@ def test_backup_refuses_a_pg_dump_older_than_the_server(
     result = run("backup.sh", env=env)
     expect(result.returncode == 1 and "install postgresql-client-17" in result.stderr, result.stderr)
     expect(not any("pg_dump --format" in ln for ln in calls(log)), "no dump attempted with a too-old client")
+
+
+#: A single host's own database (compose.single.yml, docs/64) and the gate's login, as the env file
+#: carries them. The hash is base64("$2a$14$...") like the runbook makes it; values are fakes.
+SINGLE_HOST_EXTRA = (
+    "SNAPSHOT_STORE=local\n"
+    "POSTGRES_PASSWORD=fake-db-password\n"
+    "DATABASE_URL=postgresql+psycopg://infraque:fake-db-password@postgres:5432/infraque"
+)
+#: base64 of a bcrypt-shaped fake, built here so no key-shaped literal sits in the source (gitleaks).
+FAKE_GATE_HASH = base64.b64encode(b"$2a$14$" + b"fake" * 3).decode()
+GATE_EXTRA = f"SITE_ACCESS=basic\nSITE_ACCESS_USER=beta\nSITE_ACCESS_HASH={FAKE_GATE_HASH}"
+
+
+def _single(env: dict[str, str], extra: str = SINGLE_HOST_EXTRA) -> dict[str, str]:
+    single = {k: v for k, v in env.items() if k not in ("WORKER_HOSTS", "BROWSER_WORKER_HOST")}
+    return single | {"SINGLE_HOST": "1", "FAKE_EXTRA": extra}
+
+
+def test_single_host_deploy_runs_everything_on_one_vm_with_its_database_first(
+    shims: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    log, env = shims
+    result = run(
+        "deploy.sh", "production", "sha-beta123", env=_single(env, SINGLE_HOST_EXTRA + "\n" + GATE_EXTRA)
+    )
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    lines = calls(log)
+    expect(all("10.0.1.2" not in ln and "10.0.1.3" not in ln for ln in lines), "only APP_HOST is touched")
+    compose = (
+        "docker compose -f docker-compose.yml -f compose.prod.yml -f compose.single.yml "
+        "--env-file /opt/infraque/secrets/.env"
+    )
+    app = "ssh root@10.0.1.10"
+    pull = first_index(lines, f"{compose} pull --quiet caddy api web scheduler worker postgres")
+    stop_worker = first_index(lines, f"{app} cd /opt/infraque/compose && IMAGE_TAG=sha-beta123")
+    db_up = first_index(lines, f"{compose} up -d --no-build postgres")
+    db_health = first_index(lines, "ps -q postgres")
+    migrate = first_index(lines, "alembic -c services/db/migrations/alembic.ini upgrade head")
+    up_app = first_index(lines, "up -d --no-build caddy api web")
+    up_worker = first_index(lines, "up -d --no-build worker")
+    up_scheduler = first_index(lines, "up -d --no-build scheduler")
+    order = [pull, stop_worker, db_up, db_health, migrate, up_app, up_worker, up_scheduler]
+    expect(order == sorted(order), f"steps out of order: {order}\n" + "\n".join(lines))
+    expect(not any("browser-worker" in ln for ln in lines), "no browser-worker on the single host")
+    expect(sum("cat > /opt/infraque/secrets/.env" in ln for ln in lines) == 1, "secrets reach the one host")
+    expect(any("scp " in ln and "compose.single.yml" in ln for ln in lines), "the overlay is shipped")
+    row = pathlib.Path(env["DEPLOY_LOG"]).read_text()
+    expect("| production (single host) | sha-beta123 |" in row, row)
+
+
+@pytest.mark.parametrize(
+    ("extra", "env_change", "message"),
+    [
+        (
+            SINGLE_HOST_EXTRA.replace("POSTGRES_PASSWORD=fake-db-password", "POSTGRES_PASSWORD="),
+            {},
+            "POSTGRES_PASSWORD",
+        ),
+        (SINGLE_HOST_EXTRA.replace("@postgres:5432", "@db.example.test:5432"), {}, "DATABASE_URL"),
+        (SINGLE_HOST_EXTRA.replace("SNAPSHOT_STORE=local", "SNAPSHOT_STORE=ftp"), {}, "SNAPSHOT_STORE"),
+        (SINGLE_HOST_EXTRA, {"WORKER_HOSTS": "10.0.1.20"}, "unset WORKER_HOSTS"),
+        (SINGLE_HOST_EXTRA, {"SINGLE_HOST": "yes"}, "SINGLE_HOST must be 1"),
+    ],
+)
+def test_single_host_deploy_refuses_a_database_it_cannot_run(
+    shims: tuple[pathlib.Path, dict[str, str]], extra: str, env_change: dict[str, str], message: str
+) -> None:
+    log, env = shims
+    result = run("deploy.sh", "production", "sha-beta123", env=_single(env, extra) | env_change)
+    expect(result.returncode != 0, result.stdout)
+    expect(message in result.stderr, result.stderr)
+    expect(not any("ssh " in ln for ln in calls(log)), "nothing may touch a host before the checks pass")
+
+
+def test_local_snapshots_are_refused_on_three_hosts(shims: tuple[pathlib.Path, dict[str, str]]) -> None:
+    _log, env = shims
+    result = run("deploy.sh", "production", "sha-x", env=env | {"FAKE_EXTRA": "SNAPSHOT_STORE=local"})
+    expect(result.returncode != 0 and "SNAPSHOT_STORE must be s3" in result.stderr, result.stderr)
+
+
+@pytest.mark.parametrize(
+    ("gate", "message"),
+    [
+        (f"SITE_ACCESS=basic\nSITE_ACCESS_HASH={FAKE_GATE_HASH}", "SITE_ACCESS_USER"),
+        ("SITE_ACCESS=basic\nSITE_ACCESS_USER=beta", "SITE_ACCESS_HASH"),
+        ("SITE_ACCESS=basic\nSITE_ACCESS_USER=beta\nSITE_ACCESS_HASH=$2a$14$rawhash", "SITE_ACCESS_HASH"),
+        ("SITE_ACCESS=private", "SITE_ACCESS must be open or basic"),
+    ],
+)
+def test_deploy_refuses_an_access_gate_caddy_could_not_enforce(
+    shims: tuple[pathlib.Path, dict[str, str]], gate: str, message: str
+) -> None:
+    log, env = shims
+    result = run("deploy.sh", "staging", "sha-x", env=env | {"FAKE_EXTRA": gate})
+    expect(result.returncode != 0 and message in result.stderr, result.stderr)
+    expect(not any("ssh " in ln for ln in calls(log)), "nothing may touch a host before the checks pass")
+
+
+def test_backup_on_a_single_host_dumps_the_stack_database_over_loopback(
+    shims: tuple[pathlib.Path, dict[str, str]], tmp_path: pathlib.Path
+) -> None:
+    log, env = shims
+    listing = tmp_path / "r2-listing.txt"  # the dump just uploaded is always there
+    today = dt.datetime.now(dt.UTC).strftime("%Y%m%d")
+    listing.write_text(f"2026-01-01 03:17:00 1000 infraque-{today}T031700Z.dump\n")
+    env = {
+        **env,
+        "FAKE_R2_LISTING": str(listing),
+        "BACKUP_DIR": str(tmp_path / "backups"),
+        "DATABASE_URL": "postgresql+psycopg://infraque:fake-db-password@postgres:5432/infraque",
+        "R2_BUCKET": "fake-bucket",
+        "R2_ACCOUNT_ID": "fakeaccount",
+        "R2_ACCESS_KEY_ID": "fake-key-id",
+        "R2_SECRET_ACCESS_KEY": "fake-secret",
+    }
+    result = run("backup.sh", env=env)
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    dumps = [ln for ln in calls(log) if "pg_dump --format=custom" in ln]
+    expect(
+        bool(dumps) and "postgresql://infraque:fake-db-password@127.0.0.1:5432/infraque" in dumps[0], dumps
+    )
+
+
+def _data_root(tmp_path: pathlib.Path) -> pathlib.Path:
+    root = tmp_path / "data-root"
+    for part in ("runs/us.iso.caiso.gen_queue", "snapshots/us.iso.caiso.gen_queue", "normalized/context"):
+        (root / part).mkdir(parents=True)
+    (root / "normalized" / "context" / "us.eia.860m.plants.parquet").write_bytes(b"PAR1")
+    return root
+
+
+def test_seed_ships_the_data_root_then_loads_waits_loads_context_and_fetches(
+    shims: tuple[pathlib.Path, dict[str, str]], tmp_path: pathlib.Path
+) -> None:
+    log, env = shims
+    env = {k: v for k, v in env.items() if k not in ("WORKER_HOSTS", "BROWSER_WORKER_HOST")}
+    result = run("seed_single_host.sh", str(_data_root(tmp_path)), env=env | {"FAKE_PENDING": "0"})
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    lines = calls(log)
+    compose = "docker compose -f docker-compose.yml -f compose.prod.yml -f compose.single.yml"
+    expect(all(ln.startswith("ssh root@10.0.1.10 ") and compose in ln for ln in lines), lines)
+    ship = first_index(
+        lines,
+        "run --rm --no-deps -T --user root --entrypoint sh worker -c 'tar -xz -C /var/lib/infraque/data",
+    )
+    load = first_index(lines, "worker python -m infra.scheduler.bootstrap load")
+    drain = first_index(lines, "exec -T postgres psql")
+    context = first_index(
+        lines,
+        "-v infraque_connector_data:/var/lib/infraque/data web python -m web.dev_up --context-only "
+        "--data-dir /var/lib/infraque/data",
+    )
+    fetch = first_index(lines, "worker python -m infra.scheduler.bootstrap fetch")
+    expect([ship, load, drain, context, fetch] == sorted([ship, load, drain, context, fetch]), lines)
+    expect("chown -R appuser:appuser /var/lib/infraque/data" in lines[ship], lines[ship])
+
+
+def test_seed_stops_when_the_loads_do_not_drain(
+    shims: tuple[pathlib.Path, dict[str, str]], tmp_path: pathlib.Path
+) -> None:
+    log, env = shims
+    env = env | {"FAKE_PENDING": "3", "SEED_DRAIN_TIMEOUT_SECONDS": "0", "SEED_DRAIN_INTERVAL_SECONDS": "0"}
+    result = run("seed_single_host.sh", str(_data_root(tmp_path)), env=env)
+    expect(result.returncode != 0 and "still pending" in result.stderr, result.stderr)
+    expect(not any("--context-only" in ln for ln in calls(log)), "context must wait for the loads")
+
+
+def test_seed_refuses_a_data_root_with_nothing_to_ship(
+    shims: tuple[pathlib.Path, dict[str, str]], tmp_path: pathlib.Path
+) -> None:
+    log, env = shims
+    for root in (tmp_path / "absent", tmp_path):
+        result = run("seed_single_host.sh", str(root), env=env)
+        expect(result.returncode != 0, f"{root}: {result.stdout}")
+    expect(calls(log) == [], "nothing may reach the host")
