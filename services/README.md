@@ -123,6 +123,8 @@ services/ingest/
   loader.py          Idempotent parquet+events -> store loader; the licence/reuse-class gate
   lag.py             public_at == published_at for every row, records and events alike;
                      no delay and no knob anywhere (owner 2026-09-19 and 2026-09-21)
+  opportunity_status.py  open notice past its due_at -> closed, at every opportunity load
+                     and hourly (`deadline_tick`); no event (docs/22 §8.2, 2026-10-07)
   test_loader.py     Idempotency, gate refusal (both independent checks), lag computation
 
 services/ids.py      Crockford-base32 public ids (prop_/opp_/org_/evt_) and slugify()
@@ -242,8 +244,8 @@ are architecture changes; all are bounded follow-ups.
    `county_fips` and `state` on proposals are implemented and pinned by the parity test.
 8. **Geo clustering is a pure-Python lon/lat grid**, not PostGIS `ST_ClusterKMeans`/
    `ST_SnapToGrid` — see the Postgres/SQLite section above. Correct on both backends; not
-   representative of production query performance at the `docs/04` D-13 budget (≤400 ms p95,
-   ≥20,000 records).
+   representative of production query performance at the `docs/04` E-16 geo budget (≤400 ms p95,
+   D-13's API share; ≥20,000 records).
 9. **`event.seq`** is assigned by an ORM `before_insert` listener (`MAX(seq)+1` in the current
    transaction) rather than a database `IDENTITY` column, because a Postgres `bigint identity`
    default has no SQLite equivalent this sprint's test target can exercise. The canonical
@@ -2047,4 +2049,140 @@ The breakdown before the change, the list of what changed and the equivalence ev
 2026-10-07 decisions row in `docs/00-PLAN.md`. The regression guard is
 `tests/test_api_geo_performance_full_store.py`, which builds a dev-store-sized store from committed
 data (`tests/geo_full_store.py`) so CI measures the budget at the scale the site runs at. Still above
-budget: a national call where a hidden source contributes fields (0.53–0.68 s).
+budget: a national call where a hidden source contributes fields (0.53–0.68 s). Superseded in part by
+"API performance and consistency (2026-10-07, lane L3)" below: the map now caches its whole-set work, the
+budget is one number (E-16 400 ms) and the CI guard is relative.
+
+## Load correctness: last_changed, GB settlement placement, deadlines (2026-10-07, lane L1)
+
+From the 2026-10-07 data-pipeline audit (DATA-5, DATA-13, DATA-14). Measured by loading the shared
+data root's latest frames into an empty SQLite store, base code against this change.
+
+- **`last_changed` moves only when a served value changes** (`loader.py::_stamp_last_changed`). The
+  loader used to stamp every row it rewrote. Now each updated record's served values (this source's
+  fields plus, for a proposal, the fields survivorship writes) are captured before the load touches
+  it and compared once survivorship has run. A record whose values come back the same keeps its stamp,
+  even where survivorship touched it after the loader wrote a member's value. `LoadResult.records_changed`
+  counts the records that moved. EIA-860M 09-27 → 10-07 frame: 2,311 → 0 stamps moved (no served
+  value differs). An identical reload: 2,311 → 0. 09-13 → 09-27 (real changes: `iso` 1,039,
+  `proposed_cod` 273, `status_raw` 86, `lifecycle_state` 22, `capacity_mw` 5): 2,311 → 1,218, which is
+  the 1,190 changed rows plus the 28 new records.
+- **GB settlement fallback reached** (`loader.py::_get_or_create_location`). The row's `HOST TO`
+  (transmission owner) is now passed as `region`, so the settlement tier runs when the substation
+  list misses. A settlement hit is stamped `geocoder = gb_settlement`. NESO register (2,198 rows):
+  `gb_substation` 739 → 739; `gb_settlement` 0 → 310; `unknown` 1,459 → 1,149 (66 % → 52 %). A name that
+  is ambiguous (105), outside the named owner's area (19) or names an unknown owner (15) stays unplaced.
+  Locations are written once, when a record is created, so existing records move only on a rebuild
+  (`web.dev_up` rebuilds the store each start).
+- **Opportunity deadlines** (`opportunity_status.py`). After each opportunity load, and hourly, an
+  `open` notice whose `due_at` has passed is `closed`. `field_provenance.status.rule` is
+  `opportunity.deadline_passed`. No event is written: the source's next run publishes it (docs/22
+  §8.2). Served `open` past the deadline, measured at 2026-10-07T19:00Z: TED 70 → 0, World Bank
+  22 → 0, grants.gov 31 → 0. Undated `open` notices (TED 29, grants.gov 16) are unchanged.
+
+Tests: `services/ingest/test_loader.py`
+(`test_a_reload_with_nothing_changed_leaves_last_changed_alone_and_a_real_change_moves_it`,
+`test_loader_places_a_gb_site_off_the_substation_list_by_its_settlement_within_its_owner_region`) and
+`services/ingest/test_opportunity_status.py`. All fail on base.
+
+## API performance and consistency (2026-10-07, lane L3, backend-developer)
+
+From the backend audit of 2026-10-07 (PERF-1..5, API-1..9, API-12) and two expert reviews. Measured with
+the audit's harness (in-process TestClient, real app, a copy of the full dev store, one cold then seven
+warm calls, median and p95 of the warm ones); before = `main` at `acfa192` on the store as audited, after =
+this change on the same store plus migration 0035's indexes. The VM is shared and was under load (load
+average 2-5 on 4 cores) for most runs, so read differences under ~15% as noise.
+
+### Geo latency: one number, and how it is guarded
+
+- **The number is docs/04 E-16: `/geo` p95 ≤ 400 ms** at the API (D-13 now says so; its 200 ms is the
+  end-to-end pan on the client and includes this). The "500 ms (D-13 as this sprint set it)" in the
+  2026-10-07 plan row and the old test, and "D-13 ≤400 ms" here, are the same budget restated.
+- **Cold and warm.** `services/api/geo_cache.py` caches the viewport-independent part of a proposal map
+  answer (totals, the drawable rows as plain tuples, the licence summary) per filter set and tier, keyed on
+  a data version (proposal count and `max(updated_at)`, link and location counts, source and licence
+  `max(updated_at)`, `max(source.last_loaded_ts)`, organisations when `sponsor_id`/`q` read them), an
+  in-process write generation (bumped by any INSERT/UPDATE/DELETE/TRUNCATE/DDL statement naming a table
+  the map reads, at execute and again at commit), today's date (slippage filters) and a 60 s TTL backstop
+  for writes from other processes; 16 entries, LRU. Rows a hidden source gates are held by id and re-read
+  through `GatedRecord` per request. Equivalence: 30 requests per store (22 filter sets, 8 at the API
+  tier), cold then warm, on three stores (all public; a registry-only hidden source; a hidden contributing
+  source): 180 of 180 bodies byte-identical to `main` with `request_id`, `generated_at` and `data_as_of`
+  masked.
+- **CI guard** (`tests/test_api_geo_performance_full_store.py`): each cold call (cache cleared) on the
+  full-store fixture, best of five, divided by the best of five runs of a fixed CPU workload interleaved
+  with it, must stay under 1.6x the ratio recorded per request. A simulated 2x slowdown of the national
+  path failed 8 of 9 cases (the ninth, `kind=load`, spends little time in the slowed step). A warm pan
+  must be one SQL statement and under half the cold call. Measured on the dev VM under load: cold calls
+  0.03-0.45 s (Texas at zoom 7, a 500-marker view, is the slowest and sits at the budget); warm pans
+  0.03-0.10 s for clustered views. Method for a re-measure: `tests/test_api_geo_performance_full_store.py`
+  with `-s`, or the audit harness (`run_matrix.py`) on a copy of the dev store.
+- **PERF-2a**: a hidden source that supplies no link, placement or `field_provenance` entry is dropped
+  from the map's hidden set (`geo_cache.unused_hidden_sources`, once per data version), so a
+  registry-only `ingest_only` source no longer turns on the per-row JSON clauses.
+
+### Other changes
+
+- **Bulk (PERF-1)**: the proposal bulk line's `members[]` read each link's deferred `normalised`; the bulk
+  shape now loads it (`lean_load_options(link_normalised=True)`), and one `GatedRecord` view per record is
+  shared by the serialiser and the composition block (it was built three times). 1,013 -> 13 queries per
+  1,000-row page, ~2.2 s -> ~1.2-1.5 s; 12 pages byte-identical to `main`. Still over E-16's 1 s first
+  byte: the page is built before the first byte is sent (open, below).
+- **Indexes (PERF-3, PERF-12; migration 0035)**: `(publish_state, published_at DESC)` on proposal and
+  opportunity and `published_at` on event (the paid tiers' timing column was unindexed: API-key list SQL
+  141 -> 68 ms); the four proposal list sorts as partial indexes over public rows (Postgres; SQLite's
+  planner keeps using `ix_proposal_publish_public_at`, measured, so they buy nothing there); `updated_at`
+  on proposal for the map cache key. The model now declares these and the four migration-only indexes the
+  audit found (`asset_owner` x2, `organization.parent_org_id`, `location.geom`), so create_all stores match
+  production; `ix_event_seq` duplicates the unique constraint and is left undeclared. `paginate` drops
+  `NULLS LAST` and the dead `IS NULL` arm for NOT NULL sort columns and resumes with a row-value keyset.
+- **Organisation nearby-proposals (PERF-4)**: candidates read as columns and bucketed on a 0.5-degree grid;
+  only the returned page is hydrated. National owner (WM, 121 assets) 1,160 -> 165 ms; Southern 328 -> 156 ms. Both nearby lists now page with a
+  real cursor `(distance, public_id)` (they said `has_more` with no cursor), ties break by public id, and
+  `totals.assets_in_scope` is counted before the 200-asset cap. `slug` is no longer accepted (ignored) on
+  the asset nearby list.
+- **Asset map payload (PERF-5)**: minimum feature size below zoom 14 (a part under 3 px not drawn, a line
+  under 5 px not drawn, both counted in `line_count`), coordinates at the tolerance's decimal (at least 2),
+  GeoJSON built once per zoom, the index key computed once per request, the licence aggregate cached on it.
+  CONUS z4 all types 335 -> 154 KB gzipped, 731 -> 217 ms; Texas z7 419 -> 286 KB, 729 -> 331 ms.
+- **Conventions (API-2..9, API-12)**: weak `ETag` and `304` on public 200 GETs (`services/api/conditional.py`,
+  inside the compression); `Vary` merged so `Accept-Encoding` survives; feeds `public, max-age=300,
+  stale-while-revalidate=60`, `/v1/geo/regions` a day, private saved-search feeds `no-store`; the router's
+  404/405 and FastAPI's validation errors as problem+json (`method_not_allowed` is a new code; validation is
+  `400 validation_error`, not 422); `limit` outside its documented range and any `include` value a route does
+  not implement are 400s on every public list (lists take `count`, and organisations and events now
+  implement it); `include=count` says `total_is_estimate: false` because the count is exact; the CSV twin
+  honours `limit` and refuses `cursor`.
+- **Sources and health (expert review)**: `GET /v1/sources`, `/v1/sources/{id}`, `/v1/coverage` and the
+  admin source pages report `last_success_at` from the recorded runs as well as the runner's column, plus
+  `last_loaded_at` and `freshness` (`services/api/source_freshness.py`, `infra/scheduler/freshness.py`'s
+  `assess`). `GET /v1/health` `data_as_of` is the oldest last successful fetch among loaded sources (it
+  was the request time), with `data_as_of_newest`.
+- **Organisation filters by slug (expert review)**: `sponsor_id`/`issuer_id` accept the organisation's
+  slug as well as its id on lists, geo and feeds; a saved search or webhook stores the id, so the alert
+  matcher (which compares ids) agrees with the list, and refuses (400) a value naming no published
+  organisation, hidden and unknown alike; parity test in `tests/test_saved_search_parity.py`.
+- **Coverage (PERF-9, frontend lane)**: `data/sources.yaml` parsed once per file version, and the statement
+  cached on the map's data version plus opportunity/asset/organisation counts and the two files' versions.
+  On the dev store copy: cold after a data change 0.24 s median (was 0.42-0.46 s warm, 1.3 s at 10x), warm
+  13-15 ms; the first call in a process still parses the registry (~1.2 s with imports).
+  `tests/test_api_coverage_latency.py`. New notes condition `applies_to.source_without_published_rows:
+  <source id>`: the note holds while the source supplies no row a public reader is served
+  (`sources.published_source_ids` in the statement).
+- **Proposal list rows** carry `interconnection_point` as the detail does (three batched queries; measured
+  +10-35 ms on a 200-row page, inside the 300 ms list budget). `storage_mwh` was already on every row; it
+  is null because no loaded source states it (a data gap, not an API one).
+
+### Open
+
+- Bulk first byte: the meta line (licence summary and redactions of the whole page) is written first, so
+  the page is serialised before anything is sent. Streaming needs either a trailer meta line (a contract
+  change) or a session kept open while the body streams.
+- `q=` does not match technology or kind labels ("large load"): the alert matcher
+  (`services/alerts/matching.py`, outside this lane) would have to change in step or list/alert parity
+  breaks. Saved searches stored with a slug before this change still hold the slug and match nothing.
+- The record detail accepts the documented `include` values `sources`, `matches`, `events` and builds none
+  of them; any other value is now a 400.
+- Sort indexes on Postgres are inferred, not measured (no Postgres cluster could be started here).
+- PERF-6 (asset list), PERF-7 (trigram search), PERF-8 (events feed index), PERF-9/10 (coverage and point
+  totals caching), the marker-path cost of hidden contributing sources, and Brotli (API-10) are untouched.

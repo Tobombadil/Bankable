@@ -193,6 +193,22 @@ def freshness_tick_job(
     return data
 
 
+def deadline_tick_job(_session_factory: Any = None, *, now: dt.datetime | None = None) -> dict[str, Any]:
+    """Body of the `deadline_tick` task: close every live `open` opportunity whose deadline has
+    passed (`services/ingest/opportunity_status.py`; docs/21 §7.2, docs/22 §8.2). A load applies
+    the rule to the records it writes; this covers the hours between loads and the sources that
+    stopped running (audit 2026-10-07 DATA-14: 121 notices served `open` past their deadline).
+    Writes no event: the source's next run publishes the `status_change`."""
+    from services.db.session import session_scope
+    from services.ingest.opportunity_status import close_past_deadline
+
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    with session_scope(factory) as session:
+        data = close_past_deadline(session, now or _utcnow()).to_dict()
+    _log_report("deadline_tick", data)
+    return data
+
+
 # ============================================================================ the closed loop
 # Audit 2026-09-18 §3.1 "the always-on loop is not a loop" / §4 item 2: until this landed the
 # scheduled path ended at `python -m pipeline.connectors run <id>` — a JSON file under
@@ -711,8 +727,14 @@ def release_held_job(
 
 def _mark_run_released(session_factory: Any, run_id: str, record: Mapping[str, Any]) -> bool:
     """Set the released run's row to what the promotion produced. False (logged) when no row
-    carries that id — the run was never recorded — which does not undo the promotion."""
-    from services.db.models import SourceRun
+    carries that id — the run was never recorded — which does not undo the promotion.
+
+    The hold was what degraded the source (identical refetches of a held run are held again
+    rather than counted as successes, runner docstring "A hold stays held"), so a released hold on
+    a source with no failures since returns it to `ok`, and its fetch counts as the last success:
+    the promoted frame is now that run's. A source degraded by failures, blocked or paused keeps
+    its state."""
+    from services.db.models import Source, SourceRun
     from services.db.session import session_scope
 
     key = _run_uuid(run_id)
@@ -726,6 +748,14 @@ def _mark_run_released(session_factory: Any, run_id: str, record: Mapping[str, A
         run.rows_changed = int(record.get("rows_changed") or 0)
         run.rows_gone = int(record.get("rows_gone") or 0)
         run.events_emitted = int(record.get("events_emitted") or 0)
+        source = session.get(Source, run.source_id)
+        if source is not None and source.health == "degraded" and not source.consecutive_failures:
+            source.health = "ok"
+            finished = _aware(run.finished_at) if run.finished_at is not None else None
+            if finished is not None and (
+                source.last_success_at is None or _aware(source.last_success_at) < finished
+            ):
+                source.last_success_at = finished
         session.flush()
     return True
 

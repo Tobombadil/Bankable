@@ -39,11 +39,13 @@ COPY infra/scheduler/requirements.txt ./infra-scheduler-requirements.txt
 # is absent and the `if` is a no-op, so a plain `docker build` installs exactly what it did before.
 RUN --mount=type=secret,id=ca_bundle,target=/run/secrets/ca_bundle \
     if [ -s /run/secrets/ca_bundle ]; then export PIP_CERT=/run/secrets/ca_bundle; fi \
-    && pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt
-# The CI image scan flags wheel 0.45.1 and jaraco.context 5.3.0 (CVE-2026-24049, CVE-2026-23949).
-# Those are the copies vendored inside setuptools 78.1.1 (`setuptools/_vendor/*.dist-info`), not
-# top-level installs, so upgrading the top-level packages changes nothing (tried, 2026-09-15). They
-# move only when setuptools does, and gridstatus 0.36.0 pins setuptools<79; see .trivyignore.
+    && pip install --no-cache-dir -r requirements.txt -r infra-scheduler-requirements.txt 'setuptools>=83'
+# `setuptools>=83`: the base image ships setuptools 79.0.1, whose vendored copies of wheel 0.45.1 and
+# jaraco.context 5.3.0 (`setuptools/_vendor/*.dist-info`) the CI image scan flags (CVE-2026-24049,
+# CVE-2026-23949; fixed in wheel 0.46.2 / jaraco.context 6.1.0, vendored from setuptools 82.0.0 on);
+# 83.0.0 also fixes PYSEC-2026-3447. Upgrading the top-level wheel changes nothing (tried,
+# 2026-09-15). gridstatus 0.36.0 held setuptools below 79 until its parsers were vendored
+# (pipeline/vendor/gridstatus, 2026-10-07). Nothing imports setuptools or pkg_resources at runtime.
 
 COPY pyproject.toml ./pyproject.toml
 COPY pipeline ./pipeline

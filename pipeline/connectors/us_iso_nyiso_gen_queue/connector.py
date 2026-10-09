@@ -1,10 +1,11 @@
 """us.iso.nyiso.gen_queue — NYISO Interconnection Queue workbook.
 
-Parse: gridstatus.NYISO's parser over the active, cluster, withdrawn and in-service sheets (the
-workbook's "Load Projects" sheet is a separate large-load register, not ingested here). The
-Withdrawn sheets are padded with 1,350 rows that carry no queue position, no name, no county and
-no date — only the sheet's implied status; they are dropped, because a row with no identity is
-not an observation and hashing them would produce 1,350 identical ids.
+Parse: gridstatus 0.36.0's NYISO parser (vendored, `pipeline/vendor/gridstatus`) over the active,
+cluster, withdrawn and in-service sheets (the workbook's "Load Projects" sheet is a separate
+large-load register, not ingested here). The Withdrawn sheets are padded with 1,350 rows that
+carry no queue position, no name, no county and no date — only the sheet's implied status; they
+are dropped, because a row with no identity is not an observation and hashing them would produce
+1,350 identical ids.
 source_record_id: "Queue Pos."; the two positions that appear twice in the workbook are suffixed
 `#2` in file order (`dedupe_strategy = "suffix"`) and the run records a DQ warning.
 Reuse: attribution (derived-only until counsel sign-off, docs/13 §1.5).
@@ -20,7 +21,7 @@ import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, RawSnapshot
-from pipeline.connectors.iso_queue import gridstatus_rows, normalize_iso_rows
+from pipeline.connectors.iso_queue import normalize_iso_rows, queue_rows
 
 URL = "https://www.nyiso.com/documents/20142/1407078/NYISO-Interconnection-Queue.xlsx"
 
@@ -56,7 +57,7 @@ class Connector(BaseConnector):
         )
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
-        rows = gridstatus_rows("NYISO", raw)
+        rows = queue_rows("NYISO", raw)
         return [r for r in rows if _identified(r)]
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:

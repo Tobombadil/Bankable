@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from web import labels
+from web import formatting, labels
 
 #: `asset.status` -> the word a page prints; the table lives in `web/labels.py` with every other
 #: vocabulary's words and is re-exported here, where R1 introduced it.
@@ -101,7 +101,7 @@ def _mw(value: Any) -> str | None:
         return None
     if number <= 0:
         return None
-    return f"{number:,.1f} MW"
+    return f"{formatting.mw(number)} MW"  # docs/31 §4 (UX-8)
 
 
 def _kv(values: Any) -> str | None:

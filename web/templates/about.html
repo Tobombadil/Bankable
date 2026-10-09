@@ -6,7 +6,6 @@
 <div class="page-header">
   <h1>About &amp; sources</h1>
   <p>Infraque fuses public energy and infrastructure registers into one record per project. This is the public tier: every record, no login, no admin. The paid tier is workflow &mdash; alerts, the API and, when they are built, exports and watchlists.</p>
-  <p class="reuse-badge">Infraque is a placeholder codename, not the permanent product name. Every hostname and brand reference in this build is a stand-in.</p>
 </div>
 
 <section id="tiers">
@@ -23,7 +22,7 @@
 
 <section id="sources">
   {{ m.section_heading("2.", "Sources and licences") }}
-  <p>Every field on every page traces to one of the rows below. Sources marked "No -- derived only" have their raw source row and exact coordinates withheld; the page links out to the source instead.</p>
+  <p>Every field on every page traces to one of the rows below. Sources marked "No, derived fields only" have their raw source row and exact coordinates withheld; the page links out to the source instead.</p>
   <div class="table-scroll">
   <table class="record-table source-table">
     <thead>
@@ -41,8 +40,8 @@
       <tr>
         <td data-label="Source"><a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a><br><span class="mono reuse-badge">{{ s.source_id }}</span></td>
         <td data-label="Operator">{{ s.operator or '—' }}</td>
-        <td data-label="Reuse class"><span class="reuse-badge">{{ s.licence.reuse_class }}</span></td>
-        <td data-label="Raw fields shown?">{{ 'Yes' if s.licence.allows_raw_publication else 'No -- derived only' }}</td>
+        <td data-label="Reuse class"><span class="reuse-badge">{{ s.licence.reuse_class | reuse_class_label }}</span></td>
+        <td data-label="Raw fields shown?">{{ 'Yes' if s.licence.allows_raw_publication else 'No, derived fields only' }}</td>
         <td data-label="Attribution">{{ s.attribution_text }}</td>
         <td data-label="Rows visible" class="num tnum">{{ s.rows_visible if s.rows_visible is not none else '—' }}</td>
       </tr>
@@ -58,7 +57,7 @@
     {% for s in sources %}
     <dt class="mono">{{ s.source_id }}</dt>
     <dd>
-      Reuse class: {{ s.licence.reuse_class }}. Derived publication: {{ 'allowed' if s.licence.allows_derived_publication else 'withheld' }}.
+      Reuse class: {{ s.licence.reuse_class | reuse_class_label }}. Derived publication: {{ 'allowed' if s.licence.allows_derived_publication else 'withheld' }}.
       Raw publication: {{ 'allowed' if s.licence.allows_raw_publication else 'withheld' }}.
       Commercial use: {{ 'allowed' if s.licence.allows_commercial_use else 'not allowed' }}.
       Attribution: {{ 'required' if s.licence.attribution_required else 'not required' }}.

@@ -12,6 +12,7 @@ import datetime as dt
 from sqlalchemy.orm import Session
 
 from services.api.conftest import (
+    make_location,
     make_open_licence,
     make_org,
     make_public_source,
@@ -109,7 +110,10 @@ def test_link_ok_narrows_the_view_to_sources_whose_licence_permits_the_shape(db:
     lic = make_open_licence(db)
     shown = make_public_source(db, lic, id_="us.test.shown")
     elsewhere = make_public_source(db, lic, id_="us.test.elsewhere")
-    prop = make_visible_proposal(db, shown)
+    # The location comes from `shown`, so a `link_ok` that refuses `shown` must withhold it, and the
+    # unnarrowed view must serve it: the assertion below can fail (audit 2026-10-07 QA-11; it used
+    # to pass on a proposal with no location at all).
+    prop = make_visible_proposal(db, shown, location=make_location(db, shown, lic, geom=(-97.7, 30.3)))
     prop.sources[0].normalised = {"name_canonical": "Shown Spelling"}
     prop.name_canonical = "Elsewhere Spelling"
     prop.field_provenance = {
@@ -119,6 +123,8 @@ def test_link_ok_narrows_the_view_to_sources_whose_licence_permits_the_shape(db:
     assert gated_proposal(prop).name_canonical == "Elsewhere Spelling"
     narrowed = gated_proposal(prop, "public", lambda source: source.id != elsewhere.id)
     assert narrowed.name_canonical == "Shown Spelling"
+    assert gated_proposal(prop).location is prop.location is not None
+    assert narrowed.location is prop.location
     assert gated_proposal(prop, "public", lambda source: source.id == elsewhere.id).location is None
 
 

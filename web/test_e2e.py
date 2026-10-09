@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import gzip
+import hashlib
 import http.server
 import json
 import os
@@ -88,12 +90,36 @@ AUSTIN_CENTER = [-97.75, 30.3]
 AUSTIN_ZOOM = 10
 GLYPHS_SPRITE_HOST_PREFIX = "https://protomaps.github.io/basemaps-assets/"
 
-# This sandbox's egress proxy resets Chromium's own TLS handshake to the CDN hosts the rendered
-# page references (a proxy/browser interaction, not a product defect -- plain Python `urllib`
-# through the same proxy works fine, as does `curl`). The smoke test fetches the two MapLibre
-# assets once via Python and serves them to the browser from memory instead, so the check
-# exercises the app's real markup without depending on this environment's browser egress.
-_ASSET_CACHE: dict[str, bytes] = {}
+# The rendered pages load MapLibre from a CDN. The browser never reaches it: the two pinned MapLibre
+# files are served from recorded copies under tests/fixtures/cdn (audit 2026-10-07 QA-4: a live
+# fetch here made CI depend on the CDN), checked against their recorded SHA-256 before serving.
+# Only the opt-in PMTiles proof test (marked `network`) still fetches anything from a real host.
+RECORDED_CDN_DIR = REPO_ROOT / "tests" / "fixtures" / "cdn"
+RECORDED_CDN = {
+    f"https://cdn.jsdelivr.net/npm/maplibre-gl@{MAPLIBRE_VERSION}/dist/maplibre-gl.js": (
+        f"maplibre-gl-{MAPLIBRE_VERSION}.js.gz",
+        "45a9b07a9189ce56054c620a947ccf41e291e58c95e9b61533b740aaa65ee5cb",
+    ),
+    f"https://cdn.jsdelivr.net/npm/maplibre-gl@{MAPLIBRE_VERSION}/dist/maplibre-gl.css": (
+        f"maplibre-gl-{MAPLIBRE_VERSION}.css.gz",
+        "ab1e70d59ec40465bae7e7030da2f3ccf28133fd502e62bd598eefbadfd7a732",
+    ),
+}
+_ASSET_CACHE: dict[str, tuple[int, bytes]] = {}
+
+
+@functools.cache
+def _recorded(url: str) -> bytes:
+    """The recorded copy of a pinned CDN file, integrity-checked. A missing or changed recording is
+    an error naming the file, never a silent fallback to the network (tests/fixtures/cdn/README.md)."""
+    name, sha256 = RECORDED_CDN[url]
+    path = RECORDED_CDN_DIR / name
+    if not path.exists():
+        raise FileNotFoundError(f"no recorded copy of {url} at {path}; see tests/fixtures/cdn/README.md")
+    body = gzip.decompress(path.read_bytes())
+    if hashlib.sha256(body).hexdigest() != sha256:
+        raise ValueError(f"{path} does not match its recorded SHA-256; see tests/fixtures/cdn/README.md")
+    return body
 
 
 def _fetch(url: str) -> tuple[int, bytes]:
@@ -104,6 +130,8 @@ def _fetch(url: str) -> tuple[int, bytes]:
     of real third-party hosts are fetched here, through this sandbox's proxy) a couple of times
     before giving up -- a real timeout/connection error still raises, since that is a genuine
     test-environment failure this function has no honest fallback body for."""
+    if url in RECORDED_CDN:
+        return 200, _recorded(url)
     if url not in _ASSET_CACHE:
         last_exc: OSError | None = None
         for attempt in range(3):
@@ -232,7 +260,14 @@ def _install_offline_routes(page: Any, *, serve_pmtiles_scripts: bool = False) -
     def serve(url: str) -> Any:
         def _handler(route: Route) -> None:
             status, body = _fetch(url)
-            route.fulfill(status=status, content_type=_guess_content_type(url), body=body)
+            # The pages load these with `crossorigin="anonymous"` and an `integrity` hash (UX-19), so
+            # the stand-in must answer as the CDN does, with CORS, or the browser refuses the file.
+            route.fulfill(
+                status=status,
+                content_type=_guess_content_type(url),
+                body=body,
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
 
         return _handler
 
@@ -326,11 +361,14 @@ def server() -> object:
     database_url = _ensure_db_loaded(DB_PATH)
     env = dict(os.environ, DATABASE_URL=database_url, WEB_DEV_PREVIEW="1", MAP_TILE_URL=FAKE_PMTILES_URL)
     env.pop("API_BASE_URL", None)  # in-process API mount, backed by the same SQLite file
+    # The server's log goes to a file, never an unread pipe: a full 64 KiB pipe buffer blocks the
+    # server's next write, so every later request (and SIGTERM's graceful shutdown) hangs.
+    server_log = DB_PATH.with_suffix(".server.log").open("wb")
     proc = subprocess.Popen(  # noqa: S603 -- fixed argv; the port is an int parsed above
         [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", str(E2E_PORT)],
         cwd=REPO_ROOT,
         env=env,
-        stdout=subprocess.PIPE,
+        stdout=server_log,
         stderr=subprocess.STDOUT,
     )
     try:
@@ -339,6 +377,7 @@ def server() -> object:
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+        server_log.close()
 
 
 def test_smoke_map_list_detail_with_attribution(server: object) -> None:
@@ -516,7 +555,7 @@ def test_map_keeps_and_forwards_a_linked_kind_filter(server: object) -> None:
             count_js = "document.getElementById('map-result-count').textContent"
             notice_js = "document.getElementById('map-notice').textContent"
             page.wait_for_function(f"() => {count_js}.startsWith('{generation} ')")
-            page.wait_for_function(f"() => {notice_js}.includes('Showing {generation} active')")
+            page.wait_for_function(f"() => {notice_js}.includes('Showing {generation:,} active')")
             assert parse_qs(urlsplit(page.url).query).get("kind") == ["generation"], page.url
         finally:
             browser.close()
@@ -542,6 +581,43 @@ def _in_view_feature(name: str, technology: str | None, lon: float) -> dict[str,
             "provenance": [],
         },
     }
+
+
+def test_map_status_control_draws_built_proposals_and_the_list_keeps_the_choice(server: object) -> None:
+    """Audit 2026-10-07 UX-1: no control on the map or the list could show a built proposal. Walks
+    the real page: MapLibre loads under its integrity hash (UX-19), ticking Built in the Status
+    disclosure asks the geo API for the active states plus `built`, the count is the API's answer,
+    the URL and the summary say so, and the List link opens the list with Built still ticked."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.route(
+                "**/api/ui-events",
+                lambda route: route.fulfill(status=202, content_type="application/json", body="{}"),
+            )
+            page.goto(BASE_URL + "/")
+            page.wait_for_selector("#map canvas", timeout=10000)
+            page.wait_for_function("() => window.__map && window.__map.isStyleLoaded()", timeout=15000)
+            page.wait_for_function(_COUNT_READY, timeout=15000)
+            assert page.inner_text("#mf-status [data-status-summary]") == "active"
+            page.click("#mf-status summary")
+            with page.expect_response(lambda r: "/api/proposals/geo?" in r.url, timeout=30000) as geo_info:
+                page.check("#mf-status-built")
+            states = parse_qs(urlsplit(geo_info.value.url).query)["lifecycle_state"][0].split(",")
+            assert "built" in states and "announced" in states and "withdrawn" not in states
+            page.wait_for_function(_COUNT_READY, timeout=15000)
+            shown = int(page.inner_text("#map-result-count").split()[0].replace(",", ""))
+            assert shown == geo_info.value.json()["data"]["totals"]["records"]
+            assert "built" in parse_qs(urlsplit(page.url).query)["lifecycle_state"][0].split(",")
+            assert page.inner_text("#mf-status [data-status-summary]") == "active, built"
+            page.click("#view-as-list")
+            page.wait_for_load_state("domcontentloaded")
+            assert page.is_checked("#f-status-built") and page.is_checked("#f-status-announced")
+            assert not page.is_checked("#f-status-withdrawn")
+        finally:
+            browser.close()
 
 
 def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) -> None:
@@ -590,10 +666,11 @@ def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) 
                 name: page.inner_text(f"#in-view-items li:has(a[href='/proposals/{name}']) .meta")
                 for name in ("dc-one", "solar-one", "blank-one")
             }
-            assert by_name["dc-one"] == f"{technology_label('load')} · US-VA · 12.0 MW"
+            # MW as the server prints it (web/formatting.py `mw`, UX-8): "12 MW", not "12.0 MW".
+            assert by_name["dc-one"] == f"{technology_label('load')} · US-VA · 12 MW"
             assert by_name["dc-one"].startswith(TECHNOLOGY_LABELS["load"])
-            assert by_name["solar-one"] == "Solar · US-VA · 12.0 MW"  # every token in words now
-            assert by_name["blank-one"] == "— · US-VA · 12.0 MW"
+            assert by_name["solar-one"] == "Solar · US-VA · 12 MW"  # every token in words now
+            assert by_name["blank-one"] == "— · US-VA · 12 MW"
         finally:
             browser.close()
 
@@ -1092,11 +1169,14 @@ def pmtiles_proof_server(pmtiles_range_server: int) -> object:
     tile_url = f"http://127.0.0.1:{pmtiles_range_server}/{PMTILES_ARCHIVE_PATH.name}"
     env = dict(os.environ, DATABASE_URL=database_url, WEB_DEV_PREVIEW="1", MAP_TILE_URL=tile_url)
     env.pop("API_BASE_URL", None)
+    # The server's log goes to a file, never an unread pipe: a full 64 KiB pipe buffer blocks the
+    # server's next write, so every later request (and SIGTERM's graceful shutdown) hangs.
+    server_log = _PMTILES_PROOF_DB_PATH.with_suffix(".server.log").open("wb")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", "8798"],
         cwd=REPO_ROOT,
         env=env,
-        stdout=subprocess.PIPE,
+        stdout=server_log,
         stderr=subprocess.STDOUT,
     )
     try:
@@ -1105,8 +1185,10 @@ def pmtiles_proof_server(pmtiles_range_server: int) -> object:
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+        server_log.close()
 
 
+@pytest.mark.network  # fetches the pmtiles/basemaps scripts and Protomaps glyphs from their real hosts
 @pytest.mark.skipif(
     not PMTILES_ARCHIVE_PATH.exists(),
     reason=(

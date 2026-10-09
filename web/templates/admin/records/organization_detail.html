@@ -16,10 +16,10 @@
   <tbody>
     <tr><th scope="row">Type</th><td>{{ organization.type }}</td></tr>
     <tr><th scope="row">Country</th><td>{{ organization.country }}</td></tr>
-    <tr><th scope="row">Jurisdiction</th><td>{{ organization.jurisdiction or "&mdash;" }}</td></tr>
+    <tr><th scope="row">Jurisdiction</th><td>{{ organization.jurisdiction or '—' }}</td></tr>
     <tr><th scope="row">Website</th><td>{% if organization.website %}<a href="{{ organization.website }}">{{ organization.website }}</a>{% else %}&mdash;{% endif %}</td></tr>
-    <tr><th scope="row">Proposals sponsored</th><td>{{ organization.proposal_count if organization.proposal_count is not none else "&mdash;" }}</td></tr>
-    <tr><th scope="row">Opportunities issued</th><td>{{ organization.opportunity_count if organization.opportunity_count is not none else "&mdash;" }}</td></tr>
+    <tr><th scope="row">Proposals sponsored</th><td>{{ organization.proposal_count if organization.proposal_count is not none else '—' }}</td></tr>
+    <tr><th scope="row">Opportunities issued</th><td>{{ organization.opportunity_count if organization.opportunity_count is not none else '—' }}</td></tr>
     <tr><th scope="row">First seen</th><td>{{ organization.first_seen }}</td></tr>
     <tr><th scope="row">Last changed</th><td>{{ organization.last_changed }}</td></tr>
   </tbody>
@@ -39,7 +39,7 @@
   <thead><tr><th scope="col">When</th><th scope="col">Type</th><th scope="col">Reason</th></tr></thead>
   <tbody>
     {% for ev in organization.events %}
-    <tr><td class="mono">{{ ev.observed_at }}</td><td>{{ ev.event_type }}</td><td>{{ ev.reason or "&mdash;" }}</td></tr>
+    <tr><td class="mono">{{ ev.observed_at }}</td><td>{{ ev.event_type }}</td><td>{{ ev.reason or '—' }}</td></tr>
     {% endfor %}
   </tbody>
 </table>

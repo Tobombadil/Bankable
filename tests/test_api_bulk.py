@@ -102,16 +102,22 @@ def test_bulk_pages_with_a_cursor_and_limit(client, db):
     assert client.get("/v1/bulk/proposals?cursor=@@", headers=headers).status_code == 400
 
 
-def test_bulk_limit_defaults_to_and_is_capped_at_one_thousand():
+def test_bulk_limit_defaults_to_one_thousand_and_refuses_more():
+    from services.api.errors import ProblemError
+
     def req(qs: str) -> Request:
         return Request(
             {"type": "http", "method": "GET", "path": "/", "query_string": qs.encode(), "headers": []}
         )
 
     assert bulk_limit(req("")) == BULK_MAX_LIMIT == 1000
-    assert bulk_limit(req("limit=5000")) == 1000
-    assert bulk_limit(req("limit=0")) == 1
     assert bulk_limit(req("limit=7")) == 7
+    assert bulk_limit(req("limit=1000")) == 1000
+    # Clamped silently until 2026-10-07 (backend audit API-5); the spec's `BulkLimit` is 1..1,000.
+    for bad in ("limit=5000", "limit=0"):
+        with pytest.raises(ProblemError) as raised:
+            bulk_limit(req(bad))
+        assert raised.value.code == "validation_error"
 
 
 def test_updated_since_is_the_incremental_sync_filter(client, db):
@@ -255,3 +261,38 @@ def test_bulk_events_are_ordered_by_seq_and_resume_from_since(client, db, spec):
     resumed = _lines(client.get(f"/v1/bulk/events?since={events[0].seq}", headers=headers))
     assert [r["seq"] for r in resumed[1:]] == sorted(e.seq for e in events[1:])
     assert client.get("/v1/bulk/events?since=not-a-time", headers=headers).status_code == 400
+
+
+def test_a_bulk_proposal_page_costs_a_fixed_number_of_queries(client, db, db_sessionmaker):
+    """Backend audit 2026-10-07 PERF-1: the `members[]` block read every link's deferred
+    `normalised` column, one lazy load per link (1,013 queries for a 1,000-row page on the audit
+    store). The page's query count must not grow with its size."""
+    from sqlalchemy import event as sa_event
+
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    for i in range(1, 3):
+        make_visible_proposal(db, src, public_id_suffix=str(i))
+    db.commit()
+    headers = _bulk_key(db)
+    statements: list[str] = []
+
+    def count(_conn: Any, _cursor: Any, statement: str, *_args: Any) -> None:
+        statements.append(statement)
+
+    engine = db_sessionmaker.kw["bind"]
+    sa_event.listen(engine, "before_cursor_execute", count)
+    try:
+        small = _lines(client.get("/v1/bulk/proposals", headers=headers))
+        few = len(statements)
+        for i in range(10, 30):
+            make_visible_proposal(db, src, public_id_suffix=str(i))
+        db.commit()
+        statements.clear()
+        large = _lines(client.get("/v1/bulk/proposals", headers=headers))
+        many = len(statements)
+    finally:
+        sa_event.remove(engine, "before_cursor_execute", count)
+    assert len(small) == 3 and len(large) == 23
+    assert all(line["members"] for line in large[1:])
+    assert many == few, (few, many)

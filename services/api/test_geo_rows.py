@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import Request
 
-from services.api import gc_tuning, geo, records
+from services.api import gc_tuning, geo, geo_cache, records
 from services.api.conftest import (
     make_attribution_licence,
     make_location,
@@ -259,6 +259,7 @@ def test_the_licence_summary_merges_its_chunks_exactly(
     db.commit()
     whole = client.get(f"/v1/proposals/geo?bbox={WORLD}&zoom=4").json()["licence_summary"]
     monkeypatch.setattr(records, "_AGGREGATE_ID_CHUNK", 2)
+    geo_cache.reset()  # nothing was written, so the map cache would otherwise answer from memory
     chunked = client.get(f"/v1/proposals/geo?bbox={WORLD}&zoom=4").json()["licence_summary"]
     assert chunked == whole
     assert [s["source_id"] for s in whole["sources"]] == ["us.test.src_a", "us.test.src_b", "us.test.src_c"]

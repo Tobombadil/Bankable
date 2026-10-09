@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+
+import pandas as pd
 import pytest
 
-from conftest import connector_for, snapshot
+from conftest import connector_for, fixture_path, snapshot
 from pipeline.connectors.us_iso_nyiso_gen_queue.connector import _identified
+from pipeline.vendor.gridstatus import queues
 
 SOURCE_ID = "us.iso.nyiso.gen_queue"
 URL = "https://www.nyiso.com/documents/20142/1407078/NYISO-Interconnection-Queue.xlsx"
@@ -51,3 +55,19 @@ def test_provenance(parsed):
     assert set(df["source_id"]) == {SOURCE_ID}
     assert set(df["source_url"]) == {URL}
     assert set(df["licence_id"]) == {c.source.licence_id}
+
+
+# The bare parser frame over the committed fixture, pinned to what gridstatus 0.36.0's
+# `get_interconnection_queue` returned for the same bytes before the library was dropped
+# (2026-10-07, pipeline/vendor/gridstatus/README.md): shape, column order, dtypes, every value.
+def _frame_digest(df: pd.DataFrame) -> str:
+    h = hashlib.sha256()
+    h.update(repr(list(df.columns)).encode())
+    h.update(repr([str(t) for t in df.dtypes]).encode())
+    h.update(pd.util.hash_pandas_object(df, index=True).values.tobytes())
+    return h.hexdigest()[:16]
+
+
+def test_vendored_parser_reproduces_the_gridstatus_0_36_frame():
+    df = queues.nyiso_queue(fixture_path("nyiso_interconnection_queue.xlsx").read_bytes())
+    assert (df.shape, _frame_digest(df)) == ((70, 24), "889099f324f5fef3")

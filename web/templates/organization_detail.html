@@ -9,7 +9,7 @@
     engines not to index it, and the sitemap leaves it out. -#}
 {% block robots %}{% if record.personal_data %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
 {% block extra_head %}
-{% if mini_map %}<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">{% endif %}
+{% if mini_map %}{{ m.cdn_style("maplibre_css") }}{% endif %}
 {% endblock %}
 {% block content %}
 {# Breadcrumbs walk the ownership chain, root first: Home / Companies / Tallgrass Energy /
@@ -26,6 +26,16 @@
 {# "Operates 3 gas pipelines · Owns 12 power plants": one clause per (role, type) group, from the
    API's `asset_counts` where it sends them, else counted over the rows on this page. #}
 {% if summary_parts %}<p class="org-summary" id="org-summary">{{ summary_parts | join(' · ') }}</p>{% endif %}
+{#- Follow (expert review 2026-10-07, large-load finding 7 and BD wish 5): an alert keyed on the
+    organisation's public id, which is what the alert engine matches (a slug matched nothing).
+    Not offered for a natural person named in a register (`personal_data`). -#}
+{% if not record.personal_data and record.public_id %}
+<p class="org-follow" id="org-follow">
+  <a class="button-secondary" href="/alerts/new?{{ {'entity': 'proposal', 'origin': 'company', 'sponsor_id': record.public_id, 'name': 'Proposals sponsored by ' ~ record.name} | urlencode }}">Follow this company&rsquo;s proposals</a>
+  {%- if opportunities %} <a class="button-secondary" href="/alerts/new?{{ {'entity': 'opportunity', 'origin': 'company', 'issuer_id': record.public_id, 'status': 'all', 'name': 'Opportunities issued by ' ~ record.name} | urlencode }}">Follow its opportunities</a>{% endif %}
+  <span class="field-hint">A free email alert when one changes or a new one appears.</span>
+</p>
+{% endif %}
 
 <dl class="field-grid">
   {% if record.type %}<div><dt>Type</dt><dd>{{ record.type | organization_type_label }}</dd></div>{% endif %}
@@ -36,7 +46,7 @@
      read from a file that states some other day, so the source and the date -- or the plain fact
      that the source published no date -- sit with the claim (owner brief, 2026-09-20). #}
   {% if parent_claim %}
-  <div><dt>Parent organisation</dt><dd>
+  <div><dt>Parent company</dt><dd>
     {% if parent_claim.href %}<a class="row-link" href="{{ parent_claim.href }}">{{ parent_claim.name }}</a>{% else %}{{ parent_claim.name }}{% endif %}
     <span class="ownership-claim{% if not parent_claim.dated %} ownership-claim--undated{% endif %}" id="parent-provenance">{{ parent_claim.note }}</span>
   </dd></div>
@@ -44,7 +54,7 @@
   {# An empty parent field reads as "independent". It almost never means that: ownership comes
      from GLEIF Level 2 plus a curated file, and most companies here are simply not in either.
      The number is measured, not written, so it cannot drift away from the data. #}
-  <div><dt>Parent organisation</dt><dd>
+  <div><dt>Parent company</dt><dd>
     <span class="ownership-claim ownership-claim--undated" id="parent-provenance">No parent recorded &mdash; which is the usual case, not a finding: {{ ownership_coverage.without_recorded_parent }} of {{ ownership_coverage.organizations }} companies here have none. <a href="/methodology#ownership">Why</a>.</span>
   </dd></div>
   {% endif %}
@@ -115,7 +125,7 @@
     <h3 id="assets-{{ g.role }}-{{ g.asset_type }}">{{ g.role_label }} {{ g.count }} {{ g.type_label if g.count != 1 else g.type_label_singular }}</h3>
     <div class="table-scroll">
     <table class="record-table">
-      <caption class="visually-hidden">Assets this organisation {{ g.role_label | lower }}: {{ g.type_label }}.</caption>
+      <caption class="visually-hidden">Assets this company {{ g.role_label | lower }}: {{ g.type_label }}.</caption>
       <thead>
         <tr><th scope="col">Asset</th>{% if g.show_capacity %}<th scope="col" class="num">Capacity (MW)</th>{% endif %}{% if g.show_length %}<th scope="col" class="num">Length (miles)</th>{% endif %}{% if g.show_states %}<th scope="col">States</th>{% endif %}{% if g.show_share and not record.personal_data %}<th scope="col" class="num">Share</th>{% endif %}{% if g.show_held_by %}<th scope="col">Held by</th>{% endif %}</tr>
       </thead>
@@ -123,7 +133,7 @@
         {% for a in g.rows %}
         <tr>
           <td data-label="Asset">{% if a.slug %}<a class="row-link" href="/assets/{{ a.slug }}">{{ a.name or a.slug }}</a>{% elif a.name %}{{ a.name }}{% endif %}</td>
-          {% if g.show_capacity %}<td data-label="Capacity (MW)" class="num tnum">{% if a.capacity_mw is not none %}{{ '%.1f'|format(a.capacity_mw) }}{% endif %}</td>{% endif %}
+          {% if g.show_capacity %}<td data-label="Capacity (MW)" class="num tnum">{% if a.capacity_mw is not none %}{{ a.capacity_mw | mw }}{% endif %}</td>{% endif %}
           {% if g.show_length %}<td data-label="Length (miles)" class="num tnum">{% if a.length_miles is not none %}{{ '{:,.0f}'.format(a.length_miles) }}{% endif %}</td>{% endif %}
           {% if g.show_states %}<td data-label="States">{% if a.states %}{{ a.states }}{% elif a.state %}{{ a.state }}{% endif %}</td>{% endif %}
           {% if g.show_share and not record.personal_data %}<td data-label="Share" class="num tnum">{% if a.share_pct is not none %}{{ '%.1f%%'|format(a.share_pct) }}{% endif %}</td>{% endif %}
@@ -136,13 +146,13 @@
   </div>
   {% endfor %}
   {% else %}
-  <p class="provenance-panel__empty">No assets recorded for this organisation.</p>
+  <p class="provenance-panel__empty">No assets recorded for this company.</p>
   {% endif %}
 </section>
 
 <section aria-label="Nearby proposals" id="nearby">
   {{ m.section_heading("2.", "Proposals near these assets") }}
-  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of any asset this organisation owns or operates, nearest first, each with the asset it is closest to. Only proposals with a site location are matched to assets; those placed only by county or state are not.</p>
+  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of any asset this company owns or operates, nearest first, each with the asset it is closest to. Only proposals with a site location are matched to assets; those placed only by county or state are not.</p>
   {# The narrowing is stated before the list, in body text, with both numbers and the reason, and
      undone by the link beside it. A shortened list with no explanation reads as thin coverage --
      the one outcome worse than no filter at all (owner brief, 2026-09-20). #}
@@ -189,7 +199,7 @@
         {%- set parts = [] -%}
         {%- if r.technology %}{% set _ = parts.append(r.technology | technology_label) %}{% endif -%}
         {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
-        {%- if r.capacity_mw %}{% set _ = parts.append('%.1f MW'|format(r.capacity_mw)) %}{% endif -%}
+        {%- if r.capacity_mw %}{% set _ = parts.append((r.capacity_mw | mw) ~ ' MW') %}{% endif -%}
         {%- if group_view and group_view.is_group and r.sponsor %}{% set _ = parts.append(r.sponsor) %}{% endif -%}
         {{ parts | join(' · ') }}
       </span>
@@ -197,7 +207,7 @@
     {% endfor %}
   </ul>
   {% else %}
-  <p>No proposals sponsored by this organisation.</p>
+  <p>No proposals sponsored by this company.</p>
   {% endif %}
 </section>
 
@@ -207,12 +217,12 @@
   <ul class="in-view-list">
     {% for r in opportunities %}
     <li>{{ m.status_chip(r.status, r.lifecycle_family) }} <a href="/opportunities/{{ r.slug }}">{{ r.title }}</a>
-      <span class="meta">{% if r.kind %}{{ r.kind }}{% endif %}{% if r.due_at %}{% if r.kind %} &middot; {% endif %}due {{ r.due_at[:10] }}{% endif %}</span>
+      <span class="meta">{% if r.kind %}{{ r.kind }}{% endif %}{% if r.due_at %}{% if r.kind %} &middot; {% endif %}due {{ r.due_at | display_date }}{% endif %}</span>
     </li>
     {% endfor %}
   </ul>
   {% else %}
-  <p>No opportunities issued by this organisation.</p>
+  <p>No opportunities issued by this company.</p>
   {% endif %}
 </section>
 
@@ -225,10 +235,10 @@
 {% endblock %}
 {% block extra_scripts %}
 {% if mini_map %}
-<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+{{ m.cdn_script("maplibre_js") }}
 {% if tile_mode == "pmtiles" %}
-<script src="https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/dist/pmtiles.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/dist/basemaps.js"></script>
+{{ m.cdn_script("pmtiles_js") }}
+{{ m.cdn_script("basemaps_js") }}
 {% endif %}
 <script src="/static/js/basemap.js?v={{ asset_version }}"></script>
 <script src="/static/js/asset_map.js?v={{ asset_version }}"></script>

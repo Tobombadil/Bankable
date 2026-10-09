@@ -31,10 +31,11 @@ from starlette.datastructures import QueryParams
 from services.posture import DEFAULT_POSTURE
 from web import labels
 from web.api_client import ApiClient, ApiError, build_client
-from web.assets import ASSET_VERSION
+from web.assets import ASSET_VERSION, CDN_ASSETS
 from web.head_requests import is_head_request
-from web.viewmodels import ALL_OPPORTUNITY_STATUSES
+from web.viewmodels import ALL_OPPORTUNITY_STATUSES, group_source_rows
 from web.viewmodels import footer_build as vm_footer_build
+from web.viewmodels import source_freshness as vm_source_freshness
 
 ALL_OPPORTUNITY_STATUSES_CSV = ",".join(ALL_OPPORTUNITY_STATUSES)
 
@@ -267,9 +268,13 @@ def is_htmx(request: Request) -> bool:
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
 templates.env.globals["asset_version"] = ASSET_VERSION
+templates.env.globals["cdn"] = CDN_ASSETS  # UX-19: `_macros.html` cdn_script / cdn_style
+templates.env.filters["group_source_rows"] = group_source_rows  # UX-11: one Sources row per register
 labels.install(templates.env)
 
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
+# The header, tier notice and footer state how current the sources are (web/viewmodels.py).
+templates.env.globals["source_freshness"] = lambda request: vm_source_freshness(request, get_api(request))
 
 
 # ---- SEO surface: canonical URLs, Open Graph / Twitter cards, JSON-LD ---------------------------

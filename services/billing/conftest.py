@@ -29,8 +29,9 @@ from services.api.ratelimit import default_limiter
 from services.billing.fake import InMemoryBilling
 from services.billing.router import router as billing_router
 from services.crm.fake import InMemoryCrm
-from services.db.session import get_engine, get_sessionmaker, init_db
+from services.db.session import get_sessionmaker
 from services.sor.wiring import get_billing_port, get_crm_port
+from tests.db_template import disposing, fresh_engine
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 OPENAPI_PATH = REPO_ROOT / "api" / "openapi.yaml"
@@ -54,10 +55,11 @@ def _reset_rate_limiter() -> None:
 
 
 @pytest.fixture()
-def db_sessionmaker() -> sessionmaker[Session]:
-    engine = get_engine("sqlite+pysqlite:///:memory:")
-    init_db(engine)
-    return get_sessionmaker(engine)
+def db_sessionmaker() -> Iterator[sessionmaker[Session]]:
+    """A fresh schema copied from a per-process template, disposed of at teardown
+    (`tests/db_template.py`; audit QA-2, QA-3)."""
+    with disposing(fresh_engine()) as engine:
+        yield get_sessionmaker(engine)
 
 
 @pytest.fixture()
@@ -85,8 +87,14 @@ def client(
     app.include_router(billing_router)
     app.include_router(pro_router)
 
+    # FastAPI keeps every dependency callable it has classified in a process-wide
+    # `lru_cache(maxsize=4096)` (fastapi/dependencies/models.py), so this closure outlives the test;
+    # it reaches the sessionmaker through `factory`, which teardown empties, so the engine does not
+    # (audit 2026-10-07 QA-3).
+    factory = [db_sessionmaker]
+
     def _override_db() -> Iterator[Session]:
-        s = db_sessionmaker()
+        s = factory[0]()
         try:
             yield s
             s.commit()
@@ -101,3 +109,4 @@ def client(
     app.dependency_overrides[get_crm_port] = lambda: crm_port
     with TestClient(app) as c:
         yield c
+    factory.clear()

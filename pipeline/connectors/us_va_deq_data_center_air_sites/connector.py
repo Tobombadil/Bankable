@@ -36,7 +36,9 @@ Fields:
   `Latitude`/`Longitude`, which `services/ingest/loader.py` promotes to an `exact` location for a
   `raw_ok` source. `county` is derived from that point by point-in-polygon against the vendored Census
   county boundaries (`data/vendored/regions/us_counties.geojson`), since the layer has city and ZIP but
-  no county; Virginia's independent cities come out as "<Name> city", counties as "<Name> County".
+  no county; counties come out as the bare Census name ("Loudoun") and Virginia's independent cities
+  as "<Name> city" (`pipeline/context/geo.py::county_label`, the spelling ICIS-Air and EIA-860M
+  share; until 2026-10-07 this connector wrote "Loudoun County", which split each county in two).
 - cross_refs: `PLA_ICIS_ID`, DEQ's federal ICIS-Air id (the join key to EPA ECHO), as `icis_air:<id>`.
 
 Personal data (docs/13 §5.4): layer 294 carries no person fields. Its sibling "Planned Air Sites" layer
@@ -68,7 +70,7 @@ import pandas as pd
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot
 from pipeline.connectors.canonical import harmonise_status, norm_county, norm_name
-from pipeline.context.geo import StateIndex
+from pipeline.context.geo import StateIndex, county_label
 
 LAYER_URL = "https://gisdata.deq.virginia.gov/arcgis/rest/services/public/EDMA/MapServer/294"
 QUERY_URL = f"{LAYER_URL}/query"
@@ -145,9 +147,9 @@ def _va_counties() -> tuple[_PreciseIndex, dict[str, str]]:
     for f in feats:
         p = f["properties"]
         geoid = str(p["region_id"])
-        # Census county FIPS 510+ in Virginia are the independent cities (county equivalents).
-        suffix = "city" if int(geoid[-3:]) >= 510 else "County"
-        names[geoid] = f"{p['name']} {suffix}"
+        # The shared spelling (`county_label`): "Loudoun", "Manassas city". Until 2026-10-07 this
+        # connector wrote "Loudoun County", which ICIS-Air and EIA-860M spell "Loudoun".
+        names[geoid] = county_label(geoid, str(p["name"])) or str(p["name"])
     return _PreciseIndex(feats), names
 
 

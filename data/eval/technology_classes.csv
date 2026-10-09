@@ -8,9 +8,9 @@ Biomass;Demand,biomass,generation,gb.neso.tec_register
 Carbon Capture and Sequestration,other,other,us.permits_dashboard
 CCGT (Combined Cycle Gas Turbine),gas_cc,generation,gb.neso.tec_register
 CCGT (Combined Cycle Gas Turbine);Demand,gas_cc,generation,gb.neso.tec_register
-CCGT (Combined Cycle Gas Turbine);Demand;Energy Storage System;Hydrogen;OCGT (Open Cycle Gas Turbine),storage,storage,gb.neso.tec_register
-CCGT (Combined Cycle Gas Turbine);Energy Storage System,storage,storage,gb.neso.tec_register
-CCGT (Combined Cycle Gas Turbine);Energy Storage System;OCGT (Open Cycle Gas Turbine),storage,storage,gb.neso.tec_register
+CCGT (Combined Cycle Gas Turbine);Demand;Energy Storage System;Hydrogen;OCGT (Open Cycle Gas Turbine),gas_cc,generation,gb.neso.tec_register
+CCGT (Combined Cycle Gas Turbine);Energy Storage System,gas_cc,generation,gb.neso.tec_register
+CCGT (Combined Cycle Gas Turbine);Energy Storage System;OCGT (Open Cycle Gas Turbine),gas_cc,generation,gb.neso.tec_register
 CCGT (Combined Cycle Gas Turbine);Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
 CCGT (Combined Cycle Gas Turbine);Reactive Compensation,gas_cc,generation,gb.neso.tec_register
 CHP (Combined Heat and Power),other,other,gb.neso.tec_register
@@ -19,11 +19,11 @@ Coal,coal,generation,gb.neso.tec_register
 Cogeneration,other,other,us.iso.caiso.gen_queue
 Combined Cycle,gas_cc,generation,us.iso.caiso.gen_queue;us.iso.nyiso.gen_queue
 Combined Cycle + Combined Cycle,gas_cc,generation,us.iso.caiso.gen_queue
-Combined Cycle + Storage,storage,storage,us.iso.caiso.gen_queue
+Combined Cycle + Storage,gas_cc,generation,us.iso.caiso.gen_queue
 Combustion Turbine,gas_ct,generation,us.iso.caiso.gen_queue;us.iso.nyiso.gen_queue
 Combustion Turbine + Photovoltaic,solar,generation,us.iso.caiso.gen_queue
-Combustion Turbine + Storage,storage,storage,us.iso.caiso.gen_queue
-Combustion Turbine + Storage + Steam Turbine,storage,storage,us.iso.caiso.gen_queue
+Combustion Turbine + Storage,gas_ct,generation,us.iso.caiso.gen_queue
+Combustion Turbine + Storage + Steam Turbine,gas_ct,generation,us.iso.caiso.gen_queue
 Conventional Energy Production,other,other,us.permits_dashboard
 Conventional Hydroelectric,hydro,generation,us.eia.860m;us.eia.860m.plants
 Conventional Steam Coal,coal,generation,us.eia.860m.plants
@@ -46,12 +46,12 @@ Electricity Transmission,transmission,transmission,us.permits_dashboard
 Electricity Transmission (all),transmission,transmission,us.permits_dashboard
 Energy Storage,storage,storage,us.iso.nyiso.gen_queue;us.permits_dashboard
 Energy Storage System,storage,storage,gb.neso.tec_register
-Energy Storage System;Gas Reciprocating,storage,storage,gb.neso.tec_register
+Energy Storage System;Gas Reciprocating,gas_ice,generation,gb.neso.tec_register
 Energy Storage System;Hydro;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
 Energy Storage System;Hydrogen;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
 Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Reactive Compensation;Wind Onshore,solar_storage,generation,gb.neso.tec_register
 Energy Storage System;Nuclear;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
-Energy Storage System;OCGT (Open Cycle Gas Turbine),storage,storage,gb.neso.tec_register
+Energy Storage System;OCGT (Open Cycle Gas Turbine),gas_ct,generation,gb.neso.tec_register
 Energy Storage System;Pump Storage;Thermal,pumped_storage,storage,gb.neso.tec_register
 Energy Storage System;PV Array (Photo Voltaic/solar),solar_storage,generation,gb.neso.tec_register
 Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation,solar_storage,generation,gb.neso.tec_register
@@ -59,7 +59,7 @@ Energy Storage System;PV Array (Photo Voltaic/solar);Reactive Compensation;Wind 
 Energy Storage System;PV Array (Photo Voltaic/solar);Wind Offshore,solar_storage,generation,gb.neso.tec_register
 Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore,solar_storage,generation,gb.neso.tec_register
 Energy Storage System;Reactive Compensation,storage,storage,gb.neso.tec_register
-Energy Storage System;Tidal,storage,storage,gb.neso.tec_register
+Energy Storage System;Tidal,marine,generation,gb.neso.tec_register
 Energy Storage System;Wind Offshore,wind_storage,generation,gb.neso.tec_register
 Energy Storage System;Wind Onshore,wind_storage,generation,gb.neso.tec_register
 Flywheel,other,other,us.iso.nyiso.gen_queue
@@ -72,7 +72,7 @@ Gas - Combined-Cycle,gas_cc,generation,us.iso.ercot.gen_queue
 Gas - Steam Turbine other than Combined-Cycle,gas_steam,generation,us.iso.ercot.gen_queue
 Gas Reciprocating,gas_ice,generation,gb.neso.tec_register
 Gas Turbine,gas_ct,generation,us.iso.caiso.gen_queue
-Gas Turbine + Storage,storage,storage,us.iso.caiso.gen_queue
+Gas Turbine + Storage,gas_ct,generation,us.iso.caiso.gen_queue
 Geothermal,geothermal,generation,us.eia.860m;us.eia.860m.plants
 Hydro,hydro,generation,gb.neso.tec_register;us.iso.caiso.gen_queue;us.iso.nyiso.gen_queue
 Hydroelectric Pumped Storage,pumped_storage,storage,us.eia.860m;us.eia.860m.plants
@@ -131,15 +131,15 @@ Solar Thermal with Energy Storage,solar_storage,generation,us.eia.860m.plants
 Solar Thermal without Energy Storage,solar_storage,generation,us.eia.860m;us.eia.860m.plants
 Steam Turbine,gas_steam,generation,us.iso.caiso.gen_queue;us.iso.nyiso.gen_queue
 Steam Turbine + Steam Turbine,gas_steam,generation,us.iso.caiso.gen_queue
-Steam Turbine + Storage,storage,storage,us.iso.caiso.gen_queue
+Steam Turbine + Storage,gas_steam,generation,us.iso.caiso.gen_queue
 Storage,storage,storage,us.iso.caiso.gen_queue
-Storage + Combustion Turbine,storage,storage,us.iso.caiso.gen_queue
-Storage + Gas Turbine,storage,storage,us.iso.caiso.gen_queue
+Storage + Combustion Turbine,gas_ct,generation,us.iso.caiso.gen_queue
+Storage + Gas Turbine,gas_ct,generation,us.iso.caiso.gen_queue
 Storage + Other,storage,storage,us.iso.caiso.gen_queue
 Storage + Photovoltaic,solar_storage,generation,us.iso.caiso.gen_queue
 Storage + Photovoltaic + Wind Turbine,solar_storage,generation,us.iso.caiso.gen_queue
 Storage + Solar Thermal,solar_storage,generation,us.iso.caiso.gen_queue
-Storage + Steam Turbine + Combustion Turbine,storage,storage,us.iso.caiso.gen_queue
+Storage + Steam Turbine + Combustion Turbine,gas_ct,generation,us.iso.caiso.gen_queue
 Storage + Storage,storage,storage,us.iso.caiso.gen_queue
 Storage + Wind Turbine,wind_storage,generation,us.iso.caiso.gen_queue
 Storage + Wind Turbine + Photovoltaic,solar_storage,generation,us.iso.caiso.gen_queue

@@ -379,6 +379,17 @@ def test_footer_links_to_attribution(web_client: TestClient) -> None:
     assert 'href="/attribution"' in resp.text
 
 
+def test_about_prints_reuse_classes_in_words_and_no_codename_line(web_client: TestClient) -> None:
+    """Audit 2026-10-07 UX-9: `/about` printed the raw reuse token and called the adopted name
+    (docs/00-PLAN.md 2026-09-15) a placeholder codename."""
+    _install(_default_transport())
+    body = web_client.get("/about").text
+    assert "placeholder codename" not in body
+    assert '<span class="reuse-badge">open</span>' not in body
+    assert "Reuse class: open." not in body
+    assert "No -- derived only" not in body
+
+
 # ============================================================ plant type filter (2026-09-15)
 def test_plant_family_classes_are_all_in_the_api_vocabulary() -> None:
     """`map.js` sends a family's classify_tech classes as the plants `technology` filter; a class

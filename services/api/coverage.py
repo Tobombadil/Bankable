@@ -51,7 +51,9 @@ from sqlalchemy.orm import Session
 
 from pipeline.connectors.registry import Registry
 from pipeline.normalize import TECH_RULES
+from services.api.common import iso
 from services.api.lifecycle import PRE_CONSTRUCTION
+from services.api.source_freshness import source_run_facts
 from services.db.models import (
     LIFECYCLE_STATES,
     OPPORTUNITY_STATUSES,
@@ -76,6 +78,42 @@ NOTES_PATH = _ROOT / "data" / "vocabulary" / "coverage_notes.yaml"
 #: gate itself is posture-dependent and a coverage statement that listed `restricted`/`unknown`
 #: only would omit every `noncommercial` source the `commercial` posture withholds.
 WITHHELD_REUSE = gated_reuse_classes(platform_posture())
+
+
+_REGISTRY_CACHE: dict[str, Any] = {}
+
+
+def cached_registry() -> Registry:
+    """`data/sources.yaml` parsed once per file version (path, mtime, size): parsing it was about
+    0.3 s of every coverage call (backend audit 2026-10-07, PERF-9)."""
+    from pipeline.connectors.registry import SOURCES_YAML
+
+    stat = SOURCES_YAML.stat()
+    key = (str(SOURCES_YAML), stat.st_mtime_ns, stat.st_size)
+    if _REGISTRY_CACHE.get("key") != key:
+        _REGISTRY_CACHE.update(key=key, registry=Registry())
+    registry: Registry = _REGISTRY_CACHE["registry"]
+    return registry
+
+
+def coverage_version(db: Session) -> tuple[Any, ...]:
+    """What the coverage statement is computed from, as one cheap statement: row counts per table
+    (index scans), the proposal map's data version (`geo_cache.data_version`, which includes the
+    sources' `updated_at` and `last_loaded_ts`), and the registry and notes files' versions."""
+    from services.api import geo_cache
+
+    counts = [
+        select(func.count()).select_from(model).scalar_subquery()
+        for model in (Opportunity, OpportunitySource, Asset, Organization)
+    ]
+    files = tuple((p.stat().st_mtime_ns, p.stat().st_size) for p in (_sources_yaml_path(), NOTES_PATH))
+    return (*geo_cache.run_version(db, [*geo_cache.version_terms(), *counts]), files)
+
+
+def _sources_yaml_path() -> pathlib.Path:
+    from pipeline.connectors.registry import SOURCES_YAML
+
+    return pathlib.Path(SOURCES_YAML)
 
 
 @functools.lru_cache(maxsize=1)
@@ -144,8 +182,15 @@ def source_vintages(db: Session, *, with_fetched: bool = False) -> dict[str, Any
     # the right population for this statement and one indexed table read -- `/v1/health` calls
     # this on every probe and must not scan the link tables to do it.
     now = dt.datetime.now(dt.UTC)
-    for source in db.scalars(select(Source).where(Source.vintage_basis.is_not(None)).order_by(Source.id)):
-        fetched_at = source.last_success_at.isoformat() if source.last_success_at else fetched.get(source.id)
+    examined = list(db.scalars(select(Source).where(Source.vintage_basis.is_not(None)).order_by(Source.id)))
+    # The last successful fetch from the recorded runs as well as the runner's column, and the last
+    # promoted (loaded) run (`services/api/source_freshness.py`; expert review 2026-10-07: the
+    # column alone was null for every source fetched outside the scheduler).
+    runs = source_run_facts(db, examined, now)
+    for source in examined:
+        facts = runs[source.id]
+        last_success = facts.last_success_at.isoformat() if facts.last_success_at else None
+        fetched_at = last_success or fetched.get(source.id)
         rows.append(
             {
                 "source_id": source.id,
@@ -157,6 +202,8 @@ def source_vintages(db: Session, *, with_fetched: bool = False) -> dict[str, Any
                 "vintage_basis": source.vintage_basis or UNDETERMINED,
                 # Ours, and labelled as ours wherever it renders.
                 "fetched_at": fetched_at,
+                "last_success_at": iso(facts.last_success_at),
+                "last_loaded_at": iso(facts.last_loaded_at),
                 # How old that fetch is against how often we poll the source (audit 2026-09-30 F2,
                 # `infra/scheduler/freshness.py`): `stale` past twice the allowance, `never` for a
                 # scheduled source with no fetch, `unscheduled` when no connector runs it.
@@ -199,8 +246,33 @@ def _freshness(source: Source, fetched_at: str | None, now: dt.datetime) -> dict
         scheduled=bool(source.implemented),
         paused=bool(source.paused),
     )
-    keep = ("status", "bucket", "age_hours", "allowance_hours")
+    keep = ("status", "bucket", "age_hours", "allowance_hours", "stale_after_hours")
     return {k: v for k, v in fr.to_dict().items() if k in keep}
+
+
+def _published_source_ids(db: Session, loaded: set[str]) -> set[str]:
+    """Source ids that supply at least one row a public reader can be served: an active link on a
+    public proposal or opportunity, or an asset row, from a source on the public surface. Drives
+    the notes' `source_without_published_rows` condition (a note about a source's absence retires
+    the day its rows publish)."""
+    public_sources = set(db.scalars(select(Source.id).where(Source.publish_state == "public")))
+    out: set[str] = set()
+    for stmt in (
+        select(ProposalSource.source_id)
+        .join(Proposal, Proposal.id == ProposalSource.proposal_id)
+        .where(ProposalSource.active.is_(True), Proposal.publish_state == "public")
+        .distinct(),
+        select(OpportunitySource.source_id)
+        .join(Opportunity, Opportunity.id == OpportunitySource.opportunity_id)
+        .where(OpportunitySource.active.is_(True), Opportunity.publish_state == "public")
+        .distinct(),
+    ):
+        out.update(str(v) for v in db.scalars(stmt) if v)
+    asset_sources_loaded = {sid for sid in loaded if sid not in out}
+    if asset_sources_loaded:
+        stmt = select(Asset.source_id).where(Asset.source_id.in_(sorted(asset_sources_loaded))).distinct()
+        out.update(str(v) for v in db.scalars(stmt) if v)
+    return out & public_sources
 
 
 def _loaded_source_ids(db: Session) -> set[str]:
@@ -355,7 +427,7 @@ def asset_sources(db: Session) -> dict[str, Any]:
 def coverage(db: Session, registry: Registry | None = None) -> dict[str, Any]:
     """The whole statement. One call, because every surface that renders part of it should be
     rendering the same numbers."""
-    registry = registry or Registry()
+    registry = registry or cached_registry()
     registered_ids = registry.ids()
     loaded = _loaded_source_ids(db)
 
@@ -382,6 +454,7 @@ def coverage(db: Session, registry: Registry | None = None) -> dict[str, Any]:
             "registered": len(registered_ids),
             "with_rows": len(loaded),
             "loaded_source_ids": sorted(loaded),
+            "published_source_ids": sorted(_published_source_ids(db, loaded)),
             "withheld": withheld,
         },
         "vintage": source_vintages(db, with_fetched=True),
@@ -432,6 +505,11 @@ def _applicable_notes(facts: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
         if applies.get("withheld_sources") and not facts["sources"]["withheld"]:
             continue
+        if "source_without_published_rows" in applies:
+            # Holds while the named source supplies no row a public reader is served
+            # (`_published_source_ids`); the note retires the day the source's rows publish.
+            if applies["source_without_published_rows"] in facts["sources"]["published_source_ids"]:
+                continue
         if applies.get("ownership") and facts["ownership"]["without_recorded_parent"] == 0:
             continue
         if "unresolved_asset_type" in applies:

@@ -52,8 +52,8 @@ import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pipeline.normalize import org_key
-from pipeline.resolve import tech_families
+from pipeline.normalize import norm_name, org_key
+from pipeline.resolve import _ratio, phase_key, tech_families
 from services.db.models import (
     AssetOwner,
     Event,
@@ -159,6 +159,12 @@ class ClusterMember:
     capacity_mw: float | None = None
     technology: str | None = None
     eia_plant_id: str | None = None
+    # Read by the multi-plant and completed-against-planned checks (docs/22 §22.13).
+    name: str | None = None
+    lifecycle_state: str | None = None
+    status_rule: str | None = None
+    #: The proposed date, or for a request completed at its register its completion date.
+    proposed_cod: str | None = None
 
 
 @dataclass(frozen=True)
@@ -279,6 +285,96 @@ def coherence_conflict(
     return False, None
 
 
+#: docs/22 §22.13 (audit 2026-10-07 RES-3). A request is a plant's own partner at this name score
+#: (the resolver's `mean` scorer over `norm_name`) with equal phase numbers.
+EXCLUSIVE_PARTNER_NAME = 95.0
+
+
+def _partners(requests: Sequence[ClusterMember], plant_names: set[str]) -> set[_uuid.UUID]:
+    out: set[_uuid.UUID] = set()
+    for r in requests:
+        for plant_name in plant_names:
+            score = _ratio(norm_name(r.name), norm_name(plant_name), "mean")
+            if (
+                score is not None
+                and score >= EXCLUSIVE_PARTNER_NAME
+                and phase_key(r.name) == phase_key(plant_name)
+            ):
+                out.add(r.proposal_id)
+    return out
+
+
+def multi_plant_conflict(members: Sequence[ClusterMember]) -> tuple[bool, str | None]:
+    """Two EIA plants of one technology family, each with a request of its own name that the
+    other plant lacks, are two projects bridged by weaker cross edges (RES-3: "Barton Branch IA"
+    and "Bee Branch IA", each an exact pair at 97.8 and 93.2, joined by cross edges at 81.1 and
+    77.9). Different-technology plants behind one request (a hybrid filed as two EIA plants) and
+    one request over several plants (Darden) do not fire. The cluster goes to review."""
+    plants: dict[str, tuple[set[str], set[str]]] = {}
+    for m in members:
+        if m.eia_plant_id and m.name:
+            names, fams = plants.setdefault(m.eia_plant_id, (set(), set()))
+            names.add(m.name)
+            fams.update(tech_families(m.technology) or ())
+    if len(plants) < 2:
+        return False, None
+    requests = [m for m in members if not m.eia_plant_id and m.name]
+    ids = sorted(plants)
+    for i, first in enumerate(ids):
+        for second in ids[i + 1 :]:
+            (names_a, fams_a), (names_b, fams_b) = plants[first], plants[second]
+            if not fams_a & fams_b:
+                continue
+            own_a, own_b = _partners(requests, names_a), _partners(requests, names_b)
+            if own_a - own_b and own_b - own_a:
+                return True, (
+                    f"EIA plants {first} and {second} ({'/'.join(sorted(fams_a & fams_b))}) each have "
+                    "a request of their own name"
+                )
+    return False, None
+
+
+#: docs/22 §22.13 (audit 2026-10-07 RES-4). A request completed at its register and an EIA-860M
+#: unit (Planned sheet: not yet operating) are one project only when their dates agree this closely.
+COMPLETED_PLANNED_DAYS = 365
+
+
+def _days_apart(a: str | None, b: str | None) -> int | None:
+    if not a or not b:
+        return None
+    try:
+        return abs((dt.date.fromisoformat(a[:10]) - dt.date.fromisoformat(b[:10])).days)
+    except ValueError:
+        return None
+
+
+def completed_planned_conflict(members: Sequence[ClusterMember]) -> tuple[bool, str | None]:
+    """A request its own register reports completed beside an EIA-860M Planned unit is an expansion
+    or a different project unless the dates are within `COMPLETED_PLANNED_DAYS` (RES-4: CAISO 1211
+    "ROSAMOND SOUTH EAST", COMPLETED, against the planned "Rosamond South II"; CAISO 1529
+    "CENTENNIAL FLATS", COMPLETED, against planned generators CFPV3/CFB3; with its completion date
+    of 2026-07-20 stated, Centennial is within the window and merges). ERCOT's `built` is its
+    synchronisation milestone (docs/22 §3.1), which precedes EIA's commercial operation, so it is
+    not judged here. A date missing on either side does not clear the pair."""
+    planned = [m for m in members if m.eia_plant_id and m.lifecycle_state not in (None, "built")]
+    if not planned:
+        return False, None
+    for m in members:
+        if m.eia_plant_id or m.lifecycle_state != "built":
+            continue
+        if (m.status_rule or "").startswith("ercot.") or "ercot" in m.source_id:
+            continue
+        for unit in planned:
+            gap = _days_apart(m.proposed_cod, unit.proposed_cod)
+            if gap is None or gap > COMPLETED_PLANNED_DAYS:
+                return True, (
+                    f"{m.source_id} request {m.queue_id or m.name!r} is completed at its register, "
+                    f"EIA-860M plant {unit.eia_plant_id} is {unit.lifecycle_state} "
+                    f"(dates {m.proposed_cod or '-'} vs {unit.proposed_cod or '-'})"
+                )
+    return False, None
+
+
 def gate_cluster(
     members: Sequence[ClusterMember], min_score: float, *, threshold: float = MERGE_SCORE_THRESHOLD
 ) -> tuple[bool, str]:
@@ -293,6 +389,12 @@ def gate_cluster(
     incoherent, detail = coherence_conflict(members)
     if incoherent:
         return False, f"coherence check: {detail}"
+    two_plants, detail = multi_plant_conflict(members)
+    if two_plants:
+        return False, f"multi-plant check: {detail}"
+    completed, detail = completed_planned_conflict(members)
+    if completed:
+        return False, f"completed-against-planned check: {detail}"
     return True, "min pairwise score >= threshold, no id-reuse conflict, coherent capacity"
 
 

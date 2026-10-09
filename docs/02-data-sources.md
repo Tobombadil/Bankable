@@ -1,7 +1,7 @@
 # Data sources: catalogue, coverage, legal register and ingestion order
 
 **Status:** Phase 0 deliverable · 2026-09-12 · machine-readable twin: `data/sources.yaml` (64 entries) ·
-live-check evidence: `data/probes/2026-09-12.json` · re-run: `scripts/probe_sources.py --gridstatus`
+live-check evidence: `data/probes/2026-09-12.json` · re-run: `scripts/probe_sources.py` (the `--gridstatus` row counts need `pip install gridstatus` in a scratch venv; it is no longer a project dependency, 2026-10-07)
 
 ## 1. What "a proposal" is, operationally
 
@@ -23,7 +23,7 @@ the *change* events. The sources below are grouped by which of those they feed.
 |---|---|---|---|---|---|
 | CAISO Public Queue Report | supply | xlsx | weekly | attribution | ok, 2,278 rows |
 | ERCOT GIS Report | supply | xlsx via MIS JSON | monthly | **open** | ok, 1,778 rows |
-| ERCOT Large Load report | supply (load) | xlsx | monthly | open | page ok, product id to confirm |
+| ERCOT Large Load report | supply (load) | xlsx | monthly | open | page ok, product id to confirm (2026-10-07: still no data product, only PDF chart decks; catalogue API 403 from this environment; docs/25 §3.10.1) |
 | SPP GI summary CSV | supply | csv | daily | unknown | ok, 3,074 rows |
 | NYISO Interconnection Queue | supply | xlsx | weekly | unknown | ok, 3,164 rows |
 | ISO-NE IRTT | supply | xlsx | daily | unknown | ok, 1,751 rows |
@@ -771,12 +771,12 @@ reusable public trace of one; utility large-load disclosures are still PDFs or T
 | Source id | Feeds | Access | Cadence | Reuse | Verified 2026-09-28 |
 |---|---|---|---|---|---|
 | `us.va.deq.data_center_air_sites` | supply (`kind = load`) | ArcGIS REST JSON | daily | **open** (DEQ: "GIS information is in the public domain") | ok, 205 rows (45 filed, 1 under construction, 159 built), exact points; **connector built** |
-| `us.epa.echo.icis_air` | supply (`load`), national | zip of CSV | weekly | public domain | ok, 537 data-centre facilities in 43 states (21 planned, 3 under construction); **connector built** 2026-09-29: 514 rows in 42 states after the selection rule (docs/25 §3.7) |
+| `us.epa.echo.icis_air` | supply (`load`), national | zip of CSV | weekly | public domain | ok, 537 data-centre facilities in 43 states (21 planned, 3 under construction); **connector built** 2026-09-29: 514 rows in 42 states after the selection rule (docs/25 §3.7); 2026-10-07: 521, 517 after folding re-registered programme ids (docs/25 §3.10.4) |
 | `us.ga.epd.air_permit_advisories` | supply (`load`), pre-construction | biweekly text PDF | biweekly | **unknown** — gated | PDF 200, text layer; no reuse clause found |
 | `us.tx.tceq.air_permits` | — | HTML | daily | **unknown** | robots `Disallow: /`; not fetched |
 
 Not catalogued because nothing reusable was reached: the Virginia DEQ "Issued Air Permits for Data Centers" page
 (Akamai 403 to this environment), ERCOT's large-load reporting (monthly PDF deck only; `us.iso.ercot.large_load_queue`
-watches for a data product), the Federal Permitting Dashboard's two data-centre projects (already inside
+watches for a data product, and its catalogue rows are never loaded as projects), the Federal Permitting Dashboard's two data-centre projects (already inside
 `us.permits_dashboard`'s dataset, excluded from its sector filter), Ohio EPA eDocument (PDF search UI), and county
 zoning portals (one per county; Loudoun's hub answered 502).

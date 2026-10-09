@@ -46,6 +46,7 @@ from services.api.records import (
     SYNC_FILTERS,
     _opportunity_query_with_filters,
     _proposal_query_with_filters,
+    resolve_organization_refs,
 )
 from services.api.serialize import (
     build_envelope,
@@ -433,6 +434,7 @@ def create_saved_search(
     validate_saved_search_body(plan, body, creating=True, instance=instance)
     name, entity, query = str(body["name"]).strip(), str(body["entity"]), dict(body["query"])
     channels, delivery_mode = list(body["channels"]), str(body["delivery_mode"])
+    resolve_organization_refs(db, query, instance)  # stored as the ids the matcher compares
     validate_saved_search_query(db, entity, query, instance)
     if plan.requires_verified_email and ctx.user.email_verified_at is None:
         raise ProblemError(
@@ -535,6 +537,7 @@ def update_saved_search(
     if "query" in body:
         if not isinstance(body["query"], dict):
             raise validation_error("query", "query must be an object", request.url.path)
+        resolve_organization_refs(db, body["query"], request.url.path)
         validate_saved_search_query(db, search.entity, body["query"], request.url.path)
         search.query = body["query"]
         search.query_hash = _query_hash(body["query"])
@@ -829,6 +832,7 @@ def create_webhook(
     query = body.get("query") or {}
     if not isinstance(query, dict):
         raise validation_error("query", "query must be an object", request.url.path)
+    resolve_organization_refs(db, query, request.url.path)
     validate_saved_search_query(db, entity, query, request.url.path)
     existing = db.scalar(
         select(func.count()).select_from(WebhookEndpoint).where(WebhookEndpoint.account_id == account.id)

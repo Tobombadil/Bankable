@@ -86,8 +86,11 @@ from services.api.common import DOMAIN
 from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
+from web.coverage_statement import coverage_line
 from web.page import get_free_alerts, get_platform_posture
+from web.viewmodels import coverage_data
 from web.viewmodels import footer_build as vm_footer_build
+from web.viewmodels import source_freshness as vm_source_freshness
 
 router = APIRouter()
 
@@ -197,13 +200,10 @@ TIERS: tuple[Tier, ...] = (
 #: prices it as a negotiated standalone tier, so it is not a button.
 PURCHASABLE = {tier.id: tier for tier in TIERS if tier.plan is not None}
 
-#: `docs/41` "Coverage line (shared, above the pricing table)", verbatim but for the doc-internal
-#: citations, which are links on this page instead.
-COVERAGE_LINE = (
-    "Infraque tracks every major US interconnection queue and the open international tender "
-    "registers. ERCOT, CAISO and NYISO are published today; PJM, MISO, SPP and ISO-NE are linked "
-    "out pending licence clearance."
-)
+#: `docs/41` "Coverage line (shared, above the pricing table)". The docs/41 sentence claimed "every
+#: major US interconnection queue" while PJM, MISO, SPP and ISO-NE have no rows here (expert review
+#: 2026-10-07), so the line is now derived from `/v1/coverage` and the manifest
+#: (`web/coverage_statement.py::coverage_line`) and cannot claim a queue the store does not hold.
 
 #: Shown when `POST /v1/billing/checkout` refuses for want of an email, and *before* that — on the
 #: tier buttons themselves — when `GET /v1/me` already shows no email on file. There is no route
@@ -247,6 +247,8 @@ def get_lag_days(request: Request) -> dict[str, int]:
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
+# The header, tier notice and footer state how current the sources are (web/viewmodels.py).
+templates.env.globals["source_freshness"] = lambda request: vm_source_freshness(request, get_api(request))
 templates.env.globals["asset_version"] = ASSET_VERSION
 
 
@@ -353,7 +355,7 @@ def _context(
     posture = get_platform_posture(request)
     return {
         "tiers": TIERS,
-        "coverage_line": COVERAGE_LINE,
+        "coverage_line": coverage_line(coverage_data(request, get_api(request))),
         # Say payments are off before the button rather than after it (`_billing_configured`).
         "billing_configured": _billing_configured(request),
         # docs/26 §3 precondition (i): the paid tiers stay visible but inactive, and no checkout

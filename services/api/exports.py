@@ -70,8 +70,8 @@ from services.api.common import API_HOST, TERMS_URL, WEB_HOST, iso, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.geo import effective_placement
-from services.api.pagination import clamp_limit, paginate
-from services.api.params import check_allowed, int_param, sort_spec
+from services.api.pagination import paginate
+from services.api.params import check_allowed, page_limit, sort_spec
 from services.api.pro import _rate_limit_headers
 from services.api.ratelimit import PlanQuota, plan_quota
 from services.api.records import check_budget_sort
@@ -579,9 +579,11 @@ def start_export(
     query: dict[str, Any],
     instance: str,
     columns: list[str] | None = None,
+    row_cap: int | None = None,
 ) -> Export:
     """Quota, cap, row, generation -- the one path both `POST /v1/exports` and the
-    `Accept: text/csv` list twin go through, so both are logged and both are capped."""
+    `Accept: text/csv` list twin go through, so both are logged and both are capped. `row_cap`
+    lowers the plan's cap (the CSV twin's `limit`), never raises it."""
     user = _caller_user(db, ctx)
     if user is None or ctx.account is None:
         raise not_found(instance)
@@ -597,7 +599,7 @@ def start_export(
         query=query,
         tier=ctx.entitlement,
         status="queued",
-        row_cap=quota.export_rows_max,
+        row_cap=min(quota.export_rows_max, row_cap) if row_cap is not None else quota.export_rows_max,
     )
     db.add(export)
     db.flush()
@@ -702,7 +704,7 @@ def list_exports(
         id_column=Export.id,
         ascending=False,
         cursor=request.query_params.get("cursor"),
-        limit=clamp_limit(int_param(request, "limit")),
+        limit=page_limit(request),
         instance=request.url.path,
     )
     for row in rows:
@@ -759,11 +761,16 @@ _PAGE_PARAMS = ("limit", "cursor", "include")
 
 
 def csv_list_response(request: Request, db: Session, ctx: AuthContext, resource: Resource) -> Response:
-    """The list endpoint's CSV twin: the same filters as the JSON page (page parameters dropped),
-    through `start_export` so it is quota-counted, row-capped and logged exactly like `POST
-    /v1/exports`, and the finished file is returned inline instead of a link. Anonymous callers
-    get `401` (docs/23 §1: "returns an export (Pro+)"), a free account `403`. The caller has
-    already run the list endpoint's own `check_allowed`, so an unknown filter is a `400` here too."""
+    """The list endpoint's CSV twin: the same filters as the JSON page, through `start_export` so it
+    is quota-counted, row-capped and logged exactly like `POST /v1/exports`, and the finished file
+    is returned inline instead of a link. Anonymous callers get `401` (docs/23 §1: "returns an
+    export (Pro+)"), a free account `403`. The caller has already run the list endpoint's own
+    `check_allowed`, so an unknown filter is a `400` here too.
+
+    `limit` caps the file's rows (1 up to the plan's export cap; absent, the plan's cap). Until
+    2026-10-07 it was dropped, so `?limit=200` returned a 10,000-row file (backend audit API-12).
+    A `cursor` is refused: the file always starts at the first row, and resuming it is not built.
+    `include` changes nothing in a CSV and is dropped."""
     if not ctx.is_authenticated:
         raise ProblemError(
             "unauthenticated", "CSV export needs a Pro or API credential", instance=request.url.path
@@ -776,9 +783,15 @@ def csv_list_response(request: Request, db: Session, ctx: AuthContext, resource:
             instance=request.url.path,
         )
     headers = _rate_limit_headers(request, ctx)
+    if request.query_params.get("cursor"):
+        raise validation_error(
+            "cursor", "a CSV export starts at the first row; cursor does not apply", request.url.path
+        )
+    cap = plan_quota(ctx.entitlement).export_rows_max
+    limit = page_limit(request, default=cap, maximum=cap) if cap is not None else None
     query = {k: v for k, v in request.query_params.items() if k not in _PAGE_PARAMS}
     _checked_statement(resource, query, db=db, tier=ctx.entitlement, instance=request.url.path)
-    export = start_export(db, ctx, resource=resource, query=query, instance=request.url.path)
+    export = start_export(db, ctx, resource=resource, query=query, instance=request.url.path, row_cap=limit)
     if export.status != "ready" or not export.object_key:
         # Keep the failed row (the per-user log, US-603 AC3) although the response is an error:
         # `get_db` rolls the request's session back on any exception.

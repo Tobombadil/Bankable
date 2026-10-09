@@ -109,7 +109,7 @@ from urllib.parse import urlparse
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from services.api.audit import record_audit_event
 from services.api.auth import AuthContext, require_admin
@@ -127,6 +127,7 @@ from services.api.serialize import (
     serialize_licence_embedded,
     serialize_source,
 )
+from services.api.source_freshness import facts_for, successful_run_ends
 from services.api.visibility import PUBLISHABLE_REUSE_CLASSES
 from services.db.models import (
     REUSE_CLASSES,
@@ -325,12 +326,15 @@ def _serialize_admin_source(source: Source) -> dict[str, Any]:
         and float(source.cost_per_changed_record_30d) > threshold
     )
     last_run = source.__dict__.get("_admin_last_run")  # set by callers that pre-fetch it
-    out = serialize_source(source)
-    from infra.scheduler.freshness import assess_source
-
     # Freshness (audit 2026-09-30 F2): `health` counts failures only, so a source nothing runs
-    # stayed `ok`; this is the age of the last success against its poll allowance.
-    freshness = assess_source(source, dt.datetime.now(dt.UTC)).to_dict()
+    # stayed `ok`; this is the age of the last success against its poll allowance, the last success
+    # read from the recorded runs too, as on the public routes (`services/api/source_freshness.py`).
+    session = object_session(source)
+    facts = facts_for(
+        source, successful_run_ends(session, [source.id]) if session else {}, dt.datetime.now(dt.UTC)
+    )
+    out = serialize_source(source, facts)
+    freshness = dict(facts.freshness)
     out.update(
         {
             "effort": source.effort,

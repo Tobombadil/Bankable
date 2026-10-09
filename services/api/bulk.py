@@ -46,7 +46,7 @@ from services.api.deps import get_db
 from services.api.errors import ProblemError
 from services.api.interconnection_points import proposal_point_embeds
 from services.api.pagination import paginate
-from services.api.params import check_allowed, int_param
+from services.api.params import check_allowed, page_limit
 from services.api.proposal_members import merge_events, merge_history_from, proposal_members
 from services.api.ratelimit import default_limiter, plan_quota, policy_header
 from services.api.resource_queries import (
@@ -89,12 +89,9 @@ BULK_SORT: dict[Resource, str] = {"proposal": "last_changed", "opportunity": "la
 
 
 def bulk_limit(request: Request) -> int:
-    """`BulkLimit`: default 1,000, clamped to 1..1,000 (the list endpoints' `clamp_limit` caps at
-    200, which is the wrong ceiling here)."""
-    value = int_param(request, "limit")
-    if value is None:
-        return BULK_DEFAULT_LIMIT
-    return max(1, min(value, BULK_MAX_LIMIT))
+    """`BulkLimit`: default 1,000; outside 1..1,000 is a `400 validation_error`, as `limit` is on
+    every list (`params.page_limit`; it was clamped silently before 2026-10-07, API-5)."""
+    return page_limit(request, default=BULK_DEFAULT_LIMIT, maximum=BULK_MAX_LIMIT)
 
 
 def _bulk_rate_limit(ctx: AuthContext, instance: str) -> dict[str, str]:
@@ -137,23 +134,28 @@ def _record_line(
     redactions: list[dict[str, Any]],
     licence_rows: list[dict[str, Any]],
     entitlement: str = "public",
+    view: Any = None,
 ) -> dict[str, Any]:
     """One record in the detail shape. Its links, fields and location are the served view at the
     key's tier, narrowed to licences that permit API redistribution
     (`services/api/visibility.py::GatedRecord`): a link the tier may not read is not printed and
     no field value comes from it (2026-10-06, QA-1)."""
-    view = gated_record(record, entitlement, _api_redistributable)
+    # One served view per record for the whole line (`gated_record` is idempotent on a view):
+    # building it again in the serialiser and in `_add_composition` re-derived every gated field
+    # three times, about a third of a 1,000-row page (backend audit 2026-10-07, PERF-1).
+    if view is None:
+        view = gated_record(record, entitlement, _api_redistributable)
     links: list[ProposalSource | OpportunitySource] = []
     if isinstance(record, Proposal):
         proposal_links = _redistributable(view.sources)
         data = serialize_proposal(
-            record, sources=proposal_links, entitlement=entitlement, link_ok=_api_redistributable
+            view, sources=proposal_links, entitlement=entitlement, link_ok=_api_redistributable
         )
         links.extend(proposal_links)
     else:
         opportunity_links = _redistributable(view.sources)
         data = serialize_opportunity(
-            record, sources=opportunity_links, entitlement=entitlement, link_ok=_api_redistributable
+            view, sources=opportunity_links, entitlement=entitlement, link_ok=_api_redistributable
         )
         links.extend(opportunity_links)
     for i, link in enumerate(links):
@@ -201,11 +203,14 @@ def _record_line(
     return data
 
 
-def _add_composition(line: dict[str, Any], record: Proposal, merges: list[Event], entitlement: str) -> None:
+def _add_composition(
+    line: dict[str, Any], record: Proposal, merges: list[Event], entitlement: str, view: Any = None
+) -> None:
     """The detail route's `field_sources`, `members` and `merge_history` (docs/22 §23.4) for one bulk
     line, so the line stays the detail shape, over the links this shape may print; a member's
     record id and identifiers follow the provenance row's bulk-export redaction."""
-    view = gated_record(record, entitlement, _api_redistributable)
+    if view is None:
+        view = gated_record(record, entitlement, _api_redistributable)
     links = cast("list[ProposalSource]", _redistributable(view.sources))
     line["field_sources"] = view.field_sources() if isinstance(view, GatedRecord) else {}
     members = proposal_members(links)
@@ -242,7 +247,7 @@ def bulk_response(request: Request, db: Session, ctx: AuthContext, resource: Res
         redistribution="allows_api_redistribution",
         instance=instance,
         all_opportunity_statuses=True,
-    ).options(*lean_load_options(resource, identifiers=True))
+    ).options(*lean_load_options(resource, identifiers=True, link_normalised=resource == "proposal"))
     model = resource_model(resource)
     rows, next_cursor, has_more = paginate(
         db,
@@ -271,10 +276,11 @@ def bulk_response(request: Request, db: Session, ctx: AuthContext, resource: Res
             if (lic := event_licence_row(row)) is not None:
                 licence_rows.append(lic)
         else:
-            line = _record_line(row, redactions, licence_rows, ctx.entitlement)
+            view = gated_record(row, ctx.entitlement, _api_redistributable)
+            line = _record_line(row, redactions, licence_rows, ctx.entitlement, view)
             if isinstance(row, Proposal):
                 line["interconnection_point"] = points[row.id]
-                _add_composition(line, row, merges.get(row.id, []), ctx.entitlement)
+                _add_composition(line, row, merges.get(row.id, []), ctx.entitlement, view)
             lines.append(line)
     meta_line = {
         "record_type": "meta",

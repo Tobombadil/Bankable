@@ -34,7 +34,7 @@
       <td data-label="Type">{{ r.type_label }}{% if r.status in ('retired', 'retiring') %} <span class="row-status">({{ r.status_label | lower }}{% if r.retirement_year %} {{ r.retirement_year }}{% endif %})</span>{% endif %}</td>
       <td data-label="Technology">{{ r.technology_label or r.line_class or (r.technology | technology_label) or '—' }}</td>
       <td data-label="Capacity" class="num tnum">
-        {%- if r.capacity_mw is not none %}{{ '%.1f'|format(r.capacity_mw) }} MW
+        {%- if r.capacity_mw is not none %}{{ r.capacity_mw | mw }} MW
         {%- elif r.fuel_fields %}{{ r.fuel_fields[0].value }}
         {%- else %}—{% endif -%}
       </td>

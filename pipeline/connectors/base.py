@@ -50,6 +50,7 @@ _SHARED_PARSER_MODULES = (
     "pipeline/connectors/opportunity.py",
     "pipeline/normalize.py",
     "pipeline/status_map.yaml",
+    "pipeline/vendor/gridstatus/queues.py",
 )
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _DIGESTS: dict[type, str] = {}

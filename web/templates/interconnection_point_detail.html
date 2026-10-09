@@ -3,12 +3,12 @@
 {% block title %}{{ record.name }} -- Infraque{% endblock %}
 {% block meta_description %}{{ record.name }}: {{ record.kind_label | lower }} in the {{ record.iso_label or 'grid' }} interconnection queue, {{ record.active_mw_label }} MW active across {{ record.totals.active_count }} projects.{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/interconnection-points">Grid interconnection points</a> / {{ record.name }}</nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/interconnection-points">Grid connection points</a> / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
   <span class="reuse-badge">{{ record.kind_label }}</span>
 </div>
-<p class="attribution-line">A grid interconnection point as {{ record.source_name or 'its queue' }} names it. Projects connect here; they are not necessarily built here. Totals count only the projects listed below.</p>
+<p class="attribution-line">A grid connection point as {{ record.source_name or 'its queue' }} names it. Projects connect here; they are not necessarily built here. Totals count only the projects listed below.</p>
 
 <dl class="field-grid">
   <div><dt>Queue</dt><dd>{{ record.iso_label or '—' }}</dd></div>

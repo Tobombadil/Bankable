@@ -21,6 +21,7 @@ from services.api.conftest import (
     make_event,
     make_location,
     make_open_licence,
+    make_org,
     make_public_source,
     make_visible_opportunity,
     make_visible_proposal,
@@ -109,6 +110,9 @@ def test_create_refuses_a_value_the_list_would_refuse(client, db, entity, query,
 
 def test_create_accepts_every_list_filter(client, db):
     _login(client, db)
+    # An organisation filter must name a published organisation (2026-10-07; an unknown id is a 400).
+    org = make_org(db, "Filter Probe Power")
+    db.commit()
     query = {
         "kind": ["storage"],
         "technology": "bess_li_ion",
@@ -125,7 +129,7 @@ def test_create_accepts_every_list_filter(client, db):
         "slipped": True,
         "slip_bucket": "under_1y",
         "q": "solar",
-        "sponsor_id": "org_01JBQ8C4X1",
+        "sponsor_id": org.public_id,
         "storage_mwh[gte]": 100,
         "first_seen[from]": "2026-09-01T00:00:00Z",
         "first_seen[to]": "2026-09-30",
@@ -139,6 +143,8 @@ def test_create_accepts_every_list_filter(client, db):
 
 def test_create_accepts_every_opportunity_filter(client, db):
     _login(client, db)
+    org = make_org(db, "Filter Probe Issuer")
+    db.commit()
     query = {
         "status": "open,closed",
         "kind": "rfp",
@@ -149,7 +155,7 @@ def test_create_accepts_every_opportunity_filter(client, db):
         "due_at[to]": "2026-12-31T23:59:59Z",
         "slug": "x",
         "q": "wind",
-        "issuer_id": ["org_01JBQ8C4X1"],
+        "issuer_id": [org.public_id],
         "open_at[from]": "2026-01-01",
         "open_at[to]": "2026-06-30",
         "capacity_sought_mw[gte]": 50,
@@ -353,3 +359,17 @@ def test_query_params_renders_like_a_query_string():
         "c": "false",
         "f": "2.5",
     }
+
+
+@pytest.mark.parametrize("value", ["org_01JBQ8C4X1", "no-such-company"])
+def test_an_organisation_filter_naming_no_published_organisation_is_refused(client, db, value):
+    """Expert review 2026-10-07: an alert saved with `sponsor_id=fermi-america` matched nothing for
+    ever. A value that names no published organisation (by id or slug) is a 400 now; the same answer
+    for a taken-down organisation, so it is no oracle (`tests/test_saved_search_parity.py`)."""
+    _login(client, db)
+    resp = client.post(
+        "/v1/saved-searches", json={"name": "dud", "entity": "proposal", "query": {"sponsor_id": value}}
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["code"] == "validation_error"
+    assert resp.json()["errors"][0]["field"] == "sponsor_id"

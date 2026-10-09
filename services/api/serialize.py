@@ -778,9 +778,13 @@ def _headline(event: Event, subject_name: str) -> str:
     return f"{subject_name}: {event.event_type}"
 
 
-def serialize_source(source: Source) -> dict[str, Any]:
+def serialize_source(source: Source, run_facts: Any = None) -> dict[str, Any]:
+    """`run_facts` (`services/api/source_freshness.py::SourceRunFacts`), when the caller computed
+    them, fills `last_success_at` from the source's recorded runs as well as the runner's column,
+    and adds `last_loaded_at` and `freshness` (expert review 2026-10-07: the column alone was null
+    for every source fetched outside the scheduler)."""
     licence = source.licence
-    return {
+    out = {
         "source_id": source.id,
         "name": source.name,
         "jurisdiction": source.jurisdiction,
@@ -812,6 +816,9 @@ def serialize_source(source: Source) -> dict[str, Any]:
             "manifest_hash": source.manifest_hash or ("0" * 64),
         },
     }
+    if run_facts is not None:
+        out.update(run_facts.as_fields())
+    return out
 
 
 def serialize_licence_embedded(licence: Licence) -> dict[str, Any]:

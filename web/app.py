@@ -66,30 +66,37 @@ from web.regions import Region, regions_with_data
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
     ALL_PROPOSAL_LIFECYCLE_STATES,
+    ORG_CREDITS_NOTE,
     PROPOSAL_SOURCE_LABELS,
     WITHDRAWN_PROPOSAL_STATES,
     WORLD_BBOX,
     absence_note,
     attach_select_basis,
+    coverage_data,
     coverage_facts,
     flatten_asset,
     flatten_opportunity,
     flatten_organization,
     flatten_proposal,
+    lifecycle_query_items,
     map_description,
     map_heading,
     map_labels_json,
     opportunity_kind_label,
     opportunity_status_param,
+    page_credits,
     proposal_field_rows,
     proposal_fields_json,
     proposal_kind_label,
     proposal_sources_phrase,
+    proposal_status_choices,
     provenance_panel_rows,
     relativize_geo_feature_urls,
     resolve_proposal_lifecycle_param,
+    source_freshness,
     source_label,
     technology_label,
+    with_built_href,
 )
 
 #: The sources whose rows are proposals. One list with the names the page copy uses
@@ -196,6 +203,14 @@ from web.interconnection_points import router as interconnection_points_router  
 
 app.include_router(interconnection_points_router)
 
+from web.coverage_statement import uncovered_iso_notes  # noqa: E402
+
+# Audit 2026-10-07 UX-6: `/docs/api` and the development relay for `/feeds/*` (web/feeds.py).
+from web.feeds import feed_href  # noqa: E402
+from web.feeds import router as feeds_router  # noqa: E402
+
+app.include_router(feeds_router)
+
 # docs/42-backend-review-2026-09-26.md lane L3: the sitemap/robots cluster -- a closed set of
 # helpers and routes (§4.1) reached by nothing else in this module, so it moves as a whole with no
 # path-overlap risk against any route defined above or below it.
@@ -263,6 +278,8 @@ def delayed_notice(request: Request, kind: str) -> dict[str, Any]:
         # Owner decision 2026-09-30: under the noncommercial posture the notice's call to action is
         # the free alerts page, not the paid tiers (`get_free_alerts`, read from `/v1/health`).
         "free_alerts": get_free_alerts(request),
+        # Whether "live" is true of the sources right now (`source_freshness`, `/v1/coverage`).
+        "freshness": source_freshness(request, get_api(request)),
     }
 
 
@@ -284,10 +301,10 @@ MAP_DEFAULT_PLACEMENT = "exact,region"
 
 
 def lifecycle_counts(api: ApiClient, qp: QueryParams, *, surface: str = "list") -> dict[str, int]:
-    """Active / withdrawn / other counts behind the lifecycle notice, for every filter in play
+    """Active / withdrawn / built / unknown counts behind the lifecycle notice, for every filter in play
     except the lifecycle one (product defect A: "so the choice is visible").
 
-    Three `GET /v1/proposals?limit=1&include=count` calls, one per bucket. Until 2026-10-06 this
+    Four `GET /v1/proposals?limit=1&include=count` calls, one per bucket. Until 2026-10-06 this
     was one world-wide clustered `GET /v1/proposals/geo` at zoom 1 whose features were thrown away
     for its `lifecycle_state_counts` (frontend audit F9): 1.0-1.4 s of every home, `/proposals`
     and map-filter request against 0.04-0.09 s per count on the same store. A failed count reads
@@ -296,10 +313,13 @@ def lifecycle_counts(api: ApiClient, qp: QueryParams, *, surface: str = "list") 
     if surface == "map":
         params.pop("placement", None)  # the map's count line counts every placement grade
     counts: dict[str, int] = {}
+    # `built` and `unknown` are counted apart (UX-1) so the notice can offer the built ones, which
+    # the status control shows; `other` stays their sum for the sentences that say "outside this view".
     for bucket, states in (
         ("active", ACTIVE_PROPOSAL_STATES),
         ("withdrawn", WITHDRAWN_PROPOSAL_STATES),
-        ("other", OTHER_PROPOSAL_STATES),
+        ("built", ("built",)),
+        ("unknown", tuple(s for s in OTHER_PROPOSAL_STATES if s != "built")),
     ):
         try:
             envelope = api.get(
@@ -309,6 +329,7 @@ def lifecycle_counts(api: ApiClient, qp: QueryParams, *, surface: str = "list") 
             counts[bucket] = int((envelope.get("meta") or {}).get("total") or 0)
         except ApiError:
             counts[bucket] = 0
+    counts["other"] = counts["built"] + counts["unknown"]
     counts["total"] = counts["active"] + counts["withdrawn"] + counts["other"]
     return counts
 
@@ -353,12 +374,10 @@ def list_view_href(qp: QueryParams) -> str:
         (k, v)
         for k, v in qp.multi_items()
         if v
-        and (
-            k in PROPOSAL_PASSTHROUGH_FILTERS
-            or k in ("include_withdrawn", "lifecycle_state", "center", "zoom")
-        )
+        and (k in PROPOSAL_PASSTHROUGH_FILTERS or k in ("center", "zoom"))
         and not (k == "placement" and v == MAP_DEFAULT_PLACEMENT)
     ]
+    kept += lifecycle_query_items(qp)
     return "/proposals" + ("?" + urlencode(kept) if kept else "")
 
 
@@ -366,14 +385,16 @@ def map_view_href(qp: QueryParams) -> str:
     """The map (`/`) showing the same proposals as this list: every passthrough filter, the
     lifecycle choice, and the viewport when the list was reached from the map (designer D-8). The
     map honours every one of these (W3/H3: map.js forwards each passthrough filter)."""
-    kept = [
-        (k, v)
-        for k, v in qp.multi_items()
-        if v and (k in PROPOSAL_PASSTHROUGH_FILTERS or k in ("include_withdrawn", "lifecycle_state"))
-    ]
+    kept = [(k, v) for k, v in qp.multi_items() if v and k in PROPOSAL_PASSTHROUGH_FILTERS]
+    kept += lifecycle_query_items(qp)
     if _VIEW_CENTER.fullmatch(qp.get("center") or "") and _VIEW_ZOOM.fullmatch(qp.get("zoom") or ""):
         kept += [("center", qp["center"]), ("zoom", qp["zoom"])]
     return "/" + ("?" + urlencode(kept) if kept else "")
+
+
+def is_load_view(qp: QueryParams) -> bool:
+    """A view of large loads only (`kind=load` or `technology=load`), whose rows carry no MW."""
+    return qp.get("kind") == "load" or qp.get("technology") == "load"
 
 
 def _proposal_params(qp: QueryParams, *, lifecycle_csv: str) -> dict[str, str | None]:
@@ -430,6 +451,11 @@ def home_map(request: Request) -> HTMLResponse:
             "map_labels_json": map_labels_json(),
             "include_withdrawn": include_withdrawn,
             "lifecycle_explicit": explicit,
+            "status_choices": proposal_status_choices(qp),
+            "built_href": with_built_href("/", qp),
+            "feed_href": feed_href("proposal", qp),
+            "feed_alternate": {"title": "Proposals (RSS)", "href": feed_href("proposal", qp)},
+            "iso_gap_notes": uncovered_iso_notes(qp.get("iso"), coverage_data(request, api)),
             "filters": dict(qp),
             "save_alert_href": save_alert_href("proposal", qp, origin="map"),
             # The view switch's List link before map.js runs (it rewrites it with every change).
@@ -468,6 +494,8 @@ def proposals_notice_fragment(request: Request) -> HTMLResponse:
             "breakdown": breakdown,
             "include_withdrawn": include_withdrawn,
             "lifecycle_explicit": explicit,
+            "built_href": with_built_href("/", qp),
+            "iso_gap_notes": uncovered_iso_notes(qp.get("iso"), coverage_data(request, api)),
             "empty_facets": map_empty_facets(api, qp, breakdown),
         },
     )
@@ -604,7 +632,11 @@ def proposals_list(request: Request) -> HTMLResponse:
     qp = request.query_params
     lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
     params = _proposal_params(qp, lifecycle_csv=lifecycle_csv)
-    params["sort"] = qp.get("sort") or "-capacity_mw"
+    # A large-load view has no capacity to sort on or print: no load record carries MW (0 of 578,
+    # lane L11), and "sorted by capacity" over a blank column read as a defect. It sorts by name
+    # and drops the column (docs/30 §5.3 note); any other view keeps capacity, largest first.
+    load_view = is_load_view(qp)
+    params["sort"] = qp.get("sort") or ("name_canonical" if load_view else "-capacity_mw")
     params["cursor"] = qp.get("cursor")
     params["include"] = "count"
     # docs/31 §5.9: an impossible capacity range is said inline, not sent to the API and answered
@@ -635,6 +667,10 @@ def proposals_list(request: Request) -> HTMLResponse:
     )
     context = {
         "records": records,
+        # UX-4: the registers behind the rows on this page, from the API's own licence summary.
+        "credits": page_credits(envelope),
+        "load_view": load_view,
+        "sort_caption": "sorted by name, A to Z" if load_view else "sorted by capacity, largest first",
         "total": envelope["meta"].get("total"),
         "total_is_estimate": envelope["meta"].get("total_is_estimate", False),
         "has_more": envelope["page"]["has_more"],
@@ -651,6 +687,12 @@ def proposals_list(request: Request) -> HTMLResponse:
         "slip_buckets": vocab.get("slip_bucket", []),
         "include_withdrawn": include_withdrawn,
         "lifecycle_explicit": explicit,
+        "status_choices": proposal_status_choices(qp),
+        "built_href": with_built_href("/proposals", qp),
+        "feed_href": feed_href("proposal", qp),
+        "feed_alternate": {"title": "These proposals (RSS)", "href": feed_href("proposal", qp)},
+        # `?iso=PJM` and the like: say the rows are EIA-860M units, not that ISO's queue.
+        "iso_gap_notes": uncovered_iso_notes(qp.get("iso"), coverage_data(request, api)),
         "filters": dict(qp),
         "breakdown": breakdown,
         # Only computed when the filter matched nothing: see `absence_note`'s docstring for why
@@ -795,6 +837,9 @@ def opportunities_list(request: Request) -> HTMLResponse:
     )
     context = {
         "records": records,
+        "credits": page_credits(envelope),  # UX-4
+        "feed_href": feed_href("opportunity", qp),  # UX-6
+        "feed_alternate": {"title": "These opportunities (RSS)", "href": feed_href("opportunity", qp)},
         "total": envelope["meta"].get("total"),
         "total_is_estimate": envelope["meta"].get("total_is_estimate", False),
         "has_more": envelope["page"]["has_more"],
@@ -878,13 +923,16 @@ def search(request: Request) -> HTMLResponse:
     opportunities: list[dict[str, Any]] = []
     organizations: list[dict[str, Any]] = []
     assets: list[dict[str, Any]] = []
+    credits: dict[str, list[dict[str, Any]]] = {}
     if q:
         proposals_env = api.get("/v1/proposals", params={"q": q, "limit": 50})
+        credits["proposals"] = page_credits(proposals_env)
         proposals = [flatten_proposal(e) for e in proposals_env["data"]]
         opportunities_env = api.get(
             "/v1/opportunities", params={"q": q, "limit": 50, "status": ALL_OPPORTUNITY_STATUSES_CSV}
         )
         opportunities = [flatten_opportunity(e) for e in opportunities_env["data"]]
+        credits["opportunities"] = page_credits(opportunities_env)
         # ADR 0008 task item 3: an "Organisations" section on /search.
         organizations_env = api.get("/v1/organizations", params={"q": q, "limit": 50})
         organizations = [flatten_organization(e) for e in organizations_env["data"]]
@@ -892,6 +940,8 @@ def search(request: Request) -> HTMLResponse:
         # Express" (a pipeline) and "Tallgrass" (its operator) both resolve from the search box.
         try:
             assets_env = api.get("/v1/assets", params={"q": q, "limit": 50})
+            # `/v1/assets` sends an empty licence summary; each row carries its provenance.
+            credits["assets"] = page_credits(assets_env, assets_env["data"])
             for e in assets_env["data"]:
                 flat = flatten_asset(e)
                 flat.update(_asset_extras(e))
@@ -908,6 +958,8 @@ def search(request: Request) -> HTMLResponse:
             "opportunities": opportunities,
             "organizations": organizations,
             "assets": assets,
+            "credits": credits,
+            "org_credits_note": ORG_CREDITS_NOTE,
         },
     )
 

@@ -34,8 +34,16 @@ name: ci
 #         disagreement. Four privacy operations the app serves are currently filed under
 #         `webhooks:` instead of `paths:` (2026-09-20) and are reported as a spec filing error,
 #         not as undocumented drift; fixing that belongs to whoever owns api/openapi.yaml.
-#   - Images are pushed by .github/workflows/release.yml (push to main and v* tags), not here;
-#     the `images` job below only proves the build and runs the trivy scan on every PR.
+#   - Images are pushed by .github/workflows/release.yml, not here, and only after this workflow
+#     has succeeded on the same commit (`workflow_run`; audit 2026-10-07 OPS-3). The `images` job
+#     below only proves the build and runs the trivy scan on every PR.
+#   - The test jobs run the Makefile's targets verbatim (`make test-core`, `make test-perf`,
+#     `make test-web`; audit 2026-10-07 QA-6), so a local `make test` is the CI suite. `test-core`
+#     and `test-web` run in parallel under pytest-xdist with pytest-cov (`coverage run -m pytest -n`
+#     would measure none of the workers); the wall-clock budget tests run alone in `perf`, serially
+#     and without coverage, because a timing taken on a loaded, traced process gates nothing
+#     (QA-2, QA-3). Every pytest run names its skips (`-rs` in pyproject.toml). The core and web
+#     coverage data are combined in `coverage` for the whole-product figure (QA-7).
 #   - `import-linter`'s config lives at `infra/importlinter.ini`, not a root `.importlinter` file or
 #     a `pyproject.toml` section — this task's write scope does not include either (see that file's
 #     header comment).
@@ -54,6 +62,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR cancels the older run. Pushes to main get one group per commit, so no
+# main run is ever queued behind, or cancelled by, another: release.yml publishes each commit from
+# its own green run (audit 2026-10-07 OPS-7).
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
+
 env:
   PYTHON_VERSION: "3.11"
 
@@ -61,6 +76,7 @@ jobs:
   lint:
     name: ruff (check + format)
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # the default is 6 h (audit 2026-10-07 OPS-7)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -74,6 +90,7 @@ jobs:
   typecheck:
     name: mypy --strict (pipeline, services, web)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -91,6 +108,7 @@ jobs:
   import-boundaries:
     name: import-linter (docs/04 E-2)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -103,6 +121,7 @@ jobs:
   test-core:
     name: pytest (pipeline, services, tests — excludes web, see header note)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -111,46 +130,60 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: install Caddy 2.8.4 for infra/test_caddyfile.py (the line compose.prod.yml pins)
-        # Without a binary those tests skip and only the static Caddyfile checks run. The checksum is
-        # the release's own (caddy_2.8.4_checksums.txt, SHA-512), verified before anything is unpacked.
-        run: |
-          curl -fsSL -o /tmp/caddy.tar.gz \
-            https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_linux_amd64.tar.gz
-          echo "b8bec15d14fb033562af9f207850027bcbaa1f891edc9efe00d38bf39e1bf9944f8b6b8eba041ddd4c171cd70c905174c704d705be2f23bc678fe1eaf37a2485  /tmp/caddy.tar.gz" | sha512sum -c -
-          tar -xzf /tmp/caddy.tar.gz -C /tmp caddy
-          echo "CADDY_BIN=/tmp/caddy" >> "$GITHUB_ENV"
-      - name: pytest with branch coverage, 80% floor (docs/04 E-7)
-        run: |
-          coverage run --branch -m pytest tests pipeline services infra
-          coverage report --include="pipeline/*,services/*" --fail-under=80
-        # `infra` covers infra/scheduler plus infra/test_compose.py, test_scripts.py,
-        # test_entrypoint.py, test_logging_config.py and test_observability.py (2026-09-18).
-        # Measured on the 2026-09-18 tree: 88% total, so the 80% floor is a real, passing gate.
-      - name: visibility predicate at 100% branch coverage (docs/04 E-7) — enforced
-        run: coverage report --include="services/api/visibility.py" -m --fail-under=100
-        # Was `--fail-under=100` with `continue-on-error: true` while one statement stayed
-        # uncovered (2026-09-18: 96%, 27 statements, 1 missed at line 164 — the opportunity arm of
-        # `event_visibility_filter`). That arm is no longer a statement of its own (the module was
-        # rewritten into a single `or_(...)`), so coverage stopped reporting the gap while the
-        # gap itself stayed open: no test in the suite built an event on an *opportunity* subject
-        # at all. tests/test_api_events_visibility.py's three `..._opportunity_...` tests close it
-        # (each fails if the opportunity arm's predicate is removed), and the module-level drift
-        # guard lost its `# pragma: no cover` in favour of a real test
-        # (tests/test_visibility_predicate.py), so the figure below excludes nothing.
-        # Measured on this tree: 45 statements, 0 missed, 2 branches, 0 partial = 100%. The gate
-        # blocks merge from here; it is not to be lowered or pragma'd back up to green.
+        # Without a binary those tests skip and only the static Caddyfile checks run. `make caddy`
+        # verifies the release's own SHA-512 (caddy_2.8.4_checksums.txt) before anything is unpacked.
+        run: make caddy CADDY_DIR=/tmp/caddy-2.8.4 && echo "CADDY_BIN=/tmp/caddy-2.8.4/caddy" >> "$GITHUB_ENV"
+      - name: pytest, parallel, branch coverage of production code (make test-core)
+        # `-n auto --dist loadgroup` (one worker per module; 4 on this runner) under pytest-cov;
+        # the latency tests are deselected here and run in `perf`. Measured 2026-10-07: see
+        # docs/CHANGELOG.md for the before/after.
+        run: make test-core PYTHON=python VENV=
+      - name: 80 % floor on production code, visibility predicate at 100 % (docs/04 E-7) — enforced
+        run: make coverage-gate PYTHON=python VENV=
+        # The floor covers pipeline/, services/ and infra/ production code only: test modules are
+        # omitted in pyproject.toml [tool.coverage.run] (audit 2026-10-07 QA-7: they made up 13,309
+        # of the 44,250 statements the old figure counted, at 98.9 %).
+        # The visibility predicate has been gated since 2026-09-19 with nothing excluded (no
+        # `# pragma: no cover`; tests/test_visibility_predicate.py replaced the last one). The gate
+        # blocks merge; it is not to be lowered or pragma'd back up to green.
+      - name: per-package floors (docs/04 E-7 "reported per package"; ratchets, see Makefile)
+        run: make coverage-floors PYTHON=python VENV=
       - name: loader coverage (report-only — not a gate module, see comment)
         continue-on-error: true
         run: coverage report --include="services/ingest/loader.py" -m
-        # services/ingest/loader.py (89% on this tree) carries non-gate field-mapping logic
+        # services/ingest/loader.py carries non-gate field-mapping logic
         # (services/README.md open decision 11) and is covered by the 80% floor above, not by its
         # own gate; the licence-gate paths in it are proven by two named tests
         # (test_gate_refused_for_reuse_value_outside_the_known_vocabulary,
         # test_gate_refused_when_stored_licence_is_gated_even_if_the_manifest_now_says_open).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-core
+          path: .coverage
+          include-hidden-files: true
+          retention-days: 7
+
+  perf:
+    name: latency budgets (serial, no coverage; docs/04 D-13, E-16)
+    # The tests conftest.py::LATENCY_TESTS marks `latency`: the full-store geo budget and the lines
+    # budget (tests/test_api_geo_performance.py skips here: it needs the git-ignored real store).
+    # Alone on the runner, serial and untraced, so a red run is the code and not the neighbours
+    # (audit 2026-10-07 QA-3: the same calls took 160-390 ms plain and 535-759 ms under coverage).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: make test-perf PYTHON=python VENV=
 
   test-web:
     name: pytest (web) — isolated job, see header note
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -158,14 +191,47 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m playwright install --with-deps chromium
-      - run: pytest web -v
+      - run: make browsers PYTHON=python VENV=
+      - run: make test-web PYTHON=python VENV=
         # web/'s own suite builds its SQLite fixture via web.data_loading.load_dev_database
         # (web/test_e2e.py, web/test_build_data.py) — no separate `web.build_data` step needed.
+        # The two browser modules share one xdist worker (conftest.py BROWSER_TESTS); the map's
+        # MapLibre files are served from tests/fixtures/cdn, never fetched (audit QA-4).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-web
+          path: .coverage
+          include-hidden-files: true
+          retention-days: 7
+
+  coverage:
+    name: coverage, whole product (core + web data combined; docs/04 E-7)
+    needs: [test-core, test-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install "coverage>=7.10.6"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage-data
+      - name: combine, then the whole-product floor and the web/ figure
+        run: |
+          coverage combine --keep coverage-data/coverage-core/.coverage coverage-data/coverage-web/.coverage
+          echo "== production code, every package (floor 80 %, docs/04 E-7)"
+          coverage report --fail-under=80
+          echo "== web/ (public pages: attribution and tier rendering)"
+          coverage report --include="web/*" --fail-under=80
+          coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
   connector-fixtures:
     name: connector fixtures (parse() only — never live network, docs/20 §3.1)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -173,7 +239,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install -r requirements.txt
-      - run: pytest pipeline/connectors -v
+      - run: pytest pipeline/connectors
         # `fetch()` — the only network-calling method — is never invoked by this suite; only
         # `parse()`/`normalize()` run, against recorded fixtures (docs/20 §3.1, pipeline/README.md).
         # This job has no network egress permission in a hardened runner if one is configured
@@ -182,6 +248,7 @@ jobs:
   api-contract:
     name: OpenAPI validity, story coverage, contract test (docs/04 E-8)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -191,7 +258,7 @@ jobs:
       - run: pip install -r requirements.txt openapi-spec-validator
       - run: python -m openapi_spec_validator api/openapi.yaml
       - run: python api/check_story_coverage.py --quiet
-      - run: pytest tests/test_api_contract.py -v
+      - run: pytest tests/test_api_contract.py
       - name: generated spec == committed spec (docs/04 E-8)
         # Blocking since 2026-09-27: 0 missing, 0 misfiled, 0 undocumented (see header note).
         run: |
@@ -311,6 +378,7 @@ jobs:
   migrations:
     name: alembic upgrade/downgrade/upgrade (docs/04 E-11)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgis/postgis:16-3.4
@@ -349,14 +417,17 @@ jobs:
       # the geography types. Measured locally on Postgres 16 + PostGIS 3.4 (2026-09-30): 14 tests,
       # 5.9 s of tests and 9.8 s wall with imports, so the job grows by well under a minute. The
       # job keeps its name so a required-check rule that names it still matches.
-      - name: app on Postgres (tests/test_postgres.py, services/db/test_types_postgis.py)
+      # infra/scheduler/test_queue_schema.py's real-Postgres case (`ensure` inside a throwaway
+      # schema) skipped everywhere until 2026-10-07: this step did not name it (audit QA-5).
+      - name: app on Postgres (tests/test_postgres.py, services/db/test_types_postgis.py, infra/scheduler/test_queue_schema.py)
         env:
           POSTGIS_TEST_URL: postgresql+psycopg://infraque:infraque-ci-only@localhost:5432/infraque_ci
-        run: pytest tests/test_postgres.py services/db/test_types_postgis.py -q -o addopts="" -p no:warnings
+        run: pytest tests/test_postgres.py services/db/test_types_postgis.py infra/scheduler/test_queue_schema.py -p no:warnings
 
   security:
     name: gitleaks + pip-audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -370,24 +441,16 @@ jobs:
           mkdir -p /tmp/gitleaks && tar -xzf /tmp/gitleaks.tar.gz -C /tmp/gitleaks
           /tmp/gitleaks/gitleaks detect --source . --no-git --config infra/gitleaks.toml -v
       - run: pip install -r requirements.txt pip-audit
-      # Three advisories cannot be fixed yet: gridstatus 0.36.0 (the ISO queue parsers, docs/20
-      # §3.1) pins cryptography<47, lxml~=5.3 and setuptools<79, so the patched releases do not
-      # resolve. The same release pins virtualenv<21 and the four virtualenv advisories
-      # (PYSEC-2026-4011..4014, fixed in 21.7.11+) are unreachable here: nothing imports virtualenv
-      # at runtime; gridstatus only declares it (2026-10-06). Ignored by id with the upstream pin as the reason, tracked in docs/00-PLAN.md;
-      # remove each line the day gridstatus relaxes the pin. starlette's advisories are fixed by
-      # the fastapi/starlette floor in requirements.txt (2026-09-15).
-      - run: |
-          pip-audit -r requirements.txt --strict \
-            --ignore-vuln PYSEC-2026-3552 --ignore-vuln PYSEC-2026-3553 --ignore-vuln PYSEC-2026-3554 \
-            --ignore-vuln GHSA-537c-gmf6-5ccf \
-            --ignore-vuln PYSEC-2026-87 \
-            --ignore-vuln PYSEC-2026-3447 \
-            --ignore-vuln PYSEC-2026-4011 --ignore-vuln PYSEC-2026-4012 --ignore-vuln PYSEC-2026-4013 --ignore-vuln PYSEC-2026-4014
+      # No ignores. The ten held open by gridstatus 0.36.0's cryptography<47, lxml~=5.3,
+      # setuptools<79 and virtualenv<21 pins (2026-09-15, 2026-10-06) went with the dependency when
+      # its queue parsers were vendored (pipeline/vendor/gridstatus, 2026-10-07). starlette's
+      # advisories are fixed by the fastapi/starlette floor in requirements.txt (2026-09-15).
+      - run: pip-audit -r requirements.txt --strict
 
   docs-link-check:
     name: docs link check (docs/04 O-3)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: internal cross-reference check (docs/*.md, README.md files)
@@ -422,6 +485,7 @@ jobs:
   images:
     name: build images (api, web, worker, browser-worker)
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -481,6 +545,7 @@ jobs:
   a11y-and-performance:
     name: axe + Lighthouse CI (docs/04 D-30, D-31)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Not executed against a live environment by this task (docs/60-deployment.md §9) — there is
     # no ephemeral preview host to point it at yet (that doc's §11 item 6). Defined so the gate
     # exists and is visibly not green-by-default; flip continue-on-error off once `preview-deploy`
@@ -552,6 +617,7 @@ jobs:
     name: preview deploy (stub — needs an environment secret)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: preview
     # A stub must never turn a PR red: with no PREVIEW_DEPLOY_TOKEN in the `preview` environment
     # the step below exits 0 after saying so, and continue-on-error keeps any other failure in

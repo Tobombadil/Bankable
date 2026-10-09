@@ -48,10 +48,12 @@
       <tr>
         <th>Type</th>
         <th>Status</th>
+        <th>Issue</th>
         <th>Subject</th>
         <th>Assignee</th>
         <th>Created</th>
         <th>Due</th>
+        <th><span class="visually-hidden">Open</span></th>
       </tr>
     </thead>
     <tbody>
@@ -59,9 +61,13 @@
       <tr>
         <td>{{ task.type | replace('_', ' ') }}</td>
         <td><span class="chip chip--{{ status_family.get(task.status, 'neutral') }}">{{ task.status | replace('_', ' ') }}</span></td>
+        <td>{{ task.issue_type | issue_type_label }}</td>
         <td>
-          {% if task.subject_id %}
-          <a href="/admin/records/{{ task.subject_id }}" class="mono">{{ task.subject_id }}</a>
+          {%- set subject_href = record_admin_href(task.subject_type, task.subject_id) %}
+          {% if subject_href %}
+          <a href="{{ subject_href }}" class="mono">{{ task.subject_id }}</a> <span class="admin-muted">({{ task.subject_type }})</span>
+          {% elif task.subject_id %}
+          <span class="mono">{{ task.subject_id }}</span> <span class="admin-muted">({{ task.subject_type }})</span>
           {% else %}
           <span class="admin-muted">&mdash;</span>
           {% endif %}

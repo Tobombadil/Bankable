@@ -19,22 +19,22 @@
     <table class="admin-table">
       <tbody>
         <tr><th scope="row">Kind</th><td>{{ opportunity.kind }}</td></tr>
-        <tr><th scope="row">Issuer</th><td>{{ opportunity.issuer.name_canonical if opportunity.issuer else "&mdash;" }}</td></tr>
-        <tr><th scope="row">Summary</th><td>{{ opportunity.summary or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Issuer</th><td>{{ opportunity.issuer.name_canonical if opportunity.issuer else '—' }}</td></tr>
+        <tr><th scope="row">Summary</th><td>{{ opportunity.summary or '—' }}</td></tr>
         <tr><th scope="row">Jurisdiction</th><td>{{ opportunity.jurisdiction }}</td></tr>
-        <tr><th scope="row">Technologies</th><td>{{ opportunity.technologies|join(", ") if opportunity.technologies else "&mdash;" }}</td></tr>
-        <tr><th scope="row">Capacity sought MW</th><td>{{ opportunity.capacity_sought_mw if opportunity.capacity_sought_mw is not none else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Technologies</th><td>{{ opportunity.technologies|join(", ") if opportunity.technologies else '—' }}</td></tr>
+        <tr><th scope="row">Capacity sought MW</th><td>{{ opportunity.capacity_sought_mw if opportunity.capacity_sought_mw is not none else '—' }}</td></tr>
         <tr><th scope="row">Budget</th><td>{% if opportunity.budget_amount is not none %}{{ opportunity.budget_amount }} {{ opportunity.budget_currency }}{% else %}&mdash;{% endif %}</td></tr>
-        <tr><th scope="row">Open at</th><td>{{ opportunity.open_at or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Due at</th><td>{{ opportunity.due_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Open at</th><td>{{ opportunity.open_at or '—' }}</td></tr>
+        <tr><th scope="row">Due at</th><td>{{ opportunity.due_at or '—' }}</td></tr>
         <tr><th scope="row">Status</th><td>{{ opportunity.status }}</td></tr>
-        <tr><th scope="row">Status raw</th><td>{{ opportunity.status_raw or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Status raw</th><td>{{ opportunity.status_raw or '—' }}</td></tr>
         <tr><th scope="row">Location</th><td>{% if opportunity.location %}{{ opportunity.location.county_name or opportunity.location.state_code or opportunity.location.country }} ({{ opportunity.location.precision }}){% else %}unplaced{% endif %}</td></tr>
         <tr><th scope="row">Identifiers</th><td class="mono">{{ opportunity.identifiers }}</td></tr>
         <tr><th scope="row">First seen</th><td>{{ opportunity.first_seen }}</td></tr>
         <tr><th scope="row">Last changed</th><td>{{ opportunity.last_changed }}</td></tr>
-        <tr><th scope="row">Published at</th><td>{{ opportunity.published_at or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Public at</th><td>{{ opportunity.public_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Published at</th><td>{{ opportunity.published_at or '—' }}</td></tr>
+        <tr><th scope="row">Public at</th><td>{{ opportunity.public_at or '—' }}</td></tr>
         <tr><th scope="row">Source count</th><td>{{ opportunity.source_count }}</td></tr>
         <tr><th scope="row">Created by</th><td>{{ opportunity.created_by }}</td></tr>
         <tr><th scope="row">Merged into</th><td>{% if opportunity.merged_into %}<a href="/admin/records/opportunities/{{ opportunity.merged_into }}">{{ opportunity.merged_into }}</a>{% else %}&mdash;{% endif %}</td></tr>
@@ -95,7 +95,7 @@
 <p class="admin-empty">No sources are linked to this opportunity.</p>
 {% endif %}
 
-<h2>Event history</h2>
+<h2 id="history">Event history</h2>
 {% if opportunity.events %}
 <div class="admin-table-wrap">
 <table class="admin-table">
@@ -106,8 +106,8 @@
       <td class="mono">{{ event.id }}<br>{{ event.event_type }}</td>
       <td>{{ event.observed_at }}</td>
       <td>{{ event.actor_type }}{% if event.actor_user_id %} ({{ event.actor_user_id }}){% endif %}</td>
-      <td>{{ event.reason or "&mdash;" }}</td>
-      <td>{{ event.changed_keys|join(", ") if event.changed_keys else "&mdash;" }}</td>
+      <td>{{ event.reason or '—' }}</td>
+      <td>{{ event.changed_keys|join(", ") if event.changed_keys else '—' }}</td>
     </tr>
     {% endfor %}
   </tbody>

@@ -43,6 +43,7 @@ from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
 from web.viewmodels import footer_build as vm_footer_build
+from web.viewmodels import source_freshness as vm_source_freshness
 
 router = APIRouter()
 
@@ -100,6 +101,8 @@ def get_lag_days(request: Request) -> dict[str, int]:
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
+# The header, tier notice and footer state how current the sources are (web/viewmodels.py).
+templates.env.globals["source_freshness"] = lambda request: vm_source_freshness(request, get_api(request))
 
 
 # ---------------------------------------------------------------------------------------- CSRF

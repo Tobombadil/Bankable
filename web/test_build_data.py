@@ -142,3 +142,14 @@ def test_freshly_retrieved_rows_are_visible_without_no_lag(tmp_path: Path) -> No
 
     previewed = build_all(**kwargs, no_lag=True)
     assert previewed.proposals_visible == stats.proposals_visible
+
+
+def test_static_gazetteer_keeps_a_county_and_the_independent_city_of_its_name_apart() -> None:
+    """2026-10-07: "Fairfax city" overwrote "Fairfax County" (both keyed ("VA", "FAIRFAX"))."""
+    from web.build_data import COUNTY_CENTROID_TSV, CountyGazetteer
+
+    gaz = CountyGazetteer.load(COUNTY_CENTROID_TSV)
+    county, city = gaz.county_point("VA", "Fairfax County"), gaz.county_point("VA", "Fairfax city")
+    assert county is not None and city is not None and county != city
+    assert gaz.county_point("VA", "Fairfax") == county
+    assert gaz.county_point("NV", "Carson City") is not None

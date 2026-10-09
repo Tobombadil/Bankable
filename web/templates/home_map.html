@@ -3,7 +3,7 @@
 {% block title %}Infraque{% endblock %}
 {% block meta_description %}{{ map_description }}{% endblock %}
 {% block extra_head %}
-<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+{{ m.cdn_style("maplibre_css") }}
 {% endblock %}
 {#- D-13 / docs/30 D-14: the in-view list is the map's keyboard and screen-reader equivalent, so a
     second skip link goes straight to it past the filters and the canvas. -#}
@@ -38,12 +38,8 @@
     <label for="mf-jurisdiction">Jurisdiction</label>
     <input id="mf-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX">
   </div>
-  <div class="filter-field filter-field--checkbox">
-    <label for="mf-include-withdrawn">
-      <input id="mf-include-withdrawn" type="checkbox" name="include_withdrawn" value="1" {% if include_withdrawn %}checked{% endif %}>
-      Include withdrawn &amp; cancelled
-    </label>
-  </div>
+  {#- UX-1: which lifecycle states to draw (default: active), the same control as the list's. -#}
+  {{ m.status_filter("mf", status_choices) }}
   <div class="filter-field filter-field--checkbox">
     <label for="mf-layer-plants">
       <input id="mf-layer-plants" type="checkbox" name="layer_plants" value="1">
@@ -115,7 +111,7 @@
   <div class="map-error" id="map-error" role="alert" hidden></div>
   <div id="map-notice">{% include "_map_notice.html" %}</div>
   <a class="map-status__save" href="{{ save_alert_href }}" id="mf-save-alert">Save this search as an alert</a>
-  {{ m.view_switch("map", "/", list_href) }}
+  {{ m.view_switch("map", "/", list_href, feed_href) }}
 </div>
 
 <div class="map-layout">
@@ -151,6 +147,8 @@
       <span class="legend__item" data-legend-family="success" style="color:var(--family-success-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-success"></use></svg> Built</span>
       <span class="legend__item" data-legend-family="danger" style="color:var(--family-danger-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-danger"></use></svg> Withdrawn or cancelled</span>
       <span class="legend__note">A solid ring with a number is a cluster of proposals, showing its most common status.</span>
+      {#- UX-5: the grey areas were unexplained. map.js shows this row while any region is drawn. -#}
+      <span class="legend__item legend__item--region" id="region-legend" hidden><svg class="legend__sample" width="28" height="12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" fill="currentColor" fill-opacity="0.3" stroke="currentColor" stroke-width="1"/><rect x="15" y="1" width="12" height="10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 2"/></svg> Proposals the source places only by area: a shaded county (darker holds more) or a dashed state or country outline; the number is how many</span>
     </div>
     {# One legend group per existing-asset type; map.js hides the groups whose type is not
        checked, so the legend only ever names what is drawn (docs/31 §1.6). Shape + label carry
@@ -227,10 +225,10 @@
 </template>
 {% endblock %}
 {% block extra_scripts %}
-<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+{{ m.cdn_script("maplibre_js") }}
 {% if tile_mode == "pmtiles" %}
-<script src="https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/dist/pmtiles.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/dist/basemaps.js"></script>
+{{ m.cdn_script("pmtiles_js") }}
+{{ m.cdn_script("basemaps_js") }}
 {% endif %}
 <script src="/static/js/basemap.js?v={{ asset_version }}"></script>
 <script src="/static/js/map.js?v={{ asset_version }}"></script>

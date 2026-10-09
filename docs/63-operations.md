@@ -199,6 +199,16 @@ position, recorded as an assumption pending the owner's answer (`docs/15` §4):
 = fail`, `hold_reasons` are recorded, and the scheduled path records the run as `partial`, which sets
 `source.health = degraded` without counting as a failure (`infra/scheduler/jobs.py::_update_health`).
 
+**A hold stays held until it is released (built 2026-10-07, audit DATA-2).** A later fetch of the same bytes
+is not `unchanged` while the newest snapshot run is still held: it is re-checked from the stored object (no
+second copy of the bytes) and held again, with `rechecked_hold` naming the run it repeats
+(`pipeline/connectors/runner.py`, "A hold stays held"). Before, the next identical fetch ended `unchanged`,
+health went back to `ok` and freshness to `fresh` while the site kept serving the pre-hold frame: a monthly
+register held on a real schema change would have looked green for a month. Now health stays `degraded`,
+`last_success_at` stays at the last promoted run, and freshness ages from it and alerts at twice the poll
+allowance (§2.1, `infra/scheduler/freshness.py`). Release the **newest** held run: older ones are superseded by
+it (step 5). A release returns a source that only the hold degraded to `ok` (`jobs.py::_mark_run_released`).
+
 **Releasing a hold (built 2026-09-27, lane E12; operable once deployed):** an admin action, not a task-queue
 item. Runbook:
 1. Admin → Sources → the source → the held run (`partial`, DQ `fail`). Read `hold_reasons`, then inspect the
@@ -218,6 +228,35 @@ item. Runbook:
 the same need (a named human, a reason, an audit row) without a new task type; that deviation is recorded in the
 `docs/00-PLAN.md` decisions log (2026-09-27); the release semantics are `docs/21` §9 D-9.
 
+**Restating stored output after a parser fix (built 2026-10-07, audit DATA-1/RES-1).** A merged parser or
+status-map fix reaches a source only when that source next runs (`docs/22` §8.4). Until then the site serves
+frames the old code wrote: on 2026-10-07 ERCOT still showed 580 `built` (117 under the 2026-09-30 rule) and
+NESO the cumulative-TEC capacity (731,514 MW; 680,307 MW under the 2026-10-06 rule). After any deploy that
+changes parsers, and whenever the scheduler has not been running:
+1. `make reparse` (or `python -m pipeline.connectors run --all --reparse`; `DATA_DIR=…` for another root).
+   It reads each source's latest stored snapshot, never fetches, and skips (`reparse skipped`) a source with
+   no snapshot or one whose snapshot the current parser already read, so a second run writes nothing.
+2. Read each `result` line: `events_emitted` must be 0 (a restatement is not news, `docs/22` §8.1–§8.4); the
+   run record's `parser_restated.events_suppressed` says how many the restatement kept out of the feed.
+3. Load the restated frames: the scheduler's `load_source`, or restart `web.dev_up` locally (`docs/61` §4a).
+Measured on the shared data root 2026-10-07: 17 sources restated, 0 events emitted; suppressed ERCOT 475
+`status_change`, NESO 136 `capacity_change`, Class VI 1 `status_change`, NYISO 4 `new` + 4 `removed` (suffix
+keys); second pass: 17 `up_to_date`, 1 `no_snapshot` (GHGRP, context-loaded), 0 files written.
+
+**Catch-up clamp dates (measured 2026-10-07, audit DATA-1).** An incremental source fetches from its last
+promoted run minus its overlap, clamped to 60 days (`base.py` `max_catchup_days`). With the last promoted
+fetches on 2026-09-13, the clamp starts dropping notices for FERC eLibrary after about **2026-11-05** (7-day
+overlap) and for TED, Find a Tender and World Bank after about **2026-11-11** (1-day overlap). The scheduler has
+to be running, or those sources run by hand, before then; a reparse does not move a watermark.
+
+**Opportunity deadlines (built 2026-10-07, audit DATA-14).** An `open` notice whose `due_at` has passed is
+served `closed` within the hour, whether or not its source has run: each opportunity load closes what it wrote,
+and the hourly `deadline_tick` (`infra/scheduler/app.py`, minute 23) sweeps the store
+(`services/ingest/opportunity_status.py`; by hand: `python -m services.ingest.opportunity_status`). Neither
+writes an event; the source's next run publishes the `status_change` (`docs/22` §8.2). On the 2026-10-07 frames
+this closes 123 notices (TED 70, World Bank 22, grants.gov 31). The 45 undated `open` notices (TED 29,
+grants.gov 16) keep their stated status: no rule closes an undated notice.
+
 **Baselines (measured):** every connector has one verified live run (§2.1 last column). Row-drift and
 null-spike gates only bite from the second and second-to-sixth runs respectively, so the first production week
 is `info`, not protection. Sandbox results on 2026-09-12: 9 pass, NYISO warn (2 duplicated queue positions,
@@ -226,7 +265,8 @@ is `info`, not protection. Sandbox results on 2026-09-12: 9 pass, NYISO warn (2 
 ### 4.2 Source health and the admin screen
 
 - **Vocabulary** (`docs/21` §4.1, `infra/scheduler/jobs.py::_update_health`): `ok | degraded | failing |
-  blocked | paused`. `ok`/`unchanged` reset the counter; `partial` (a DQ hold) degrades; `failed`/`budget`
+  blocked | paused`. `ok`/`unchanged` reset the counter; `partial` (a DQ hold, and every identical refetch of
+  it until it is released, §4.1) degrades; `failed`/`budget`
   increment `consecutive_failures` and flip to `failing` at `FAILING_AFTER = 3` (US-904 AC3); `blocked` is
   its own state; `paused` is never overwritten by a run.
 - **Screen** (`web/admin/sources.py`, `/admin/sources`): one row per registered source with the health chip
@@ -303,11 +343,11 @@ repo has carried it as an open action past its own stated timing. Where the repo
 
 | Next date | Obligation | Cadence | Source | Owner |
 |---|---|---|---|---|
-| every Monday | Weekly social report 08:00 ET; weekly pipeline report; gridstatus release check; opt-out verification and CRM dedupe | weekly | `docs/32` §6.2; `docs/04` G-7, G-11; PLAN 2026-09-15 | coordinator drafts, owner reads |
+| every Monday | Weekly social report 08:00 ET; weekly pipeline report; opt-out verification and CRM dedupe | weekly | `docs/32` §6.2; `docs/04` G-7, G-11 | coordinator drafts, owner reads |
 | daily 06:17 UTC | Connector fixture suite | daily | `connectors-nightly.yml` | GitHub Actions; owner checks weekly |
 | 2026-10-01, then the 1st | Basemap refresh workflow fires (uploads nothing until R2 secrets exist) | monthly | `basemap.yml` | devops-engineer |
 | 2026-10-12 | First sessions reach the 30-day retention age (DA-10); no retention job exists — note only | rolling | `docs/04` DA-10 | backend-developer |
-| **2026-10-15** | gridstatus decision: if no release relaxes the `cryptography<47`/`lxml~=5.3`/`setuptools<79` pins, vendor the two parsers and drop the six `pip-audit` ignores | once | PLAN 2026-09-15; `ci.yml` 349–352 | coordinator |
+| ~~2026-10-15~~ **done 2026-10-07** | gridstatus decision: no release relaxed the `cryptography<47`/`lxml~=5.3`/`setuptools<79`/`virtualenv<21` pins, so the three queue parsers in use (CAISO, ERCOT, NYISO — not two) were vendored into `pipeline/vendor/gridstatus` and the dependency dropped; all ten `pip-audit` ignores and all ten `.trivyignore` ids removed | once | PLAN 2026-09-15, 2026-10-06; `pipeline/vendor/gridstatus/README.md` | coordinator |
 | 2026-10 (October) | EPA GHGRP reporting-year release — run-now, because the annual bucket fires in January (§2.1) | annual | `data/sources.yaml` `us.epa.ghgrp` | data-engineer |
 | 2026-10/11 (Q3/Q4) | EIA-860 final release for the prior year — run-now for the same reason | annual | `us.eia.860` | data-engineer |
 | **2026-10-26** | First monthly operations review (§7.3): cost vs `docs/60` §4, the risk register, the owner-action queue, this calendar | monthly | this document | owner + coordinator |
@@ -399,8 +439,8 @@ Written for one person. Times are estimates, not measurements. Until the first d
 ### 7.2 Weekly, Monday (≈ 60 minutes)
 
 1. † `connectors-nightly` runs for the last seven days green; a red run is a parser fix PR this week.
-2. † gridstatus releases: has a release relaxed a pin? If yes, drop the matching `--ignore-vuln` in `ci.yml`.
-   Decision date 2026-10-15 stands regardless.
+2. † `pip-audit` and the image scan run with no ignores (since 2026-10-07); a new one needs a reason, a removal
+   condition and a decisions-log row. (The weekly gridstatus release check ended when its parsers were vendored.)
 3. Read the weekly social report (§6) and the pipeline report; note every `wrong_fact`.
 4. Coverage counts (`/coverage`): registered / with rows / withheld; any `vintage` that moved; the `load`
    technology still at zero rows.
@@ -476,3 +516,5 @@ Stated so that nothing above is read as running.
 | Date | Change |
 |---|---|
 | 2026-09-26 | v1: SLAs labelled configured/measured/target; support model for a solo owner with proposed hours; DQ operations from `dq.py`, the scheduler's health writer and the admin screen; overdue owner actions and the dated calendar; social cadence and an empty channel register; daily/weekly/monthly/quarterly checklists; the not-yet-operable table |
+| 2026-10-07 | §5.2 and §7.2: the gridstatus decision is done (three parsers vendored, dependency dropped, no `pip-audit` or image-scan ignores left); the weekly gridstatus release check is retired |
+| 2026-10-07 | §4.1: a hold stays held across identical refetches until released; `make reparse` runbook with the measured restatement; catch-up clamp dates; hourly opportunity deadline sweep. §4.2: `partial` covers held refetches (audit DATA-1, DATA-2, DATA-14; RES-1) |

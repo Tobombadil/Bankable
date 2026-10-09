@@ -147,8 +147,12 @@ full record. The drawer is `role="dialog"` with focus trap; closing returns focu
 AC1 without leaving the map.
 
 **D-13 Map performance budget** (measured on the seeded dataset, ≥ 20,000 placed records): first map paint
-within the page LCP budget (D-31); a viewport request returns ≤ 2,000 features and ≤ 300 KB gzipped; pan/zoom
-to updated markers ≤ 200 ms; canvas/WebGL rendering (MapLibre GL JS or equivalent), never one DOM node per
+within the page LCP budget (D-31); a viewport request returns ≤ 2,000 features and ≤ 300 KB gzipped, the asset
+layer included (since 2026-10-07 lines below 5 px at the zoom are not drawn and are counted instead: CONUS
+z4 154 KB, Texas z7 286 KB on the full dev store); pan/zoom to updated markers ≤ 200 ms end to end, of which
+the API's share is E-16's `/geo` budget (≤ 400 ms p95 for the first request per filter set after a data
+change; a pan with the same filters is a cache hit, 30-100 ms measured) — the one API number, recorded
+2026-10-07 after the plan, the README and the CI test had stated 400, 500 and 1,000 ms; canvas/WebGL rendering (MapLibre GL JS or equivalent), never one DOM node per
 marker above 500; map bundle ≤ 350 KB gzipped including the library (re-based from 250 KB on 2026-09-15: MapLibre GL 5.24 alone measures 276 KB, the page script 9.4 KB and the PMTiles scripts 14.6 KB, so the shipped map is ~300 KB and 350 KB leaves room for one more layer before the next decision); basemap tiles self-hosted or from a
 provider whose terms permit commercial use, with attribution rendered (OpenStreetMap ODbL,
 https://www.openstreetmap.org/copyright). *Why:* the heaviest page is the one the owner made primary.
@@ -347,7 +351,7 @@ enforce the rest if the code stays typed.
 
 **E-5 Lint and type gates.** `ruff` rule sets `E, F, W, I, N, UP, B, S, C4, DTZ, T20, RUF`, line length 110,
 `ruff format`; `mypy --strict` on `pipeline/` and `services/`, `ignore_missing_imports` only per named untyped
-module (gridstatus) in `pyproject.toml`; `# type: ignore[code]` only with a code and a reason. Clean before
+module (pandas, yaml, openpyxl, requests, geoalchemy2, alembic) in `pyproject.toml`; `# type: ignore[code]` only with a code and a reason. Clean before
 commit (`CLAUDE.md`), blocking in CI (O-3). *Why:* strict typing is the cheapest review the team has.
 
 ### 3.3 Testing pyramid (named minimums)
@@ -364,9 +368,25 @@ licence-gate and redaction modules (`docs/21` §5.4, §6.6, §8); reported per p
 The 100 % figure is measured with no `# pragma: no cover` in the gate module — an excluded line is a
 lowered floor wearing a green badge, so a branch no test can reach is either given a test or reported as
 unreachable with its evidence, never excluded. Enforced for `services/api/visibility.py` since 2026-09-19
-(`.github/workflows/ci.yml`, job `test-core`: 45 statements, 2 branches, nothing excluded, `--fail-under=100`
-without `continue-on-error`). The licence-gate and redaction modules have no such step yet — they are inside
-the 80 % floor and nothing else; naming them here is the standard, not the current state.
+(`.github/workflows/ci.yml`, job `test-core`, `make coverage-gate`: nothing excluded, `--fail-under=100`
+without `continue-on-error`). The licence-gate and redaction modules are not at 100 % yet, so they are not
+gated at 100 %. Naming them here is the standard, not the current state.
+*As measured (2026-10-07, audit QA-7).*
+- **What the figure counts.** It covers production code only. `pyproject.toml` `[tool.coverage.run]` omits
+  test modules and conftest files, which used to make up 13,309 of the 44,250 statements counted, at 98.9 %.
+  Coverage is branch coverage, measured inside the pytest-xdist workers by pytest-cov.
+- **The 80 % floor.** It now spans `pipeline/`, `services/` and `infra/`: 89.4 %, of which `pipeline/` and
+  `services/` alone are 89.5 % (the old figure, test modules included, was 92 %).
+- **Per-package floors.** `make coverage-floors` sets one for each package and for each gate and redaction
+  module. Each is a ratchet: the 2026-10-07 figure rounded down, minus one point. A drop below a floor
+  fails `test-core`. Two are below the 80 % standard and may only go up: `pipeline/*.py` at 76.9 % (top-level
+  `resolve`, `normalize`, `diff`, `link_dockets` and `backfill_ferc`, the last at 30.5 %) and
+  `services/ingest/personal_data.py` at 77.9 %.
+- **The other gate and redaction modules.** Their figures are `personal_names.py` 88.4 %,
+  `withheld_names.py` 96.5 %, `merged_redirect.py` 97.4 %, `serialize.py` 96.2 % and
+  `visibility_audit/run.py` 90.5 %.
+- **Web.** `web/` is measured in `test-web`. The `coverage` job combines that data with the core data and
+  holds the whole product, and `web/` on its own, to 80 % as well.
 *Why:* the gate modules are where a miss is a legal event.
 
 **E-8 Contract tests against OpenAPI 3.1.** `api/openapi.yaml` (https://spec.openapis.org/oas/v3.1.1) is
@@ -398,13 +418,54 @@ switch, remove in separate releases). *Why:* rollback (O-5) depends on it.
 **E-12 DQ gates (DA-6) and evaluations (DA-9) run in CI** against fixtures and fail on threshold regression; no
 test is skipped or quarantined to go green (qa-engineer brief). *Why:* a flaky gate is no gate.
 
+**The suite, as run (2026-10-07; audit QA-1 to QA-6).** One definition, in the `Makefile`, which CI runs
+verbatim:
+- **`make test-core`** runs `tests pipeline services infra`, the same paths as `pyproject.toml`'s
+  `testpaths`, so a bare `pytest` collects the same tests. It runs in parallel (`-n auto --dist loadgroup`,
+  one worker per module) under pytest-cov and leaves out the `latency` tests.
+- **`make test-perf`** runs those `latency` tests serially and without coverage, in their own CI job
+  (`perf`). They are the wall-clock budgets listed in the root `conftest.py::LATENCY_TESTS`. A budget
+  measured on a loaded, traced process gates nothing: the same geo calls took 160–390 ms plain and
+  535–759 ms under coverage.
+- **`make test-web`** runs `web/` alone, in parallel. The two browser modules share one worker
+  (`conftest.py::BROWSER_TESTS`).
+- **Skips are named.** Every run lists each skip and its reason (`-rs`), and `--strict-markers` is on.
+
+Suite-wide hooks in the root `conftest.py`:
+- **Offline.** A socket guard refuses any non-loopback connection unless the test is marked `network`,
+  and proxy variables are dropped for the run. This enforces E-13 item 4 rather than trusting it.
+- **Cheap Argon2.** Passwords are hashed with Argon2id at its smallest cost, except in tests marked
+  `production_argon2`. `tests/test_suite_guards.py` pins production at RFC 9106 low-memory or stronger.
+- **Fresh databases.** Each test's database is a copy of a per-process schema template, and every test
+  engine is disposed of at teardown (`tests/db_template.py`).
+- **No retained engines.** The `client` fixtures drop their reference to the sessionmaker at teardown,
+  because FastAPI's process-wide dependency cache (`lru_cache(maxsize=4096)`) keeps every override
+  closure alive. On 245 API tests, live in-memory SQLite connections fell from 222 to 59 and peak RSS
+  from 933 MB to 562 MB.
+
+The browser tests serve MapLibre from recorded copies in `tests/fixtures/cdn/`, checked against their SHA-256.
+
+**Tests that run nowhere in CI, and why** (measured 2026-10-07):
+
+| Tests | Why not in CI |
+|---|---|
+| `tests/test_connector_store_backends.py`, 10 `live` cases | They need an S3-compatible server. `minio/minio` is gone from Docker Hub (404). moto rejects the test's region-less `CreateBucket` under region `auto` (9 errors, 1 failure; the other 49 pass). Schedule them against a real R2 test bucket once credentials exist (docs/60 §11 item 1), or make the fixture pass a location constraint. |
+| `tests/test_api_geo_performance.py` (5), `tests/test_technology_classifier.py`, `services/ingest/test_assets.py`, `pipeline/context/test_eia_atlas.py` real-data cases | They need the git-ignored `data/normalized` store, which CI does not have. In CI, the full-store synthetic budget (`tests/test_api_geo_performance_full_store.py`, `perf` job) stands in for the geo budget. |
+| `web/test_default_view.py` `real` parametrisation (15, plus 4 that also skip locally because the real store holds no `cancelled` proposal) | The same `data/normalized` dependency. The committed-data parametrisation runs in `test-web`. |
+| `pipeline/connectors/us_tx_rrc_class_vi/test_connector.py` real PDF | The RRC list is `reuse: unknown` and must never be committed (`tests/fixtures/local/`). |
+| `web/test_e2e.py::test_pmtiles_basemap_renders_real_labels_end_to_end` | It needs an extracted PMTiles archive and live Protomaps and jsdelivr hosts. It is marked `network`. |
+
+The Postgres cases (`tests/test_postgres.py`, `services/db/test_types_postgis.py` and, since 2026-10-07,
+`infra/scheduler/test_queue_schema.py`) skip in `test-core` and run in the `migrations` job.
+
 ### 3.4 Code review
 
 **E-13 Review checklist** (ticked per PR; "n/a" needs a reason):
 1. Story/AC ids named; the change does what the AC says and nothing else.
 2. Provenance quartet on every new stored record type; visibility predicate on every new read path.
 3. Nothing raw, precise-geo or identifying from a `restricted`/`unknown` source reaches a non-admin surface.
-4. Tests at the right level (E-6…E-11); fixtures recorded, not live.
+4. Tests at the right level (E-6…E-11); fixtures recorded, not live (the root `conftest.py` socket guard fails
+   a test that opens a non-loopback connection without the `network` marker).
 5. Types and lint clean; no new `type: ignore` without a code; errors RFC 9457 with a `docs/23` §8 code.
 6. Logs structured; no secrets, personal data, prompts or model identifiers (E-18).
 7. Migration reversible or expand/contract; index changes justified against `docs/21` §5.2.
@@ -427,10 +488,15 @@ message, trailer, branch name, code comment, docstring, fixture, log line, test 
 attribution is recorded (`docs/03` §6). *Why:* the guardrail is absolute and covers trailers.
 
 **E-16 Performance budgets** (CI against the seeded 10⁵-record database; production dashboards): API p95 — list
-≤ 300 ms, detail ≤ 200 ms, search `q=` ≤ 500 ms (US-103 AC3), `/geo` ≤ 400 ms, bulk first byte ≤ 1 s; search
+≤ 300 ms, detail ≤ 200 ms, search `q=` ≤ 500 ms (US-103 AC3), `/geo` ≤ 400 ms (D-13's API share; the only geo
+number), bulk first byte ≤ 1 s; search
 p95 > 300 ms sustained a week triggers `docs/20` §13 step 4; pages per D-31; `fetch` jobs ≤ 10 min, browser jobs
 ≤ 5 min (`docs/20` §4.2). A > 10 % regression needs a PR comment and, if accepted, an exception (R-6). *Why:*
-budgets without measurement are wishes.
+budgets without measurement are wishes. *CI and machine speed (2026-10-07):* an absolute
+threshold tight enough to catch a regression fails on a slower runner, so the geo guard
+(`tests/test_api_geo_performance_full_store.py`) asserts each cold call's ratio to a fixed CPU workload timed
+in the same run stays under 1.6x the ratio recorded on the dev VM, which fails a 2x regression on any runner;
+the 400 ms itself is checked by the measurement procedure in services/README.md.
 
 **E-17 Error handling.** API errors are RFC 9457 (https://www.rfc-editor.org/rfc/rfc9457) exactly as `docs/23`
 §8; a new `code` edits `docs/23` §8 first. Internally, typed exceptions per layer (`ConnectorError`, `ParseError`,
@@ -584,7 +650,8 @@ at `/docs` is the public documentation; every operation carries `x-tier`, `x-sto
 
 **API-2 Cursor pagination only** (`docs/23` §7): `limit` default 50, max 200 (1,000 on `/bulk/*`); opaque cursor
 valid 24 h; `page.{next_cursor, prev_cursor, has_more}`; `meta.total` only with `include=count`, honest
-`total_is_estimate` above 10,000; no offset parameter exists. *Why:* concurrent ingestion (US-101 AC2).
+`total_is_estimate` (every count is exact today, so `false`); a `limit` outside its range and an `include` value
+the operation does not implement are `400 validation_error`, never clamped or ignored; no offset parameter exists. *Why:* concurrent ingestion (US-101 AC2).
 
 **API-3 Filter grammar** is `docs/23` §7 exactly: `field=value`, `field=a,b` (OR within facet), `field[op]=value`
 with `gte, lte, gt, lt, from, to`; facets AND; `sort=-field,field` from the per-resource allowlist; unknown
@@ -706,10 +773,21 @@ secrets, one image with per-process entrypoints (`docs/20` §4.1); no console-cl
 `pytest` unit + contract + integration (E-6…E-9, E-12) with coverage floors (E-7); OpenAPI generated == committed
 (E-8); migration up/down (E-11); `import-linter` (E-2); `gitleaks`; `pip-audit`; image build + `trivy`;
 licence-gate fixture (US-906); `axe` zero serious/critical and Lighthouse CI budgets on the three key pages
-(D-30, D-31); docs link check. E2E smoke (E-10) runs on preview and post-deploy. *Why:* "lint before commit" is
-a habit; a required check is a gate.
+(D-30, D-31); docs link check. E2E smoke (E-10) runs on preview and post-deploy.
+*As built (2026-10-07).*
+- **Test jobs.** The pytest gates are `test-core`, `perf` (the latency budgets, serial and without
+  coverage), `test-web` and `coverage` (core and web data combined). Name `perf` and `coverage` as
+  required checks beside `test-core` and `test-web`.
+- **Runs.** A newer push to a PR cancels the older run. Pushes to `main` are never cancelled. Every job
+  has a `timeout-minutes`.
+- **Timing.** Before the change, the core tests took 620–1,180 s in CI (p50 1,015 s, last 30 runs) and
+  1,572 s locally, serial under coverage. After it they took 469 s locally (`make test-core`, 4 vCPUs shared
+  with other work at load 3.4–4.1). The first CI runs will confirm the CI figure. The target is a 5–7 min job.
+*Why:* "lint before commit" is a habit; a required check is a gate.
 
-**O-4 Deploy.** Tag on `main` → image built once, pushed by digest → `docker compose up` over SSH per VM in order
+**O-4 Deploy.** Tag on `main` → image built once, pushed by digest (only from a commit whose `ci` run
+succeeded: `release.yml` runs on `workflow_run`, or checks a tag's commit, and moves `latest` only to
+main's tip; audit 2026-10-07 OPS-3) → `docker compose up` over SSH per VM in order
 `worker-*` (drain, stop), `api`/`web` (behind the edge cache), `scheduler`; migrations run before the new image
 starts (expand phase), never at app startup; each deploy recorded (tag, digest, who, when, migration ids) in the
 deploy log under `infra/`. *Why:* `docs/20` §12 — public pages serve from the edge throughout.

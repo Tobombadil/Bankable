@@ -39,6 +39,7 @@
 </table>
 </div>
 {{ m.pager(prev_cursor, next_cursor, querystring, "/organizations") }}
+{{ m.credits_line([], empty=credits_note) }}
 {% else %}
 <div class="empty-state">
   <p>No companies match this search.</p>

@@ -333,3 +333,34 @@ def merge_touching_lines(
             chains.append((i, part))
     chains.sort(key=lambda item: item[0])
     return [coords for _, coords in chains]
+
+
+# ------------------------------------------------------------------ county names
+#: Census county equivalents outside Virginia whose Census name is a city's bare name. Virginia's
+#: are every code from 51510 up. Carson City (32510) is left out: its Census name already says so.
+_INDEPENDENT_CITY_GEOIDS = frozenset({"24510", "29510"})
+
+
+def is_independent_city(geoid: object) -> bool:
+    """True for a FIPS code that names an independent city: Virginia 51510 and above, Baltimore city
+    (24510), St. Louis city (29510). Each shares its bare name with a county (Fairfax city 51600,
+    Fairfax County 51059)."""
+    g = str(geoid or "").strip()
+    if len(g) != 5 or not g.isdigit():
+        return False
+    return (g[:2] == "51" and int(g[2:]) >= 510) or g in _INDEPENDENT_CITY_GEOIDS
+
+
+def county_label(geoid: object, census_name: str | None) -> str | None:
+    """One spelling per county FIPS code, shared by every connector that derives a county from a
+    point. A county is its bare Census name ("Loudoun"), as EIA-860M and ICIS-Air write it. An
+    independent city is "<Name> city" ("Fairfax city"), the Census Gazetteer's own spelling, so that
+    it never reads as the county of the same name. Before 2026-10-07 Virginia DEQ wrote
+    "Loudoun County" and ICIS-Air wrote "Loudoun", which split one county in two on every page that
+    shows the county text."""
+    name = (census_name or "").strip()
+    if not name:
+        return None
+    if is_independent_city(geoid) and not name.lower().endswith(" city"):
+        return f"{name} city"
+    return name

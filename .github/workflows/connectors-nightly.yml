@@ -21,6 +21,7 @@ jobs:
   connector-fixtures-nightly:
     name: connector suite against fixtures (never live)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,9 +30,9 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: run the connector suite (parse()/normalize() only, docs/20 §3.1)
-        run: pytest pipeline -v
+        run: pytest pipeline
       - name: cadence bucketing (infra/scheduler) stays in sync with the live registry
-        run: pytest infra/scheduler -v
+        run: pytest infra/scheduler
         # Catches a new `data/sources.yaml` cadence string that infra/scheduler/cadence.py's
         # keyword table has not been taught yet (it fails safe to weekly rather than erroring, but
         # this test makes that visible instead of silent — infra/scheduler/test_cadence.py's

@@ -17,6 +17,7 @@ module imports them from there rather than owning a copy.
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import math
 import re
@@ -36,14 +37,23 @@ from sqlalchemy.orm import (
     selectinload,
 )
 
+from services.api import geo_cache
 from services.api.auth import AuthContext, get_auth_context
 from services.api.common import WEB_HOST
 from services.api.deps import get_db
 from services.api.errors import validation_error
 from services.api.geo import GeoLicence, GeoRow, build_geo_feature_collection
 from services.api.merged_redirect import merged_redirect_or_404
-from services.api.pagination import clamp_limit, paginate
-from services.api.params import LIST_COMMON, check_allowed, csv_param, int_param, sort_spec, wants_csv
+from services.api.pagination import paginate
+from services.api.params import (
+    LIST_COMMON,
+    check_allowed,
+    csv_param,
+    include_values,
+    page_limit,
+    sort_spec,
+    wants_csv,
+)
 from services.api.proposal_members import merge_history, proposal_members
 from services.api.serialize import (
     build_envelope,
@@ -135,6 +145,21 @@ PROPOSAL_FILTERS = {
 #: refuses it with a message pointing at `last_changed[from]` (services/api/pro.py).
 SYNC_FILTERS = {"updated_since"}
 PROPOSAL_SORT_ALLOWLIST = {"last_changed", "first_seen", "capacity_mw", "name_canonical"}
+#: The `include` expansions a list implements (docs/23 §7): `count` only. `sources`, `matches` and
+#: `events` are not built on any list, so they are refused, never ignored.
+LIST_INCLUDES = frozenset({"count"})
+#: api/openapi.yaml `Include` on the two record details.
+DETAIL_INCLUDES = frozenset({"count", "sources", "matches", "events"})
+
+
+def exact_total(db: Session, stmt: sa.Select[Any]) -> dict[str, Any]:
+    """`meta.total` and `meta.total_is_estimate` for `include=count` (docs/23 §7). The count is
+    exact at every size, so the flag is `false`; it said `true` above 10,000 for a count that was
+    still exact (backend audit 2026-10-07, API-6). It turns true only if an estimate path (the
+    Postgres planner's row estimate) is ever served instead."""
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    return {"total": total, "total_is_estimate": False}
+
 
 #: ADR 0008, docs/21 §3.7: the three region-grade precisions a `placement=region` filter expands
 #: to, and the `none` grade's own precision value. Mirrors `services/api/geo.py::REGION_PRECISIONS`
@@ -189,10 +214,51 @@ def visible_organization_ids(values: list[str]) -> sa.Select[Any]:
     so the filter cannot be used to confirm a hidden organisation exists or which records it is
     linked to (docs/21 §8 item 3; the 2026-09-27 takedown decision in docs/00-PLAN.md). The match is
     on the exact organisation, not its ownership tree (`/v1/organizations/{id}/proposals?scope=`
-    widens) and not a merge survivor (the detail route does not follow merges either)."""
+    widens) and not a merge survivor (the detail route does not follow merges either).
+
+    A value may be the organisation's public id or its slug (the id in the site's URLs): until
+    2026-10-07 only the id matched, so `sponsor_id=fermi-america` answered an empty page and an
+    alert saved with it never fired (expert review 2026-10-07). A slug is resolved through the same
+    visibility filter, so a hidden organisation's slug selects nothing, as its id does."""
     return select(Organization.id).where(
-        Organization.public_id.in_(values), *organization_visibility_filter()
+        sa.or_(Organization.public_id.in_(values), Organization.slug.in_(values)),
+        *organization_visibility_filter(),
     )
+
+
+#: The stored-query keys that name organisations (`visible_organization_ids`).
+ORGANIZATION_FILTER_KEYS = ("sponsor_id", "issuer_id")
+
+
+def resolve_organization_refs(db: Session, query: dict[str, Any], instance: str) -> None:
+    """For a query being stored (saved search, webhook): rewrite, in place, every `sponsor_id`/
+    `issuer_id` value as the public id of the visible organisation it names (by id or slug), so the
+    alert matcher (`services/alerts/matching.py`, which compares public ids) and the list select the
+    same records; a value that names no visible organisation is a `400 validation_error`. Until
+    2026-10-07 a slug was stored as given and the alert matched nothing (expert review). The same
+    answer for a hidden organisation as for one that never existed, so the refusal is no oracle."""
+    for key in ORGANIZATION_FILTER_KEYS:
+        raw = query.get(key)
+        if raw is None:
+            continue
+        values = csv_param(raw) if isinstance(raw, str) else [str(v) for v in raw]
+        rows = db.execute(
+            select(Organization.public_id, Organization.slug).where(
+                sa.or_(Organization.public_id.in_(values), Organization.slug.in_(values)),
+                *organization_visibility_filter(),
+            )
+        ).all()
+        known: dict[str, str] = {}
+        for pid, slug in rows:
+            known[str(pid)] = str(pid)
+            known[str(slug)] = str(pid)
+        unknown = [v for v in values if v not in known]
+        if unknown:
+            names = ", ".join(unknown)
+            message = f"{names} names no published organisation; use an id or slug from /v1/organizations"
+            raise validation_error(key, message, instance)
+        resolved = [known[v] for v in values]
+        query[key] = ",".join(resolved) if isinstance(raw, str) else resolved
 
 
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
@@ -641,8 +707,12 @@ class _GeoFeatures(NamedTuple):
 
 def _proposal_geo_features(db: Session, request: Request, entitlement: str = "public") -> _GeoFeatures:
     """Totals, drawable rows and credited ids for `GET /v1/proposals/geo`, all from the one
-    `_proposal_geo_rows` query."""
+    `_proposal_geo_rows` query. A hidden source no proposal can be served from (registry-only:
+    no link, no placement, named in no `field_provenance`) is left out of the hidden set, which
+    changes nothing served and skips the per-row JSON clauses (backend audit 2026-10-07, PERF-2a;
+    `geo_cache.unused_hidden_sources`)."""
     hidden_sources = source_split(db, entitlement)[1]
+    hidden_sources = hidden_sources - geo_cache.unused_hidden_sources(db, hidden_sources)
     result = db.connection().execute(_proposal_geo_rows(request, entitlement, hidden_sources=hidden_sources))
     # Executed on the session's connection, not through `Session.execute`: the ORM path fetches every
     # row before the first is returned, and ~10,000 `Row`s held for the whole call were a measurable
@@ -758,7 +828,8 @@ def list_proposals(
     check_allowed(request, LIST_COMMON | PROPOSAL_FILTERS | SYNC_FILTERS)
     if wants_csv(request):
         return _csv_list_response(request, db, ctx, "proposal")
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
+    include = include_values(request, LIST_INCLUDES)
     field, ascending = sort_spec(request, PROPOSAL_SORT_ALLOWLIST, "-last_changed")
     stmt = _proposal_query_with_filters(request, ctx.entitlement)
     rows, next_cursor, has_more = paginate(
@@ -772,15 +843,17 @@ def list_proposals(
         instance=request.url.path,
     )
     data = [serialize_proposal(p, entitlement=ctx.entitlement) for p in rows]
+    # The point each project connects at, as on the detail (docs/21 §3.24): an analyst screening a
+    # list needs it per row (expert review 2026-10-07). Batched, two queries for the page; deferred
+    # import because that module imports this one.
+    from services.api.interconnection_points import proposal_point_embeds
+
+    points = proposal_point_embeds(db, rows, ctx.entitlement)
+    for row, p in zip(data, rows, strict=True):
+        row["interconnection_point"] = points[p.id]
     meta = build_meta("proposal", tier=ctx.entitlement)
-    if "count" in (request.query_params.get("include") or "").split(","):
-        total = db.scalar(
-            select(func.count()).select_from(
-                _proposal_query_with_filters(request, ctx.entitlement).subquery()
-            )
-        )
-        meta["total"] = total
-        meta["total_is_estimate"] = total is not None and total > 10000
+    if "count" in include:
+        meta.update(exact_total(db, _proposal_query_with_filters(request, ctx.entitlement)))
     env = build_list_envelope(
         data,
         meta=meta,
@@ -858,6 +931,55 @@ def _source_licence_aggregate(
     return licence_summary_from_source_aggregates(rows)  # type: ignore[arg-type]
 
 
+class _GatedSlot(NamedTuple):
+    """A drawable row a hidden source gates, held by id in the map cache: its `GatedRecord` view
+    is an ORM object of the request that built the entry, so it is re-read per request."""
+
+    id: Any
+
+
+class _CachedGeo(NamedTuple):
+    """The viewport-independent part of a `GET /v1/proposals/geo` answer (`services/api/geo_cache.py`):
+    plain values only."""
+
+    plottable: tuple[GeoRow | _GatedSlot, ...]
+    records_total: int
+    lifecycle_state_counts: dict[str, int]
+    technology_counts: dict[str, int]
+    unplaced_count: int
+    licence_summary: dict[str, Any]
+
+
+_GEO_CACHE = geo_cache.register(geo_cache.TtlLru())
+
+
+def _freeze_geo(geo: _GeoFeatures, licence_summary: dict[str, Any]) -> _CachedGeo:
+    return _CachedGeo(
+        tuple(p if isinstance(p, GeoRow) else _GatedSlot(p.id) for p in geo.plottable),
+        geo.records_total,
+        geo.lifecycle_state_counts,
+        geo.technology_counts,
+        geo.unplaced_count,
+        licence_summary,
+    )
+
+
+def _thaw_plottable(db: Session, cached: _CachedGeo, entitlement: str) -> list[GeoRow | Proposal]:
+    """The cached rows in their order, each gated row re-read through its served view now; a row
+    whose view is gone is not drawn, as on the uncached path."""
+    gated = [p.id for p in cached.plottable if isinstance(p, _GatedSlot)]
+    if not gated:
+        return list(cast("tuple[GeoRow, ...]", cached.plottable))
+    views = gated_views(db, Proposal, gated, entitlement)
+    out: list[GeoRow | Proposal] = []
+    for p in cached.plottable:
+        if isinstance(p, GeoRow):
+            out.append(p)
+        elif (view := views.get(p.id)) is not None:
+            out.append(view)
+    return out
+
+
 @router.get("/v1/proposals/geo")
 def get_proposals_geo(
     request: Request,
@@ -874,24 +996,35 @@ def get_proposals_geo(
         zoom = int(zoom_param)
     except ValueError as exc:
         raise validation_error("bbox", "bbox/zoom malformed", request.url.path) from exc
-    geo = _proposal_geo_features(db, request, ctx.entitlement)
+    # Everything but the viewport is the same answer until the data changes: cached per filter set
+    # and tier on a data version (services/api/geo_cache.py; backend audit 2026-10-07, PERF-2).
+    key = geo_cache.cache_key(db, request, ctx.entitlement, today=slip_today())
+    cached = _GEO_CACHE.get(key)
+    plottable: list[GeoRow | Proposal]
+    if cached is None:
+        geo = _proposal_geo_features(db, request, ctx.entitlement)
+        # The rows matching every filter and the placement default, as the drawn features are, so
+        # the licence summary credits exactly the sources behind what is actually drawn.
+        licence_summary = _source_licence_aggregate(
+            db, ProposalSource, ProposalSource.proposal_id, geo.credited_ids, ctx.entitlement
+        )
+        cached = _freeze_geo(geo, licence_summary)
+        _GEO_CACHE.put(key, cached)
+        plottable = geo.plottable
+    else:
+        plottable = _thaw_plottable(db, cached, ctx.entitlement)
     fc = build_geo_feature_collection(
-        geo.plottable,
+        plottable,
         bbox=bbox,
         zoom=zoom,
-        records_total=geo.records_total,
-        lifecycle_state_counts=geo.lifecycle_state_counts,
-        technology_counts=geo.technology_counts,
+        records_total=cached.records_total,
+        lifecycle_state_counts=dict(cached.lifecycle_state_counts),
+        technology_counts=dict(cached.technology_counts),
         entitlement=ctx.entitlement,
         load_records=lambda ids: _load_geo_records(db, ids),
     )
-    meta = build_meta("proposal", tier=ctx.entitlement, extra={"unplaced_count": geo.unplaced_count})
-    # The rows matching every filter and the placement default, as the drawn features are, so the
-    # licence summary credits exactly the sources behind what is actually drawn.
-    licence_summary = _source_licence_aggregate(
-        db, ProposalSource, ProposalSource.proposal_id, geo.credited_ids, ctx.entitlement
-    )
-    return build_envelope(fc, meta=meta, licence_summary=licence_summary)
+    meta = build_meta("proposal", tier=ctx.entitlement, extra={"unplaced_count": cached.unplaced_count})
+    return build_envelope(fc, meta=meta, licence_summary=copy.deepcopy(cached.licence_summary))
 
 
 @router.get("/v1/proposals/{public_id}")
@@ -901,6 +1034,10 @@ def get_proposal(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
+    # Only the values api/openapi.yaml `Include` documents are accepted; anything else is refused
+    # rather than ignored (backend audit 2026-10-07, API-5). The documented expansions are not built
+    # on the detail yet (services/README.md, open decisions).
+    include_values(request, DETAIL_INCLUDES)
     prop = db.scalar(
         select(Proposal).where(Proposal.public_id == public_id, *proposal_visibility_filter(ctx.entitlement))
     )
@@ -1099,7 +1236,8 @@ def list_opportunities(
     )
     if wants_csv(request):
         return _csv_list_response(request, db, ctx, "opportunity")
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
+    include = include_values(request, LIST_INCLUDES)
     field, ascending = sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
     stmt = _opportunity_query_with_filters(request, db, ctx.entitlement)
     rows, next_cursor, has_more = paginate(
@@ -1114,14 +1252,8 @@ def list_opportunities(
     )
     data = [serialize_opportunity(o, entitlement=ctx.entitlement) for o in rows]
     meta = build_meta("opportunity", tier=ctx.entitlement)
-    if "count" in (request.query_params.get("include") or "").split(","):
-        total = db.scalar(
-            select(func.count()).select_from(
-                _opportunity_query_with_filters(request, db, ctx.entitlement).subquery()
-            )
-        )
-        meta["total"] = total
-        meta["total_is_estimate"] = total is not None and total > 10000
+    if "count" in include:
+        meta.update(exact_total(db, _opportunity_query_with_filters(request, db, ctx.entitlement)))
     return build_list_envelope(
         data,
         meta=meta,
@@ -1187,6 +1319,7 @@ def get_opportunity(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
+    include_values(request, DETAIL_INCLUDES)  # as `get_proposal`
     opp = db.scalar(
         select(Opportunity).where(
             Opportunity.public_id == public_id, *opportunity_visibility_filter(ctx.entitlement)
@@ -1284,7 +1417,7 @@ def _list_subject_events(
     # share every attribute this function reads (`id`, `public_id`, `slug`), so this is a type-only
     # cast, not a runtime check.
     subject = cast("Proposal | Opportunity", subject_row)
-    limit = clamp_limit(int_param(request, "limit"))
+    limit = page_limit(request)
     field, ascending = sort_spec(request, {"seq", "observed_at"}, "-seq")
     stmt = select(Event).where(
         Event.subject_type == config.subject_type,

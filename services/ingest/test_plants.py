@@ -176,3 +176,13 @@ def test_empty_frame_is_a_no_op(session):
     assert result.plants_seen == 0
     assert result.inserted == 0
     assert session.query(Asset).count() == 0
+
+
+def test_the_context_frames_first_operating_year_is_stored_as_commissioned_year(session: Session) -> None:
+    """`pipeline/context/eia_plants.py` writes `earliest_operating_year` and `generator_count`
+    (the pre-ADR 0008 spelling); before 2026-10-07 the year was dropped, so no power plant in the
+    dev store had one and the operating close-out could not date a plant (docs/22 §23.8)."""
+    frame = sample_frame().drop(columns=["commissioned_year"]).assign(earliest_operating_year=[2012, 1998])
+    load_plants(session, frame)
+    years = dict(session.query(Asset.source_asset_id, Asset.commissioned_year).all())
+    assert years == {"1000": 2012, "2000": 1998}

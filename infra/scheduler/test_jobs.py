@@ -341,3 +341,21 @@ def test_the_visibility_audit_task_runs_the_job_under_the_timeout(monkeypatch: p
     result = scheduler_app.app.tasks["visibility_audit_tick"]()
     if result["m11"] != 0:
         raise AssertionError(result)
+
+
+def test_deadline_tick_is_registered_hourly_on_the_normalise_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Open opportunities past their deadline close within the hour, however long ago their source
+    last ran (audit 2026-10-07 DATA-14; `services/ingest/opportunity_status.py`)."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    periodic = scheduler_app.app.periodic_registry.periodic_tasks.get(("tick_deadline", "tick:deadline"))
+    if periodic is None:
+        raise AssertionError("tick_deadline periodic registration missing")
+    if periodic.cron != "23 * * * *" or periodic.task.queue != scheduler_app.SCHEDULER_ONLY_QUEUE:
+        raise AssertionError((periodic.cron, periodic.task.queue))
+    task = scheduler_app.app.tasks["deadline_tick"]
+    if task.queue != "normalise" or task.queueing_lock != "deadline_tick":
+        raise AssertionError((task.queue, task.queueing_lock))

@@ -178,13 +178,18 @@ workaround for that specific case no longer exists.
 ruff check web/
 ruff format --check web/
 mypy web
-pytest web tests/test_web_provenance.py -v
+make test-web          # what CI's test-web job runs: pytest web, parallel, with coverage
+pytest web tests/test_web_provenance.py
 ```
 
-See "Full-data run" below for this sprint's verbatim output — the pytest command above now loads
-the full `data/normalized/*` set (no sample), so it costs minutes, not seconds; run
-`pytest -k "not (test_e2e or test_default_view)"` for a fast local loop that skips both
-full-data loads.
+`make test-web` is the CI command (2026-10-07, docs/04 E-12). It runs `pytest web -n auto --dist
+loadgroup` under coverage, with the two browser modules on one worker. Name `web` explicitly when you
+call pytest yourself: a bare `pytest` collects only the core suite (`pyproject.toml` `testpaths`).
+The map's MapLibre files are served to the browser from `tests/fixtures/cdn/`, and a test that opens a
+non-loopback connection fails (root `conftest.py`). See "Full-data run" below for this sprint's verbatim
+output. The pytest command above loads the full `data/normalized/*` set (no sample), so it takes
+minutes, not seconds. For a fast local loop that skips both full-data loads, run
+`pytest web -k "not (test_e2e or test_default_view)"`.
 
 ### What each test proves (docs/00-PLAN.md task item 6, updated by "Switch to full data")
 

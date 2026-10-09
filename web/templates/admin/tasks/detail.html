@@ -20,13 +20,24 @@
 </h1>
 <dl class="admin-dl">
   <dt>Task id</dt><dd class="mono">{{ task.task_id }}</dd>
-  <dt>Subject</dt><dd>{% if task.subject_id %}<a href="/admin/records/{{ task.subject_id }}">{{ task.subject_id }}</a> ({{ task.subject_type }}){% else %}&mdash;{% endif %}</dd>
+  {#- UX-3: the subject links to its admin page by kind (the old `/admin/records/{id}` was a 404),
+      with its name, its public page and, for a wrong-merge report, the merge history and unmerge. -#}
+  <dt>Subject</dt><dd id="task-subject">
+    {%- if subject %}
+    {% if subject.name %}<strong>{{ subject.name }}</strong><br>{% endif %}
+    <a href="{{ subject.admin_href }}" class="mono">{{ task.subject_id }}</a> ({{ task.subject_type }})
+    {%- if subject.public_href %} &middot; <a href="{{ subject.public_href }}">Public page</a>{% endif %}
+    {%- if task.issue_type == 'wrong_merge' and subject.history_href %} &middot; <a href="{{ subject.history_href }}">Merge history</a>{% endif %}
+    {%- if task.issue_type == 'wrong_merge' and subject.unmerge_href %} &middot; <a href="{{ subject.unmerge_href }}">Unmerge</a>{% endif %}
+    {%- elif task.subject_id %}<span class="mono">{{ task.subject_id }}</span> ({{ task.subject_type }})
+    {%- else %}&mdash;{% endif -%}
+  </dd>
   <dt>Assignee</dt><dd>{{ task.assignee_user_id or '—' }}</dd>
-  <dt>Created</dt><dd class="mono">{{ task.created_at or '' }}</dd>
-  <dt>Updated</dt><dd class="mono">{{ task.updated_at or '' }}</dd>
-  <dt>Due</dt><dd class="mono">{{ task.due_at or '—' }}</dd>
-  <dt>Completed</dt><dd class="mono">{{ task.completed_at or '—' }}</dd>
-  {% if task.issue_type %}<dt>Issue type</dt><dd>{{ task.issue_type }}</dd>{% endif %}
+  <dt>Created</dt><dd class="mono">{{ task.created_at | rfc3339 }}</dd>
+  <dt>Updated</dt><dd class="mono">{{ task.updated_at | rfc3339 }}</dd>
+  <dt>Due</dt><dd class="mono">{{ (task.due_at | rfc3339) or '—' }}</dd>
+  <dt>Completed</dt><dd class="mono">{{ (task.completed_at | rfc3339) or '—' }}</dd>
+  {% if task.issue_type %}<dt>Issue type</dt><dd>{{ task.issue_type | issue_type_label }} <span class="admin-muted mono">({{ task.issue_type }})</span></dd>{% endif %}
   {% if task.description %}<dt>Description</dt><dd>{{ task.description }}</dd>{% endif %}
   <dt>Notes</dt><dd>{{ task.notes or '—' }}</dd>
   <dt>Audit events</dt>

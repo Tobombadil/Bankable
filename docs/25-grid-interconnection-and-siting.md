@@ -510,7 +510,7 @@ market and location precision.
 | 2 | EPA ECHO ICIS-Air national download (`us.epa.echo.icis_air`) | https://echo.epa.gov/files/echodownloads/ICIS-AIR_downloads.zip | zip of CSV, 70 MB | national; NAICS 518210 or a "data center" name selects 537 facilities in 43 states (VA 144, IL 45, CO 35, GA 31, OH 24, TX 12); 21 Planned + 3 Under Construction (15 of those in Georgia) | weekly | name, street address, county, ZIP, NAICS, operating status; no coordinates in this file (FRS join needed); no MW | echo.epa.gov allows `/files/` (Crawl-delay 10); the REST API host `echodata.epa.gov` answers `Disallow: *` | US federal work, 17 U.S.C. §105 | **Built 2026-09-29 (§3.7).** Public domain and national. Thin before construction, and blind where states do not report minor sources. `PGM_SYS_ID` = DEQ `PLA_ICIS_ID`, so it joins to #1 deterministically |
 | 3 | Georgia EPD Air Protection Branch public advisories (`us.ga.epd.air_permit_advisories`) | https://epd.georgia.gov/forms-permits/air-protection-branch-forms-permits/air-permits (e.g. https://epd.georgia.gov/document/document/pa1225-3/download) | text PDF, one block per application | Georgia; applications received and under review. Example: DCB Atlanta West, 76 emergency generators, Douglas County | biweekly | facility name, application no., street address, county, description (generator counts); no MW | `epd.georgia.gov` allows `/document/` | **Not found.** `epd.georgia.gov` links only accessibility and privacy pages; https://georgia.gov/privacy-and-security covers the Georgia Open Records Act, not reuse | **Gated** (`reuse: unknown`). Best pre-construction signal after Virginia; read the state's terms first |
 | 4 | Federal Permitting Dashboard (FAST-41), sectors "Data Storage and Data Management" and "High-performance computing …" | https://data.permits.performance.gov/resource/mcm3-xbid.json | Socrata | 2 projects: QTS Richmond Campus 5 (VA), PORTS Technology Campus (OH) | weekly | title, sponsor, state/county, lat/lon, milestones | Socrata API | public domain | Low volume. Already inside `us.permits_dashboard`'s dataset; its sector filter excludes these. A one-line scope change for that connector's owner, not a new source |
-| 5 | ERCOT large-load reporting (`us.iso.ercot.large_load_queue`, existing) | https://www.ercot.com/services/rq/large-load-integration | monthly PDF slide deck (aggregates, no rows) | Texas, aggregated | monthly | none per project | — | ERCOT clause 5, open | The existing watch stays. No per-project rows exist |
+| 5 | ERCOT large-load reporting (`us.iso.ercot.large_load_queue`, existing) | https://www.ercot.com/services/rq/large-load-integration | monthly PDF slide deck (aggregates, no rows) | Texas, aggregated | monthly | none per project | — | ERCOT clause 5, open | The existing watch stays. No per-project rows exist (rechecked 2026-10-07, §3.10.1; its catalogue rows are never loaded as projects) |
 | 6 | TCEQ New Source Review permits (`us.tx.tceq.air_permits`) | https://www2.tceq.texas.gov/airperm/index.cfm | HTML query application | Texas | daily | — | **`Disallow: /`** on www2 and www15 | not retrieved (site-policies page 404) | **Not usable.** Robots-excluded. Most Texas data-centre emergency engines are Permit by Rule 30 TAC §106.511, which needs no registration and leaves no record |
 | 7 | Virginia DEQ "Issued Air Permits for Data Centers" web page | https://www.deq.virginia.gov/news-info/shortcuts/permits/air/issued-air-permits-for-data-centers | HTML list (177 permits, Nov 2024 per press) | Virginia | irregular | — | robots.txt itself answered Akamai 403 | not reached | **Blocked** (Akamai 403 to this IP, WebFetch too). #1 covers the same facilities from DEQ's own register |
 | 8 | Ohio EPA issued air permits (eDocument) | https://edocpub.epa.ohio.gov/publicportal/edochome.aspx | PDF search UI | Ohio | continuous | per-document PDFs | not assessed | not retrieved | Not machine-readable. ICIS-Air (#2) covers 24 Ohio data-centre facilities |
@@ -543,7 +543,8 @@ The reasoning, against the definitions already in force:
   of energy flow. The large *load* is the project here. The demand it creates for generation, gas and transmission is
   what the match engine (`services/match`) should derive: data-centre proposal ↔ nearby generation/pipeline assets.
   A second record type is not the way to express it.
-- Precedent: `us.iso.ercot.large_load_queue` already emits `kind = load` proposals, and `pipeline/normalize.py`'s
+- Precedent: `us.iso.ercot.large_load_queue` already emits `kind = load` rows (catalogue products, which since
+  2026-10-07 are never loaded as projects, §3.10.1), and `pipeline/normalize.py`'s
   technology rules map `load|data\s*cent` to `load`. **No new table and no migration are needed.** Everything
   loads through `services/ingest/loader.py` unchanged. The DEQ point reaches `location` at `exact` precision via the
   loader's existing raw `Latitude`/`Longitude` promotion, which applies only because the source is `raw_ok`.
@@ -554,7 +555,8 @@ It **means** that DEQ has an air-programme facility record for this site, and th
 principal-product text, says the site is a data centre. The status says whether DEQ records the site as planned,
 under construction or operating. The point is DEQ's facility reference point, rounded to 6 decimals because the
 server's reprojection adds noise beyond that. Of the 205 points, 180 carry 6 decimals, 19 carry 5 and 6 carry 4.
-The county is our derivation (point-in-polygon on the vendored Census counties). It agrees with EPA ICIS-Air's
+The county is our derivation (point-in-polygon on the vendored Census counties), spelled as ICIS-Air and EIA-860M
+spell it: "Loudoun", "Manassas city" (§3.10.3; "Loudoun County" until 2026-10-07). It agrees with EPA ICIS-Air's
 county on 157 of the 160 rows that join. The 3 that disagree sit on the Manassas city / Prince William line.
 
 It **does not mean**:
@@ -706,7 +708,8 @@ Church, US Liability Insurance Wayne PA, Concordance Healthcare Grapevine TX, FC
 Northrop Grumman Fairfax, which this section's hand-check called an office but Virginia DEQ's own register flags
 as a data centre (contested), and Deere & Co Moline, Northrop Grumman McLean and Lebanon (unverified). Measured on a
 copy of the 2026-09-30 dev store: public live `load` proposals 581 → 576; a second run changes nothing. The
-same-facility ICIS duplicates under re-padded programme ids (audit F8) are not addressed here.
+same-facility ICIS duplicates under re-padded programme ids (audit F8) are not addressed here; lane L11 folds them
+in the connector (§3.10.4).
 
 #### Placement (coordinates) and precision grades
 
@@ -998,6 +1001,146 @@ already keeps an unloaded record from bridging clusters.
   `fetch_version` or `etag`.
 - **Open.** The streamed Exporter needs about 443 MB of temporary disk in the worker, once a week when it changes. No
   compose volume limits `/tmp` today.
+
+### 3.10 Review fixes: large-load data, MW, county text, ICIS-Air precision (lane L11, 2026-10-07)
+
+An expert buyer review (2026-10-07, large-load planner persona) found no ERCOT large-load requests, no MW on any
+load record, one county spelled two ways, every Fairfax data centre on Fairfax *city*'s FIPS code, and offices among
+the ICIS-Air data centres. Numbers below compare two full dev stores built with `web.dev_up.build_store`: base
+`acfa192`, and this lane's code with the DEQ and ICIS-Air stored snapshots re-normalised (nothing written under
+`data/normalized`). Live means unmerged and public.
+
+#### 3.10.1 ERCOT large-load requests: there is no data to load
+
+`us.iso.ercot.large_load_queue` has two normalised frames and both have **0 rows**. The connector is a catalogue
+watch (§3.2 row 5), not a queue parser: it emits one row per ERCOT EMIL *product* that looks like the Nodal
+Protocol 3.2.7 status report, and no such product exists. Rechecked 2026-10-07:
+- The [large-load integration page](https://www.ercot.com/services/rq/large-load-integration) lists Batch Zero
+  forms, RFI guides and attestations, and no status report.
+- The [September 2026 LLWG meeting](https://www.ercot.com/calendar/09172026-LLWG-Meeting) lists no status report.
+- The queue appears only as charts in PDF decks, for example the
+  [March 2026 TAC report](https://www.ercot.com/files/docs/2026/03/12/March-TAC-Report.pdf), page 3: system-wide MW
+  by study status (observed energized, approved to energize, planning studies approved, under ERCOT review, no
+  studies submitted). There is no county, zone table or project row. Board updates give totals in prose
+  ("~438 GW of Large Load Interconnection requests", June 2026).
+- The EMIL catalogue API answered HTTP 403 with an Incapsula bot challenge to one GET from this environment. The
+  catalogue was not re-read, and the connector's next run from this host is expected to fail. That is a source
+  breakage to watch, not a reason to work around the challenge.
+
+So the dev and static loads still carry no ERCOT large loads (0 before, 0 after), and `web/build_data.py`'s
+`PROPOSAL_SOURCE_IDS` does not list the source. Listing it would load nothing today, and the public source sentence
+would then name a source with no rows. **Model when data exists:** request-level rows become `kind = load`
+proposals. Aggregate rows (by load zone, TSP, status or size band, which is what NPRR1267 asks ERCOT to publish)
+become totals on a zone or county, never invented projects. The resolver keeps loads apart from generation
+either way: `KIND_CLASSES` puts `load` in its own class (A-22-T-1). On both stores, no load-source link sits on a
+non-load proposal and no load proposal carries a generation source.
+
+One defect fixed. Through the generic loader, the day the catalogue lists the product, the product row would have
+been published as a `load` project named "Large Load Interconnection Status Report", sponsor ERCOT, with a `new`
+event. `services/ingest/large_load_watch.py` is now the source's `SPECIALISED_LOADERS` branch. It records the run,
+writes no proposal, and warns with the product names. The scheduler's resolution step still reads the watch frame
+as a proposal frame (`infra/scheduler/jobs.py::_latest_proposal_frames`). It is empty today. Skipping
+specialised-loader sources there is an open item for the scheduler's owner.
+
+#### 3.10.2 MW on data-centre loads: no capacity signal worth exposing
+
+All 578 live load records (582 before) have a null `capacity_mw`, by design (§3.4).
+- **ICIS-Air** publishes no capacity in any column the connector reads.
+- **Virginia DEQ:** 4 of 205 `PLA_DESC` texts state engine ratings, for example "Six 3000 kW and one 500 kW emergency
+  generators" (CLOP Ashland), "Four 500 kWe and One Hundred Ten 3000 kWe engine-generator sets" (Microsoft LYH03).
+  7 more give only a count ("280 diesel engines"). Ratings are permitted backup generation, not IT or grid load.
+- **Decision.** At 2% coverage, extracting them would make a column that is empty on 98% of rows and invites
+  being read as load. The 2026-09-28 rule stands: nothing is extracted.
+- **For the web lane.** The load list's default "capacity descending" sort, and any capacity column, should be
+  absent for `kind = load`.
+
+#### 3.10.3 County text and FIPS
+
+- **Spelling.** Virginia DEQ wrote "Loudoun County"; ICIS-Air and EIA-860M write "Loudoun". After resolution a
+  county showed up two ways, so a roll-up on the county column double-counted. Both data-centre connectors now
+  take their county text from `pipeline/context/geo.py::county_label`. A county is its bare Census name; an
+  independent city is "<Name> city" ("Manassas city", "Fairfax city"). ICIS-Air's "Harrisonburg (city)" is
+  written "Harrisonburg city". `county_norm`, which the resolver blocks on, is unchanged.
+- **FIPS.** The Census Gazetteer holds "Fairfax County" (51059) and "Fairfax city" (51600). Both normalised to
+  ("VA", "FAIRFAX"), and the city's later row won the FIPS and the centroid. `services/ingest/geocode.py` now keys
+  an independent city as "<NAME> CITY" (`county_lookup_keys`). Text ending in "city" asks for the city first,
+  then the bare name, so "Carson City" and "James City" still resolve. A bare name means the county. The static
+  builder's copy (`web/build_data.py`) applies the same rule. The same collision hit Franklin, Richmond and
+  Roanoke (VA), Baltimore (MD) and St. Louis (MO).
+- **Repair of stored rows.** `backfill_county_fips` only fills NULLs, so `correct_county_fips`
+  (`python -m services.ingest.geocode correct-fips`) re-derives every US row's code from its own county text. It
+  also moves a `county_centroid` point to the right centroid. The production store needs one run of it.
+
+| Dev store, live proposals | before | after |
+|---|---|---|
+| VA load FIPS codes shown under two spellings | 10 (Loudoun 41/46, Prince William 14/17, Fairfax 18/16, Mecklenburg 4/6, Henrico 3/6, Fauquier 3/2, Culpeper 3/1, Chesterfield 2/2, Louisa 1/2, Spotsylvania 1/1) | 0 |
+| Fairfax load records on 51600 (Fairfax city) | 34 | 0 (all 34 on 51059) |
+| Records moved from a city code to its county (every one checked by its exact point) | — | 41: Fairfax 34, St. Louis 3 (Castle Bluff), Richmond 2 (Moon Corner, Cerulean Solar), Franklin 1 (Willow Solar), Baltimore 1 (Control Data Corp.) |
+| Exact US points whose FIPS matches the county the point falls in | 2,538 of 2,698 | 2,577 of 2,696 |
+
+The 119 remaining disagreements are the sources' own county text (EIA-860M, ICIS-Air) against their points, for
+example Allegheny vs Westmoreland. They are not a normalisation error.
+
+#### 3.10.4 ICIS-Air: re-registrations folded; a name rule rejected on evidence
+
+- **Re-registrations (audit RES-14).** ICIS keeps some facilities twice, under re-padded or re-prefixed programme
+  ids. `fold_reregistrations` keeps one row when two selected rows share the FRS `REGISTRY_ID` *and* a normalised
+  name. The longest programme id is kept, then the lowest. The other id goes to `raw.duplicate_pgm_sys_ids`, with
+  its own status, and into `cross_refs`, so a Virginia DEQ record citing either id still pairs (D3).
+- **Fold result.** On the 2026-10-07 snapshot it folds 4: Nebraska Colocation Center, ConAgra Foods Data Center,
+  DataBank MCI 3 and Woodland Caribou. Rows go 521 → 517. FRS ids on more than one live proposal go 8 → 4, and live
+  ICIS-Air proposals 504 → 500.
+- **Not folded, because the names differ:** CyrusOne Florence ("CYRUSONE LLC - FLORENCE DATA CENTER" / "CYRUS ONE
+  LLC"), Amazon IAD-6/13/54 and "VADATA INC MEG FOUR" (same street address, two registrations), Microsoft Alluvium
+  and Ginger West, and Iowa Health System / UnityPoint Health (a renamed entity at one address). An address rule
+  would also merge separate permits at one address, so these are left for review.
+
+**Selection basis.** The review names six sites as false positives. The evidence on each:
+
+| Named in the review | Basis | Evidence | Verdict |
+|---|---|---|---|
+| The World Bank, 4120 Lafayette Center Dr, Chantilly VA | NAICS 518210 | The address is a 54,530 sq ft data-centre building with 1.5 MW delivered ([datacenterHawk](https://datacenterhawk.com/marketplace/providers/legacy-investing/4120-lafayette-center-drive/1041828)) | data centre |
+| The Travelers Indemnity Co, 14715 Schram Rd, Omaha NE | NAICS 518210 | Travelers' $200 M Tier III data centre on Schram Road, with its own OPPD substation ([DCD](https://datacenterdynamics.com/en/news/insurance-company-opens-200m-data-center-in-nebraska)) | data centre |
+| Sentara Healthcare, Virginia Beach | NAICS 518210 | Virginia DEQ's own register flags it as a data centre (§3.4) | data centre (regulator's flag) |
+| Bank of America – Villa Park Data Center, Richmond | name | named a data centre by the source; DEQ also flags "Bank of America - Sandston" | enterprise data centre |
+| Rockingham Memorial Hospital Data Center | name | named a data centre by the source | enterprise data centre |
+| Concordance Healthcare Solutions | NAICS 518210 | already suppressed (lane W1) | not a data centre; unpublished |
+
+A name rule was tested and rejected: drop NAICS 518210 rows whose names declare a non-hosting industry (bank,
+insurer, health, hospital, institution, customs, school) unless they also name computing ("technology center",
+"IT operations", "info sys"). It would drop 12 rows, and the evidence splits them three ways.
+- **6 are data centres.** The World Bank and Travelers (above). Sentara, the Smithsonian at Herndon and US Customs
+  and Border Protection at Springfield, all flagged by DEQ. Optum / UnitedHealth Group at 1707 W Creek Ln, Chaska MN, which is UnitedHealth's
+  West Creek data centre ([baxtel](https://baxtel.com/data-center/unitedhealth-chaska)).
+- **3 are not.** Health and Hospital Corporation (below), and two already suppressed (US Liability Insurance,
+  Concordance).
+- **3 are unverified.** Iowa Health System, UnityPoint Health and First Health Services. Separately, "NALCO WATER" at 505 N Railroad Ave,
+Northlake IL is a Digital Realty data centre
+([datacentermap](https://www.datacentermap.com/usa/illinois/chicago/505-north-railroad-avenue/)), which shows that
+the operator's name is not the occupant's industry. The selection rule is unchanged. The review's examples are
+mostly *enterprise* data centres, not offices. The distinction a planner needs is enterprise vs colocation or
+hyperscale, which is a classification for later, not a selection rule.
+
+**Hand check.** One new verified false positive was found. HEALTH AND HOSPITAL CORPORATION, 3838 N Rural St,
+Indianapolis (FRS 110055591328) is the Marion County Public Health Department's building
+([Marion County Health Department listing](https://directory.yext.com/en/marion-county-health-department-140729995)).
+It belongs on `data/vendored/data_centres/icis_air_not_data_centres.yaml`, but `services/resolve/test_suppress.py`
+pins that list, so the change goes to the resolver lane. Checked and still unverified: First Health Services, Glen
+Allen VA; Iowa Health System / UnityPoint Health, Des Moines; BP Amoco shared service centre, Tulsa; Deere & Co,
+Moline. None was found to be a data centre or an office.
+
+**Precision on a random sample.** 40 rows (`DataFrame.sample(40, random_state=20261007)` of the 521):
+
+| Sample | before | after |
+|---|---|---|
+| Published | 39 (Northrop Grumman Falls Church already suppressed) | 39 |
+| Judged data centres | 36 | 36 |
+| Unverified | 3: Deere & Co Moline; Gannett, 2240 Broadbirch Dr, next to a data centre at 2220; First Data Resources, 7305 Pacific St, Omaha | 3 |
+| Judged not data centres | 0 | 0 |
+| Precision | 92% strict (unverified counted wrong), 100% lenient | same |
+
+The fold changes no sampled row: the one duplicate drawn, "CYRUS ONE LLC", has a different name. On the
+review's six named rows, precision is 5 of 6 before and after, because the sixth was already unpublished.
 
 ## 4. Fiber availability by area
 

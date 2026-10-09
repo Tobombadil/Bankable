@@ -1,8 +1,8 @@
 # Self-hosted fonts
 
 Served from `/static/fonts/` and declared in `web/static/css/styles.css` (docs/31 §1.3, D-21: no
-third-party font CDN). Every file here is redistributed unmodified: no subsetting, renaming or
-re-encoding. `.woff2` files are served with a one-year immutable cache (`web/app.py::_StaticFiles`),
+third-party font CDN). Every Plex file here is redistributed unmodified: no subsetting, renaming or
+re-encoding. One Newsreader file is a modified instance, which its licence allows (below). `.woff2` files are served with a one-year immutable cache (`web/app.py::_StaticFiles`),
 so a file whose content changes must get a new name.
 
 ## IBM Plex Sans and IBM Plex Mono
@@ -31,5 +31,5 @@ Licence text: `OFL-Newsreader.txt` (from `ofl/newsreader/OFL.txt` in github.com/
 
 | File | Origin |
 |---|---|
-| `newsreader-latin.woff2` | Google Fonts `latin` subset, `https://fonts.gstatic.com/s/newsreader/v26/cY9AfjOCX1hbuyalUrK4397yjA.woff2` |
+| `newsreader-latin-600.woff2` | An instance of the Google Fonts `latin` subset, `https://fonts.gstatic.com/s/newsreader/v26/cY9AfjOCX1hbuyalUrK4397yjA.woff2` (132,000 bytes, wght 200-800, opsz 6-72), made with fontTools 4.66.1 `varLib.instancer` at wght 600 with opsz limited to 16-40, glyph set and cmap unchanged: 50,680 bytes. The site sets Newsreader only at 600, at 23-33px (audit 2026-10-07 UX-17). Newsreader has no Reserved Font Name, so the OFL permits a modified version under the same name and licence. |
 | `newsreader-latin-ext.woff2` | Google Fonts `latin-ext` subset, `https://fonts.gstatic.com/s/newsreader/v26/cY9AfjOCX1hbuyalUrK439DyjJBG.woff2` |

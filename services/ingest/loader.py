@@ -105,13 +105,14 @@ functions below):
 from __future__ import annotations
 
 import datetime as dt
+import decimal
 import hashlib
 import json
 import logging
 import pathlib
 import re
 import uuid as _uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -134,6 +135,7 @@ from pipeline.connectors.registry import (
     SourceEntry,
 )
 from pipeline.connectors.store import Store
+from pipeline.normalize import MILESTONE_COLUMNS, milestones_from_raw
 from services.db.models import (
     Event,
     Licence,
@@ -149,12 +151,18 @@ from services.db.models import (
     new_uuid,
 )
 from services.ids import public_id, unique_slug
-from services.ingest.geocode import CountyGazetteer, default_gazetteer, geocode
+from services.ingest.geocode import (
+    CountyGazetteer,
+    default_gazetteer,
+    default_substation_gazetteer,
+    geocode,
+)
 from services.ingest.interconnection import LinkResult, link_source_points
 from services.ingest.lag import record_public_at
+from services.ingest.opportunity_status import close_past_deadline
 from services.ingest.org_redirects import OrgRedirects
 from services.ingest.vintage import NOT_STATED_VINTAGE, Vintage, from_source_urls
-from services.resolve.survivorship import RestatementReport
+from services.resolve.survivorship import ROW_FIELDS, SURVIVING_FIELDS, RestatementReport
 from services.resolve.survivorship import restate as restate_survivorship
 
 if TYPE_CHECKING:  # the retirement loader imports this module; annotation only, no cycle at run time
@@ -278,6 +286,9 @@ def generic_load_kind(registry: Registry, source_id: str, requested: Kind | None
 SPECIALISED_LOADERS: dict[str, str] = {
     # Lane R1 (2026-10-06): generator retirements -> power_plant assets and their events.
     "us.eia.860m.retirements": "services.ingest.retirements:load_retirement_run",
+    # 2026-10-07: ERCOT's large-load catalogue watch. Its rows are report products, not projects,
+    # so they never become proposals (services/ingest/large_load_watch.py).
+    "us.iso.ercot.large_load_queue": "services.ingest.large_load_watch:load_catalogue_watch_run",
 }
 
 
@@ -321,6 +332,11 @@ class LoadResult:
     locations_created: int = 0
     locations_exact_promoted: int = 0
     organizations_created: int = 0
+    #: Updated records whose served values this load changed: the ones whose `last_changed` moved.
+    records_changed: int = 0
+    #: Opportunities this load left `closed` because their deadline had passed when it ran,
+    #: though their frame said `open` (`services/ingest/opportunity_status.py`).
+    deadline_closed: int = 0
     warnings: list[str] = field(default_factory=list)
     #: The grid interconnection pass over this load's proposal links (`None` for opportunities).
     interconnection: LinkResult | None = None
@@ -888,6 +904,24 @@ def _extract_exact_point(raw_payload: Mapping[str, Any]) -> tuple[float, float] 
     return (lon, lat)
 
 
+#: The NESO TEC register's transmission-owner column (NGET, SPT, SHET, OFTO): the region the GB
+#: settlement fallback requires (`services.ingest.geocode.geocode`, `region`).
+GB_REGION_FIELD = "HOST TO"
+
+
+def _gb_region(raw_payload: Mapping[str, Any] | None) -> str | None:
+    value = (raw_payload or {}).get(GB_REGION_FIELD)
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _gb_geocoder(county: str | None) -> str:
+    """Which GB tier placed a row `geocode` placed: the substation list first, as `geocode` tries
+    it, else the settlement fallback (docs/21 §3.7 `geocoder`)."""
+    on_substation_list = default_substation_gazetteer().substation_point(county) is not None
+    return "gb_substation" if on_substation_list else "gb_settlement"
+
+
 def _get_or_create_location(
     session: Session,
     *,
@@ -938,9 +972,14 @@ def _get_or_create_location(
         # GB rows (the NESO TEC register) carry a transmission "Connection Site" in `county` and
         # no state; `geocode` resolves it against the vendored substation gazetteer when told the
         # country (services/ingest/geocode.py, Sprint 3 item 5). A hit is a substation-level
-        # proxy, stamped `gb_substation` so the API and the map can say so (docs/21 §3.7).
-        point, precision = geocode(state, county, gaz=gaz, country=country_code)
-        geocoder = "gb_substation" if country_code == "GB" and point is not None else None
+        # proxy, stamped `gb_substation` so the API and the map can say so (docs/21 §3.7). A miss
+        # falls back to the settlement tier, which places nothing without the transmission owner
+        # the row names (`HOST TO`): passing it is what turns that tier on (audit 2026-10-07
+        # DATA-13; before, every NESO row the substation list missed stayed `unknown`). A
+        # settlement hit is stamped `gb_settlement`.
+        region = _gb_region(raw_payload) if country_code == "GB" else None
+        point, precision = geocode(state, county, gaz=gaz, country=country_code, region=region)
+        geocoder = _gb_geocoder(county) if country_code == "GB" and point is not None else None
     loc = Location(
         id=new_uuid(),
         kind=kind,
@@ -1036,12 +1075,60 @@ def _proposal_fields_from_row(row: Mapping[str, Any], source: Source) -> dict[st
     }
 
 
-def _link_normalised(fields: Mapping[str, Any]) -> dict[str, Any]:
+def _proposal_milestones_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    """The milestones a proposal row states (`pipeline.normalize.MILESTONE_COLUMNS`: queue date,
+    study phase, IA date, withdrawn date, actual COD), non-null only, dates as `date`. A frame
+    written before 2026-10-07 lacks the columns; its rows are read from their `raw` payload by the
+    same table (`milestones_from_raw`), so a reload of a stored frame also carries them."""
+    out: dict[str, Any] = {}
+    for name in MILESTONE_COLUMNS:
+        value = _row_get(row, name)
+        if value is None:
+            continue
+        if name == "study_phase":
+            text = str(value).strip()
+            if text:
+                out[name] = text
+            continue
+        date = _to_date(value)
+        if date is not None:
+            out[name] = date
+    if set(out) - {"queue_date"}:
+        return out
+    from_raw = milestones_from_raw(str(_row_get(row, "source_id") or ""), _parse_raw(_row_get(row, "raw")))
+    return {**from_raw, **out}
+
+
+def _milestones_provenance(
+    milestones: Mapping[str, Any], source: Source, retrieved_at: dt.datetime
+) -> dict[str, Any]:
+    """`field_provenance[<milestone>]` for a record one source states: the usual provenance entry plus
+    the milestone's `value` (the proposal table has no column for them). Survivorship rewrites them
+    for a record with several links (`services.resolve.survivorship.milestones`). A reader serves a
+    value only when its `source_id` is readable, as for any other field."""
+    return {
+        name: {
+            "value": _jsonable(value),
+            "source_id": source.id,
+            "licence_id": source.licence_id,
+            "retrieved_at": retrieved_at.isoformat(),
+            "rule": "stated_by_member",
+        }
+        for name, value in milestones.items()
+    }
+
+
+def _link_normalised(
+    fields: Mapping[str, Any], milestones: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """A link's own `normalised` row: the record fields this source states, plus (proposals,
     2026-10-07) the identifiers it contributes, so field survivorship can union every member's
-    queue ids and EIA ids however many sources a record holds (docs/22 §23). `select_basis` stays
+    queue ids and EIA ids however many sources a record holds (docs/22 §23), and (2026-10-07,
+    lane L10) the milestones it states (`_proposal_milestones_from_row`). `select_basis` stays
     on the record (`_keep_other_sources_basis`)."""
     out: dict[str, Any] = {k: v for k, v in fields.items() if not isinstance(v, dict)}
+    for name, value in (milestones or {}).items():
+        out.setdefault(name, value)
     identifiers = fields.get("identifiers")
     if isinstance(identifiers, dict):
         own = {k: v for k, v in identifiers.items() if k != SELECT_BASIS_KEY}
@@ -1238,6 +1325,61 @@ class _LoadContext:
     source: Source
     kind: Kind
     run: SourceRun | None
+    #: Per updated record, its `last_changed` and served values before this load touched it
+    #: (`_stamp_last_changed`); the first sight in a load wins.
+    served_before: dict[_uuid.UUID, tuple[dt.datetime | None, dict[str, Any]]] = field(default_factory=dict)
+
+
+def _served_keys(kind: Kind, fields: Mapping[str, Any]) -> tuple[str, ...]:
+    """The record values a reader is served that a load can move: this source's fields and, for a
+    proposal, everything field survivorship writes (docs/22 §23)."""
+    if kind == "proposal":
+        return tuple(dict.fromkeys((*fields, *SURVIVING_FIELDS, *ROW_FIELDS)))
+    return tuple(fields)
+
+
+def _served_norm(value: Any) -> Any:
+    """A served value in a form that compares equal however the store handed it back: a SQLite
+    `Numeric` reads back as `Decimal`, a timestamp may come back naive (UTC), JSON key order is
+    not significant."""
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float, decimal.Decimal)):
+        return round(float(value), 6)
+    if isinstance(value, dt.datetime):
+        aware = value if value.tzinfo is not None else value.replace(tzinfo=dt.UTC)
+        return aware.astimezone(dt.UTC).isoformat()
+    if isinstance(value, dt.date):
+        return value.isoformat()
+    if isinstance(value, _uuid.UUID):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(k): _served_norm(v) for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))}
+    if isinstance(value, (list, tuple)):
+        return [_served_norm(v) for v in value]
+    return value
+
+
+def _served_values(entity: Any, keys: Iterable[str]) -> dict[str, Any]:
+    return {k: _served_norm(getattr(entity, k, None)) for k in keys}
+
+
+def _stamp_last_changed(ctx: _LoadContext) -> None:
+    """Move `last_changed` (docs/21 §3.1: the latest change to a served field) on the records whose
+    served values this load changed, and only those (audit 2026-10-07 DATA-5: every load stamped
+    every row it rewrote, 2,311 of 2,311 on an EIA-860M reload that changed 4). A record whose
+    values came back the same keeps its stamp, including one where field survivorship moved
+    `last_changed` only because this load wrote a member's own value before it recomputed the
+    record's (`services/resolve/survivorship.py`)."""
+    for entity_id, (prior, before) in ctx.served_before.items():
+        entity = ctx.cache.entities.get(entity_id)
+        if entity is None:
+            continue
+        if _served_values(entity, before) != before:
+            entity.last_changed = ctx.now
+            ctx.result.records_changed += 1
+        elif prior is not None:
+            entity.last_changed = prior
 
 
 def _prepare_load_context(
@@ -1391,6 +1533,9 @@ def _update_existing_entity(
                 entity.identifiers, fields["identifiers"], ctx.source.id
             ),
         }
+    if entity.id not in ctx.served_before:
+        keys = _served_keys(ctx.kind, fields)
+        ctx.served_before[entity.id] = (entity.last_changed, _served_values(entity, keys))
     provenance = dict(entity.field_provenance or {})
     pinned = set(entity.overrides or {})
     for k, v in fields.items():
@@ -1403,10 +1548,16 @@ def _update_existing_entity(
                 "retrieved_at": retrieved_at.isoformat(),
             }
         setattr(entity, k, v)
+    milestones = _proposal_milestones_from_row(row) if ctx.kind == "proposal" else {}
+    if ctx.kind == "proposal":
+        for name in MILESTONE_COLUMNS:
+            provenance.pop(name, None)
+        provenance.update(_milestones_provenance(milestones, ctx.source, retrieved_at))
     entity.field_provenance = provenance  # reassigned so the JSON column is marked dirty
-    entity.last_changed = ctx.now
+    # `last_changed` is decided once the whole load (survivorship included) has run: it moves only
+    # when a served value differs from what the record served before this load (`_stamp_last_changed`).
     existing_link.raw = raw_payload
-    existing_link.normalised = _link_normalised(fields)
+    existing_link.normalised = _link_normalised(fields, milestones)
     existing_link.status_raw = fields.get("status_raw")
     existing_link.last_seen = retrieved_at
     existing_link.retrieved_at = retrieved_at
@@ -1490,6 +1641,9 @@ def _create_entity_and_link(
         for k in fields
         if fields[k] is not None
     }
+    milestones = _proposal_milestones_from_row(row) if kind == "proposal" else {}
+    if milestones:
+        entity.field_provenance.update(_milestones_provenance(milestones, source, retrieved_at))
     session.add(entity)
     cache.entities[entity.id] = entity
     existing_link = ctx.link_cls(
@@ -1500,7 +1654,7 @@ def _create_entity_and_link(
         retrieved_at=retrieved_at,
         licence_id=source.licence_id,
         raw=raw_payload,
-        normalised=_link_normalised(fields),
+        normalised=_link_normalised(fields, milestones),
         status_raw=fields.get("status_raw"),
         first_seen=retrieved_at,
         last_seen=retrieved_at,
@@ -1711,6 +1865,13 @@ def load_dataframe(
         # moves a proposal whose register revised its POI. A source whose rows carry no POI field
         # (EIA-860M) links nothing.
         ctx.result.interconnection = link_source_points(session, source, ctx.cache.links.values())
+    else:
+        # A notice past its deadline is served `closed` whatever its frame says (docs/21 §7.2;
+        # `services/ingest/opportunity_status.py`): the frame's status is as of its fetch.
+        ctx.result.deadline_closed = close_past_deadline(
+            session, ctx.now, ids=ctx.record_id_to_internal.values()
+        ).closed
+    _stamp_last_changed(ctx)
     _load_events(session, ctx, events_df)
     return ctx.result
 

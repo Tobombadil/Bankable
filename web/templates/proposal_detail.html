@@ -47,11 +47,11 @@
   <p class="attribution-line">{% if record.members|length > 1 %}The current state is the most advanced one the sources below report; the date is read from the same source where it gives one.{% else %}Built from this record&rsquo;s most recent source snapshot: the current state and the dates the source provides.{% endif %} Changes recorded since are listed under History.</p>
   <ul class="timeline">
     <li>
-      <time datetime="{{ status_src.retrieved_at }}">{{ status_src.retrieved_at[:10] if status_src.retrieved_at else 'unknown date' }}</time>
+      <time datetime="{{ status_src.retrieved_at }}">{{ status_src.retrieved_at | display_date if status_src.retrieved_at else 'unknown date' }}</time>
       <span class="timeline__event">Observed as <strong>{{ record.lifecycle_state | lifecycle_label | lower }}</strong>{% if status_src.source_name %} in {{ status_src.source_name }}{% endif %}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.</span>
     </li>
     {% if record.proposed_online_date %}
-    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date }}</time> <span class="timeline__event">Proposed commercial-operation date{% if cod_src.source_name %} stated by {{ cod_src.source_name }}{% endif %} (not a commitment).{% if record.slip %} This date passed <strong>{{ record.slip.amount }}</strong> ago and {{ status_src.source_name or 'its source' }} still reports the project as {{ record.lifecycle_state | lifecycle_label | lower }}.{% endif %}</span></li>
+    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date | display_date }}</time> <span class="timeline__event">Proposed commercial-operation date{% if cod_src.source_name %} stated by {{ cod_src.source_name }}{% endif %} (not a commitment).{% if record.slip %} This date passed <strong>{{ record.slip.amount }}</strong> ago and {{ status_src.source_name or 'its source' }} still reports the project as {{ record.lifecycle_state | lifecycle_label | lower }}.{% endif %}</span></li>
     {% endif %}
   </ul>
   {% if record.slip %}
@@ -74,9 +74,9 @@
         <td data-label="Record" class="mono">{{ mbr.source_record_id or '—' }}</td>
         <td data-label="Name">{{ mbr.name_canonical or '—' }}</td>
         <td data-label="Technology">{{ mbr.technology_label or '—' }}</td>
-        <td data-label="MW" class="num tnum">{{ '%.1f'|format(mbr.capacity_mw) if mbr.capacity_mw is not none else '—' }}</td>
-        <td data-label="Status">{{ mbr.lifecycle_label or '—' }}{% if mbr.status_raw %} <span class="field-grid__source-value">&ldquo;{{ mbr.status_raw }}&rdquo;</span>{% endif %}{% if mbr.gone_at %} <span class="field-grid__source-value">no longer listed since {{ mbr.gone_at[:10] }}</span>{% endif %}</td>
-        <td data-label="Proposed COD" class="tnum">{{ mbr.proposed_online_date[:10] if mbr.proposed_online_date else '—' }}</td>
+        <td data-label="MW" class="num tnum">{{ mbr.capacity_mw | mw if mbr.capacity_mw is not none else '—' }}</td>
+        <td data-label="Status">{{ mbr.lifecycle_label or '—' }}{% if mbr.status_raw %} <span class="field-grid__source-value">&ldquo;{{ mbr.status_raw }}&rdquo;</span>{% endif %}{% if mbr.gone_at %} <span class="field-grid__source-value">no longer listed since {{ mbr.gone_at | display_date }}</span>{% endif %}</td>
+        <td data-label="Proposed COD" class="tnum">{{ mbr.proposed_online_date | display_date if mbr.proposed_online_date else '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -90,7 +90,7 @@
   {% if history %}
   <ul class="timeline">
     {% for item in history %}
-    <li><time datetime="{{ item.date }}">{{ item.date[:10] if item.date else 'unknown date' }}</time> <span class="timeline__event">{{ item.text }}</span></li>
+    <li><time datetime="{{ item.date }}">{{ item.date | display_date if item.date else 'unknown date' }}</time> <span class="timeline__event">{{ item.text }}</span></li>
     {% endfor %}
   </ul>
   {% else %}

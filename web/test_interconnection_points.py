@@ -150,10 +150,11 @@ def test_index_lists_visible_points_with_their_totals(web_client: TestClient, st
     body = resp.text
     assert "59903 Bearkat 345kV" in body and "Whirlwind Substation 230kV" in body
     assert "8140 Joslin 138kV" not in body  # its only project is unpublished
-    assert "1,100.0" not in body and "200.0" in body  # the unpublished 900 MW is in no total
+    # The unpublished 900 MW is in no total; MW print in the docs/31 §4 format (UX-8: no ".0").
+    assert "1,100" not in body and 'class="num tnum">200</td>' in body
     assert f'href="/interconnection-points/{store["points"]["b1"]}"' in body
     assert "2 points match these filters." in body
-    assert '<a href="/interconnection-points">Grid points</a>' in body
+    assert '<a href="/interconnection-points">Grid connection points</a>' in body
     # Largest active queue first: Bearkat (200 MW) above Whirlwind (50 MW).
     assert body.index("59903 Bearkat 345kV") < body.index("Whirlwind Substation 230kV")
 
@@ -184,7 +185,7 @@ def test_detail_page_shows_the_queue_and_its_source(web_client: TestClient, stor
     _b1_id, b1_slug = store["props"]["b1"]
     assert f'href="/proposals/{b1_slug}"' in body
     assert "Project b3" not in body  # unpublished
-    assert "200.0" in body and "345 kV" in body and "59903" in body
+    assert '<dd class="tnum">200 <span' in body and "345 kV" in body and "59903" in body
     assert "Test Public Source" in body  # the provenance panel names the register
     assert "View at source" in body
 
@@ -265,7 +266,7 @@ def test_proposal_page_says_where_the_project_connects(web_client: TestClient, s
     body = web_client.get(f"/proposals/{b1_slug}").text
     assert "<dt>Connects at</dt>" in body
     assert f'<a href="/interconnection-points/{store["points"]["b1"]}">59903 Bearkat 345kV</a>' in body
-    assert "200.0 MW active across 1 project queued there (2 in all)" in body
+    assert "200 MW active across 1 project queued there (2 in all)" in body
     _n1_id, n1_slug = store["props"]["n1"]
     assert "<dt>Connects at</dt><dd>—</dd>" in web_client.get(f"/proposals/{n1_slug}").text
 

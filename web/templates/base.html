@@ -52,8 +52,12 @@
     `/assets` by 37px at 1440px (frontend audit F8, CLS 0.48-0.55) does not happen. -#}
 <link rel="preload" href="/static/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/IBMPlexSans-SemiBold-Latin1.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/static/fonts/newsreader-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/newsreader-latin-600.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/css/styles.css?v={{ asset_version }}">
+{#- UX-6: a list's feed twin, for feed readers (`web/feeds.py::feed_href`). -#}
+{%- if feed_alternate %}
+<link rel="alternate" type="application/rss+xml" title="{{ feed_alternate.title }}" href="{{ feed_alternate.href }}">
+{%- endif %}
 {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -67,10 +71,21 @@
 <a class="skip-link" href="#main">Skip to main content</a>
 {% block skip_links %}{% endblock %}
 {% set lag = footer_lag_days(request) %}
+{#- How current the sources are, from `/v1/coverage` (web/viewmodels.py `source_freshness`). The
+    masthead used to say "Every record and every change live" whatever the fetch dates were. -#}
+{% set fresh = source_freshness(request) %}
 <header class="site-header">
   <div class="masthead">
     <span class="masthead__ref">Infraque register &middot; public edition</span>
-    <span class="masthead__lag">Every record and every change live</span>
+    <span class="masthead__lag">
+      {%- if fresh.available and not fresh.behind -%}
+      All {{ fresh.scheduled }} scheduled sources fetched on schedule
+      {%- elif fresh.available -%}
+      <a href="/methodology#vintage">{{ fresh.behind | length }} of {{ fresh.scheduled }} sources behind their fetch schedule</a>
+      {%- else -%}
+      <a href="/methodology#vintage">Source fetch dates</a>
+      {%- endif -%}
+    </span>
   </div>
   <div class="site-header__bar">
     <a class="wordmark" href="/">Infraque</a>
@@ -84,7 +99,7 @@
       <a href="/proposals">Proposals</a>
       <a href="/opportunities">Opportunities</a>
       <a href="/assets">Assets</a>
-      <a href="/interconnection-points">Grid points</a>
+      <a href="/interconnection-points">Grid connection points</a>
       <a href="/organizations">Companies</a>
       <a href="/about">About &amp; sources</a>
       <a href="/pricing">Pricing</a>
@@ -107,13 +122,13 @@
 {% block content %}{% endblock %}
 </main>
 <footer class="site-footer">
-  <p>Every proposal, opportunity and change event is public as soon as it is ingested. <a href="/about#sources">Sources and licences</a>. <a href="/methodology">Coverage and methodology</a>. <a href="/attribution">Attribution</a>. <a href="/legal/reuse">Reuse conditions</a>. <a href="/privacy">Privacy</a>.</p>
+  <p>Every proposal, opportunity and change event is public as soon as it is ingested. <a href="/about#sources">Sources and licences</a>. <a href="/methodology">Coverage and methodology</a>. <a href="/attribution">Attribution</a>. <a href="/legal/reuse">Reuse conditions</a>. <a href="/docs/api">API and feeds</a>. <a href="/privacy">Privacy</a>.</p>
   {%- set build = footer_build(request) %}
-  {%- if build.commit or build.source_data_as_of %}
+  {%- if build.commit or build.source_data_as_of or fresh.available %}
   {#- Two dates, never one. "Last fetched" is ours; "oldest release" is the sources' own, and the
       gap between them was invisible until 2026-09-21 (docs/CHANGELOG.md). Both link to the page
       that breaks them down per source. -#}
-  <p class="site-footer__build">Build <code class="tnum">{{ build.commit or 'unknown' }}</code>{% if build.dirty %} <span class="site-footer__dirty">(modified working tree)</span>{% endif %}{% if build.source_data_as_of %} &middot; fetched <time datetime="{{ build.source_data_as_of }}">{{ build.source_data_as_of[:10] }}</time>{% endif %}{% if build.oldest_vintage_label %} &middot; oldest source release <a href="/methodology#vintage">{{ build.oldest_vintage_label }}</a>{% elif build.source_data_as_of %} &middot; <a href="/methodology#vintage">no source states a release</a>{% endif %}.</p>
+  <p class="site-footer__build">Build <code class="tnum">{{ build.commit or 'unknown' }}</code>{% if build.dirty %} <span class="site-footer__dirty">(modified working tree)</span>{% endif %}{% if fresh.available and fresh.oldest_fetch %} &middot; sources last fetched between <time datetime="{{ fresh.oldest_fetch }}">{{ fresh.oldest_fetch | display_date }}</time> and <time datetime="{{ fresh.newest_fetch }}">{{ fresh.newest_fetch | display_date }}</time> (<a href="/methodology#vintage">each source</a>){% elif build.source_data_as_of %} &middot; sources fetched up to <time datetime="{{ build.source_data_as_of }}">{{ build.source_data_as_of | display_date }}</time>{% endif %}{% if build.oldest_vintage_label %} &middot; oldest source release <a href="/methodology#vintage">{{ build.oldest_vintage_label }}</a>{% elif build.source_data_as_of %} &middot; <a href="/methodology#vintage">no source states a release</a>{% endif %}.</p>
   {%- endif %}
 </footer>
 <script src="/static/js/site.js?v={{ asset_version }}" defer></script>

@@ -22,26 +22,26 @@
     <table class="admin-table">
       <tbody>
         <tr><th scope="row">Category</th><td>{{ source.category }}</td></tr>
-        <tr><th scope="row">Jurisdiction</th><td>{{ source.jurisdiction or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Operator</th><td>{{ source.operator or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Jurisdiction</th><td>{{ source.jurisdiction or '—' }}</td></tr>
+        <tr><th scope="row">Operator</th><td>{{ source.operator or '—' }}</td></tr>
         <tr><th scope="row">URL</th><td class="mono"><a href="{{ source.url }}">{{ source.url }}</a></td></tr>
         <tr><th scope="row">Access</th><td>{{ source.access }}</td></tr>
         <tr><th scope="row">Cadence</th><td>{{ source.cadence }}</td></tr>
         <tr><th scope="row">Freshness</th><td>{% if source.freshness %}{{ source.freshness.status }}{% if source.freshness.last_success_at %}; last success {{ source.freshness.last_success_at }}{% endif %}; allowance {{ source.freshness.allowance_hours }} h ({{ source.freshness.bucket }} poll), stale after {{ source.freshness.stale_after_hours }} h{% else %}&mdash;{% endif %}</td></tr>
         <tr><th scope="row">Tier</th><td>{{ source.tier }}</td></tr>
-        <tr><th scope="row">Host</th><td class="mono">{{ source.host or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Connector</th><td class="mono">{{ source.connector or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Host</th><td class="mono">{{ source.host or '—' }}</td></tr>
+        <tr><th scope="row">Connector</th><td class="mono">{{ source.connector or '—' }}</td></tr>
         <tr><th scope="row">Implemented</th><td>{{ "yes" if source.implemented else "no" }}</td></tr>
         <tr><th scope="row">Egress class</th><td>{{ source.egress }}</td></tr>
-        <tr><th scope="row">Schedule cron</th><td class="mono">{{ source.schedule_cron or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Next run at</th><td>{{ source.next_run_at or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Schedule cron</th><td class="mono">{{ source.schedule_cron or '—' }}</td></tr>
+        <tr><th scope="row">Next run at</th><td>{{ source.next_run_at or '—' }}</td></tr>
         <tr><th scope="row">Consecutive failures</th><td>{{ source.consecutive_failures }}</td></tr>
-        <tr><th scope="row">Last error</th><td>{{ source.last_error or "&mdash;" }}{% if source.last_error_at %} ({{ source.last_error_at }}){% endif %}</td></tr>
+        <tr><th scope="row">Last error</th><td>{{ source.last_error or '—' }}{% if source.last_error_at %} ({{ source.last_error_at }}){% endif %}</td></tr>
         <tr><th scope="row">Max rps / concurrency</th><td>{{ source.max_rps }} / {{ source.max_concurrency }}</td></tr>
         <tr><th scope="row">Enrichment enabled</th><td>{{ "yes" if source.enrichment_enabled else "no" }}</td></tr>
-        <tr><th scope="row">Model budget (USD/day)</th><td>{{ source.model_budget_usd_daily if source.model_budget_usd_daily is not none else "&mdash;" }}</td></tr>
+        <tr><th scope="row">Model budget (USD/day)</th><td>{{ source.model_budget_usd_daily if source.model_budget_usd_daily is not none else '—' }}</td></tr>
         <tr><th scope="row">Cost per changed record (30d)</th><td>{% if source.cost_per_changed_record_30d is not none %}${{ "%.4f"|format(source.cost_per_changed_record_30d) }}{% if source.cost_flagged %} &#9888; flagged{% endif %}{% else %}&mdash;{% endif %}</td></tr>
-        <tr><th scope="row">Attribution text</th><td>{{ source.attribution_text or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Attribution text</th><td>{{ source.attribution_text or '—' }}</td></tr>
       </tbody>
     </table>
   </section>
@@ -54,9 +54,9 @@
         <tr><th scope="row">Reuse class</th><td>{{ source.licence.reuse_class }}</td></tr>
         <tr><th scope="row">Gate flag</th><td>{{ "open (gated)" if source.licence.gate_flag else "clear" }}{% if source.licence.gate_name %} ({{ source.licence.gate_name }}){% endif %}</td></tr>
         <tr><th scope="row">Evidence URL</th><td>{% if source.legal_evidence_url %}<a href="{{ source.legal_evidence_url }}">{{ source.legal_evidence_url }}</a>{% else %}&mdash;{% endif %}</td></tr>
-        <tr><th scope="row">Evidence retrieved at</th><td>{{ source.licence_detail.evidence_retrieved_at or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Classified by</th><td>{{ source.licence_detail.classified_by or "&mdash;" }}</td></tr>
-        <tr><th scope="row">Contract ref</th><td>{{ source.licence_detail.contract_ref or "&mdash;" }}</td></tr>
+        <tr><th scope="row">Evidence retrieved at</th><td>{{ source.licence_detail.evidence_retrieved_at or '—' }}</td></tr>
+        <tr><th scope="row">Classified by</th><td>{{ source.licence_detail.classified_by or '—' }}</td></tr>
+        <tr><th scope="row">Contract ref</th><td>{{ source.licence_detail.contract_ref or '—' }}</td></tr>
       </tbody>
     </table>
   </section>

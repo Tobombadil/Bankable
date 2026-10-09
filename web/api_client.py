@@ -207,6 +207,12 @@ class ApiClient:
         response = self._transport.request(method, path, json=json, params=clean, cookies=cookies)
         return _to_result(response)
 
+    def get_raw(self, path: str, *, params: Mapping[str, Any] | None = None) -> httpx.Response:
+        """The response itself, for a body that is not a JSON envelope (an RSS or JSON Feed
+        document the site relays unchanged, `web/feeds.py`). No cookies are forwarded."""
+        clean = {k: v for k, v in (params or {}).items() if v is not None}
+        return self._transport.get(path, params=clean, cookies=None)
+
     def close(self) -> None:
         self._transport.close()
 

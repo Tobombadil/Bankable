@@ -1175,6 +1175,13 @@ def test_point_helpers() -> None:
     )
     assert run.web_active_mw_label(page) == "1,300.5"
     assert run.web_active_mw_label("<p>no field</p>") is None
+    # The site prints a whole total without its `.0` (web/formatting.py::mw); the audit compares numbers.
+    assert run.web_active_mw_matches("1,300.5", 1300.5)
+    assert run.web_active_mw_matches("2,000", 2000.0)
+    assert run.web_active_mw_matches("2,000", 1999.96)
+    assert not run.web_active_mw_matches("2,000", 2000.5)
+    assert not run.web_active_mw_matches("—", 0.0)
+    assert not run.web_active_mw_matches(None, 0.0)
 
 
 def test_a_bulk_embed_that_ignores_the_redistribution_flag_is_a_store_breach(

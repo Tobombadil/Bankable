@@ -18,6 +18,7 @@ ERROR_CODES = {
     "licence_gated": 403,
     "seat_limit": 403,
     "not_found": 404,
+    "method_not_allowed": 405,
     "unpublished": 410,
     "conflict": 409,
     "paid_tiers_inactive": 403,
@@ -85,6 +86,58 @@ async def problem_exception_handler(request: Request, exc: Exception) -> JSONRes
         media_type="application/problem+json",
         headers=exc.headers,
     )
+
+
+#: Status -> `(code, title)` for an `HTTPException` the framework raises itself: an unknown path
+#: (404) or a method the path does not take (405). Backend audit 2026-10-07, API-4: both answered
+#: FastAPI's `{"detail": ...}` as plain JSON.
+_FRAMEWORK_CODES: dict[int, tuple[str, str, str]] = {
+    404: ("not_found", "Not found", "No such resource."),
+    405: ("method_not_allowed", "Method not allowed", "This path does not take that method."),
+}
+
+
+async def framework_http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Registered for Starlette's `HTTPException` (`services/api/app.py`): the router's own 404 and
+    405 as RFC 9457 bodies (docs/23 §8), `Allow` kept on a 405. Any other status is not raised by
+    this service; it keeps the framework's answer rather than borrowing a code."""
+    from fastapi.exception_handlers import http_exception_handler
+    from starlette.exceptions import HTTPException
+
+    if not isinstance(exc, HTTPException):  # pragma: no cover - registration guarantees this
+        raise exc
+    known = _FRAMEWORK_CODES.get(exc.status_code)
+    if known is None:
+        return await http_exception_handler(request, exc)  # type: ignore[return-value]
+    code, title, detail = known
+    headers = dict(exc.headers) if exc.headers else None
+    problem = ProblemError(code, title, detail=detail, instance=request.url.path, headers=headers)
+    return await problem_exception_handler(request, problem)
+
+
+_LOCATIONS = frozenset({"body", "query", "path", "header", "cookie"})
+
+
+async def request_validation_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Registered for FastAPI's `RequestValidationError`: a malformed body or a missing required
+    parameter is `400 validation_error` with `errors[]` (docs/23 §8), not FastAPI's 422 list
+    (backend audit 2026-10-07, API-4; open in the W4 decision of 2026-10-06)."""
+    from fastapi.exceptions import RequestValidationError
+
+    if not isinstance(exc, RequestValidationError):  # pragma: no cover - registration guarantees this
+        raise exc
+    errors = []
+    for error in exc.errors():
+        loc = [str(part) for part in error.get("loc", ()) if part not in _LOCATIONS]
+        errors.append({"field": ".".join(loc) or "body", "message": str(error.get("msg", "invalid"))})
+    problem = ProblemError(
+        "validation_error",
+        "Invalid request",
+        detail="The request body or a parameter is malformed.",
+        errors=errors or [{"field": "body", "message": "invalid"}],
+        instance=request.url.path,
+    )
+    return await problem_exception_handler(request, problem)
 
 
 def not_found(instance: str, detail: str = "No such record is visible on this tier.") -> ProblemError:

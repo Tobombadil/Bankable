@@ -155,3 +155,36 @@ def test_the_basemap_follows_the_theme() -> None:
     assert "Object.keys(flavor.landcover).forEach" in BASEMAP_JS
     assert 'namedFlavor("light")' not in BASEMAP_JS
     assert CSS.count("--map-flavor: dark;") == 2 and CSS.count("--map-flavor: light;") == 1
+
+
+# ---- audit 2026-10-07 UX-5: the region fills are explained, and a state is never a solid fill ----
+
+
+def test_region_fills_are_stepped_by_their_own_count_and_states_are_outlines() -> None:
+    """A lone state-placed proposal used to paint all of Indiana slate grey (opacity scaled against
+    the busiest region in view, 0.15..0.7). Counties now step by their own count up to 0.4; a state
+    or country is a near-transparent wash under a dashed outline."""
+    assert "0.15 + ratio * 0.55" not in MAP_JS
+    body = MAP_JS.split("function regionOpacity(level, count) {")[1].split("\n  }\n")[0]
+    assert 'if (level !== "county") return REGION_BROAD_OPACITY;' in body
+    assert "n >= 50 ? 0.4" in body
+    assert "var REGION_BROAD_OPACITY = 0.04;" in MAP_JS
+    assert 'id: "region-outline-broad"' in MAP_JS and '"line-dasharray": [3, 2]' in MAP_JS
+    assert 'region_grade: f.properties.region_level === "county" ? "area" : "broad"' in MAP_JS
+
+
+def test_the_legend_names_the_region_areas_and_map_js_shows_it_only_when_drawn() -> None:
+    legend = HOME.split('id="lifecycle-legend"')[1].split("</div>")[0]
+    row = legend.split('id="region-legend"')[1].split("</span>")[0]
+    assert "shaded county" in row and "dashed state or country outline" in row and "how many" in row
+    assert "legendRow.hidden = !regionFeatures.length;" in MAP_JS
+    tokens = THEMES["light"]
+    assert _contrast(tokens["--region-line"], tokens["--color-paper"]) >= 4.5  # the row's words
+
+
+def test_regions_are_listed_busiest_first_and_states_by_name() -> None:
+    from web.labels import map_labels
+
+    assert map_labels()["region"]["US-IN"] == "Indiana"
+    assert "return (Number(b.properties.count) || 0) - (Number(a.properties.count) || 0);" in MAP_JS
+    assert "var regionNames = SERVER_LABELS.region || {};" in MAP_JS

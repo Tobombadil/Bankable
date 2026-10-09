@@ -776,3 +776,43 @@ def test_budget_bound_is_a_strict_subset_of_its_currency(client: TestClient, sto
     assert bounded and bounded < currency
     czk = [o for o in store["opportunities"] if o.budget_currency == "CZK" and o.status == "open"]
     assert czk and not {o.public_id for o in czk} & bounded
+
+
+def test_an_organisation_slug_selects_what_its_id_selects_on_the_list_and_in_an_alert(
+    client: TestClient, db: Session, store: dict[str, Any]
+) -> None:
+    """Expert review 2026-10-07: `sponsor_id=fermi-america` (the slug in the site's URLs) matched 0 on
+    the list while the `org_…` id matched 157, and an alert saved with the slug never fired. The list
+    now resolves a visible organisation's slug, and a saved search stores the id the matcher compares,
+    so the two still agree; a hidden organisation's slug selects nothing, as its id does, and a saved
+    search naming one is refused like one naming an organisation that never existed."""
+    from services.db.models import Organization, SavedSearch
+
+    acme_id, hidden_id = store["orgs"]["acme"], store["orgs"]["hidden"]
+    slug = {o.public_id: o.slug for o in db.scalars(select(Organization)).all()}
+    _login(client, db, "pro")
+    by_id = _list_ids(client, "/v1/proposals", {"sponsor_id": acme_id}, "public_id")
+    assert by_id
+    assert _list_ids(client, "/v1/proposals", {"sponsor_id": slug[acme_id]}, "public_id") == by_id
+    assert _list_ids(client, "/v1/proposals", {"sponsor_id": slug[hidden_id]}, "public_id") == []
+
+    resp = client.post(
+        "/v1/saved-searches",
+        json={"name": "by slug", "entity": "proposal", "query": {"sponsor_id": slug[acme_id]}},
+    )
+    assert resp.status_code == 201, resp.text
+    stored = db.scalars(select(SavedSearch).where(SavedSearch.name == "by slug")).one().query
+    assert stored == {"sponsor_id": acme_id}
+    visible = db.scalars(select(Proposal).where(*proposal_visibility_filter("pro"))).all()
+    matched = sorted(p.public_id for p in visible if proposal_matches_query(p, stored, "pro"))
+    assert matched == sorted(by_id)
+    # A taken-down organisation, by slug or id, is refused exactly as one that never existed.
+    for value in (slug[hidden_id], hidden_id, UNKNOWN_ORG, "no-such-company"):
+        refused = client.post(
+            "/v1/saved-searches",
+            json={"name": f"dud {value}", "entity": "proposal", "query": {"sponsor_id": value}},
+        )
+        assert refused.status_code == 400, (value, refused.text)
+        (error,) = refused.json()["errors"]
+        assert error["field"] == "sponsor_id"
+        assert error["message"].startswith(f"{value} names no published organisation")

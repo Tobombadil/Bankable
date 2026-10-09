@@ -37,7 +37,8 @@
 #     not in the samples; Northrop ran a Commonwealth of Virginia data centre in Lebanon, so this
 #     one may well be a data centre.
 #
-# Reviewed 2026-10-06 (lane W1 of the 2026-09-30 audit fixes, data scientist F8).
+# Reviewed 2026-10-06 (lane W1 of the 2026-09-30 audit fixes, data scientist F8). Health and Hospital
+# Corporation (110055591328) added 2026-10-07, verified by lane L11 of the 2026-10-07 review.
 
 source_id: us.epa.echo.icis_air
 reviewed: 2026-10-06
@@ -78,3 +79,12 @@ suppressed:
       Automaker's office and technical-centre site (Stellantis North America's Auburn Hills
       campus; Michigan EGLE source N5505), judged not a data centre in the docs/25 §3.7 final-rule
       hand-check.
+  - registry_id: "110055591328"
+    pgm_sys_id: IN0000001809700678
+    name: HEALTH AND HOSPITAL CORPORATION
+    place: 3838 N Rural St, Indianapolis IN
+    reason: >-
+      The Marion County Public Health Department building of the Health and Hospital Corporation
+      of Marion County (the county's public-health and hospital authority), not a data centre; a
+      residual false positive of the naics_518210 basis (docs/25 §3.7: NAICS 518210 and SIC 7374
+      on a non-data-centre site). Verified by lane L11 of the 2026-10-07 review; added 2026-10-07.

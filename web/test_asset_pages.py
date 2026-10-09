@@ -445,7 +445,7 @@ def test_organization_detail_404_when_not_found_by_slug_or_public_id(web_client:
     resp = web_client.get("/organizations/does-not-exist")
 
     assert resp.status_code == 404
-    assert "organisation" in resp.text
+    assert "company" in resp.text  # docs/30 §1 naming: Companies (UX-7)
 
 
 # ----------------------------------------------------------------------------------- /search
@@ -463,7 +463,7 @@ def test_search_renders_organizations_section(web_client: TestClient) -> None:
 
     assert resp.status_code == 200
     body = resp.text
-    assert "Organisations" in body
+    assert "<h2>Companies</h2>" in body  # docs/30 §1 naming (UX-7)
     assert 'href="/organizations/nextera-energy-resources"' in body
     calls = [c for c in transport.calls if c[1] == "/v1/organizations"]
     assert calls[0][2]["q"] == "nextera"
@@ -729,7 +729,7 @@ def test_asset_detail_pipeline_renders_map_length_diameter_states_and_operator_l
     assert "CO, WY, NE, KS, MO, IL, IN, OH" in body  # states crossed
     assert 'href="/organizations/tallgrass-energy"' in body  # operator linked to the company page
     assert "Tallgrass Energy" in body
-    assert "EIA U.S. Energy Atlas" in body and "2026-09-18" in body  # source and retrieval date
+    assert "EIA U.S. Energy Atlas" in body and "18 Sep 2026" in body  # source and retrieval date (docs/31 §4)
     # Promoted attributes are not repeated in the generic table, and a list never renders as a repr.
     attributes_table = body.split("2.</span> Attributes")[1].split("</section>")[0]
     assert "diameter in" not in attributes_table and "['CO'" not in body
@@ -988,7 +988,7 @@ def test_organization_detail_shows_asset_sources_instead_of_a_licence_claim(web_
     assert "provenance-panel" in body
     assert "EIA Atlas pipelines" in body and "EIA Atlas processing plants" in body
     assert body.count("EIA Atlas pipelines") == 1  # de-duplicated across the three pipelines
-    assert "registers behind this organisation" in body
+    assert "registers behind this company" in body
 
 
 def test_organization_detail_with_no_sources_at_all_renders_no_sources_panel(web_client: TestClient) -> None:
@@ -1007,7 +1007,7 @@ def test_organization_detail_with_no_sources_at_all_renders_no_sources_panel(web
     assert "Sources withheld under licence" not in body
     assert 'class="provenance-panel" aria-label="Sources"' not in body  # no panel at all
     assert 'id="asset-map"' not in body
-    assert "No assets recorded for this organisation." in body
+    assert "No assets recorded for this company." in body
 
 
 def test_organization_detail_renders_parent_and_subsidiaries(web_client: TestClient) -> None:
@@ -1128,7 +1128,7 @@ def test_search_resolves_a_pipeline_operator_and_a_pipeline_asset(web_client: Te
     assert "Pipeline operator" in body
     assert 'href="/assets/rockies-express-pipeline"' in body and "Rockies Express Pipeline" in body
     assert "Gas pipeline · Tallgrass Energy · CO, WY" in body
-    assert "1 asset, 1 organisation" in body
+    assert "1 asset, 1 company" in body
     asset_calls = [c for c in transport.calls if c[1] == "/v1/assets"]
     assert asset_calls[0][2] == {"q": "Tallgrass", "limit": 50}
 
@@ -1444,7 +1444,7 @@ def test_asset_detail_ethanol_promotes_nameplate_as_of_and_operator(web_client: 
     # Consumed attribute keys leave the generic Attributes table; nothing shows twice.
     assert "nameplate capacity mmgal yr" not in body and "as of year" not in body
     assert "No attributes recorded" in body
-    assert 'retrieved <span class="tnum">2026-09-19' in body
+    assert 'retrieved <span class="tnum">19 Sep 2026' in body  # docs/31 §4 date format (UX-8)
     assert 'id="asset-map"' in body  # exact point -> map section
     assert "125 MMgal/yr" in body.split('name="description"')[1].split(">")[0]
     assert ">None<" not in body and "None</" not in body
@@ -1692,7 +1692,7 @@ def test_asset_detail_nearby_list_shows_units_and_summed_capacity(web_client: Te
 
     nearby = body.split('aria-label="Nearby proposals"')[1].split("</section>")[0]
     assert nearby.count("<li>") == 2
-    assert "&times; 2 units" in nearby and "300.0 MW" in nearby and "2.9 km away" in nearby
+    assert "&times; 2 units" in nearby and "300 MW" in nearby and "2.9 km away" in nearby
     assert 'href="/proposals/danish-fields-2"' in nearby  # the nearest unit's page
     assert "100.0 MW" not in nearby and "200.0 MW" not in nearby
     assert "Lone Wind" in nearby and "units" not in nearby.split("Lone Wind")[1]
@@ -1831,7 +1831,7 @@ def test_organization_nearby_list_groups_generator_units(web_client: TestClient)
 
     nearby = body.split('aria-label="Nearby proposals"')[1].split("</section>")[0]
     assert nearby.count("<li>") == 1
-    assert "&times; 2 units" in nearby and "150.0 MW" in nearby and "3.5 km away" in nearby
+    assert "&times; 2 units" in nearby and "150 MW" in nearby and "3.5 km away" in nearby
     assert 'href="/proposals/unit-2"' in nearby and "Rockies Express Pipeline" in nearby
 
 
@@ -1851,7 +1851,7 @@ def test_search_assets_section_labels_ethanol_and_rng_types(web_client: TestClie
 
     body = web_client.get("/search?q=energy").text
 
-    section = body.split("<h2>Assets</h2>")[1].split("<h2>Organisations</h2>")[0]
+    section = body.split("<h2>Assets</h2>")[1].split("<h2>Companies</h2>")[0]
     assert "3 assets" in body
     ethanol = section.split("Absolute Energy LLC (St Ansgar, IA)</a>")[1].split("</li>")[0]
     assert "Ethanol plant · Absolute Energy LLC · US-IA" in ethanol
@@ -2039,3 +2039,43 @@ def test_pipeline_page_without_a_phmsa_block_has_no_length_note(web_client: Test
     body = web_client.get("/assets/rockies-express-pipeline").text
     assert "<dt>Mapped route length (miles)</dt>" in body
     assert 'field-note"' not in body
+
+
+def test_company_page_offers_follow_keyed_on_the_public_id(web_client: TestClient) -> None:
+    """Expert review 2026-10-07: an alert saved with the slug `fermi-america` matched 0 records and
+    the `org_…` id 157. The page's Follow link carries the id, never the slug, and is not offered
+    for a natural person."""
+    from urllib.parse import parse_qs, urlsplit
+
+    entity = _org_entity()
+    routes = {
+        "/v1/organizations": (200, {"data": [entity]}),
+        "/v1/organizations/org_01JBQ8C4X1/assets": (200, {"data": []}),
+        "/v1/organizations/org_01JBQ8C4X1/proposals": (200, {"data": []}),
+        "/v1/organizations/org_01JBQ8C4X1/opportunities": (200, {"data": []}),
+    }
+    _install(_default_transport(routes))
+    body = web_client.get("/organizations/nextera-energy-resources").text
+    href = body.split('id="org-follow"')[1].split('href="')[1].split('"')[0].replace("&amp;", "&")
+    query = parse_qs(urlsplit(href).query)
+    assert urlsplit(href).path == "/alerts/new"
+    assert query["sponsor_id"] == ["org_01JBQ8C4X1"] and query["entity"] == ["proposal"]
+    assert query["name"][0].startswith("Proposals sponsored by ")
+    person = {**entity, "personal_data": True}
+    _install(_default_transport({**routes, "/v1/organizations": (200, {"data": [person]})}))
+    assert 'id="org-follow"' not in web_client.get("/organizations/nextera-energy-resources").text
+
+
+def test_alert_form_resolves_an_organisation_slug_to_its_id() -> None:
+    from web.alerts import resolve_org_references
+
+    class _Api:
+        def get(self, path: str, params: dict[str, object] | None = None) -> dict[str, object]:
+            assert path == "/v1/organizations"
+            slug = (params or {}).get("slug")
+            return {"data": [{"public_id": "org_FERMI"}] if slug == "fermi-america" else []}
+
+    resolved = resolve_org_references(_Api(), {"sponsor_id": "fermi-america", "kind": "load"})  # type: ignore[arg-type]
+    assert resolved == {"sponsor_id": "org_FERMI", "kind": "load"}
+    assert resolve_org_references(_Api(), {"sponsor_id": "org_X"}) == {"sponsor_id": "org_X"}  # type: ignore[arg-type]
+    assert resolve_org_references(_Api(), {"issuer_id": "unknown"}) == {"issuer_id": "unknown"}  # type: ignore[arg-type]

@@ -62,7 +62,7 @@ sources:
   licence_url: "https://www.caiso.com/privacy-terms-of-use"
   tier: 1
   effort: S
-  connector: gridstatus.CAISO.get_interconnection_queue
+  connector: pipeline.vendor.gridstatus.queues.caiso_queue (vendored from gridstatus 0.36.0, 2026-10-07)
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 2278, note: 'connector run: 384,823 bytes, DQ pass; 3 sheets (queued/completed/withdrawn)'}
   notes: >-
@@ -85,7 +85,7 @@ sources:
   publication: raw_ok
   tier: 1
   effort: S
-  connector: gridstatus.Ercot.get_interconnection_queue
+  connector: pipeline.vendor.gridstatus.queues.ercot_queue (vendored from gridstatus 0.36.0, 2026-10-07)
   probe: {method: GET, url: "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"}
   verified: {date: 2026-09-12, result: ok, rows: 1778, note: 'connector run: GIS_Report_August2026 via MIS doclookupId, 675,108 bytes, DQ pass'}
   notes: >-
@@ -109,7 +109,7 @@ sources:
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: not_published, rows: 0, note: 'registry id NP3-990-CD does not exist (EMIL answers Product Not Found); no large-load status report in the 5,837-product EMIL catalogue or the 184 public MIS report types; NPRR1267 section 3.2.7 (PUCT-approved 2025-07-31) requires a monthly report but what is published is a PDF slide deck to TAC/LLWG, per-project status going to TSPs only pending the Large Load Portal. Connector watches the EMIL catalogue and emits a change event when the product appears.'}
+  verified: {date: 2026-10-07, result: not_published, rows: 0, note: 'Rechecked 2026-10-07 (lane L11): the large-load integration page lists forms, Batch Zero and RFI material and no status report; the September 2026 LLWG meeting page lists no status report; the queue appears only as system-wide charts in PDF decks (e.g. March 2026 TAC report p.3, MW by study status: observed energized, approved to energize, planning studies approved, under ERCOT review, no studies submitted), with no county, zone table or project rows. The EMIL catalogue API (filter-emil-items-search.json) answered HTTP 403 with an Incapsula bot challenge to one GET from this environment, so the catalogue itself was not re-read and the connector''s next run from this host is expected to fail. 2026-09-12: registry id NP3-990-CD does not exist (EMIL answers Product Not Found); no large-load status report in the 5,837-product EMIL catalogue or the 184 public MIS report types; NPRR1267 section 3.2.7 (PUCT-approved 2025-07-31) requires a monthly report but what is published is a PDF slide deck to TAC/LLWG, per-project status going to TSPs only pending the Large Load Portal. Connector watches the EMIL catalogue and emits a change event when the product appears.'}
   notes: >-
     The single most newsworthy queue in the country right now. Batch Zero process approved by PUCT June 2026.
     Same clause-5 permission as the GIS report; raw-ok. The product id NP3-990-CD recorded here in Phase 0 was
@@ -122,7 +122,9 @@ sources:
     met by a monthly PDF slide deck to TAC and the Large Load Working Group, and ERCOT's April 2026 board update
     says per-project status reports go to TSPs only, ahead of a Large Load Portal "currently in development".
     The connector therefore watches the EMIL catalogue for the product and emits a change event when it appears;
-    the row parser is written then, against the real file.
+    the row parser is written then, against the real file. Its rows are catalogue products, not projects, so
+    the loader never writes them as proposals (services/ingest/large_load_watch.py, 2026-10-07; docs/25 §3.10):
+    before that, a product appearing would have been published as a `load` project named after the report.
 
 # Data-centre demand signals (2026-09-28, owner decision "track data-centre demand from public filings";
 # survey and ranking in docs/25 §3). A data centre's backup generators need a state air permit that is filed
@@ -164,7 +166,8 @@ sources:
       data-centre flag and 7 more name a data centre as principal product. AIR_OP_STATUS Operating 158,
       Planned 45, Under Construction 1, Temporarily Shutdown 1 -> built 159, filed 45, under_construction 1.
       Every row has a DEQ point (205 exact; 180 at 6 decimals, 19 at 5, 6 at 4) and a derived county (Loudoun
-      87, Fairfax 32, Prince William 32, Mecklenburg 10, Henrico 8); derived county agrees with EPA ICIS-Air's
+      87, Fairfax 32, Prince William 32, Mecklenburg 10, Henrico 8; spelled "Loudoun County" until 2026-10-07, now
+      the bare name ICIS-Air and EIA-860M use, docs/25 §3.10); derived county agrees with EPA ICIS-Air's
       county on 157 of the 160 rows that join on PLA_ICIS_ID (the 3 others sit on the Manassas city /
       Prince William line). Loaded through services/ingest/loader.py into a scratch SQLite store: 205 load
       proposals, publish_state public, location precision exact.
@@ -234,7 +237,10 @@ sources:
     pipeline/resolve.py pairs them (D3). robots: echo.epa.gov allows /files/ (Crawl-delay 10, honoured by the
     0.1 rps limit); echodata.epa.gov (the ECHO REST API host) answers `Disallow: *` and is never used. The
     FRS national download (frs_downloads.zip, 368,601,232 bytes) was measured and rejected: FRS_FACILITIES.csv
-    has latitude/longitude but no collection method or accuracy.
+    has latitude/longitude but no collection method or accuracy. 2026-10-07 (lane L11, docs/25 §3.10): a facility
+    ICIS carries twice under re-padded or re-prefixed programme ids with the same FRS id and the same name is one
+    row (4 folded on the 2026-10-07 snapshot: 521 -> 517); a name-based tightening of the NAICS 518210 basis was
+    tested and rejected, because the enterprise-named rows it would drop are mostly real data centres.
 
 - id: us.ga.epd.air_permit_advisories
   name: Georgia EPD Air Protection Branch public advisories (permit applications received)
@@ -295,7 +301,7 @@ sources:
   publication: none
   tier: 1
   effort: S
-  connector: gridstatus.SPP.get_interconnection_queue
+  connector: none yet (gridstatus.SPP.get_interconnection_queue upstream; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 3074}
   notes: >-
@@ -321,7 +327,7 @@ sources:
   licence_url: "https://www.nyiso.com/legal-notice"
   tier: 1
   effort: S
-  connector: gridstatus.NYISO.get_interconnection_queue
+  connector: pipeline.vendor.gridstatus.queues.nyiso_queue (vendored from gridstatus 0.36.0, 2026-10-07)
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 1814, note: 'connector run: 1,814 identified rows (1,350 padding rows with no queue position, name, county or date are dropped); DQ warn: 2 queue positions duplicated in the workbook, suffixed'}
   notes: >-
@@ -343,7 +349,7 @@ sources:
   publication: none
   tier: 1
   effort: S
-  connector: gridstatus.ISONE.get_interconnection_queue
+  connector: none yet (gridstatus.ISONE.get_interconnection_queue upstream; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
   probe: {method: GET}
   verified: {date: 2026-09-12, result: ok, rows: 1751}
   notes: >-
@@ -367,7 +373,7 @@ sources:
   publication: none
   tier: 1
   effort: M
-  connector: gridstatus.PJM.get_interconnection_queue (PJM_API_KEY)
+  connector: none yet (gridstatus.PJM.get_interconnection_queue upstream, needs PJM_API_KEY; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
   probe: {method: GET, url: "https://api.pjm.com/api/v1/"}
   verified: {date: 2026-09-12, result: needs_key, note: "401 without key; gridstatus raised 'api_key must be provided'"}
   notes: >-
@@ -392,7 +398,7 @@ sources:
   publication: none
   tier: 1
   effort: M
-  connector: gridstatus.MISO.get_interconnection_queue
+  connector: none yet (gridstatus.MISO.get_interconnection_queue upstream; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
   probe: {method: GET, url: "https://www.misoenergy.org/api/giqueue/getprojects"}
   verified: {date: 2026-09-12, result: blocked, note: "403 'Just a moment...' Cloudflare challenge from datacentre IP; worked for gridstatus historically"}
   notes: >-

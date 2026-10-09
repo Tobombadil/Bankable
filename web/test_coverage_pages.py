@@ -361,7 +361,7 @@ def test_the_page_sets_each_source_release_against_the_date_we_fetched(
     body = web_client.get("/methodology").text
     section = body.split('id="vintage"')[1].split("</section>")[0]
     assert "July 2026" in section
-    assert "2026-09-13" in section
+    assert "13 Sep 2026" in section  # docs/31 §4 date format (UX-8)
     assert "the release is in the name of the file we fetch" in section
 
 

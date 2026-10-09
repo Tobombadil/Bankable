@@ -925,3 +925,68 @@ def test_organization_nearby_proposals_technology_composes_with_limit(client, db
     assert len(body["data"]) == 1 and body["page"]["has_more"] is True
     assert body["totals"]["proposals_within_radius"] == 2
     assert body["totals"]["proposals_within_radius_unfiltered"] == 4
+
+
+# --------------------------------------------------------- PERF-5: minimum feature size by zoom
+def test_a_line_too_small_for_the_zoom_is_counted_not_drawn(client, db):
+    """Backend audit 2026-10-07, PERF-5: at zoom 4 a line under `MIN_LINE_PX` pixels (~50 km) is
+    not drawn but is counted in `line_count`, as one past the cap is; zoomed in, it is drawn."""
+    from services.api.lines import MIN_LINE_PX, pixel_deg
+
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    small = (MIN_LINE_PX - 1) * pixel_deg(4)
+    tiny = _make_line(db, src, lic, [(-100.0, 35.0), (-100.0 + small, 35.0)], source_asset_id="t")
+    long_ = _make_line(db, src, lic, [(-100.0, 37.0), (-94.0, 37.0)], source_asset_id="l")
+    db.commit()
+
+    national = client.get("/v1/assets/geo", params={"bbox": CONUS_BBOX, "zoom": 4}).json()["data"]
+    assert [f["id"] for f in national["features"]] == [long_.public_id]
+    assert national["totals"]["line_count"] == 2 and national["totals"]["lines_shown"] == 1
+    regional = client.get("/v1/assets/geo", params={"bbox": "-101,34,-93,38", "zoom": 9}).json()["data"]
+    assert {f["id"] for f in regional["features"]} == {tiny.public_id, long_.public_id}
+
+
+def test_small_parts_drop_at_low_zoom_but_the_largest_stays_and_coordinates_are_coarser():
+    from services.api.lines import map_decimals_for_zoom, map_parts_for_zoom, pixel_deg
+
+    px = pixel_deg(4)
+    big = ((-100.0, 35.0), (-96.0, 35.123456))
+    crumb = ((-90.0, 30.0), (-90.0 + px, 30.0))  # one pixel: under MIN_PART_PX
+    drawn = map_parts_for_zoom((big, crumb), 4)
+    assert drawn is not None and len(drawn) == 1
+    assert drawn[0][-1] == (-96.0, 35.12)  # two decimals at zoom 4 (~1.1 km, a ninth of a pixel)
+    assert map_decimals_for_zoom(4) == 2 and map_decimals_for_zoom(7) == 3
+    # A line made only of small parts keeps its largest, if the line as a whole is big enough.
+    spread = tuple(((-100.0 + 2 * i * px, 35.0), (-100.0 + (2 * i + 1) * px, 35.0)) for i in range(10))
+    kept = map_parts_for_zoom(spread, 4)
+    assert kept is not None and len(kept) == 1
+    # At and above NO_SIMPLIFY_ZOOM nothing is dropped or rounded.
+    assert map_parts_for_zoom((big, crumb), 14) == (big, crumb)
+
+
+def test_the_index_key_runs_once_per_map_request(client, db, db_sessionmaker):
+    """The key's aggregates ran twice per request, and the licence aggregate every request; a
+    warm map request now runs the key once and nothing else over the whole asset table."""
+    import sqlalchemy as sa
+
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    _make_line(db, src, lic, [(-100.0, 37.0), (-94.0, 37.0)], source_asset_id="l")
+    db.commit()
+    params = {"bbox": CONUS_BBOX, "zoom": 4}
+    assert client.get("/v1/assets/geo", params=params).status_code == 200
+    statements: list[str] = []
+    engine = db_sessionmaker.kw["bind"]
+
+    def grab(_c, _cur, statement, *_a):
+        statements.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", grab)
+    try:
+        assert client.get("/v1/assets/geo", params=params).status_code == 200
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", grab)
+    key_queries = [s for s in statements if "max(asset.last_changed)" in s]
+    assert len(key_queries) == 1, key_queries
+    assert not any("GROUP BY source.id, licence.id" in s for s in statements)

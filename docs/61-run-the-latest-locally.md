@@ -108,6 +108,24 @@ it.
 .venv/bin/python -m pipeline.context.gleif
 ```
 
+## 4a. Re-read what is already stored under the current code
+
+New code does not change rows you already have. A parser or status-map fix reaches a source only when
+that source runs again, so after a `git reset` that brought parser changes, and whenever you skipped
+step 4, the site keeps serving what the old code wrote (on 2026-10-07: ERCOT read 580 projects as
+built where the corrected rule says 117, and GB capacity counted earlier stages twice). Re-read the
+stored downloads under the current code, without fetching anything:
+
+```bash
+make reparse                   # same as: .venv/bin/python -m pipeline.connectors run --all --reparse
+```
+
+It is safe to repeat: a source whose stored download the current code has already read is skipped
+(`reparse skipped ... up_to_date`), as is one with nothing stored (`no_snapshot`). A re-read is a
+correction, not news, so every `result` line should say `"rows_new": 0`, `"rows_changed": 0`; the
+run record's `parser_restated` says how many change events it kept out of the feed. Step 5 then
+loads the corrected rows. If you ran step 4, you do not need this: a fetch already restates.
+
 ## 5. Start the site
 
 ```bash
@@ -150,6 +168,8 @@ curl -s http://127.0.0.1:8001/v1/health | python3 -m json.tool | head -30
   Stop it and start it again.
 - **The fetch date is old.** The code is current but the data is not. Re-run the connectors in
   step 4 for the layers you care about, then restart the site so it reloads them.
+- **A fix you pulled is not on the page** (a status or capacity that a merged change corrected). The
+  stored rows predate it: run step 4a, then restart the site.
 - **A layer is missing from the map.** Check the startup log for a line naming that file as absent,
   then run its connector from step 4.
 - **`no such column: ...` from a page that used to work.** Your local database predates a schema

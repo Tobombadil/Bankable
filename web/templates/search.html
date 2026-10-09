@@ -8,28 +8,30 @@
 {% if not q %}
 <p>Search by project name, sponsor, queue ID, county, issuer or title using the box above.</p>
 {% else %}
-<p class="result-count">Results for &ldquo;{{ q }}&rdquo;: {{ proposals | length }} proposal{{ 's' if proposals|length != 1 }}, {{ opportunities | length }} opportunit{{ 'y' if opportunities|length == 1 else 'ies' }}, {{ assets | length }} asset{{ 's' if assets|length != 1 }}, {{ organizations | length }} organisation{{ 's' if organizations|length != 1 }}.</p>
+<p class="result-count">Results for &ldquo;{{ q }}&rdquo;: {{ proposals | length }} proposal{{ 's' if proposals|length != 1 }}, {{ opportunities | length }} opportunit{{ 'y' if opportunities|length == 1 else 'ies' }}, {{ assets | length }} asset{{ 's' if assets|length != 1 }}, {{ organizations | length }} compan{{ 'y' if organizations|length == 1 else 'ies' }}.</p>
 
 <h2>Proposals</h2>
 {% if proposals %}
 <ul class="in-view-list">
   {% for r in proposals %}
   <li>{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
-    <span class="meta">{{ (r.technology | technology_label) if r.technology else '—' }} &middot; {{ r.state or r.jurisdiction or '—' }}{% if r.capacity_mw %} &middot; {{ '%.1f'|format(r.capacity_mw) }} MW{% endif %}</span>
+    <span class="meta">{{ (r.technology | technology_label) if r.technology else '—' }} &middot; {{ r.state or r.jurisdiction or '—' }}{% if r.capacity_mw %} &middot; {{ r.capacity_mw | mw }} MW{% endif %}{% if r.source_url %} &middot; <a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_name }}</a>{% endif %}</span>
   </li>
   {% endfor %}
 </ul>
+{{ m.credits_line(credits.get('proposals')) }}
 {% else %}<p>No matching proposals.</p>{% endif %}
 
 <h2>Opportunities</h2>
 {% if opportunities %}
 <ul class="in-view-list">
   {% for r in opportunities %}
-  <li>{{ m.status_chip(r.status, r.lifecycle_family) }} <a href="/opportunities/{{ r.slug }}">{{ r.title }}</a>
-    <span class="meta">{{ r.issuer or '—' }}{% if r.due_at %} &middot; due {{ r.due_at[:10] }}{% endif %}</span>
+  <li>{{ m.status_chip(r.status, r.lifecycle_family) }}{{ m.deadline_note(r) }} <a href="/opportunities/{{ r.slug }}">{{ r.title }}</a>
+    <span class="meta">{{ r.issuer or '—' }}{% if r.due_at %} &middot; due {{ r.due_at | display_date }}{% endif %}{% if r.source_url %} &middot; <a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_name }}</a>{% endif %}</span>
   </li>
   {% endfor %}
 </ul>
+{{ m.credits_line(credits.get('opportunities')) }}
 {% else %}<p>No matching opportunities.</p>{% endif %}
 
 {# Existing assets by name, operator or owner (`/v1/assets?q=`, docs/23 §3.1): "Rockies Express"
@@ -49,9 +51,10 @@
   </li>
   {% endfor %}
 </ul>
+{{ m.credits_line(credits.get('assets')) }}
 {% else %}<p>No matching assets.</p>{% endif %}
 
-<h2>Organisations</h2>
+<h2>Companies</h2>
 {% if organizations %}
 <ul class="in-view-list">
   {% for r in organizations %}
@@ -60,6 +63,7 @@
   </li>
   {% endfor %}
 </ul>
-{% else %}<p>No matching organisations.</p>{% endif %}
+{{ m.credits_line([], empty=org_credits_note) }}
+{% else %}<p>No matching companies.</p>{% endif %}
 {% endif %}
 {% endblock %}

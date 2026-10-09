@@ -20,6 +20,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
+from web import formatting
 from web.api_client import ApiError, ApiNotFound
 from web.page import (
     breadcrumb_jsonld,
@@ -56,8 +57,9 @@ PAGE_SIZE = 50
 
 
 def _mw(value: Any) -> str:
+    """docs/31 §4 capacity format (`web/formatting.py::mw`): `2,000`, not `2,000.0` (UX-8)."""
     try:
-        return f"{float(value):,.1f}"
+        return formatting.mw(float(value))
     except (TypeError, ValueError):
         return "—"
 
@@ -196,7 +198,7 @@ def interconnection_points_list(request: Request) -> HTMLResponse:
         "jsonld": [
             item_list_jsonld(
                 request,
-                name="Grid interconnection points",
+                name="Grid connection points",
                 description=(
                     "Substations and line taps where proposed projects connect to the grid, with the "
                     "queue waiting at each."
@@ -241,7 +243,7 @@ def interconnection_point_detail(request: Request, public_id: str) -> HTMLRespon
                     request,
                     [
                         ("Home", "/"),
-                        ("Grid interconnection points", "/interconnection-points"),
+                        ("Grid connection points", "/interconnection-points"),
                         (record["name"], path),
                     ],
                 )

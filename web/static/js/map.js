@@ -287,6 +287,19 @@
   // `null` for an absent value, never "0": `Number(null)` and `Number("")` are both 0, so without
   // the guard an absent field rendered a real-looking zero (found driving the drawer, 2026-09-19 --
   // the "None" gate means no row at all, not a zero).
+  // A capacity as the server prints it (web/formatting.py `mw`, docs/31 §4; UX-8): thousands
+  // separators, at most one decimal, no trailing ".0" -- "4,800 MW", never "4800.0 MW".
+  function fmtMW(value) {
+    var n = Number(value);
+    return n.toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 0 }) + " MW";
+  }
+  // An ISO date as the server prints it (web/formatting.py `display_date`, docs/31 §4): "13 Sep 2026".
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function fmtDate(value) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ""));
+    if (!m || Number(m[2]) < 1 || Number(m[2]) > 12) return String(value || "");
+    return Number(m[3]) + " " + MONTHS[Number(m[2]) - 1] + " " + m[1];
+  }
   function fmtNumber(value, digits) {
     if (value == null || value === "") return null;
     var n = Number(value);
@@ -406,13 +419,71 @@
   // narrows the list (2026-09-29: only four were known here and `/?kind=load` drew 5,853
   // proposals under a notice counting 46, then rewrote the URL without `kind`). `lifecycle_state`
   // sits outside that tuple because the server resolves it (web/viewmodels.py
-  // resolve_proposal_lifecycle_param) and is kept the same way. Anything else is not forwarded.
+  // resolve_proposal_lifecycle_param); since UX-1 the Status control sets it. Anything else is not
+  // forwarded.
   var FORM_CONTROLLED_FILTERS = ["technology", "kind", "jurisdiction", "placement"];
   var PASSTHROUGH_FILTERS = (document.getElementById("map-filters").getAttribute("data-passthrough") || "")
     .split(",").map(function (s) { return s.trim(); }).filter(Boolean);
   var URL_ONLY_FILTERS = PASSTHROUGH_FILTERS.filter(function (name) {
     return FORM_CONTROLLED_FILTERS.indexOf(name) === -1;
-  }).concat(["lifecycle_state"]);
+  });
+
+  // UX-1 (audit 2026-10-07): the Status control. Each box's value is its group's lifecycle states
+  // as a csv (`_macros.html` status_filter). The URL carries the shortest form of the choice, as
+  // the server writes it (web/viewmodels.py lifecycle_query_items): nothing for the default
+  // (active), `include_withdrawn=1` for active plus withdrawn, else one `lifecycle_state` csv.
+  var statusFieldset = document.querySelector("#map-filters .filter-field--status");
+  var statusBoxes = Array.prototype.slice.call(document.querySelectorAll('#map-filters input[name="lifecycle_state"]'));
+  function csvList(value) {
+    return String(value || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+  var DEFAULT_STATES = csvList(statusFieldset && statusFieldset.getAttribute("data-default-states"));
+  var WITHDRAWN_STATES = csvList(statusFieldset && statusFieldset.getAttribute("data-withdrawn-states"));
+  function sameSet(a, b) {
+    return a.length === b.length && a.every(function (x) { return b.indexOf(x) !== -1; });
+  }
+  function readStatuses(params) {
+    var states = [];
+    params.getAll("lifecycle_state").forEach(function (value) {
+      csvList(value).forEach(function (s) { if (states.indexOf(s) === -1) states.push(s); });
+    });
+    if (states.length) return states;
+    return params.get("include_withdrawn") === "1" ? DEFAULT_STATES.concat(WITHDRAWN_STATES) : DEFAULT_STATES.slice();
+  }
+  // No box checked means the default: an empty choice would otherwise ask for every state.
+  function currentStatuses() {
+    var states = [];
+    statusBoxes.forEach(function (box) {
+      if (box.checked) csvList(box.value).forEach(function (s) { if (states.indexOf(s) === -1) states.push(s); });
+    });
+    return states.length ? states : DEFAULT_STATES.slice();
+  }
+  function appendStatuses(params, states) {
+    if (!states || !states.length || sameSet(states, DEFAULT_STATES)) return;
+    if (sameSet(states, DEFAULT_STATES.concat(WITHDRAWN_STATES))) {
+      params.set("include_withdrawn", "1");
+      return;
+    }
+    params.set("lifecycle_state", states.join(","));
+  }
+  // The boxes and the disclosure's "Status: …" summary follow a choice made elsewhere (a link, Back,
+  // "Clear all", the notice's "N built" link).
+  function syncStatusControl(states) {
+    statusBoxes.forEach(function (box) {
+      box.checked = csvList(box.value).every(function (s) { return states.indexOf(s) !== -1; });
+    });
+    // The summary in the server's words (web/viewmodels.py proposal_status_choices): "active" while
+    // the default groups are all on, then whatever else is; otherwise the groups' short names.
+    var summary = document.querySelector("#mf-status [data-status-summary]");
+    if (!summary) return;
+    var defaultsOn = statusBoxes.filter(function (b) { return b.hasAttribute("data-default"); })
+      .every(function (b) { return b.checked; });
+    var words = defaultsOn ? ["active"] : [];
+    statusBoxes.forEach(function (b) {
+      if (b.checked && !(defaultsOn && b.hasAttribute("data-default"))) words.push(b.getAttribute("data-status-short") || b.value);
+    });
+    summary.textContent = words.join(", ") || "active";
+  }
 
   function readUrlOnlyFilters(params) {
     var out = {};
@@ -429,7 +500,7 @@
     if (filters.technology) params.set("technology", filters.technology);
     if (filters.kind) params.set("kind", filters.kind);
     if (filters.jurisdiction) params.set("jurisdiction", filters.jurisdiction);
-    if (filters.include_withdrawn) params.set("include_withdrawn", "1");
+    appendStatuses(params, filters.statuses);
     var urlOnly = filters.url_only || {};
     URL_ONLY_FILTERS.forEach(function (name) {
       if (urlOnly[name]) params.set(name, urlOnly[name]);
@@ -463,7 +534,7 @@
       technology: params.get("technology") || "",
       kind: params.get("kind") || "",
       jurisdiction: params.get("jurisdiction") || "",
-      include_withdrawn: params.get("include_withdrawn") === "1",
+      statuses: readStatuses(params),
       url_only: readUrlOnlyFilters(params),
       layers: layersParam ? layersParam.split(",").filter(Boolean) : [],
       region: params.get("region") || "",
@@ -506,6 +577,16 @@
       ["layers", "region", "plant_technology", "asset_type"].forEach(function (k) { listParams.delete(k); });
       var listQs = listParams.toString();
       listLink.href = "/proposals" + (listQs ? "?" + listQs : "");
+    }
+    // "View as: RSS feed" (UX-6): the feed twin of the same proposals. A feed has no default
+    // lifecycle view of its own, so the states are always spelt out (web/feeds.py feed_href).
+    var feedLink = document.getElementById("view-as-feed");
+    if (feedLink) {
+      var feedParams = new URLSearchParams();
+      appendProposalFilters(feedParams, filters);
+      feedParams.delete("include_withdrawn");
+      feedParams.set("lifecycle_state", (filters.statuses && filters.statuses.length ? filters.statuses : DEFAULT_STATES).join(","));
+      feedLink.href = "/feeds/proposals.rss?" + feedParams.toString();
     }
     // "Save this search as an alert" carries the current filters (web/alerts.py drops the map's
     // own default placement and the layer/asset keys, which are not proposal filters).
@@ -661,7 +742,7 @@
   document.getElementById("mf-technology").value = filters.technology;
   document.getElementById("mf-kind").value = filters.kind;
   document.getElementById("mf-jurisdiction").value = filters.jurisdiction;
-  document.getElementById("mf-include-withdrawn").checked = filters.include_withdrawn;
+  syncStatusControl(filters.statuses);
   var plantsToggle = document.getElementById("mf-layer-plants");
   plantsToggle.checked = filters.layers.indexOf("plants") !== -1;
   var retiredToggle = document.getElementById("mf-layer-retired");
@@ -794,30 +875,35 @@
   // region also contributes a Point feature (its representative point, always available
   // immediately) so the count label can render before the polygon fetch finishes; fill/outline
   // layers below are filtered to `["geometry-type"] == "Polygon"`, the label layer to `"Point"`.
+  // Audit 2026-10-07 UX-5: the fill used to scale 0.15..0.7 against the busiest region in view, so
+  // a lone state-placed proposal painted a whole state slate grey over the lines and plants a
+  // planner had turned on. Now only a county is shaded, stepped by its own count (1, 2-9, 10-49,
+  // 50+), never past 0.4; a state or country is a dashed outline over a near-transparent wash
+  // (`region_grade` "broad"), since one record placed "somewhere in Indiana" says nothing about
+  // where in it. The legend row (`#region-legend`) names both.
+  var REGION_BROAD_OPACITY = 0.04;
+  function regionOpacity(level, count) {
+    if (level !== "county") return REGION_BROAD_OPACITY;
+    var n = Number(count) || 0;
+    return n >= 50 ? 0.4 : n >= 10 ? 0.3 : n >= 2 ? 0.2 : 0.12;
+  }
   function updateRegionsLayer(regionFeatures) {
     if (!map.getSource("regions")) return;
-    var maxCount = 0;
-    regionFeatures.forEach(function (f) { maxCount = Math.max(maxCount, f.properties.count || 0); });
     var out = [];
     regionFeatures.forEach(function (f) {
       var key = f.properties.region_level + ":" + f.properties.region_id;
-      var ratio = maxCount > 0 ? (f.properties.count || 0) / maxCount : 1;
-      // 0.15..0.7 fill-opacity range: even the smallest region in view stays visible, the busiest
-      // never obscures the layers drawn above it (proposals points/clusters, the assets layer).
-      var opacity = 0.15 + ratio * 0.55;
-      out.push({
-        type: "Feature", geometry: f.geometry,
-        properties: { region_level: f.properties.region_level, region_id: f.properties.region_id, name: f.properties.name, count: f.properties.count, region_opacity: opacity }
-      });
+      var props = {
+        region_level: f.properties.region_level, region_id: f.properties.region_id, name: regionName(f.properties),
+        count: f.properties.count, region_opacity: regionOpacity(f.properties.region_level, f.properties.count),
+        region_grade: f.properties.region_level === "county" ? "area" : "broad"
+      };
+      out.push({ type: "Feature", geometry: f.geometry, properties: props });
       var polygon = regionPolygonCache[key];
-      if (polygon) {
-        out.push({
-          type: "Feature", geometry: polygon,
-          properties: { region_level: f.properties.region_level, region_id: f.properties.region_id, name: f.properties.name, count: f.properties.count, region_opacity: opacity }
-        });
-      }
+      if (polygon) out.push({ type: "Feature", geometry: polygon, properties: props });
     });
     map.getSource("regions").setData({ type: "FeatureCollection", features: out });
+    var legendRow = document.getElementById("region-legend");
+    if (legendRow) legendRow.hidden = !regionFeatures.length;
   }
 
   var mapErrorEl = document.getElementById("map-error");
@@ -933,7 +1019,10 @@
         latestCollection = fc;
         latestMeta = envelope.meta || {};
         updateLifecycleLegend((fc.totals || {}).lifecycle_state_counts || {});
-        latestRegionFeatures = regionFeatures;
+        // Busiest first, so the in-view list leads with the county holding 37, not a state holding 1.
+        latestRegionFeatures = regionFeatures.slice().sort(function (a, b) {
+          return (Number(b.properties.count) || 0) - (Number(a.properties.count) || 0);
+        });
         if (map.getSource("proposals")) {
           map.getSource("proposals").setData({ type: "FeatureCollection", features: pointFeatures });
         }
@@ -1089,7 +1178,7 @@
       if (miles != null && fmtNumber(miles, 0)) parts.push(fmtNumber(miles, 0) + " mi");
       if (p.line_class && p.line_class !== "unknown") parts.push(p.line_class);
     } else if (p.capacity_mw) {
-      parts.push(Number(p.capacity_mw).toFixed(1) + " MW");
+      parts.push(fmtMW(p.capacity_mw));
     } else if (isFuelType(p.asset_type)) {
       // Geo point features carry no capacity_value; a nameplate shows here only when the
       // feature (or a merged detail row) has one -- never a placeholder.
@@ -1152,6 +1241,9 @@
       var already = /\b(County|Parish|Borough|Census Area|Municipality|city)$/i.test(name);
       return name + (noun && !already ? " " + noun : "") + (st ? ", " + st : "");
     }
+    // A state reads as its name ("Indiana"), not its code ("US-IN"): the server's table (UX-5).
+    var regionNames = SERVER_LABELS.region || {};
+    if (Object.prototype.hasOwnProperty.call(regionNames, id)) return regionNames[id];
     if (p.region_level === "state") return name;
     return name + " (" + humanise(p.region_level || "region").toLowerCase() + ")";
   }
@@ -1209,7 +1301,7 @@
           a.parentNode.insertBefore(document.createTextNode(" "), units);
         }
         var meta = (technologyName(p.technology) || "—") + " · " + (p.state_code || p.county_name || "—") +
-          (g.capacity_mw ? " · " + g.capacity_mw.toFixed(1) + " MW" : "");
+          (g.capacity_mw ? " · " + fmtMW(g.capacity_mw) : "");
         node.querySelector(".meta").textContent = meta;
         // D-13: the drawer (sources, licence) was reachable only by clicking a dot on the canvas.
         // Every proposal row now has the same Details button the asset rows have.
@@ -1425,8 +1517,14 @@
     }, "clusters");
     map.addLayer({
       id: "region-outline", type: "line", source: "regions",
-      filter: ["==", ["geometry-type"], "Polygon"],
+      filter: ["all", ["==", ["geometry-type"], "Polygon"], ["==", ["get", "region_grade"], "area"]],
       paint: { "line-color": regionColors.line, "line-width": 1, "line-opacity": 0.6 }
+    }, "clusters");
+    // State and country placements: dashed outline only (UX-5), the legend's "dashed outline".
+    map.addLayer({
+      id: "region-outline-broad", type: "line", source: "regions",
+      filter: ["all", ["==", ["geometry-type"], "Polygon"], ["==", ["get", "region_grade"], "broad"]],
+      paint: { "line-color": regionColors.line, "line-width": 1.2, "line-opacity": 0.7, "line-dasharray": [3, 2] }
     }, "clusters");
     map.addLayer({
       id: "region-labels", type: "symbol", source: "regions",
@@ -1973,7 +2071,7 @@
       technology: document.getElementById("mf-technology").value,
       kind: document.getElementById("mf-kind").value,
       jurisdiction: document.getElementById("mf-jurisdiction").value,
-      include_withdrawn: document.getElementById("mf-include-withdrawn").checked,
+      statuses: currentStatuses(),
       url_only: filters.url_only,
       layers: filters.layers,
       region: filters.region,
@@ -1984,6 +2082,7 @@
       focus: ""
     };
     writeFilters(filters);
+    syncStatusControl(filters.statuses);
     syncAssetControls();
     if (map.getLayer("plant-points")) setPlantsLayerVisible(plantsToggle.checked);
     refetch();
@@ -1999,7 +2098,18 @@
   document.getElementById("mf-technology").addEventListener("change", applyFilters);
   document.getElementById("mf-kind").addEventListener("change", applyFilters);
   document.getElementById("mf-jurisdiction").addEventListener("change", applyFilters);
-  document.getElementById("mf-include-withdrawn").addEventListener("change", applyFilters);
+  statusBoxes.forEach(function (box) { box.addEventListener("change", applyFilters); });
+  // The notice's "N built" link turns Built on in place rather than reloading the map (UX-1).
+  if (noticeEl) {
+    noticeEl.addEventListener("click", function (e) {
+      var link = e.target && e.target.closest ? e.target.closest("a.view-notice__show") : null;
+      var builtBox = document.getElementById("mf-status-built");
+      if (!link || !builtBox) return;
+      e.preventDefault();
+      builtBox.checked = true;
+      applyFilters();
+    });
+  }
   plantsToggle.addEventListener("change", function () {
     var on = plantsToggle.checked;
     setLayerOn("plants", on);
@@ -2033,7 +2143,7 @@
     document.getElementById("mf-technology").value = "";
     document.getElementById("mf-kind").value = "";
     document.getElementById("mf-jurisdiction").value = "";
-    document.getElementById("mf-include-withdrawn").checked = false;
+    syncStatusControl(DEFAULT_STATES);
     // "Clear all" also drops the filters that arrived in the link with no control on this page:
     // left in place they would go on narrowing the map with nothing on screen saying so.
     filters.url_only = {};
@@ -2148,7 +2258,7 @@
         "<a href=\"" + safeUrl(source.source_url) + "\" rel=\"noopener nofollow\">" + esc(source.source_name) + "</a>" +
         (licence ? " &middot; <span class=\"drawer-source__licence\">" + esc(licence) + "</span>" : "") +
         (source.licence_name ? " &middot; " + esc(source.licence_name) : "") +
-        " &middot; retrieved <span class=\"tnum\">" + esc(source.retrieved_at ? String(source.retrieved_at).slice(0, 10) : "unknown") + "</span>" +
+        " &middot; retrieved <span class=\"tnum\">" + esc(source.retrieved_at ? fmtDate(source.retrieved_at) : "unknown") + "</span>" +
         (source.attribution_text ? "<br><span class=\"drawer-source__credit\">" + esc(source.attribution_text) + "</span>" : "") + "</p>";
     }
     function render(p, source) {
@@ -2156,9 +2266,11 @@
         "<h2>" + esc(p.name) + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
         "<dl class=\"drawer-fields\">" +
         "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + esc(technologyName(p.technology) || "—") + "</dd></div>" +
-        (fieldApplies(p.kind, "capacity_mw", p.capacity_mw)
-          ? "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : "—") + "</dd></div>"
-          : "") +
+        // A kind that cannot carry a capacity (PROPOSAL_FIELDS_NOT_APPLICABLE) and a large load with no
+        // MW (lane L11) get no Capacity row rather than a row of "—".
+        (!fieldApplies(p.kind, "capacity_mw", p.capacity_mw) ? "" :
+          p.technology === "load" && !p.capacity_mw ? "" :
+          "<div class=\"drawer-fields__row\"><dt>Capacity</dt><dd class=\"tnum\">" + (p.capacity_mw ? fmtMW(p.capacity_mw) : "—") + "</dd></div>") +
         "<div class=\"drawer-fields__row\"><dt>Location</dt><dd>" + esc(p.county_name || "—") + ", " + esc(p.state_code || "—") +
         (p.precision_note ? " (" + esc(p.precision_note) + ")" : "") + "</dd></div>" +
         "</dl>" +
@@ -2173,7 +2285,7 @@
       var isLine = p.feature_kind === "asset_line";
       var techs = propObj(p.technologies) || {};
       var techRows = Object.keys(techs).sort().map(function (k) {
-        return row(technologyName(k), Number(techs[k]).toFixed(1) + " MW", true);
+        return row(technologyName(k), fmtMW(techs[k]), true);
       }).join("");
       var source = propObj(p.source);
       var commissionedYear = p.commissioned_year || p.earliest_operating_year;
@@ -2193,7 +2305,7 @@
       var typeRows = fuel
         ? fuelRows(p).map(function (r) { return row(r[0], esc(r[1]), r[2]); }).join("")
         : (type === "power_plant" ? (techRows || row("Technology", p.technology ? esc(technologyName(p.technology)) : null)) : row("Technology", p.technology ? esc(technologyName(p.technology)) : null)) +
-          row("Capacity", p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : null, true) +
+          row("Capacity", p.capacity_mw ? fmtMW(p.capacity_mw) : null, true) +
           row("Length", miles != null && fmtNumber(miles, 0) ? fmtNumber(miles, 0) + " miles" : null, true) +
           row("Diameter", diameter != null ? esc(typeof diameter === "number" ? fmtNumber(diameter, 1) + " in" : String(diameter)) : null, true) +
           row("States", states ? esc(states) : null);

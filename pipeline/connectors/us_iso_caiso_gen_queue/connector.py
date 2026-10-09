@@ -1,7 +1,7 @@
 """us.iso.caiso.gen_queue — CAISO Public Queue Report (PublicQueueReport.xlsx).
 
-Parse: gridstatus.CAISO's parser over the three sheets (queued / completed / withdrawn), which
-drops the legend rows at the bottom of each sheet.
+Parse: gridstatus 0.36.0's CAISO parser (vendored, `pipeline/vendor/gridstatus`) over the three
+sheets (queued / completed / withdrawn), which drops the legend rows at the bottom of each sheet.
 source_record_id: "Queue Position" (unique per report).
 Reuse: attribution, raw withheld (docs/13 §1.2, docs/21 §8): derived fields only, credit
 "California ISO", link out. The store layer enforces that; this connector only ingests.
@@ -17,7 +17,7 @@ import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, RawSnapshot
-from pipeline.connectors.iso_queue import gridstatus_rows, normalize_iso_rows
+from pipeline.connectors.iso_queue import normalize_iso_rows, queue_rows
 
 URL = "https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx"
 
@@ -53,7 +53,7 @@ class Connector(BaseConnector):
         )
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
-        return gridstatus_rows("CAISO", raw)
+        return queue_rows("CAISO", raw)
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
         return normalize_iso_rows(self, "caiso", rows, raw)

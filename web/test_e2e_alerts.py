@@ -38,11 +38,14 @@ def alerts_server() -> Any:
     env = dict(os.environ, DATABASE_URL=database_url, PLATFORM_POSTURE="noncommercial")
     for name in ("API_BASE_URL", "RESEND_API_KEY", "FREE_ALERT_CAP"):
         env.pop(name, None)
+    # The server's log goes to a file, never an unread pipe: a full 64 KiB pipe buffer blocks the
+    # server's next write, so every later request (and SIGTERM's graceful shutdown) hangs.
+    server_log = DB_PATH.with_suffix(".server.log").open("wb")
     proc = subprocess.Popen(  # noqa: S603 -- fixed argv; the port is an int
         [sys.executable, "-m", "uvicorn", "web.app:app", "--host", "127.0.0.1", "--port", str(PORT)],
         cwd=REPO_ROOT,
         env=env,
-        stdout=subprocess.PIPE,
+        stdout=server_log,
         stderr=subprocess.STDOUT,
     )
     try:
@@ -51,6 +54,7 @@ def alerts_server() -> Any:
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+        server_log.close()
 
 
 def _shot(page: Any, name: str) -> None:

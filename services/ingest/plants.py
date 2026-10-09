@@ -54,6 +54,13 @@ def load_plants(session: Session, df: pd.DataFrame, *, manifest_version: str = "
     nothing that already builds a plants frame the old way needs to change)."""
     if "source_plant_id" in df.columns and "source_asset_id" not in df.columns:
         df = df.rename(columns={"source_plant_id": "source_asset_id"})
+    # The plants frame still spells the first operating year `earliest_operating_year`
+    # (`pipeline/context/eia_plants.py`); migration 0009 renamed the column `commissioned_year`
+    # and `load_assets` reads that name, so every power plant was stored without it (16,472 of
+    # 16,472 on the 2026-10-07 dev store). The operating close-out reads it as the plant's
+    # actual COD (docs/22 §23.8).
+    if "earliest_operating_year" in df.columns and "commissioned_year" not in df.columns:
+        df = df.rename(columns={"earliest_operating_year": "commissioned_year"})
     result = load_assets(session, df, "power_plant", manifest_version=manifest_version)
     return PlantsLoadResult._from_assets_result(result)
 

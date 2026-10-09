@@ -182,7 +182,7 @@ def test_asset_page_for_a_transmission_line(web_client: TestClient) -> None:
     assert 'class="mini-map__line mini-map__line--transmission"' in body
     assert "<dt>Owner (as the source names it)</dt><dd>Niagara Mohawk Power</dd>" in body
     assert 'href="/organizations/' not in body.split('<dl class="field-grid">')[1].split("</dl>")[0]
-    assert "Lawrence Berkeley National Laboratory" in body and "2026-09-28" in body
+    assert "Lawrence Berkeley National Laboratory" in body and "28 Sep 2026" in body  # docs/31 §4
     # Promoted values are not repeated in the generic Attributes table.
     table = body.split("2.</span> Attributes")[1].split("</section>")[0]
     assert (

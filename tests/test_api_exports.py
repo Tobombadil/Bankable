@@ -390,18 +390,26 @@ def test_accept_text_csv_on_the_list_endpoints(client, db, path, columns):
     )
 
 
-def test_accept_text_csv_page_parameters_are_dropped_and_filters_kept(client, db):
+def test_accept_text_csv_keeps_filters_and_honours_limit(client, db):
+    """`limit` caps the file (backend audit 2026-10-07, API-12: it was dropped, so a page-sized
+    request spent a daily export on a 10,000-row file); it is not stored as a filter."""
     lic = make_open_licence(db)
     src = make_public_source(db, lic)
     for i, j in ((1, "US-TX"), (2, "US-CA"), (3, "US-CA")):
         make_visible_proposal(db, src, public_id_suffix=str(i), jurisdiction=j)
     db.commit()
     _login(client, db)
-    resp = client.get("/v1/proposals?jurisdiction=US-CA&limit=1", headers={"Accept": "text/csv"})
-    assert len(_read_csv(resp.text)[1]) == 2
-    row = db.query(Export).one()
-    assert row.query == {"jurisdiction": "US-CA"}
+    whole = client.get("/v1/proposals?jurisdiction=US-CA", headers={"Accept": "text/csv"})
+    assert len(_read_csv(whole.text)[1]) == 2
+    capped = client.get("/v1/proposals?jurisdiction=US-CA&limit=1", headers={"Accept": "text/csv"})
+    assert len(_read_csv(capped.text)[1]) == 1
+    first, second = db.query(Export).order_by(Export.created_at).all()
+    assert first.query == second.query == {"jurisdiction": "US-CA"}
+    assert (first.row_cap, second.row_cap, second.truncated) == (10000, 1, True)
     assert client.get("/v1/proposals?colour=red", headers={"Accept": "text/csv"}).status_code == 400
+    for bad in ("limit=0", "limit=10001", "cursor=abc"):
+        refused = client.get(f"/v1/proposals?{bad}", headers={"Accept": "text/csv"})
+        assert refused.status_code == 400 and refused.json()["code"] == "validation_error", bad
 
 
 def test_accept_text_csv_needs_pro(client, db):
