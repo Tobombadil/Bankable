@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import Any
 
 import procrastinate
+import sqlalchemy.exc
 import yaml
 
 from infra.scheduler import jobs
@@ -133,12 +134,27 @@ def _load_sources() -> list[dict[str, Any]]:
 FETCH_RETRY = procrastinate.RetryStrategy(
     max_attempts=4, exponential_wait=5, retry_exceptions=[TransientConnectorFailure]
 )
+#: Loads of different sources run side by side (each holds only its own source's lock) and both
+#: may create the same organisation: on Postgres the second insert of one slug fails
+#: (`UniqueViolation`) or the two transactions deadlock (`DeadlockDetected`); SQLite serialises
+#: writes and never shows it. Measured on the first single-host rehearsal (2026-10-09, docs/64):
+#: 2 of 15 seed loads failed, NYISO on a deadlock and the Permitting Dashboard on
+#: `organization_slug_key` (duke-energy-carolinas-llc). A retry is a fresh transaction that finds the
+#: organisation the other load committed, and the loader is idempotent per run, so these two error
+#: classes are retried with backoff (5 s, 25 s) instead of waiting for the source's next new run.
+LOAD_RETRY = procrastinate.RetryStrategy(
+    max_attempts=2,
+    exponential_wait=5,
+    retry_exceptions=[sqlalchemy.exc.OperationalError, sqlalchemy.exc.IntegrityError],
+)
 LOAD_TIMEOUT_S = 1800  # a full NYISO/EIA frame loads in well under this on the reference laptop
 RESOLVE_TIMEOUT_S = 3600
 ENRICH_TIMEOUT_S = 1800
 
 
-@app.task(queue="fetch", retry=FETCH_RETRY, pass_context=True)
+# Named, like every task here: unnamed, Procrastinate names a task after its module, and
+# `python -m infra.scheduler.app` would queue `__main__.run_connector`, which no worker can import.
+@app.task(name="run_connector", queue="fetch", retry=FETCH_RETRY, pass_context=True)
 def run_connector(
     context: procrastinate.JobContext,
     source_id: str,
@@ -455,12 +471,13 @@ def _tick_deadline(timestamp: int) -> None:
 # consumes (`normalise`, `resolve`; infra/scheduler/worker.py's docstring), so no compose change.
 
 
-@app.task(name="load_source", queue="normalise", retry=0)
+@app.task(name="load_source", queue="normalise", retry=LOAD_RETRY)
 def load_source(source_id: str, ts: str) -> dict[str, Any]:
     """Load one run's normalised parquet + events into the store (`services.ingest.loader`),
     then ask for a store-wide resolve pass. Deferred by `run_connector` under the same per-source
-    `lock`, so it never reads a parquet the next fetch is rewriting. `retry=0`: the next
-    successful fetch of the source re-enqueues it, and the loader is idempotent."""
+    `lock`, so it never reads a parquet the next fetch is rewriting. Retried only on a database
+    conflict with a concurrent load (`LOAD_RETRY`); any other failure waits for the source's next
+    successful fetch, which re-enqueues it, and the loader is idempotent."""
     report = _run_with_timeout(lambda: jobs.load_source_job(source_id, ts), timeout_s=LOAD_TIMEOUT_S)
     try:
         resolve_tick.defer()
