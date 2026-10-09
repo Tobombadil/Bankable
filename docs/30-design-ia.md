@@ -161,7 +161,9 @@ feeds in both formats with an example filtered feed, names this deployment's API
 live reference (`{API}/redoc`) and OpenAPI description (`{API}/openapi.json`), where `{API}` is `PUBLIC_API_URL` or
 the host beside the site (`api.`, `api-staging.`). It is in the footer ("API and feeds") and the sitemap. Each list
 links its feed twin with the same filters, the lifecycle or status choice spelt out because a feed has no default
-view of its own: "View as: Map · List · RSS feed" on `/` and `/proposals`, a link above the rows on
+view of its own: "View as: Map · List · RSS feed" on `/` and `/proposals` (below 720px the "View as" text is
+visually hidden, the control keeps it as its accessible name, so the three links fit beside "Save this search as an
+alert" and the map stays above the fold at 400×800), a link above the rows on
 `/opportunities`, and `<link rel="alternate" type="application/rss+xml">` in each page's head. In production Caddy
 sends `/feeds/*` to the API; the site's own `/feeds/*` route only relays it where no proxy stands in front
 (`dev_up`, the in-process client). Rendering `api/openapi.yaml` itself on the site stays open.

@@ -1292,6 +1292,17 @@ a.button-secondary:visited { color: var(--link); }
 }
 .view-switch__link:visited { color: var(--link); }
 .view-switch__link[aria-current="page"] { border-color: var(--text); color: var(--text); font-weight: 600; }
+/* Below 720px the switch shares the map's status row with "Save this search as an alert" (156px of
+   368px), as it did before "RSS feed" joined it: the "View as" text is visually hidden (the nav's
+   aria-label still names the control) and the links take 8px side padding, 274px -> about 183px.
+   Stacked, the row cost 23px above the map at 400x800 (web/test_e2e.py's fold budget). */
+@media (max-width: 719px) {
+  .view-switch__label {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  .view-switch__link { padding: 0 var(--space-2); }
+}
 
 /* Empty and invalid states (D-11, docs/31 §6 and §5.9). */
 .empty-state__facets { list-style: none; margin: var(--space-3) auto; padding: 0; max-width: 46rem; text-align: left; }
