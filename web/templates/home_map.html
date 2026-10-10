@@ -114,7 +114,7 @@
       (map.js fills it; designer D-11 found the map stuck on "Loading proposals…" for good). -#}
   <div class="map-error" id="map-error" role="alert" hidden></div>
   <div id="map-notice">{% include "_map_notice.html" %}</div>
-  <a class="map-status__save" href="{{ save_alert_href }}" id="mf-save-alert">Save this search as an alert</a>
+  {% if save_alert_href %}<a class="map-status__save" href="{{ save_alert_href }}" id="mf-save-alert">Save this search as an alert</a>{% endif %}
   {{ m.view_switch("map", "/", list_href, feed_href) }}
 </div>
 

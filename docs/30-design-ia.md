@@ -233,6 +233,20 @@ pipeline name and its operator both resolve) and `/sitemap.xml`.
   technology, ISO) on that endpoint, so a large sponsor costs up to five reads; `iso` holds EIA balancing-authority
   codes for EIA-860M rows (`ERCO`, `NYIS`, `CISO`, `SWPP`) beside ISO names (`ERCOT`, `NYISO`), so one grid can appear
   as two rows.
+  **As built, 2026-10-10 (lane P), closing those gaps.** The block is one read, `GET /v1/organizations/{id}/pipeline`
+  at the page's scope, and is never partial. Its links carry the API's `list_query`: one `sponsor_id`, plus
+  `sponsor_scope=children|all` when the scope spans subsidiaries (no longer every subsidiary's id). The active status
+  groups count only records some register still lists (`listed=true`); a record every register has dropped keeps
+  its last status but sits in its own **No longer listed** row (`listed=false`), and the opening line says how many
+  there are and that they are not counted as active. Built, withdrawn and unknown count every record in those states.
+  The technology and ISO tables cover the listed active pipeline. A grid is one row under its ISO's name: `iso=ERCOT`
+  also opens the `ERCO` rows. `tests/test_api_org_pipeline.py` holds every link against the real API at each scope.
+  The 6, 15 and 17 links of the fixture company's self, children and all scopes each open exactly their count.
+  `/proposals` filtered to one company, its group or one connection point is headed "Proposals sponsored by <name>
+  (and its subsidiaries)" or "Proposals connecting at <point>", with a link back. The filter form keeps that subject.
+  A view an alert cannot watch yet (`sponsor_scope`, `listed`) offers no "save as alert". A record page whose record
+  no register lists says "No longer listed in any register since <date>" under its status (`web/list_subject.py`,
+  `proposals_list.html`, `proposal_detail.html`).
 - **Map** (`/`): the "Existing assets" toggle now carries an **Asset types** checkbox set (power plants, gas
   pipelines, gas processing, gas storage, LNG terminals, ethanol plants, RNG projects), written to the URL as
   `asset_type=` csv. Ethanol capacity-table plants (state grade) and AgSTAR digesters (county grade) are never
@@ -722,3 +736,6 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
   the key on the map; §5.2 readable record names, `mw` on the proposal page, title dash; §6 tier notice row.
 - 2026-10-10 — as built (frontend-developer, lane F): §5.1 the compact key with a layer on and the map's filter
   bar as a disclosure at 720–1079px, with before/after measurements and the 1024×768 budget.
+- 2026-10-10 — as built (backend, lane P): §3.1 the company pipeline from one aggregate, group links by
+  `sponsor_scope`, "No longer listed" apart from the active pipeline, one name per grid; labelled company and
+  connection-point lists; the record page's "no longer listed" line.

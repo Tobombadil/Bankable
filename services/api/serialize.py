@@ -411,12 +411,18 @@ def serialize_proposal(
     `provenance` array the readable links -- a link to a gated source is omitted, not greyed
     (docs/21 §8 item 3) -- and `source_count` over those links. `admin=True` (the admin detail
     and intake views) prints the stored row with `sources` exactly as given."""
-    from services.api.visibility import gated_proposal, visible_source_links
+    from services.api.listing import listing_state
+    from services.api.visibility import gated_proposal, tier_links, visible_source_links
 
     if not admin:
         proposal = gated_proposal(proposal, entitlement, link_ok)
     if sources is None:
         sources = visible_source_links(proposal.sources, entitlement)
+    # Whether a register still lists it, over the links the tier may see (services/api/listing.py);
+    # the admin views read every active link.
+    listed, delisted_at = listing_state(
+        [s for s in proposal.sources if s.active] if admin else tier_links(proposal, entitlement)
+    )
     out: dict[str, Any] = {
         "public_id": proposal.public_id,
         "slug": proposal.slug,
@@ -434,6 +440,10 @@ def serialize_proposal(
         "location": serialize_location(proposal.location) if proposal.location else None,
         "lifecycle_state": proposal.lifecycle_state,
         "status_raw": proposal.status_raw,
+        # `lifecycle_state` is the last status a register stated; these say whether any still lists
+        # the project (a removal is not a withdrawal, docs/51 §2.7 item 1). Derived, never stored.
+        "listed": listed,
+        "delisted_at": iso(delisted_at),
         "identifiers": proposal.identifiers or {},
         "proposed_online_date": iso(proposal.proposed_online_date),
         # Derived at read time against today's date, never stored (services/api/slippage.py);

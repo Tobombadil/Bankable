@@ -19,7 +19,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from services.api.records import OPPORTUNITY_FILTERS, PROPOSAL_FILTERS, SYNC_FILTERS
+from services.api.records import OPPORTUNITY_FILTERS, PROPOSAL_FILTERS, PROPOSAL_VIEW_FILTERS, SYNC_FILTERS
 from web.api_client import ApiClient
 from web.app import (
     BREAKDOWN_FILTERS,
@@ -30,8 +30,12 @@ from web.app import app as web_app
 
 
 def test_proposal_passthrough_is_every_api_list_filter() -> None:
-    # `lifecycle_state` is resolved by the page itself (active by default, include_withdrawn).
-    expected = (set(PROPOSAL_FILTERS) - {"lifecycle_state"}) | set(SYNC_FILTERS) | {"q"}
+    # `lifecycle_state` is resolved by the page itself (active by default, include_withdrawn). The
+    # view filters (`sponsor_scope`, `listed`) are list filters an alert cannot carry yet; the list
+    # passes them through all the same.
+    expected = (
+        (set(PROPOSAL_FILTERS) - {"lifecycle_state"}) | set(PROPOSAL_VIEW_FILTERS) | set(SYNC_FILTERS) | {"q"}
+    )
     assert set(PROPOSAL_PASSTHROUGH_FILTERS) == expected
     assert len(PROPOSAL_PASSTHROUGH_FILTERS) == len(set(PROPOSAL_PASSTHROUGH_FILTERS))
 

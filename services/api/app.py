@@ -224,6 +224,7 @@ from services.api.records import (  # noqa: E402
     OPPORTUNITY_SORT_ALLOWLIST,
     PROPOSAL_FILTERS,
     PROPOSAL_SORT_ALLOWLIST,
+    PROPOSAL_VIEW_FILTERS,
     SYNC_FILTERS,
     _opportunity_licence_rows,
     _opportunity_query_with_filters,
@@ -238,6 +239,11 @@ from services.api.records import (  # noqa: E402
 from services.api.records import router as records_router  # noqa: E402
 
 app.include_router(records_router)
+# A company's pipeline in one read (2026-10-10, lane P): counts and MW by status, technology and grid
+# operator over the list's own filters, so each count is the total of the list query it names.
+from services.api.org_pipeline import router as org_pipeline_router  # noqa: E402
+
+app.include_router(org_pipeline_router)
 
 # Proposal <-> opportunity matches (docs/10 US-401-403): the two record-scoped public lists, the Pro
 # cross-entity list, match detail and per-user dismissal. The rows are written by
@@ -1160,7 +1166,7 @@ def get_health(
 # -------------------------------------------------------------------------------------------- feeds
 @app.get("/feeds/proposals.{format}")
 def feed_proposals(format: str, request: Request, db: Session = Depends(get_db)) -> Response:
-    check_allowed(request, PROPOSAL_FILTERS | SYNC_FILTERS | {"q"})
+    check_allowed(request, PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS | {"q"})
     stmt = _proposal_query_with_filters(request)
     proposals = list(db.scalars(stmt.order_by(Proposal.last_changed.desc()).limit(50)).all())
     items = []

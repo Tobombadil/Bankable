@@ -320,6 +320,20 @@ Every table below also has `created_at timestamptz NOT NULL DEFAULT now()` and, 
 | `merged_into_id` | uuid | Yes | Set when this record was absorbed by another; the row survives (§6.3) | `null` |
 | `search_tsv` | tsvector | No | Generated column over name, sponsor, county, identifiers (US-103) | — |
 
+**Served, never stored (2026-10-10, lane P).** Every proposal row the API serves (list, detail, bulk, nearby, the
+company list) also carries two fields derived at read time from §3.2's links (`services/api/listing.py`). Neither is a
+column:
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `listed` | boolean | No | True while at least one active link the caller's tier may read (source and licence, §8 item 3) has `gone_at` null, so some register still lists the project. False when every such register has dropped it. `lifecycle_state` is then the last status a register stated, not a current one: a removal is not a withdrawal (docs/51 §2.7 item 1). The record is not active pipeline. A link the tier may not read counts neither way. Filter: `listed=true\|false` | `false` |
+| `delisted_at` | timestamptz | Yes | When `listed` is false, the latest `gone_at` among those links (when the last register dropped it); null while listed | `2026-09-15T04:00:00Z` |
+
+`iso` is served as stored. The `iso=` filter and the company pipeline read an ISO/RTO's EIA balancing-authority code
+(`ERCO`, `CISO`, `NYIS`, `ISNE`, `MISO`, `PJM`, `SWPP`; rows loaded from EIA-860M before 2026-09-27) as that ISO's
+token, through the connector's own table (`pipeline/normalize.py::EIA_BA_ISO_TOKENS`; `services/api/grid_operators.py`).
+Stored values are not rewritten.
+
 ### 3.2 `proposal_source` — one source's observation of a proposal
 
 | Field | Type | Null | Meaning | Example |

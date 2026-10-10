@@ -35,6 +35,7 @@ from web.auth import router as auth_router
 from web.empty_state import empty_result_facets, range_error
 from web.head_requests import HeadAsGetMiddleware
 from web.labels import PLANT_FAMILY_LABELS
+from web.list_subject import list_subject, subject_hidden_fields
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
     ASSET_TYPE_LABELS,
@@ -472,7 +473,9 @@ def home_map(request: Request) -> HTMLResponse:
             "feed_alternate": {"title": "Proposals (RSS)", "href": feed_href("proposal", qp)},
             "iso_gap_notes": uncovered_iso_notes(qp.get("iso"), coverage_data(request, api)),
             "filters": dict(qp),
-            "save_alert_href": save_alert_href("proposal", qp, origin="map"),
+            "save_alert_href": None
+            if _alert_cannot_watch(qp)
+            else save_alert_href("proposal", qp, origin="map"),
             # The view switch's List link before map.js runs (it rewrites it with every change).
             "list_href": list_view_href(qp),
             "breakdown": breakdown,
@@ -641,6 +644,13 @@ async def ui_events_proxy(request: Request) -> JSONResponse:
     return JSONResponse({}, status_code=202)
 
 
+def _alert_cannot_watch(qp: QueryParams) -> bool:
+    """Whether the view uses a list filter a saved search cannot carry yet: `listed`, or a
+    `sponsor_scope` wider than the default `self` (`services/api/records.py::PROPOSAL_VIEW_FILTERS`;
+    the alert matcher does not evaluate them)."""
+    return bool(qp.get("listed")) or (qp.get("sponsor_scope") or "self").strip().lower() != "self"
+
+
 @app.get("/proposals", response_class=HTMLResponse)
 def proposals_list(request: Request) -> HTMLResponse:
     api = get_api(request)
@@ -692,8 +702,15 @@ def proposals_list(request: Request) -> HTMLResponse:
         "next_cursor": envelope["page"]["next_cursor"],
         "prev_cursor": envelope["page"]["prev_cursor"],
         "querystring": querystring_without(qp, "cursor"),
-        "save_alert_href": save_alert_href("proposal", qp),
+        # No "save as alert" for a view an alert cannot watch yet (records.PROPOSAL_VIEW_FILTERS):
+        # an alert without the filter would watch more, or other, proposals than the list shows.
+        "save_alert_href": None if _alert_cannot_watch(qp) else save_alert_href("proposal", qp),
         "delayed": delayed_notice(request, "proposal"),
+        # What the list is about (one company, its group, or one connection point), named in the
+        # heading with a link back to its page; the filter form keeps it (web/list_subject.py). Not
+        # read for an htmx swap, which replaces the rows and leaves the heading as it is.
+        "subject": None if is_htmx(request) else list_subject(api, qp, envelope["data"]),
+        "subject_fields": subject_hidden_fields(qp),
         "technology_options": _technology_options(vocab),
         "kind_options": _proposal_kind_options(vocab),
         "sources_phrase": proposal_sources_phrase(),
@@ -781,6 +798,14 @@ def _survivor_slug(api: ApiClient, collection: str, segment: str) -> str | None:
     return slug if isinstance(slug, str) and slug and slug != segment else None
 
 
+def _not_listed(entity: Mapping[str, Any]) -> dict[str, Any] | None:
+    """`{"since": <delisted_at or None>}` when the API says no register lists the record any more
+    (`listed: false`), else `None`; a response without the field is read as listed."""
+    if entity.get("listed") is not False:
+        return None
+    return {"since": entity.get("delisted_at")}
+
+
 @app.get("/proposals/{slug}", response_class=HTMLResponse)
 def proposal_detail(request: Request, slug: str) -> Response:
     api = get_api(request)
@@ -799,6 +824,8 @@ def proposal_detail(request: Request, slug: str) -> Response:
         "proposal_detail.html",
         {
             "record": record,
+            # No register lists it any more (API `listed: false`): the status is the last one stated.
+            "not_listed": _not_listed(entity),
             "history": proposal_history(api, record),
             "provenance_rows": attach_select_basis(record, provenance_panel_rows(api, record["provenance"])),
             "connection": connection,
