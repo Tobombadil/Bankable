@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}{{ record.name }} -- Infraque{% endblock %}
+{% block title %}{{ record.name }} — Infraque{% endblock %}
 {% block meta_description %}{{ record.name }}: {{ record.kind_label | lower }} in the {{ record.iso_label or 'grid' }} interconnection queue, {{ record.active_mw_label }} MW active across {{ record.totals.active_count }} projects.{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/interconnection-points">Grid connection points</a> / {{ record.name }}</nav>

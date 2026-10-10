@@ -87,7 +87,7 @@ from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
 from web.coverage_statement import coverage_line
-from web.page import get_free_alerts, get_platform_posture
+from web.page import get_free_alerts, get_platform_posture, paid_tiers_offered
 from web.viewmodels import coverage_data
 from web.viewmodels import footer_build as vm_footer_build
 from web.viewmodels import source_freshness as vm_source_freshness
@@ -246,6 +246,8 @@ def get_lag_days(request: Request) -> dict[str, int]:
 
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
+# The navigation leaves "Pricing" out under the noncommercial posture (`web/page.py`).
+templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
 # The header, tier notice and footer state how current the sources are (web/viewmodels.py).
 templates.env.globals["source_freshness"] = lambda request: vm_source_freshness(request, get_api(request))

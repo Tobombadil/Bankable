@@ -197,7 +197,7 @@ def test_the_form_renders_every_field_labelled_and_indexable(client: TestClient)
 
     assert resp.status_code == 200
     body = resp.text
-    assert "<title>Submit a project -- Infraque</title>" in body
+    assert "<title>Submit a project — Infraque</title>" in body
     assert '<meta name="robots" content="index, follow">' in body
     assert '<link rel="canonical" href="http://testserver/submit">' in body
     main = _main(body)
@@ -335,7 +335,7 @@ def test_a_valid_submission_is_relayed_as_the_schema_body_and_says_what_happens_
         "identifiers": {"queue_ids": [{"iso": "ERCOT", "id": "26INR0123"}]},
     }
     body = resp.text
-    assert "<title>Submission received -- Infraque</title>" in body
+    assert "<title>Submission received — Infraque</title>" in body
     assert '<meta name="robots" content="noindex, follow">' in body
     main = _main(body)
     assert 'role="status"' in main and "Thanks. Your submission is with our editors." in main
@@ -413,7 +413,7 @@ def test_every_problem_is_listed_at_once_and_nothing_typed_is_lost(client: TestC
     assert resp.status_code == 422
     assert transport.intake_posts() == []  # the hourly intake allowance is not spent on this
     body = resp.text
-    assert "<title>Check your answers: submit a project -- Infraque</title>" in body
+    assert "<title>Check your answers: submit a project — Infraque</title>" in body
     main = _main(body)
     summary = main.split('id="submit-status"')[1].split("</div>")[0]
     assert 'role="alert"' in main.split("<form")[0]

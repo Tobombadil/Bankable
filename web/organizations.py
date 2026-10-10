@@ -17,6 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from web.api_client import ApiClient, ApiError, ApiNotFound
+from web.org_pipeline import ProposalPages, fetch_proposals, pipeline_summary
 from web.ownership import (
     DEFAULT_SCOPE,
     GROUP_MAP_MAX_ASSETS,
@@ -87,6 +88,8 @@ router = APIRouter()
 #: two copies of the same 40 would let the threshold and its justification drift apart.
 ORG_MAP_DETAIL_CAP = GROUP_MAP_MAX_ASSETS
 ORG_NEARBY_LIMIT = 50
+#: Rows the Proposals section lists; the pipeline summary above it counts all of them.
+ORG_PROPOSALS_LISTED = 100
 ORG_ROLE_LABELS = {"operator": "Operates", "owner": "Owns"}
 ORG_ROLE_ORDER = ("operator", "owner", "other")
 
@@ -499,6 +502,9 @@ class _OrgFetch:
     scope_meta: Mapping[str, Any]
     assets: list[dict[str, Any]] = field(default_factory=list)
     proposals: list[dict[str, Any]] = field(default_factory=list)
+    #: Every proposal read for the pipeline summary (`web/org_pipeline.py`), as served; `proposals`
+    #: above is the first `ORG_PROPOSALS_LISTED` of them, flattened for the list section.
+    proposal_pages: ProposalPages = field(default_factory=ProposalPages)
     opportunities: list[dict[str, Any]] = field(default_factory=list)
     technology_vocabulary: list[str] = field(default_factory=list)
 
@@ -551,13 +557,10 @@ def _organization_fetch(api: ApiClient, request: Request, entity: dict[str, Any]
             fetch.scope_meta = raw_scope
     except ApiError:
         fetch.assets = []
-    try:
-        proposals_env = api.get(
-            f"/v1/organizations/{public_id}/proposals", params={"limit": 100, **api_params}
-        )
-        fetch.proposals = [flatten_proposal(e) for e in proposals_env["data"]]
-    except ApiError:
-        fetch.proposals = []
+    # Every proposal at this scope (paged, `web/org_pipeline.py::fetch_proposals`) feeds the
+    # pipeline summary; the list section still prints the first `ORG_PROPOSALS_LISTED`.
+    fetch.proposal_pages = fetch_proposals(api, public_id, api_params) if public_id else ProposalPages()
+    fetch.proposals = [flatten_proposal(e) for e in fetch.proposal_pages.rows[:ORG_PROPOSALS_LISTED]]
     try:
         opportunities_env = api.get(
             f"/v1/organizations/{public_id}/opportunities",
@@ -826,6 +829,15 @@ def _organization_render(
             "nearby_technologies": fetch.technology_vocabulary,
             "nearby_param": NEARBY_TECHNOLOGY_PARAM,
             "proposals": fetch.proposals,
+            # The company's pipeline by status, technology and ISO, each count a link to the list
+            # (owner, 2026-10-10: "show me their pipeline"); `None` when it sponsors nothing here.
+            "pipeline": pipeline_summary(
+                fetch.proposal_pages.rows,
+                complete=fetch.proposal_pages.complete,
+                group=_count_or(fetch.scope_meta.get("organizations"), 1) > 1,
+            ),
+            "proposals_total": len(fetch.proposal_pages.rows),
+            "proposals_complete": fetch.proposal_pages.complete,
             "opportunities": fetch.opportunities,
             "provenance_rows": provenance_panel_rows(api, compose.provenance) if compose.provenance else [],
             "provenance_note": compose.provenance_note,

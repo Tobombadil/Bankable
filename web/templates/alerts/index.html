@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}Alerts -- Infraque{% endblock %}
+{% block title %}Alerts — Infraque{% endblock %}
 {% block robots %}noindex, nofollow{% endblock %}
 {% block meta_description %}Your Infraque email alerts.{% endblock %}
 {% block content %}
@@ -24,7 +24,7 @@
 {%- if not plan %}
 <div class="notice" role="status">
   <p class="notice__title">Email alerts are part of the paid plans.</p>
-  <p>Every record stays free to read, and every list has an RSS feed. <a href="/pricing">See what the plans include</a>.</p>
+  <p>Every record stays free to read, and every list has an RSS feed.{% if paid_tiers_offered(request) %} <a href="/pricing">See what the plans include</a>.{% endif %}</p>
 </div>
 {%- else %}
 

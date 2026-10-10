@@ -16,7 +16,14 @@ a query returns, never its shape. Primary nav is identical across public and Pro
 Map · Feed · Alerts · API**~~ — as built (2026-10-07, audit UX-7): **Map · Proposals · Opportunities · Assets ·
 Grid connection points · Companies · About & sources · Pricing · Alerts · Sign in**. Feed and API are not nav items:
 every list's "View as" switch carries its RSS twin, and the footer links **API and feeds** (`/docs/api`). Depth ≤ 3
-clicks to any record (D-16); breadcrumbs on every record page.
+clicks to any record (D-16); breadcrumbs on every record page. **As built, 2026-10-10 (pre-beta, owner: paid tiers stay
+off and must not distract the beta):** under the `noncommercial` posture "Pricing" is left out of the primary nav on
+every page (`web/page.py::paid_tiers_offered`, read from `GET /v1/health` `posture` once per request and registered on
+all four environments that render `base.html`); `/pricing` still answers by URL with its posture notice. The footer
+never carried it. Under the same posture no page offers "Alerts and API in Pro" or "Live in Pro" (even when the API
+does not report the free-alert offer), `/docs/api` says API keys belong to the paid tiers that are not offered instead
+of pointing at Pricing, the alerts pages drop "See what the plans include", and `/about` drops its "The paid tier is
+workflow" line. Under `commercial` all of it is as before (`web/test_paid_tiers_posture.py`).
 
 **Names (2026-10-07, audit UX-7).** One reader-facing term per concept, in nav, H1, breadcrumbs, column heads and
 search headings. Where this doc did not settle a term, the choice and its reason are recorded here.
@@ -206,6 +213,26 @@ pipeline name and its operator both resolve) and `/sitemap.xml`.
   organisation's **public id** and a name ("Proposals sponsored by …"); an alert saved with a slug matched nothing
   while the id matched 157, so the alert form also resolves a slug to the id before saving. Not offered on the page of
   a natural person named in a register.
+  **Pipeline (as built 2026-10-10, owner: "check a developer's or owner's pipeline with a source for every claim").**
+  Under the fields and scope links, before the portfolio and the numbered sections, a **Pipeline** block: one line
+  (proposals sponsored at this scope, how many in the active pipeline, their MW), then three small tables, **By
+  status** (the six status groups of §4.1, each with its chip icon, plus "All statuses"), **Active pipeline by
+  technology** and **Active pipeline by ISO / operator** (announced, in process or contracted only), each row a count
+  and MW. Every count links to `/proposals` filtered to the same rows: `sponsor_id` (the company's id, or every
+  sponsor id behind the rows when the scope includes subsidiaries, since `sponsor_id` matches exact organisations),
+  plus `lifecycle_state`, `technology`, `iso` or `source_id`; the technology and ISO links name no status because the
+  active pipeline is the list's default view. Checked on the e2e store: every count on two company pages equals the
+  count its link opens. MW sums generation and storage only; load, transmission, pipeline, LNG, CCS and hydrogen
+  records are counted and named in a note, never added (a data centre's MW is demand). "—" where no record states
+  capacity. Under the tables, the registers behind the rows with how many proposals each backs and its latest
+  retrieval date, each linking to the list filtered by that source, and a link to the Sources section (`#sources`)
+  for licences. Built only from `GET /v1/organizations/{id}/proposals`, read page by page (200 a page, at most five;
+  past 1,000 the block says it is partial). The Proposals section still lists 100 and now says "The 100 most recently
+  changed of N; all of them in the list" when there are more (`web/org_pipeline.py`,
+  `partials/_org_pipeline.html`). Gaps for the API lane: no `include=count` and no aggregate (counts and MW by status,
+  technology, ISO) on that endpoint, so a large sponsor costs up to five reads; `iso` holds EIA balancing-authority
+  codes for EIA-860M rows (`ERCO`, `NYIS`, `CISO`, `SWPP`) beside ISO names (`ERCOT`, `NYISO`), so one grid can appear
+  as two rows.
 - **Map** (`/`): the "Existing assets" toggle now carries an **Asset types** checkbox set (power plants, gas
   pipelines, gas processing, gas storage, LNG terminals, ethanol plants, RNG projects), written to the URL as
   `asset_type=` csv. Ethanol capacity-table plants (state grade) and AgSTAR digesters (county grade) are never
@@ -494,6 +521,26 @@ Grid and breakpoints per `docs/30` §5 (400/720/1080/1440px, D-32).
 │ Attribution: "Sources: CAISO; ERCOT; EIA (public domain)." (D-27)     │
 └───────────────────────────────────────────────────────────────────────┘
 ```
+**As built, 2026-10-10 (review `docs/51` §2.6 item 2: the first viewport explained lateness before value; the key sat
+below the fold).** Under the H1 (unchanged, `map_heading()`), one statement of value for the reader, then the
+instruction: "Projects from public grid-queue and permit filings in the US and GB, matched across registers: every
+claim linked to its source, every status change dated, and alerts when something you follow moves. Click a cluster to zoom
+in, or a dot to open its record." (before: "Each dot is a proposal filed with a public grid queue or permit register
+in the US or GB. Click a cluster…", then the tier notice). The map page has no tier notice block any more: how
+current the sources are is said once, by the masthead link ("N of M sources behind their fetch schedule", to
+`/methodology#vintage`), which this page keeps below 720px (`masthead--keep`, edition stamp hidden) where every other
+page drops it; lists and records keep their notice. The dev-preview label still shows (`preview_banner` macro). The
+key is drawn on the map: a `.map-key` row in the map overlay under the zoom and region controls, top left, where the
+default view has ocean rather than the dense Northeast (a top-right panel hid New York and New England): from 720px a
+17rem panel holding the status key, the region row and, when their layers are on, the asset and retired keys
+(scrolls past the map's height); below 720px a strip of short labels ("In process"; the full words stay in the
+accessible text). Page ground behind the words, so each hue keeps its measured contrast on `--bg`. A "Key" button
+(map.js; hidden without scripts, when the key simply stays open) hides and shows it. Measured in headless Chromium on
+the e2e store, dev-preview banner on as in the e2e server: map top 432 → 409 px at 1440×900 (budget 450), key top
+1,070 → 470 px; 601 → 592 px at 400×800 (budget 640), key 1,073 → 649 px; axe (WCAG 2.2 AA tags) 0 violations on `/`
+in both themes at both sizes. Open: with layers on, the panel covers the West Coast at the default view until "Key"
+is pressed; at 720–1079px the expanded filter bar still puts the map at about 760 px.
+
 States: empty — zero markers, filter bar names the facet + Clear all (D-29). Loading — skeleton tiles + list rows,
 no spinner. Error — RFC 9457 `title`/`request_id` in place of the map; list loads independently. Delayed-tier —
 D-3 banner, never dismissible on public. Restricted-precision — centroid marker labelled "county level (source
@@ -529,6 +576,17 @@ States: loading — skeleton of the key/value grid and timeline rows. Error — 
 gated record renders identically to not-found (D-21/API-4). Delayed — n/a since 2026-09-21; nothing is absent by age,
 not shown-then-blurred. Restricted-precision — "view at source" language, not a map label. Unplaced — n/a (no
 map here); location falls back to text ("Clark County, NV — centroid").
+
+**As built, 2026-10-10 (review `docs/51` §2.6 item 7).** A name its register files in capitals ("TRENT WIND FARM LLC")
+is set in a readable case in the H1, the breadcrumb and `<title>` (so `og:title`) of proposal, opportunity, asset and
+company pages ("Trent Wind Farm LLC"; `web/formatting.py::readable_name`): words of four letters or fewer stay in
+capitals unless they are ordinary words (BESS, SLF, LLC, KCE stay; WIND, FARM, BLUE become words), Roman numerals,
+initials and letters joined to digits are untouched, and a name with any lower-case letter is printed exactly as
+filed. The name as filed is printed once under the H1 ("As filed: TRENT WIND FARM LLC"). The meta description,
+JSON-LD, search, URLs and every other field keep the register's spelling. Grid connection point names are left as
+filed (bus names such as `W_LOMA_ALTA_138` read worse cased). The proposal page's capacity and storage rows and its
+meta description print through `mw` ("3,200", not "3200.0"). Every `<title>` separates page and site with a spaced em
+dash ("Pricing — Infraque"), the dash the site's prose already uses, instead of " -- ".
 
 ### 5.3 Opportunity list (`/opportunities`)
 
@@ -597,7 +655,7 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 | Empty | every list/map/feed | Names the filter that emptied results, offers Clear all (D-29, US-102 AC4) |
 | Loading | every screen | Skeleton of final layout, never a spinner over a table (D-29, CLS) |
 | Error | every screen | RFC 9457 `title` + `request_id`; never a stack trace; gated record = not-found, indistinguishable (D-29, API-4) |
-| Tier notice | every public list/map/detail/feed | Fixed-position D-3 line: "Every record and every change event is published as soon as it is ingested. Alerts and API in Pro." (D-3, D-28). Since 2026-10-07 the stamp says "Live" only while every scheduled source is within its fetch allowance, else "No delay" with the late sources named (docs/31 §5.4) |
+| Tier notice | every public list/detail/feed (not the map page since 2026-10-10, §5.1 as built) | Fixed-position D-3 line: "Every record and every change event is published as soon as it is ingested. Alerts and API in Pro." (D-3, D-28). Since 2026-10-07 the stamp says "Live" only while every scheduled source is within its fetch allowance, else "No delay" with the late sources named (docs/31 §5.4) |
 | Restricted-precision notice | map markers, detail location field | "location shown at county level (source licence)" wherever the geometry renders (D-9) |
 | Unplaced-record fallback | map side panel only | "Unplaced (N)" collapsible, never silently dropped (D-8) |
 
@@ -622,3 +680,6 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
   §4.6 report → record → unmerge (frontend-developer, lane L5, design audit UX-1, UX-3, UX-6, UX-7); §3.1 Follow,
   §4.1 uncovered ISO areas and large-load views, §5.3 opportunity issuer and deadline, §6 tier notice freshness
   (same lane, expert reviews 2026-10-07; lane L11).
+- 2026-10-10 — as built (frontend-developer, pre-beta lane H, review `docs/51` §2.6): §1 Pricing out of the nav under
+  the noncommercial posture; §3.1 company-page pipeline; §5.1 map page opening line, lateness once in the masthead,
+  the key on the map; §5.2 readable record names, `mw` on the proposal page, title dash; §6 tier notice row.

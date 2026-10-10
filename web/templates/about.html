@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}About &amp; sources -- Infraque{% endblock %}
+{% block title %}About &amp; sources — Infraque{% endblock %}
 {% block meta_description %}Method, sources and licences behind Infraque's proposal and opportunity data.{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>About &amp; sources</h1>
-  <p>Infraque fuses public energy and infrastructure registers into one record per project. This is the public tier: every record, no login, no admin. The paid tier is workflow &mdash; alerts, the API and, when they are built, exports and watchlists.</p>
+  <p>Infraque fuses public energy and infrastructure registers into one record per project. This is the public tier: every record, no login, no admin.{% if paid_tiers_offered(request) %} The paid tier is workflow &mdash; alerts, the API and, when they are built, exports and watchlists.{% endif %}</p>
 </div>
 
 <section id="tiers">

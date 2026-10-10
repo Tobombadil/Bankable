@@ -1,14 +1,15 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}{{ record.name }} -- Infraque{% endblock %}
-{% block meta_description %}{{ record.name }}: {{ record.kind_label if record.technology == record.kind else (record.technology_label or record.kind_label) }} proposal, {{ record.capacity_mw ~ ' MW, ' if record.capacity_mw }}{{ record.county ~ ', ' if record.county }}{{ record.state or record.jurisdiction or '' }}.{% endblock %}
+{% block title %}{{ record.name | readable_name }} — Infraque{% endblock %}
+{% block meta_description %}{{ record.name }}: {{ record.kind_label if record.technology == record.kind else (record.technology_label or record.kind_label) }} proposal, {{ (record.capacity_mw | mw) ~ ' MW, ' if record.capacity_mw }}{{ record.county ~ ', ' if record.county }}{{ record.state or record.jurisdiction or '' }}.{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/proposals">Proposals</a> / {{ record.name }}</nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/proposals">Proposals</a> / {{ record.name | readable_name }}</nav>
 <div class="detail-header">
-  <h1>{{ record.name }}</h1>
+  <h1>{{ record.name | readable_name }}</h1>
   {{ m.status_chip(record.lifecycle_state, record.lifecycle_family, record.status_raw) }}
   {{ m.slip_note(record.slip) }}
 </div>
+{{ m.as_filed(record.name) }}
 {{ m.delayed_banner(delayed) }}
 
 <dl class="field-grid">
@@ -24,8 +25,8 @@
   {#- `fields` is web/viewmodels.py `proposal_field_rows`: the rows this record's kind can carry,
       from one kind -> rows table. A row that applies but is empty prints "—"; a row that cannot
       apply (a Class VI well's MW or ISO) is left out. -#}
-  {% if 'capacity_mw' in fields %}<div><dt>Capacity (MW)</dt><dd class="tnum">{{ '%.1f'|format(record.capacity_mw) if record.capacity_mw is not none else '—' }}{% if record.capacity_note %} <span class="field-grid__source-value">{{ record.capacity_note }}</span>{% endif %}</dd></div>{% endif %}
-  {% if 'storage_mwh' in fields %}<div><dt>Storage (MWh)</dt><dd class="tnum">{{ '%.1f'|format(record.storage_mwh) if record.storage_mwh is not none else '—' }}</dd></div>{% endif %}
+  {% if 'capacity_mw' in fields %}<div><dt>Capacity (MW)</dt><dd class="tnum">{{ record.capacity_mw | mw if record.capacity_mw is not none else '—' }}{% if record.capacity_note %} <span class="field-grid__source-value">{{ record.capacity_note }}</span>{% endif %}</dd></div>{% endif %}
+  {% if 'storage_mwh' in fields %}<div><dt>Storage (MWh)</dt><dd class="tnum">{{ record.storage_mwh | mw if record.storage_mwh is not none else '—' }}</dd></div>{% endif %}
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
   <div><dt>County</dt><dd>{{ record.county or '—' }}{% if record.restricted_precision %} <span class="reuse-badge">county level (source licence)</span>{% elif record.location_precision == 'county_centroid' %} <span class="reuse-badge">county centroid</span>{% endif %}</dd></div>
   {% if 'iso' in fields %}<div><dt>ISO / operator</dt><dd>{{ record.iso_label or '—' }}</dd></div>{% endif %}

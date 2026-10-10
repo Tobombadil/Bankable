@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Pricing -- Infraque{% endblock %}
-{% block meta_description %}What Infraque costs: every record is free to read, and what the paid plans add -- saved searches, alerts and the API.{% endblock %}
+{% block title %}Pricing — Infraque{% endblock %}
+{% block meta_description %}What Infraque costs: every record is free to read, and what the paid plans add: saved searches, alerts and the API.{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>Pricing</h1>
@@ -22,7 +22,7 @@
 <div class="notice notice--error" role="alert">
   <p class="notice__title">{{ notice.title }}</p>
   {%- if notice.detail %}<p>{{ notice.detail }}</p>{% endif %}
-  {%- if notice.request_id %}<p class="notice__ref">Reference <code class="tnum">{{ notice.request_id }}</code> -- quote it if you write to us.</p>{% endif %}
+  {%- if notice.request_id %}<p class="notice__ref">Reference <code class="tnum">{{ notice.request_id }}</code>; quote it if you write to us.</p>{% endif %}
 </div>
 {%- endif %}
 
@@ -54,7 +54,7 @@
     {#- An anchor figure from the market review, not a measured price (docs/41 marks it "verify
         before publishing"). Said in words, next to the number, never carried by styling alone. -#}
     {%- if tier.price_is_provisional %}
-    <p class="tier__provisional">Indicative price. It is not fixed for launch yet -- ask us before you plan around it.</p>
+    <p class="tier__provisional">Indicative price. It is not fixed for launch yet, so ask us before you plan around it.</p>
     {%- endif %}
     <p class="tier__summary">{{ tier.summary }}</p>
     <ul class="tier__includes">
@@ -84,7 +84,7 @@
       <p class="field-hint">Not currently offered while the platform operates as a noncommercial service.</p>
       {%- elif tier.plan is none %}
       <a class="tier__button" href="mailto:{{ sales_email }}">Email us about API access</a>
-      <p class="field-hint">Priced two ways -- as an add-on to Team, or on its own -- so we set it up with you rather than at a button.</p>
+      <p class="field-hint">Priced two ways, as an add-on to Team or on its own, so we set it up with you rather than at a button.</p>
       {%- elif subscribed %}
       <p class="field-hint">You already have a paid plan. Change or cancel it from the billing page above.</p>
       {%- elif no_email %}

@@ -421,13 +421,13 @@ def _check_desktop_and_narrow(browser: object) -> None:
         " window.__map.queryRenderedFeatures({layers:['region-fill']}).length > 0)",
         timeout=15000,
     )
-    # docs/04 D-3/D-28: the tier line is always on screen and always true. Since the ISO
-    # change-event delay was dropped (owner, 2026-09-21) there is no delay left to name, so the
-    # line states what the page is -- live -- and what a paid plan adds.
-    tier_line = page.locator(".delayed-notice").inner_text()
-    assert "published as soon as it is ingested" in tier_line
-    assert "days" not in tier_line, "no surface may claim a delay the product does not apply"
-    assert "Alerts and API in Pro" in tier_line
+    # Review 2026-10-10 §2.6 item 2: the map page opens on what the product does, and says how
+    # current the sources are once, in the masthead; the tier line is on the lists and records
+    # (checked on /proposals below). The map key is drawn on the map, inside the first viewport.
+    assert page.locator(".delayed-notice").count() == 0
+    assert page.locator(".map-intro__lede").inner_text().startswith("Projects from public grid-queue")
+    key_top = page.evaluate("document.getElementById('lifecycle-legend').getBoundingClientRect().top")
+    assert key_top < DESKTOP_VIEWPORT["height"] - 100, f"map key starts at {key_top}px at 1440x900"
     # The pmtiles CDN scripts are aborted above (see _install_offline_routes) -- this proves the
     # same-origin fallback outline layer is what keeps the map from rendering blank.
     fallback_rendered = page.evaluate(
@@ -452,6 +452,13 @@ def _check_desktop_and_narrow(browser: object) -> None:
     page.goto(BASE_URL + "/proposals")
     page.wait_for_selector(".record-table tbody tr")
     assert page.locator(".record-table tbody tr").count() > 0
+    # docs/04 D-3/D-28: the tier line is on screen and always true. Since the ISO change-event
+    # delay was dropped (owner, 2026-09-21) there is no delay left to name, so the line states what
+    # the page is -- live -- and what a paid plan adds (this server runs the commercial default).
+    tier_line = page.locator(".delayed-notice").inner_text()
+    assert "published as soon as it is ingested" in tier_line
+    assert "days" not in tier_line, "no surface may claim a delay the product does not apply"
+    assert "Alerts and API in Pro" in tier_line
     page.screenshot(path=str(SCREENSHOT_DIR / "list-desktop.png"), full_page=True)
 
     # ---- desktop: proposal detail, provenance panel + attribution ----
@@ -1044,6 +1051,8 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
             wide.wait_for_selector("#map canvas", timeout=10000)
             top = wide.evaluate("document.getElementById('map').getBoundingClientRect().top")
             assert top < 450, f"map starts at {top}px at 1440x900"
+            key = wide.evaluate("document.getElementById('lifecycle-legend').getBoundingClientRect().top")
+            assert top <= key < 800, f"map key starts at {key}px at 1440x900"
             assert wide.locator(".nav-toggle").is_hidden() and wide.locator("#map-filters").is_visible()
 
             page = browser.new_page(viewport={"width": 400, "height": 800})
@@ -1058,6 +1067,17 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
             top = page.evaluate("document.getElementById('map').getBoundingClientRect().top")
             assert top < 640, f"map starts at {top}px at 400x800"
             assert page.evaluate("document.documentElement.scrollWidth") <= 401
+            # Review 2026-10-10: the key is on the map, under the zoom controls, in the first
+            # viewport; "Key" hides it and shows it again.
+            key = page.evaluate("document.getElementById('lifecycle-legend').getBoundingClientRect().top")
+            assert top <= key < 800, f"map key starts at {key}px at 400x800"
+            key_toggle = page.locator("#map-key-toggle")
+            assert key_toggle.is_visible() and key_toggle.get_attribute("aria-expanded") == "true"
+            key_toggle.click()
+            assert page.locator("#map-key").is_hidden()
+            assert key_toggle.get_attribute("aria-expanded") == "false"
+            key_toggle.click()
+            assert page.locator("#map-key").is_visible()
 
             # Menu: a disclosure; the links are out of the way until it opens.
             menu = page.locator(".nav-toggle")

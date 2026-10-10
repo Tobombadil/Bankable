@@ -1698,6 +1698,8 @@ def test_asset_detail_nearby_list_shows_units_and_summed_capacity(web_client: Te
     assert "Lone Wind" in nearby and "units" not in nearby.split("Lone Wind")[1]
     # The mini-map still draws every unit's dot: grouping is a list rule, not a map rule.
     geojson = body.split('id="asset-map-data">')[1].split("</script>")[0]
+    # Its dots' labels print capacity through `mw` too (review 2026-10-10 §2.6 item 7).
+    assert "100 MW" in geojson and "100.0 MW" not in geojson
     assert geojson.count('"kind":"proposal"') == 3
     assert "3 exact-grade proposals within 25" in body
 
@@ -2079,3 +2081,22 @@ def test_alert_form_resolves_an_organisation_slug_to_its_id() -> None:
     assert resolved == {"sponsor_id": "org_FERMI", "kind": "load"}
     assert resolve_org_references(_Api(), {"sponsor_id": "org_X"}) == {"sponsor_id": "org_X"}  # type: ignore[arg-type]
     assert resolve_org_references(_Api(), {"issuer_id": "unknown"}) == {"issuer_id": "unknown"}  # type: ignore[arg-type]
+
+
+def test_asset_name_filed_in_capitals_reads_in_a_readable_case_with_the_filed_name_once(
+    web_client: TestClient,
+) -> None:
+    """Review 2026-10-10 §2.6 item 7: ALL-CAPS register names in the H1 and title."""
+    entity = _asset_entity(name="ROSCOE WIND FARM")
+    _install(
+        _default_transport(
+            {
+                "/v1/assets": (200, {"data": [entity]}),
+                "/v1/assets/asset_01JBQ7Z8KD/nearby-proposals": (200, {"data": []}),
+            }
+        )
+    )
+    body = web_client.get("/assets/roscoe-wind-farm-tx").text
+    assert "<h1>Roscoe Wind Farm</h1>" in body
+    assert "<title>Roscoe Wind Farm — Infraque</title>" in body
+    assert body.count('As filed: <span class="as-filed__name">ROSCOE WIND FARM</span>') == 1

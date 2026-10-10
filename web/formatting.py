@@ -97,8 +97,95 @@ def rfc3339(value: Any) -> str:
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+#: Words of four letters or fewer that are words, not acronyms, in register names ("WIND FARM",
+#: "BLUE SKY", "LA CASA", "SAN JUAN"). Any other token that short is kept in capitals, because in
+#: an all-capitals register name it is usually an acronym (BESS, SLF, LLC, KCE, TX, NRG). A short
+#: word missing here stays in capitals, which is the name as filed, never a wrong word.
+_SHORT_WORDS = frozenset(
+    """
+    a able ace acre aero age air all alta alto ana and ant apex arc arch area ark arm art ash at ave axe bank
+    bar bay beam bear bee bell belt bend best big bio bird bit blue boat bold bolt bond bone book boot bow box
+    boy brad bull burn bush by cal camp cane cap cape car card care casa cash cat cave cell cid city clay club
+    coal cobb cold cole cone cook cool cop cord core corn cost cove cow crab crow cub cup cut dam dark data
+    dawn day de deal deep deer del den dew dial dome dos dove down draw drew dry duck dune dust each east echo
+    eco edge el elk elm end ever eye fair fall farm fast fawn fern fig fir fire fish five flat flex flow fly
+    foam fog for ford fork form fort four fox free frog fry full fund gain gale game gap gas gate gem gen gila
+    glen glow goal goat gold golf good gray grid gulf gum gun hall hand hare hart hat hawk hay head heat helm
+    hen high hill hive hog hole holt home hood hook hope horn host hub hull hut ice in inc inca iron isle ivy
+    jack jade java jay jean jet joy just keel keen keep kent key keys king kit kite knob la lab labs lake lamb
+    land lane lark las lava law lead leaf lee left leo lily lime line link lion live lock loco log loma lone
+    long loop lord los lost lot luna lux lynx main mall man mann many map mar mark mast max may mead mesa mid
+    mile mill mine mink mint mira mist mod mole moon moor moss most moth mule nest net new nido nine noon nova
+    oak oaks oat of off oil old on one onyx opal oro oso out owl own ox pace pack palm palo park pass paw
+    paz peak pear peel pen pico pier pike pine pink pit plum plus pole pond pool port post pot puff puma pump
+    pure quay rail rain ram ray rays red reed reef rey rice rich rim ring rio rise road rock roe rojo roof
+    rook room root rosa rose rosy ruby run rush rye safe sage sal salt san sand sea seal seco seed set shoe
+    shop side silo six sky snow soda sol son spa span spur star stem step sun sur swan swap tail tall tank tea
+    teal team tech ten tern the tide tie tin to toad top tor tow town toy tree tres trim troy true tule twin
+    two una unit up vale van vega vest via view vine wade wall ward warm wash watt wave way weir well west
+    wet whey wild will wind wing wire wish wolf wood wool yard yew yolo zeta zeus
+    """.split()
+)
+#: Short words set in lower case after the first word ("Bank of the West").
+_LOWER_AFTER_FIRST = frozenset({"and", "at", "by", "for", "in", "of", "on", "the", "to"})
+#: Abbreviations a reader expects in mixed case rather than capitals.
+_ABBREVIATIONS = {"INC": "Inc", "LTD": "Ltd", "CORP": "Corp", "BROS": "Bros"}
+#: Longer acronyms that must not become a word ("Ercot").
+_LONG_ACRONYMS = frozenset({"CAISO", "ERCOT", "ISONE", "LADWP", "NYISO", "NYSEG", "NYSERDA", "USACE"})
+_ROMAN = re.compile(r"^(?=[IVX]+$)X{0,3}(?:IX|IV|V?I{0,3})$")
+_LETTER_RUN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]+(?![A-Za-z0-9])")
+
+
+def _readable_word(word: str, *, first: bool, after_apostrophe: bool) -> str:
+    upper = word.upper()
+    if len(word) == 1:
+        # An initial ("R.E.", "UNIT A") stays a capital; the "s" of a possessive does not.
+        return word.lower() if after_apostrophe and upper in ("S", "T", "D") else word
+    if upper in _ABBREVIATIONS:
+        return _ABBREVIATIONS[upper]
+    if _ROMAN.match(upper) or upper in _LONG_ACRONYMS:
+        return word
+    lower = word.lower()
+    if len(word) <= 4 and lower not in _SHORT_WORDS:
+        return word  # an acronym of four letters or fewer is kept as filed
+    if not first and lower in _LOWER_AFTER_FIRST:
+        return lower
+    return word[0].upper() + word[1:].lower()
+
+
+def readable_name(value: Any) -> str:
+    """A register name filed in capitals, in a case a reader can scan: `TRENT WIND FARM LLC` ->
+    `Trent Wind Farm LLC`, `BRP OCTANS BESS LLC` -> `BRP Octans BESS LLC` (review 2026-10-10
+    §2.6 item 7). Only a name with no lower-case letter is changed, so a name its register already
+    sets in mixed case is printed exactly as filed. Acronyms of four letters or fewer stay in
+    capitals unless they are an ordinary word (`_SHORT_WORDS`), and so do Roman numerals and
+    letters joined to digits (`TX16`, `CO2`). For display only: search, URLs and the stored name
+    are unchanged, and the page shows the name as filed once beside it."""
+    if value is None:
+        return ""
+    text = str(value)
+    if not text or any(ch.islower() for ch in text):
+        return text
+    out: list[str] = []
+    last = 0
+    for index, match in enumerate(_LETTER_RUN.finditer(text)):
+        start = match.start()
+        out.append(text[last:start])
+        out.append(
+            _readable_word(
+                match.group(0),
+                first=index == 0,
+                after_apostrophe=start > 0 and text[start - 1] in "'’",
+            )
+        )
+        last = match.end()
+    out.append(text[last:])
+    return "".join(out)
+
+
 def install(env: Any) -> None:
     env.filters["thousands"] = thousands
     env.filters["mw"] = mw
     env.filters["display_date"] = display_date
     env.filters["rfc3339"] = rfc3339
+    env.filters["readable_name"] = readable_name

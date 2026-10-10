@@ -324,6 +324,139 @@ def test_the_map_page_opens_on_a_plain_line_not_a_source_list(transport: FakeTra
     assert html.index('id="map-filters"') < html.index('class="map-status"') < html.index('id="map"')
 
 
+# ---- Review 2026-10-10 §2.6 item 2: value first, lateness once, the key on the map ----
+
+
+def _late_transport() -> FakeTransport:
+    """The `transport` answers plus `/v1/coverage` naming one source behind its fetch schedule."""
+    rows = [
+        {
+            "source_id": "us.eia.860m",
+            "name": "EIA-860M",
+            "fetched_at": "2026-10-07T10:36:13",
+            "freshness": {"status": "fresh"},
+        },
+        {
+            "source_id": "us.iso.caiso.gen_queue",
+            "name": "CAISO Public Queue Report",
+            "fetched_at": "2026-09-13T20:25:21",
+            "freshness": {"status": "stale"},
+        },
+    ]
+    return FakeTransport(
+        {
+            "/v1/health": (200, HEALTH),
+            "/v1/meta/vocabularies": (200, VOCAB),
+            "/v1/sources": (200, {"data": []}),
+            "/v1/proposals": _counted,
+            "/v1/opportunities": _counted,
+            "/v1/coverage": (200, {"data": {"vintage": {"sources": rows}}}),
+        }
+    )
+
+
+def _forget(key: str) -> None:
+    """Starlette's `State` keeps attributes in its own dict, so `delattr` is the way to drop one."""
+    try:
+        delattr(web_app.state, key)
+    except (AttributeError, KeyError):
+        pass
+
+
+@pytest.fixture()
+def late() -> Iterator[FakeTransport]:
+    fake = _late_transport()
+    _forget("coverage_data")
+    web_app.state.api_client = ApiClient(fake)
+    web_app.state.lag_days_default = None
+    yield fake
+    for key in ("api_client", "lag_days_default", "coverage_data", "build_info"):
+        _forget(key)
+
+
+def test_the_map_page_says_what_the_product_does_before_anything_else(transport: FakeTransport) -> None:
+    """Before: "Each dot is a proposal filed with a public grid queue or permit register in the US or
+    GB", then a tier notice about delay and late sources. Now one statement of value for the
+    reader: projects matched across registers, each claim sourced, each status change dated, alerts.
+    "One record per project" is not claimed until it is measured (docs/51 §2.8)."""
+    with TestClient(web_app) as client:
+        html = client.get("/").text
+    intro = re.search(r'<div class="map-intro">(.*?)</div>', html, re.S)
+    assert intro is not None
+    lede = _text(intro.group(1)).removeprefix(map_heading()).strip()
+    assert lede.startswith("Projects from public grid-queue and permit filings in the US and GB, matched")
+    for claim in ("every claim linked to its source", "every status change dated", "alerts when"):
+        assert claim in lede
+    assert '<a href="/alerts">alerts</a>' in intro.group(1)
+    assert "Each dot is a proposal filed" not in html
+
+
+def test_the_map_page_states_source_lateness_once_in_the_masthead(late: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        home = client.get("/").text
+        listing = client.get("/proposals").text
+    # Home: no tier notice block, one short masthead link, kept below 720px on this page only.
+    assert 'class="delayed-notice"' not in home
+    assert home.count("behind their fetch schedule") == 1
+    lag = re.search(r'<span class="masthead__lag">(.*?)</span>', home, re.S)
+    assert lag is not None and '<a href="/methodology#vintage">' in lag.group(1)
+    assert _text(lag.group(1)) == "1 of 2 sources behind their fetch schedule"
+    assert 'class="masthead masthead--keep"' in home
+    assert 'class="masthead masthead--keep"' not in listing and 'class="masthead"' in listing
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    assert ".masthead.masthead--keep { display: flex;" in css
+    assert ".masthead--keep .masthead__ref { display: none; }" in css
+    # The list keeps its tier notice, which names the late source.
+    assert 'class="delayed-notice"' in listing and "CAISO" in listing
+
+
+def test_the_dev_preview_label_survives_without_the_tier_notice(transport: FakeTransport) -> None:
+    web_app.state.preview_active = True
+    try:
+        with TestClient(web_app) as client:
+            html = client.get("/").text
+    finally:
+        _forget("preview_active")
+    assert 'class="preview-banner"' in html and 'class="delayed-notice"' not in html
+
+
+def test_the_map_key_is_drawn_on_the_map_not_under_it(transport: FakeTransport) -> None:
+    """The key sat under the canvas, below the fold at 1440x900 and 400x800. It is now in the map
+    frame's overlay, under the zoom controls, with every legend inside it and a "Key" toggle."""
+    with TestClient(web_app) as client:
+        html = client.get("/").text
+    frame = html.split('<div class="map-frame">', 1)[1].split('<div id="map"', 1)[0]
+    assert '<div class="map-key" id="map-key">' in frame
+    for legend in ('id="lifecycle-legend"', 'id="plants-legend"', 'id="retired-legend"'):
+        assert legend in frame, legend
+    assert html.index('id="zoom-in"') < html.index('id="map-key"') < html.index('id="map"')
+    toggle = re.search(r'<button type="button" id="map-key-toggle"[^>]*>', frame)
+    assert toggle is not None
+    assert 'aria-expanded="true"' in toggle.group(0) and 'aria-controls="map-key"' in toggle.group(0)
+    assert "hidden" in toggle.group(0)  # map.js shows it; without scripts the key just stays open
+    # Nothing between the canvas and the attribution line any more.
+    after = html.split('<div id="map"', 1)[1].split('<p class="map-attribution">', 1)[0]
+    assert "legend" not in after
+    # The narrow strip prints short words; the full ones stay in the accessible name.
+    progress = frame.split('data-legend-family="progress"', 1)[1].split("</span></span>", 1)[0]
+    assert "In process: filed, studied, permitted, under construction" in _text(progress)
+    assert '<span class="legend__short" aria-hidden="true">In process' in progress
+
+
+def test_the_map_key_styles_and_toggle_are_in_place() -> None:
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    map_js = (WEB / "static" / "js" / "map.js").read_text(encoding="utf-8")
+    wide = css.split("@media (min-width: 720px) {\n  .map-key__panel {", 1)
+    assert len(wide) == 2 and "width: 17rem;" in wide[1].split("}", 1)[0]
+    narrow = css.split("@media (max-width: 719px) {\n  .map-key__panel {", 1)
+    assert len(narrow) == 2 and "max-height: 9rem;" in narrow[1].split("}", 1)[0]
+    panel = css.split(".map-key__panel {", 1)[1].split("}", 1)[0]
+    # The page ground behind the words: every legend hue's contrast is measured on --bg.
+    assert "background: var(--bg);" in panel and "pointer-events: auto;" in panel
+    assert 'document.getElementById("map-key-toggle")' in map_js
+    assert "mapKey.hidden = !open;" in map_js
+
+
 # ---- D-8: the proposal page says where the record is and links to the map ----
 
 

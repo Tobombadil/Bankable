@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}{{ record.title }} -- Infraque{% endblock %}
+{% block title %}{{ record.title | readable_name }} — Infraque{% endblock %}
 {% block meta_description %}{{ record.title }}: {{ record.kind_label }} from {{ record.issuer or 'issuer unstated' }}, due {{ record.due_at | display_date if record.due_at else 'unstated' }}.{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/opportunities">Opportunities</a> / {{ record.title }}</nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/opportunities">Opportunities</a> / {{ record.title | readable_name }}</nav>
 <div class="detail-header">
-  <h1>{{ record.title }}</h1>
+  <h1>{{ record.title | readable_name }}</h1>
   {{ m.status_chip(record.status, record.lifecycle_family, record.status_raw) }}{{ m.deadline_note(record) }}
 </div>
+{{ m.as_filed(record.title) }}
 {{ m.delayed_banner(delayed) }}
 
 <dl class="field-grid">

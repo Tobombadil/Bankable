@@ -51,6 +51,7 @@ from fastapi.templating import Jinja2Templates
 from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
+from web.page import get_lag_days, paid_tiers_offered
 from web.viewmodels import footer_build as vm_footer_build
 from web.viewmodels import source_freshness as vm_source_freshness
 from web.viewmodels import web_relative_url
@@ -80,17 +81,10 @@ def is_preview_active(request: Request) -> bool:
     return os.environ.get("WEB_DEV_PREVIEW", "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def get_lag_days(request: Request) -> dict[str, int]:
-    cached: dict[str, int] | None = getattr(request.app.state, "lag_days_default", None)
-    if cached is None:
-        health = get_api(request).get("/v1/health")
-        cached = dict(health["lag_days_default"])
-        request.app.state.lag_days_default = cached
-    return cached
-
-
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
+# The navigation leaves "Pricing" out under the noncommercial posture (`web/page.py`).
+templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
 # The header, tier notice and footer state how current the sources are (web/viewmodels.py).
 templates.env.globals["source_freshness"] = lambda request: vm_source_freshness(request, get_api(request))

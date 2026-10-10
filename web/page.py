@@ -29,7 +29,7 @@ from starlette.background import BackgroundTask
 from starlette.datastructures import QueryParams
 
 from services.posture import DEFAULT_POSTURE
-from web import labels
+from web import formatting, labels
 from web.api_client import ApiClient, ApiError, build_client
 from web.assets import ASSET_VERSION, CDN_ASSETS
 from web.head_requests import is_head_request
@@ -98,6 +98,27 @@ def get_lag_days(request: Request) -> dict[str, int]:
     return cached
 
 
+def _request_health(request: Request) -> dict[str, Any] | None:
+    """`GET /v1/health`, read at most once per request and kept on `request.state`: the posture
+    (`get_platform_posture`), the free-alert offer (`get_free_alerts`) and the navigation
+    (`paid_tiers_offered`) all read it while one page renders. `None` when the API cannot answer
+    (`API_UNAVAILABLE`). Not kept across requests, for the reason `get_platform_posture` gives."""
+    # A caller may pass a bare stand-in with only `app.state` (web/test_platform_posture.py): read
+    # through without keeping it, rather than fail.
+    state = getattr(request, "state", None)
+    cached = getattr(state, "health_payload", False)
+    if cached is not False:
+        return cast("dict[str, Any] | None", cached)
+    try:
+        body = get_api(request).get("/v1/health")
+        health: dict[str, Any] | None = dict(body) if isinstance(body, Mapping) else None
+    except API_UNAVAILABLE:
+        health = None
+    if state is not None:
+        state.health_payload = health
+    return health
+
+
 def get_platform_posture(request: Request) -> dict[str, Any] | None:
     """The platform posture as `GET /v1/health` reports it (`posture`, `posture_statement`;
     docs/26): the setting lives on the API host, and the sentence the public pages print is
@@ -117,9 +138,8 @@ def get_platform_posture(request: Request) -> dict[str, Any] | None:
     unrecognised setting), `statement` says the status is unavailable instead of claiming that
     posture, and `available` is `False` so a template can mark it. Checkout is unaffected either
     way: the API's own gate decides it (`web/pricing.py` `checkout`)."""
-    try:
-        health = get_api(request).get("/v1/health")
-    except API_UNAVAILABLE:
+    health = _request_health(request)
+    if health is None:
         return {"value": DEFAULT_POSTURE, "statement": POSTURE_UNAVAILABLE_STATEMENT, "available": False}
     posture = health.get("posture")
     statement = health.get("posture_statement")
@@ -212,13 +232,22 @@ def get_free_alerts(request: Request) -> dict[str, Any] | None:
     cached = getattr(request.state, "free_alerts", False)
     if cached is not False:
         return cast("dict[str, Any] | None", cached)
-    try:
-        value = get_api(request).get("/v1/health").get("free_alerts")
-    except API_UNAVAILABLE:
-        value = None
+    health = _request_health(request)
+    value = health.get("free_alerts") if health is not None else None
     result = value if isinstance(value, dict) and value.get("active") else None
     request.state.free_alerts = result
     return result
+
+
+def paid_tiers_offered(request: Request) -> bool:
+    """Whether a page may point a reader at the paid tiers: the "Pricing" link in the navigation,
+    a "see what the plans include" line, an "in Pro" call to action. False exactly while the
+    platform posture `GET /v1/health` reports is `noncommercial` (docs/26 §3 precondition (i); owner
+    2026-10-10: paid tiers stay off and must not distract the private beta). `/pricing` itself stays
+    reachable by URL and says why the tiers are not offered. When the API cannot say, the posture
+    falls back to `DEFAULT_POSTURE` (`get_platform_posture`), so the link shows as it always did."""
+    posture = get_platform_posture(request)
+    return not (posture is not None and posture.get("value") == "noncommercial")
 
 
 #: User agents that are not a reader: search and social crawlers, link unfurlers, uptime probes,
@@ -267,6 +296,9 @@ def is_htmx(request: Request) -> bool:
 # `{{ is_preview_active(request) }}` / `{{ footer_lag_days(request) }}` work from any template.
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
+# Every environment that renders `base.html` registers this (web/auth.py, web/legal.py,
+# web/pricing.py): the primary navigation leaves "Pricing" out under the noncommercial posture.
+templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
 templates.env.globals["asset_version"] = ASSET_VERSION
 templates.env.globals["cdn"] = CDN_ASSETS  # UX-19: `_macros.html` cdn_script / cdn_style
 templates.env.filters["group_source_rows"] = group_source_rows  # UX-11: one Sources row per register
@@ -711,7 +743,7 @@ def _proposal_feature(record: Mapping[str, Any], geometry: Mapping[str, Any]) ->
     technology = record.get("technology_label") or labels.technology_label(record.get("technology"))
     bits = [b for b in (technology, record.get("state") or record.get("jurisdiction")) if b]
     if record.get("capacity_mw"):
-        bits.append(f"{float(record['capacity_mw']):.1f} MW")
+        bits.append(f"{formatting.mw(record['capacity_mw'])} MW")  # docs/31 §4, not "3200.0 MW"
     if record.get("distance_km") is not None:
         bits.append(f"{float(record['distance_km']):.1f} km away")
     return {

@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% block title %}Delete user -- Admin{% endblock %}
+{% block title %}Delete user — Admin{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="/static/css/admin-people.css">{% endblock %}
 {% block content %}
 {% if user %}<p><a href="/admin/users/{{ user.user_id }}">&larr; {{ user.email or user.user_id }}</a></p>{% else %}<p><a href="/admin/users">&larr; Users</a></p>{% endif %}
