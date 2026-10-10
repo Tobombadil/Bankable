@@ -563,13 +563,14 @@ def test_seed_ships_the_data_root_then_loads_waits_loads_context_and_fetches(
     )
     load = first_index(lines, "worker python -m infra.scheduler.bootstrap load")
     drain = first_index(lines, "exec -T postgres psql")
-    context = first_index(
-        lines,
-        "-v infraque_connector_data:/var/lib/infraque/data web python -m web.dev_up --context-only "
-        "--data-dir /var/lib/infraque/data",
-    )
+    context = first_index(lines, "worker python -m infra.scheduler.bootstrap context")
     fetch = first_index(lines, "worker python -m infra.scheduler.bootstrap fetch")
     expect([ship, load, drain, context, fetch] == sorted([ship, load, drain, context, fetch]), lines)
+    # The context load is waited for too, before the fetches start.
+    drains = [i for i, ln in enumerate(lines) if "exec -T postgres psql" in ln]
+    expect(any(context < i < fetch for i in drains), lines)
+    expect("'match_tick', 'context_load'" in lines[drain], lines[drain])
+    expect(not any(" web " in ln for ln in lines), "the worker image does all of it")
     expect("chown -R appuser:appuser /var/lib/infraque/data" in lines[ship], lines[ship])
 
 
@@ -580,7 +581,7 @@ def test_seed_stops_when_the_loads_do_not_drain(
     env = env | {"FAKE_PENDING": "3", "SEED_DRAIN_TIMEOUT_SECONDS": "0", "SEED_DRAIN_INTERVAL_SECONDS": "0"}
     result = run("seed_single_host.sh", str(_data_root(tmp_path)), env=env)
     expect(result.returncode != 0 and "still pending" in result.stderr, result.stderr)
-    expect(not any("--context-only" in ln for ln in calls(log)), "context must wait for the loads")
+    expect(not any("bootstrap context" in ln for ln in calls(log)), "context must wait for the loads")
 
 
 def test_seed_refuses_a_data_root_with_nothing_to_ship(

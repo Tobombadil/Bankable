@@ -880,3 +880,127 @@ def default_enrich(session_factory: Any) -> dict[str, Any]:
     with session_factory() as session:
         result: dict[str, Any] = dict(backfill(session))
     return result
+
+
+def match_tick_job(_run: Callable[..., Any] | None = None, *, _session_factory: Any = None) -> dict[str, Any]:
+    """Body of `match_tick`: proposal-opportunity matches (docs/10 US-401) through the matcher's
+    own entry point, `services.match.run.run_matches`, in its default mode: incremental against the
+    `match_run` watermark, full on a store's first run or after a rule-set change (that module's
+    docstring). Chained after every enrich pass, so a load, a merge or a deadline that changed
+    what matches is reflected the same day (docs/64 §7: before 2026-10-09 nothing on a deployed
+    store ever ran it)."""
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    run = _run if _run is not None else default_match
+    data = _report_to_dict(run(factory))
+    _log_report("match_tick", data)
+    return data
+
+
+def default_match(session_factory: Any) -> dict[str, Any]:
+    from services.db.session import session_scope
+
+    run_matches = _load_fn("services.match.run", "run_matches")
+    with session_scope(session_factory) as session:
+        report = run_matches(session)
+    # Counts only: `added_ids` holds the new rows' UUIDs, which the job log has no use for.
+    return {key: value for key, value in asdict(report).items() if key != "added_ids"}
+
+
+#: The context builders `context_build` runs, in order: first the four that derive a layer from a
+#: snapshot a connector already stored (EIA-860M, EIA-860, GHGRP; no request), then the ones that
+#: fetch their own source (docs/61 §4). GLEIF is left out: its 500 MB entity file is the one heavy
+#: download, the parent links it yields change slowly, and the site works without them, so it stays
+#: an operator run (`python -m pipeline.context.gleif`, docs/61 §4). Each runs as its own process,
+#: as `run_connector` runs the connector CLI, so a builder's memory is returned when it exits.
+CONTEXT_BUILDERS: tuple[tuple[str, ...], ...] = (
+    ("pipeline.context.eia_plants", "--latest-snapshot"),
+    ("pipeline.context.eia_owners", "--latest-snapshot"),
+    ("pipeline.context.eia860_plants", "--latest-snapshot"),
+    ("pipeline.context.ghgrp", "--latest-snapshot"),
+    ("pipeline.context.eia_atlas", "--layer", "all"),
+    ("pipeline.context.ethanol_plants", "--fetch"),
+    ("pipeline.context.ethanol_capacity", "--fetch"),
+    ("pipeline.context.lmop", "--fetch"),
+    ("pipeline.context.agstar", "--fetch"),
+    ("pipeline.context.lbnl_transmission",),
+    ("pipeline.context.phmsa",),
+    ("pipeline.context.eia923",),
+    ("pipeline.context.rfs",),
+)
+#: Per builder. Measured 2026-10-09 (docs/64 §7): the slowest, LBNL's transmission lines, took 78-199 s
+#: and peaked at 361 MB; all thirteen took 5 to 7 minutes in two runs. The ceiling is for a slow or
+#: stalled source, which the builders after it must survive.
+CONTEXT_BUILDER_TIMEOUT_S = 1800
+
+
+def context_build_job(
+    builders: tuple[tuple[str, ...], ...] = CONTEXT_BUILDERS,
+    *,
+    _run: Callable[..., Any] | None = None,
+    timeout_s: int = CONTEXT_BUILDER_TIMEOUT_S,
+) -> dict[str, Any]:
+    """Body of `context_build`: run each builder's CLI (`python -m pipeline.context.<name>`) in turn
+    under the connector data root (`INFRAQUE_DATA_DIR`, inherited), each with its own timeout. A
+    builder that fails or times out is logged with the tail of its stderr and the rest still run:
+    a builder writes each parquet only after parsing that file's source in full, so a failure leaves
+    the previous file in place and `context_load` reloads it unchanged."""
+    import subprocess
+    import sys
+    import time
+
+    run = _run if _run is not None else subprocess.run
+    results: list[dict[str, Any]] = []
+    for argv in builders:
+        name = argv[0].rsplit(".", 1)[-1]
+        cmd = [sys.executable, "-m", *argv]
+        started = time.monotonic()
+        stderr = ""
+        try:
+            result = run(cmd, cwd=ROOT, timeout=timeout_s, capture_output=True, text=True, check=False)
+        except subprocess.TimeoutExpired as exc:
+            status = "timeout"
+            stderr = (
+                exc.stderr.decode("utf-8", "replace") if isinstance(exc.stderr, bytes) else exc.stderr or ""
+            )
+        else:
+            status = "ok" if result.returncode == 0 else f"exit {result.returncode}"
+            stderr = result.stderr or ""
+        elapsed = round(time.monotonic() - started, 1)
+        results.append({"builder": name, "status": status, "elapsed_s": elapsed})
+        if status == "ok":
+            logger.info("context build: %s ok in %ss", name, elapsed, extra={"builder": name})
+        else:
+            logger.warning(
+                "context build: %s %s after %ss",
+                name,
+                status,
+                elapsed,
+                extra={"builder": name, "status": status, "stderr": stderr[-2000:]},
+            )
+    data = {
+        "builders": len(results),
+        "ok": sum(1 for r in results if r["status"] == "ok"),
+        "failed": [f"{r['builder']}: {r['status']}" for r in results if r["status"] != "ok"],
+        "elapsed_s": round(sum(r["elapsed_s"] for r in results), 1),
+    }
+    _log_report("context_build", data)
+    return data
+
+
+def context_load_job(
+    _run: Callable[..., Any] | None = None, *, _session_factory: Any = None, _data_root: Path | None = None
+) -> dict[str, Any]:
+    """Body of `context_load`: `services.ingest.context_layers.load_context_layers` over the connector
+    data root, in one transaction: the EIA-860M plants, the latest EIA-860M retirements run onto
+    them (reloaded after the plants: a run `load_source` loaded before a plant existed matched
+    nothing), the midstream and fuels asset layers with their operator edges, owner shares,
+    features and the organisation graph."""
+    from services.db.session import session_scope
+
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    load = _run if _run is not None else _load_fn("services.ingest.context_layers", "load_context_layers")
+    data_root = _data_root if _data_root is not None else connector_data_root()
+    with session_scope(factory) as session:
+        data = dict(load(session, data_root))
+    _log_report("context_load", data)
+    return data

@@ -71,9 +71,12 @@ import pandas as pd
 
 from pipeline.connectors.base import ParseError
 from pipeline.connectors.http import PoliteSession
+from pipeline.connectors.store import DATA_DIR
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CONTEXT_DIR = ROOT / "data" / "normalized" / "context"
+#: Writable data (snapshots/, runs/, normalized/) lives under the connector data root, `INFRAQUE_DATA_DIR`
+#: when set (a container's volume), else this checkout's data/ (`pipeline.connectors.store.DATA_DIR`).
+CONTEXT_DIR = DATA_DIR / "normalized" / "context"
 SOURCE_ID = "global.gleif.lei"
 LICENCE = "cc0"
 DEFAULT_OUT = CONTEXT_DIR / f"{SOURCE_ID}.parents.parquet"
@@ -423,8 +426,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--download-dir",
         type=pathlib.Path,
-        default=ROOT / "data" / "snapshots" / SOURCE_ID,
-        help="where a fetched golden copy is stored (default data/snapshots/global.gleif.lei)",
+        default=DATA_DIR / "snapshots" / SOURCE_ID,
+        help="where a fetched golden copy is stored (default <data root>/snapshots/global.gleif.lei)",
     )
     parser.add_argument("--publishes-url", default=PUBLISHES_URL)
     parser.add_argument(

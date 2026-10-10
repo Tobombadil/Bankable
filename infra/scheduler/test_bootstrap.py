@@ -163,3 +163,34 @@ def test_main_queues_the_schedulers_own_jobs_under_their_locks(
     assert [s["action"] for s in summaries] == ["fetch", "fetch", "load"]
     assert summaries[1].get("already_queued") == summaries[0]["queued"]
     assert summaries[2]["queued"] == 1 and summaries[2]["no_promoted_run"] >= 1
+
+
+@pytest.mark.parametrize(
+    ("argv", "task"), [(["context"], "context_load"), (["context", "--build"], "context_build")]
+)
+def test_context_queues_the_monthly_ticks_job_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    task: str,
+) -> None:
+    """`context` queues the tick's own job under its own locks (`context_load` holds the store-wide
+    `resolve` lock); a second call while it is queued is `already_queued`, not a second job."""
+    import json
+
+    from procrastinate import testing
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")  # never connected
+    monkeypatch.setenv("INFRAQUE_DATA_DIR", str(tmp_path))
+    import infra.scheduler.app as scheduler_app
+
+    connector = testing.InMemoryConnector()
+    with scheduler_app.app.replace_connector(connector):
+        assert bootstrap.main(argv) == 0
+        assert bootstrap.main(argv) == 0
+        jobs = _queued(connector)
+    lock = "resolve" if task == "context_load" else "context_build"
+    assert jobs == [(task, {}, lock, task)]
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [r["result"] for r in rows if "result" in r] == ["queued", "already_queued"]

@@ -62,7 +62,7 @@ import pandas as pd
 from pipeline.connectors.base import ParseError
 from pipeline.connectors.http import HttpBlocked, HttpFailed, PoliteSession
 from pipeline.connectors.registry import Registry
-from pipeline.connectors.store import Store, ts_token
+from pipeline.connectors.store import DATA_DIR, Store, ts_token
 from pipeline.context import shapefile
 from pipeline.context.geo import (
     StateIndex,
@@ -74,7 +74,9 @@ from pipeline.context.geo import (
 )
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-NORMALIZED_DIR = ROOT / "data" / "normalized" / "context"
+#: Writable data (snapshots/, runs/, normalized/) lives under the connector data root, `INFRAQUE_DATA_DIR`
+#: when set (a container's volume), else this checkout's data/ (`pipeline.connectors.store.DATA_DIR`).
+NORMALIZED_DIR = DATA_DIR / "normalized" / "context"
 STATES_GEOJSON = ROOT / "data" / "vendored" / "regions" / "us_states.geojson"
 
 ARCGIS_ORG = "https://services7.arcgis.com/FGr1D95XCGALKXqM/arcgis/rest/services"

@@ -12,11 +12,14 @@
 #      `connector_data` volume, owned by the image's appuser;
 #   2. queue one load per source at its latest promoted run (infra/scheduler/bootstrap.py `load`),
 #      which the running worker takes, each chaining into resolve and enrich;
-#   3. wait, bounded, until no load/resolve/enrich job is queued or running;
-#   4. load what the scheduler never loads: the context asset layers, the EIA-860M retirements
-#      onto them, and proposal-opportunity matches (`python -m web.dev_up --context-only`);
+#   3. wait, bounded, until no load/resolve/enrich/match job is queued or running;
+#   4. queue the context load (bootstrap `context`: the monthly tick's `context_load`, which loads
+#      the shipped normalized/context/ files, the EIA-860M retirements onto the plants, owner
+#      shares and features) and wait for it the same way. After the loads, not beside them: both
+#      write organisations;
 #   5. queue one fetch per source (bootstrap `fetch`), so every source gets its `source_run` row
 #      and freshness now rather than at its bucket's next tick.
+# Matches need no step of their own: every load's resolve chain ends in `match_tick`.
 # Safe to repeat: a re-shipped file overwrites its copy, a repeated load is idempotent, and a
 # source whose job is still queued is reported `already_queued`.
 set -euo pipefail
@@ -54,22 +57,28 @@ tar -C "$data_root" -czh "${parts[@]}" \
 log "2/5 queueing one load per source at its latest promoted run"
 remote_compose "run --rm --no-deps -T worker python -m infra.scheduler.bootstrap load"
 
-log "3/5 waiting for the loads, resolve and enrich to finish (at most ${drain_timeout}s)"
-pending_sql="select count(*) from procrastinate_jobs where status in ('todo', 'doing') and task_name in ('load_source', 'resolve_tick', 'enrich_tick')"
-deadline=$(( $(date +%s) + drain_timeout ))
-while :; do
-  pending="$(remote_compose "exec -T postgres psql -U infraque -d infraque -tAc \"${pending_sql}\"" | tr -d '[:space:]')"
-  [[ "$pending" == "0" ]] && break
-  if (( $(date +%s) >= deadline )); then
-    echo "[seed] ${pending:-?} load/resolve jobs still pending after ${drain_timeout}s; rerun this script once they finish" >&2
-    exit 1
-  fi
-  log "   ${pending:-?} pending"
-  sleep "$drain_interval"
-done
+# Wait, bounded, until no job of the store-wide chain is queued or running.
+drain() {
+  local pending_sql="select count(*) from procrastinate_jobs where status in ('todo', 'doing') and task_name in ('load_source', 'resolve_tick', 'enrich_tick', 'match_tick', 'context_load')"
+  local deadline=$(( $(date +%s) + drain_timeout )) pending
+  while :; do
+    pending="$(remote_compose "exec -T postgres psql -U infraque -d infraque -tAc \"${pending_sql}\"" | tr -d '[:space:]')"
+    [[ "$pending" == "0" ]] && return 0
+    if (( $(date +%s) >= deadline )); then
+      echo "[seed] ${pending:-?} $1 jobs still pending after ${drain_timeout}s; rerun this script once they finish" >&2
+      exit 1
+    fi
+    log "   ${pending:-?} pending"
+    sleep "$drain_interval"
+  done
+}
 
-log "4/5 loading the context layers, retirements and matches (web image, ${volume} mounted)"
-remote_compose "run --rm --no-deps -T -v ${volume}:${data_dir} web python -m web.dev_up --context-only --data-dir ${data_dir}"
+log "3/5 waiting for the loads, resolve, enrich and matches to finish (at most ${drain_timeout}s)"
+drain "load/resolve"
+
+log "4/5 loading the context layers (the scheduler's context_load) and waiting for it"
+remote_compose "run --rm --no-deps -T worker python -m infra.scheduler.bootstrap context"
+drain "context"
 
 log "5/5 queueing one fetch per source"
 remote_compose "run --rm --no-deps -T worker python -m infra.scheduler.bootstrap fetch"

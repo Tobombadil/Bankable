@@ -88,12 +88,14 @@ import pandas as pd
 from pipeline.connectors.base import ParseError
 from pipeline.connectors.http import HttpFailed, PoliteSession
 from pipeline.connectors.registry import Registry
-from pipeline.connectors.store import Store, ts_token
+from pipeline.connectors.store import DATA_DIR, Store, ts_token
 from pipeline.context.eia_atlas import ASSET_COLUMNS, Provenance
 from pipeline.context.geo import StateIndex, geodesic_length_miles, representative_point, wkt_multilinestring
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-NORMALIZED_DIR = ROOT / "data" / "normalized" / "context"
+#: Writable data (snapshots/, runs/, normalized/) lives under the connector data root, `INFRAQUE_DATA_DIR`
+#: when set (a container's volume), else this checkout's data/ (`pipeline.connectors.store.DATA_DIR`).
+NORMALIZED_DIR = DATA_DIR / "normalized" / "context"
 STATES_GEOJSON = ROOT / "data" / "vendored" / "regions" / "us_states.geojson"
 
 SOURCE_ID = "us.lbnl.ferc_hifld_transmission_lines"

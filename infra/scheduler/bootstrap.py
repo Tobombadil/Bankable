@@ -6,8 +6,10 @@ that wrote a new snapshot. A new server therefore serves an empty store for up t
 data root fetched by hand (`python -m pipeline.connectors run --all`) is never loaded at all,
 because a hand run records no `source_run` row and queues nothing.
 
-    python -m infra.scheduler.bootstrap fetch   # every implemented, ungated source, now
-    python -m infra.scheduler.bootstrap load    # each source's latest stored promoted run
+    python -m infra.scheduler.bootstrap fetch             # every implemented, ungated source, now
+    python -m infra.scheduler.bootstrap load              # each source's latest stored promoted run
+    python -m infra.scheduler.bootstrap context           # the context layers on disk, now
+    python -m infra.scheduler.bootstrap context --build   # rebuild them first (`context_build`)
 
 Both queue the jobs the ticks queue (`run_connector`, `load_source`) under the same per-source
 `lock` and `queueing_lock`, so they are safe while the scheduler and workers run and safe to
@@ -16,7 +18,9 @@ new server. Each run records its `source_run` row and, when it writes a new snap
 load, which chains into the store-wide resolve and enrich passes. `load` is the path for a data root
 that already holds runs. The loader starts from the latest promoted run when the source has never
 been loaded, and replays the promoted runs after its last loaded one otherwise
-(`services.ingest.loader.runs_to_load`).
+(`services.ingest.loader.runs_to_load`). `context` queues the monthly tick's `context_load` (or,
+with `--build`, its `context_build`, which chains into the load), for a data root shipped with its
+`normalized/context/` files or a refresh that should not wait for the 3rd of the month.
 
 The selection and the deferral are separate functions so the tests need no database; `main` wires
 them to the Procrastinate app, which needs `DATABASE_URL` (`infra/scheduler/app.py`).
@@ -110,11 +114,26 @@ def queue_loads(
     return report
 
 
+def queue_context(task_name: str, defer: Callable[[], Any]) -> dict[str, str]:
+    """Queue `context_load` or `context_build`. Both carry a `queueing_lock`: a second call while
+    one is still waiting is reported `already_queued`. One that has started no longer holds it, so
+    a second call then queues a run that waits on the job's `lock` and follows it."""
+    import procrastinate
+
+    row = {"action": task_name}
+    try:
+        defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        return {**row, "result": "already_queued"}
+    return {**row, "result": "queued"}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m infra.scheduler.bootstrap", description=__doc__.split("\n\n")[0]
     )
-    parser.add_argument("action", choices=("fetch", "load"))
+    parser.add_argument("action", choices=("fetch", "load", "context"))
+    parser.add_argument("--build", action="store_true", help="context: rebuild the files before loading them")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -157,7 +176,10 @@ def main(argv: list[str] | None = None) -> int:
         return True
 
     with scheduler.app.open():
-        if args.action == "fetch":
+        if args.action == "context":
+            task = scheduler.context_build if args.build else scheduler.context_load
+            report = [queue_context(task.name, task.defer)]
+        elif args.action == "fetch":
             report = queue_fetches(sources, defer_fetch)
         else:
             # The root and backend the fetch wrote through (`INFRAQUE_DATA_DIR`, `SNAPSHOT_STORE`).

@@ -88,15 +88,17 @@ bucket next ticked: up to a month for EIA-860M. It runs five steps:
 1. Ship `runs/`, `snapshots/`, `normalized/` (including `normalized/context/`) and `held/` into the
    volume.
 2. Queue one load per source (`python -m infra.scheduler.bootstrap load`).
-3. Wait until every load, resolve and enrich job has finished.
-4. Load what the scheduler never loads (`python -m web.dev_up --context-only`): the asset layers,
-   the EIA-860M retirements onto the plants, and proposal–opportunity matches.
+3. Wait until every load, resolve, enrich and match job has finished. Each load's chain ends in
+   `match_tick`, so matches need no step of their own.
+4. Queue the context load (`bootstrap context`: the monthly tick's `context_load`, §5) and wait for
+   it. It loads the shipped asset layers, the EIA-860M retirements onto the plants, owner shares
+   and features. It runs after the loads rather than beside them, because both write organisations.
 5. Queue one fetch per source (`bootstrap fetch`). This gives every source its `source_run` row
    now rather than at its next tick.
 
-A server seeded with no local data can run `bootstrap fetch` alone. It then has no asset layers:
-two context builders (`pipeline/context/eia_atlas.py`, `eia_owners.py`) write under the
-checkout's `data/` and cannot run in the image (§7).
+Every step runs in the worker image. A server seeded with no local data can run `bootstrap fetch`
+alone, then `bootstrap context --build` once the EIA-860M, EIA-860 and GHGRP fetches have stored
+their snapshots: the build reads them for the plant, owner and GHGRP layers.
 
 **Testers.** Give them the one login out of band. Rotate it by changing `SITE_ACCESS_HASH` and
 redeploying the same tag.
@@ -174,6 +176,13 @@ Rehearse once against the real VM with the gate on before inviting anyone.
   database on `127.0.0.1:5432`, which the base file publishes on loopback only. Restore with
   `docs/60` §10.3.
 - **Rollback:** `SINGLE_HOST=1 infra/scripts/rollback.sh production <previous tag>`.
+- **Matches** are recomputed after every resolve pass (`match_tick`, incremental), so at least daily
+  after the 04:37 resolve tick.
+- **Context layers** are rebuilt on the 3rd of each month at 02:43 UTC (`context_build`, then
+  `context_load`; `docs/60` §6.2). To refresh now:
+  `docker compose ... run --rm worker python -m infra.scheduler.bootstrap context --build`.
+  The build log names each builder that failed. A failed builder keeps its previous file, and the
+  load reloads it unchanged.
 
 ## 6. Opening it to the public
 
@@ -186,14 +195,47 @@ needs:
 
 ## 7. Known gaps
 
-- **Matches are not refreshed.** Nothing in the scheduler runs the matcher, so proposals loaded
-  after the seed get no proposal–opportunity matches until `--context-only` runs again.
-- **Context layers are not refreshed** (plants, gas assets, owners). The scheduler builds none of
-  them (also `docs/00-PLAN.md` 2026-10-07). Refresh means rebuilding locally and re-running the
-  seed.
-- **Two builders write under the checkout's `data/`** (`eia_atlas`, `eia_owners`) and ignore
-  `INFRAQUE_DATA_DIR`, so they cannot run inside an image.
-- **PHMSA pipeline features did not build here:** archive.org reset the connection on both attempts.
+Closed on 2026-10-09:
+- **Matches are refreshed.** The scheduler now runs the matcher (`match_tick`) at the end of every
+  resolve chain.
+- **Context layers are refreshed monthly** (§5).
+- **Every builder writes under `INFRAQUE_DATA_DIR`.** Before this, every builder wrote its parquet
+  under the checkout's `data/`, which is read-only in the image. The EIA-860, EIA-860M and GLEIF
+  builders also read and stored snapshots there. Only `eia_plants --data-root` could be pointed
+  elsewhere.
+
+**Measured on the operator's local data root:** all thirteen scheduled builders, run one after
+another as `context_build` runs them, took 410 s by hand.
+- The slowest was LBNL's transmission lines: 199 s.
+- The highest peak memory was LBNL's: 361 MB, against the worker's 1 GB limit. Each builder is its
+  own process, so its memory is returned when it exits.
+
+**Rehearsed on Postgres** (the §4 rehearsal store, with a worker running this change's code):
+`bootstrap context --build` queued `context_build`.
+- It ran 13 builders in 287 s; 12 succeeded and PHMSA failed (above). It then queued
+  `context_load`.
+- `context_load` took 190 s:
+  - it reloaded the plants and the retirement run idempotently (0 inserted; 16,472 unchanged);
+  - it added the 13,084 LBNL transmission lines and the GHGRP shares;
+  - it reported only the GLEIF file missing.
+- A deferred `enrich_tick` chained into `match_tick`, which ran incrementally in 3 s. It found
+  nothing changed since the seed's match run (1,993 active matches).
+
+Still open:
+- **PHMSA pipeline features do not build here.** archive.org reset the connection on every attempt,
+  by hand and in the scheduled build. On a server it is one failed builder in the build log, and
+  the other features still load.
+- **GLEIF parent companies are not rebuilt.** The 500 MB entity file is kept out of the monthly
+  build (`infra/scheduler/jobs.py` `CONTEXT_BUILDERS`). A file a data root ships keeps loading.
+  The operator's root ships none, so the beta has no GLEIF parents until someone runs
+  `python -m pipeline.context.gleif`, then `bootstrap context`.
+- **The context chain assumes one data root on one host.** The four builders that read stored
+  snapshots read local files, and `context_load` reads the files the build wrote. Both hold on this
+  single host. With `SNAPSHOT_STORE=s3`, or with workers on several VMs (`docs/60` §2), the build
+  and the load need a shared data root first.
+- **Snapshots accumulate.** Each build stores what it fetched again, whether or not it changed:
+  72 MB per build, measured (EIA-923 36 MB, LBNL 26 MB, RFS 5.5 MB). That is about 0.9 GB a year.
+  Nothing prunes `snapshots/` yet.
 - **API keys do not work while the gate is on** (§1).
 
 ## 8. Assumptions

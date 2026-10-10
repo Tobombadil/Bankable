@@ -47,11 +47,13 @@ import pandas as pd
 from pipeline.connectors.base import GateViolation, to_parquet_safe
 from pipeline.connectors.http import HttpBlocked, HttpFailed, PoliteSession
 from pipeline.connectors.registry import Registry, SourceEntry
-from pipeline.connectors.store import Store, ts_token
+from pipeline.connectors.store import DATA_DIR, Store, ts_token
 from services.ingest.geocode import CountyGazetteer, default_gazetteer
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CONTEXT_DIR = ROOT / "data" / "normalized" / "context"
+#: Writable data (snapshots/, runs/, normalized/) lives under the connector data root, `INFRAQUE_DATA_DIR`
+#: when set (a container's volume), else this checkout's data/ (`pipeline.connectors.store.DATA_DIR`).
+CONTEXT_DIR = DATA_DIR / "normalized" / "context"
 
 #: Reuse-class label written to `licence`, the same value `pipeline.normalize.SOURCE_META` gives
 #: the EIA-860M plants frame. All four fuels sources are US federal works (docs/13 §2.11, §2.12).

@@ -484,9 +484,10 @@ def main(argv: list[str] | None = None) -> None:
     import pathlib
 
     from pipeline.connectors.base import to_parquet_safe
+    from pipeline.connectors.store import DATA_DIR
     from pipeline.context import lbnl_transmission
 
-    root = pathlib.Path(__file__).resolve().parents[2] / "data" / "normalized"
+    root = DATA_DIR / "normalized"
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("--lines", type=pathlib.Path, default=lbnl_transmission.default_output())
     parser.add_argument(
