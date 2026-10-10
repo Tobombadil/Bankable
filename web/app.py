@@ -224,6 +224,11 @@ from web.reports import router as reports_router  # noqa: E402
 
 app.include_router(reports_router)
 
+# US-1001, docs/30 §4.5: "Submit a project", relayed to `/v1/intake/proposals` (web/submit.py).
+from web.submit import router as submit_router  # noqa: E402
+
+app.include_router(submit_router)
+
 # Sprint 3 item 3: the admin panel shell (operator guard, chrome) — page routers for each nav
 # group are mounted below it as they land.
 from web.admin.shell import NotAnOperator, not_an_operator_handler  # noqa: E402

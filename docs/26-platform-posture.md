@@ -302,7 +302,11 @@ whose lost browser still holds the seat can now get back in (QA-5): sign in with
 else" (`sign_out_other_sessions`, after the password is checked, and only the user's own sessions), use
 "Sign out of other sessions" on `/account`, or reset the password by email (`/forgot-password`; a signed
 one-hour link bound to the current password hash, so it works once; resetting revokes every session). An
-admin "revoke sessions" action is still open.
+operator can also sign a user out everywhere (2026-10-09): "Sign out everywhere" on the admin user page calls
+`POST /admin/v1/users/{user_id}/revoke-sessions`, which needs an operator or owner session, a reason and the
+admin form's same-origin check, revokes every live session of that one user (not their keys, role or status,
+nor anyone else's sessions) and writes an `admin_edit` audit event with the reason and the count only
+(`services/api/admin_people.py`, `web/admin/people.py`).
 
 **Saved-search input is validated** (QA-6): a key the operation does not take (`{"paused": true}`), a
 `status`, `delivery_mode` or channel outside its vocabulary, a non-list or empty `channels`, and a blank or
@@ -349,3 +353,8 @@ Views are page loads, not unique readers: uniqueness needs an identifier, which 
   unaffected) and `services/billing/test_router.py` (`PAID_TIERS_ACTIVE` computed at import under every
   `PLATFORM_POSTURE` value; `POST /v1/billing/checkout` refuses `403 paid_tiers_inactive` under `noncommercial`,
   still requires a session first, still succeeds under `commercial`; `POST /v1/billing/portal` unaffected).
+- §7 admin "revoke sessions", 2026-10-09: `tests/test_api_admin_people.py` (`-k revoke_user_sessions`: every
+  session of the one user revoked, a colleague's kept, keys and status untouched, the audit event without an
+  identifier; a member gets `403`, no session `401`, no reason `400`, an unknown user `404`) and
+  `web/test_admin_people.py` (`-k revoke_sessions`: the form on the user page, the flash with the count, the
+  same-origin check, a member refused).

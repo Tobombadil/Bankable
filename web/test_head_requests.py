@@ -178,6 +178,7 @@ GET_PATHS = (
     "/privacy",
     "/legal/reuse",
     "/pricing",
+    "/submit",
     "/login",
     "/static/css/styles.css",
     "/static/fonts/IBMPlexSans-Regular-Latin1.woff2",

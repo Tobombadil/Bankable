@@ -335,7 +335,7 @@ AC1. Each row needs an actual pass, not an assertion; "sign-off" is the qa-engin
 | 3 | E-9 integration fixtures (tier + gate across web/RSS/API/export/webhook/post-draft) | `pytest -k "publish_state or visibility" -q` across `tests/` | Not confirmed as one named suite this sprint; verify before sign-off | |
 | 4 | Attribution renders on all surfaces | Manual check: web page footer, RSS item, API envelope `licence_summary`, exported CSV row all carry `source_id`/`source_url`/`retrieved_at`/`licence` | Measured 2026-09-26 on a local Compose stack of the release images (`docs/60` §11 item 9). **Web:** the detail page shows `.provenance-panel` and `.attribution-line` at 1440 and 400 px (E-10 smoke). **API:** list and detail rows carry `provenance[]` with `source_id`, `source_url`, `retrieved_at`, `licence_id` and `attribution_text`, plus envelope `licence_summary`. **RSS:** `/feeds/proposals.rss` items carry only the source name (`dc:creator`) and a link to the record page, not `source_url`/`retrieved_at`/licence per item. **CSV:** no export route exists (`docs/41` dropped export) | Gap: RSS items; decide whether the linked page's attribution suffices |
 | 5 | Privacy notice live | A `/privacy` page exists on the public site | Built: `web/legal.py` serves `/privacy`, linked from the footer of every public page. `pytest web/test_legal.py` 7 passed (2026-09-26), and `GET /privacy` returned 200 from the containerised `web` image | |
-| 6 | Deletion route live | A self-service or admin-triggered path that redacts personal data and requests CRM deletion | **Public request route:** `POST /v1/privacy/requests` (`services/api/privacy_routes.py`) and its form at `/privacy/request` (`web/legal.py`) feed the admin queue `/admin/v1/privacy-requests`. `pytest tests/test_api_privacy_requests.py tests/test_web_privacy_request.py` 20 passed; the containerised API answered a request with 202. **Admin deletion:** `pytest tests/test_api_admin_people.py -k deletion_task` 6 passed; `services/crm/test_attio.py::test_request_personal_data_deletion_opens_a_task_with_a_30_day_deadline` passed (all 2026-09-26). **Gap:** an account holder cannot delete their own account in-app. The request is self-service; carrying it out is an operator action | Partially met — flag the gap explicitly at sign-off |
+| 6 | Deletion route live | A self-service or admin-triggered path that redacts personal data and requests CRM deletion | **Public request route:** `POST /v1/privacy/requests` (`services/api/privacy_routes.py`) and its form at `/privacy/request` (`web/legal.py`) feed the admin queue `/admin/v1/privacy-requests`. `pytest tests/test_api_privacy_requests.py tests/test_web_privacy_request.py` 20 passed; the containerised API answered a request with 202. **Admin deletion:** `pytest tests/test_api_admin_people.py -k deletion_task` 6 passed; `services/crm/test_attio.py::test_request_personal_data_deletion_opens_a_task_with_a_30_day_deadline` passed (all 2026-09-26). **Self-service deletion (2026-10-09):** a signed-in member deletes their own account from `/account` → `/account/delete` (`web/auth.py`), which says what is deleted and kept and asks for the password; it calls `DELETE /v1/me` (`services/api/auth_routes.py`). That runs the same erasure as a completed operator task (`services/api/account_erasure.py`): CRM deletion requested first, user row anonymised, sessions deleted, own keys revoked, alerts stopped and their recipient redacted, a personal account closed, the address suppressed as a hash, an audit event with hashes and counts, and a `deletion_request` task as the record. Staff roles are refused in-app. `pytest tests/test_api_account_deletion.py tests/test_api_admin_people.py web/test_auth.py` passed (2026-10-09). **Remaining:** `BillingPort` has no cancel operation, so a personal account's live subscription is cancelled by an operator from the open task; a person named in a record (not a member) still uses the request route | Met for members; state the billing hand-off at sign-off |
 | 7 | Automated-account labels set | Bios/disclosure text from `docs/32` §2.2 live on each channel profile; `services/social/editorial.py` enforces the disclosure label on post templates (`pytest -k disclosure -q` covers `test_admin_update_post_rejects_removing_disclosure_label` in `tests/test_api_admin_posts.py`) | Code enforces it; the actual profile bios depend on §2's account checklist being done first | |
 | 8 | Rate limits active | `pytest tests/test_api_pro_ratelimit.py -q`; confirm `TIER_LIMITS` in `services/api/ratelimit.py` matches `docs/23` §6 | Implemented (in-memory token bucket); `test_tier_limits_match_docs_23_defaults` is the exact check | |
 | 9 | Alert unsubscribe works | Click the unsubscribe link in a delivered alert email and confirm no further alerts send | Built: `GET\|POST /v1/alerts/unsubscribe` (`services/api/unsubscribe_routes.py`) and `/unsubscribe` (`web/legal.py`). `pytest tests/test_api_unsubscribe.py` 9 passed (2026-09-26), including the next alert cycle sending nothing for that search. Live on the containerised stack: `/unsubscribe` 200; an unknown token gets a 404 problem response. Not yet proven with a delivered email (needs the Resend key, §2.4) | |
@@ -345,8 +345,9 @@ AC1. Each row needs an actual pass, not an assertion; "sign-off" is the qa-engin
 | 13 | No expired exception (`docs/04` §9.4) | `docs/04-standards.md` §9.4 register | Empty register today — nothing to expire | |
 
 **Rows 5 and 9 were hard blockers in the 2026-09-13 pass; both are now built and their tests pass
-(2026-09-26).** US-908 AC1 still asks for row 9 to be proven with a delivered alert email, and row 6's
-account self-delete gap must be stated at sign-off.
+(2026-09-26).** US-908 AC1 still asks for row 9 to be proven with a delivered alert email. Row 6's account self-delete gap
+is closed (2026-10-09); its one manual step, cancelling a personal account's subscription in the billing
+provider, must be stated at sign-off.
 
 ---
 
@@ -395,9 +396,25 @@ softened.
    closed on a rejected token or an unreachable Cloudflare, sends the client IP only as `remoteip` and stores
    none of it; `infra/compose/.env.example`, `docs/60` §5). With the key unset — every environment today — the
    token is still accepted unverified and the api logs one warning per process; the honeypot and the per-IP
-   5/hour bucket remain the only controls. Two pieces are still missing: the owner's Turnstile site and secret
-   keys, and a public `/submit` form — `docs/30` §4.5 designs it, but no route or template under `web/` renders
-   it yet, so `TURNSTILE_SITE_KEY` has no consumer until that page exists.
+   5/hour bucket remain the only controls. One piece is still missing: the owner's Turnstile site and secret
+   keys. The public form exists since 2026-10-09: `GET`/`POST /submit` (`web/submit.py`,
+   `web/templates/submit.html`, `docs/30` §4.5 "As built"), linked from the `/proposals` and `/opportunities`
+   page headers and listed in the sitemap. It relays to `POST /v1/intake/proposals` through `web/api_client.py`,
+   sends the `website` honeypot as typed, and renders the Turnstile widget only when `TURNSTILE_SITE_KEY` is set
+   ("Report a problem" has read the same key since 2026-10-06), relaying its token as `captcha_token`.
+   **Set both keys or neither.** The API requires a non-empty `captcha_token` even with verification off, so a
+   page with no site key sends the fixed placeholder `no-widget`: with `TURNSTILE_SECRET_KEY` set and
+   `TURNSTILE_SITE_KEY` unset, the API rejects that placeholder and every submission is refused (fail closed);
+   with only the site key set, the widget runs and nothing verifies its token. No Content-Security-Policy is
+   sent anywhere today (no header in `web/app.py`'s middleware, the Caddyfile or the templates), so none was
+   changed. Whoever adds one must allow `https://challenges.cloudflare.com` in `script-src` and `frame-src`
+   on `/submit` and on the record pages that carry the report form, and nothing wider
+   (https://developers.cloudflare.com/turnstile/reference/content-security-policy/). Still open around intake:
+   US-1001 AC3's confirmation email (nothing sends one, so the success page says so and shows the task
+   reference instead); US-1002 AC3's private status link (the API's `status_url` is `/status/{task_id}`, which
+   no web route serves, so the page does not print it); and US-1003's opportunity intake form. (The API's
+   `privacy_notice_url` and the report form's hint pointed at `/legal/privacy`, which the site does not serve;
+   both now link `/privacy`, 2026-10-10.)
 2. **Organisation takedown works; it is not yet proven against Postgres.** Migration `0022` gave `organization`
    a `publish_state` (default `public`, so nothing visible changed on deploy), and the admin panel's
    organisation page now has the same publish-state form, reason and audit event as proposals. A taken-down
@@ -421,8 +438,11 @@ softened.
 5. **Privacy notice and deletion request route: built** (§4 rows 5–6). `/privacy` and the request form
    `/privacy/request` are served by `web/legal.py`; `POST /v1/privacy/requests` and the admin queue are in
    `services/api/privacy_routes.py`. Tests: `web/test_legal.py` 7 passed, `tests/test_api_privacy_requests.py` +
-   `tests/test_web_privacy_request.py` 20 passed (2026-09-26). Remaining gap: an account holder cannot delete
-   their own account in-app. Carrying out any deletion is an operator action.
+   `tests/test_web_privacy_request.py` 20 passed (2026-09-26). Since 2026-10-09 a member deletes their own
+   account in-app (`/account/delete`, `DELETE /v1/me`; password required; staff roles refused), through the same
+   erasure as an operator's deletion task (`services/api/account_erasure.py`). Remaining: a personal account's live
+   subscription is cancelled by hand, because `BillingPort` has no cancel operation (the deletion task stays open
+   naming it); a request about someone named in a record is still carried out by an operator.
 6. **Alert unsubscribe: built** (§4 row 9). `GET|POST /v1/alerts/unsubscribe` is in
    `services/api/unsubscribe_routes.py`, and the `/unsubscribe` page in `web/legal.py`.
    `tests/test_api_unsubscribe.py` 9 passed (2026-09-26). Not yet proven with a delivered email.
@@ -491,3 +511,5 @@ the deploy time). **Severity:** S2 by default; S1 if gated/restricted data is no
 |---|---|---|---|
 | L-1 | The `/about` page's coverage sentence has not drifted from `docs/13` §6's wording since 2026-09-12 | A frontend-developer re-check before launch | Update the live copy to match §1's sentence before publishing |
 | L-2 | No E-9-named integration-fixture test file exists as a single target this sprint (row 3, §4) | A search limited to this task's read scope; a broader test file may cover it under a different name | Update the "how to prove it" command once the actual file is confirmed |
+| L-3 | A staff member (`operator`, `legal`, `owner`) never needs to delete their own account in-app: an owner demotes them first or deletes them from the admin panel (§4 row 6, 2026-10-09). Refusing it prevents the last owner locking every operator out of `/admin` | The owner agreeing; `services/api/auth_routes.py::STAFF_ROLES` | Drop the role check in `delete_me`, keeping a guard that at least one owner remains |
+| L-4 | Alert-log rows (`alert`) are kept after a deletion with the recipient cleared, and saved searches are paused rather than deleted, because docs/21 §3.16 keeps the alert log 12 months for metric M-5 (§4 row 6) | docs/21 §3.16 retention | `services/api/account_erasure.py` deletes both instead (alerts first; they reference the searches) |

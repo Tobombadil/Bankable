@@ -33,7 +33,7 @@ state within a family (D-25 as reinterpreted by `docs/30` REF-2).
 
 | Family | Proposal states | Opportunity states | Text hex | Contrast (white/paper) | Dark tint hex | Contrast on ink |
 |---|---|---|---|---|---|---|
-| Neutral | announced, unknown | closed | `#5b6b7c` | 5.5:1 / 5.0:1 | `#c9d2da` | 8.6:1 |
+| Neutral | announced, unknown | closed | `#4f5e6e` (was `#5b6b7c`, 4.47:1 on the chip fill `#e4e9ed`; changed 2026-09-27) | 6.6:1 / 6.0:1; 5.4:1 on the chip fill | `#c9d2da` | 8.6:1 |
 | Progress | filed, studied, permitted, under_construction | reinstated | `#2f6480` | 6.5:1 / 5.9:1 | `#8fc4dd` | 6.9:1 |
 | Committed | contracted | awarded | `#8a4614` | 7.1:1 / — | `#e0b58a` | 7.0:1 |
 | Success | built | open | `#2f6f4f` | 6.0:1 / 5.4:1 | `#8fd6ac` | 7.7:1 |

@@ -40,6 +40,7 @@ from services.db.models import (
     Suppression,
     Task,
     User,
+    UserSession,
 )
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id, slugify
@@ -639,10 +640,15 @@ def test_complete_deletion_task_redacts_and_requests_crm_deletion(
     assert subject.status == "anonymised"
     assert subject.anonymised_at is not None
     assert subject.marketing_consent is False
-    db.refresh(session_row)
-    assert session_row.revoked_at is not None
+    # One procedure with the member's own in-app deletion (services/api/account_erasure.py): the
+    # session rows are deleted, not only revoked, and the rest of docs/21 §3.12's inventory is cleared.
+    session_id = session_row.id
+    db.expunge(session_row)
+    assert db.get(UserSession, session_id) is None
+    assert subject.last_login_at is None and subject.sor_ref is None
     db.refresh(search)
     assert search.status == "paused" and "email" not in search.channels
+    assert search.rss_token is None
     db.refresh(task)
     assert task.contact is None
 
@@ -1575,3 +1581,128 @@ def test_create_subscription_billing_rejected_is_conflict(db_sessionmaker: sessi
             json={"account_id": account.public_id, "plan_code": "pro", "seats": 1, "reason": "x"},
         )
         assert resp.status_code == 409
+
+
+# ==================================================== revoke a user's sessions (docs/26 §7, 2026-10-09)
+def _make_key(db: Session, account: Account, user: User) -> ApiKey:
+    key = ApiKey(
+        public_id="",
+        account_id=account.id,
+        created_by_user_id=user.id,
+        name="k",
+        prefix="bk_live",
+        last4="abcd",
+        key_hash=f"{user.public_id:x<64}"[:64],
+    )
+    db.add(key)
+    db.flush()
+    key.public_id = public_id("key", key.id)
+    db.flush()
+    return key
+
+
+def test_revoke_user_sessions_signs_one_user_out_everywhere_and_audits(
+    client: TestClient, db: Session, spec: dict
+) -> None:
+    operator = _operator(db)
+    account = _make_account(db)
+    target = _make_user(db, account, email="lost-laptop@example.com")
+    colleague = _make_user(db, account, email="colleague@example.com")
+    key = _make_key(db, account, target)
+    db.commit()
+    laptop, _ = create_session(db, target)
+    phone, _ = create_session(db, target)
+    colleague_session, _ = create_session(db, colleague)
+    db.commit()
+    _login(client, db, operator)
+
+    resp = client.post(
+        f"/admin/v1/users/{target.public_id}/revoke-sessions", json={"reason": "laptop reported stolen"}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert_valid(spec, "UserSessionsRevokedResponse", body)
+    assert body["data"]["user_id"] == target.public_id
+    assert body["data"]["sessions_revoked"] == 2
+
+    for row in (laptop, phone):
+        db.refresh(row)
+        assert row.revoked_at is not None
+    db.refresh(colleague_session)
+    assert colleague_session.revoked_at is None, "another user's session on the same account is untouched"
+    db.refresh(key)
+    db.refresh(target)
+    assert key.revoked_at is None and target.status == "active", "keys and status are not this action's"
+
+    event = db.scalar(select(Event).where(Event.subject_id == target.id, Event.event_type == "admin_edit"))
+    assert event is not None
+    assert body["data"]["audit_event_id"] == public_id("evt", event.id)
+    assert event.actor_user_id == operator.id and event.reason == "laptop reported stolen"
+    assert event.after == {"unrevoked_sessions": 0, "sessions_revoked": 2}
+    assert "lost-laptop@example.com" not in str(event.before) + str(event.after)
+
+
+def test_revoke_user_sessions_needs_an_operator(client: TestClient, db: Session) -> None:
+    account = _make_account(db)
+    target = _make_user(db, account, email="target@example.com")
+    member = _make_user(db, account, email="member@example.com")
+    db.commit()
+    target_session, _ = create_session(db, target)
+    db.commit()
+    path = f"/admin/v1/users/{target.public_id}/revoke-sessions"
+
+    assert client.post(path, json={"reason": "no session at all"}).status_code == 401
+    _login(client, db, member)
+    resp = client.post(path, json={"reason": "a member tries"})
+    assert resp.status_code == 403 and resp.json()["code"] == "forbidden_tier"
+    db.refresh(target_session)
+    assert target_session.revoked_at is None
+    assert db.scalar(select(Event)) is None, "a refused call writes no audit event"
+
+
+def test_revoke_user_sessions_requires_a_reason_and_a_real_user(client: TestClient, db: Session) -> None:
+    operator = _operator(db)
+    account = _make_account(db)
+    target = _make_user(db, account, email="target@example.com")
+    db.commit()
+    target_session, _ = create_session(db, target)
+    db.commit()
+    _login(client, db, operator)
+
+    missing = client.post(f"/admin/v1/users/{target.public_id}/revoke-sessions", json={})
+    assert missing.status_code == 400 and missing.json()["errors"][0]["field"] == "reason"
+    short = client.post(f"/admin/v1/users/{target.public_id}/revoke-sessions", json={"reason": "x"})
+    assert short.status_code == 400
+    db.refresh(target_session)
+    assert target_session.revoked_at is None
+    unknown = client.post(
+        "/admin/v1/users/usr_0000000000000000000000000/revoke-sessions", json={"reason": "who"}
+    )
+    assert unknown.status_code == 404
+
+
+def test_completing_a_task_for_an_already_erased_user_closes_it_without_a_second_erasure(
+    client: TestClient, db: Session, fake_crm: InMemoryCrm
+) -> None:
+    """A member who deleted their own account in-app leaves an open task only when the billing side
+    needs a human; closing it must not send the CRM a tombstone address or erase twice."""
+    operator = _operator(db)
+    account = _make_account(db, kind="personal")
+    subject = _make_user(db, account, email="already-gone@example.com")
+    subject.status = "anonymised"
+    subject.email = "erased-0123456789abcdef@erased.invalid"
+    task = _make_intake_task(db, type_="deletion_request")
+    task.subject_type = "user"
+    task.subject_id = subject.id
+    db.commit()
+    _login(client, db, operator)
+
+    resp = client.patch(
+        f"/admin/v1/tasks/{task.public_id}", json={"status": "done", "reason": "cancelled by hand"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["status"] == "done"
+    assert fake_crm.tasks == {}, "the CRM is not asked again"
+    assert db.scalar(select(Event).where(Event.event_type == "personal_data_redacted")) is None
+    closing = db.scalar(select(Event).where(Event.subject_type == "task", Event.subject_id == task.id))
+    assert closing is not None and closing.after == {"status": "done", "erasure": "already_complete"}

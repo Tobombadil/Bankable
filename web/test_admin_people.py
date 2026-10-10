@@ -14,11 +14,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from services.api.app import app as api_app
+from services.api.auth import create_session
 from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
 from services.billing.fake import InMemoryBilling
 from services.crm.fake import InMemoryCrm
-from services.db.models import Account, User
+from services.db.models import Account, Event, User, UserSession
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.sor.ports import CompanyRef, CompanyUpsert, SorUnavailable
 from services.sor.wiring import get_billing_port, get_crm_port
@@ -245,6 +246,93 @@ def test_anonymous_is_redirected_to_login(web_client: TestClient) -> None:
     resp = web_client.get("/admin/users")
     assert resp.status_code == 303
     assert resp.headers["location"] == "/login?next=/admin/users"
+
+
+def _target_with_sessions(db_sessionmaker: sessionmaker[Session], email: str, count: int) -> str:
+    with db_sessionmaker() as db:
+        account = db.query(Account).first()
+        assert account is not None
+        target = make_user(db, account, email=email, role="member")
+        db.commit()
+        for _ in range(count):
+            create_session(db, target)
+        db.commit()
+        return target.public_id
+
+
+def _live_sessions(db_sessionmaker: sessionmaker[Session], user_public_id: str) -> int:
+    with db_sessionmaker() as db:
+        user = db.query(User).filter(User.public_id == user_public_id).one()
+        return (
+            db.query(UserSession)
+            .filter(UserSession.user_id == user.id, UserSession.revoked_at.is_(None))
+            .count()
+        )
+
+
+def test_user_page_offers_sign_out_everywhere(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    _sign_in(web_client, db_sessionmaker, role="operator")
+    target_id = _target_with_sessions(db_sessionmaker, "two-devices@example.com", 0)
+    page = web_client.get(f"/admin/users/{target_id}")
+    assert page.status_code == 200
+    assert f'action="/admin/users/{target_id}/revoke-sessions"' in page.text
+    assert '<label for="revoke-reason">Reason</label>' in page.text
+
+
+def test_revoke_sessions_signs_the_user_out_and_flashes_the_count(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    _sign_in(web_client, db_sessionmaker, role="operator")
+    target_id = _target_with_sessions(db_sessionmaker, "stolen-phone@example.com", 2)
+    assert _live_sessions(db_sessionmaker, target_id) == 2
+
+    resp = web_client.post(
+        f"/admin/users/{target_id}/revoke-sessions",
+        data={"reason": "phone reported stolen"},
+        headers={"origin": "http://testserver"},
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/admin/users/{target_id}?flash=Signed+out+of+2+sessions."
+    assert _live_sessions(db_sessionmaker, target_id) == 0
+    assert web_client.get("/admin/users").status_code == 200, "the operator's own session is untouched"
+    with db_sessionmaker() as db:
+        event = db.query(Event).filter(Event.event_type == "admin_edit", Event.subject_type == "user").one()
+        assert event.reason == "phone reported stolen"
+        assert "stolen-phone@example.com" not in f"{event.before}{event.after}"
+
+
+def test_revoke_sessions_needs_the_same_origin_and_a_reason(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    _sign_in(web_client, db_sessionmaker, role="operator")
+    target_id = _target_with_sessions(db_sessionmaker, "kept@example.com", 1)
+
+    no_origin = web_client.post(f"/admin/users/{target_id}/revoke-sessions", data={"reason": "no origin"})
+    assert no_origin.status_code == 403
+    no_reason = web_client.post(
+        f"/admin/users/{target_id}/revoke-sessions",
+        data={"reason": ""},
+        headers={"origin": "http://testserver"},
+    )
+    assert no_reason.status_code == 400
+    assert "kept@example.com" in no_reason.text, "the user page is shown again with the notice"
+    assert _live_sessions(db_sessionmaker, target_id) == 1
+
+
+def test_revoke_sessions_is_refused_to_a_member(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session]
+) -> None:
+    _sign_in(web_client, db_sessionmaker, role="member")
+    target_id = _target_with_sessions(db_sessionmaker, "safe@example.com", 1)
+    resp = web_client.post(
+        f"/admin/users/{target_id}/revoke-sessions",
+        data={"reason": "not my call"},
+        headers={"origin": "http://testserver"},
+    )
+    assert resp.status_code == 403
+    assert _live_sessions(db_sessionmaker, target_id) == 1
 
 
 # ============================================================================================ customers

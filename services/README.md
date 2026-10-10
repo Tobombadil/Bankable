@@ -760,9 +760,11 @@ services/api/auth.py             argon2 password hashing; signed-cookie sessions
                                   dry-run EmailPort + ResendEmailAdapter; AuthContext and the
                                   require_authenticated/require_entitlement/require_scope/
                                   require_session_only/require_admin FastAPI dependencies
-services/api/ratelimit.py        InMemoryRateLimiter (real token buckets, one process-wide
+services/api/ratelimit.py        InMemoryRateLimiter (fixed windows, one process-wide
                                   instance) behind a RateLimiter protocol a Redis implementation
-                                  can satisfy identically
+                                  can satisfy identically; since 2026-10-10 also the docs/23 §6
+                                  search windows and daily caps, spent all-or-nothing by the
+                                  app-wide `meter_request` dependency (its module docstring)
 services/api/audit.py            record_audit_event — writes the admin/key audit trail as
                                   ordinary `event` rows (actor_type='user', required reason)
 services/api/visibility.py       extended: every *_visibility_filter takes an `entitlement`;
@@ -824,7 +826,9 @@ services/alerts/webhooks.py      HMAC signing/verification, endpoint matching, e
    directly** (`GET /v1/proposals` etc. with a session or key attached). Crediting that call to
    the anonymous per-IP bucket would double-count against unrelated anonymous traffic on the same
    IP, and this sprint does not thread `AuthContext` resolution into the shared middleware.
-   Follow-up: one rate-limiting dependency shared by both routers.
+   Follow-up: one rate-limiting dependency shared by both routers. *Done:* the 2026-09-30 audit's
+   lane P1 added an app-wide credential meter, and since 2026-10-10 `ratelimit.meter_request`
+   counts every credentialed request's read, search and daily windows (docs/23 §6 "As built").
 4. **`saved_search.channels` supports `email` and `rss`, not `webhook`.** Docs/23 §9.1 describes
    a webhook as "a saved search with a URL as its channel" — that description is about the
    separate `webhook_endpoint` mechanism (its own `query`/`entity` fields), not a literal

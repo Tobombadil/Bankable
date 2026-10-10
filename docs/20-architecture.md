@@ -360,6 +360,12 @@ enrichment for it. This is the mechanism behind `docs/03` §6.
   application sliding-window counter per key or per session stored in Postgres (`rate_bucket` table with
   `UNLOGGED` storage). Defaults in `docs/23` §6. Redis is not needed until sustained request rates exceed roughly
   50 requests per second across the fleet (§15).
+  **As built (2026-10-10):** the application layer has the read, search and daily windows of `docs/23` §6
+  (rules in `docs/23` §6 "As built"). They are fixed windows held in the api process's memory
+  (`services/api/ratelimit.py`), not the Postgres sliding window above. They are per process and reset on an api
+  restart, daily counts included. That is a recorded limitation, acceptable while the one-server beta runs one
+  api process (`docs/64`); the multi-host layout's two api replicas would give each caller two budgets. No
+  Cloudflare rate-limit rule exists in `infra/terraform` yet, so the edge layer is also unbuilt.
 - **Admin surface** is served on `admin.` subdomain, requires role `operator` or `owner`, enforces a second
   factor via the identity provider **[A-10]**, and every write is audit-logged as an `event` with `actor_type = user`.
 

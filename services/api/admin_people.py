@@ -26,6 +26,11 @@ decisions moved to `services/api/admin_intake.py`'s own docstring with it):
    (`services/api/deps.py` `get_db`): raising past `SorUnavailable`/`SorRejected` rolls back
    whatever this request already wrote (a new proposal, a task update), matching the deletion-task
    rule ("nothing half-applied") without needing bespoke transaction handling per route.
+5. Completing a `deletion_request` task runs `services/api/account_erasure.py::erase_user`, the
+   same procedure as a member's in-app deletion (`DELETE /v1/me`, `services/api/auth_routes.py`),
+   so the two cannot drift; a task whose user is already anonymised just closes (2026-10-09).
+6. `POST /admin/v1/users/{id}/revoke-sessions` signs one user out everywhere: their sessions only,
+   not their keys or status, audit-logged with counts (docs/26 §7; 2026-10-09).
 """
 
 from __future__ import annotations
@@ -39,8 +44,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from services.alerts.suppression import suppress
-from services.api.audit import hash_identifier, record_audit_event
-from services.api.auth import AuthContext, require_admin, revoke_session
+from services.api.account_erasure import erase_user
+from services.api.audit import record_audit_event
+from services.api.auth import AuthContext, require_admin, revoke_session, revoke_user_sessions
 from services.api.common import iso, normalise_domain, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
@@ -470,6 +476,47 @@ def admin_delete_user(
     )
 
 
+@router.post("/admin/v1/users/{user_id}/revoke-sessions")
+def admin_revoke_user_sessions(
+    user_id: str,
+    request: Request,
+    body: dict[str, Any],
+    db: Annotated[Session, Depends(get_db)],
+    ctx: Annotated[AuthContext, Depends(require_admin())],
+) -> Any:
+    """Signs a user out everywhere (docs/26 §7: the admin half of lockout recovery; QA-5). Every
+    live session of that one user is revoked, the same `revoke_user_sessions` the password reset
+    and "sign out of other sessions" use; their API keys, status and other users on the account
+    are untouched. The user can sign in again with their password. Audit-logged with counts only."""
+    reason = _require_reason(body, request, min_length=3)  # ReasonRequest minLength: 3
+    user = _find_user(db, user_id)
+    if user is None:
+        raise not_found(request.url.path)
+    if ctx.user is None:  # unreachable: require_admin() already refused an unauthenticated caller
+        raise ProblemError("unauthenticated", "An operator session is required")
+
+    revoked = revoke_user_sessions(db, user)
+    event = record_audit_event(
+        db,
+        subject_type="user",
+        subject_id=user.id,
+        event_type="admin_edit",
+        actor=ctx.user,
+        reason=reason,
+        before={"unrevoked_sessions": revoked},
+        after={"unrevoked_sessions": 0, "sessions_revoked": revoked},
+    )
+    return build_envelope(
+        {
+            "user_id": user.public_id,
+            "sessions_revoked": revoked,
+            "audit_event_id": public_id("evt", event.id),
+        },
+        meta=build_meta(lag_days=0, tier="admin"),
+        licence_summary=build_licence_summary([]),
+    )
+
+
 # ============================================================================================ tasks
 @router.get("/admin/v1/tasks")
 def admin_list_tasks(
@@ -546,48 +593,6 @@ def admin_get_task(
     )
 
 
-#: The reserved-TLD tombstone an erased user's `email` becomes (RFC 2606 `.invalid`): a
-#: non-deliverable, non-personal value built from the *peppered* hash, so an operator can still
-#: answer "was this address one of ours?" by hashing a candidate, without the log or the row
-#: holding the address (docs/50-audit-2026-09-18.md §3.1).
-_ERASED_EMAIL_DOMAIN = "erased.invalid"
-
-
-def _tombstone_email(email: str | None) -> str | None:
-    digest = hash_identifier(email)
-    return f"erased-{digest[:16]}@{_ERASED_EMAIL_DOMAIN}" if digest else None
-
-
-def _cancel_billing_for_erased_user(db: Session, user: User, billing: BillingPort) -> dict[str, Any]:
-    """Cancels the erased user's subscriptions through the billing port — but only for a
-    `personal` account, whose one member is the person being erased. An `organization`
-    account's subscription belongs to the organisation and outlives any one member (docs/21
-    §3.13/§3.14). `services.sor.ports.BillingPort` has no cancel operation yet (ADR 0006's
-    port surface: checkout, portal, create, get, invoices, webhook), so the call is made
-    through `cancel_subscription(ref=...)` when the adapter provides it and recorded as pending
-    otherwise — never silently skipped. The local `subscription` mirror is *not* edited here:
-    it is written only from the provider's webhook (`services/billing/entitlement.py`)."""
-    account = db.get(Account, user.account_id)
-    if account is None or account.kind != "personal":
-        return {"billing": "not_applicable"}
-    active = [
-        s
-        for s in db.scalars(select(Subscription).where(Subscription.account_id == account.id)).all()
-        if s.status in ("trialing", "active", "past_due", "paused")
-    ]
-    if not active:
-        return {"billing": "no_active_subscription"}
-    cancel = getattr(billing, "cancel_subscription", None)
-    if cancel is None:
-        return {
-            "billing": "cancellation_pending",
-            "subscription_refs": [s.sor_ref for s in active],
-            "detail": "billing port has no cancel_subscription operation",
-        }
-    cancelled = [str(cancel(ref=s.sor_ref)) for s in active]
-    return {"billing": "cancelled", "subscription_refs": cancelled}
-
-
 def _complete_deletion_task(
     db: Session,
     task: Task,
@@ -598,71 +603,52 @@ def _complete_deletion_task(
     crm: CrmPort,
     billing: BillingPort,
 ) -> None:
-    """The erasure itself (US-910; docs/50-audit-2026-09-18.md §3.1). Order matters: the CRM
-    deletion goes first because it needs the real address and can fail (the task then stays open
-    with nothing changed); then the row is anonymised — email to a tombstone, name and password
-    null, sessions and keys revoked, saved searches paused so no digest is ever built for it,
-    the address written to the suppression store, the personal account's subscriptions cancelled
-    through the billing port — and only then is the audit event written, carrying *hashes* of
-    the identifiers (`hash_identifier`), never the values, because the log is append-only. The
-    task's `contact` (the one place a deletion request may hold a contact) is nulled with it."""
+    """The erasure itself (US-910; docs/50-audit-2026-09-18.md §3.1), now one shared procedure
+    with the member's own in-app deletion (`services/api/account_erasure.py::erase_user`, whose
+    docstring lists what each table loses and keeps). Order matters: the CRM deletion goes first
+    because it needs the real address and can fail (the task then stays open with nothing
+    changed); then the row is anonymised, and only then is the audit event written, carrying
+    *hashes* of the identifiers, never the values, because the log is append-only. The task's
+    `contact` (the one place a deletion request may hold a contact) is nulled with it.
+
+    A user who is already anonymised (they deleted their own account in-app, which leaves an open
+    task when the billing side still needs a human, or an earlier task finished the job) is not
+    erased twice: the CRM must not be sent a tombstone address. The task just closes, with an
+    audit event saying why."""
     if task.subject_type != "user" or task.subject_id is None:
         raise ProblemError("conflict", "Deletion task has no user subject", instance=request.url.path)
     user = db.get(User, task.subject_id)
     if user is None:
         raise not_found(request.url.path)
-
-    original_email = user.email
-    try:
-        crm.request_personal_data_deletion(email=original_email or "", reason=reason)
-    except SorUnavailable as exc:
-        raise ProblemError(
-            "sor_unavailable",
-            "CRM adapter unavailable",
-            detail="The CRM could not be reached; the task stays open.",
-            instance=request.url.path,
-        ) from exc
-
-    before = {
-        "email_hash": hash_identifier(original_email),
-        "name_hash": hash_identifier(user.name),
-        "status": user.status,
-    }
-    now = utcnow()
-    billing_outcome = _cancel_billing_for_erased_user(db, user, billing)
-    suppress(db, original_email, "erasure")
-    user.email = _tombstone_email(original_email)
-    user.name = None
-    user.password_hash = None
-    user.status = "anonymised"
-    user.anonymised_at = now
-    user.marketing_consent = False
-    _revoke_user_sessions(db, user)
-    _revoke_user_api_keys(db, user, now=now)
-    for search in db.scalars(select(SavedSearch).where(SavedSearch.user_id == user.id)).all():
-        search.status = "paused"
-        search.channels = [c for c in search.channels if c != "email"]
-    task.contact = None
-
     if ctx.user is None:  # unreachable: require_admin() already refused an unauthenticated caller
         raise ProblemError("unauthenticated", "An operator session is required")
-    event = record_audit_event(
-        db,
-        subject_type="user",
-        subject_id=user.id,
-        event_type="personal_data_redacted",
-        actor=ctx.user,
-        reason=reason,
-        before=before,
-        after={
-            "email": "tombstone",
-            "name": None,
-            "status": "anonymised",
-            "suppressed": True,
-            "saved_searches": "paused",
-            **billing_outcome,
-        },
-    )
+
+    now = utcnow()
+    if user.status == "anonymised":
+        event = record_audit_event(
+            db,
+            subject_type="task",
+            subject_id=task.id,
+            event_type="admin_edit",
+            actor=ctx.user,
+            reason=reason,
+            before={"status": task.status},
+            after={"status": "done", "erasure": "already_complete"},
+        )
+    else:
+        try:
+            result = erase_user(
+                db, user, actor=ctx.user, reason=reason, initiated_by="operator", crm=crm, billing=billing
+            )
+        except SorUnavailable as exc:
+            raise ProblemError(
+                "sor_unavailable",
+                "CRM adapter unavailable",
+                detail="The CRM could not be reached; the task stays open.",
+                instance=request.url.path,
+            ) from exc
+        event = result.event
+    task.contact = None
     task.status = "done"
     task.completed_at = now
     task.audit_event_ids = [*(task.audit_event_ids or []), public_id("evt", event.id)]

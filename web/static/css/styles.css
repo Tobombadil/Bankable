@@ -1333,3 +1333,48 @@ a.button-secondary:visited { color: var(--link); }
   .filter-bar--map select { max-width: 10rem; }
   .filter-bar--map input[type="text"] { width: 7rem; }
 }
+
+/* ---------- Submit a project (US-1001, docs/30 §4.5; web/submit.py) ----------
+   A full form, so its labels are --text-2 in the body face (docs/31 §1.3), not the filter bar's
+   mono caption; one column up to 40rem, so 400px needs no rule of its own. Control borders are
+   --text-muted (5.5:1 on --surface; SC 1.4.11), not --border (1.5:1), because here the border is
+   what shows where an input is. An error is the text above its control; the thicker danger border
+   repeats it, it never carries it alone (SC 1.4.1, 3.3.1). */
+.intake-form { display: grid; gap: var(--space-7); max-width: 40rem; margin: var(--space-5) 0 var(--space-8); }
+.intake-form fieldset { border: none; margin: 0; padding: 0; min-width: 0; display: grid; gap: var(--space-5); }
+.intake-form legend {
+  font-size: var(--text-3); font-weight: 600; color: var(--text); padding: 0; margin-bottom: var(--space-3);
+}
+.intake-form__optional { font-weight: 400; color: var(--text-muted); }
+.intake-form .field label {
+  font-family: var(--font-body); font-size: var(--text-2); font-weight: 600;
+  text-transform: none; letter-spacing: normal; color: var(--text);
+}
+.intake-form .field input, .intake-form .field select, .intake-form .field textarea {
+  font: inherit; font-size: var(--text-2); width: 100%; box-sizing: border-box; min-height: 2.5rem;
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--text-muted); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text);
+}
+.intake-form textarea { min-height: 9rem; resize: vertical; }
+/* Specific enough to beat `.intake-form .field input` above, which otherwise keeps the 1px border. */
+.intake-form .field [aria-invalid="true"] { border-color: var(--family-danger-text); border-width: 2px; }
+/* The site's error mark (as `.filter-field__error`): ink text, a danger rule beside it. */
+.intake-form .field__error {
+  font-size: var(--text-2); border-inline-start: 3px solid var(--family-danger-text); padding-inline-start: var(--space-2);
+}
+/* A tick box with its label beside it and its hint or error under the label. The box is 24px, the
+   SC 2.5.8 minimum on its own, and one 16px x 1.5 line tall, so the label's first line sits level. */
+.intake-form .check { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); align-items: start; }
+.intake-form .check input { width: 1.5rem; height: 1.5rem; margin: 0; accent-color: var(--link); }
+.intake-form .check label { font-weight: 600; }
+.intake-form .check .field-hint, .intake-form .check .field__error { grid-column: 2; }
+/* 65px is Turnstile's own widget height (off the spacing scale), held open so the script's late
+   arrival does not move the button. */
+.intake-form__captcha .cf-turnstile { min-height: 65px; }
+.intake-form__trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.submit-status { max-width: 40rem; }
+.submit-status__list { margin: var(--space-2) 0 0; padding-inline-start: var(--space-5); }
+.submit-status__list li { padding: var(--space-1) 0; }
+.submit-ref { font-family: var(--font-mono); }
+.submit-next { max-width: 68ch; padding-inline-start: var(--space-5); }
+.submit-next li { padding: var(--space-1) 0; }

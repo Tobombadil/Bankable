@@ -27,6 +27,7 @@ from services.api.audit import record_audit_event
 from services.api.auth import (
     AuthContext,
     charge_credential,
+    credential_tier,
     generate_api_key,
     get_auth_context,
     require_admin,
@@ -39,7 +40,7 @@ from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, unknown_parameter, validation_error
 from services.api.feeds import render_json_feed, render_rss
 from services.api.params import check_allowed, csv_param
-from services.api.ratelimit import plan_quota
+from services.api.ratelimit import SEARCH_LIMITS, daily_cap_for, plan_quota
 from services.api.records import (
     OPPORTUNITY_FILTERS,
     PROPOSAL_FILTERS,
@@ -143,18 +144,22 @@ def get_me(
     # is a key scope, so a session reads `None` for it whatever the plan.
     quota = plan_quota(ctx.entitlement)
     plan = alert_plan_for(ctx)
+    tier = credential_tier(ctx)
+    read_per_hour = int(rl["RateLimit-Limit"])
     data: dict[str, Any] = {
         "user": serialize_user(me_user, account_public_id=account.public_id),
         "account": serialize_account(account),
         "tier": ctx.entitlement,
         "limits": {
-            "read_per_hour": int(rl["RateLimit-Limit"]),
-            "search_per_hour": int(rl["RateLimit-Limit"]),
-            "writes_per_hour": int(rl["RateLimit-Limit"]),
+            "read_per_hour": read_per_hour,
+            # docs/23 §6 as built (services/api/ratelimit.py): a search also spends the read window,
+            # and writes have no window of their own yet, so they spend the read window too.
+            "search_per_hour": SEARCH_LIMITS[tier] or read_per_hour,
+            "writes_per_hour": read_per_hour,
             "bulk_requests_per_hour": quota.bulk_requests_per_hour if ctx.api_key is not None else None,
             "exports_per_day": quota.exports_per_day,
             "export_rows_max": quota.export_rows_max,
-            "daily_cap": None,
+            "daily_cap": daily_cap_for(tier, ctx.api_key),
         },
         "saved_search_quota": {
             "limit": plan.quota if plan is not None else SAVED_SEARCH_QUOTA,

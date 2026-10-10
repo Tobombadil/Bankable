@@ -403,6 +403,45 @@ flowchart TD
   M --> N["Submitter sees approved record via private link;\npublic only if opted in AND admin sets public (US-1002 AC3)"]
 ```
 
+**As built, 2026-10-09 (lane C, `web/submit.py`, `web/templates/submit.html`).** These are the choices this
+flow did not settle.
+- **Entry.** One form at `/submit` for proposals (US-1001). It is linked from the page header of `/proposals`
+  ("Know of a project that is not listed?") and of `/opportunities` ("Developing a project? ... we match it
+  against opportunities like these"), which follows this flow's first node. US-1003's opportunity form is not
+  built, so IA-3's utility framing from `/opportunities` is still open. It is not in the primary nav or the
+  footer. `GET /submit` is indexable and in the sitemap; every POST result is `noindex` and `no-store`.
+- **Fields.** Input names are the `IntakeProposalRequest` keys. The two nested objects use dotted names
+  (`contact.email`, `identifiers.eia_plant_id`), which are also what the API's `errors[].field` uses.
+  - Identifiers. "Interconnection queue" is a select of the seven ISO tokens plus "Not in an ISO queue, or
+    not sure". With "Queue position ID" it becomes `queue_ids: [{iso, id}]`, and `iso` stays empty when the
+    submitter is unsure, which is a shape the resolver already reads. "EIA plant ID" (digits) becomes
+    `eia_plant_id`. "FERC docket" becomes `ferc_dockets`; a state docket goes in the description.
+  - Sponsor is a name only. There is no organisation picker, and `sponsor_org_id` is never sent.
+  - Jurisdiction is a code typed as the list filter takes it (`US-TX`, `US`, `GB`), upper-cased before sending.
+    State and county are optional free text.
+  - Technology is optional. Its options are the register's own (`/v1/meta/vocabularies`), so a submitted token
+    is one the list can filter by.
+  - Status is a self-declared select with Unknown last, linked to `/methodology#lifecycle`.
+  - Capacity and storage are text inputs with `inputmode="decimal"`, not `type="number"`. A browser sends an
+    invalid number input as empty, which would drop "1,200 MW" without a word; a text input lets the page
+    say what is wrong.
+  - Every answer is required unless its label says "(optional)". The publication opt-in is unticked by
+    default.
+- **Checks before sending.** The API admits five intake or report requests per visitor address per hour, and
+  it stops at the first bad field. So the page checks every field the schema constrains, lists every problem
+  at once in an error summary that has focus and links to each field, and spends none of the allowance on
+  answers it can already see are wrong. Whatever the API still refuses lands on the field it names (422).
+  - Textarea line breaks are counted as the browser counts them.
+  - Nothing typed is lost on any error: 422, 429, an unreachable API (502) or a refused captcha. The honeypot
+    is never echoed back.
+- **Consent.** The consent box links the privacy notice only, because the site has no terms page.
+  `consent_version` is `privacy-notice-<the notice's date>`.
+- **Success.** The page says what happens next: an editor reviews it, it appears nowhere until then, it is
+  linked, added or declined, then matched, and published only if the submitter opted in. It shows the task
+  reference. It says no confirmation email is sent, because US-1001 AC3's email is not built. It does not
+  link a private status page, because US-1002 AC3's `status_url` (`/status/{task_id}`) is not served. Both
+  are recorded in `docs/40` §6 item 1.
+
 ### 4.6 Admin: source gate, publish decision, post queue (US-905, US-802)
 
 **Report → record → unmerge (2026-10-07, audit UX-3).** A reader's report lands in `admin/tasks` with its issue type

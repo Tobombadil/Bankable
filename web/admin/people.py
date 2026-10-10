@@ -29,6 +29,9 @@ Decisions (fuller reasoning inline at first use):
 4. **A stale `sor` block shows the exact US-902 AC3 wording** ("writes are refused while the
    adapter is unavailable") next to the create-subscription form, not just a generic banner, since
    that form is the one write this screen offers and the one the staleness actually blocks.
+5. **"Sign out everywhere"** (2026-10-09, docs/26 §7) is a third small form on the user page with
+   its own reason, posting to `/admin/users/{id}/revoke-sessions`; the flash names how many
+   sessions the API revoked.
 """
 
 from __future__ import annotations
@@ -215,6 +218,29 @@ def update_user_status(
     result = ctx.api.patch(f"/admin/v1/users/{user_id}", json={"status": status, "reason": reason})
     if result.status_code == 200:
         return _redirect_with_flash(f"/admin/users/{user_id}", "Status updated.")
+    return _rerender_user_detail(
+        request, ctx, user_id, notice=problem_notice(result), status_code=result.status_code
+    )
+
+
+@router.post("/admin/users/{user_id}/revoke-sessions")
+def revoke_user_sessions_submit(
+    user_id: str,
+    request: Request,
+    ctx: Annotated[AdminContext, Depends(require_operator)],
+    reason: Annotated[str, Form()] = "",
+) -> Response:
+    """docs/26 §7: sign a user out everywhere (`POST /admin/v1/users/{id}/revoke-sessions`). Same
+    same-origin check and reason-required shape as the role/status forms; the API refuses a blank
+    reason with its own notice, which the re-rendered page shows next to the user's details."""
+    rejection = require_same_origin(request)
+    if rejection is not None:
+        return rejection
+    result = ctx.api.post(f"/admin/v1/users/{user_id}/revoke-sessions", json={"reason": reason})
+    if result.status_code == 200:
+        revoked = int(result.body.get("data", {}).get("sessions_revoked") or 0)
+        message = f"Signed out of {revoked} session{'' if revoked == 1 else 's'}."
+        return _redirect_with_flash(f"/admin/users/{user_id}", message)
     return _rerender_user_detail(
         request, ctx, user_id, notice=problem_notice(result), status_code=result.status_code
     )

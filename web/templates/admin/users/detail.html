@@ -62,6 +62,16 @@
   </form>
 </div>
 
+<form class="admin-form" method="post" action="/admin/users/{{ user.user_id }}/revoke-sessions">
+  <h2>Sign out everywhere</h2>
+  <p class="admin-muted">Revokes every session this user has on any device. Their API keys, role and status do not change, and they can sign in again with their password.</p>
+  <div class="field">
+    <label for="revoke-reason">Reason</label>
+    <textarea id="revoke-reason" name="reason" required></textarea>
+  </div>
+  <button class="admin-button admin-button--primary" type="submit">Revoke sessions</button>
+</form>
+
 <p><a class="admin-button" href="/admin/users/{{ user.user_id }}/delete">Delete this user&hellip;</a></p>
 {% endif %}
 {% endblock %}

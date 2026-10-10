@@ -22,6 +22,12 @@ cover (a followed link/redirect chain, an older or misconfigured browser) — th
 belt-and-braces pairing, not a full anti-CSRF token scheme (no server-side token state is
 justified for a same-origin form given the cookie is already `SameSite=Lax` and `HttpOnly`).
 
+**Deleting one's own account** (2026-10-09): `/account` links to `/account/delete`, a confirmation
+step that says what is deleted and kept and asks for the password (sign-in here is by password, so
+that is the re-authentication). Its form posts, under the same same-origin check, to
+`DELETE /v1/me`; on success the browser's cookie is cleared and it is redirected to
+`/account/deleted`. The API decides everything: the password, the staff-role refusal, the erasure.
+
 **Why this module keeps its own `Jinja2Templates`/`get_api`/`is_preview_active`/`footer_lag_days`
 instead of importing them from `web/app.py`:** `web/app.py` mounts this router
 (`app.include_router(web.auth.router)`), so `web.auth` importing back from `web.app` at module
@@ -323,6 +329,78 @@ def account_sign_out_others(request: Request) -> Response:
         "others_signed_out": int(result.body.get("revoked") or 0),
     }
     return templates.TemplateResponse(request, "auth/account.html", context)
+
+
+# ---------------------------------------------------- delete one's own account (2026-10-09)
+#: Display-only mirror of `services/api/auth_routes.py::STAFF_ROLES`: these roles see why the form is
+#: not offered instead of a form the API would refuse with `409`. The API is the one enforcing it.
+_STAFF_ROLES = frozenset({"operator", "legal", "owner"})
+
+
+def _account_delete_page(
+    request: Request, me: dict[str, Any], *, status_code: int = 200, **extra: Any
+) -> HTMLResponse:
+    role = str(me.get("user", {}).get("role", ""))
+    context = {"me": me, "is_staff": role in _STAFF_ROLES, **extra}
+    return templates.TemplateResponse(request, "auth/account_delete.html", context, status_code=status_code)
+
+
+@router.get("/account/delete", response_class=HTMLResponse)
+def account_delete_form(request: Request) -> Response:
+    """The confirmation step: what goes, what stays, and the password field. Nothing is deleted
+    until the form below is posted with the right password."""
+    cookie = request.cookies.get(SESSION_COOKIE_NAME)
+    if not cookie:
+        return RedirectResponse(url="/login?next=/account/delete", status_code=303)
+    me_result = get_api(request).get_result("/v1/me", cookies={SESSION_COOKIE_NAME: cookie})
+    if me_result.status_code != 200:
+        return RedirectResponse(url="/login?next=/account/delete", status_code=303)
+    return _account_delete_page(request, me_result.body.get("data", {}))
+
+
+@router.post("/account/delete", response_class=HTMLResponse)
+def account_delete_submit(request: Request, password: Annotated[str, Form()] = "") -> Response:
+    """`DELETE /v1/me` with the password typed on the confirmation page. On success the API has
+    deleted every session; this response clears the browser's cookie too and redirects to a page
+    that says what happened, so a reload cannot resubmit and the header no longer shows "Account"."""
+    if not _is_same_origin(request):
+        return _csrf_rejection()
+    cookie = request.cookies.get(SESSION_COOKIE_NAME)
+    if not cookie:
+        return RedirectResponse(url="/login?next=/account/delete", status_code=303)
+    api = get_api(request)
+    cookies = {SESSION_COOKIE_NAME: cookie}
+    result = api.request("DELETE", "/v1/me", json={"password": password}, cookies=cookies)
+    if result.status_code == 200:
+        redirect = RedirectResponse(url="/account/deleted", status_code=303)
+        _relay_cookies(redirect, result.set_cookie)
+        redirect.delete_cookie(SESSION_COOKIE_NAME, path="/")
+        return redirect
+    if result.status_code == 401:
+        return RedirectResponse(url="/login?next=/account/delete", status_code=303)
+    me_result = api.get_result("/v1/me", cookies=cookies)
+    if me_result.status_code != 200:
+        return RedirectResponse(url="/login?next=/account/delete", status_code=303)
+    return _account_delete_page(
+        request,
+        me_result.body.get("data", {}),
+        status_code=result.status_code or 400,
+        error_title=result.body.get("title", "Your account was not deleted"),
+        error_detail=result.body.get("detail"),
+        field_errors=_field_errors(result.body),
+    )
+
+
+@router.get("/account/deleted", response_class=HTMLResponse)
+def account_deleted(request: Request) -> Response:
+    """Shown after a deletion. A browser that is still signed in has an account, so it is sent to
+    the account page rather than told its account is gone."""
+    cookie = request.cookies.get(SESSION_COOKIE_NAME)
+    if cookie:
+        me_result = get_api(request).get_result("/v1/me", cookies={SESSION_COOKIE_NAME: cookie})
+        if me_result.status_code == 200:
+            return RedirectResponse(url="/account", status_code=303)
+    return templates.TemplateResponse(request, "auth/account_deleted.html", {})
 
 
 @router.get("/forgot-password", response_class=HTMLResponse)

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Delete account -- Infraque{% endblock %}
+{% block robots %}noindex, nofollow{% endblock %}
+{% block meta_description %}Delete your Infraque account.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Delete your account</h1>
+</div>
+{% if error_title %}
+<p class="notice notice--error" role="alert">{{ error_title }}{% if error_detail %}: {{ error_detail }}{% endif %}</p>
+{% endif %}
+{% if is_staff %}
+<p class="notice" role="status">This account has the {{ me.user.role }} role, so it cannot be deleted here. Ask an owner to change your role to member first, or to delete the account from the admin panel.</p>
+<p><a href="/account">Back to your account</a></p>
+{% else %}
+<p>Deleting the account signed in as <strong>{{ me.user.email }}</strong> takes effect at once and cannot be undone.</p>
+<h2>What is deleted</h2>
+<ul>
+  <li>Your email address, name and password: the account record is anonymised and can no longer be signed in to.</li>
+  <li>Every session, on this device and any other: you are signed out everywhere.</li>
+  <li>Your API keys are revoked and webhooks you created are turned off.</li>
+  <li>Your alerts stop: saved searches are paused, without email or a private feed, and your address is removed from the log of alerts sent.</li>
+  {%- if me.account and me.account.kind == 'personal' %}
+  <li>Your personal account is closed{% if me.tier in ('pro', 'api') %}, and any subscription on it is cancelled; if it cannot be cancelled automatically, we cancel it by hand{% endif %}.</li>
+  {%- endif %}
+</ul>
+<h2>What we keep</h2>
+<ul>
+  <li>A one-way hash of your email address on our suppression list, so we never write to you again.</li>
+  <li>A record that the account was deleted and when, holding hashes and counts, not your details.</li>
+  <li>The anonymous history the platform needs: the paused searches' filters and when alerts were sent, with no address on them.</li>
+</ul>
+<p>Our <a href="/privacy">privacy notice</a> explains this in full, including how long backups keep a copy.</p>
+<form class="auth-form" method="post" action="/account/delete" novalidate>
+  <div class="field">
+    <label for="delete-password">Your password</label>
+    <input id="delete-password" name="password" type="password" autocomplete="current-password" required>
+    <p class="field-hint">Type your password to confirm it is you.</p>
+    {% if field_errors and field_errors.password %}<p class="field__error">{{ field_errors.password }}</p>{% endif %}
+  </div>
+  <div class="form-actions">
+    <button type="submit">Delete my account permanently</button>
+  </div>
+</form>
+<p><a href="/account">Cancel and go back to your account</a></p>
+{% endif %}
+{% endblock %}

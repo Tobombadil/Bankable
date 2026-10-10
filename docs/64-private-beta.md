@@ -233,9 +233,15 @@ Still open:
   snapshots read local files, and `context_load` reads the files the build wrote. Both hold on this
   single host. With `SNAPSHOT_STORE=s3`, or with workers on several VMs (`docs/60` §2), the build
   and the load need a shared data root first.
-- **Snapshots accumulate.** Each build stores what it fetched again, whether or not it changed:
-  72 MB per build, measured (EIA-923 36 MB, LBNL 26 MB, RFS 5.5 MB). That is about 0.9 GB a year.
-  Nothing prunes `snapshots/` yet.
+- **Snapshots grow, by design.** Each build stores what it fetched again, whether or not it changed: 72 MB
+  per build, measured (EIA-923 36 MB, LBNL 26 MB, RFS 5.5 MB), about 0.9 GB a year. DA-10 keeps raw
+  snapshots whole for 24 months and then as monthly samples (`docs/04` DA-10, `docs/20` §3.2), so this is
+  expected growth. Since 2026-10-10 the daily `retention_tick` enforces that rule (`docs/60` §6.3);
+  nothing is old enough for it before 2028-09. It caps what is fetched more often than monthly at one
+  snapshot per source, artefact and month once 24 months old. A monthly build already stores one snapshot
+  a month (two for EIA-923's two workbooks), so the job removes none of it, and this growth stays about
+  0.9 GB a year. Storing unchanged bytes again also departs from `docs/20` §3.2 ("the run is recorded as
+  `unchanged`"); stopping that is a change to the builders.
 - **API keys do not work while the gate is on** (§1).
 
 ## 8. Assumptions

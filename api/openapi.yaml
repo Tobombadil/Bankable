@@ -51,7 +51,7 @@ info:
     a `400 unknown_parameter`, never ignored.
 
     **Rate limits** per `x-rate-limits` below (docs/23 §6); `RateLimit-*` headers on every response, `429` with
-    `Retry-After` on breach.
+    `Retry-After` on breach: `rate_limited` for an hourly window, `quota_exceeded` for the daily cap.
   termsOfService: https://infraque.com/legal/reuse
   contact:
     name: Platform API support
@@ -206,6 +206,16 @@ x-rate-limits:
     `429 rate_limited` with `Retry-After`; on daily cap: `429 quota_exceeded` with `Retry-After` to midnight UTC.
     Feeds are edge-cached and counted per IP at 120/hour. Every request is logged with key id, endpoint, status
     and latency (metric M-7, US-702 AC3).
+
+    Counting (docs/23 §6 "As built", 2026-10-10). Every metered request spends the tier's `read_per_hour` window
+    and its `daily_cap` (00:00 to 00:00 UTC). A `GET` with a non-empty `q` also spends `search_per_hour`, so
+    the search figure is a sub-limit of the read figure, not extra capacity. `/v1/bulk/*` spends the daily cap
+    and `bulk_requests_per_hour`, never the read window. A key's `daily_quota` replaces its tier's `daily_cap`.
+    The admin row has no search window and no daily cap. A request spends one unit of each of its windows or
+    of none, so a refused request costs nothing. A spent daily cap answers `quota_exceeded` even when an hourly
+    window is spent too. The `RateLimit-*` headers describe the window closest to exhaustion, and
+    `RateLimit-Policy` names it. The site's own server-side calls are exempt. Counts are held per api
+    process and reset when it restarts (a recorded limitation).
   tiers:
     public_per_ip: {read_per_hour: 60, search_per_hour: 20, bulk: null, writes_per_hour: 5, daily_cap: 1000}
     free_account: {read_per_hour: 300, search_per_hour: 60, bulk: null, writes_per_hour: 10, daily_cap: 3000}
@@ -2463,6 +2473,62 @@ paths:
         '403':
           $ref: '#/components/responses/SeatLimit'
         <<: *common_errors
+    delete:
+      operationId: deleteMe
+      tags: [Account]
+      summary: Delete your own account
+      description: |
+        A member erases their own account (2026-10-09; docs/40 §4 row 6). Session only: an API key
+        cannot delete the account that issued it. The password is the re-authentication (sign-in is by
+        password), so a stolen cookie alone cannot erase an account; a wrong or missing password is
+        `400 validation_error` naming `password` and changes nothing, and attempts are rate-limited per
+        user. The body takes `password` only and the operation acts on the session's own user, so it
+        cannot name anyone else. Staff roles (`operator`, `legal`, `owner`) get `409 conflict`: they are
+        demoted by an owner first.
+
+        Runs the same erasure an operator's completed `deletion_request` task runs
+        (`services/api/account_erasure.py`): the CRM deletion request first (a `503 sor_unavailable`
+        then means nothing was changed); then the user row is anonymised (`email` becomes a tombstone,
+        `name`, password, `last_login_at` and `sor_ref` are cleared, `status = anonymised`), every
+        session is deleted, the user's own API keys are revoked, saved searches are paused without the
+        email channel or private feed, alert recipients are redacted, webhooks the user created are
+        disabled, a `personal` account is renamed and closed, its live subscriptions are cancelled
+        through the billing port (or recorded as pending for an operator), the address is added to the
+        suppression list as a hash, and a `personal_data_redacted` event records hashes and counts,
+        never the values. A `deletion_request` task records the request: `done`, or `open` while a
+        subscription still needs cancelling by hand. The response clears the session cookie.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-910, US-602]
+      security:
+        - Session: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountDeletionRequest'
+      responses:
+        '200':
+          description: Deleted; the session cookie is cleared and every session of the user is gone.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDeletionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/SorUnavailable'
+        default:
+          $ref: '#/components/responses/Problem'
 
   /v1/account:
     get:
@@ -5069,10 +5135,13 @@ paths:
       tags: [Admin — customers]
       summary: Delete a user (runs the redaction procedure)
       description: |
-        Opens and completes a `deletion_request` task: nulls `email` and `name`, redacts personal values in
-        historical event payloads, revokes sessions and keys, suppresses alerts, issues the system-of-record
-        deletion through the port, writes a `personal_data_redacted` event carrying only an opaque subject id
-        (docs/21 §6.6, US-910 AC1). Event ids and timestamps survive so the audit chain is unbroken.
+        Opens and completes a `deletion_request` task through the same erasure as `DELETE /v1/me`
+        (`services/api/account_erasure.py`): tombstones `email`, nulls `name`, `password_hash`, `last_login_at`
+        and `sor_ref`, deletes sessions, revokes keys, pauses saved searches and clears alert recipients,
+        asks the system of record through the port, and writes a `personal_data_redacted` event carrying only
+        hashes and counts (US-910 AC1). Event ids and timestamps survive so the audit chain is unbroken.
+        Not done: rewriting personal values in historical event payloads (docs/21 §6.6); no event this
+        platform writes about a user carries an address or name, but an operator's free-text reason could.
       x-tier: admin
       x-status: live
       x-sprint: 3
@@ -5096,6 +5165,50 @@ paths:
                 $ref: '#/components/schemas/TaskDetailResponse'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /admin/v1/users/{user_id}/revoke-sessions:
+    servers: *admin_servers
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: adminRevokeUserSessions
+      tags: [Admin — customers]
+      summary: Sign a user out everywhere
+      description: |
+        Revokes every live session of this one user (2026-10-09; docs/26 §7, the admin half of lockout
+        recovery). Their API keys, role, status and the other users on the account are untouched, and
+        they can sign in again with their password. Audit-logged as an `admin_edit` event on the user
+        carrying the reason and the count only.
+      x-tier: admin
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-901, US-602]
+      security: *sec_admin
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonRequest'
+      responses:
+        '200':
+          description: Sessions revoked.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSessionsRevokedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
@@ -6299,33 +6412,33 @@ components:
         pattern: '^req_[0-9a-z]{6,32}$'
         examples: [req_9f2c1a]
     RateLimit-Limit:
-      description: Request quota for the current window (IETF RateLimit header fields draft).
+      description: Request quota of the window closest to exhaustion, the one `RateLimit-Policy` names (IETF RateLimit header fields draft; docs/23 §6).
       schema:
         type: integer
         minimum: 0
         examples: [600]
     RateLimit-Remaining:
-      description: Requests remaining in the current window.
+      description: Requests remaining in the window `RateLimit-Policy` names.
       schema:
         type: integer
         minimum: 0
         examples: [597]
     RateLimit-Reset:
-      description: Seconds until the window resets (delta-seconds).
+      description: Seconds until the window `RateLimit-Policy` names resets (delta-seconds); for the `daily` window, the seconds to 00:00 UTC.
       schema:
         type: integer
         minimum: 0
         examples: [1432]
     RateLimit-Policy:
-      description: 'Names the window and class, e.g. `600;w=3600;policy="pro-read"`; `bulk` and `search` classes are separate windows (docs/23 §6).'
+      description: 'Names the one window the other three fields describe, the one closest to exhaustion: `<limit>;w=<seconds>;policy="<tier>-<class>"` with class `read`, `search`, `daily` (`w=86400`) or `bulk`, e.g. `600;w=3600;policy="pro-read"` or `1000;w=86400;policy="public-daily"` (docs/23 §6).'
       schema:
         type: string
-        examples: ['600;w=3600;policy="pro-read"']
+        examples: ['600;w=3600;policy="pro-read"', '20;w=3600;policy="public-search"', '1000;w=86400;policy="public-daily"']
     Retry-After:
-      description: Seconds to wait (rate limit) or the RFC 9110 date of midnight UTC (daily quota).
+      description: Seconds to wait (RFC 9110 delta-seconds). On `429 rate_limited`, until the refusing window resets; on `429 quota_exceeded`, until 00:00 UTC (as the export quota does).
       schema:
         type: string
-        examples: ['120', 'Sun, 13 Sep 2026 00:00:00 GMT']
+        examples: ['120', '19800']
     ETag:
       description: >-
         Weak entity tag (`W/"…"`) on every public `200` JSON, GeoJSON, JSON Feed or RSS GET (since 2026-10-07): a hash
@@ -6414,7 +6527,7 @@ components:
     Q:
       name: q
       in: query
-      description: Full-text + trigram + exact identifier match (queue id, FERC docket, EIA plant/generator id). An exact identifier hit is the first result (US-103 AC1). Counted in the `search` rate window.
+      description: Full-text + trigram + exact identifier match (queue id, FERC docket, EIA plant/generator id). An exact identifier hit is the first result (US-103 AC1). A non-empty `q` is counted in the `search` rate window as well as the `read` window and the daily cap (docs/23 §6).
       schema:
         type: string
         minLength: 1
@@ -7799,7 +7912,7 @@ components:
             missing: [gate_flag, reuse_class]
             docs: https://infraque.com/docs/api/errors#gate_unmet
     RateLimited:
-      description: '`rate_limited` (sliding window exceeded) or `quota_exceeded` (daily cap); `Retry-After` set.'
+      description: '`rate_limited` (an hourly window is spent: read, search or bulk) or `quota_exceeded` (the daily cap is spent; answered even when an hourly window is spent too); `Retry-After` set. The `RateLimit-*` fields describe the refusing window.'
       headers:
         Retry-After:
           $ref: '#/components/headers/Retry-After'
@@ -14415,6 +14528,82 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/UserAdminView'
+    UserSessionsRevokedResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [user_id, sessions_revoked, audit_event_id]
+              properties:
+                user_id:
+                  $ref: '#/components/schemas/UserPublicId'
+                sessions_revoked:
+                  type: integer
+                  minimum: 0
+                  description: Sessions that were still unrevoked (expired ones included) and are now revoked.
+                audit_event_id:
+                  $ref: '#/components/schemas/EventPublicId'
+    AccountDeletionRequest:
+      type: object
+      required: [password]
+      additionalProperties: false
+      properties:
+        password:
+          type: string
+          minLength: 1
+          description: The account's current password; the re-authentication for an irreversible action.
+    AccountDeletionResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              description: What the erasure did, as counts and outcomes only; it repeats no personal value.
+              required:
+                - deleted
+                - user_id
+                - deletion_task_id
+                - sessions_deleted
+                - api_keys_revoked
+                - saved_searches_paused
+                - alerts_redacted
+                - webhooks_disabled
+                - account_closed
+                - billing
+              properties:
+                deleted:
+                  type: boolean
+                  const: true
+                user_id:
+                  $ref: '#/components/schemas/UserPublicId'
+                deletion_task_id:
+                  $ref: '#/components/schemas/TaskPublicId'
+                sessions_deleted:
+                  type: integer
+                  minimum: 0
+                api_keys_revoked:
+                  type: integer
+                  minimum: 0
+                saved_searches_paused:
+                  type: integer
+                  minimum: 0
+                alerts_redacted:
+                  type: integer
+                  minimum: 0
+                  description: Alert-log rows whose `recipient` was cleared.
+                webhooks_disabled:
+                  type: integer
+                  minimum: 0
+                account_closed:
+                  type: boolean
+                  description: True when a `personal` account was renamed and closed with its only member.
+                billing:
+                  type: string
+                  enum: [not_applicable, no_active_subscription, cancelled, cancellation_pending]
+                  description: '`cancellation_pending` leaves the deletion task open for an operator.'
     Customer:
       type: object
       description: An account with its system-of-record view read through the adapter (US-902).

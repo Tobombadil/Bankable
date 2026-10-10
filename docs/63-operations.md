@@ -111,13 +111,13 @@ Email-provider delivery time is on top and outside the platform's control.
 | Secondary backup | `infraque-backup.timer` nightly 03:17 UTC + ≤ 10 min jitter, `pg_dump` to Cloudflare R2; local retention 35 days; R2 keeps 14 daily + 8 Sunday dumps (`docs/60` §8) | RPO 24 h on the secondary copy | script tested against shims; timer never installed |
 | Restore | `restore_drill.sh` monthly by hand; real restore via provider PITR to a new branch then `DATABASE_URL` cut-over (`docs/60` §10.3) | RTO ≤ 4 h is a **target** | never executed |
 | Backup-age alert | > 26 h (`docs/04` O-7) | — | not wired (`docs/60` §7) |
-| Retention of stored data | DA-10: raw snapshots 24 months then monthly samples; `model_call` prompts 90 days; sessions 30 days; alerts 12 months | — | **no retention job exists** (grep: `retention_class` is a column with no scheduled consumer); nothing is old enough to matter before 2026-10-12 (sessions) |
+| Retention of stored data | DA-10 as the daily `retention_tick`, 01:47 UTC (`services/retention`; `docs/60` §6.3): sessions deleted at 30 days once expired; `alert.recipient` set to null at 12 months, rows kept (OP-7); raw snapshots older than 24 months cut to one per source, artefact and month (OP-8), never the copy the pipeline still reads; `snapshot` rows never deleted, `retention_class` set; one `retention_run` event per run. Not automated: `model_call` prompts (no column, no writer), documents (no writer, no period), `docs/13` §5.4 rule 7 (not settled) | each age plus at most one day; raw snapshots first bite 2028-09 | configured and tested (21 service + 6 scheduler tests); a read-only dry run on the operator's data root (29 sources, 59 snapshots, 315 MB) deleted nothing at 2026-10-10 and planned 28 deletions, 31 kept, at a simulated 2029-01-01 (measured 2026-10-10); never run on a deployment |
 
 ### 2.5 Privacy and rights requests
 
 | Obligation | Legal maximum | Platform commitment | Mechanism | Status |
 |---|---|---|---|---|
-| Deletion or objection from a named filer or a member | GDPR Art. 17: one month; CCPA: 45 days | **30 days** (`docs/13` §5.4 rule 6; `docs/04` S-8) | `deletion_request` task type; CRM asked first, local redaction only if that succeeds; identifiers hashed in the audit log; `suppression` table survives re-ingest (`services/alerts/suppression.py`, migration `0012`; `docs/CHANGELOG.md` 2026-09-19) | admin-triggered only; no self-service route (`docs/40` §4 row 6) |
+| Deletion or objection from a named filer or a member | GDPR Art. 17: one month; CCPA: 45 days | **30 days** (`docs/13` §5.4 rule 6; `docs/04` S-8) | `deletion_request` task type; CRM asked first, local redaction only if that succeeds; identifiers hashed in the audit log; `suppression` table survives re-ingest (`services/alerts/suppression.py`, migration `0012`; `docs/CHANGELOG.md` 2026-09-19) | members: self-service in-app since 2026-10-09 (`/account/delete`, `DELETE /v1/me`; password required; same erasure as the operator task, `services/api/account_erasure.py`); named filers: request route, operator carries it out (`docs/40` §4 row 6) |
 | Email opt-out (alerts, digests) | CAN-SPAM 10 business days | ≤ one delivery cycle, i.e. ≤ 24 h | §2.2 unsubscribe | tested |
 | Outreach-contact objection (Art. 21) | immediately | 24 h, confirmed in writing within 72 h (`docs/13-legal-outreach-and-social.md` §8.2) | CRM suppression, human | no channel active |
 | Privacy notice (Art. 14) | within one month of indirect collection | before the first public page | `/privacy` (`web/legal.py`) | built, not deployed |
@@ -346,7 +346,7 @@ repo has carried it as an open action past its own stated timing. Where the repo
 | every Monday | Weekly social report 08:00 ET; weekly pipeline report; opt-out verification and CRM dedupe | weekly | `docs/32` §6.2; `docs/04` G-7, G-11 | coordinator drafts, owner reads |
 | daily 06:17 UTC | Connector fixture suite | daily | `connectors-nightly.yml` | GitHub Actions; owner checks weekly |
 | 2026-10-01, then the 1st | Basemap refresh workflow fires (uploads nothing until R2 secrets exist) | monthly | `basemap.yml` | devops-engineer |
-| 2026-10-12 | First sessions reach the 30-day retention age (DA-10); no retention job exists — note only | rolling | `docs/04` DA-10 | backend-developer |
+| 2026-10-12 | First sessions reach the 30-day retention age (DA-10). `retention_tick` deletes them daily once a deployment runs the scheduler (`docs/60` §6.3); until then nothing does | rolling | `docs/04` DA-10 | backend-developer |
 | ~~2026-10-15~~ **done 2026-10-07** | gridstatus decision: no release relaxed the `cryptography<47`/`lxml~=5.3`/`setuptools<79`/`virtualenv<21` pins, so the three queue parsers in use (CAISO, ERCOT, NYISO — not two) were vendored into `pipeline/vendor/gridstatus` and the dependency dropped; all ten `pip-audit` ignores and all ten `.trivyignore` ids removed | once | PLAN 2026-09-15, 2026-10-06; `pipeline/vendor/gridstatus/README.md` | coordinator |
 | 2026-10 (October) | EPA GHGRP reporting-year release — run-now, because the annual bucket fires in January (§2.1) | annual | `data/sources.yaml` `us.epa.ghgrp` | data-engineer |
 | 2026-10/11 (Q3/Q4) | EIA-860 final release for the prior year — run-now for the same reason | annual | `us.eia.860` | data-engineer |
@@ -357,7 +357,7 @@ repo has carried it as an open action past its own stated timing. Where the repo
 | 2027-03-13 | `docs/60` §10 runbooks turn stale if still never executed (6 months, `docs/04` O-9) | once, then rolling | `docs/04` O-9 | devops-engineer |
 | 2027-05/06 | LBNL "Queued Up" annual release (licence still unverified, `docs/13` §2.1) | annual | `us.lbnl.queued_up` | legal-compliance |
 | 2027-09-12 | First annual review of retained personal fields (12 months from the first ingest) | annual | `docs/13` §5.4 rule 7 | legal-compliance |
-| 2028-09 | 24-month purge of personal fields on withdrawn/cancelled projects; 24-month raw-snapshot retention begins to bite | rolling | `docs/13` §5.4 rule 7; DA-10 | backend-developer |
+| 2028-09 | 24-month purge of personal fields on withdrawn/cancelled projects (no job: rule 7 is not settled, `docs/13` §5.5.5 item 4); 24-month raw-snapshot retention begins to bite (`retention_tick` compacts from then) | rolling | `docs/13` §5.4 rule 7; DA-10 | backend-developer |
 | from account creation | Stripe API version pin (account default until set); Attio object ids `ATTIO_OBJECT_IDS` (A-34-1) | once | PLAN 2026-09-13 first-wave row | owner, backend-developer |
 | first deploy + 30 days | Re-price the Neon line from real usage (B-1) | once | `docs/60` §4 | devops-engineer |
 | first `staging` month, then monthly | Restore drill; paste the result into `docs/60` §10.3 | monthly | `docs/04` O-7 | devops-engineer |
@@ -465,9 +465,11 @@ Written for one person. Times are estimates, not measurements. Until the first d
 6. Runbooks: "Last executed" lines; any procedure not run in the last six months is rehearsed on `staging`
    or marked stale.
 7. † `pip-audit` ignore list and `requirements.txt` pins reviewed; Sentry (once it exists) top errors.
-8. Retention (manual until a job exists): sessions > 30 days, `model_call` prompts > 90 days, alerts > 12
-   months — count, then delete through the documented procedure only (`docs/21` §1 grants no `DELETE`
-   outside it).
+8. Retention check: the last 30 `retention_run` rows (`python -m services.retention.run --latest 30`; no
+   admin route reads them yet): one a day, `errors` 0, and `matched` equal to `changed` on every applied
+   rule. What the job does not apply stays manual and on request only: `model_call` prompts (none are
+   stored yet), documents, and the `docs/13` §5.4 rule 7 purge (`docs/21` §1 grants no `DELETE` outside a
+   documented procedure).
 9. Lead-scoring weights (`docs/33` §8); social graduation dashboard; month-end X spend vs cap.
 10. † `docs/04` §9.4 exceptions register: nothing expired (empty today).
 11. † Decisions log: every decision taken this month is a row; every open question has an owner.
@@ -490,9 +492,9 @@ Stated so that nothing above is read as running.
 | Restore, rollback, secret rotation, deploy | Never executed; no environment to execute in | `docs/60` §10 |
 | Supervision Routine that drafts fixture and parser fixes on a red nightly run | Does not exist; a human does it | `docs/03` §1; `connectors-nightly.yml` header |
 | Model cost log (US-909), extraction, adjudication, the county-permit pilot's US$2 kill criterion | `services/modelgw` does not exist; `model_call` has no writer | `docs/60` §11 item 5; `docs/15` R-16 |
-| Retention job (DA-10) | No scheduled consumer of `retention_class` or the age rules | §2.4 |
+| ~~Retention job (DA-10)~~ **built 2026-10-10** (`retention_tick`, `docs/60` §6.3), not deployed (row 1) | Still not automated: `model_call` prompt expiry (no prompt column, no writer); documents per licence flags (no writer, no period); the `docs/13` §5.4 rule 7 purge (not settled); alert rows' aggregation into counts (`docs/21` §3.16: the recipient is dropped, the rows stay, OP-7). No admin route reads the run log. Snapshot deletes on a real R2 bucket are unexercised | §2.4; OP-7, OP-8 |
 | Terms-change detection on published sources | No job re-reads a terms URL; proposed quarterly in §5.2 | `docs/15` R-07 |
-| Self-service personal-data deletion for a member | Admin-triggered only | `docs/40` §4 row 6 |
+| Self-service cancellation of a deleted member's subscription | Built 2026-10-09: a member deletes their own account in-app. Left: `BillingPort` has no cancel operation, so a personal account's live subscription is cancelled by an operator from the `deletion_request` task the deletion leaves open | `docs/40` §4 row 6; `services/api/admin_people.md` |
 | Any social account, any post, any email to a real person | No accounts; all adapters dry-run; the channel register (§6) is empty; the human-sends rule stands | `docs/32` §2; `docs/13-legal-outreach-and-social.md` §0 |
 | LinkedIn via API | Self-serve API terms prohibit automated posting; MDP application not submitted; bridge scheduler until approval | `docs/13-legal-outreach-and-social.md` §5.1; `docs/32` §1.4 |
 | Paid tiers, checkout, revenue | Inactive by design while `PLATFORM_POSTURE=noncommercial` (`.env.example` default since 2026-09-26; code default stays `commercial`) | `docs/26` §3(i), §6 |
@@ -508,8 +510,11 @@ Stated so that nothing above is read as running.
 | OP-2 | The quarterly terms re-retrieval (§5.2) is the right cadence; the repo names none | Owner leaving the row in | A different cadence is one cell |
 | OP-3 | The nightly M-11 audit is "in build 2026-09-26" per the coordinator's brief and not yet running; this document does not describe its output format | The building lane's handback | §7.1 item 4 and §8 row 2 are updated with the job's name and where its result is read |
 | OP-4 | ~~`biweekly-ish` and `weekly poll; …` resolve to the weekly bucket by substring match~~ **Verified 2026-09-26** by calling `bucket_for_cadence` on all sixteen connector cadences: the buckets in §2.1 are the ones the code returns | — | — |
-| OP-5 | No retention job exists (grep for a consumer of `retention_class` or the DA-10 ages found none) | A search of `services/`, `infra/`, `pipeline/` | §2.4 and §8 rows are struck; §7.3 item 8 becomes a check, not a manual purge |
+| OP-5 | ~~No retention job exists~~ **Resolved 2026-10-10**: `retention_tick` applies the DA-10 ages and sets `retention_class` (`services/retention`); §2.4, §8 and §7.3 item 8 are updated | — | — |
 | OP-6 | The weekly pipeline report (`docs/33` §7.3, G-11) has no generator yet; it is an agent-drafted document until one exists | `docs/33` | None on this document |
+| OP-7 | `docs/20` §11 "alerts 12 months" means the `alert` table (the delivery log), not `saved_search` (the subscription). `docs/21` §3.16 says the rows are then "aggregated into counts and the recipient column is dropped"; the job drops the recipient (sets it to null) and keeps the rows, because no store for the counts is named and deleting the rows is not stated | The owner's or backend-developer's reading of `docs/21` §3.16 | If the rows are to go, a later rule writes the counts somewhere named and deletes them; alert history older than 12 months (window, events, `sent_at`) goes with them |
+| OP-8 | A raw-snapshot monthly sample is one per source, artefact (the fetched URL's host and path) and calendar month: the newest snapshot of a promoted run, else the newest. DA-10 names no unit; per source alone would drop one of EIA-923's two workbooks (f923_2025, f923_2026) from every month (measured on the operator's data root, 2026-10-10) | DA-10 "monthly samples"; the owner | Per source alone deletes more. As built, a source whose file name carries its release date (NESO's TEC register) keeps every release: twice weekly, about eight files of 0.4 MB a month (one observation: `tec-register-10-october-2026.csv`) |
+| OP-9 | A session is past retention when it was created more than 30 days ago and has expired. Today every session expires 30 days after creation (`services/api/auth.py`), so the second test never holds a row back | `services/api/auth.py` `_SESSION_IDLE_DAYS` | If sessions ever live longer, old live rows are kept and counted (`kept_unexpired`) rather than deleted, so nobody is signed out by the job |
 
 ## 10. Change history
 
@@ -518,3 +523,5 @@ Stated so that nothing above is read as running.
 | 2026-09-26 | v1: SLAs labelled configured/measured/target; support model for a solo owner with proposed hours; DQ operations from `dq.py`, the scheduler's health writer and the admin screen; overdue owner actions and the dated calendar; social cadence and an empty channel register; daily/weekly/monthly/quarterly checklists; the not-yet-operable table |
 | 2026-10-07 | §5.2 and §7.2: the gridstatus decision is done (three parsers vendored, dependency dropped, no `pip-audit` or image-scan ignores left); the weekly gridstatus release check is retired |
 | 2026-10-07 | §4.1: a hold stays held across identical refetches until released; `make reparse` runbook with the measured restatement; catch-up clamp dates; hourly opportunity deadline sweep. §4.2: `partial` covers held refetches (audit DATA-1, DATA-2, DATA-14; RES-1) |
+| 2026-10-10 | §2.4, §5.2, §7.3 item 8, §8, §9: the DA-10 retention job is built (`retention_tick`, `services/retention`, `docs/60` §6.3); OP-5 resolved; OP-7 to OP-9 added |
+| 2026-10-10 | §2.5 and §8: members delete their own account in-app (`DELETE /v1/me`, the operator's erasure); the open item narrows to cancelling a personal account's subscription by hand. Admin "revoke sessions" exists (`docs/26` §7) |
