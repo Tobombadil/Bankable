@@ -1,0 +1,52 @@
+{#- "At this site" (owner decision 2026-10-10; docs/21 §3.25; web/sites.py). Included once by
+    proposal_detail.html after the facts block; renders nothing unless the record belongs to a site
+    with at least two members this viewer may see (`site_panel` is None otherwise). Lead first, then
+    the other members with their relationship to the lead and their MW, each linking to its record.
+    Records at the same grid connection point that were not grouped are neighbours, not members:
+    a separate, collapsed list. -#}
+{%- import "_macros.html" as m %}
+{%- macro site_row(mbr, current) %}
+      <tr{% if mbr.is_unit %} class="site-row--unit"{% endif %}{% if mbr.public_id == current %} aria-current="true"{% endif %}>
+        <td data-label="Relationship">{{ mbr.relation_label }}{% if not mbr.is_lead %} <span class="reuse-badge">{{ mbr.confidence }} confidence</span>{% endif %}</td>
+        <td data-label="Name">{% if mbr.public_id == current %}<strong>{{ mbr.name }}</strong> <span class="reuse-badge">this record</span>{% else %}<a class="row-link" href="{{ mbr.href }}">{{ mbr.name }}</a>{% endif %}</td>
+        <td data-label="Technology">{{ (mbr.technology | technology_label) or '—' }}</td>
+        <td data-label="MW" class="num tnum">{{ mbr.mw_label }}</td>
+        <td data-label="Status">{{ m.status_chip(mbr.lifecycle_state, mbr.lifecycle_family) }}</td>
+      </tr>
+{%- endmacro %}
+{%- set site = site_panel(request, record) %}
+{%- if site %}
+<section class="site-panel" aria-labelledby="site-panel-heading">
+  <h2 id="site-panel-heading">At this site</h2>
+  <p class="attribution-line">One of {{ site.member_count }} records at <a href="{{ site.href }}">{{ site.name }}</a>, grouped by {{ site.groupings | join(', ') if site.groupings else 'shared identifiers' }}. The lead is the largest active filing. Each record keeps its own page.</p>
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">Records at this site: the lead first; each plant's units follow it; every other record with its relationship to the lead.</caption>
+    <thead><tr><th scope="col">Relationship</th><th scope="col">Name</th><th scope="col">Technology</th><th scope="col" class="num">MW</th><th scope="col">Status</th></tr></thead>
+    <tbody>
+      {%- for g in site.groups %}
+      {{ site_row(g.head, site.current) }}
+      {%- if site.show_units %}
+      {%- for u in g.units %}{{ site_row(u, site.current) }}{% endfor %}
+      {%- elif g.units %}
+      <tr class="site-row--unit"><td colspan="5">Plus {{ g.units | length }} more unit{{ 's' if g.units | length != 1 }} of EIA plant {{ g.head.eia_plant_ids | join(', ') }}{% if site.current in g.units | map(attribute='public_id') | list %}, this record among them{% endif %}: <a href="{{ site.href }}">all records at this site</a></td></tr>
+      {%- endif %}
+      {%- endfor %}
+    </tbody>
+  </table>
+  </div>
+  {%- if site.members_truncated %}<p class="attribution-line"><a href="{{ site.href }}">All {{ site.member_count }} records at this site</a></p>{% endif %}
+  {%- if site.neighbours %}
+  <details class="site-panel__neighbours">
+    <summary>Also at this interconnection point ({{ site.neighbour_count }})</summary>
+    <p class="attribution-line">Other requests at the same grid connection point, from another or no named developer. They share the connection, not the site.</p>
+    <ul class="site-panel__list">
+      {%- for n in site.neighbours %}
+      <li><a href="{{ n.href }}">{{ n.name }}</a> <span class="attribution-line tnum">{{ (n.technology | technology_label) or '—' }}, {{ n.mw_label }} MW, {{ n.lifecycle_state | lifecycle_label | lower }}{% if n.point %} at {{ n.point.name }}{% endif %}</span></li>
+      {%- endfor %}
+    </ul>
+  </details>
+  {%- endif %}
+  {{ m.credits_line(site.credits) }}
+</section>
+{%- endif %}

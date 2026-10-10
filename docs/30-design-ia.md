@@ -572,6 +572,14 @@ Full page (server-rendered, D-18):                    Drawer (from a map marker)
 │ [Report a problem →]   Attribution line (D-27) │
 └───────────────────────────────────────────────┘
 ```
+**As built, 2026-10-10 (lane S, owner decision on docs/51 §7 Q6; `web/sites.py`, `web/templates/_site_panel.html`,
+`site_detail.html`).** After the facts block, "At this site" lists the record's site (docs/21 §3.25) when the viewer may
+see two or more of its members: the lead first, each EIA plant's units under its first unit (summarised as a count above
+20 records), every other member with its relationship to the lead, a confidence word, MW and status chip, each linking
+to its record; neighbours at the same grid connection point sit apart in a collapsed "Also at this interconnection
+point" list; a credit line names the registers. `/sites/{public_id}` adds the totals, sponsors (linked), the EIA plant
+ids, connection points and operating-plant asset with its owners, and the Sources panel. `SITES_ENABLED=0` hides both.
+
 States: loading — skeleton of the key/value grid and timeline rows. Error — RFC 9457 title, no stack trace; a
 gated record renders identically to not-found (D-21/API-4). Delayed — n/a since 2026-09-21; nothing is absent by age,
 not shown-then-blurred. Restricted-precision — "view at source" language, not a map label. Unplaced — n/a (no

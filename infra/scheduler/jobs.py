@@ -892,6 +892,14 @@ def default_resolve(session_factory: Any, *, data_root: Path | None = None) -> d
     # flagged person sponsors (a reversible system override). Idempotent; a no-op on a clean store.
     with session_scope(session_factory) as session:
         report["personal_data"] = _load_fn("services.ingest.personal_data", "run")(session, what="all")
+    # Sites (docs/21 §3.25) are derived from everything above, so they rebuild last. A failure here
+    # is logged and reported, not raised: sites can be switched off (`SITES_ENABLED`), and a site
+    # defect must not fail the resolve job and with it the enrich and match passes chained after it.
+    try:
+        report["sites"] = _load_fn("services.sites.build", "run")(session_factory)
+    except Exception as exc:
+        logger.exception("resolve: site rebuild failed; resolve itself completed")
+        report["sites"] = {"error": type(exc).__name__}
     return report
 
 

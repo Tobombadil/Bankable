@@ -70,6 +70,11 @@ erDiagram
   proposal ||--o{ match : "eligible for"
   opportunity ||--o{ match : "attracts"
 
+  site ||--o{ site_member : "groups"
+  proposal ||--o| site_member : "member of"
+  site ||--o{ site_audit : "rebuild history"
+  site |o--o| proposal : "led by"
+
   account ||--o{ user : "seats"
   account ||--o{ subscription : "mirrors"
   account ||--o{ api_key : "issues"
@@ -187,6 +192,30 @@ erDiagram
     jsonb before
     jsonb after
     text actor_type
+  }
+  site {
+    uuid id PK
+    text public_id
+    uuid lead_proposal_id FK
+    jsonb anchors
+    timestamptz retired_at
+    uuid successor_site_id FK
+  }
+  site_member {
+    uuid id PK
+    uuid site_id FK
+    uuid proposal_id FK
+    text group_key
+    uuid parent_proposal_id FK
+    text grouping_rule
+    text relation
+    text confidence
+  }
+  site_audit {
+    uuid id PK
+    uuid site_id FK
+    text kind
+    jsonb detail
   }
   match {
     uuid id PK
@@ -1029,6 +1058,139 @@ Unique: (`source_id`, `name_key`), `public_id`. Index: `operator`, `jurisdiction
 tier may see. Visibility (D-17): the point's source and licence pass `source_permits`/`licence_permits` and at
 least one proposal at it is visible at the tier (`services/api/visibility.py::interconnection_point_visibility_filter`).
 
+### 3.25 `site`, `site_member`, `site_audit` — proposals that share a place (migration 0037, 2026-10-10)
+
+Owner decision 2026-10-10, answering docs/51 §7 Q6: "This is an entity relationship problem. Use unique
+identifiers: if records share an address, put them under the latest and largest filing for that address, list the
+others as subprojects in the same site, and do your best to label the relationships." Accepted the same day with five
+firm requirements: anchors, two levels where EIA provides them, sponsor out of the hierarchy, a non-public lifecycle
+audit, a kill switch.
+
+A **site** is a parent with a stable id of its own; its members are existing proposals, which keep their ids, URLs,
+alerts and change feed. A filing is not the parent, because the lead changes as filings arrive. The resolver's merges
+are untouched (§6.3): a site groups live records and never merges them. Built by `services/sites/build.py` at the end
+of every resolve tick (`infra/scheduler/jobs.py::default_resolve`) and by `python -m services.sites`; the rules are
+`services/sites/rules.py` (pure) and `services/sites/evidence.py`. Derived data, like `match`: no provenance quartet
+of its own; every member carries its own and attribution renders per member.
+
+**What "address" means.** No source publishes a street address for a queue request. Of 10,726 live proposals
+(2026-10-10), 2,718 have an exact point, 6,362 a county centroid, 446 a state centroid, 1,194 none. So membership
+rests on the identifiers the store holds, unique identifiers first. Each membership stores the strongest rule among
+its own edges (`grouping_rule`) and every rule and identifier behind them (`grouping_evidence`, operators only):
+
+| Rule | Evidence | Why |
+|---|---|---|
+| a. `eia_plant` | The same EIA plant id, read from the active EIA-860M links' record ids (`<plant>-<generator>`, or `plant:<plant>` from the close-out rule), never from `identifiers` (which a merge unions) | EIA's own identifier: 260 plants carry 919 generator-level live records (max 157, Project Matador's gas plant) |
+| b. `exact_point_sponsor` / `exact_point_stem` | Both locations `exact` and within 200 m, AND the same sponsor organisation, or a shared name stem with sponsors not in conflict | Joins plants of one campus that EIA numbers apart (Matador: nuclear 69798 and gas 69799 at one point). Exact points shared by unrelated developers never group: measured, at least 40 co-located pairs within 200 m are kept apart, 17 of them at identical points (unrelated data centres, competing BESS) |
+| c. `poi_sponsor` / `poi_stem` | The same interconnection point (§3.24), AND the same sponsor, or a shared name stem that is not just the point's own name, sponsors not in conflict | Phases filed separately at one substation. The same point alone is not the same site: 1,446 points carry 4,668 live records; CAISO Imperial Valley 230 kV holds 46 across six technologies, 45 with no named developer — competing requests |
+| d. — | County, state and country centroids group nothing | A centroid is a region, not a place |
+
+*Name stem* (`evidence.name_stem`): lower-cased, parentheticals dropped, then legal forms, technology and facility
+words, phase words (phase, unit, stage, expansion, repower …), roman numerals, number words after the first word,
+tokens of one or two letters and every token holding a digit removed; fewer than four letters is no stem. "Darden IV
+Solar" and "DARDEN" share `darden`. *Sponsor conflict*: both name a sponsor, the organisations differ (after
+organisation merges), their ultimate GLEIF parents differ, and their name stems neither match nor start with the same
+word of four or more letters ("Fermi America"/"Fermi Nuclear" do not conflict; NextEra/Invenergy do). A sponsor named
+after the project itself ("Cowboy Solar I" sponsoring "Cowboy Solar II") counts as unnamed.
+
+*The 200 m tolerance*, measured 2026-10-10 over the 2,718 exact points: generators of one plant carry identical
+coordinates (14,379 compatible pairs at 0 m, mostly Matador); 47 sponsor- or stem-compatible pairs sit between 0 and
+200 m (Richland Parish 3/4 at 153 m, Bigler 1–4, Wintergreen B/C/D); another 67 between 200 m and 1 km, where
+stem-matched pairs still look like one project (Mammoth Plains I/II at 243 m, Wheatridge I/II at 529 m) but
+sponsor-only pairs chain rooftop and community-solar portfolios (Prologis Bensenville, six buildings; Pivot NCBP,
+five) and data-centre buildings. Identical points only: 1,049 sites, 2,725 members; 200 m: 1,059 and 2,755; 1 km:
+1,077 and 2,805. Kept at 200 m until a labelled sample says otherwise.
+
+Membership is transitive within a site (union-find). A site that groups more than 60 distinct things (`effective_size`:
+the generators of one EIA plant count once) is flagged `review_flag = 'oversize'`, logged, reported and **not served**
+until an operator clears the flag. None did on 2026-10-10; Matador (161 records, two plants) counts as 2. A proposal
+with no grouping evidence has no membership row and no site; a site that falls to one member is retired.
+
+**Two levels where EIA provides them** (`rules.label_site`): site > plant group > unit. Members sharing an EIA plant id
+(transitively, so a merged record holding generators of several plants joins them) are one group, `group_key =
+eia:<plant ids>`; a record with no EIA plant is a group of its own (`proposal:<public_id>`). Sponsor is never a level;
+the site page lists the members' sponsors.
+
+**Lead** ("the latest and largest filing"): among members not withdrawn or cancelled, the largest `capacity_mw`, ties
+by the latest filing date (the latest `queue_date` among the record's links), then `public_id`. When every member is
+inactive, the largest overall. "Latest" alone would let a small add-on filed last month headline an 11 GW campus;
+excluding withdrawn members is how "latest" wins for re-filings. The site's display name is its lead's.
+
+**Labels** (`rules.label`), each with the rule that fired and a confidence word, never a probability (no labelled
+sample calibrates one). A unit is `unit_of` its own group's head (`parent_proposal_id`), never of a lead that is a unit
+of another plant. A group head is labelled against the lead group, first match wins:
+
+| Relation (member → lead) | Rule | Confidence |
+|---|---|---|
+| `unit_of` | Another generator of the same EIA plant group | high |
+| `co_located` | Technology families disjoint (solar+storage is one family set; gas+nuclear are two) | high; medium when the two share neither sponsor nor stem |
+| `phase_of` | A shared stem and differing phase markers | high when both names are numbered, medium when one is |
+| `expansion_of` / `expanded_by` | NESO states an MW increase on a connected project (`MW Connected` and `MW Increase` both positive: 17 of 2,225 rows) | high |
+| | The name says expansion / extension / repower / uprate / addition | medium |
+| | One is operating (`built`) and the other a live filing | medium |
+| `superseded_by` | The member is withdrawn/cancelled and filed no later than the lead | medium (low when dates unknown or the lead is withdrawn too) |
+| `refiling_of` | The member is withdrawn/cancelled and filed after the lead | low |
+| `same_site` | Grouped, relation unclear | low |
+
+`shares_interconnection_point` is not membership: visible proposals at a member's point that the rules did not group
+are computed per request and served as their own list, never as subprojects. No pair rows are stored (the point link
+is the relation; Imperial Valley alone would need 2,070 pairs).
+
+**Stable ids** (`rules.inherit`): each rebuild is deterministic and writes nothing when nothing changed (measured: a
+second pass over the beta copy wrote 0 rows). A rebuilt cluster keeps the id of the existing site it shares the most
+members with (ties: the oldest site). A site no cluster takes is retired (`retired_at`), with `successor_site_id` set
+to the cluster holding most of its former members, and is never reused; `GET /v1/sites/{old}` answers `301` there.
+
+| `site` field | Type | Null | Meaning |
+|---|---|---|---|
+| `id`, `public_id` (`site_…`), `slug` | uuid, text, text | No | Stable identity; `slug` is set once from the first lead's name and is not served (the URL is `/sites/{public_id}`) |
+| `name_display` | text | No | The stored lead's name at the last build (operators); readers get the name of the lead *they* may see |
+| `lead_proposal_id` | uuid | Yes | FK `proposal`; NULL once retired |
+| `member_count` | int | No | Members at the last build |
+| `rule_version` | text | No | `rules.RULE_VERSION` |
+| `review_flag` | text | Yes | `oversize`, CHECK |
+| `anchors` | jsonb | No | `{eia_plant_ids, interconnection_point_ids, assets: {plant id: asset id}}` — the external identifiers the site rests on; assets are EIA-860M `power_plant` rows of the members' plant ids |
+| `built_at`, `retired_at`, `successor_site_id` | timestamptz, timestamptz, uuid | No, Yes, Yes | Last change; retirement; where a retired URL leads |
+
+| `site_member` field | Type | Null | Meaning |
+|---|---|---|---|
+| `site_id`, `proposal_id` | uuid | No | FK; `proposal_id` unique (one site per proposal) |
+| `is_lead`, `lead_rank` | bool, int | No | Display order: lead group first, each head followed by its units |
+| `group_key`, `parent_proposal_id` | text, uuid | No, Yes | Plant group; the group head for a unit |
+| `grouping_rule`, `grouping_evidence` | text, jsonb | No | Strongest rule (CHECK) and every rule/identifier behind the member's edges |
+| `relation`, `relation_rule`, `confidence` | text | No | The label (CHECKs on `relation` and `confidence`) |
+| `basis` | jsonb | No | What the lead and label rules read (capacity, lifecycle, filing date, plant ids, stems, phase markers, families, sponsor key), so the API re-runs the rules over a caller's visible members |
+
+`site_member` is a derived materialisation, rebuilt in place each tick: a row moves with its proposal and is deleted
+when the proposal no longer groups (the proposal is untouched). `site_audit (site_id, kind, detail, rule_version,
+recorded_at)` is append-only: `created`, `members_gained`, `members_lost`, `lead_changed`, `split`, `merged`,
+`retired`, naming the proposals and sites involved by `public_id`. No API route, feed, alert or webhook reads it; a
+table of its own rather than `event` rows, so nothing about a derived grouping can reach the change feed's consumers.
+
+**Visibility** (`services/api/sites.py`): every member, count and total is computed per request over the members
+that pass the proposal predicate (§5.4) at the caller's tier, and each row is the served view (`GatedRecord`). When any
+member is hidden, the lead, groups and labels are re-run over the visible members' stored `basis`, so a PJM row or an
+unpublished record never heads or names a site. Fewer than two visible members: no site on that tier (`404`, embed
+`null`). Anchors are served from visible members only, with the asset and owner predicates. **Kill switch:**
+`SITES_ENABLED=0` (read at the point of use, `services/sites/switch.py`) hides every site from the API and the web
+without a deploy; the builder keeps running. Owner rule: more than about one site in ten wrong in the 100-record hand
+check turns sites off for the beta.
+
+**Measured on the beta store, 2026-10-10** (a copy; `python -m services.sites`): 1,059 sites holding 2,755 of
+10,726 live proposals. Members per site: 826 sites of 2, 134 of 3, 53 of 4, 16 of 5, 12 of 6, 4 of 7, 4 of 8, 1 of
+9, 2 of 10, 1 of 11, 1 of 12, 2 of 14, 2 of 18, 1 of 161 (Matador). Members by grouping rule: `eia_plant` 919,
+`poi_sponsor` 1,146, `poi_stem` 572, `exact_point_sponsor` 65, `exact_point_stem` 53. Labels: `lead` 1,059,
+`unit_of` 659, `phase_of` 370, `co_located` 280, `same_site` 226, `superseded_by` 97, `expansion_of` 25,
+`refiling_of` 25, `expanded_by` 14; confidence high 2,264, medium 172, low 319. 41 sites anchor to a `power_plant`
+asset; 762 to an interconnection point. A full rebuild takes 5–7 s on Postgres.
+
+**Limits, recorded.** (1) Darden I–IV are one merged record today (CAISO 1949 plus EIA 69661–69664) and so form no
+site; splitting such merges is the next step after the owner's hand check (docs/51 §2.8; lane S report). After a
+split, the CAISO request (county centroid, a POI) and the EIA plants (exact points, no POI) share no identifier under
+rules a–c, so the request would stand alone unless a rule keeps the resolver's request↔plant evidence. (2) A visible
+member grouped only through a hidden one still appears in the site: the hidden record's fields are never served, but
+the relation it carried is. (3) The labels have no labelled sample; the owner's 100-record hand check is the first.
+
 ## 4. Operational entities
 
 These carry the pipeline's own state. They are as much a part of the product as the graph: source health,
@@ -1158,6 +1320,7 @@ happened, under which licence, and what it contained (`docs/20` §3.2, §12 lice
 | `match (proposal_id, opportunity_id) WHERE status = 'active'` | One active match per pair |
 | `api_key (key_hash)`, `user (email) WHERE status <> 'anonymised'`, `saved_search (user_id, name)` | Obvious |
 | `proposal (public_id)`, `opportunity (public_id)`, `organization (public_id)`, and each `slug` | Stable URLs |
+| `site (public_id)`, `site (slug)`, `site_member (proposal_id)` | Stable site URLs; a proposal belongs to at most one site (§3.25) |
 
 ### 5.2 Indexes that the product depends on
 

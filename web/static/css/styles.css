@@ -1449,3 +1449,12 @@ a.button-secondary:visited { color: var(--link); }
 .submit-ref { font-family: var(--font-mono); }
 .submit-next { max-width: 68ch; padding-inline-start: var(--space-5); }
 .submit-next li { padding: var(--space-1) 0; }
+
+/* Sites (docs/21 §3.25): the proposal page's "At this site" panel and the site page's neighbour list. */
+.site-panel { margin: var(--space-5) 0; }
+.site-panel tr[aria-current="true"] { background: var(--surface); }
+.site-panel__neighbours { margin-top: var(--space-3); }
+.site-panel__neighbours > summary { cursor: pointer; font-weight: 600; padding: var(--space-2) 0; }
+.site-panel__list { margin: var(--space-2) 0 0; padding-left: var(--space-4); }
+.site-panel__list li { margin-bottom: var(--space-1); }
+.record-table tr.site-row--unit td:first-child { padding-left: var(--space-5); }

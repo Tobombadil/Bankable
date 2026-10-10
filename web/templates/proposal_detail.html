@@ -36,6 +36,7 @@
   {% if 'eia_ids' in fields %}<div><dt>EIA plant / generator ID</dt><dd class="mono">{{ record.eia_ids or '—' }}</dd></div>{% endif %}
 </dl>
 {% include "partials/_proposal_location.html" %}
+{% include "_site_panel.html" %}
 
 {{ m.provenance_panel(provenance_rows, number="1.") }}
 

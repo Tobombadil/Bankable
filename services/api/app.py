@@ -252,6 +252,11 @@ from services.api.interconnection_points import router as interconnection_points
 
 app.include_router(interconnection_points_router)
 
+# Sites (owner decision 2026-10-10; docs/21 §3.25): the parent over proposals that share a place.
+from services.api.sites import router as sites_router  # noqa: E402
+
+app.include_router(sites_router)
+
 # Lane E6b (US-603, US-703, US-302 AC1): CSV exports, the NDJSON bulk streams and document
 # metadata, each in its own module; `resource_queries.py` is the filter layer the first two and
 # this file's `list_events` share.

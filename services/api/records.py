@@ -1051,6 +1051,10 @@ def get_proposal(
     from services.api.interconnection_points import proposal_point_embed
 
     data["interconnection_point"] = proposal_point_embed(db, prop, ctx.entitlement)
+    # The site this record belongs to, as the caller may see it (docs/21 §3.25); bulk lines too.
+    from services.api.sites import proposal_site_embed
+
+    data["site"] = proposal_site_embed(db, prop, ctx.entitlement)
     # What the record is made of and which source supplied each served field (docs/22 §23.4):
     # detail only, from the links the served view admits (the same view `serialize_proposal` built).
     view = gated_record(prop, ctx.entitlement)
