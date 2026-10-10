@@ -145,7 +145,7 @@
         below that. The page ground behind the words keeps every hue at the contrast measured for it
         on --bg. "Key" (map.js) hides and shows it. -#}
     <div class="map-key" id="map-key">
-    <div class="map-key__panel">
+    <div class="map-key__panel" role="group" aria-label="Map key">
         {#- Designer D-2: the legend names only marks the map draws -- each proposal and each cluster
             carries its family's glyph (map.js `addFamilyImages`), the same glyph as the status chips --
             in reader words for the states in each family, and it is no longer hidden from assistive
@@ -165,6 +165,11 @@
            checked, so the legend only ever names what is drawn (docs/31 §1.6). Shape + label carry
            the type, hue is secondary (D-5). #}
         <div class="legend legend--plants legend--assets" id="plants-legend" aria-hidden="true" hidden>
+          {#- With a layer on the key is compact (map.js `syncKeyCompact`): each layer's key is a
+              section that closes, so the panel can be made smaller still. Open on arrival. -#}
+          <details class="map-key__section" open>
+          <summary class="map-key__section-name">Existing assets</summary>
+          <div class="map-key__section-body">
           <div class="legend__group" data-legend-type="power_plant">
             <span class="legend__group-name">Power plants</span>
             {% for value, label in plant_families %}<span class="legend__item" style="color:var(--plant-{{ value }})">&#9632; {{ label }}</span>{% endfor %}
@@ -196,17 +201,21 @@
             <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="8 3 2 3"/></svg> 70&ndash;765 kV</span>
             <span class="legend__note">lines FERC Form 1 filers own (LBNL); not the whole grid</span>
           </div>
+          </div>
+          </details>
         </div>
         {#- Retired clusters are dashed rings and proposal clusters solid ones, so the two never differ by
             hue alone (D-5; docs/31 §1.6). map.js shows this key whenever the layer is on. -#}
         <div class="legend legend--retired" id="retired-legend" role="group" aria-label="Retired and retiring plants key" aria-hidden="true" hidden>
+          <details class="map-key__section" open>
+          <summary class="map-key__section-name">Retired &amp; retiring plants</summary>
           <div class="legend__group">
-            <span class="legend__group-name">Retired &amp; retiring plants</span>
             <span class="legend__item" data-legend-mark="retired-cluster" style="color:var(--asset-retired)"><svg class="legend__sample" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 1.7"/></svg> Dashed ring with a number: a group of retired and retiring plants (zoom in to separate)</span>
             <span class="legend__item" style="color:var(--asset-retiring)"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg> Retiring (most capacity scheduled to retire)</span>
             <span class="legend__item" style="color:var(--asset-retired)"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.3 3.3 8.7 8.7M8.7 3.3 3.3 8.7" stroke="currentColor" stroke-width="1.6"/></svg> Retired</span>
             <span class="legend__note">EIA-860M; larger rings are larger plants. A retired site may keep its grid connection.</span>
           </div>
+          </details>
         </div>
     </div>
     </div>
