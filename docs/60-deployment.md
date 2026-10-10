@@ -392,6 +392,50 @@ the build and then the load) by hand. Every builder writes under `INFRAQUE_DATA_
 (`pipeline.connectors.store.DATA_DIR`), the same root the connectors and the loader use. The chain assumes one data
 root on one host (`docs/64` §7).
 
+### 6.3 Data retention (2026-10-10)
+
+DA-10 says "retention runs as a scheduled job with its own run log" (`docs/04`). It is one daily job, registered
+like the §6.1 ticks: the tick runs on `SCHEDULER_ONLY_QUEUE` and defers the job, the body is in
+`infra/scheduler/jobs.py`, and `retry=0` because tomorrow's tick is the retry.
+
+| Job | Cron | Queue | `queueing_lock` | Timeout | Calls |
+|---|---|---|---|---|---|
+| `retention_tick` | `tick_retention`, `47 1 * * *` (minute 47 is used by no other tick; 01:47 UTC is clear of the daily fetch bucket at 03:07, the backup timer at 03:17, the resolve and audit ticks at 04:37 and 04:52, and the context build at 02:43 on the 3rd) | `audit` | `retention_tick` | 30 min (`RETENTION_TIMEOUT_S`) | `services.retention.run.run_retention` over the store and `INFRAQUE_DATA_DIR`, plus the bucket when `SNAPSHOT_STORE=s3` |
+
+What one run applies, in one database transaction with its run log (`services/retention/run.py` has each rule and
+the text it follows):
+
+- **Sessions**: a `session` row created more than 30 days ago and expired is deleted. A row that old but still
+  valid is kept and counted, so the job can never sign anyone out (`docs/63` OP-9).
+- **Alerts**: `alert.recipient` is set to null on rows older than 12 calendar months. The rows stay, because
+  `docs/21` §3.16 names no store for the "counts" it mentions (`docs/63` OP-7).
+- **Raw snapshots** (`services/retention/snapshots.py`): every snapshot younger than 24 calendar months is kept.
+  Of the older ones, one per source, artefact and month is kept: the newest of a promoted run, else the newest
+  (`docs/63` OP-8). The rest are deleted, except four kinds: undated files; the newest file of each extension and
+  artefact (what a builder's `--latest-snapshot` reads); the copy of the next run's comparison baseline; and the
+  copy of the last promoted run's bytes, which a parser change restates. Both trees (`snapshots/` and
+  `quarantine/snapshots/`) are covered. Media: the local data root always, because the context builders write
+  there whatever `SNAPSHOT_STORE` says, plus the bucket when `s3` is set. A bucket listing returns objects only,
+  so there the sources are the registry's ids plus the store's `source` rows.
+- **`snapshot` rows** are never deleted. Their `retention_class` is set to `full`, `sampled` or `expired` from
+  what is left of their bytes. Nothing writes the table yet (§11 item 9).
+- **Not applied**, and reported as skipped in every run: `model_call` prompts (the table stores none and has no
+  writer), documents per licence flags (no writer, no period), and `docs/13` §5.4 rule 7 (not settled).
+
+**Run log.** One `event` row per run, the visibility audit's pattern (§6.1), so no migration:
+`event_type = retention_run`, subject `source` / `__retention__`, `actor_type = system`, never published, and
+the report in `after`. No admin route reads it yet; `python -m services.retention.run --latest 5` prints the
+last five. When a snapshot cannot be listed or deleted, the job raises `RetentionIncomplete` after committing the
+run log. Nothing is deleted for a source whose listing failed.
+
+By hand: `python -m services.retention.run --dry-run [--now 2026-10-10T01:47:00Z] [--data-root PATH] [--json]`.
+A dry run writes nothing, not even the run log.
+
+**Measured 2026-10-10** (dry run, read-only, the operator's local data root: 29 sources, 59 snapshots, 315 MB):
+at `now` = 2026-10-10 nothing is old enough. At a simulated 2029-01-01 it would delete 28 snapshots and keep 31:
+one per source and artefact (two for EIA-923), plus FERC's held run. Deletes against a real R2 bucket are not
+validated; the S3 path is tested through `S3Backend` with an in-memory client.
+
 ## 7. Observability
 
 | Signal | Mechanism | Where |
@@ -777,8 +821,9 @@ In the order the owner needs to act, per the task brief:
      through one store and loaded (25 proposals) through a fresh one with no local files written. MinIO was the
      intended server, but its Docker Hub repository refused the pull, quay.io returned 401 and dl.min.io returned
      410. **Not validated:** a real R2 bucket, meaning its handling of `If-None-Match` on `PutObject`, R2 API token
-     scopes, and latency from Hetzner `ash`. Also not built: the 24-month snapshot retention and monthly
-     compaction (`docs/20` §3.2, A-7). Nothing writes the `snapshot` table yet either. `services/db/models.py`
+     scopes, and latency from Hetzner `ash`. The 24-month snapshot retention and monthly compaction
+     (`docs/20` §3.2, A-7) is built since 2026-10-10 (§6.3) and tested against the local backend and an
+     in-memory S3 client, not a real bucket. Nothing writes the `snapshot` table yet. `services/db/models.py`
      defines it, but today the object location lives only in the run record's `snapshot.object_key`.
    - **Fixed in this run:** (a) the footer read "Build unknown". `services/api/build_info.py` reads `GIT_SHA`,
      but neither release.yml nor the Dockerfile set it, and the image has no `.git`. The Dockerfile now takes
@@ -862,6 +907,27 @@ In the order the owner needs to act, per the task brief:
      section is now "Location map". `/` showed 2 serious violations on this sampled data load:
      `color-contrast` on 19 `.chip--neutral .chip__label` nodes, and `list` on `#in-view-items`. They were
      not seen on 2026-09-26's full load, and are outside this change (`web/` home map).
+     **Re-measured 2026-10-09 (lane C): both are fixed at the source, 0 violations.** The fixes were already
+     in the tree at `2aca6b7`, each with a comment citing this measurement, but this note had not been updated.
+     (1) `--family-neutral-text` (light) is `#4f5e6e`, not `docs/31` §1.2's `#5b6b7c`: the chip label on
+     `--family-neutral-fill` `#e4e9ed` goes from 4.47:1 to 5.44:1 (12.8px, weight 600, so the 4.5:1 normal-text
+     threshold applies; 6.65:1 on white, 6.05:1 on paper). Dark is unchanged at `#c9d2da` on `#24384a`, 7.88:1.
+     (2) The in-view group names ("Regions (4)", "Existing assets (n)") are plain `<li>` items. They had been
+     `role="presentation"` items, which no longer count as list items, so the `<ul>` held a non-item child.
+     Method: axe-core 4.13.0 injected through Playwright 1.63 into Chromium 141, all rules. The store was a
+     copy of `web/.data/e2e-test.db`. It holds no exact points (7,787 county and 1,459 state centroids), so
+     the in-view list never shows proposal rows, and the copy had its county centroids marked exact. Four
+     views of `/` (national; Texas at zoom 8; announced only; announced and unknown with existing assets on)
+     were scanned in light and dark at 1440 and 400 px: 16 states, up to 25 neutral chip labels in one view,
+     group-name rows in 8 states, 0 violations. Putting the 2026-09-27 values back in the page (`#5b6b7c`,
+     `role="presentation"`) brings back exactly the two findings (`color-contrast` 4.47:1 on
+     `.chip--neutral .chip__label`, `list` on `#in-view-items`), so the scan does detect them. Held in place by
+     `web/test_map_a11y.py`: the chip pair meets 4.5:1 for every family in all three theme blocks, and every
+     node `map.js` adds to `#in-view-items` is created as an `<li>` or is the row template, which is one
+     role-less `<li>`. Each test fails against the old values. Open: `docs/31` §1.2 still lists `#5b6b7c` for
+     Neutral and describes chip text as `--color-ink`, whereas the built chip uses the family text token.
+     The same harness found 0 violations and no horizontal scroll at 400 px on the new `/submit` page (empty,
+     error and sent states; both themes; both widths).
    - **Images**: the duplicate psycopg argument is gone (item 4). A rebuild with no build cache took
      2 min 49 s for api/web/worker and 5 min 4 s for browser-worker. The sandbox disk filled on the first
      attempt ("no space left on device" extracting the Playwright layer), so the build cache was pruned.

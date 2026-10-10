@@ -27,6 +27,7 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
     tick_context (monthly) -> context_build           rebuild normalized/context/ (builder CLIs)
                               -> context_load         plants, retirements, asset layers, owners
     tick_deadline (hourly) -> deadline_tick           open opportunities past due_at -> closed
+    tick_retention (daily) -> retention_tick          DA-10: old sessions, alert addresses, raw snapshots
     admin release         ->  release_held_run        a DQ-held run an operator released (2026-09-27):
                               -> load_source ...      promote `held/` -> `normalized/`, then the chain
 
@@ -80,6 +81,7 @@ from infra.scheduler.jobs import (
     deadline_tick_job,
     freshness_tick_job,
     post_draft_tick_job,
+    retention_tick_job,
     visibility_audit_tick_job,
 )
 
@@ -470,6 +472,33 @@ def _tick_deadline(timestamp: int) -> None:
         deadline_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous deadline_tick still queued or running")
+
+
+# DA-10 retention (docs/04; `services/retention`). The first run on a store of 24 months' daily
+# snapshots lists every source's snapshots and run records once; 30 minutes leaves room for a bucket.
+RETENTION_TIMEOUT_S = 1800
+#: Daily at 01:47 UTC. Minute 47 is used by no other tick (cadence.py's `CRON_BY_BUCKET` and every
+#: `@app.periodic` in this module), and 01:xx is clear of the daily fetch bucket (03:07), the
+#: backup timer (03:17), the resolve and audit ticks (04:37, 04:52) and the context build (02:43, 3rd).
+RETENTION_CRON = "47 1 * * *"
+
+
+@app.task(name="retention_tick", queue="audit", retry=0, queueing_lock="retention_tick")
+def retention_tick() -> dict[str, Any]:
+    """DA-10 retention (docs/04 DA-10; docs/20 §3.2, §11): sessions past 30 days deleted, alert
+    addresses past 12 months dropped, raw snapshots past 24 months compacted to monthly samples,
+    `snapshot.retention_class` set, one run-log `event` row per run. Body in `jobs.py`; `retry=0`
+    because tomorrow's tick is the retry, and every rule is idempotent."""
+    return _run_with_timeout(retention_tick_job, timeout_s=RETENTION_TIMEOUT_S)
+
+
+@app.periodic(cron=RETENTION_CRON, periodic_id="tick:retention")
+@app.task(name="tick_retention", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_retention(timestamp: int) -> None:
+    try:
+        retention_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous retention_tick still queued or running")
 
 
 # The rest of the loop (module docstring). Queues are ones the compose `worker` service already

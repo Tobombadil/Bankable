@@ -209,6 +209,37 @@ def deadline_tick_job(_session_factory: Any = None, *, now: dt.datetime | None =
     return data
 
 
+class RetentionIncomplete(RuntimeError):
+    """`retention_tick` could not read or delete some raw snapshots (`services/retention`). Raised
+    after the run log is committed, so the job shows as failed in the queue and the record of what
+    was and was not done is kept. Nothing was deleted for a source whose listing failed. The message
+    carries counts and the run id only."""
+
+
+def retention_tick_job(
+    _session_factory: Any = None, *, now: dt.datetime | None = None, data_root: Path | None = None
+) -> dict[str, Any]:
+    """Body of the `retention_tick` task: DA-10 retention (`services.retention.run.run_retention`)
+    over the store and the connector data root (`connector_data_root`, plus the bucket when
+    `SNAPSHOT_STORE=s3`), one summary log line, the report as the job result. The rules' writes and
+    the run-log `event` row commit together. Raises `RetentionIncomplete`, after that commit, when
+    any snapshot could not be read or deleted; the next daily tick is the retry."""
+    from services.retention.run import run_retention, summarise
+
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    data = run_retention(factory, now=now or _utcnow(), data_root=data_root or connector_data_root())
+    summary = summarise(data)
+    summary.pop("errors", None)
+    # `_log_report` logs the count of `errors`, never their text.
+    _log_report("retention_tick", {**summary, "errors": data["rules"]["raw_snapshots"]["errors"]})
+    if data.get("errors"):
+        raise RetentionIncomplete(
+            f"{data['errors']} raw snapshot(s) or listing(s) could not be read or deleted "
+            f"(run {data['run_id']})"
+        )
+    return data
+
+
 # ============================================================================ the closed loop
 # Audit 2026-09-18 §3.1 "the always-on loop is not a loop" / §4 item 2: until this landed the
 # scheduled path ended at `python -m pipeline.connectors run <id>` — a JSON file under

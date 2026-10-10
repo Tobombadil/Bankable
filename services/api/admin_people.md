@@ -213,3 +213,53 @@ The audit found three defects in the deletion flow and this revision fixes them 
    `services.sor.ports.BillingPort` does not declare that operation yet, so with today's adapters
    the audit `after` records `billing: cancellation_pending` plus the refs for the operator, never a
    silent skip. Organisation accounts are untouched (the subscription is the organisation's).
+
+## Self-service deletion and "revoke sessions" (2026-10-09)
+
+**One erasure, two doors.** The procedure that completing a `deletion_request` task runs moved to
+`services/api/account_erasure.py::erase_user`. `_complete_deletion_task` calls it, and so does the
+member's own `DELETE /v1/me` (`services/api/auth_routes.py` decision 7), so an in-app deletion and an
+operator deletion cannot drift apart. The module docstring lists, per table, what is deleted,
+anonymised and kept. Before this change the operator path left personal data in three places, now
+cleared on both paths:
+
+| Left behind before | Now |
+|---|---|
+| `account.name` of a `personal` account (registration sets it to the address) | renamed `Deleted account`, `status = closed`, when no other live member remains |
+| `alert.recipient` (the address, on every alert sent) | null; docs/21 §3.16 and the spec's `Alert` description already said "redacted on deletion" |
+| `user.last_login_at`, `user.sor_ref` (docs/21 §3.12's inventory) | null |
+
+Also new on both paths: the user's session rows are **deleted** rather than revoked (each held an IP
+prefix), a revoked key's `last_used_ip` is cleared, a saved search loses its `rss_token` with its email
+channel, and webhook endpoints the user created are `disabled` (with the keys revoked they would
+otherwise keep delivering). The audit event's `after` gains `initiated_by` (`operator` |
+`account_holder`) and the counts. `test_complete_deletion_task_redacts_and_requests_crm_deletion`
+now asserts the session row is gone instead of revoked.
+
+**Kept on purpose.** Saved searches are paused, not deleted: the alert log references them and docs/21
+§3.16 keeps that log 12 months (metric M-5). Their names and filters stay, attached to an anonymous user.
+Exports and match dismissals hold no personal data and are untouched.
+
+**A task whose user is already anonymised closes without a second erasure** (decision 5): the CRM is
+not sent a tombstone address, and an `admin_edit` event on the task records
+`erasure: already_complete`. This is how an operator closes the open task a self-service deletion
+leaves when a personal account's subscription could not be cancelled through the port.
+
+**`POST /admin/v1/users/{user_id}/revoke-sessions`** (decision 6; docs/26 §7). `ReasonRequest` body,
+`require_admin()`, revokes every unrevoked session of that one user through
+`services.api.auth.revoke_user_sessions` (the function the password reset uses), and writes an
+`admin_edit` event on the user: `before {unrevoked_sessions: n}`, `after {unrevoked_sessions: 0,
+sessions_revoked: n}`, the reason, no identifier. Keys, role, status and other users on the account are
+untouched; the user can sign in again. The admin user page has a "Sign out everywhere" form
+(`web/admin/people.py`).
+
+**Open.** (1) `BillingPort` still has no cancel operation, so a personal account's live subscription
+is `cancellation_pending` on either path; on the self-service path the deletion task stays `open`
+naming the subscription refs. (2) docs/21 §6.6's rewrite of historical `before`/`after` payloads is
+not implemented on either path; no event written about a user carries an address or a name, but a
+free-text `reason` an operator typed could. (3) Every erasure opens a CRM task for a human
+(`request_personal_data_deletion`), including for members the CRM never held; with Attio live that
+is one task per in-app deletion. (4) The `erasure` suppression row outlives the account: a person
+who registers again with the same address gets no alert email, because the alert cycle checks
+suppression by any reason. Whether a fresh, verified registration lifts an `erasure` suppression is a
+privacy decision for the owner (the notice says "we never write to you again").

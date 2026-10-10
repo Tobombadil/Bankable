@@ -186,6 +186,32 @@ Headers on every response: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-
 `RateLimit-Policy` naming the window. On breach: `429` with `Retry-After` and the problem body of §8
 (US-702 AC2). Feeds (`/feeds/*`) are edge-cached and counted per IP at 120/hour. Every request is logged with
 key id, endpoint, status and latency — the source for metric M-7 (US-702 AC3).
+
+**As built (2026-10-10; closes the Lane P1 open item "daily caps and per-search buckets are missing",
+`docs/00-PLAN.md` 2026-09-30).** `services/api/ratelimit.py` holds the table above as `TIER_LIMITS`,
+`SEARCH_LIMITS` and `DAILY_CAPS`; a test pins them to `api/openapi.yaml` `x-rate-limits.tiers`.
+
+| Rule | As built | Why |
+|---|---|---|
+| Read window | Every metered request, per hour, per tier. Writes and feeds have no window of their own yet, so a write spends the read window and a feed request the anonymous one | The "Writes" column and the feeds' 120/hour class are not built (open) |
+| What a search is | A `GET` with a non-empty `q`, read the way every list route reads it (`request.query_params.get("q")`). An empty `q=` runs no search and is not counted. The check runs before routing, so a `q` on a path that takes none still counts, then answers `400 unknown_parameter` | The window should count exactly the requests that run the full-text and trigram query |
+| Search vs read | A search spends one unit of the search window **and** one of the read window. The search figure is a sub-limit inside the read figure: a public address gets at most 60 requests an hour, of which at most 20 searches, not 60 + 20 | `q` is a parameter of read endpoints, so a search is a read. Counting it *instead of* a read would lift the hourly ceiling above the read figure US-702 AC1 states. Bulk is different: it is its own endpoint family, and `bulk.py` already keeps it out of the read window |
+| Daily cap | Every metered request counts, bulk streams included, 00:00 to 00:00 UTC. Kept per API key, else per signed-in user (all of that user's sessions together), else per address (IPv6 per /64). It is keyed per credential, not per tier, so an account that changes plan mid-day keeps its count under the new cap. `api_key.daily_quota` (`docs/21` §3.17) replaces the tier's figure for that key, upward or downward; 0 or less refuses every request | The table's "Daily cap" is a request count. `api/openapi.yaml`'s own `quota_exceeded` example is a bulk request |
+| Admin row | No search window and no daily cap; 1,200 an hour on the read window | The table's "—" |
+| All or nothing | A request spends one unit of each of its windows, or of none. A request one window refuses costs nothing in the others | Polling past an hourly limit must not burn the daily cap, and a caller past its daily cap keeps getting `quota_exceeded` rather than drifting into `rate_limited` |
+| Refusal | A spent daily cap is `429 quota_exceeded` with `Retry-After` in delta-seconds to 00:00 UTC, whatever else is spent. Otherwise an hourly refusal is `429 rate_limited`, with `Retry-After` set to the latest reset among the refusing windows | §8. The export quota (`services/api/exports.py`) already sends delta-seconds |
+| Headers | `RateLimit-Limit`, `-Remaining` and `-Reset` describe the window closest to exhaustion (fewest requests left; on a tie, the later reset). `RateLimit-Policy` names that one window: `<limit>;w=<seconds>;policy="<tier>-<read\|search\|daily\|bulk>"`, e.g. `1000;w=86400;policy="public-daily"`. On `/v1/bulk/*` the bulk window's own fields stand | A client that paces itself on the headers is never refused without warning. §6 names a single window per response |
+| Bulk | `/v1/bulk/*` spends the daily cap and the bulk window (20 an hour), never the read window. A bulk request the bulk window will refuse costs no daily unit | `bulk.py`'s own rule, plus the all-or-nothing rule |
+| The site's own calls | Requests carrying the site's `X-Internal-Token` are exempt from every window, the daily cap included. A visitor browsing the site is therefore not counted by the API at all. Per-visitor protection for site pages is the edge layer of the first paragraph, and no rule in `infra/terraform` configures it yet (open) | Every page view reaches the API from the web container's one address. Counting it would let the site's first 1,000 calls of the day close the public tier to every visitor until midnight UTC. `deploy.sh` refuses to deploy without `API_INTERNAL_TOKEN` |
+
+**Recorded limitation.** The windows live in the api process's memory, not in the Postgres `rate_bucket` window
+that the first paragraph and `docs/20` §7 describe. Counts are per process, and an api restart empties every
+window, daily counts included: a deploy at 18:00 UTC gives every caller a fresh daily cap. The one-server beta
+runs one api process (`compose.single.yml` over `compose.prod.yml`: one replica, `WEB_CONCURRENCY=1`;
+`docs/64`), so each caller has one budget there. The multi-host layout's two api replicas (`compose.prod.yml`)
+would give each caller up to two budgets. A shared store (Postgres `rate_bucket` or Redis) behind the same
+`RateLimiter.consume` interface closes this. It is not built.
+
 ## 7. Pagination, filtering and sorting
 
 **Pagination is cursor-based.** Offset pagination is not offered: ingestion inserts continuously and offsets
@@ -410,6 +436,9 @@ documentation; key creation links to the API licence version it requires (US-704
 | Id | Assumption | Depends on |
 |---|---|---|
 | P-1 | Rate-limit defaults as in §6, from `docs/10` A-8 | Phase 1 pricing; configuration only |
+| P-6 | A search (`q=`) is a read that also spends the search window: the search figure is a sub-limit of the read figure, not extra capacity (§6 "As built") | The reading of §6's table; product-manager to confirm |
+| P-7 | The daily cap counts every metered request, bulk streams included. It is kept per credential, not per tier, and resets at 00:00 UTC | §6, §8 and `api/openapi.yaml`'s `quota_exceeded` example |
+| P-8 | Daily counts held in process memory are acceptable while one api process serves the beta. A restart resets them | `docs/64` one-server beta; revisit before a second api process or replica serves traffic |
 | P-2 | ~~Public lag shown as 14 days in examples (`docs/21` D-1)~~ **Retired 2026-09-21: every example shows `lag_days: 0`, because nothing is delayed** | Owner decisions of 2026-09-19 and 2026-09-21 |
 | P-3 | Hostnames `api.` and `admin.` under bankablehq.com; the Lovable app consumes `/v1` read-only | **[A-1]** |
 | P-4 | Restricted and unknown-terms sources return nothing on Pro/API, not derived aggregates (`docs/21` C-3) | Owner and legal-compliance |

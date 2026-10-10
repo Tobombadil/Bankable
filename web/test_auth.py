@@ -26,8 +26,11 @@ from services.api.auth_routes import get_email_port
 from services.api.auth_routes import router as auth_router
 from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
-from services.db.models import UiEvent
+from services.billing.fake import InMemoryBilling
+from services.crm.fake import InMemoryCrm
+from services.db.models import UiEvent, User
 from services.db.session import get_engine, get_sessionmaker, init_db
+from services.sor.wiring import get_billing_port, get_crm_port
 from tests.conftest import make_account, make_user
 from web.api_client import ApiClient
 from web.app import app as web_app
@@ -284,3 +287,148 @@ def test_safe_next_rejects_backslash_and_host_bearing_paths() -> None:
     )
     for bad in bad_values:
         assert _safe_next(bad) == "/account"
+
+
+# ------------------------------------------------------------ delete one's own account (2026-10-09)
+@pytest.fixture()
+def fake_crm() -> Iterator[InMemoryCrm]:
+    """The deletion asks the CRM first; a fresh in-memory fake per test (the `web_client` teardown
+    clears every override, this one included)."""
+    crm = InMemoryCrm()
+    api_app.dependency_overrides[get_crm_port] = lambda: crm
+    api_app.dependency_overrides[get_billing_port] = lambda: InMemoryBilling()
+    yield crm
+
+
+def _register_and_stay(web_client: TestClient, email: str) -> None:
+    resp = web_client.post(
+        "/register", data={"email": email, "password": "correct horse battery"}, headers=ORIGIN
+    )
+    assert resp.status_code == 200
+
+
+def _stored_user(db_sessionmaker: sessionmaker[Session], public_id: str) -> User:
+    with db_sessionmaker() as session:
+        user = session.scalar(select(User).where(User.public_id == public_id))
+        assert user is not None
+        session.expunge(user)
+        return user
+
+
+def _public_id_of(db_sessionmaker: sessionmaker[Session], email: str) -> str:
+    with db_sessionmaker() as session:
+        user = session.scalar(select(User).where(User.email == email))
+        assert user is not None
+        return user.public_id
+
+
+def test_account_page_links_to_the_deletion_step(web_client: TestClient) -> None:
+    _register_and_stay(web_client, "olga@example.com")
+    resp = web_client.get("/account")
+    assert 'href="/account/delete"' in resp.text
+
+
+def test_the_confirmation_step_says_what_goes_and_asks_for_the_password(
+    web_client: TestClient, fake_crm: InMemoryCrm
+) -> None:
+    signed_out = web_client.get("/account/delete", follow_redirects=False)
+    assert signed_out.status_code == 303 and signed_out.headers["location"] == "/login?next=/account/delete"
+
+    _register_and_stay(web_client, "pia@example.com")
+    resp = web_client.get("/account/delete")
+    assert resp.status_code == 200
+    assert "pia@example.com" in resp.text
+    assert "cannot be undone" in resp.text
+    assert "What is deleted" in resp.text and "What we keep" in resp.text
+    assert 'action="/account/delete"' in resp.text
+    assert '<label for="delete-password">Your password</label>' in resp.text
+    assert 'autocomplete="current-password"' in resp.text
+    assert fake_crm.tasks == {}, "showing the confirmation step deletes nothing"
+
+
+def test_deleting_needs_the_same_origin(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session], fake_crm: InMemoryCrm
+) -> None:
+    _register_and_stay(web_client, "quinn@example.com")
+    resp = web_client.post("/account/delete", data={"password": "correct horse battery"})
+    assert resp.status_code == 403
+    cross_site = web_client.post(
+        "/account/delete",
+        data={"password": "correct horse battery"},
+        headers={"origin": "https://evil.example"},
+    )
+    assert cross_site.status_code == 403
+    user = _stored_user(db_sessionmaker, _public_id_of(db_sessionmaker, "quinn@example.com"))
+    assert user.status == "active"
+    assert fake_crm.tasks == {}
+
+
+def test_a_wrong_password_rerenders_the_step_and_keeps_the_account(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session], fake_crm: InMemoryCrm
+) -> None:
+    _register_and_stay(web_client, "rosa@example.com")
+    resp = web_client.post("/account/delete", data={"password": "not the password"}, headers=ORIGIN)
+    assert resp.status_code == 400
+    assert "does not match this account" in resp.text
+    assert 'action="/account/delete"' in resp.text, "the form is shown again"
+    user = _stored_user(db_sessionmaker, _public_id_of(db_sessionmaker, "rosa@example.com"))
+    assert user.status == "active" and user.email == "rosa@example.com"
+    assert web_client.get("/account").status_code == 200, "still signed in"
+    assert fake_crm.tasks == {}
+
+
+def test_deleting_signs_out_and_confirms(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session], fake_crm: InMemoryCrm
+) -> None:
+    _register_and_stay(web_client, "sven@example.com")
+    public_id = _public_id_of(db_sessionmaker, "sven@example.com")
+
+    resp = web_client.post(
+        "/account/delete", data={"password": "correct horse battery"}, headers=ORIGIN, follow_redirects=False
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/account/deleted"
+    assert "session" not in web_client.cookies, "the browser's cookie is cleared"
+
+    page = web_client.get("/account/deleted")
+    assert page.status_code == 200
+    assert "Your account is deleted" in page.text
+    assert 'href="/login"' in page.text, "the header offers sign-in again"
+    assert web_client.get("/account", follow_redirects=False).headers["location"] == "/login?next=/account"
+
+    user = _stored_user(db_sessionmaker, public_id)
+    assert user.status == "anonymised" and user.email is not None and user.email.endswith("@erased.invalid")
+    assert user.name is None and user.password_hash is None
+    assert [t.email for t in fake_crm.tasks.values()] == ["sven@example.com"]
+    signed_in_again = web_client.post(
+        "/login", data={"email": "sven@example.com", "password": "correct horse battery"}, headers=ORIGIN
+    )
+    assert signed_in_again.status_code == 401
+
+
+def test_the_deleted_page_sends_a_signed_in_browser_to_its_account(web_client: TestClient) -> None:
+    _register_and_stay(web_client, "tara@example.com")
+    resp = web_client.get("/account/deleted", follow_redirects=False)
+    assert resp.status_code == 303 and resp.headers["location"] == "/account"
+
+
+def test_staff_are_told_why_there_is_no_form(
+    web_client: TestClient, db_sessionmaker: sessionmaker[Session], fake_crm: InMemoryCrm
+) -> None:
+    with db_sessionmaker() as session:
+        account = make_account(session, entitlement="admin", name="Ops")
+        make_user(
+            session, account, email="ops@example.com", role="operator", password="correct horse battery"
+        )
+        session.commit()
+    login = web_client.post(
+        "/login", data={"email": "ops@example.com", "password": "correct horse battery"}, headers=ORIGIN
+    )
+    assert login.status_code == 200
+    page = web_client.get("/account/delete")
+    assert page.status_code == 200
+    assert "cannot be deleted here" in page.text
+    assert 'action="/account/delete"' not in page.text
+    refused = web_client.post("/account/delete", data={"password": "correct horse battery"}, headers=ORIGIN)
+    assert refused.status_code == 409, "the API refuses even a hand-made post"
+    assert fake_crm.tasks == {}

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{#- "Submit a project" (US-1001, docs/30 §4.5; web/submit.py). `submit` comes from
+    `web/submit.py::submit_context`. Input names are the `IntakeProposalRequest` keys, dotted for the
+    two nested objects, so an API `errors[].field` names the input it is about. Every field is
+    labelled, its hint and its error are tied to it through `aria-describedby`, and an error is
+    said in words and marked `aria-invalid` (docs/31 §7, SC 3.3.1). -#}
+{%- set s = submit -%}
+{%- macro described(name, hint=false) -%}
+{%- set fid = s.ids[name] -%}
+{%- set ids = ([fid ~ '-hint'] if hint else []) + ([fid ~ '-error'] if s.errors.get(name) else []) -%}
+{%- if ids %} aria-describedby="{{ ids | join(' ') }}"{% endif %}{% if s.errors.get(name) %} aria-invalid="true"{% endif -%}
+{%- endmacro -%}
+{%- macro error(name) -%}
+{%- if s.errors.get(name) %}<p class="field__error" id="{{ s.ids[name] }}-error"><span class="visually-hidden">Error: </span>{{ s.errors[name] }}</p>{% endif -%}
+{%- endmacro -%}
+{%- macro label(name, words, optional=false) -%}
+<label for="{{ s.ids[name] }}">{{ words }}{% if optional %} <span class="intake-form__optional">(optional)</span>{% endif %}</label>
+{%- endmacro -%}
+{%- macro text_input(name, words, hint='', optional=false, type='text', attrs='') -%}
+<div class="field">
+  {{ label(name, words, optional) }}
+  {% if hint %}<p class="field-hint" id="{{ s.ids[name] }}-hint">{{ hint }}</p>{% endif %}
+  {{ error(name) }}
+  <input id="{{ s.ids[name] }}" name="{{ name }}" type="{{ type }}" value="{{ s.typed.get(name, '') }}"{% if not optional %} required{% endif %}{{ described(name, hint) }}{{ attrs | safe }}>
+</div>
+{%- endmacro -%}
+{%- macro select_input(name, words, options, blank, hint='', optional=false) -%}
+<div class="field">
+  {{ label(name, words, optional) }}
+  {% if hint %}<p class="field-hint" id="{{ s.ids[name] }}-hint">{{ hint }}</p>{% endif %}
+  {{ error(name) }}
+  <select id="{{ s.ids[name] }}" name="{{ name }}"{% if not optional %} required{% endif %}{{ described(name, hint) }}>
+    <option value="">{{ blank }}</option>
+    {% for value, words in options %}<option value="{{ value }}"{% if s.typed.get(name) == value %} selected{% endif %}>{{ words }}</option>
+    {% endfor %}
+  </select>
+</div>
+{%- endmacro -%}
+{% block title %}{% if s.sent %}Submission received{% elif s.error_rows %}Check your answers: submit a project{% else %}Submit a project{% endif %} -- Infraque{% endblock %}
+{% block robots %}{% if s.sent or s.problem %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
+{% block meta_description %}Tell the register about an energy or infrastructure project it does not list yet. An editor reviews every submission before anything is published.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Submit a project</h1>
+  <p>Tell us about a generation, storage, transmission, pipeline or large-load project the register does not list yet, at any stage. An editor reviews every submission before anything is published, and checks it against the public record and the projects we already hold.</p>
+</div>
+
+{% if s.sent %}
+<div class="notice submit-status" id="submit-status" role="status" tabindex="-1" autofocus>
+  <p class="notice__title">Thanks. Your submission is with our editors.</p>
+  {% if s.reference %}<p>Reference <span class="submit-ref">{{ s.reference }}</span>. Please keep it: we do not send a confirmation email, and it is how we find your submission if you write to us.</p>{% endif %}
+</div>
+<h2>What happens next</h2>
+<ol class="submit-next">
+  <li>An editor reviews your submission. Until then it appears nowhere: not on the map, in a list, in a feed or in the API.</li>
+  <li>The editor links it to a project we already hold, adds it as a new record, or declines it with a reason. If they need more detail, they write to you at the address you gave.</li>
+  <li>Once it is linked or added, we match it against open opportunities: tenders, requests for proposals and funding calls.</li>
+  {% if s.opted_in %}
+  <li>You allowed publication, so an editor may then make the record public, with this register named as its source.</li>
+  {% else %}
+  <li>You did not allow publication, so the record stays private: our editors use it for matching, and it appears on no public page.</li>
+  {% endif %}
+</ol>
+<p><a href="/submit">Submit another project</a> &middot; <a href="/proposals">Browse proposals</a></p>
+{% else %}
+
+{% if s.problem %}
+<div class="notice notice--error submit-status" id="submit-status" role="alert" tabindex="-1" autofocus>
+  {%- set n = s.error_rows | length %}
+  {% if s.problem.rate_limited %}
+  <p class="notice__title">{{ s.problem.title }}.</p>
+  <p>Too many submissions have come from your connection this hour, so nothing was sent. What you typed is kept below; please send it again later.</p>
+  {% elif n %}
+  <p class="notice__title">{% if s.problem.title %}{{ s.problem.title }}. {% endif %}Nothing was sent: {{ n }} answer{{ 's' if n != 1 }} need{{ 's' if n == 1 }} changing.</p>
+  <ul class="submit-status__list">
+    {% for row in s.error_rows %}<li><a href="{{ row.href }}">{{ row.label }}: {{ row.message }}</a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="notice__title">{{ s.problem.title }}.</p>
+  <p>Nothing was sent. What you typed is kept below; please try again in a few minutes.</p>
+  {% endif %}
+  {% if s.problem.request_id %}<p class="notice__ref">Request <span class="submit-ref">{{ s.problem.request_id }}</span></p>{% endif %}
+</div>
+{% endif %}
+
+<form class="intake-form" method="post" action="/submit" novalidate>
+  <p class="field-hint">Every answer is needed unless it says optional. Nothing here is published until an editor has reviewed it.</p>
+
+  <fieldset>
+    <legend>The project</legend>
+    {{ text_input('project_name', 'Project name', hint='As the sponsor or the queue names it.', attrs=' maxlength="' ~ s.name_max ~ '" autocomplete="off"') }}
+    {{ text_input('sponsor_name', 'Sponsor or developer', hint='The company behind the project.', attrs=' maxlength="' ~ s.name_max ~ '" autocomplete="organization"') }}
+    {{ select_input('kind', 'Kind of project', s.kinds, 'Choose a kind') }}
+    {{ select_input('technology', 'Technology', s.technologies, 'Not stated', optional=true) }}
+    {{ text_input('capacity_mw', 'Capacity, in megawatts', hint='A number, like 150 or 87.5.', optional=true, attrs=' inputmode="decimal" autocomplete="off"') }}
+    {{ text_input('storage_mwh', 'Storage, in megawatt-hours', hint='For a project with storage. A number, like 400.', optional=true, attrs=' inputmode="decimal" autocomplete="off"') }}
+    <div class="field">
+      {{ label('lifecycle_state', 'Status') }}
+      <p class="field-hint" id="{{ s.ids['lifecycle_state'] }}-hint">Where the project stands today, as you see it. An editor checks it against the public record. <a href="/methodology#lifecycle">What each status means</a>.</p>
+      {{ error('lifecycle_state') }}
+      <select id="{{ s.ids['lifecycle_state'] }}" name="lifecycle_state" required{{ described('lifecycle_state', true) }}>
+        <option value="">Choose a status</option>
+        {% for value, words in s.lifecycle_states %}<option value="{{ value }}"{% if s.typed.get('lifecycle_state') == value %} selected{% endif %}>{{ words }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      {{ label('description', 'Description', optional=true) }}
+      <p class="field-hint" id="{{ s.ids['description'] }}-hint">Up to {{ '{:,}'.format(s.description_max) }} characters. Anything that helps an editor find the project in a public record: a site, a filing, a press release.</p>
+      {{ error('description') }}
+      <textarea id="{{ s.ids['description'] }}" name="description" rows="6" maxlength="{{ s.description_max }}"{{ described('description', true) }}>{{ s.typed.get('description', '') }}</textarea>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Where it is</legend>
+    {{ text_input('jurisdiction', 'Jurisdiction', hint='A country and state code: US-TX for Texas, US-CA for California, or US if it spans several states. Outside the United States, the two-letter country code, like GB.', attrs=' autocomplete="off" autocapitalize="characters" spellcheck="false"') }}
+    {{ text_input('state', 'State or province', optional=true, attrs=' autocomplete="off"') }}
+    {{ text_input('county', 'County', optional=true, attrs=' autocomplete="off"') }}
+  </fieldset>
+
+  <fieldset aria-describedby="submit-identifiers-hint">
+    <legend>Identifiers you already have <span class="intake-form__optional">(optional)</span></legend>
+    <p class="field-hint" id="submit-identifiers-hint">They let an editor find the project in public registers and link your submission to a record we already hold.</p>
+    {{ select_input('identifiers.queue_ids.iso', 'Interconnection queue', s.queue_operators, 'Not in an ISO queue, or not sure', optional=true) }}
+    {{ text_input('identifiers.queue_ids.id', 'Queue position ID', hint='As the queue lists it, like 23INR0001.', optional=true, attrs=' autocomplete="off" spellcheck="false"') }}
+    {{ text_input('identifiers.eia_plant_id', 'EIA plant ID', hint='The plant code on EIA forms 860 and 860M, like 57701.', optional=true, attrs=' inputmode="numeric" autocomplete="off"') }}
+    {{ text_input('identifiers.ferc_dockets', 'FERC docket', hint='Like ER24-1234-000. A state docket can go in the description.', optional=true, attrs=' autocomplete="off" spellcheck="false"') }}
+  </fieldset>
+
+  <fieldset aria-describedby="submit-contact-hint">
+    <legend>Your details</legend>
+    <p class="field-hint" id="submit-contact-hint">So an editor can ask you about this submission. They are kept with it and in our contact records, never shown on a record or attached to a company. See the <a href="/privacy">privacy notice</a>.</p>
+    {{ text_input('contact.name', 'Your name', attrs=' maxlength="' ~ s.name_max ~ '" autocomplete="name"') }}
+    {{ text_input('contact.email', 'Your email address', type='email', attrs=' autocomplete="email" spellcheck="false"') }}
+  </fieldset>
+
+  <fieldset>
+    <legend>Publication</legend>
+    <div class="check">
+      <input id="{{ s.ids['public_opt_in'] }}" name="public_opt_in" type="checkbox" value="true"{% if s.typed.get('public_opt_in') == 'true' %} checked{% endif %} aria-describedby="{{ s.ids['public_opt_in'] }}-hint">
+      <label for="{{ s.ids['public_opt_in'] }}">Allow the record to be published after review <span class="intake-form__optional">(optional)</span></label>
+      <p class="field-hint" id="{{ s.ids['public_opt_in'] }}-hint">Left unticked, an approved submission stays private: our editors use it to match the project against opportunities, and it appears on no public page, feed or API. Ticked, an editor may publish it.</p>
+    </div>
+    <div class="check">
+      <input id="{{ s.ids['consent'] }}" name="consent" type="checkbox" value="true" required{% if s.typed.get('consent') == 'true' %} checked{% endif %}{{ described('consent') }}>
+      <label for="{{ s.ids['consent'] }}">I agree to the <a href="/privacy">privacy notice</a>: Infraque keeps these details to review this submission and to contact me about it.</label>
+      {{ error('consent') }}
+    </div>
+  </fieldset>
+
+  {#- Honeypot (services/api/admin_posts.py decision 7): hidden from people and from assistive
+      technology, out of the tab order, filled only by bots. Relayed to the API as typed. -#}
+  <div class="intake-form__trap" aria-hidden="true">
+    <label for="submit-website">Leave this empty</label>
+    <input type="text" id="submit-website" name="website" tabindex="-1" autocomplete="off">
+  </div>
+
+  {% if s.site_key %}
+  {#- Cloudflare Turnstile, only where the deployment sets `TURNSTILE_SITE_KEY`. The widget puts its
+      token in `cf-turnstile-response`; web/submit.py relays it as `captcha_token`. -#}
+  <div class="field intake-form__captcha" id="submit-captcha" tabindex="-1">
+    {{ error('captcha_token') }}
+    <div class="cf-turnstile" data-sitekey="{{ s.site_key }}"></div>
+    <script src="{{ s.turnstile_script }}" async defer></script>
+  </div>
+  {% endif %}
+
+  <div class="form-actions">
+    <button type="submit">Send for review</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

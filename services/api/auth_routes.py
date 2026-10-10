@@ -45,6 +45,20 @@ response, RFC 9457 problem bodies via the app-wide exception handler. Mounted on
 6. `dev_verification_url` is included in `register`/`resend-verification` responses only when the
    process-wide `EmailPort` is a dry-run `ResendEmailAdapter` (no `RESEND_API_KEY` configured) —
    documented on the field in `api/fragments/auth.yaml`, never present against a real provider.
+7. **A member deletes their own account** (2026-10-09; docs/40 §4 row 6): `DELETE /v1/me` with
+   `{"password": ...}`. Sign-in here is by password, so re-entering it is the re-authentication: a
+   stolen cookie alone cannot erase an account, and a wrong password is `400 validation_error`
+   naming `password` (not `401`: the session is still valid). Attempts are rate-limited per user.
+   A session is required; an API key cannot delete the account that issued it, as it cannot mint
+   keys. The body takes `password` only, and the route acts on the session's own user, so there is
+   no way to name someone else. Staff roles (`operator`, `legal`, `owner`) are refused with `409`:
+   an owner deleting themselves could lock every operator out of `/admin`, so a staff member is
+   demoted by another owner first. The erasure is `services/api/account_erasure.py::erase_user`,
+   the same procedure an operator's completed deletion task runs; its docstring lists what each
+   table loses and keeps. A `deletion_request` task is written as the record of the request (the
+   rights-request log of docs/13-legal-outreach-and-social.md §8.3), `done` unless the billing side
+   still needs a human, in which case it stays `open` for the operator. Every session of the user
+   is deleted and the response clears the cookie.
 """
 
 from __future__ import annotations
@@ -57,6 +71,7 @@ from fastapi import APIRouter, Cookie, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from services.api.account_erasure import erase_user
 from services.api.auth import (
     AuthContext,
     EmailPort,
@@ -77,6 +92,7 @@ from services.api.auth import (
     revoke_user_sessions,
     send_password_reset_email,
     send_verification_email,
+    verify_password,
 )
 from services.api.common import WEB_HOST, utcnow
 from services.api.deps import get_db
@@ -89,7 +105,10 @@ from services.api.serialize import (
     serialize_account,
     serialize_user,
 )
-from services.db.models import Account, User, UserSession
+from services.db.models import PRIVACY_REQUEST_RESPONSE_DAYS, Account, Task, User, UserSession
+from services.ids import public_id
+from services.sor.ports import BillingPort, CrmPort, SorUnavailable
+from services.sor.wiring import get_billing_port, get_crm_port
 
 router = APIRouter()
 
@@ -100,6 +119,14 @@ _REGISTER_LIMIT = 10
 _LOGIN_LIMIT = 20
 _RESEND_LIMIT = 5
 _RESET_LIMIT = 5
+#: Password attempts on `DELETE /v1/me` per user per window (decision 7): enough for typos, too few
+#: to guess a password with a stolen cookie.
+_DELETE_ACCOUNT_LIMIT = 5
+#: Roles that cannot delete themselves in-app (decision 7); another owner demotes them first.
+STAFF_ROLES = frozenset({"operator", "legal", "owner"})
+#: Reason recorded on the audit event and in the CRM task for an in-app deletion. A constant, so
+#: nothing the member types reaches the append-only log.
+SELF_DELETION_REASON = "Account holder deleted their own account in-app"
 _MIN_PASSWORD_LENGTH = 12
 _MAX_EMAIL_LENGTH = 254
 #: Entitlements whose logins count against `account.seats` (module docstring, decision 4).
@@ -482,3 +509,116 @@ def reset_password(
     revoked = revoke_user_sessions(db, user)
     db.flush()
     return {"password_reset": True, "sessions_revoked": revoked}
+
+
+# ------------------------------------------------------------- delete one's own account (decision 7)
+def _invalid_body(request: Request, field: str, message: str, detail: str | None = None) -> ProblemError:
+    return ProblemError(
+        "validation_error",
+        "Invalid request",
+        detail=detail,
+        errors=[{"field": field, "message": message}],
+        instance=request.url.path,
+    )
+
+
+@router.delete("/v1/me")
+def delete_me(
+    body: dict[str, Any],
+    request: Request,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: Annotated[AuthContext, Depends(get_auth_context)],
+    crm: Annotated[CrmPort, Depends(get_crm_port)],
+    billing: Annotated[BillingPort, Depends(get_billing_port)],
+) -> Any:
+    user = ctx.user
+    if user is None:  # no session (an API key alone resolves no `ctx.user`)
+        raise ProblemError("unauthenticated", "A signed-in session is required", instance=request.url.path)
+    unknown = sorted(set(body) - {"password"})
+    if unknown:  # e.g. a `user_id`: this operation only ever acts on the session's own user
+        raise _invalid_body(request, unknown[0], "not accepted by this operation")
+    password = body.get("password")
+    if not isinstance(password, str) or not password:
+        raise _invalid_body(request, "password", "is required")
+    if user.role in STAFF_ROLES:
+        raise ProblemError(
+            "conflict",
+            "Staff accounts cannot be deleted in-app",
+            detail=(
+                f"This account has the {user.role!r} role. Ask an owner to change your role to member "
+                "first, or to delete the account from the admin panel."
+            ),
+            instance=request.url.path,
+        )
+    _rate_limit(f"auth-delete:{user.id}", limit=_DELETE_ACCOUNT_LIMIT)
+    if user.password_hash is None or not verify_password(user.password_hash, password):
+        raise _invalid_body(
+            request,
+            "password",
+            "does not match this account",
+            detail="The password does not match this account. Nothing was deleted.",
+        )
+
+    try:
+        result = erase_user(
+            db,
+            user,
+            actor=user,
+            reason=SELF_DELETION_REASON,
+            initiated_by="account_holder",
+            crm=crm,
+            billing=billing,
+        )
+    except SorUnavailable as exc:
+        raise ProblemError(
+            "sor_unavailable",
+            "Account deletion is unavailable",
+            detail=(
+                "A service the deletion depends on could not be reached. Nothing was deleted; "
+                "try again shortly."
+            ),
+            instance=request.url.path,
+        ) from exc
+
+    now = utcnow()
+    pending = result.billing_pending
+    task = Task(
+        public_id="",
+        type="deletion_request",
+        subject_type="user",
+        subject_id=user.id,
+        status="open" if pending else "done",
+        due_at=now + dt.timedelta(days=PRIVACY_REQUEST_RESPONSE_DAYS),
+        created_by_user_id=user.id,
+        completed_at=None if pending else now,
+        notes=(
+            "Deleted in-app by the account holder. Remaining: cancel subscription(s) "
+            f"{', '.join(str(r) for r in result.billing.get('subscription_refs', []))} in the billing "
+            "provider, then mark this task done."
+            if pending
+            else "Deleted in-app by the account holder; nothing remains."
+        ),
+        audit_event_ids=[public_id("evt", result.event.id)],
+    )
+    db.add(task)
+    db.flush()
+    task.public_id = public_id("task", task.id)
+    db.flush()
+
+    clear_session_cookie(response)
+    data: dict[str, Any] = {
+        "deleted": True,
+        "user_id": user.public_id,
+        "deletion_task_id": task.public_id,
+        "sessions_deleted": result.sessions_deleted,
+        "api_keys_revoked": result.api_keys_revoked,
+        "saved_searches_paused": result.saved_searches_paused,
+        "alerts_redacted": result.alerts_redacted,
+        "webhooks_disabled": result.webhooks_disabled,
+        "account_closed": result.account_closed,
+        "billing": str(result.billing.get("billing")),
+    }
+    return build_envelope(
+        data, meta=build_meta(lag_days=0, tier="public"), licence_summary=build_licence_summary([])
+    )

@@ -372,7 +372,16 @@ def test_organizations_index_row_survives_a_failed_counts_call(web_client: TestC
 
 
 # ===================================================================== Open Graph / canonical
-PUBLIC_PAGES = ("/", "/proposals", "/opportunities", "/assets", "/organizations", "/about", "/attribution")
+PUBLIC_PAGES = (
+    "/",
+    "/proposals",
+    "/opportunities",
+    "/assets",
+    "/organizations",
+    "/about",
+    "/attribution",
+    "/submit",  # in the sitemap since 2026-10-09 (web/submit.py)
+)
 
 
 def _full_transport() -> FakeTransport:

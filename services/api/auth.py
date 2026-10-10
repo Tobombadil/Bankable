@@ -411,11 +411,6 @@ def get_auth_context(
     return resolve_request_auth(request, db, session_cookie=session, authorization=authorization)
 
 
-#: Paths that meter a credential on a bucket of their own instead of the tier's read bucket
-#: (`services/api/bulk.py`: "the key's own `bulk` bucket and nothing from its `read` bucket").
-_OWN_BUCKET_PREFIXES = ("/v1/bulk/",)
-
-
 def credential_tier(ctx: AuthContext) -> str:
     """The docs/23 §6 row a resolved credential is metered under. A signed-in account with no paid
     entitlement is a `free_account` (300 an hour), not the anonymous 60; so is a key that resolves to
@@ -455,35 +450,6 @@ def charge_credential(request: Request, ctx: AuthContext) -> dict[str, str]:
         )
     request.state.credential_rate_limit = headers
     return headers
-
-
-def meter_credentialed_request(request: Request, db: Annotated[Session, Depends(get_db)]) -> None:
-    """App-wide dependency (`services/api/app.py` `FastAPI(dependencies=...)`): every route, not
-    only the ones that ask for `get_auth_context`, resolves a presented credential and meters it.
-
-    - A credential that resolves to nothing is charged to the caller's anonymous bucket, so a junk
-      `Authorization` or `session` header exempts nothing. Before, 13 public GET routes never
-      resolved auth and served such callers unmetered (backend audit 2026-09-30 F8).
-    - A valid credential is charged to its own tier's bucket (`charge_credential`; docs/23 §6,
-      US-702). Before, the main read routes did not meter it at all, and a free account pulled
-      150 pages of 200 rows with no `RateLimit-*` headers (QA audit 2026-09-30, QA-3).
-    - The site's own server-side calls (`X-Internal-Token`) stay exempt, as they are from the
-      anonymous bucket; so do the bulk streams, which meter their own bucket.
-
-    It reads the credential from the raw request rather than via `Cookie()`/`Header()` parameters
-    so it adds nothing to every operation in the OpenAPI document, and shares the per-request
-    caches with `get_auth_context` and `_rate_limit_headers`, so nothing is resolved or charged
-    twice. Anonymous requests return at once; the middleware meters those."""
-    session_cookie = request.cookies.get(_SESSION_COOKIE_NAME)
-    authorization = request.headers.get("authorization")
-    if not (session_cookie or authorization):
-        return
-    ctx = resolve_request_auth(request, db, session_cookie=session_cookie, authorization=authorization)
-    if ctx is PUBLIC_CONTEXT or is_internal_request(request):
-        return
-    if request.url.path.startswith(_OWN_BUCKET_PREFIXES):
-        return
-    charge_credential(request, ctx)
 
 
 _ENTITLEMENT_ORDER = {"public": 0, "pro": 1, "api": 2, "admin": 3}

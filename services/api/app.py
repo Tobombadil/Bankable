@@ -30,10 +30,10 @@ from pipeline.connectors.opportunity import OPPORTUNITY_TECHNOLOGIES
 from services.alerts.evaluate import describe_change
 from services.api import geo_cache
 from services.api.alert_plan import free_alerts_summary
-from services.api.auth import AuthContext, get_auth_context, meter_credentialed_request
+from services.api.auth import AuthContext, get_auth_context
 from services.api.build_info import build_info, data_as_of
-from services.api.client_ip import is_internal_request, rate_limit_address
-from services.api.common import API_HOST, WEB_HOST, iso, utcnow
+from services.api.client_ip import is_internal_request
+from services.api.common import WEB_HOST, iso, utcnow
 from services.api.conditional import ConditionalGetMiddleware
 from services.api.coverage import coverage, coverage_version, source_vintages
 from services.api.deps import get_db
@@ -59,6 +59,7 @@ from services.api.params import (
     sort_spec,
     wants_csv,
 )
+from services.api.ratelimit import OWN_BUCKET_PREFIXES, STATE_HEADERS, meter_anonymous, meter_request
 from services.api.request_context import (
     CommitBeforeResponseMiddleware,
     RequestContextMiddleware,
@@ -115,9 +116,10 @@ app = FastAPI(
     version="1.0.0-draft",
     description="Public tier only (Sprint 2 backend brief). See api/openapi.yaml for the full contract.",
     # Every route resolves a presented credential, so only a valid one exempts a request from the
-    # public bucket (backend audit 2026-09-30 F8; `services/api/auth.py::meter_credentialed_request`).
+    # public windows (backend audit 2026-09-30 F8), and spends its read, search and daily windows in
+    # one all-or-nothing step (`services/api/ratelimit.py::meter_request`, docs/23 §6).
     # `Idempotency-Key` on mutating calls (backend audit 2026-09-30 F12; services/api/idempotency.py).
-    dependencies=[Depends(meter_credentialed_request), Depends(idempotency_guard)],
+    dependencies=[Depends(meter_request), Depends(idempotency_guard)],
     # Freezes the startup heap out of the cyclic collector once every route module is imported
     # (services/api/gc_tuning.py; a full collection was a third of a national map call).
     lifespan=gc_lifespan,
@@ -276,64 +278,46 @@ async def standard_headers(request: Request, call_next: Any) -> Response:
     """Real per-tier rate-limit headers and cache headers (docs/23 §1, §6); `X-Request-Id` is
     stamped by `RequestContextMiddleware` (services/api/request_context.py).
 
-    Sprint 2 shipped static placeholder values here ("rate-limit headers (static values for
-    now)"); this sprint (Pro tier and alerts, task item 2: "real per-tier token buckets") replaces
-    them for anonymous traffic — the public tier per docs/23 §6's "60/hour, per IP" row — with a
-    real count through `services.api.ratelimit.default_limiter`. A request carrying a session
-    cookie or `Authorization` header is metered by the app-wide dependency
-    `services/api/auth.py::meter_credentialed_request` instead: on its tier's bucket when the
-    credential resolves (keyed by API key or user), on this anonymous bucket when it does not.
-    Its `RateLimit-*` headers are copied onto the response below (`setdefault` only, so a route
-    that sets its own, such as the bulk streams, keeps them). This closes the follow-up that
-    services/README.md recorded (2026-09-30; QA audit QA-3, backend audit F8).
-    """
-    from services.api.ratelimit import TIER_LIMITS, default_limiter, policy_header
+    Sprint 2 shipped static placeholder values here; the Pro-tier sprint made them a real count
+    through `services.api.ratelimit.default_limiter`, and since 2026-10-10 a request is counted in
+    every window docs/23 §6 gives it -- read, search (`q=`) and the daily cap -- in one
+    all-or-nothing step (`services/api/ratelimit.py`'s module docstring has the rules).
 
+    - Anonymous traffic is metered here, on every path, keyed on the visitor's address
+      (`services/api/client_ip.py`): `ratelimit.meter_anonymous`.
+    - A request carrying a session cookie or `Authorization` header is metered by the app-wide
+      dependency `ratelimit.meter_request` instead: on its tier's windows when the credential
+      resolves (keyed by API key or user), on these anonymous ones when it does not.
+
+    Either way the `RateLimit-*` fields of the window closest to exhaustion are put on the
+    response below. They replace any a route set from the read window alone (`pro.py`'s
+    `_rate_limit_headers`), except on `/v1/bulk/*`, whose own bulk window's fields stand.
+    """
     is_credentialed = bool(request.headers.get("authorization")) or bool(request.cookies.get("session"))
     # The public site calls this API server-side for every visitor from one address, so without a
     # service identity the whole site would share one anonymous bucket (live probe 2026-09-18: a
-    # sitemap render plus a few map pans returned 429). A matching `X-Internal-Token` marks the
-    # request as the site's own; the site is then responsible for per-visitor limits.
-    # A credentialed request is metered by the app-wide `meter_credentialed_request` dependency
-    # when its credential does not resolve, and by its own tier's bucket when it does.
+    # sitemap render plus a few map pans returned 429) -- and, since the daily cap, would lock every
+    # visitor out until midnight UTC once that address had made 1,000 calls. A matching
+    # `X-Internal-Token` marks the request as the site's own and exempts it from every window; the
+    # site is then responsible for per-visitor limits.
     if not is_credentialed and not is_internal_request(request):
-        # Keyed on the visitor, not on Caddy's or web's address (`services/api/client_ip.py`).
-        result = default_limiter.check(f"public:{rate_limit_address(request)}", limit=TIER_LIMITS["public"])
-        if not result.allowed:
-            from fastapi.responses import JSONResponse
-
+        decision = meter_anonymous(request)
+        if decision.problem is not None:
             return JSONResponse(
-                status_code=429,
+                status_code=decision.problem.status,
                 media_type="application/problem+json",
-                headers={
-                    "Retry-After": str(result.reset_seconds),
-                    "RateLimit-Limit": str(result.limit),
-                    "RateLimit-Remaining": "0",
-                    "RateLimit-Reset": str(result.reset_seconds),
-                    "RateLimit-Policy": policy_header("public", result),
-                    "X-Request-Id": request_id_of(request),
-                },
-                content={
-                    "type": f"{API_HOST}/errors/rate_limited",
-                    "title": "Rate limit exceeded",
-                    "status": 429,
-                    "code": "rate_limited",
-                    "detail": f"More than {result.limit} requests in the current window.",
-                    "request_id": request_id_of(request),
-                    "instance": request.url.path,
-                },
+                headers={**(decision.problem.headers or {}), "X-Request-Id": request_id_of(request)},
+                content=decision.problem.to_body(request),
             )
-        response: Response = await call_next(request)
-        response.headers.setdefault("RateLimit-Limit", str(result.limit))
-        response.headers.setdefault("RateLimit-Remaining", str(result.remaining))
-        response.headers.setdefault("RateLimit-Reset", str(result.reset_seconds))
-        response.headers.setdefault("RateLimit-Policy", policy_header("public", result))
-    else:
-        response = await call_next(request)
-        # A valid credential was charged to its tier's bucket by `meter_credentialed_request`; its
-        # numbers go on every response, not only on the routes that set them (docs/23 §6, US-702).
-        for name, value in getattr(request.state, "credential_rate_limit", {}).items():
+        setattr(request.state, STATE_HEADERS, decision.headers)
+    response: Response = await call_next(request)
+    metered: dict[str, str] = getattr(request.state, STATE_HEADERS, None) or {}
+    if request.url.path.startswith(OWN_BUCKET_PREFIXES):
+        for name, value in metered.items():
             response.headers.setdefault(name, value)
+    else:
+        for name, value in metered.items():
+            response.headers[name] = value
     path = request.url.path
     if request.method == "GET" and (path.startswith("/v1/") or path.startswith("/feeds/")):
         # A response produced for a credential (valid or not) is never shareable: `/v1/me`, live

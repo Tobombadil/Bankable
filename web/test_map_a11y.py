@@ -7,7 +7,10 @@ behaviour itself is driven in `web/test_e2e.py`):
   proposal rows open the drawer from the keyboard; the drawer names the licence;
 * F11 / D-2: markers are chip pairs (no white text on a pale fill), measured here in both themes;
   lifecycle is carried by glyph as well as hue, and the legend is exposed and names states;
-* D-12: the basemap flavour follows the theme and land cover is muted to the tokens.
+* D-12: the basemap flavour follows the theme and land cover is muted to the tokens;
+* docs/60 §11 item 10 (axe on `/`, 2026-09-27): the status chip's words clear 4.5:1 on its fill in
+  every theme (`color-contrast` on `.chip--neutral .chip__label` was 4.47:1), and `#in-view-items`
+  only ever holds plain list items (`list`: the group names were `role="presentation"` items).
 """
 
 from __future__ import annotations
@@ -188,3 +191,58 @@ def test_regions_are_listed_busiest_first_and_states_by_name() -> None:
     assert map_labels()["region"]["US-IN"] == "Indiana"
     assert "return (Number(b.properties.count) || 0) - (Number(a.properties.count) || 0);" in MAP_JS
     assert "var regionNames = SERVER_LABELS.region || {};" in MAP_JS
+
+
+# ------------------------------------------- docs/60 §11 item 10: the two serious axe findings on `/`
+@pytest.mark.parametrize("theme", sorted(THEMES))
+@pytest.mark.parametrize("family", FAMILIES)
+def test_status_chip_words_meet_aa_on_the_chip_fill(theme: str, family: str) -> None:
+    """The chip's label is the family text token on the family fill (styles.css `.chip--{family}`),
+    12.8px at weight 600: normal-size text, so 4.5:1 (SC 1.4.3). Neutral measured 4.47:1 under axe
+    with docs/31 §1.2's `#5b6b7c`; the token is `#4f5e6e` since, 5.44:1 (dark: 7.88:1)."""
+    rule = CSS.split(f".chip--{family} ")[1].split("}")[0]
+    assert f"background: var(--family-{family}-fill)" in rule
+    assert f"color: var(--family-{family}-text)" in rule
+    tokens = THEMES[theme]
+    text, fill = tokens[f"--family-{family}-text"], tokens[f"--family-{family}-fill"]
+    assert _contrast(text, fill) >= 4.5, (theme, family, round(_contrast(text, fill), 2))
+
+
+def test_the_neutral_chip_holds_the_measured_fix() -> None:
+    light = THEMES["light"]
+    assert round(_contrast("#5b6b7c", light["--family-neutral-fill"]), 2) == 4.47  # what axe flagged
+    assert round(_contrast(light["--family-neutral-text"], light["--family-neutral-fill"]), 2) >= 5.4
+    # The map key prints the same token on the page ground (home_map.html, legend row "Announced").
+    for theme in THEMES.values():
+        ground = theme.get("--bg", theme["--color-paper"])
+        assert _contrast(theme["--family-neutral-text"], ground) >= 4.5
+
+
+def _nearest_declaration(name: str, before: int) -> str:
+    """The right-hand side of the last `var <name> = ...;` above `before` in map.js."""
+    found = list(re.finditer(rf"var {name} = ([^;]+);", MAP_JS[:before]))
+    assert found, name
+    return found[-1].group(1)
+
+
+def test_the_in_view_list_only_ever_holds_plain_list_items() -> None:
+    """axe `list` (serious): a <ul> may hold only <li> (or script/template) children, and an <li>
+    given another role, as the group names once were (`role="presentation"`), no longer counts as
+    one. Every node map.js puts in `#in-view-items` is created as an <li> or is the row template,
+    and nothing in map.js sets a role other than the drawer's."""
+    assert '<ul class="in-view-list" id="in-view-items"></ul>' in HOME  # empty until map.js fills it
+    assert 'var listEl = document.getElementById("in-view-items");' in MAP_JS
+    appended = list(re.finditer(r"listEl\.appendChild\((\w+)\)", MAP_JS))
+    assert len(appended) >= 8
+    for match in appended:
+        source = _nearest_declaration(match.group(1), match.start())
+        assert source in ('document.createElement("li")', "template.content.cloneNode(true)"), (
+            match.group(1),
+            source,
+        )
+    template = HOME.split('<template id="in-view-item-template">')[1].split("</template>")[0]
+    top_level = re.findall(r"^  <(/?)(\w+)([^>]*)>", template, re.M)
+    assert [(close, tag) for close, tag, _ in top_level] == [("", "li"), ("/", "li")]
+    assert "role=" not in top_level[0][2]
+    assert set(re.findall(r'setAttribute\("role", "(\w+)"\)', MAP_JS)) == {"dialog"}
+    assert ".role =" not in MAP_JS

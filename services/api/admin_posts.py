@@ -157,7 +157,7 @@ _JURISDICTION_RE = re.compile(r"^[A-Z]{2}(-[A-Z0-9]{1,3})?$")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 
-PRIVACY_NOTICE_URL = f"{WEB_HOST}/legal/privacy"
+PRIVACY_NOTICE_URL = f"{WEB_HOST}/privacy"  # web/legal.py serves the notice at /privacy
 INTAKE_RATE_LIMIT = 5  # per hour, per IP (docs/23 §7 P-5; shared across intake + reports)
 
 

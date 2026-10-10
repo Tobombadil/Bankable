@@ -40,7 +40,7 @@
     </div>
     <div class="field">
       <label for="report-email">Your email (optional)</label>
-      <p class="field-hint" id="report-email-hint">Only if you would like a reply. It is used for this report and nothing else; see the <a href="/legal/privacy">privacy notice</a>.</p>
+      <p class="field-hint" id="report-email-hint">Only if you would like a reply. It is used for this report and nothing else; see the <a href="/privacy">privacy notice</a>.</p>
       {% if r.errors.email %}<p class="form-error" id="report-email-error">{{ r.errors.email }}</p>{% endif %}
       <input type="email" id="report-email" name="email" autocomplete="email" value="{{ r.typed.email or '' }}" aria-describedby="report-email-hint{% if r.errors.email %} report-email-error{% endif %}"{% if r.errors.email %} aria-invalid="true"{% endif %}>
     </div>
