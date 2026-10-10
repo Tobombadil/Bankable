@@ -79,8 +79,8 @@ table and the task brief's list: `postgres` (local/dev/CI only — see §3), `ap
 | `postgres` | app (local profile only) | 1 | `postgis/postgis:16-3.4` | `local`/`dev`/CI only, see §3 |
 
 **Routing, host names and the client address (2026-09-30; devops audit F1–F4, architect A3/A7/A8,
-PM-3).** `infra/compose/Caddyfile` sends `/v1/*`, `/admin/v1/*`, `/feeds/*` and `/webhooks/*` to `api` and
-every other path to `web`, the admin UI at `/admin/<page>` included. Before, `/admin/*` went to the API, so the
+PM-3).** `infra/compose/Caddyfile` sends `/v1/*`, `/feeds/*` and `/webhooks/*` to `api` and every other path
+to `web`; `/admin/v1/*` goes to `api` on the admin host only. Before, `/admin/*` went to the API, so the
 admin UI was unreachable, and the RSS feeds went to web and 404ed. `/webhooks/*` is on the list as well as
 the three prefixes the audits named, because the Stripe and Attio webhooks live there
 (`app.openapi()`). `infra/test_caddyfile.py` fails if the API gains a path outside the four. Host names come
@@ -91,12 +91,15 @@ from `ENVIRONMENT` and match `infra/terraform/dns.tf`:
 | production | `{DOMAIN}` | `admin.{DOMAIN}` | `api.{DOMAIN}` | `www.{DOMAIN}` → 301 to the apex |
 | staging | `staging.{DOMAIN}` | `admin-staging.{DOMAIN}` | `api-staging.{DOMAIN}` | none (no DNS record) |
 
-The admin host serves the web app with `/admin/v1/*` to the API, and redirects `/` to `/admin`. The API host
-sends every path to the API. It had no DNS record and no Caddy block, but it is the server in
+The admin host serves the web app with `/admin/v1/*` to the API, and redirects `/` to `/admin`. **Admin is the
+admin host's alone (2026-10-10, `docs/51` §2.4 item 5; D-16):** the site and API hosts answer 404 for
+`/admin`, `/admin/*` and `/admin/v1/*` before any upstream sees the request. Until then `/admin/v1/*` reached
+the API on the apex and the admin UI was served by web on every host. The API host
+sends every other path to the API. It had no DNS record and no Caddy block, but it is the server in
 `api/openapi.yaml`, the Attio webhook target (`docs/34` §6), and the host of export download links,
 unsubscribe links and every problem `type` URI (`services/api/common.py` `API_HOST`; QA audit QA-2). Both
-now exist (`infra/terraform/dns.tf` `cloudflare_record.api`). The apex keeps serving the same API prefixes,
-so either base URL works. `API_HOST` itself is still the hard-coded `api.infraque.com` placeholder
+now exist (`infra/terraform/dns.tf` `cloudflare_record.api`). The apex keeps serving `/v1/*`, `/feeds/*` and
+`/webhooks/*`, so either base URL works for the public API. `API_HOST` itself is still the hard-coded `api.infraque.com` placeholder
 (`docs/04` §0.6), not derived from `DOMAIN`; it changes when the product is named. The web admin
 pages call the API server-side with the operator's cookie (`web/admin/shell.py`), so the browser never needs
 the API on that host.
@@ -136,6 +139,34 @@ the `https` scheme the visitor used. Before, it would have seen `http` behind Ca
 That part is inference: the check compares against `request.url.scheme`, and `infra/test_entrypoint.py`
 shows uvicorn keeping `http` for an untrusted peer. For the same reason, `compose.prod.yml` sets
 `SESSION_COOKIE_SECURE=true` on api: web reaches api over plain HTTP.
+
+**Response headers and the firewall (2026-10-10, `docs/51` §2.4 item 5, §2.9 item 6).** Every response a
+Caddy handler writes, on every host, carries `Strict-Transport-Security: max-age=31536000` (no
+`includeSubDomains`, no `preload`), `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+strict-origin-when-cross-origin` and an enforced `Content-Security-Policy: frame-ancestors 'none'`. Each is
+written only when the upstream sent none (`?` in the Caddyfile). Caddy's own error answers (the beta gate's
+401, a 502 while an upstream is down) carry none of them. The full policy ships as
+`Content-Security-Policy-Report-Only`. It allows the site as it was on 2026-10-10:
+- the three CDN packages `web/assets.py` pins;
+- Cloudflare Turnstile;
+- the one inline script, by hash;
+- the Protomaps glyphs and sprites, and the basemap file (`MAP_TILE_URL`, which `compose.prod.yml` now passes
+  to Caddy);
+- `'unsafe-inline'` styles, for the templates' `style` attributes.
+
+There is no report endpoint, so a browser shows violations in its console only. `infra/test_caddyfile.py`
+derives the sources from `web/` and fails when the policy and the site disagree. Before enforcing it:
+1. add a report endpoint;
+2. move the style attributes into classes;
+3. decide on FastAPI's `/docs` and `/redoc`, which the policy would block (both apps serve them).
+
+`infra/terraform` takes the firewall sources as variables:
+- `ssh_source_cidrs` defaults to anyone (key auth only), as before. Set it to the operator's address.
+- `web_source_cidrs` defaults to anyone, as before. `["cloudflare"]` expands to Cloudflare's edge ranges,
+  read from the Caddyfile's `trusted_proxies` line, so the two lists cannot drift. Use it only once
+  Cloudflare proxies the site. After that, Let's Encrypt issuance (HTTP-01 through the proxy) and any uptime
+  probe must also come through Cloudflare. Validated with `tofu validate`, and the expansion with
+  `tofu console` (22 ranges), on OpenTofu with the pinned providers; nothing applied.
 
 **API memory (devops audit F4, architect A8).** Two uvicorn workers in one api container peaked at
 1,182 MB (563 + 590 MB) against the 1 GB limit, because each process builds its own geo and asset indexes
@@ -326,7 +357,11 @@ only an `api` restart.
 that has a connector and buckets it into one of six cron-expressible schedules (`infra/scheduler/cadence.py`
 — 15-min/daily/weekly/monthly/quarterly/annual, always rounding to the more frequent bucket on an ambiguous
 string like `"quarterly (scorecard); monthly (Generation Information)"`, and never less often than weekly
-even for `varies`/`per-auction` cadences, so a source is never silently unscheduled). The `scheduler` service
+even for `varies`/`per-auction` cadences, so a source is never silently unscheduled). An entry's optional
+`poll` field overrides `cadence` for how often the source is asked: FERC eLibrary daily, Find a Tender and
+grants.gov hourly, and ERCOT's GIS report daily (2026-10-10: ERCOT publishes on the 1st at about 21:00 UTC,
+after the monthly tick at 05:21, so a monthly poll served every release a month late). `twice weekly` (NESO)
+buckets to daily, not weekly. The `scheduler` service
 runs only the periodic ticks (one per bucket); `worker`/`browser-worker` consume the `fetch`/`fetch_browser`
 queues those ticks enqueue into, routed by `data/sources.yaml`'s `access` field until DA-12's proposed
 `egress` field exists (`infra/scheduler/cadence.py`'s `queue_for_source` prefers `egress` the moment it
@@ -436,6 +471,67 @@ at `now` = 2026-10-10 nothing is old enough. At a simulated 2029-01-01 it would 
 one per source and artefact (two for EIA-923), plus FERC's held run. Deletes against a real R2 bucket are not
 validated; the S3 path is tested through `S3Backend` with an in-memory client.
 
+### 6.4 Queue upkeep: stalled jobs, old jobs, stop grace, statement limits (2026-10-10)
+
+`docs/51` §2.4 item 3 and §2.9 item 2. Procrastinate holds a job's `lock` while the job is `doing`. Two kinds of
+lock are affected:
+- `resolve_tick`, `enrich_tick`, `match_tick` and `context_load` share `lock="resolve"`;
+- each source's fetch and load share that source's lock.
+
+A worker killed mid-job left the job `doing` forever, and every later job with the same lock waited behind it.
+Nothing called Procrastinate's recovery. Docker's default stop grace is 10 s, shorter than the longer jobs
+(measured: a load up to 24 s, `resolve_tick` 43 s, `context_load` 190 s), so a deploy that stopped a worker in
+the middle of one of them left such a job behind. **Seen on the rehearsal store** (`docs/64` §4,
+read-only, 2026-10-10): two `run_connector` jobs left `doing` when the sandbox stopped on 2026-10-09 22:25 UTC,
+with no worker. They held `source:us-grants-gov-search2` and `source:gb-find-a-tender`, so no later fetch of
+either source could run.
+
+| Job | Cron | Queue | What it does |
+|---|---|---|---|
+| `retry_stalled_jobs` | `tick_stalled_jobs`, `4,14,24,34,44,54 * * * *` | `audit` | prunes workers whose heartbeat is older than 600 s, then retries every `doing` job whose worker is gone; that releases its lock |
+| `remove_old_jobs` | `tick_prune_jobs`, `33 2 * * *` | `audit` | deletes succeeded, cancelled and aborted jobs after 14 days and failed ones after 90; `todo` and `doing` jobs are never touched |
+
+Both follow the tick pattern (§6.1). The bodies are in `infra/scheduler/queue_maintenance.py`, which has the
+reasoning.
+- **Stalled means "its worker stopped beating"**, Procrastinate 3.x's own rule. 3.9 deprecates the
+  "doing for N seconds" test (`nb_seconds`), which would also retry a long resolve on a live worker. A live
+  worker beats every 10 s from its event loop, also while a synchronous job runs in a thread.
+- **The threshold is 600 s, twice the new stop grace.** A worker stops beating once its graceful stop starts,
+  so a worker still draining is never taken for dead.
+- **The same 600 s is every worker's `stalled_worker_timeout`.** Procrastinate's default is 30 s: a worker
+  starting during a peer's graceful stop would prune the peer, and its job would count as stalled at once.
+- **A stalled job is failed instead of retried** when it has been attempted 3 times (a job that kills its
+  worker cannot crash-loop the pool), or when the same task is already queued.
+- **Volume:** about 2,600 jobs a day at the current cadence, 1,824 of them fetches of the 19 sources in the
+  15-minute bucket.
+
+On the rehearsal store, Procrastinate's heartbeat query (`get_stalled_jobs`, run read-only) returns exactly the
+two jobs above. Both are at attempt 4, so this job would fail them, not retry them, and free both locks.
+
+**Stop grace.** `stop_grace_period: 300s` on `worker`, `browser-worker` and `scheduler` in the base Compose file
+(`infra/test_compose.py`). Procrastinate's graceful stop waits for the running jobs. The longest measured job
+fits inside 300 s: `context_load` took 190.5 s on the rehearsal store, `resolve_tick` 43 s, a load 24 s. A job
+killed at 300 s is recovered as above. `docker compose stop` in `deploy.sh` now waits up to that long per service.
+
+**Worker statement limits.** The worker's engine (`infra/scheduler/jobs.py::build_session_factory`) connects with
+`statement_timeout` 10 min and `lock_timeout` 5 min. The API's engine connects without, so it keeps the server
+defaults. Values and reasoning are at `jobs.WORKER_STATEMENT_TIMEOUT_MS`:
+- The bound is the longest database job, `context_load` (190.5 s in one transaction), which bounds every
+  statement inside it. Statements themselves were not measured: the rehearsal Postgres has no
+  `pg_stat_statements`.
+- `statement_timeout` is over 3× that bound.
+- `lock_timeout` covers the worst wait, a load blocked behind `context_load`'s organisation rows, by half again.
+- Checked on Postgres 16: a worker session reports `10min`/`5min` and an API-style session `0`.
+- The limits travel as the libpq `options` startup parameter. A transaction-mode pooler refuses that at
+  connect, so point the worker at a direct endpoint.
+
+**Not fixed: `_run_with_timeout` still releases the lock early.** Its docstring records this. When an in-process
+job times out, the job fails and Procrastinate releases its lock, but the abandoned thread keeps writing. The
+statement limits bound any single statement it is stuck in, and each timeout is far above the measured run
+(resolve 43 s against 3,600 s). The fix is a lock held by the work itself, for example a session
+`pg_advisory_lock` the thread takes on its own connection. It needs a Postgres test and was not done for the
+beta.
+
 ## 7. Observability
 
 | Signal | Mechanism | Where |
@@ -448,9 +544,25 @@ validated; the S3 path is tested through `S3Backend` with an in-memory client.
 | Backup age | `/opt/infraque/backups/last-success` (written by `infra/scripts/backup.sh` on success), checked by a scheduled GitHub Actions job or a Grafana Cloud check | alert if > 26 h (`docs/04` O-7) — **check not wired**, see §11 |
 | Errors | Sentry free tier via `infra/observability.py::init_error_tracking(service)`: a no-op unless `SENTRY_DSN` is set (dev, CI, tests); with it set, `sentry-sdk` (pinned in `requirements.txt`) is initialised once per process with `environment=ENVIRONMENT`, `release=SENTRY_RELEASE` (= `IMAGE_TAG`, set by Compose), `send_default_pii=False`, tracing off, and a `service` tag (`infra/test_observability.py`, `infra/test_entrypoint.py` with a fake SDK and a stub DSN) | every service, DSN from `infra/sops/secrets.<env>.enc.yaml`; a Sentry project does not exist yet (§11 item 7) |
 
-Compose healthchecks (`infra/compose/docker-compose.yml`) are the first line of defense regardless of the
-dashboard gap: `api`/`web` fail their healthcheck and get restarted by Docker's `restart: unless-stopped`
-policy before an external monitor would even notice.
+**What alerts a human today (2026-10-10): nothing.** No alert is wired. The table above is the design. The
+signals that exist:
+- **The API healthcheck now tells the truth.** `/v1/health` answers **503** (same body, `status: degraded`)
+  when the database check fails. Before, it answered 200, so Compose and `deploy.sh` both read "healthy" with
+  the database down (`docs/51` §2.9 item 1). Compose then marks `api` *unhealthy*, and `deploy.sh`'s
+  `wait_healthy` and `curl -sf` fail on it.
+- **`queue_age_seconds`** is measured from Procrastinate's waiting jobs. `rate_limiter_active`, `edge_cache`
+  and `backup_age_hours` are gone: they were constants the API cannot check.
+- **The answer is `Cache-Control: no-store`**, so a probe always reaches the origin.
+- **Docker does not restart an unhealthy container.** `restart: unless-stopped` restarts a container whose
+  process *exits*, never one whose healthcheck fails; the earlier text here said otherwise. An unhealthy `api`
+  keeps serving 503s until someone acts. Only an external uptime check on `/v1/health` (row above) turns it
+  into an alert.
+- **Logs at WARNING/ERROR** for stalled jobs (`infra.scheduler.queue_maintenance`), failed jobs and stale
+  sources (`freshness_tick`). They land in `docker compose logs` on the host and nowhere else.
+- **Sentry** reports every unhandled exception once `SENTRY_DSN` is set (`infra/observability.py`, read at
+  process start in every service). No DSN exists.
+
+The owner-side steps are in `docs/64` §2 (uptime check and Sentry project) and §11 item 7 below.
 
 ## 8. Backups and restore drills
 
@@ -471,6 +583,10 @@ policy before an external monitor would even notice.
   previous version of this section made, because the pinned Cloudflare provider has no R2 lifecycle
   resource (§11 item 8). `infra/test_scripts.py` runs the script against `pg_dump`/`psql`/`aws` shims and
   asserts the upload, the two prune classes and the `last-success` stamp.
+- **Before every migration (2026-10-10):** `deploy.sh` runs the same unit before `alembic upgrade`. It
+  refuses to migrate unless the unit succeeds and `last-success` moves (§10.1 step 3). `rollback.sh
+  --downgrade-migration` does the same before a downgrade. `infra/test_scripts.py` pins the order and the
+  refusals. A plain rollback changes no schema and takes no dump (§10.2).
 - **Restore drill:** `infra/scripts/restore_drill.sh`, run monthly by hand (`docs/04` O-7; not on a timer,
   because it needs a Docker daemon and an operator to read the counts), downloads the latest R2 dump,
   restores it into a throwaway local Postgres+PostGIS container, runs row-count sanity checks against
@@ -597,8 +713,14 @@ Format per `docs/04` O-9. Kept as sections of this file rather than one file eac
    to deploy** if `API_INTERNAL_TOKEN` or any other key the template marks `required` is empty or missing, or a
 value is wrong (§5; before any host is touched), and appends `ENVIRONMENT=<environment>` to what it ships → syncs compose
    files, Caddyfile, `backup.sh` and the decrypted `.env` to **every** host → `docker compose pull` on
-   every host → stops `worker`/`browser-worker` on the worker VMs and `scheduler` on the app VM → runs
-   migrations once in a one-off container of the **same** api image (`run --rm --no-deps api alembic
+   every host → stops `worker`/`browser-worker` on the worker VMs and `scheduler` on the app VM (each waits
+   up to its 300 s `stop_grace_period` for running jobs, §6.4) → **dumps the database** (2026-10-10,
+   `docs/51` §2.9 item 4): `systemctl start infraque-backup.service` on the app VM, the nightly unit run
+   now. That is `backup.sh` with the env file just shipped, `pg_dump` and the upload to R2. The deploy
+   requires the unit to succeed *and* `backups/last-success` to move. If either fails, it migrates nothing,
+   starts the stopped workers and scheduler again as they were (`docker compose start`, the old containers),
+   and exits 1 without a rollback, because nothing changed. `SKIP_PRE_MIGRATION_DUMP=1` skips the dump on
+   purpose → runs migrations once in a one-off container of the **same** api image (`run --rm --no-deps api alembic
    upgrade head`, expand phase, `docs/04` E-11) → installs or upgrades Procrastinate's job-queue schema once,
    in a one-off `scheduler` container of the same tag (`infra/scheduler/queue_schema.py ensure`: applies
    `schema.sql` when absent, the shipped migrations between the recorded and the installed version on an
@@ -609,8 +731,9 @@ value is wrong (§5; before any host is touched), and appends `ENVIRONMENT=<envi
    no `/healthz`) → starts the workers → starts the scheduler last → records the tag in
    `/opt/infraque/current-tag`.
 4. Any failure after the workers are stopped triggers `rollback.sh <env> <previous tag>` automatically
-   (once — the rollback runs with `INFRAQUE_NO_AUTO_ROLLBACK=1`); a failure before that (sync, pull) just
-   exits, nothing has changed.
+   (once — the rollback runs with `INFRAQUE_NO_AUTO_ROLLBACK=1`), except a failed pre-migration dump, which
+   restarts what was stopped and exits (step 3); a failure before that (sync, pull) just exits, nothing has
+   changed.
 5. It appends a row to `infra/deploy-log.md` (timestamp, environment, tag, deployer, commit).
 **Verification:** `curl https://infraque.com/health` and `curl https://infraque.com/v1/health` return 200; the
 E-10 Playwright smoke suite passes against the environment; `infra/deploy-log.md`'s new row looks right;
@@ -630,9 +753,19 @@ per the S-9 runbook, before rolling back the deploy itself).
 **Preconditions and access:** same as 10.1, plus the previous image tag (kept ≥ 5 back, `docs/04` O-5).
 **Steps:**
 1. `infra/scripts/rollback.sh <staging|production> <previous-image-tag>` — re-runs the deploy script
-   against the older tag.
+   against the older tag with `INFRAQUE_ROLLBACK=1`: no dump and no `alembic upgrade` (2026-10-10). Before,
+   the older image ran `upgrade head`. That failed with "Can't locate revision" whenever the bad deploy's
+   migration had succeeded (reproduced with alembic on a two-revision scratch history), so the automatic
+   rollback stopped at the migration step with the bad api/web still up. A rollback also must not depend on
+   R2 answering.
 2. Only pass `--downgrade-migration` if the migration being rolled back from documents itself as
    reversible (E-11); otherwise the old image runs against the new-but-compatible schema (expand/contract).
+   With it, `rollback.sh` dumps the database first (the same unit as §10.1 step 3) and refuses to downgrade
+   if the dump fails. **Known defect, not fixed (found 2026-10-10):** the downgrade runs in the *previous*
+   image, which does not contain the revision it is asked to undo. Alembic refuses with "Can't locate
+   revision" (same scratch reproduction). Until `rollback.sh` takes the image being rolled back from, run the
+   downgrade by hand in that image: `IMAGE_TAG=<bad tag> docker compose ... run --rm --no-deps -T api alembic
+   -c services/db/migrations/alembic.ini downgrade -1`, after the dump.
 3. If entity tables need repair after a bad merge/write during the bad window, run the `docs/21` §6.5
    `replay` procedure next.
 **Verification:** same checks as 10.1's verification step, against the restored tag.
@@ -762,7 +895,9 @@ In the order the owner needs to act, per the task brief:
    has not made. Recorded here rather than guessed at silently.
 7. **Grafana Cloud/Sentry accounts do not exist**, so §7's dashboards and alert routing are designed, not
    built. The code side is now wired: set `SENTRY_DSN` in the secrets file and every process reports
-   (`infra/observability.py`); `GRAFANA_CLOUD_API_KEY` still has no consumer.
+   (`infra/observability.py`); `GRAFANA_CLOUD_API_KEY` still has no consumer. **No uptime check exists
+   either** (2026-10-10). It is the only thing that would turn the API's 503 into an alert, since Docker does
+   not restart an unhealthy container (§7). `docs/64` §2 lists the two accounts to create.
 8. **R2 backup retention is done by the script, not a lifecycle rule** (§8: 14 daily + 8 weekly). A bucket
    lifecycle rule via `infra/terraform/storage.tf` would be the belt-and-braces once the Cloudflare provider
    is upgraded; the pinned v4 provider has no such resource.

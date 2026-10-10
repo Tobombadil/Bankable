@@ -29,6 +29,11 @@ cache nor a search engine keeps a copy. The login never reaches the API (Caddy s
 used on the API host during the beta, because a key also travels in `Authorization`; testers use
 the site.
 
+**Admin is on `admin.{DOMAIN}` only** (2026-10-10). The site and API hosts answer 404 for `/admin`,
+`/admin/*` and `/admin/v1/*`, after the login. The operator's URL is `https://admin.{DOMAIN}/admin`, as
+before; `https://{DOMAIN}/admin` no longer works. Every host also sends HSTS, `nosniff`, a referrer
+policy, `frame-ancestors 'none'` and a report-only CSP (`docs/60` §2).
+
 **Sizing.** The Compose limits sum to 4.25 GB (Postgres 1, api 1, web 0.75, scheduler 0.25,
 worker 1, Caddy 0.25). The measured api peak is 606–638 MB (`docs/60` §2). That fits the `cx32`
 (4 vCPU, 8 GB) that `infra/terraform` already defaults to.
@@ -39,7 +44,10 @@ That is about 15–35 USD a month before email, against 80–170 USD for the thr
 
 ## 2. Owner actions, in order
 
-1. **Hetzner Cloud project:** an API token (`HCLOUD_TOKEN`) and the operator's SSH public key.
+1. **Hetzner Cloud project:** an API token (`HCLOUD_TOKEN`) and the operator's SSH public key. Set
+   `ssh_source_cidrs` in `terraform.tfvars` to the operator's address (it defaults to anyone, key auth
+   only). If Cloudflare will proxy the site, set `web_source_cidrs = ["cloudflare"]` once the records are
+   proxied, and not before: the origin then answers Cloudflare's edge only (`docs/60` §2).
 2. **Domain and DNS:** `A` records for the apex, `admin.`, `api.` and `www.` pointing at the VM. With
    Cloudflare in front (`cloudflare_zone_id` set), the gated answers are `private, no-store`, so
    the edge caches none of them.
@@ -60,6 +68,14 @@ That is about 15–35 USD a month before email, against 80–170 USD for the thr
    The hash is base64-encoded so that no `$` reaches Compose's interpolation. `deploy.sh` refuses a
    raw bcrypt hash, a missing user and any `SITE_ACCESS` other than `open` or `basic`. Caddy itself
    refuses to start on an empty or misspelt value.
+6. **An external uptime check** (2026-10-10). Nothing else turns an outage into an alert, because Docker
+   does not restart an unhealthy container (`docs/60` §7). Use a free UptimeRobot account or Grafana Cloud
+   synthetic monitoring. Check `https://api.{DOMAIN}/v1/health` (outside the gate) every 5 minutes, expect
+   200, alert the owner's email after 2 failures. It answers 503 when the database is down. Add
+   `https://{DOMAIN}/health` the same way.
+7. **A Sentry project** (free tier) for error reports. Put its DSN in the secrets file as `SENTRY_DSN`
+   (optional in `infra/sops/secrets.example.plain.yaml`). Every process reads it at start
+   (`infra/observability.py`) and reports nothing without it.
 
 ## 3. Deploy and seed
 
@@ -74,6 +90,11 @@ APP_HOST=<ip> infra/scripts/seed_single_host.sh data/          # from the operat
 **`deploy.sh` with `SINGLE_HOST=1`** runs the usual order on the one host. Its only additions:
 - before the migrations, it starts the database and waits until it is healthy;
 - it starts no browser-worker.
+
+Like every deploy since 2026-10-10, it then dumps the database before migrating. It runs
+`infraque-backup.service`, which is `backup.sh`: `pg_dump` over loopback, then the upload to R2. If the
+dump or the upload fails, it does not migrate, restarts the stopped worker and scheduler, and exits 1.
+R2 must therefore work before the first deploy. `SKIP_PRE_MIGRATION_DUMP=1` skips the dump on purpose.
 
 It refuses before touching the host in five cases:
 - `WORKER_HOSTS` is also set;
@@ -170,11 +191,20 @@ Rehearse once against the real VM with the gate on before inviting anyone.
 
 ## 5. Day to day
 
-- **Logs and health:** `docker compose ... logs -f worker scheduler`, `/v1/health` (in-network or
-  with the login), and the admin source-health page.
-- **Backups:** the host timer runs `infra/scripts/backup.sh` nightly. It reaches the in-stack
-  database on `127.0.0.1:5432`, which the base file publishes on loopback only. Restore with
-  `docs/60` §10.3.
+- **Logs and health:** `docker compose ... logs -f worker scheduler`, `/v1/health`, and the admin
+  source-health page. `/v1/health` needs no login.
+  - It answers 503 when the database is down, so `docker compose ps` shows `api` unhealthy. Docker does
+    not restart it: find out why with `docker compose logs postgres api`.
+  - `checks.queue_age_seconds` is how long the oldest runnable job has waited. Minutes is normal while a
+    load or resolve runs; hours means a stuck lock.
+  - Stalled jobs are recovered every 10 minutes and logged at WARNING by
+    `infra.scheduler.queue_maintenance` (`docs/60` §6.4).
+- **Backups:** the host timer runs `infra/scripts/backup.sh` nightly, and every deploy runs it before
+  migrating. It reaches the in-stack database on `127.0.0.1:5432`, which the base file publishes on
+  loopback only. Restore with `docs/60` §10.3.
+- **Stopping or redeploying** waits up to 5 minutes for the worker's running jobs
+  (`stop_grace_period`). A job still running then is killed. Within about 20 minutes it is retried, or
+  failed if it has run 3 times, and its lock is freed either way.
 - **Rollback:** `SINGLE_HOST=1 infra/scripts/rollback.sh production <previous tag>`.
 - **Matches** are recomputed after every resolve pass (`match_tick`, incremental), so at least daily
   after the 04:37 resolve tick.
@@ -221,7 +251,25 @@ another as `context_build` runs them, took 410 s by hand.
 - A deferred `enrich_tick` chained into `match_tick`, which ran incrementally in 3 s. It found
   nothing changed since the seed's match run (1,993 active matches).
 
+Closed on 2026-10-10 (`docs/51` §2.4, §2.9; `docs/60` §2, §6.4, §7):
+- **The health check tells the truth.** `/v1/health` is 503 with the database down, so `deploy.sh` and
+  the Compose healthcheck fail. `queue_age_seconds` is measured. The constant fields are gone.
+- **A stalled job no longer freezes the pipeline.** Jobs a dead worker left `doing` are retried every
+  10 minutes, which frees their locks; old jobs are pruned daily. Workers get 300 s to finish on stop.
+  The worker's database sessions have a 10-minute statement limit and a 5-minute lock-wait limit.
+- **A dump precedes every migration.**
+- **Security headers** on every host: HSTS, nosniff, referrer policy and `frame-ancestors 'none'`; a
+  report-only CSP.
+- **Admin is off the public hosts.**
+- **The firewall sources are variables** (`ssh_source_cidrs`, `web_source_cidrs`).
+
 Still open:
+- **Nothing alerts a human yet.** The uptime check and the Sentry project (§2 items 6 and 7) are the
+  owner's to create; until then a failure is visible only to whoever looks.
+- **The CSP only reports.** There is no report endpoint, so violations show in a browser console only.
+  Enforcing it needs that endpoint and the inline `style` attributes moved into classes (`docs/60` §2).
+- **A timed-out in-process job releases its lock while its thread runs on** (`docs/60` §6.4). This is
+  bounded, not fixed.
 - **PHMSA pipeline features do not build here.** archive.org reset the connection on every attempt,
   by hand and in the scheduled build. On a server it is one failed builder in the build log, and
   the other features still load.

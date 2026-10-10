@@ -125,6 +125,18 @@ ASSET_EVENT_TYPES = (
     "retired",
     "returned_to_service",
 )
+#: `event.event_type` for a row that is no longer in its source's file, from a source that does not
+#: declare that a disappearance means withdrawal (`pipeline.connectors.base.Connector.removal_meaning`;
+#: docs/21 §7.3; docs/51 §2.7 item 1). Its `after` carries `{"removal_meaning": ...}`. Written with
+#: `published_at`/`public_at` NULL, as every non-public event is (`admin_edit` redactions,
+#: match events of a withheld rule set), and named in `NON_PUBLIC_EVENT_TYPES` below.
+REMOVED_FROM_SOURCE_EVENT_TYPE = "removed_from_source"
+#: Event types that no public or paid surface serves, whatever their timestamps say: the event
+#: predicate (`services/api/visibility.py::event_visibility_filter`, which the list, detail, feeds,
+#: alerts and webhooks all read through) and the social bridge (`services/social/db_events.py`)
+#: exclude them by name, beside the NULL `published_at`/`public_at` they are written with. Admin
+#: reads still show them. No CHECK constraint lists event types, so adding one needs no migration.
+NON_PUBLIC_EVENT_TYPES: frozenset[str] = frozenset({REMOVED_FROM_SOURCE_EVENT_TYPE})
 #: `asset_owner.role` (docs/21 §3.23).
 ASSET_OWNER_ROLES = ("owner", "operator")
 

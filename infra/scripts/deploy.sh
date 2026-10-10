@@ -9,9 +9,11 @@
 #   2. pull the target images on every host (the release workflow pushed them:
 #      ghcr.io/tobombadil/bankable-{api,web,worker,browser-worker}:<tag>);
 #   3. stop workers and the scheduler (nothing mid-fetch while the schema changes);
-#   4. run migrations ONCE, in a one-off container of the same api image (expand phase, E-11),
-#      then install or upgrade Procrastinate's job-queue schema, once, from the worker image
-#      (infra/scheduler/queue_schema.py: idempotent, version-recorded, guarded by an advisory lock);
+#   4. dump the database (the nightly backup unit, run now: backup.sh to R2) and refuse to migrate
+#      if that fails, restarting what step 3 stopped; then run migrations ONCE, in a one-off
+#      container of the same api image (expand phase, E-11), then install or upgrade Procrastinate's
+#      job-queue schema, once, from the worker image (infra/scheduler/queue_schema.py: idempotent,
+#      version-recorded, guarded by an advisory lock);
 #   5. start caddy/api/web on the app VM and wait, bounded, until every api/web replica is healthy
 #      and /v1/health answers with `checks.queue: true` — on failure roll back to the previous tag;
 #   6. start the workers; 7. start the scheduler last (it never enqueues work no worker is up for).
@@ -47,6 +49,8 @@ Optional:
   GHCR_USER/GHCR_READ_TOKEN   log the VMs into ghcr.io first (needed while the packages are private)
   HEALTH_TIMEOUT_SECONDS (default 180), HEALTH_INTERVAL_SECONDS (default 5)
   INFRAQUE_NO_AUTO_ROLLBACK=1 disables the automatic rollback (rollback.sh sets it to avoid recursion)
+  SKIP_PRE_MIGRATION_DUMP=1   no dump before the migrations (set it by hand only knowing the last dump)
+  INFRAQUE_ROLLBACK=1         set by rollback.sh: no dump and no `alembic upgrade` (the schema stays)
 EOF
 }
 
@@ -211,6 +215,25 @@ wait_healthy() { # <host> <service...>: every replica reports a healthy healthch
   done
 }
 
+# The dump before the schema changes (docs/51 §2.9 item 4; docs/60 §10.1): the nightly backup
+# unit itself (cloud-init app.yaml `infraque-backup.service`: backup.sh with the env file step 1
+# shipped, pg_dump 16, the upload to R2), run now. `systemctl start` on a oneshot unit returns when
+# backup.sh exits, with its status. The `last-success` stamp backup.sh writes last must have moved,
+# so a unit skipped by its conditions, or a run that dumped but failed to upload, cannot pass.
+pre_migration_dump() {
+  local stamp="${remote_dir}/backups/last-success"
+  remote "$APP_HOST" "before=\$(cat ${stamp} 2>/dev/null || true); systemctl start infraque-backup.service && after=\$(cat ${stamp} 2>/dev/null || true) && [ -n \"\$after\" ] && [ \"\$after\" != \"\$before\" ]"
+}
+
+restart_stopped() { # what step 3 stopped, as it was: `start` reuses the stopped containers (old image)
+  local host
+  for host in $WORKER_HOSTS; do
+    remote_compose "$host" start worker || true
+  done
+  [[ -n "$single_host" ]] || remote_compose "$BROWSER_WORKER_HOST" start browser-worker || true
+  remote_compose "$APP_HOST" start scheduler || true
+}
+
 require_queue_ready() { # /v1/health from inside the network must answer AND report the queue schema
   local body
   body="$(remote_compose "$APP_HOST" run --rm --no-deps -T api curl -sf --max-time 5 http://api:8000/v1/health)" || return 1
@@ -265,8 +288,30 @@ if [[ -n "$single_host" ]]; then
   wait_healthy "$APP_HOST" postgres
 fi
 
-log "4/7 running migrations once (expand phase, docs/04 E-11) in a one-off container of ${image_tag}"
-remote_compose "$APP_HOST" run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini upgrade head
+if [[ -n "${INFRAQUE_ROLLBACK:-}" ]]; then
+  # A rollback's target image is older than the schema, or at it: its `alembic upgrade head` either
+  # changes nothing or, once the newer migration has run, fails ("Can't locate revision", checked
+  # 2026-10-10 with alembic 1.x), which stopped the automatic rollback at this step. Expand/contract
+  # (docs/04 E-11) is what lets the older image run on the newer schema; a downgrade is rollback.sh's.
+  log "4/7 rollback: no dump and no migration; the schema stays as it is (expand/contract, docs/04 E-11)"
+elif [[ -n "${SKIP_PRE_MIGRATION_DUMP:-}" ]]; then
+  log "4/7 no dump before the migrations (SKIP_PRE_MIGRATION_DUMP is set)"
+else
+  log "4/7 dumping the database before the migrations (infraque-backup.service: backup.sh, upload to R2)"
+  if ! pre_migration_dump; then
+    # Nothing has changed yet: no migration ran and the old api/web still serve. Put back what
+    # step 3 stopped and stop here, without a rollback (there is nothing to roll back).
+    rollback_armed=0
+    log "FAILED: the pre-migration dump did not complete (journalctl -u infraque-backup on ${APP_HOST}); not migrating"
+    restart_stopped
+    log "restarted the stopped workers and scheduler as they were; the database and the running tag are unchanged"
+    exit 1
+  fi
+fi
+if [[ -z "${INFRAQUE_ROLLBACK:-}" ]]; then
+  log "4/7 running migrations once (expand phase, docs/04 E-11) in a one-off container of ${image_tag}"
+  remote_compose "$APP_HOST" run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini upgrade head
+fi
 log "4/7 installing or upgrading the job-queue schema (Procrastinate, from the ${image_tag} worker image)"
 # `python -m infra.scheduler.queue_schema ensure`, except that an image built before that module
 # existed (a rollback target from before 2026-09-27) says so and changes nothing instead of failing

@@ -25,6 +25,18 @@ locals {
     environment = var.environment
     managed_by  = "opentofu"
   }
+
+  # Cloudflare's published edge ranges, read from the one place they are vendored: the Caddyfile's
+  # `trusted_proxies static` line (infra/compose/Caddyfile; infra/test_caddyfile.py checks that
+  # list against Cloudflare's). Read, not copied, so the firewall and Caddy cannot disagree.
+  cloudflare_ranges = split(" ", trimspace(regex(
+    "trusted_proxies static ([^\n]+)", file("${path.module}/../compose/Caddyfile")
+  )[0]))
+
+  # `web_source_cidrs` with each "cloudflare" entry expanded to those ranges (variables.tf).
+  web_source_cidrs = distinct(flatten([
+    for cidr in var.web_source_cidrs : cidr == "cloudflare" ? local.cloudflare_ranges : [cidr]
+  ]))
 }
 
 resource "hcloud_ssh_key" "operator" {
@@ -49,7 +61,9 @@ resource "hcloud_network_subnet" "app" {
   ip_range     = "10.0.1.0/24"
 }
 
-# Public HTTP(S) from the edge only; SSH from the operator only (docs/20 §11).
+# Public HTTP(S) from `web_source_cidrs` (anyone by default; Cloudflare's edge only once Cloudflare
+# proxies the site), SSH from `ssh_source_cidrs` (anyone by default; the operator once set). Both
+# defaults are the previous behaviour; docs/20 §11 asks for the narrow values (variables.tf).
 resource "hcloud_firewall" "web" {
   name   = "${local.name_prefix}-fw-web"
   labels = local.common_labels
@@ -58,19 +72,19 @@ resource "hcloud_firewall" "web" {
     direction  = "in"
     protocol   = "tcp"
     port       = "22"
-    source_ips = ["0.0.0.0/0", "::/0"] # tighten to the operator's IP/CIDR once known; SSH key auth only regardless
+    source_ips = var.ssh_source_cidrs # SSH key auth only regardless
   }
   rule {
     direction  = "in"
     protocol   = "tcp"
     port       = "80"
-    source_ips = ["0.0.0.0/0", "::/0"]
+    source_ips = local.web_source_cidrs
   }
   rule {
     direction  = "in"
     protocol   = "tcp"
     port       = "443"
-    source_ips = ["0.0.0.0/0", "::/0"]
+    source_ips = local.web_source_cidrs
   }
 }
 
@@ -83,7 +97,7 @@ resource "hcloud_firewall" "worker" {
     direction  = "in"
     protocol   = "tcp"
     port       = "22"
-    source_ips = ["0.0.0.0/0", "::/0"]
+    source_ips = var.ssh_source_cidrs
   }
 }
 

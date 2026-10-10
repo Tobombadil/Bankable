@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from services.api.common import WEB_HOST, ensure_aware
 from services.api.serialize import source_credit
 from services.api.visibility import gated_opportunity, gated_proposal, organization_visible
-from services.db.models import Event, Opportunity, Proposal, Source
+from services.db.models import NON_PUBLIC_EVENT_TYPES, Event, Opportunity, Proposal, Source
 from services.social.editorial import SocialEvent
 
 
@@ -291,6 +291,11 @@ def social_event_from_db(db: Session, event: Event) -> SocialEvent | None:
     per-event error rather than treating as an ordinary "no post" outcome.
     """
     if event.subject_type not in ("proposal", "opportunity"):
+        return None
+    if event.event_type in NON_PUBLIC_EVENT_TYPES:
+        # `removed_from_source` (a row that left its source's file, not a withdrawal; docs/51 §2.7
+        # item 1) is never a post. The maps below already default-deny it and the worker's
+        # `published_at` gate refuses it; this says so by name, so a later map entry cannot.
         return None
     event_type = _map_event_type(event.subject_type, event.event_type)
     if event_type is None:

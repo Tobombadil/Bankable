@@ -1471,8 +1471,11 @@ paths:
       summary: Liveness and data freshness
       description: |
         `status`, `data_as_of` for the public materialised view, `lag_days` defaults and the checks the launch
-        checklist probes (rate limiter active, backup age, queue age) (US-604, US-904, US-908). Never carries source
-        payloads or internal ids. Unauthenticated, edge-cached 60 s.
+        checklist probes (database, job-queue schema, queue age) (US-604, US-904, US-908). Never carries source
+        payloads or internal ids. Unauthenticated and never cached (`Cache-Control: no-store`): a probe must reach
+        the origin. HTTP 503 with the same body when the database check fails, so a healthcheck that reads the
+        status code fails with it (until 2026-10-10 it answered 200 with `status: degraded`). The queue checks
+        never change the status code.
       x-tier: public
       x-status: live
       x-sprint: 1
@@ -1480,14 +1483,21 @@ paths:
       security: *sec_public
       responses:
         '200':
-          description: Healthy or degraded.
+          description: The database answered (`status` is `ok`).
           headers: *std_headers
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          description: >-
+            The database check failed (`status` is `degraded`, `checks.database` is `false`). The body is the
+            health body, not a problem document; every field read from the store is null.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
 
   # ───────────────────────────────────── Assets (docs/21 §3.22-§3.23, ADR 0008) ─────────────────────────────────────
   /v1/interconnection-points:
@@ -8255,7 +8265,11 @@ components:
       enum: [proposal, opportunity, organization, match, document, source, licence, post, user, account, api_key]
     EventType:
       type: string
-      description: docs/21 §7.3. Identity, proposal lifecycle, opportunity lifecycle, field-level, matching, publication and operational groups.
+      description: >-
+        docs/21 §7.3. Identity, proposal lifecycle, opportunity lifecycle, field-level, matching, publication,
+        operational and register groups. `removed_from_source` (a record that is no longer in its source's file,
+        which is not a withdrawal) is never returned by a public or Pro read, a feed or a webhook; admin reads
+        show it.
       enum:
         - created
         - source_linked
@@ -8296,6 +8310,7 @@ components:
         - personal_data_redacted
         - key_issued
         - key_revoked
+        - removed_from_source
     ActorType:
       type: string
       enum: [pipeline, model, user, system]
@@ -11191,6 +11206,7 @@ components:
         status:
           type: string
           enum: [ok, degraded]
+          description: '`degraded` exactly when `checks.database` is false, and then the HTTP status is 503.'
         api_version:
           type: string
           const: v1
@@ -11238,13 +11254,14 @@ components:
             fetched from a source, which moves independently of `data_as_of` above (that one is
             publication time, which no longer lags anything). Null when nothing is loaded.
         source_vintage:
-          type: object
+          type: [object, 'null']
           description: >-
             The releases the sources themselves state, summarised — the counterpart to
             `source_data_as_of` above, which is only when *we* last fetched. `oldest` is the bound
             on how old the loaded data can be; `sources_stating_none` is how many loaded sources
             publish no release label at all, for which the fetch date is the best available
-            statement and is labelled as a fetch, not as a release.
+            statement and is labelled as a fetch, not as a release. Null when the database check
+            failed.
           properties:
             oldest:
               type: [string, 'null']
@@ -11269,7 +11286,11 @@ components:
               type: integer
         checks:
           type: object
-          description: Launch-checklist probes (US-908). Booleans only, no internals.
+          description: >-
+            Launch-checklist probes (US-908), each one measured on the request, no internals.
+            `rate_limiter_active`, `edge_cache` and `backup_age_hours` were removed on 2026-10-10:
+            they were constants this process cannot check (the backup stamp lives on the host,
+            docs/60 §7).
           properties:
             database:
               type: boolean
@@ -11281,14 +11302,15 @@ components:
                 `null` when not applicable (a SQLite store, which runs no workers). Not folded into
                 `status`: the API serves reads without it. The deploy script requires `true` before
                 it starts any worker.
-            rate_limiter_active:
-              type: boolean
-            edge_cache:
-              type: boolean
-            backup_age_hours:
-              type: [number, 'null']
             queue_age_seconds:
-              type: [number, 'null']
+              type: [integer, 'null']
+              minimum: 0
+              description: >-
+                Whole seconds the oldest runnable job has waited: a `todo` job counts from the later of
+                when it entered `todo` and its `scheduled_at`, so a job blocked behind another's lock
+                counts and one scheduled for later does not. `0` when nothing is waiting; `null` when it
+                cannot be known (no queue schema, the database down, a SQLite store, or the read
+                failing). Not folded into `status`: how long is too long depends on the job.
             billing_configured:
               type: boolean
               description: >-

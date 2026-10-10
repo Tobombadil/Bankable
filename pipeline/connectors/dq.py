@@ -12,6 +12,8 @@
 | provenance completeness        | —                                 | any row missing the quartet      |
 | schema drift (source columns)  | any added/removed column          | a declared key column missing    |
 | window truncated (page cap)    | —                                 | the fetch stopped at its page cap |
+| churn vs previous promoted run | —                                 | < 90 % of its keys kept, or      |
+| (previous >= 50 rows)          |                                   | removed + status moves > 15 %    |
 
 A held run keeps its raw snapshot (evidence) but writes nothing publishable and records why
 (`source_run.dq`). Thresholds are per-source configuration with these defaults: a manifest entry's
@@ -33,6 +35,20 @@ watched field (status, capacity, date, county, sponsor, name, state) that was se
 the previous output and is null on the same row now, on more than `nulled_hold_share` of the
 re-fetched rows, holds (`field_nulled:<field>`): a renamed column reads as nulls, and nulls must
 not be published as change events.
+
+Churn (2026-10-10, docs/51 §2.7 item 2). A source that re-keys its rows shares no keys with the
+previous frame, so `field_nulled` has nothing to compare and every row would go out as a `removed`
+plus a `new` event (NESO hashes the fields whose changes are the news into its key: one date slip
+is a new row and a removed one). The `churn` gate compares this run's frame with the previous
+promoted one (`previous`, the frame the diff will use, already restated under the current parser,
+status map and capacity rule) and holds when fewer than `churn_min_key_overlap` of the previous
+keys are still present, or when removals plus lifecycle/status moves on kept rows exceed
+`churn_max_event_share` of the previous row count. The counts are the diff's own (`pipeline/diff.py`:
+`removed`, and `status_change` + `withdrawn`, keyed on `record_id`), computed before the diff runs so
+a hold writes nothing publishable and an operator can release it (`runner.release_held`). A first
+run (no previous frame) and a previous frame under `churn_min_previous_rows` are not judged. A
+reparse or a parser restatement compares two frames the current code derived, so it trips this gate
+only if the source itself churned between the two snapshots.
 """
 
 from __future__ import annotations
@@ -46,6 +62,14 @@ import pandas as pd
 
 from pipeline.connectors.base import PROVENANCE
 
+#: The churn gate's thresholds (module docstring, "Churn"). First guesses, to tune against real
+#: runs: a normal monthly ERCOT or EIA-860M release is expected to stay under 15 % removals plus
+#: status moves (not yet measured on two consecutive live pulls), while a re-key moves almost every
+#: row. A manifest entry's `dq_thresholds` overrides each one per source, like every default below.
+CHURN_MIN_PREVIOUS_ROWS = 50
+CHURN_MIN_KEY_OVERLAP = 0.90
+CHURN_MAX_EVENT_SHARE = 0.15
+
 DEFAULT_THRESHOLDS: dict[str, float] = {
     "row_drift_warn_pct": 10.0,
     "row_drift_hold_pct": 30.0,
@@ -57,6 +81,9 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     "profile_weeks": 4,
     "nulled_hold_share": 0.2,
     "nulled_min_rows": 3,
+    "churn_min_previous_rows": CHURN_MIN_PREVIOUS_ROWS,
+    "churn_min_key_overlap": CHURN_MIN_KEY_OVERLAP,
+    "churn_max_event_share": CHURN_MAX_EVENT_SHARE,
 }
 #: Watched fields for the `field_nulled` gate, by kind; status counts `unknown` as null.
 NULLED_FIELDS = {
@@ -358,6 +385,9 @@ def run_gates(
     if previous is not None and fetched is not None and len(previous) and len(fetched):
         checks.extend(_nulled_checks(kind, previous, fetched, t))
 
+    # 8. churn against the previous promoted frame (module docstring, "Churn")
+    checks.append(_churn_check(kind, previous, df, t))
+
     levels = {c.level for c in checks}
     status = "hold" if "hold" in levels else "warn" if "warn" in levels else "pass"
     return DQResult(status=status, checks=checks, stats=stats)
@@ -478,3 +508,71 @@ def _nulled_checks(
     if not out:
         out.append(Check("field_nulled", "pass", f"no watched field lost on {len(common)} re-fetched rows"))
     return out
+
+
+def _status_column(kind: str, previous: pd.DataFrame, current: pd.DataFrame) -> str | None:
+    """The column the diff compares as the lifecycle: `lifecycle_state` where both frames carry it,
+    else the kind's own status column (an opportunity's `status`, `runner._diff_view`)."""
+    for col in ("lifecycle_state", STATUS_COL[kind]):
+        if col in previous.columns and col in current.columns:
+            return col
+    return None
+
+
+def _churn_check(
+    kind: str, previous: pd.DataFrame | None, current: pd.DataFrame, t: dict[str, float]
+) -> Check:
+    """`churn` (module docstring): how much of the previous frame this run keeps, and how many
+    `removed` plus status-move events the diff would emit against it, as shares of its rows."""
+    if previous is None or "record_id" not in previous.columns:
+        return Check("churn", "info", "no previous promoted frame; a first run is not judged")
+    b = previous.drop_duplicates("record_id").set_index("record_id")
+    a = (
+        current.drop_duplicates("record_id").set_index("record_id")
+        if "record_id" in current.columns
+        else current.iloc[0:0]
+    )
+    base = len(b)
+    if base < t["churn_min_previous_rows"]:
+        return Check(
+            "churn",
+            "info",
+            f"previous frame has {base} rows (< {int(t['churn_min_previous_rows'])}); not judged",
+            {"previous": base},
+        )
+    common = a.index.intersection(b.index)
+    kept = len(common)
+    removed = base - kept
+    moved = 0
+    col = _status_column(kind, b, a)
+    if col is not None and kept:
+        before = b.loc[common, col].astype("string").fillna("").to_numpy()
+        after = a.loc[common, col].astype("string").fillna("").to_numpy()
+        moved = int((before != after).sum())
+    overlap = kept / base
+    event_share = (removed + moved) / base
+    data = {
+        "previous": base,
+        "current": len(a),
+        "kept": kept,
+        "removed": removed,
+        "status_moves": moved,
+        "key_overlap": round(overlap, 4),
+        "event_share": round(event_share, 4),
+    }
+    reasons = []
+    if overlap < t["churn_min_key_overlap"]:
+        reasons.append(f"only {overlap * 100:.1f} % of the previous {base} keys kept")
+    if event_share > t["churn_max_event_share"]:
+        reasons.append(
+            f"{removed} removed + {moved} status moves = {event_share * 100:.1f} % of the previous rows"
+        )
+    if reasons:
+        return Check("churn", "hold", "; ".join(reasons), data)
+    return Check(
+        "churn",
+        "pass",
+        f"{overlap * 100:.1f} % of {base} keys kept; {removed} removed + {moved} status moves "
+        f"({event_share * 100:.1f} %)",
+        data,
+    )

@@ -131,6 +131,7 @@ services:
       <<: *app-env
       WORKER_ROLE: scheduler
     depends_on: *postgres-dependency
+    stop_grace_period: 300s # see `worker`
     # Singleton by design (docs/20 §4.2: leader lock in Postgres) — never scale this service.
     mem_limit: 256m
     cpus: "0.5"
@@ -158,6 +159,12 @@ services:
     volumes:
       - connector_data:/var/lib/infraque/data # INFRAQUE_DATA_DIR (set in the image); see `volumes:` below
     depends_on: *postgres-dependency
+    # Time between SIGTERM and SIGKILL (Docker's default is 10 s). Procrastinate's graceful stop
+    # waits for the running jobs, which mostly finish inside 5 minutes (rehearsal store, docs/64:
+    # context_load 190 s, resolve 43 s); one killed after it is recovered by `retry_stalled_jobs`,
+    # whose heartbeat threshold is twice this (infra/scheduler/queue_maintenance.py STOP_GRACE_S).
+    # `docker compose stop` in deploy.sh waits up to this long per service.
+    stop_grace_period: 300s
     deploy:
       replicas: 2 # docs/20 §4.1 "worker-plain | 2 replicas"; scale further via `docker compose up --scale worker=N` (docs/20 §13 step 1)
     mem_limit: 512m
@@ -178,6 +185,7 @@ services:
     volumes:
       - connector_data:/var/lib/infraque/data
     depends_on: *postgres-dependency
+    stop_grace_period: 300s # see `worker`; a browser fetch is capped at 5 minutes
     shm_size: "1gb" # Chromium needs real /dev/shm, not Docker's 64 MB default
     mem_limit: 2g   # docs/20 §4.1: "Playwright Chromium pool, max 3 pages, 2 GB RAM"
     cpus: "1.5"

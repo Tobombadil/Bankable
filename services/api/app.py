@@ -347,6 +347,10 @@ def _public_cache_control(path: str) -> str:
     """docs/23 §1: public GETs are `public, max-age=300`; feeds are edge-cached the same and may be
     served a minute stale while the edge revalidates (§6, §9.2; backend audit 2026-10-07, API-9:
     feeds carried no `Cache-Control`, so every poll reached the origin)."""
+    if path == "/v1/health":
+        # A probe must reach the origin: a cached 200 would hide an outage for the max-age, and a
+        # cached 503 would outlive the recovery (2026-10-10, docs/51 §2.9 item 1).
+        return "no-store"
     if path.startswith(_LONG_CACHED_PATHS):
         return "public, max-age=86400"
     if path.startswith("/feeds/"):
@@ -1019,18 +1023,68 @@ def queue_schema_present(db: Session) -> bool | None:
         return False
 
 
+#: How long the oldest job that could run now has been waiting, in seconds: a `todo` job is
+#: runnable from the later of the moment it entered `todo` (its latest `deferred`,
+#: `deferred_for_retry` or `retried` event) and its `scheduled_at`; jobs scheduled for later are
+#: not waiting yet. Procrastinate's `todo` rows are read through its partial index on that status,
+#: and each row's events through `procrastinate_events_job_id_fkey_v1`, so the probe stays cheap.
+#: A job blocked behind another's `lock` counts: that wait is what a stalled job looks like
+#: (docs/51 §2.9 item 2; `infra/scheduler/queue_maintenance.py` recovers it).
+QUEUE_AGE_SQL = text(
+    """
+    SELECT COALESCE(EXTRACT(EPOCH FROM (now() - MIN(ready_at))), 0)
+      FROM (
+        SELECT GREATEST(
+                 j.scheduled_at,
+                 (SELECT MAX(e.at) FROM procrastinate_events e
+                   WHERE e.job_id = j.id
+                     AND e.type IN ('deferred', 'deferred_for_retry', 'retried'))
+               ) AS ready_at
+          FROM procrastinate_jobs j
+         WHERE j.status = 'todo'
+      ) waiting
+     WHERE ready_at <= now()
+    """
+)
+
+
+def queue_age_seconds(db: Session, queue_present: bool | None) -> int | None:
+    """`checks.queue_age_seconds`: whole seconds the oldest runnable job has waited, `0` when none
+    is waiting. `None` when it cannot be known: SQLite (no queue), the queue schema absent, or the
+    read failing. The read runs in a savepoint, so a failure cannot poison the request's
+    transaction for the rest of the probe. Not folded into `status`: the API serves without the
+    queue, and how long is too long depends on the job (a context build runs for minutes)."""
+    if queue_present is not True:
+        return None
+    try:
+        with db.begin_nested():
+            age = db.execute(QUEUE_AGE_SQL).scalar()
+    except Exception:
+        return None
+    return None if age is None else max(0, int(age))
+
+
 @app.get("/v1/health")
 def get_health(
+    response: Response,
     db: Session = Depends(get_db),
     billing_port: BillingPort = Depends(get_billing_port),
 ) -> Any:
+    """Liveness and data freshness. HTTP 503, with the same body, when the database check fails
+    (docs/51 §2.9 item 1): before 2026-10-10 it answered 200 with `status: degraded`, so the Compose
+    healthcheck and `deploy.sh`'s wait both passed with the database down. Everything that reads
+    the store is skipped then and reported as null. The queue checks never change the HTTP code:
+    the API serves reads without the queue (`deploy.sh` reads `checks.queue` itself)."""
     try:
         db.execute(select(1))
         database_ok = True
     except Exception:
         database_ok = False
+    if not database_ok:
+        response.status_code = 503
     now = utcnow()
     oldest, newest = oldest_and_newest_success(db) if database_ok else (None, None)
+    queue_present = queue_schema_present(db) if database_ok else False
     data = {
         "status": "ok" if database_ok else "degraded",
         "api_version": "v1",
@@ -1054,11 +1108,13 @@ def get_health(
             # `null` where not applicable (SQLite). Deliberately not folded into `status` or the
             # HTTP code: the API serves every read without the queue, so its container stays
             # healthy; infra/scripts/deploy.sh checks this field itself before starting workers.
-            "queue": queue_schema_present(db) if database_ok else False,
-            "rate_limiter_active": True,
-            "edge_cache": True,
-            "backup_age_hours": None,
-            "queue_age_seconds": None,
+            "queue": queue_present,
+            # Measured, not asserted (docs/51 §2.9 item 1). `rate_limiter_active`, `edge_cache`
+            # and `backup_age_hours` were removed on 2026-10-10: the first two were constants
+            # `true` this process cannot check (the limiter has no off switch, and whether an edge
+            # cache sits in front is not visible from here) and the API cannot see the backup
+            # stamp, which lives on the host (docs/60 §7).
+            "queue_age_seconds": queue_age_seconds(db, queue_present),
             # Whether a real payment processor is wired, so a surface that asks for money can say
             # payments are off *before* the visitor presses the button rather than after. The web
             # host is a separate deployable and cannot see the processor secret, which lives only
@@ -1070,14 +1126,15 @@ def get_health(
         # build_info.py): two different questions that both get asked as "am I seeing the latest
         # version?". `data_as_of` is the newest fetch from a source, not the publish lag above.
         "build": build_info(),
-        "source_data_as_of": data_as_of(db),
+        "source_data_as_of": data_as_of(db) if database_ok else None,
         # `source_data_as_of` is *our* newest fetch. `source_vintage` is what the sources
         # themselves say they released, which on the load this was added against was two months
         # older for EIA-860M and nine years older for one Energy Atlas layer. A probe that reads
         # only the fetch date and calls the data current is the mistake the pair exists to stop;
         # `oldest` is the bound, and `sources_stating_none` says how many sources cannot be
         # bounded that way at all rather than letting the fetch date pretend to (migration 0018).
-        "source_vintage": _health_vintage(db),
+        # Null when the database check failed: there is no store to summarise.
+        "source_vintage": _health_vintage(db) if database_ok else None,
         # The platform posture (owner, 2026-09-25; docs/26; `services/posture.py`), read-only:
         # which reuse classes the gates are admitting, and the one sentence the public pages
         # print about it. Read once at import (`PLATFORM_POSTURE` below), the same moment

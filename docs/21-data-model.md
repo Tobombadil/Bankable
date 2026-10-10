@@ -1410,6 +1410,22 @@ terminal state for the many notices that never publish an award (`docs/02` §4 n
 | Matching | `match_added`, `match_removed`, `lead_created` |
 | Publication | `published`, `unpublished`, `gate_cleared`, `licence_reclassified` |
 | Operational | `source_health_changed`, `admin_edit`, `personal_data_redacted`, `key_issued`, `key_revoked` |
+| Register (never public) | `removed_from_source` |
+
+**`removed_from_source` (2026-10-10, `docs/51` §2.7 item 1).** A `removed` diff row says only that a record is no
+longer in its source's file. EIA-860M units leave the Planned sheet when they start operating or are cancelled,
+grants.gov notices leave the open-notice search when they close, ERCOT's GIS report also drops projects that go
+inactive or are re-numbered, and a re-keyed NESO row reads as one removal plus one new row. Each source's connector
+declares what a removal means there (`Connector.removal_meaning`: `withdrawn`, `completed`, `closed`, or `unknown`,
+the default). The loader writes a removal as a public `withdrawn` event only for a declared `withdrawn`, and no
+source declares it today. Every other removal is a `removed_from_source` event: `after = {"removal_meaning": ...}`,
+a `reason`, the provenance quartet, and NULL `published_at`/`public_at`. The event predicate (§5.4;
+`services/api/visibility.py`) also excludes the type by name (`services.db.models.NON_PUBLIC_EVENT_TYPES`), so no
+event list, feed, alert, webhook or social draft serves it on any tier, even if its timestamps are later filled.
+Admin reads show it. The link's `gone_at` is still set, as before. A removal never changes the record's lifecycle
+state. This supersedes the "row disappears from the register" label on `filed --> withdrawn` in §7.1 and the
+"Also emitted when a row disappears" note in §7.4. No CHECK constraint lists event types, so the new type needed
+no migration.
 
 ### 7.4 Source status → lifecycle mapping
 

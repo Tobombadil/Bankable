@@ -41,3 +41,8 @@ output "tile_url" {
 output "private_network_id" {
   value = hcloud_network.app.id
 }
+
+output "web_source_cidrs" {
+  description = "The sources the app VM's firewall admits on 80/443, after \"cloudflare\" is expanded (variables.tf web_source_cidrs)."
+  value       = local.web_source_cidrs
+}

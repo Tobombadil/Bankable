@@ -80,6 +80,9 @@ sources:
   auth: none (public MIS document listing → xlsx download)
   format: xlsx
   cadence: monthly
+  # Published on the 1st at about 21:00 UTC (GIS_Report_September2026: 2026-10-01T16:08:28-05:00),
+  # after the monthly tick at 05:21 UTC; polled daily so a release is fetched the next morning.
+  poll: daily
   license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — "raw data provided in public portions of this website may be used, reproduced, and redistributed in compilations, charts, and analyses without maintaining such notices"'
   reuse: open
   publication: raw_ok

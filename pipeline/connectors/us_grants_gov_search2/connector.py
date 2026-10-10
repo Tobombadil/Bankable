@@ -7,6 +7,11 @@ keyword, so a notice that closes disappears and diff emits `removed` (snapshot_m
 Parse: `data.oppHits[]`; `errorcode != 0` is a ParseError.
 source_record_id: the Grants.gov opportunity `id` (`number` = DE-FOA-… goes to identifiers).
 Reuse: US federal work, public domain. Opportunity kind: `foa`.
+Token (2026-10-10, review docs/51 §2.7 item 6): every response page carries a `token`, a signed
+JWT (HS256) issued fresh per request. It is bearer-shaped, so it is not stored (`redact`), and
+because it differed on every request no two fetches of the same hits ever matched: every hourly
+run ended `ok` and queued a load. `canonical_content` compares the pages without it, which also
+covers snapshots stored before the redaction.
 """
 
 from __future__ import annotations
@@ -29,6 +34,21 @@ API_URL = "https://api.grants.gov/v1/api/search2"
 DETAIL_URL = "https://www.grants.gov/search-results-detail/{id}"
 PAGE = 100
 MAX_PAGES = 20
+#: Per-response page keys that are not data: the request-scoped JWT (module docstring).
+VOLATILE_PAGE_KEYS = frozenset({"token"})
+
+
+def _without_tokens(content: bytes) -> tuple[dict[str, Any], bool] | None:
+    """The bundle with every page's `token` removed, and whether any page had one; None when the
+    bytes are not a bundle this connector wrote (a parse error then reports them as they are)."""
+    try:
+        doc = json.loads(content)
+        pages = doc["pages"]
+        had = any(VOLATILE_PAGE_KEYS & set(page) for page in pages)
+        doc["pages"] = [{k: v for k, v in page.items() if k not in VOLATILE_PAGE_KEYS} for page in pages]
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return doc, had
 
 
 class Connector(BaseConnector):
@@ -48,6 +68,7 @@ class Connector(BaseConnector):
     )
     keyword: ClassVar[str] = "energy"
     statuses: ClassVar[str] = "forecasted|posted"
+    removal_meaning = "closed"  # only open/forecast notices are fetched (docstring); docs/51 §2.7
 
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()
@@ -85,6 +106,18 @@ class Connector(BaseConnector):
             requests_made=len(pages),
             meta={"hit_count": (pages[0].get("data") or {}).get("hitCount"), "pages": len(pages)},
         )
+
+    def redact(self, content: bytes) -> bytes:
+        stripped = _without_tokens(content)
+        if stripped is None or not stripped[1]:
+            return content
+        return json.dumps(stripped[0], ensure_ascii=False).encode("utf-8")
+
+    def canonical_content(self, content: bytes) -> bytes:
+        stripped = _without_tokens(content)
+        if stripped is None:
+            return content
+        return json.dumps(stripped[0], ensure_ascii=False, sort_keys=True).encode("utf-8")
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
         doc = json.loads(raw.content)

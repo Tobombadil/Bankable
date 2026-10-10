@@ -213,7 +213,8 @@ def test_removed_readded_removed_is_two_removal_events(session: Session) -> None
     gone2 = pd.DataFrame([event(f"{SRC}:Q2", "removed", "filed", None, "2026-09-15T06:00:00Z")])
     r3 = load_dataframe(session, src, "proposal", pd.DataFrame([q1]), gone2)
     assert r3.events_created == 1
-    removals = session.scalars(select(Event).where(Event.event_type == "withdrawn")).all()
+    # A removal from a source that does not say it means withdrawal (docs/51 §2.7 item 1).
+    removals = session.scalars(select(Event).where(Event.event_type == "removed_from_source")).all()
     assert len(removals) == 2
     assert {e.observed_at.replace(tzinfo=dt.UTC) for e in removals} == {
         dt.datetime(2026, 9, 13, 6, tzinfo=dt.UTC),

@@ -64,10 +64,10 @@ The sixteen connectors that exist, with the bucket the cadence string resolves t
 | `us.iso.caiso.gen_queue` | `weekly` | weekly → `13 4 * * 1` (Monday) | ≤ 7 d + fetch/load | ≤ 7 d | 2026-09-12 |
 | `us.iso.nyiso.gen_queue` | `weekly` | weekly | ≤ 7 d | ≤ 7 d | 2026-09-12 |
 | `us.permits_dashboard` | `weekly` | weekly | ≤ 7 d | ≤ 7 d | 2026-09-12 |
-| `gb.neso.tec_register` | `twice weekly` | weekly (keyword `twice weekly`) | ≤ 7 d — **coarser than the source's own cadence**; a mid-week NESO update waits for Monday | ≤ 7 d | 2026-09-12 |
+| `gb.neso.tec_register` | `twice weekly` | daily (keyword `twice weekly`, 2026-10-10) | ≤ 1 d; an unchanged register ends `unchanged`. Freshness also flags a release older than 3.5 d + 5 d grace, read from the register's file name | ≤ 7 d | 2026-09-12 |
 | `us.epa.class_vi` | `biweekly-ish (no published schedule …)` | weekly (substring `weekly`) | ≤ 7 d | — (tier 3) | 2026-09-22 |
 | `us.tx.rrc.class_vi` | `weekly poll; the RRC rebuilt the list … (irregular, months apart)` | weekly | ≤ 7 d; publishable only under `PLATFORM_POSTURE=noncommercial` (`docs/26`) | — (tier 3) | 2026-09-25 |
-| `us.iso.ercot.gen_queue` | `monthly` | monthly → `21 5 1 * *` | ≤ 31 d | — | 2026-09-12 |
+| `us.iso.ercot.gen_queue` | `monthly` | daily (`poll: daily`, 2026-10-10; the report lands about 21:00 UTC on the 1st, after the monthly tick) | ≤ 1 d. Freshness also flags a release older than its month + 31 d + 5 d grace, read from the GIS report's name | — | 2026-09-12 |
 | `us.iso.ercot.large_load_queue` | `monthly` | monthly | ≤ 31 d; the connector watches the EMIL catalogue and emits an event when the product appears (it did not exist on 2026-09-12) | — | 2026-09-12 (0 rows) |
 | `us.eia.860m` | `monthly` | monthly | ≤ 31 d; loaded vintage 2026-07 on a 2026-09-13 fetch (`docs/00-PLAN.md` 2026-09-21) — EIA's own lag is about two months on top | — | 2026-09-12 |
 | `us.eia.860` | `annual (final in Q3/Q4 of the following year; early release earlier)` | annual → `37 7 2 1 *` | ≤ 1 y; the January tick will usually re-fetch an unchanged file | — | 2026-09-19 |
@@ -96,8 +96,9 @@ Email-provider delivery time is on top and outside the platform's control.
 
 | Item | Configured | Bound | Status |
 |---|---|---|---|
-| Process liveness | Compose healthchecks on `api` (`GET /v1/health`) and `web` (`GET /health`): `interval: 15s`, `timeout: 5s`, `retries: 5`, `start_period: 15s`; `restart: unless-stopped` (`infra/compose/docker-compose.yml`) | a dead process is marked unhealthy within ≈ 75–100 s and restarted by Docker | configured, never observed in production |
-| Deploy health gate | `deploy.sh` waits up to 180 s for every replica healthy and `/v1/health` answering, else auto-rollback once (`docs/60` §10.1) | a bad deploy self-reverts within ≈ 3 min of the health wait starting | proven against shims only (`infra/test_scripts.py`) |
+| Process liveness | Compose healthchecks on `api` (`GET /v1/health`) and `web` (`GET /health`): `interval: 15s`, `timeout: 5s`, `retries: 5`, `start_period: 15s`; `restart: unless-stopped` (`infra/compose/docker-compose.yml`). Since 2026-10-10 `/v1/health` is 503 when the database check fails, so a database outage now fails the api healthcheck; before, it answered 200 | a process that exits is restarted by Docker; an **unhealthy** container is marked so within ≈ 75–100 s and **not restarted** (Docker restarts on exit only; the earlier row said otherwise) | configured, never observed in production |
+| Deploy health gate | `deploy.sh` waits up to 180 s for every replica healthy and `/v1/health` answering, else auto-rollback once (`docs/60` §10.1). With the database down, the gate now fails instead of passing | a bad deploy self-reverts within ≈ 3 min of the health wait starting | proven against shims only (`infra/test_scripts.py`) |
+| Stalled jobs | `retry_stalled_jobs` every 10 min retries a job whose worker stopped beating 600 s ago (or fails it after 3 attempts), freeing its lock; workers get 300 s to finish on stop; worker sessions have `statement_timeout` 10 min, `lock_timeout` 5 min (`docs/60` §6.4) | a job left `doing` by a dead worker is recovered within ≈ 10–20 min | tested on Procrastinate's in-memory connector; the query run read-only on the rehearsal store found its two stuck jobs (2026-10-10) |
 | External uptime check | none exists (`docs/60` §7: UptimeRobot or Grafana synthetic, "alerts on 2 consecutive failures") | — | not operable |
 | Monthly availability | — | **no figure offered**; a single VM per role with no failover cannot promise one, and there is no monitor to measure it | target only |
 | API latency | measured 2026-09-13 on the full 10,409-row load, SQLite, in-process: list page 0.127 s, geo 0.35–0.53 s, detail ≈ 0.02 s; plants geo warm pan 11–37 ms (`docs/00-PLAN.md` 2026-09-13, 2026-09-15) | E-16 p95 budgets are targets until Postgres numbers exist | measured (sandbox) |
@@ -110,6 +111,7 @@ Email-provider delivery time is on top and outside the platform's control.
 | Primary backup | managed Postgres daily snapshot + PITR (a provider property, ADR 0003) | RPO ≤ 1 h (`docs/04` O-7) | no provider account exists |
 | Secondary backup | `infraque-backup.timer` nightly 03:17 UTC + ≤ 10 min jitter, `pg_dump` to Cloudflare R2; local retention 35 days; R2 keeps 14 daily + 8 Sunday dumps (`docs/60` §8) | RPO 24 h on the secondary copy | script tested against shims; timer never installed |
 | Restore | `restore_drill.sh` monthly by hand; real restore via provider PITR to a new branch then `DATABASE_URL` cut-over (`docs/60` §10.3) | RTO ≤ 4 h is a **target** | never executed |
+| Pre-migration dump | every `deploy.sh` runs the backup unit before `alembic upgrade` and refuses to migrate unless it succeeds; `rollback.sh --downgrade-migration` likewise (`docs/60` §8, §10.1) | a bad migration loses at most the API writes made between the dump and the migration (seconds; the pipeline is stopped) | order and refusals tested against shims (`infra/test_scripts.py`), 2026-10-10; never run on a VM |
 | Backup-age alert | > 26 h (`docs/04` O-7) | — | not wired (`docs/60` §7) |
 | Retention of stored data | DA-10 as the daily `retention_tick`, 01:47 UTC (`services/retention`; `docs/60` §6.3): sessions deleted at 30 days once expired; `alert.recipient` set to null at 12 months, rows kept (OP-7); raw snapshots older than 24 months cut to one per source, artefact and month (OP-8), never the copy the pipeline still reads; `snapshot` rows never deleted, `retention_class` set; one `retention_run` event per run. Not automated: `model_call` prompts (no column, no writer), documents (no writer, no period), `docs/13` §5.4 rule 7 (not settled) | each age plus at most one day; raw snapshots first bite 2028-09 | configured and tested (21 service + 6 scheduler tests); a read-only dry run on the operator's data root (29 sources, 59 snapshots, 315 MB) deleted nothing at 2026-10-10 and planned 28 deletions, 31 kept, at a simulated 2029-01-01 (measured 2026-10-10); never run on a deployment |
 
@@ -488,7 +490,7 @@ Stated so that nothing above is read as running.
 |---|---|---|
 | Any production environment | No Hetzner, Cloudflare zone, Neon or R2 account; no tokens; migrations never run on real Postgres; images never pulled by a VM | `docs/60` §11 items 1–3, 9; `docs/40` §2.6, §3 |
 | **Nightly M-11 audit** | **In build 2026-09-26** by another lane; `docs/40` §4 row 11 still reads "not located". Until it runs, M-11 = 0 is proven by tests on fixtures, not observed on production data | `docs/04` R-4; `docs/15` R-06 |
-| Alerts to a human on failing sources, DQ holds, 5xx, backup age, cost 80 % | No Grafana Cloud or Sentry account; logs not shipped; the `source_run` data exists, the delivery channel does not | `docs/60` §7, §11 item 7 |
+| Alerts to a human on failing sources, DQ holds, 5xx, database down, backup age, cost 80 % | No uptime check, Grafana Cloud or Sentry account; logs not shipped. The signals exist (2026-10-10): `/v1/health` is 503 with the database down and reports `queue_age_seconds`; stalled and failed jobs and stale sources log at WARNING/ERROR; `SENTRY_DSN` is read when set. The delivery channel does not exist | `docs/60` §7, §11 item 7; `docs/64` §2 items 6–7 |
 | Restore, rollback, secret rotation, deploy | Never executed; no environment to execute in | `docs/60` §10 |
 | Supervision Routine that drafts fixture and parser fixes on a red nightly run | Does not exist; a human does it | `docs/03` §1; `connectors-nightly.yml` header |
 | Model cost log (US-909), extraction, adjudication, the county-permit pilot's US$2 kill criterion | `services/modelgw` does not exist; `model_call` has no writer | `docs/60` §11 item 5; `docs/15` R-16 |
@@ -499,7 +501,7 @@ Stated so that nothing above is read as running.
 | LinkedIn via API | Self-serve API terms prohibit automated posting; MDP application not submitted; bridge scheduler until approval | `docs/13-legal-outreach-and-social.md` §5.1; `docs/32` §1.4 |
 | Paid tiers, checkout, revenue | Inactive by design while `PLATFORM_POSTURE=noncommercial` (`.env.example` default since 2026-09-26; code default stays `commercial`) | `docs/26` §3(i), §6 |
 | PJM, MISO, SPP, ISO-NE on any tier | `restricted`/`unknown`; owner legal actions open (§5.1) | `docs/13` §6; `docs/40` §1 |
-| External uptime monitoring, status page | Not set up | `docs/60` §7 |
+| External uptime monitoring, status page | Not set up. The uptime check is the only thing that would turn the API's 503 into an alert, because Docker does not restart an unhealthy container (2026-10-10) | `docs/60` §7; `docs/64` §2 item 6 |
 | Preview-per-PR | CI job is a stub behind `PREVIEW_DEPLOY_TOKEN` | `docs/60` §11 item 6 |
 
 ## 9. Assumptions
@@ -524,4 +526,5 @@ Stated so that nothing above is read as running.
 | 2026-10-07 | §5.2 and §7.2: the gridstatus decision is done (three parsers vendored, dependency dropped, no `pip-audit` or image-scan ignores left); the weekly gridstatus release check is retired |
 | 2026-10-07 | §4.1: a hold stays held across identical refetches until released; `make reparse` runbook with the measured restatement; catch-up clamp dates; hourly opportunity deadline sweep. §4.2: `partial` covers held refetches (audit DATA-1, DATA-2, DATA-14; RES-1) |
 | 2026-10-10 | §2.4, §5.2, §7.3 item 8, §8, §9: the DA-10 retention job is built (`retention_tick`, `services/retention`, `docs/60` §6.3); OP-5 resolved; OP-7 to OP-9 added |
+| 2026-10-10 | §2.3, §2.4, §8: `/v1/health` is 503 with the database down; Docker does not restart an unhealthy container (the liveness row said it did); stalled-job recovery and worker statement limits; a dump before every migration; the alerting and uptime rows say what exists and what the owner must create (`docs/60` §6.4, §7; `docs/64` §2) |
 | 2026-10-10 | §2.5 and §8: members delete their own account in-app (`DELETE /v1/me`, the operator's erasure); the open item narrows to cancelling a personal account's subscription by hand. Admin "revoke sessions" exists (`docs/26` §7) |

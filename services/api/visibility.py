@@ -83,6 +83,7 @@ from sqlalchemy.orm import Session, aliased, object_session
 
 from services.api.errors import not_found
 from services.db.models import (
+    NON_PUBLIC_EVENT_TYPES,
     REUSE_CLASSES,
     Asset,
     Event,
@@ -118,6 +119,9 @@ PUBLISHABLE_REUSE_CLASSES = publishable_reuse_classes(platform_posture())
 # so this module carries no coverage exclusion and docs/04 E-7's 100% gate measures all of it.
 if not set(PUBLISHABLE_REUSE_CLASSES) <= set(REUSE_CLASSES):
     raise RuntimeError("PUBLISHABLE_REUSE_CLASSES has drifted from services.db.models.REUSE_CLASSES")
+
+#: `services.db.models.NON_PUBLIC_EVENT_TYPES` as the ordered tuple an `IN` list binds.
+_NON_PUBLIC_EVENT_TYPES: tuple[str, ...] = tuple(sorted(NON_PUBLIC_EVENT_TYPES))
 
 #: `source_permits(source_id, t)` (docs/21 §5.4): the `source.publish_state` values each
 #: entitlement may read from. `public` stays exactly the source's own public surface flag (open
@@ -194,7 +198,13 @@ def event_visibility_filter(
     same `proposal_visibility_filter`/`opportunity_visibility_filter` the record endpoints use,
     correlated on `Event.subject_id`, so the two can never disagree. An event on any other
     subject type (`user` audit events from `services/api/admin_people.py`, or a subject type
-    added later) is invisible on every non-admin surface -- fail closed, not "Unknown"."""
+    added later) is invisible on every non-admin surface -- fail closed, not "Unknown".
+
+    An event whose type is in `NON_PUBLIC_EVENT_TYPES` (`removed_from_source`: a row that left its
+    source's file, which is not a withdrawal; docs/51 §2.7 item 1) is invisible on every tier by
+    name, beside the NULL `public_at`/`published_at` it is written with, so neither a later backfill
+    of those columns nor a takedown reversal can surface it. Every list, detail, feed, alert and
+    webhook read goes through this function, so the one clause covers them all."""
     now = now or dt.datetime.now(dt.UTC)
     timing = (
         [Event.public_at.is_not(None), Event.public_at <= now]
@@ -221,6 +231,7 @@ def event_visibility_filter(
     )
     return [
         *timing,
+        Event.event_type.not_in(_NON_PUBLIC_EVENT_TYPES),
         subject_visible,
         exists(
             select(Licence.id).where(

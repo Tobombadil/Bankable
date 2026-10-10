@@ -32,7 +32,14 @@ from urllib.parse import urljoin
 import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, Kind, ParseError, PreviousSnapshot, RawSnapshot
+from pipeline.connectors.base import (
+    ConnectorError,
+    Kind,
+    ParseError,
+    PreviousSnapshot,
+    RawSnapshot,
+    RemovalMeaning,
+)
 from pipeline.connectors.canonical import normalize_eia
 from pipeline.connectors.http import HttpBlocked
 
@@ -58,6 +65,10 @@ class Connector(BaseConnector):
     kind: ClassVar[Kind] = "proposal"
     ext: ClassVar[str] = "xlsx"
     status_key: ClassVar[str] = "eia860m"
+    #: Not `completed`: a unit leaves the Planned sheet when it starts operating (docs/22 §3) *or*
+    #: when it moves to the workbook's "Canceled or Postponed" sheet (1,743 rows in August 2026,
+    #: docs/27 §R1.1), which this connector does not read, so the removal alone cannot say which.
+    removal_meaning: ClassVar[RemovalMeaning] = "unknown"
     #: Every column a diffed field, the identity or the placement reads (audit 2026-09-30 F5: a
     #: renamed `Planned Operation Year` used to publish 25 `cod_change` events to null).
     key_source_columns: ClassVar[tuple[str, ...]] = (

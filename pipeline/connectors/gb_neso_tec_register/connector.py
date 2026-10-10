@@ -3,10 +3,34 @@
 Fetch: CKAN `package_show` names the current CSV resource (renamed each publication, e.g.
 `tec-register-11-september-2026.csv`), which redirects to object storage.
 Parse: CSV with a UTF-8 BOM; 15 columns including "Project ID", "Project Number", "Stage".
-source_record_id: `<Project ID>/<Stage>` where the project is split into MW stages (144 projects
-have 2–5 stage rows with different effective dates), else `<Project ID>/<hash>` over the capacity,
-effective date and status of the row — one project (a0l4L0000005im7QAA, VPI Immingham) files a
-built row and an unstaged future increase under the same id, so the project id alone is not a key.
+source_record_id (2026-10-10, review docs/51 §2.7 item 2): built only from fields that do not move
+over a project's life, so a date slip or a status change is a `cod_change` or `status_change` on
+the same record, never a `new` plus a `removed`.
+  - `<Project ID>` for a project with one row: 2,082 projects, 1,959 of them single-row, on the
+    2026-10-10 register. Until this change these rows were keyed `<Project ID>/<hash>` over
+    `MW Effective From`, `Project Status`, `MW Connected` and `MW Increase / Decrease`: exactly the
+    fields whose changes are the news.
+  - `<Project ID>/<Stage>` for a staged row (123 projects with 2-5 stages, 266 rows). The stage is
+    written as a number without trailing zeros (`stage_token`): the 2026-09-11 register wrote
+    `1.00`, the 2026-10-10 one writes `1`, and the format change must not re-key the stages.
+  - `<Project ID>#<n>` for an unstaged row of a project with several rows: n is the row's ordinal
+    among that project's unstaged rows in register order. This is the case the hash was added for:
+    on the 2026-09-11 register VPI Immingham (a0l4L0000005im7QAA) filed a built row and an
+    unstaged +50 MW increase under one id; by 2026-10-10 NESO had staged them (stages 2 and 3), and
+    no project has an unstaged row beside another row. The ordinal depends on nothing that changes;
+    `#n` is the suffix `pipeline/connectors/dedupe.py::align_previous_keys` already matches by
+    content, so a project growing from one unstaged row to several keeps its original row's
+    identity when that row's name, customer, technology, capacity and site are unchanged. Going
+    from unstaged to staged rows (as Immingham did) is a re-key the diff reports as removed + new.
+    If NESO ever reordered two such rows, the diff would report field changes on both rather than
+    a new and a removed record.
+  The key change is a declared parser change (`parser_version` 2.0.0): the next run, or
+  `make reparse`, restates the stored frame under the new keys and emits no events for it
+  (`pipeline/connectors/runner.py`, "A parser change is a restatement, not news").
+proposed_cod: `MW Effective From`, which NESO writes day-first (`31/10/2034`; ISO `2034-10-31` on
+the 2026-09-11 register). `effective_date` reads exactly those two shapes and never guesses: the
+shared `to_date` read `01/07/2033` month-first as 7 January, wrong on 182 of 1,857 dated rows of
+the 2026-10-10 register (every row whose day is 12 or less and differs from its month).
 capacity_mw: the row's own MW, `MW Connected` + `MW Increase / Decrease` (`stage_capacity_mw`). The
 register's `Cumulative Total Capacity (MW)` is the project's running total up to that row, so using
 it on every stage counted earlier stages again: on the 2026-09-13 register the 267 rows of the 123
@@ -28,7 +52,9 @@ import datetime as dt
 import io
 import json
 import pathlib
+import re
 import time
+from collections import Counter
 from typing import Any, ClassVar
 
 import pandas as pd
@@ -40,7 +66,6 @@ from pipeline.connectors.canonical import (
     harmonise_status,
     norm_name,
     norm_org,
-    to_date,
     to_float,
 )
 
@@ -51,6 +76,8 @@ DATASET_PAGE = "https://www.neso.energy/data-portal/transmission-entry-capacity-
 class Connector(BaseConnector):
     source_id: ClassVar[str] = "gb.neso.tec_register"
     kind: ClassVar[Kind] = "proposal"
+    #: 2.0.0 (2026-10-10): change-independent record keys and day-first effective dates.
+    parser_version: ClassVar[str] = "2.0.0"
     ext: ClassVar[str] = "csv"
     honour_robots: ClassVar[bool] = False  # CKAN API + signed object-storage URL
     status_key: ClassVar[str] = "neso_tec"
@@ -131,15 +158,10 @@ class Connector(BaseConnector):
         harmonised = [
             harmonise_status(self.status_key, {"status_raw": s}, self.status_map) for s in g("Project Status")
         ]
-        stage = [str(s or "").strip() for s in g("Stage")]
-        srid = [
-            f"{pid}/{st}" if st else f"{pid}/{_row_hash(r)}"
-            for pid, st, r in zip(g("Project ID"), stage, rows, strict=True)
-        ]
         cap = [stage_capacity_mw(r) for r in rows]
         df = pd.DataFrame(
             {
-                "source_record_id": srid,
+                "source_record_id": record_keys(rows),
                 "source_url": DATASET_PAGE,
                 "kind": [k for _, k in tech],
                 "name_canonical": g("Project Name"),
@@ -159,7 +181,7 @@ class Connector(BaseConnector):
                 "status_rule": [r for _, r in harmonised],
                 "status_conflict": False,
                 "queue_date": pd.NaT,
-                "proposed_cod": [to_date(v) for v in g("MW Effective From")],
+                "proposed_cod": [effective_date(v) for v in g("MW Effective From")],
                 "queue_id": g("Project Number"),
                 "eia_plant_id": None,
                 "eia_generator_id": None,
@@ -194,11 +216,56 @@ def _raw_row(value: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _row_hash(row: dict[str, Any]) -> str:
-    """Identity for an unstaged row: its capacity, effective date and status."""
-    return content_hash(
-        row.get("MW Effective From"),
-        row.get("Project Status"),
-        row.get("MW Connected"),
-        row.get("MW Increase / Decrease"),
-    )
+_DAY_FIRST = re.compile(r"^(?P<d>\d{1,2})/(?P<m>\d{1,2})/(?P<y>\d{4})$")
+_ISO_DATE = re.compile(r"^(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})(?:[T ].*)?$")
+
+
+def effective_date(value: Any) -> pd.Timestamp:
+    """`MW Effective From` as a date: `DD/MM/YYYY` (the register's form since October 2026) or
+    ISO `YYYY-MM-DD` (its form before). Anything else, an impossible date included, is NaT:
+    a slash date is never read month-first (module docstring)."""
+    text = str(value or "").strip()
+    m = _DAY_FIRST.match(text) or _ISO_DATE.match(text)
+    if m is None:
+        return pd.NaT
+    try:
+        return pd.Timestamp(dt.date(int(m.group("y")), int(m.group("m")), int(m.group("d"))))
+    except ValueError:
+        return pd.NaT
+
+
+def stage_token(value: Any) -> str:
+    """The `Stage` cell as a key part: `1.00` and `1` are both `1`; blank is ''."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    return str(int(number)) if number.is_integer() else f"{number:g}"
+
+
+def record_keys(rows: list[dict[str, Any]]) -> list[str]:
+    """`source_record_id` for every row, in row order (module docstring): the project id alone
+    for a single-row project, `/<stage>` for a staged row, `#<n>` for the n-th unstaged row of a
+    project with several rows. A row without a project id (none so far) is keyed on its name,
+    customer and connection site, which a status or date change does not touch."""
+    ids = [str(r.get("Project ID") or "").strip() for r in rows]
+    ids = [
+        pid or "noid-" + content_hash(r.get("Project Name"), r.get("Customer Name"), r.get("Connection Site"))
+        for pid, r in zip(ids, rows, strict=True)
+    ]
+    rows_per_project = Counter(ids)
+    unstaged_seen: Counter[str] = Counter()
+    keys: list[str] = []
+    for pid, row in zip(ids, rows, strict=True):
+        stage = stage_token(row.get("Stage"))
+        if stage:
+            keys.append(f"{pid}/{stage}")
+        elif rows_per_project[pid] == 1:
+            keys.append(pid)
+        else:
+            unstaged_seen[pid] += 1
+            keys.append(f"{pid}#{unstaged_seen[pid]}")
+    return keys

@@ -18,7 +18,7 @@ from typing import Any, ClassVar
 import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
-from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot
+from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, RemovalMeaning
 from pipeline.connectors.iso_queue import normalize_iso_rows, queue_rows, restate_iso_status
 
 DOC_LIST = "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"
@@ -39,6 +39,11 @@ class Connector(BaseConnector):
     ext: ClassVar[str] = "xlsx"
     honour_robots: ClassVar[bool] = False  # MIS servlets are an API, not a crawlable site
     status_key: ClassVar[str] = "ercot"
+    #: Not `withdrawn`, though docs/22 §8 reads an ERCOT removal as the withdrawal signal: the
+    #: report's own notes say it "Excludes projects that have a status of Inactive (status = INA)",
+    #: and a developer may split a project into new INR numbers, so a row also leaves when the
+    #: project goes inactive or is re-numbered (the NOTES block of tests/fixtures/ercot_gis_report.xlsx).
+    removal_meaning: ClassVar[RemovalMeaning] = "unknown"
     key_source_columns: ClassVar[tuple[str, ...]] = (
         "Queue ID",
         "Project Name",

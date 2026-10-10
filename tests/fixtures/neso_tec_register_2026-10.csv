@@ -1,0 +1,23 @@
+﻿Project Name,Customer Name,Connection Site,Stage,MW Connected,MW Increase / Decrease,Cumulative Total Capacity (MW),MW Effective From,Project Status,Agreement Type,HOST TO,Plant Type,Project ID,Project Number,Gate
+012 NEP Coventry West,NEW ENERGY PARTNERSHIP LIMITED,Berkswell GSP,,0,92.4,92.4,31/10/2034,Scoping,Embedded,NGET,Energy Storage System,a0l8e000000f3zXAAQ,PRO-003804,
+014 NEP Bransholme,NEW ENERGY PARTNERSHIP LIMITED,North Humber Connection Node C 132kV Substation,,0,40,40,30/10/2035,Scoping,Embedded,NGET,Energy Storage System,a0l8e000001HntMAAS,PRO-004043,
+Abedare,UK POWER RESERVE LIMITED,Upperboat 132kV Substation,,10,0,10,,Built,Embedded,NGET,CCGT (Combined Cycle Gas Turbine),a0l4L0000005iWRQAY,PRO-000001,
+Aberdeen Offshore Wind Farm,ABERDEEN OFFSHORE WIND FARM LIMITED,Aberdeen Bay 132kV Substation,,95.5,0,95.5,,Built,Direct Connection,SHET,Wind Offshore,a0l4L0000005itBQAQ,PRO-000002,
+Afan Wind Farm and BESS,TRYDAN GWYRDD CYMRU (Welsh Government) Ltd,SOUTH WALES WEST CONNECTION NODE A 132KV SUBSTATION,,0,150,150,06/12/2036,Scoping,Embedded,NGET,Energy Storage System;Wind Onshore,a0l8e0000012i2aAAA,PRO-004588,
+AGS Calderside Battery Energy Storage System,Advance Grid Solutions Limited,AGS CALDERSIDE 275KV  SUBSTATION,1,0,300,300,31/10/2029,Scoping,Direct Connection,SPT,Energy Storage System,a0l8e0000010wexAAA,PRO-002752-1,1
+AGS Calderside Battery Energy Storage System,Advance Grid Solutions Limited,AGS CALDERSIDE 275KV  SUBSTATION,2,0,200,500,31/10/2033,Scoping,Direct Connection,SPT,Energy Storage System,a0l8e0000010wexAAA,PRO-002752-2,1
+Alcemi Armadale BESS,ALCEMI STORAGE DEVELOPMENTS 8 LTD,Whitburn 400kV substation,,0,280,280,06/10/2030,Scoping,Direct Connection,SPT,Energy Storage System,a0l8e000000f7gRAAQ,PRO-004011,1
+Arecleoch,SCOTTISHPOWER RENEWABLES (UK) LIMITED,Arecleoch 132/33kV,1,114,0,114,,Built,Direct Connection,SPT,Wind Onshore,a0l4L0000005itIQAQ,PRO-000012-1,
+Arecleoch,SCOTTISHPOWER RENEWABLES (UK) LIMITED,Arecleoch 132/33kV,2,0,216,330,15/06/2032,Scoping,Direct Connection,SPT,Wind Onshore,a0l4L0000005itIQAQ,PRO-000012-2,
+Awel Y Mor,AWEL Y MOR OFFSHORE WIND FARM LIMITED,Bodelwyddan 400kV Substation,,0,1100,1100,01/03/2030,Scoping,Direct Connection,NGET,Wind Offshore,a0l4L0000005ipBQAQ,PRO-000529,
+Banc y Celyn Energy Park,Wind 2 Project 2 Limited,Future Swansea North 132kV,,0,165,165,01/07/2033,Scoping,Direct Connection,NGET,Energy Storage System;PV Array (Photo Voltaic/solar);Wind Onshore,a0l4L0000005ia8QAA,PRO-002011,
+Benthead Solar,BENTHEAD SOLAR LIMITED,Kilwinning 132/33kV,,0,63,63,03/04/2025,Consents Approved,Embedded,SPT,Energy Storage System;PV Array (Photo Voltaic/solar),a0l4L0000005iQPQAY,PRO-001881,2
+BESS Cilfynydd,REWE 2 LIMITED,Cilfynydd 400kV Substation,,0,200,200,12/07/2029,Scoping,Direct Connection,NGET,Energy Storage System,a0l4L0000005iz1QAA,PRO-002008,
+Cruachan U3&4 Replacement,DRAX PUMPED STORAGE LIMITED,Cruachan 275kV Substation,2,0,40,480,04/04/2029,Consents Approved,Direct Connection,SPT,Pump Storage,a0l4L0000005inkQAA,PRO-000113-2,2
+Immingham,VPI IMMINGHAM LLP,Humber Refinery 400kV Substation,2,0,1268,1268,,Built,Direct Connection,NGET,Energy Storage System;Gas Reciprocating,a0l4L0000005im7QAA,PRO-000053-2,
+Immingham,VPI IMMINGHAM LLP,Humber Refinery 400kV Substation,3,1268,50,1318,01/07/2027,Scoping,Direct Connection,NGET,Energy Storage System;Gas Reciprocating,a0l4L0000005im7QAA,PRO-000053-3,1
+MeyGen Tidal,Meygrid Limited,Gills Bay GSP,1,0,28,28,01/04/2027,Consents Approved,Direct Connection,SHET,Energy Storage System;Tidal,a0l4L0000005isuQAA,PRO-000336-1,
+MeyGen Tidal,Meygrid Limited,Gills Bay GSP,2,0,43,71,01/04/2028,Consents Approved,Direct Connection,SHET,Energy Storage System;Tidal,a0l4L0000005isuQAA,PRO-000336-2,
+MeyGen Tidal,Meygrid Limited,Gills Bay GSP,3,0,83,154,01/04/2028,Awaiting Consents,Direct Connection,SHET,Energy Storage System;Tidal,a0l4L0000005isuQAA,PRO-000336-3,
+MeyGen Tidal,Meygrid Limited,Gills Bay GSP,4,0,83,237,01/04/2028,Awaiting Consents,Direct Connection,SHET,Energy Storage System;Tidal,a0l4L0000005isuQAA,PRO-000336-4,
+MeyGen Tidal,Meygrid Limited,Gills Bay GSP,5,0,50,287,31/10/2030,Scoping,Direct Connection,SHET,Energy Storage System;Tidal,a0l4L0000005isuQAA,PRO-000336-5,

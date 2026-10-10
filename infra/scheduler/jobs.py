@@ -45,9 +45,42 @@ def _load_fn(module_path: str, attr: str) -> Callable[..., Any]:
     return getattr(module, attr)  # type: ignore[no-any-return]
 
 
+#: Session limits on the worker's engine, never the API's (docs/51 §2.4 item 3, 2026-10-10). Before,
+#: no statement or lock wait in a job had any bound, so a statement stuck behind a lock, or a thread
+#: `_run_with_timeout` abandoned while in a statement (infra/scheduler/app.py), ran on indefinitely.
+#: The values sit above the longest legitimate work measured, on the rehearsal store (docs/64 §4;
+#: procrastinate_events, 2026-10-10): `context_load` 190.5 s in ONE transaction, the longest
+#: database job, which bounds every statement in it; then resolve 43.3 s, a load 23.6 s. Statement
+#: durations themselves were not measured (no pg_stat_statements there).
+#: - `statement_timeout` 10 min: over 3x that bound, so a grown store keeps headroom.
+#: - `lock_timeout` 5 min: a worker statement waits on another transaction's locks, at worst a
+#:   `context_load` writing organisations a load also inserts (190.5 s); 5 minutes clears it by
+#:   half again, and still ends a wait on a transaction someone left open.
+#: Either one raises `QueryCanceled`/`LockNotAvailable`, both `OperationalError`s: `load_source` and
+#: `context_load` retry those (`LOAD_RETRY`), every other job waits for its next tick. Migrations
+#: run in the api image with their own engine and are not limited. Sent as the libpq `options`
+#: startup parameter, which a transaction-mode pooler (PgBouncer, a provider's pooled endpoint)
+#: refuses at connect: point the worker at a direct endpoint, or move these to `SET LOCAL` in a
+#: session `after_begin` event, before using one.
+WORKER_STATEMENT_TIMEOUT_MS = 600_000
+WORKER_LOCK_TIMEOUT_MS = 300_000
+
+
+def worker_connect_args(url: str | None) -> dict[str, object]:
+    """The worker engine's connect arguments: the two session limits above on Postgres, nothing on
+    SQLite (the dev/test store, which has neither setting)."""
+    from sqlalchemy.engine import make_url
+
+    if not url or make_url(url).get_backend_name() != "postgresql":
+        return {}
+    statement = f"-c statement_timeout={WORKER_STATEMENT_TIMEOUT_MS}"
+    return {"options": f"{statement} -c lock_timeout={WORKER_LOCK_TIMEOUT_MS}"}
+
+
 @functools.lru_cache(maxsize=1)
 def build_session_factory() -> Any:
-    """Build (and cache) a SQLAlchemy sessionmaker bound to `DATABASE_URL`.
+    """Build (and cache) a SQLAlchemy sessionmaker bound to `DATABASE_URL`, with the worker's
+    session limits (`worker_connect_args`).
 
     `services.db.session.get_engine` already implements the "`DATABASE_URL` from the environment,
     fall back to in-memory SQLite" convention (CLAUDE.md: config from environment only) — this
@@ -56,7 +89,8 @@ def build_session_factory() -> Any:
     """
     from services.db.session import get_engine, get_sessionmaker
 
-    engine = get_engine(os.environ.get("DATABASE_URL"))
+    url = os.environ.get("DATABASE_URL")
+    engine = get_engine(url, connect_args=worker_connect_args(url))
     return get_sessionmaker(engine)
 
 
@@ -156,17 +190,42 @@ class SourcesStale(RuntimeError):
 
 
 def freshness_tick_job(
-    _session_factory: Any = None, *, now: dt.datetime | None = None, raise_on_stale: bool = True
+    _session_factory: Any = None,
+    *,
+    now: dt.datetime | None = None,
+    raise_on_stale: bool = True,
+    _store: Any = None,
 ) -> dict[str, Any]:
     """Body of the `freshness_tick` task: assess every implemented source row against its poll
     allowance (`freshness.assess_source`), log one warning per stale or never-run source, return
     the counts and, when any source alerts, raise `SourcesStale`. Paused and unscheduled sources
-    never alert. Reads only; health stays the failure counter it is (`_update_health`)."""
+    never alert. Reads only; health stays the failure counter it is (`_update_health`).
+
+    For the sources whose run records name their release (`RUN_RECORD_VINTAGE_SOURCES`), the
+    release held is read from the connector store (`freshness.held_vintage`), so a source still
+    polled on time but serving an old release reads `stale` (`freshness.assess`). A store that
+    cannot be read leaves that source judged on its poll alone, with a warning."""
     from sqlalchemy import select
 
-    from infra.scheduler.freshness import assess_source
+    from infra.scheduler.freshness import assess_source, held_vintage
     from services.db.models import Source
     from services.db.session import session_scope
+    from services.ingest.vintage import RUN_RECORD_VINTAGE_SOURCES
+
+    def _vintage(source_id: str) -> str | None:
+        if source_id not in RUN_RECORD_VINTAGE_SOURCES:
+            return None
+        try:
+            if _store is not None:
+                store = _store
+            else:
+                from pipeline.connectors.store import open_store
+
+                store = open_store()
+            return held_vintage(store.runs(source_id)).value
+        except Exception:  # a store read failure must not hide the poll check
+            logger.warning("freshness_tick: run records unreadable for %s", source_id, exc_info=True)
+            return None
 
     factory = _session_factory if _session_factory is not None else build_session_factory()
     at = now or _utcnow()
@@ -174,7 +233,7 @@ def freshness_tick_job(
     alerting: list[dict[str, Any]] = []
     with session_scope(factory) as session:
         for source in session.scalars(select(Source).where(Source.implemented.is_(True)).order_by(Source.id)):
-            fr = assess_source(source, at)
+            fr = assess_source(source, at, vintage=_vintage(source.id))
             counts[fr.status] = counts.get(fr.status, 0) + 1
             if fr.alert:
                 entry = {"source_id": source.id, **fr.to_dict()}

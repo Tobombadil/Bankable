@@ -43,6 +43,9 @@ services:
       SITE_ACCESS: ${SITE_ACCESS:-open}
       SITE_ACCESS_USER: ${SITE_ACCESS_USER:-}
       SITE_ACCESS_HASH: ${SITE_ACCESS_HASH:-}
+      # The basemap file, a source in the Caddyfile's Content-Security-Policy-Report-Only (`web`
+      # refuses to render without it, so it is never empty in a deploy).
+      MAP_TILE_URL: ${MAP_TILE_URL:-}
     networks:
       default:
         # Fixed, outside the dynamic range below, because api and web believe X-Forwarded-For from
