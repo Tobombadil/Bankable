@@ -1910,7 +1910,9 @@ class Suppression(Base):
     salted hash of the address, never the address: `services.api.audit.hash_identifier` (SHA-256
     over a server-side pepper), so the table is a membership test, not a mailing list. Checked
     by `services/alerts/suppression.py` before any digest is sent and consulted by anything that
-    would draft to an address. Rows are never deleted by application code."""
+    would draft to an address. Rows are never deleted by application code, with one exception: a
+    fresh sign-up whose verification link proves the address lifts its `erasure` row
+    (`services/alerts/suppression.py::lift_on_verified_sign_up`; owner decision 2026-10-10)."""
 
     __tablename__ = "suppression"
 

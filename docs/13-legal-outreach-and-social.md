@@ -701,6 +701,10 @@ owner, and a dated entry in the `00-PLAN.md` decisions log. Nothing else counts.
   timestamp, source of the request (link click, reply text, DSAR), and the message id that triggered it.
 - Suppression is **permanent** and **survives re-ingestion and CRM re-imports**: every list load runs against
   the store before it can be used; the CRM cannot mark a suppressed contact as contactable.
+- One exception (owner decision, 2026-10-10): the `erasure` entry a member's own account deletion leaves is
+  lifted when the same person signs up again and confirms the address from the verification link
+  (`services/alerts/suppression.py::lift_on_verified_sign_up`), so the new account gets the alerts it asks for.
+  Registration alone lifts nothing, and every reason listed above stays permanent. The privacy notice says so.
 - Domain-level suppression exists for corporate opt-outs (PECR "do not email" list) and for domains that
   object (ERCOT §8-type obligations).
 - A person who objects on one channel is suppressed on all channels for marketing; transactional messages

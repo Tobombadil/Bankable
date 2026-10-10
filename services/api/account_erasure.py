@@ -26,7 +26,9 @@ procedure is docs/21 §6.6 as far as the code reaches today, with the 2026-09-19
 - `subscription`: the mirror is untouched (only the billing provider's webhook writes it). A
   `personal` account's live subscriptions are cancelled through the billing port when it offers
   `cancel_subscription`, else recorded `cancellation_pending` for a human.
-- `suppression`: a `(hash(email), erasure)` row is added, so the address is never written to again.
+- `suppression`: a `(hash(email), erasure)` row is added, so the address is never written to again,
+  unless a fresh sign-up later proves the address by its verification link, which lifts that row
+  (`services/alerts/suppression.py::lift_on_verified_sign_up`; owner decision 2026-10-10).
 - `event`: a `personal_data_redacted` event is added; `before` holds peppered hashes of the email and
   name, never the values.
 - `export`, `match_dismissal`: unchanged; they hold no personal data and point at the now-anonymous
