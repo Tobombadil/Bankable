@@ -34,7 +34,13 @@ from web.page import (
     templates,
     unavailable_response,
 )
-from web.viewmodels import iso_label, lifecycle_family, provenance_panel_rows, web_relative_url
+from web.viewmodels import (
+    delisted_phrase,
+    iso_label,
+    lifecycle_family,
+    provenance_panel_rows,
+    web_relative_url,
+)
 
 router = APIRouter()
 
@@ -111,6 +117,9 @@ def change_label(event: Mapping[str, Any]) -> str:
     after = _state_words((event.get("after") or {}).get("lifecycle_state"))
     if event_type == "created":
         return "Entered the queue here" + (f" as {after}" if after else "")
+    if event_type == "delisted":
+        # A project that left its register's report; it frees queue space here (docs/21 §7.3).
+        return delisted_phrase(event)
     if event_type == "status_change":
         if before and after:
             return f"Status changed from {before} to {after}"

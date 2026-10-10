@@ -6,7 +6,9 @@ reached the feed, alerts, webhooks and social drafts as a withdrawal or a cancel
 connector class declares what a removal means at its source (`Connector.removal_meaning`), the loader
 reads it the way it reads `kind`, and only a declared `withdrawn` is published; everything else is a
 `removed_from_source` event that no public or paid surface serves
-(`tests/test_removed_from_source_is_never_published.py` walks every surface).
+(`tests/test_removed_from_source_is_never_published.py` walks every surface). The four queues whose
+connectors announce removals (owner decision 2026-10-10) publish the `delisted` event instead; that
+path is `services/ingest/test_loader_delisted.py`.
 """
 
 from __future__ import annotations
@@ -321,8 +323,11 @@ def _write_ercot_runs(root: pathlib.Path) -> str:
 def test_load_from_files_uses_the_connector_declaration(
     tmp_path: pathlib.Path, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """ERCOT with its announcement switched off stands for every connector that does not announce
+    removals (EIA-860M's real declaration is loaded in `test_loader_delisted.py`)."""
     _write_ercot_runs(tmp_path)
     registry = Registry()
+    monkeypatch.setattr(registry.connector_class(ERCOT), "announce_removals", False)
     loader.load_from_files(session, ERCOT, TS1, data_root=tmp_path, registry=registry)
     loader.load_from_files(session, ERCOT, TS2, data_root=tmp_path, registry=registry)
     session.flush()
@@ -334,6 +339,7 @@ def test_load_from_files_uses_the_connector_declaration(
 def test_load_from_files_publishes_withdrawn_only_for_a_declared_withdrawal(
     tmp_path: pathlib.Path, session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A declared `withdrawn` wins over the announcement ERCOT also declares."""
     _write_ercot_runs(tmp_path)
     registry = Registry()
     monkeypatch.setattr(registry.connector_class(ERCOT), "removal_meaning", "withdrawn")

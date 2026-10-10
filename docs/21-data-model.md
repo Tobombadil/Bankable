@@ -374,8 +374,13 @@ polymorphic table because they carry different normalised projections and are in
 ### 3.4 `opportunity_source`
 
 Identical to §3.2 with `opportunity_id uuid NOT NULL` in place of `proposal_id`. Same provenance quartet, same
-`raw` gating, same `active`/`gone_at` semantics. A closed RFP disappearing from an issuer page sets `gone_at` and
-produces a `closed` event only after the DQ partial-file check passes (`docs/20` §12).
+`raw` gating, same `active`/`gone_at` semantics. A notice that disappears from its source's file sets `gone_at` and
+is stored as the non-public `removed_from_source` event carrying the meaning its connector declares (grants.gov
+declares `closed`, §7.3); no `closed` event is written for a disappearance, and the status is not inferred from it.
+A notice is served `closed` once its deadline passes, by the deadline sweep, which writes no event
+(`services/ingest/opportunity_status.py`); the source's next run that still lists it emits the `status_change`
+`open → closed`. Neither event is written until the run that observed it clears its DQ gates, the churn gate
+included (`docs/20` §12; `pipeline/connectors/dq.py`).
 
 ### 3.5 `organization`
 
@@ -1576,7 +1581,7 @@ stateDiagram-v2
   under_construction --> built: in service / commercial operation
   contracted --> built: in service observed without a construction signal
   under_construction --> cancelled: abandoned during construction
-  filed --> withdrawn: request withdrawn or row disappears from the register
+  filed --> withdrawn: the source states the request was withdrawn
   studied --> withdrawn
   permitted --> withdrawn
   contracted --> withdrawn
@@ -1592,9 +1597,10 @@ stateDiagram-v2
 ```
 
 Rules: the state is always the `after` value of the latest `status_change` event, or `unknown` (US-202 AC3, with
-a nightly consistency check). Backward transitions are legal and common — a re-entered queue position is a
-`filed` event, not a data error. Terminal states are absorbing only for the purpose of alerting; a later event
-reopens them.
+a nightly consistency check). A row that disappears from its register moves no state: it is the `delisted` or
+`removed_from_source` event of §7.3, and the record keeps the state its source last stated. Backward transitions
+are legal and common — a re-entered queue position is a `filed` event, not a data error. Terminal states are
+absorbing only for the purpose of alerting; a later event reopens them.
 
 ### 7.2 Opportunity lifecycle
 
@@ -1634,6 +1640,7 @@ terminal state for the many notices that never publish an award (`docs/02` §4 n
 | Matching | `match_added`, `match_removed`, `lead_created` |
 | Publication | `published`, `unpublished`, `gate_cleared`, `licence_reclassified` |
 | Operational | `source_health_changed`, `admin_edit`, `personal_data_redacted`, `key_issued`, `key_revoked` |
+| Register (public, alertable, never drafted for social) | `delisted` |
 | Register (never public) | `removed_from_source` |
 
 **`removed_from_source` (2026-10-10, `docs/51` §2.7 item 1).** A `removed` diff row says only that a record is no
@@ -1642,14 +1649,41 @@ grants.gov notices leave the open-notice search when they close, ERCOT's GIS rep
 inactive or are re-numbered, and a re-keyed NESO row reads as one removal plus one new row. Each source's connector
 declares what a removal means there (`Connector.removal_meaning`: `withdrawn`, `completed`, `closed`, or `unknown`,
 the default). The loader writes a removal as a public `withdrawn` event only for a declared `withdrawn`, and no
-source declares it today. Every other removal is a `removed_from_source` event: `after = {"removal_meaning": ...}`,
-a `reason`, the provenance quartet, and NULL `published_at`/`public_at`. The event predicate (§5.4;
+source declares it today. The four queues that announce removals write `delisted` (below). Every other removal is
+a `removed_from_source` event: `after = {"removal_meaning": ...}`, a `reason`, the provenance quartet, and NULL
+`published_at`/`public_at`. The event predicate (§5.4;
 `services/api/visibility.py`) also excludes the type by name (`services.db.models.NON_PUBLIC_EVENT_TYPES`), so no
 event list, feed, alert, webhook or social draft serves it on any tier, even if its timestamps are later filled.
 Admin reads show it. The link's `gone_at` is still set, as before. A removal never changes the record's lifecycle
-state. This supersedes the "row disappears from the register" label on `filed --> withdrawn` in §7.1 and the
-"Also emitted when a row disappears" note in §7.4. No CHECK constraint lists event types, so the new type needed
-no migration.
+state. §7.1's `filed --> withdrawn` and §7.4's `Withdrawn` row no longer say that a disappearing row is a
+withdrawal (until 2026-10-10 they did). No CHECK constraint lists event types, so the new type needed no
+migration.
+
+**`delisted` (2026-10-10, owner decision).** For a full-register interconnection queue a departure is news a
+follower should hear, even though the register gives no reason. So a connector may also declare
+`Connector.announce_removals`, a publication choice kept separate from what a removal means: ERCOT, CAISO, NYISO and
+NESO declare it, each with the display name record pages print for it (`Connector.register_name`: `ERCOT`,
+`CAISO`, `NYISO`, `NESO`), and their `removal_meaning` stays `unknown`. The loader writes their removals as
+`delisted`: `published_at`/`public_at` set as for every public event; `after = {"source_id", "register_name",
+"reason": "not stated"}`; no `before` and no `changed_keys`, because nothing about the record changed but its presence
+in the file; and `reason` the sentence every surface prints, "No longer in ERCOT's report (reason not stated)"
+(`services.db.models.DELISTED_WORDING`). It never says "withdrawn": ERCOT's report also drops projects that go
+inactive or are re-numbered. A key that disappears while the same project is still in the current frame under
+another key is a re-key, not a departure (`Connector.project_root`: NESO's Project ID before `/<stage>` or `#<n>`,
+so VPI Immingham's unstaged rows becoming stages 2 and 3 are not announced; NYISO's queue position before its
+`#h…` content suffix; ERCOT and CAISO the key itself, because a split ERCOT project gets unrelated INRs and a CAISO
+letter suffix names a different project). The loader stores it as `removed_from_source` with
+`after.project_root` and a reason saying so. It flows wherever a public event flows: `GET /v1/events` and event
+detail (`headline` is "<record>: <sentence>"), `/v1/meta/vocabularies`, a record's history (the record page
+prints the sentence), "Recent changes at this point" (a departure frees queue space there), `/feeds/events.*`,
+the private saved-search feed (its items now say what changed, as the public feed does), alert evaluation (a
+followed record, a followed sponsor, any saved search) and webhooks (as `event.published`). It is kept out of
+social drafts by name (`services.db.models.NON_SOCIAL_EVENT_TYPES`, read by `services/social/db_events.py`), and
+the CRM lead-signal mapping has no entry for it. A source that states a meaning (`withdrawn`, `completed`, `closed`)
+is never announced as "reason not stated": `withdrawn` stays `withdrawn`, the others stay `removed_from_source`.
+EIA-860M does not announce: a unit leaving the Planned sheet may have started operating. `gone_at` and the
+lifecycle state behave exactly as for `removed_from_source`. A run that re-keys its register is held by the churn
+gate (`pipeline/connectors/dq.py`) before any event is written, so a re-key never announces a whole queue as gone.
 
 ### 7.4 Source status → lifecycle mapping
 
@@ -1660,7 +1694,7 @@ admin panel can show them. The seed for the ISO queues:
 |---|---|---|
 | `ACTIVE`, `Active`, `In Progress` | `filed`, promoted to `studied` when a study document or milestone field is present | Most queue rows sit here |
 | `COMPLETED`, `Completed`, `In Service` | `built` | gridstatus normalises the ISO variants |
-| `WITHDRAWN`, `Withdrawn` | `withdrawn` | Also emitted when a row disappears (`docs/20` §3.3) |
+| `WITHDRAWN`, `Withdrawn` | `withdrawn` | Only from a stated status. A row that disappears is not a withdrawal: it is `delisted` or `removed_from_source` (§7.3) and leaves the state as last stated |
 | `SUSPENDED`, `On Hold` | `filed` with `status_raw` preserved | No separate state; the raw value is shown |
 | blank / null | `unknown` | 216 SPP rows (`docs/01` §3.3); raises a DQ warning, not an error |
 | Anything unmapped | `unknown` + DQ vocabulary-drift warning | Never silently coerced |

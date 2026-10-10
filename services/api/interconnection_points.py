@@ -98,7 +98,9 @@ DETAIL_PROPOSAL_CAP = 500
 #: visible proposals that say something about the queue there -- a project entering it (`created`)
 #: and the proposal-lifecycle group of docs/21 §7.3 (the loader emits `status_change` and
 #: `withdrawn` today; the named lifecycle types are listed so a connector that emits them is shown
-#: without a code change). Field-level edits, matching and publication events are not queue news.
+#: without a code change), plus `delisted`, a project no longer in its register's report (reason
+#: not stated; docs/21 §7.3): a departure frees queue space at the point, which is what a reader of
+#: this panel looks for. Field-level edits, matching and publication events are not queue news.
 RECENT_CHANGE_EVENT_TYPES: tuple[str, ...] = (
     "created",
     "status_change",
@@ -109,6 +111,7 @@ RECENT_CHANGE_EVENT_TYPES: tuple[str, ...] = (
     "built",
     "withdrawn",
     "cancelled",
+    "delisted",
 )
 #: Rows in `recent_changes`, newest observation first.
 RECENT_CHANGES_LIMIT = 10

@@ -1554,7 +1554,8 @@ paths:
         The point, its `totals` at the caller's tier, and `proposals[]`: the visible proposals that connect at it,
         active first, then built, other and withdrawn, each by capacity (at most 500; `proposals_truncated` says
         when more exist, and `totals` always covers all of them). `recent_changes[]` is the newest ten change events
-        of those proposals (a project entering the queue here, its status changes, its withdrawal), in the `Event`
+        of those proposals (a project entering the queue here, its status changes, its withdrawal, its leaving the
+        register's report), in the `Event`
         shape and under the events endpoints' visibility rules. `404` for an unknown id and, identically, for a
         point with no visible proposal or whose register the tier may not see.
       x-tier: public
@@ -8373,9 +8374,16 @@ components:
       type: string
       description: >-
         docs/21 §7.3. Identity, proposal lifecycle, opportunity lifecycle, field-level, matching, publication,
-        operational and register groups. `removed_from_source` (a record that is no longer in its source's file,
-        which is not a withdrawal) is never returned by a public or Pro read, a feed or a webhook; admin reads
-        show it.
+        operational and register groups. `delisted` (2026-10-10): a record that is no longer in the report of a
+        full-register interconnection queue (ERCOT, CAISO, NYISO, NESO), and whose project is not listed there under
+        another key (a re-key is not a departure). The register states no reason, so it is
+        never a withdrawal and the record's `lifecycle_state` is unchanged; it reads "No longer in <register>'s
+        report (reason not stated)" (`reason`), and `after` is `{"source_id", "register_name", "reason":
+        "not stated"}` with no `before` and no `changed_keys`. It is public and alertable like any change event
+        (event lists, feeds, alerts, webhooks as `event.published`) and is never drafted as a social post.
+        `removed_from_source` (a record that is no longer in its source's file where no announcement applies,
+        such as EIA-860M, which is not a withdrawal) is never returned by a public or Pro read, a feed or a
+        webhook; admin reads show it.
       enum:
         - created
         - source_linked
@@ -8417,6 +8425,7 @@ components:
         - key_issued
         - key_revoked
         - removed_from_source
+        - delisted
     ActorType:
       type: string
       enum: [pipeline, model, user, system]
@@ -9750,7 +9759,11 @@ components:
           description: Admin audit views only.
         reason:
           type: [string, 'null']
-          description: Present on `actor_type = user` events.
+          description: >-
+            Why the event was written, in words, or null. Set on `actor_type = user` events, on resolver merges
+            (the rationale), and on the removal events: on `delisted` it is the sentence every surface prints
+            ("No longer in ERCOT's report (reason not stated)"); on `removed_from_source` (admin reads only) it
+            says why the removal is not published, including a re-key within the register.
         confidence:
           type: [number, 'null']
           minimum: 0
@@ -10921,8 +10934,9 @@ components:
                 "Recent changes at this point": the newest change events (newest `observed_at` first, `seq` breaking
                 ties) whose subject is one of the proposals the caller's tier may see at this point. Event types are
                 `created` (a project entered the queue here) and the proposal-lifecycle group of docs/21 §7.3
-                (`status_change`, `filed`, `studied`, `permitted`, `contracted`, `built`, `withdrawn`, `cancelled`);
-                field-level, matching and publication events are not listed. Each row is the stored event under the
+                (`status_change`, `filed`, `studied`, `permitted`, `contracted`, `built`, `withdrawn`, `cancelled`),
+                and `delisted` (no longer in the register's report, reason not stated); field-level, matching and
+                publication events are not listed. Each row is the stored event under the
                 same visibility rule as `GET /v1/events` (its own timing, source and licence, and its subject's
                 visibility), so no row names a proposal `proposals[]` withholds. `subject` names and links the
                 proposal; `provenance` is the event's own quartet. Empty when no such event is recorded. No new

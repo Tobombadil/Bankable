@@ -902,6 +902,7 @@ EVENT_TYPE_VALUES = [
     "personal_data_redacted",
     "key_issued",
     "key_revoked",
+    "delisted",
 ]
 ORGANIZATION_TYPE_VALUES = [
     "developer",

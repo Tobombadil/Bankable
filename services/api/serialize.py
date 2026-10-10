@@ -770,11 +770,19 @@ def _event_public_id(event: Event) -> str:
 
 
 def _headline(event: Event, subject_name: str) -> str:
+    from services.db.models import DELISTED_EVENT_TYPE, DELISTED_WORDING
+
     after = event.after or {}
     if event.event_type == "status_change" and "lifecycle_state" in after:
         return f"{subject_name}: {after['lifecycle_state']}"
     if event.event_type == "created":
         return f"New record: {subject_name}"
+    if event.event_type == DELISTED_EVENT_TYPE:
+        # The event's own sentence, "No longer in ERCOT's report (reason not stated)" (docs/21 §7.3),
+        # never the bare type, and never a withdrawal.
+        register = after.get("register_name") or (event.source.operator if event.source else None)
+        sentence = event.reason or DELISTED_WORDING.format(register=register or event.source_id)
+        return f"{subject_name}: {sentence}"
     return f"{subject_name}: {event.event_type}"
 
 
