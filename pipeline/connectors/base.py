@@ -37,6 +37,9 @@ from pipeline.connectors.registry import SourceEntry
 Kind = Literal["proposal", "opportunity", "document"]
 Egress = Literal["plain", "browser", "residential", "api_key"]
 SnapshotMode = Literal["full", "incremental"]
+#: What a row that disappears from a full-register source means there (`Connector.removal_meaning`).
+RemovalMeaning = Literal["withdrawn", "completed", "closed", "unknown"]
+REMOVAL_MEANINGS: tuple[RemovalMeaning, ...] = ("withdrawn", "completed", "closed", "unknown")
 
 PROVENANCE = ("source_id", "source_url", "retrieved_at", "licence_id")
 
@@ -351,6 +354,16 @@ class Connector:
     #: "incremental": the payload is a window (last N days); rows are upserted onto the previous
     #: normalised snapshot and disappearance means nothing.
     snapshot_mode: ClassVar[SnapshotMode] = "full"
+    #: What a `removed` diff event means at this source (2026-10-10, docs/51 §2.7 item 1). A row
+    #: that is no longer in the file is not by itself news: an EIA-860M unit leaves the Planned
+    #: sheet when it starts operating, a grants.gov notice leaves the search when it closes.
+    #: `withdrawn` only where the source itself says a row leaves because the request was withdrawn;
+    #: `completed` where it leaves only on reaching operation; `closed` where it leaves only when
+    #: the notice closes; `unknown` (the default) everywhere else. The loader publishes a removal
+    #: as `withdrawn` for the first value alone; every other removal is stored as a non-public
+    #: `removed_from_source` event carrying this value (`services/ingest/loader.py`). An
+    #: incremental source never emits `removed`, so the value is moot there.
+    removal_meaning: ClassVar[RemovalMeaning] = "unknown"
     #: key of this source in its status_map.yaml `sources:` block
     status_key: ClassVar[str] = ""
     #: per-connector status map (docs/04 DA-5); None = pipeline/status_map.yaml
@@ -484,6 +497,15 @@ class Connector:
 
     def redact(self, content: bytes) -> bytes:
         """Strip contact identifiers before the snapshot is stored; default: nothing to strip."""
+        return content
+
+    def canonical_content(self, content: bytes) -> bytes:
+        """What the unchanged short-circuit compares (runner step 2): the redacted payload without
+        the bytes that differ on every request while the data does not, such as a request echo
+        carrying the current time or a per-response token (review 2026-10-10 §2.7 item 6). Only
+        the comparison reads it: the stored snapshot keeps the redacted bytes. Must be a pure
+        function of `content`, and return `content` unchanged when it cannot read it, so an
+        unreadable payload is compared byte for byte. Default: the bytes themselves."""
         return content
 
     # ------------------------------------------------------------------ helpers

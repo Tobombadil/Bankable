@@ -43,6 +43,26 @@ variable "ssh_public_key" {
   type        = string
 }
 
+variable "ssh_source_cidrs" {
+  description = "Who may reach SSH (22) on every VM. Default: anyone, key auth only (the previous rule). Set it to the operator's address, e.g. [\"203.0.113.7/32\"] (plus a /64 for IPv6), once it is known: docs/20 §11 asks for SSH from the operator only. deploy.sh, rollback.sh and seed_single_host.sh all run over SSH from that address."
+  type        = list(string)
+  default     = ["0.0.0.0/0", "::/0"]
+  validation {
+    condition     = length(var.ssh_source_cidrs) > 0 && alltrue([for c in var.ssh_source_cidrs : can(cidrhost(c, 0))])
+    error_message = "ssh_source_cidrs must be one or more CIDRs, e.g. 203.0.113.7/32."
+  }
+}
+
+variable "web_source_cidrs" {
+  description = "Who may reach HTTP and HTTPS (80, 443) on the app VM. Default: anyone, which the site needs while visitors reach the VM directly. Once Cloudflare proxies the site (orange-cloud records in dns.tf), set [\"cloudflare\"]: that entry expands to Cloudflare's published edge ranges, read from the Caddyfile's trusted_proxies list (main.tf locals), so the origin answers the edge only. Then certificate issuance and any uptime probe must also come through Cloudflare (docs/60 §2). Other entries are CIDRs kept as given."
+  type        = list(string)
+  default     = ["0.0.0.0/0", "::/0"]
+  validation {
+    condition     = length(var.web_source_cidrs) > 0 && alltrue([for c in var.web_source_cidrs : c == "cloudflare" || can(cidrhost(c, 0))])
+    error_message = "web_source_cidrs entries must be CIDRs or the word \"cloudflare\"."
+  }
+}
+
 variable "app_server_type" {
   description = "Hetzner server type for the api+web VM. cx32 = 4 vCPU / 8 GB, matching docs/20 §14's app VM line."
   type        = string

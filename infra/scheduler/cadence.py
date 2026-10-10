@@ -34,6 +34,11 @@ Poll cadence (2026-10-07, audit 2026-09-30 F12). `cadence` in `data/sources.yaml
 FERC eLibrary is `realtime` upstream but polled `daily` (12 POSTs a run at 0.5 rps, 1,152 a day at
 the 15-minute floor, for a document feed that loads nothing yet), Find a Tender and grants.gov are
 polled `hourly`. `poll_cadence` is what the bucket, `is_due` and freshness (`freshness.py`) read.
+The override also runs the other way (2026-10-10, review docs/51 §2.7 item 4): ERCOT's GIS report
+is `monthly` but polled `daily`. ERCOT publishes it on the 1st at about 21:00 UTC, about 16 hours
+after the monthly tick (05:21 UTC on the 1st), so the 1st's run found last month's file unchanged
+and the new release waited a month. Asked daily, the release is fetched within a day, and the
+other days end `unchanged` at the unchanged short-circuit.
 """
 
 from __future__ import annotations
@@ -61,16 +66,18 @@ CRON_BY_BUCKET: dict[str, str] = {
 DEFAULT_ANNUAL_RUN_MONTH = 1
 
 # Ordered most-frequent-first: the first keyword found in the (lowercased) cadence string wins,
-# which is what gives "twice weekly" -> weekly rather than being missed entirely, and what makes a
-# compound string like "quarterly (scorecard); monthly (Generation Information)" resolve to the
-# more frequent "monthly" bucket rather than the first-mentioned "quarterly" one.
+# which is what makes a compound string like "quarterly (scorecard); monthly (Generation
+# Information)" resolve to the more frequent "monthly" bucket rather than the first-mentioned
+# "quarterly" one. "twice weekly" must precede the bare "weekly" it contains: a source that
+# publishes twice a week is polled daily (2026-10-10, NESO's TEC register), since the weekly bucket
+# left a mid-week release waiting up to six days for Monday's tick.
 _KEYWORD_BUCKET: tuple[tuple[str, str], ...] = (
     ("15-min", "15min"),
     ("realtime", "15min"),
     ("continuous", "15min"),
     ("hourly", "hourly"),
     ("daily", "daily"),
-    ("twice weekly", "weekly"),
+    ("twice weekly", "daily"),
     ("weekly", "weekly"),
     ("monthly", "monthly"),
     ("quarterly", "quarterly"),

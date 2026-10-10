@@ -28,6 +28,8 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
                               -> context_load         plants, retirements, asset layers, owners
     tick_deadline (hourly) -> deadline_tick           open opportunities past due_at -> closed
     tick_retention (daily) -> retention_tick          DA-10: old sessions, alert addresses, raw snapshots
+    tick_stalled_jobs (10 min) -> retry_stalled_jobs  jobs a dead worker left `doing` (queue_maintenance.py)
+    tick_prune_jobs (daily) -> remove_old_jobs        finished jobs past their keep period
     admin release         ->  release_held_run        a DQ-held run an operator released (2026-09-27):
                               -> load_source ...      promote `held/` -> `normalized/`, then the chain
 
@@ -65,7 +67,7 @@ import procrastinate
 import sqlalchemy.exc
 import yaml
 
-from infra.scheduler import jobs
+from infra.scheduler import jobs, queue_maintenance
 from infra.scheduler.cadence import (
     CRON_BY_BUCKET,
     execution_lock_for,
@@ -379,7 +381,19 @@ def _run_with_timeout(fn: Callable[[], dict[str, Any]], *, timeout_s: int) -> di
     abandoned — the job still fails/raises promptly so the next periodic tick can retry, which is
     the property that matters here (docs/20 §4.2's timeout exists to stop a hung job from wedging a
     worker slot forever; a queueing_lock, not this timeout, is what stops a *second* tick from
-    piling on)."""
+    piling on).
+
+    **The lock does not follow the abandoned thread (docs/51 §2.4 item 3; recorded 2026-10-10, not
+    fixed).** When the timeout fires, the job fails and Procrastinate releases its `lock`, while the
+    abandoned thread keeps running and writing. For the store-wide passes (`lock="resolve"`:
+    resolve, enrich, match, context_load) the next pass can then start beside it, which the lock
+    exists to prevent. What bounds it today: each timeout is well above the pass's measured run
+    (resolve 43 s against 3,600 s, context_load 190 s against 3,600 s on the rehearsal store,
+    docs/64 §4), and the worker engine's `statement_timeout` (`jobs.WORKER_STATEMENT_TIMEOUT_MS`)
+    ends any one statement the thread is stuck in, so only a thread looping over many statements
+    outlives its job. The fix is a lock held by the work rather than by the job row, for example a
+    session-level `pg_advisory_lock` the thread takes on its own connection and the next pass
+    waits for; it is not cheap enough for the beta and needs a Postgres test."""
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         return pool.submit(fn).result(timeout=timeout_s)
@@ -499,6 +513,41 @@ def _tick_retention(timestamp: int) -> None:
         retention_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous retention_tick still queued or running")
+
+
+# Procrastinate's own upkeep (infra/scheduler/queue_maintenance.py; docs/51 §2.9 item 2): the
+# jobs run on `audit`, which the compose `worker` consumes; `retry=0` because the next tick is the
+# retry. Async, because Procrastinate's `JobManager` calls are; the worker runs them on its loop.
+
+
+@app.task(name="retry_stalled_jobs", queue="audit", retry=0, queueing_lock="retry_stalled_jobs")
+async def retry_stalled_jobs() -> dict[str, Any]:
+    """Retry (or fail) every job a dead worker left `doing`, releasing its lock."""
+    return await queue_maintenance.recover_stalled_jobs(app.job_manager)
+
+
+@app.periodic(cron=queue_maintenance.STALLED_CRON, periodic_id="tick:stalled_jobs")
+@app.task(name="tick_stalled_jobs", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_stalled_jobs(timestamp: int) -> None:
+    try:
+        retry_stalled_jobs.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous retry_stalled_jobs still queued or running")
+
+
+@app.task(name="remove_old_jobs", queue="audit", retry=0, queueing_lock="remove_old_jobs")
+async def remove_old_jobs() -> dict[str, Any]:
+    """Delete finished jobs past their keep period (14 days succeeded, 90 days failed)."""
+    return await queue_maintenance.remove_old_jobs(app.job_manager)
+
+
+@app.periodic(cron=queue_maintenance.PRUNE_CRON, periodic_id="tick:prune_jobs")
+@app.task(name="tick_prune_jobs", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_prune_jobs(timestamp: int) -> None:
+    try:
+        remove_old_jobs.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous remove_old_jobs still queued or running")
 
 
 # The rest of the loop (module docstring). Queues are ones the compose `worker` service already
@@ -633,7 +682,14 @@ def main() -> None:
     )
     # Only the periodic side-thread does anything useful here; SCHEDULER_ONLY_QUEUE has no
     # `run_connector` job ever enqueued to it, so this process defers fetch jobs and never runs one.
-    app.run_worker(queues=[SCHEDULER_ONLY_QUEUE], concurrency=1, wait=True)
+    # `stalled_worker_timeout`: a starting worker prunes only workers silent for longer than a
+    # draining one can be (queue_maintenance.py; Procrastinate's default is 30 s).
+    app.run_worker(
+        queues=[SCHEDULER_ONLY_QUEUE],
+        concurrency=1,
+        wait=True,
+        stalled_worker_timeout=queue_maintenance.STALLED_WORKER_TIMEOUT_S,
+    )
 
 
 if __name__ == "__main__":

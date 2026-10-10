@@ -383,5 +383,5 @@ def test_the_page_credits_the_status_to_the_register_that_reported_it(
     assert "in Test CAISO Queue (source status" not in html
     # D-5: what the record combines, each member with its own figures.
     assert "What this record combines" in html
-    assert "342.7" in html and "303.7" in html and "1150.0" in html
+    assert "342.7" in html and "303.7" in html and "1,150" in html  # capacity through `mw`
     assert "1949" in html

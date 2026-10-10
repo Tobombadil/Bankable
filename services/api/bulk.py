@@ -67,6 +67,7 @@ from services.api.serialize import (
     serialize_opportunity,
     serialize_proposal,
 )
+from services.api.sites import proposal_site_embeds
 from services.api.visibility import GatedRecord, gated_record, source_visible
 from services.db.models import Event, Opportunity, OpportunitySource, Proposal, ProposalSource, Source
 
@@ -270,6 +271,10 @@ def bulk_response(request: Request, db: Session, ctx: AuthContext, resource: Res
     )
     # And what each proposal is made of (docs/22 §23.4), merges batched for the page.
     merges = merge_events(db, [r.id for r in rows if isinstance(r, Proposal)])
+    # And the site it belongs to (docs/21 §3.25), under the same redistribution rule.
+    sites = proposal_site_embeds(
+        db, [r for r in rows if isinstance(r, Proposal)], ctx.entitlement, link_ok=_api_redistributable
+    )
     for row in rows:
         if isinstance(row, Event):
             lines.append(serialize_event(row, **subjects[row.subject_id]))
@@ -280,6 +285,7 @@ def bulk_response(request: Request, db: Session, ctx: AuthContext, resource: Res
             line = _record_line(row, redactions, licence_rows, ctx.entitlement, view)
             if isinstance(row, Proposal):
                 line["interconnection_point"] = points[row.id]
+                line["site"] = sites[row.id]
                 _add_composition(line, row, merges.get(row.id, []), ctx.entitlement, view)
             lines.append(line)
     meta_line = {

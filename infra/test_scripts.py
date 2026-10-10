@@ -33,6 +33,7 @@ case "$*" in
   *"cat /opt/infraque/current-tag"*) printf '%s\n' "${FAKE_PREVIOUS_TAG:-}" ;;
   *"docker inspect"*) printf '%s\n' "${FAKE_HEALTH:-healthy}" ;;
   *"/v1/health"*) printf '%s\n' "${FAKE_HEALTH_BODY:-$healthy_body}" ;;
+  *"systemctl start infraque-backup.service"*) exit "${FAKE_BACKUP_RC:-0}" ;;  # the pre-migration dump
 esac
 exit 0
 """
@@ -158,6 +159,7 @@ def test_deploy_order_sync_pull_stop_migrate_up_health_workers_scheduler(
     pull = first_index(lines, f"{app} {compose} pull")
     stop_worker = first_index(lines, f"ssh root@10.0.1.20 {compose} stop worker")
     stop_scheduler = first_index(lines, f"{app} {compose} stop scheduler")
+    dump = first_index(lines, f"{app} before=$(cat /opt/infraque/backups/last-success")
     migrate = first_index(
         lines, "run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini upgrade head"
     )
@@ -171,7 +173,18 @@ def test_deploy_order_sync_pull_stop_migrate_up_health_workers_scheduler(
     up_browser = first_index(lines, "up -d --no-build browser-worker")
     up_scheduler = first_index(lines, "up -d --no-build scheduler")
     record = first_index(lines, "> /opt/infraque/current-tag")
-    order = [sync_app, secrets_app, pull, stop_worker, stop_scheduler, migrate, queue_schema, up_app, health]
+    order = [
+        sync_app,
+        secrets_app,
+        pull,
+        stop_worker,
+        stop_scheduler,
+        dump,
+        migrate,
+        queue_schema,
+        up_app,
+        health,
+    ]
     order += [health_url, up_worker, up_browser, up_scheduler, record]
     expect(
         sum("infra.scheduler.queue_schema" in ln for ln in lines) == 1, "queue schema step runs exactly once"
@@ -330,6 +343,8 @@ def test_failed_health_check_rolls_back_to_the_previous_tag(
     # The rollback's own health check also fails here (FAKE_HEALTH is still unhealthy) and must
     # NOT recurse into another rollback: exactly one rollback attempt, then a clean failure.
     expect(sum("up -d --no-build caddy api web" in ln for ln in lines) == 2, "\n".join(lines))
+    # The failed deploy migrated; the rollback must not run the older image's `upgrade head` after it.
+    expect(sum("upgrade head" in ln for ln in lines) == 1, "\n".join(lines))
     expect("> /opt/infraque/current-tag" not in "\n".join(lines), "a failed deploy must not record its tag")
 
 
@@ -339,11 +354,91 @@ def test_rollback_reruns_deploy_without_auto_rollback(shims: tuple[pathlib.Path,
     expect(result.returncode == 0, result.stdout + result.stderr)
     expect(any("IMAGE_TAG=sha-good111 " in ln for ln in calls(log)), "rollback must deploy the given tag")
     expect(not any("downgrade -1" in ln for ln in calls(log)), "no migration downgrade unless asked")
+    # The older image's `upgrade head` fails once the newer migration has run ("Can't locate
+    # revision"), and a rollback must not depend on R2 answering: neither runs on a rollback.
+    expect(not any("infraque-backup.service" in ln for ln in calls(log)), "no dump on a plain rollback")
+    expect(not any("upgrade head" in ln for ln in calls(log)), "no migration on a rollback")
+    expect(any("infra.scheduler.queue_schema" in ln for ln in calls(log)), "the queue schema step still runs")
     log.write_text("")
     result = run("rollback.sh", "staging", "sha-good111", "--downgrade-migration", env=env)
     expect(result.returncode == 0, result.stdout + result.stderr)
     lines = calls(log)
-    expect(first_index(lines, "downgrade -1") < first_index(lines, "up -d --no-build caddy api web"), lines)
+    dump = first_index(lines, "systemctl start infraque-backup.service")
+    expect(
+        dump < first_index(lines, "downgrade -1") < first_index(lines, "up -d --no-build caddy api web"),
+        lines,
+    )
+    expect(sum("infraque-backup.service" in ln for ln in lines) == 1, "one dump, before the downgrade")
+    expect(not any("upgrade head" in ln for ln in lines), "the downgrade is the only schema change")
+
+
+def test_a_failed_dump_refuses_the_downgrade(shims: tuple[pathlib.Path, dict[str, str]]) -> None:
+    log, env = shims
+    result = run(
+        "rollback.sh", "staging", "sha-good111", "--downgrade-migration", env=env | {"FAKE_BACKUP_RC": "1"}
+    )
+    expect(result.returncode == 1 and "not downgrading" in result.stderr, result.stdout + result.stderr)
+    expect(not any("downgrade -1" in ln or "up -d" in ln for ln in calls(log)), calls(log))
+
+
+def test_a_failed_pre_migration_dump_stops_before_the_schema_and_restarts_what_it_stopped(
+    shims: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    """docs/51 §2.9 item 4: no dump was taken before migrations. Now a failed dump means no
+    migration, no new containers and no rollback (nothing changed); the workers and scheduler the
+    deploy stopped are started again as they were, so the pipeline does not stay down."""
+    log, env = shims
+    env = {**env, "FAKE_BACKUP_RC": "1", "FAKE_PREVIOUS_TAG": "sha-good111"}
+    result = run("deploy.sh", "production", "sha-new2222", env=env)
+    expect(result.returncode == 1, result.stdout + result.stderr)
+    expect("pre-migration dump did not complete" in result.stdout, result.stdout)
+    expect("rolling back" not in result.stdout, "nothing changed, so nothing to roll back")
+    lines = calls(log)
+    dump = first_index(lines, "systemctl start infraque-backup.service")
+    expect(first_index(lines, "stop scheduler") < dump, "the dump is taken with the pipeline stopped")
+    for needle in ("alembic", "infra.scheduler.queue_schema", "up -d", "> /opt/infraque/current-tag"):
+        expect(not any(needle in ln for ln in lines), f"{needle!r} ran after a failed dump")
+    restarted = [ln for ln in lines[dump:] if " start worker" in ln or " start browser-worker" in ln]
+    restarted += [ln for ln in lines[dump:] if " start scheduler" in ln]
+    expect(len(restarted) == 4, f"2 workers, the browser worker and the scheduler: {restarted}")
+    expect(not pathlib.Path(env["DEPLOY_LOG"]).exists(), "a refused deploy writes no deploy-log row")
+
+
+def test_a_single_host_dump_failure_leaves_its_database_running(
+    shims: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    log, env = shims
+    result = run("deploy.sh", "production", "sha-beta123", env=_single(env) | {"FAKE_BACKUP_RC": "1"})
+    expect(result.returncode == 1, result.stdout + result.stderr)
+    lines = calls(log)
+    expect(first_index(lines, "ps -q postgres") < first_index(lines, "infraque-backup.service"), lines)
+    expect(not any("alembic" in ln or " stop postgres" in ln for ln in lines), lines)
+    expect(
+        any(" start worker" in ln for ln in lines) and any(" start scheduler" in ln for ln in lines), lines
+    )
+
+
+def test_the_dump_can_be_skipped_only_by_asking(shims: tuple[pathlib.Path, dict[str, str]]) -> None:
+    log, env = shims
+    result = run("deploy.sh", "staging", "sha-abc1234", env=env | {"SKIP_PRE_MIGRATION_DUMP": "1"})
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    expect("no dump before the migrations" in result.stdout, result.stdout)
+    expect(not any("infraque-backup.service" in ln for ln in calls(log)), calls(log))
+
+
+def test_the_dump_is_the_nightly_backup_unit_and_must_move_its_stamp() -> None:
+    """The deploy reuses backup.sh through the unit cloud-init installs, so the dump has the same
+    database URL rewrite, pg_dump version check and R2 upload as the nightly one; and a unit its
+    conditions skipped (exit 0, no dump) does not pass, because backup.sh's stamp must change."""
+    deploy = (SCRIPTS / "deploy.sh").read_text()
+    unit = (ROOT / "infra" / "terraform" / "cloud-init" / "app.yaml").read_text()
+    expect("ExecStart=/opt/infraque/scripts/backup.sh" in unit and "Type=oneshot" in unit, "unit changed")
+    expect('[ \\"\\$after\\" != \\"\\$before\\" ]' in deploy, "the stamp must be compared")
+    backup = (SCRIPTS / "backup.sh").read_text()
+    expect(
+        backup.rstrip().splitlines()[-2].startswith('date -u +%FT%TZ > "${backup_dir}/last-success"'),
+        "stamp last",
+    )
 
 
 def test_backup_dumps_uploads_and_prunes_r2_to_14_daily_plus_8_weekly(
@@ -453,11 +548,12 @@ def test_single_host_deploy_runs_everything_on_one_vm_with_its_database_first(
     stop_worker = first_index(lines, f"{app} cd /opt/infraque/compose && IMAGE_TAG=sha-beta123")
     db_up = first_index(lines, f"{compose} up -d --no-build postgres")
     db_health = first_index(lines, "ps -q postgres")
+    dump = first_index(lines, "systemctl start infraque-backup.service")
     migrate = first_index(lines, "alembic -c services/db/migrations/alembic.ini upgrade head")
     up_app = first_index(lines, "up -d --no-build caddy api web")
     up_worker = first_index(lines, "up -d --no-build worker")
     up_scheduler = first_index(lines, "up -d --no-build scheduler")
-    order = [pull, stop_worker, db_up, db_health, migrate, up_app, up_worker, up_scheduler]
+    order = [pull, stop_worker, db_up, db_health, dump, migrate, up_app, up_worker, up_scheduler]
     expect(order == sorted(order), f"steps out of order: {order}\n" + "\n".join(lines))
     expect(not any("browser-worker" in ln for ln in lines), "no browser-worker on the single host")
     expect(sum("cat > /opt/infraque/secrets/.env" in ln for ln in lines) == 1, "secrets reach the one host")

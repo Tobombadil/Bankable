@@ -245,7 +245,8 @@ def test_a_record_page_titles_its_card_with_the_record(web_client: TestClient) -
     og_title = _meta(body, "property", "og:title")
     assert og_title is not None and og_title.startswith('Acme "Big" Solar')
     og_description = _meta(body, "property", "og:description")
-    assert og_description is not None and "120.0 MW" in og_description
+    # Capacity through the `mw` formatter (docs/31 §4), not the raw float ("120.0 MW").
+    assert og_description is not None and "120 MW" in og_description and "120.0" not in og_description
 
 
 def test_the_card_url_the_page_names_is_served(web_client: TestClient) -> None:

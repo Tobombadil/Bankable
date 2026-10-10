@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}{{ record.name }} -- Infraque{% endblock %}
+{% block title %}{{ record.name | readable_name }} — Infraque{% endblock %}
 {#- `descriptor` before the raw type: an organisation whose stored `type` is `other` would
     otherwise describe itself to a search engine as "Tallgrass Energy: other". -#}
 {% block meta_description %}{{ record.name }}{% if descriptor %}: {{ descriptor | lower }}{% elif record.type and record.type != 'other' %}: {{ record.type | organization_type_label | lower }}{% endif %}{% if summary_parts %}. {{ summary_parts | join('; ') }}{% endif %}{% if record.jurisdiction %} ({{ record.jurisdiction }}){% endif %}.{% endblock %}
@@ -15,14 +15,15 @@
 {# Breadcrumbs walk the ownership chain, root first: Home / Companies / Tallgrass Energy /
    Trailblazer Pipeline Co. Plain links, one URL per level -- this site's browser tests run with
    scripts off (docs/04 D-30), so the whole drill-down is links and nothing else. #}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/organizations">Companies</a>{% for a in ancestors %} / {% if a.href %}<a href="{{ a.href }}"{% if a.note %} title="{{ a.note }}"{% endif %}>{{ a.name }}</a>{% else %}{{ a.name }}{% endif %}{% endfor %} / {{ record.name }}</nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/organizations">Companies</a>{% for a in ancestors %} / {% if a.href %}<a href="{{ a.href }}"{% if a.note %} title="{{ a.note }}"{% endif %}>{{ a.name }}</a>{% else %}{{ a.name }}{% endif %}{% endfor %} / {{ record.name | readable_name }}</nav>
 <div class="detail-header">
-  <h1>{{ record.name }}</h1>
+  <h1>{{ record.name | readable_name }}</h1>
   {# `descriptor` (web/app.py::org_descriptor) replaces a meaningless "other" with what the
      organisation holds -- "Ethanol producer", "Gas pipeline operator and Power plant owner"; the
      raw type stays in the fields table below. #}
   {% if descriptor %}<span class="reuse-badge" id="org-descriptor">{{ descriptor }}</span>{% elif record.type %}<span class="reuse-badge">{{ record.type | organization_type_label }}</span>{% endif %}
 </div>
+{{ m.as_filed(record.name) }}
 {# "Operates 3 gas pipelines · Owns 12 power plants": one clause per (role, type) group, from the
    API's `asset_counts` where it sends them, else counted over the rows on this page. #}
 {% if summary_parts %}<p class="org-summary" id="org-summary">{{ summary_parts | join(' · ') }}</p>{% endif %}
@@ -76,6 +77,8 @@
 {% for note in (group_view.notes if group_view else []) %}
 <p class="filter-notice filter-notice--all" id="group-note-{{ loop.index }}">{{ note }}</p>
 {% endfor %}
+
+{% include "partials/_org_pipeline.html" %}
 
 {% if portfolio and portfolio | length > 1 %}
 {# A fund-level node is not a company page: a scope spanning many portfolio companies has no
@@ -192,6 +195,7 @@
   {{ m.section_heading("3.", "Proposals") }}
   {% if group_view and group_view.is_group %}<p class="attribution-line">Sponsored by any company in this group; each row names its sponsor where the register gives one.</p>{% endif %}
   {% if proposals %}
+  {% if proposals_total > proposals | length %}<p class="attribution-line" id="proposals-shown">The <span class="tnum">{{ proposals | length }}</span> most recently changed of <span class="tnum">{{ proposals_total | thousands }}</span>{% if not proposals_complete %} or more{% endif %}{% if pipeline and pipeline.total.href %}; <a href="{{ pipeline.total.href }}">all of them in the list</a>{% endif %}.</p>{% endif %}
   <ul class="in-view-list">
     {% for r in proposals %}
     <li>{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }} <a href="/proposals/{{ r.slug }}">{{ r.name }}</a>
@@ -230,7 +234,7 @@
    assets and proposals instead. With none of those either, no panel at all -- never a "withheld
    under licence" claim that is not true (docs/31 §5.2 empty state is for gated evidence only). #}
 {% if provenance_rows %}
-{{ m.provenance_panel(provenance_rows, number="5.", note=provenance_note) }}
+{{ m.provenance_panel(provenance_rows, number="5.", note=provenance_note, id="sources") }}
 {% endif %}
 {% endblock %}
 {% block extra_scripts %}

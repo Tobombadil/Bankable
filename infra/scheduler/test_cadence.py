@@ -88,10 +88,29 @@ def test_unrecognised_cadence_fails_safe_to_weekly_not_an_exception() -> None:
 
 def test_twice_weekly_is_not_swallowed_by_the_bare_weekly_keyword() -> None:
     # Regression guard: "twice weekly" contains the substring "weekly", so the keyword table order
-    # (twice weekly before weekly) matters; both resolve to the same bucket today, but the more
-    # specific match must still be the one that fires, not an accident of dict ordering.
+    # (twice weekly before weekly) matters: the more specific match must be the one that fires.
     decision = bucket_for_cadence("twice weekly")
     assert decision.matched_keyword == "twice weekly"
+
+
+def test_a_twice_weekly_source_is_polled_daily() -> None:
+    """NESO's TEC register (2026-10-10): on the weekly bucket a mid-week release waited up to six
+    days for Monday's tick."""
+    assert bucket_for_cadence("twice weekly").bucket == "daily"
+    neso = _manifest()["gb.neso.tec_register"]
+    assert neso["cadence"] == "twice weekly" and "poll" not in neso
+    assert is_due(neso, "daily", 10) and not is_due(neso, "weekly", 10)
+    assert schedule_for_source(neso) == CRON_BY_BUCKET["daily"]
+
+
+def test_ercot_is_polled_daily_although_it_publishes_monthly() -> None:
+    """Review 2026-10-10 §2.7 item 4: the report lands on the 1st at about 21:00 UTC, after the
+    monthly tick (05:21 UTC on the 1st), so a monthly poll served each release a month late."""
+    ercot = _manifest()["us.iso.ercot.gen_queue"]
+    assert ercot["cadence"] == "monthly" and ercot["poll"] == "daily"
+    assert is_due(ercot, "daily", 10) and not is_due(ercot, "monthly", 10)
+    minute, hour, *_ = CRON_BY_BUCKET["daily"].split()
+    assert (int(hour), int(minute)) < (21, 0)  # the next morning's tick follows a 21:00 UTC release
 
 
 def test_biennial_never_polls_less_often_than_quarterly() -> None:

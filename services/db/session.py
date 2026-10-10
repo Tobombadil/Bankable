@@ -21,9 +21,13 @@ from services.db.base import Base
 DEFAULT_SQLITE_URL = "sqlite+pysqlite:///:memory:"
 
 
-def get_engine(url: str | None = None) -> Engine:
+def get_engine(url: str | None = None, *, connect_args: dict[str, object] | None = None) -> Engine:
+    """`connect_args` reach the DBAPI's `connect()` as they are. Only the worker passes any
+    (`infra/scheduler/jobs.py::worker_connect_args`: its `statement_timeout` and `lock_timeout`);
+    the API's engine (`services/api/deps.py`) is built without, so its sessions keep the server
+    defaults."""
     url = url or os.environ.get("DATABASE_URL", DEFAULT_SQLITE_URL)
-    connect_args: dict[str, object] = {}
+    connect_args = dict(connect_args or {})
     kwargs: dict[str, object] = {}
     made = make_url(url)
     if made.get_backend_name() == "sqlite":

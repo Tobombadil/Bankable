@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import hashlib
 import ipaddress
 import json
 import os
@@ -42,9 +43,14 @@ CADDYFILE = ROOT / "infra" / "compose" / "Caddyfile"
 DNS_TF = ROOT / "infra" / "terraform" / "dns.tf"
 CADDY = os.environ.get("CADDY_BIN") or shutil.which("caddy")
 DOMAIN = "example.test"
+TILE_URL = "https://tiles.example.test/basemap.pmtiles"
 
 #: The API owns exactly these prefixes; everything else is the web app (admin UI included).
 API_PATHS = ("/v1/*", "/admin/v1/*", "/feeds/*", "/webhooks/*")
+#: The site host sends these to the API; `/admin/v1/*` is the admin host's alone (2026-10-10).
+SITE_API_PATHS = ("/v1/*", "/feeds/*", "/webhooks/*")
+#: Every admin path the site and api hosts refuse with a 404 (`no_admin`).
+ADMIN_PATHS = ("/admin", "/admin/*")
 
 #: https://www.cloudflare.com/ips-v4 and /ips-v6, retrieved 2026-09-30 (etag
 #: 38f79d050aa027e3be3865e495dcc9bc on https://api.cloudflare.com/client/v4/ips). The Caddyfile
@@ -128,10 +134,26 @@ def tree() -> list[Block]:
 def test_the_api_owns_exactly_its_prefixes_and_the_admin_ui_is_not_one(tree: list[Block]) -> None:
     site = find(tree, "(site)")
     matcher = find(site[1], "@api")[0]
-    expect(matcher[1] == "path" and tuple(matcher[2:]) == API_PATHS, matcher)
-    expect("/admin/*" not in CADDYFILE.read_text(), "a catch-all /admin/* would take the admin UI from web")
+    expect(matcher[1] == "path" and tuple(matcher[2:]) == SITE_API_PATHS, matcher)
     admin = find(tree, "(admin_site)")
     expect(find(admin[1], "handle", "/admin/v1/*")[1][0][0] == ["import", "to_api"], admin)
+    # The admin UI is the web app's: on the admin host nothing sends /admin/<page> anywhere else.
+    expect(["import", "no_admin"] not in [tokens for tokens, _ in admin[1]], "admin host must serve admin")
+    expect(set(SITE_API_PATHS) | {"/admin/v1/*"} == set(API_PATHS), "together they route every API prefix")
+
+
+def test_admin_is_a_404_on_the_site_and_api_hosts_before_any_upstream(tree: list[Block]) -> None:
+    """docs/51 §2.4 item 5: /admin/v1/* went to the API on the apex, and the admin UI was served by
+    web on every host. Both are now the admin host's alone (D-16)."""
+    no_admin = find(tree, "(no_admin)")
+    matcher = find(no_admin[1], "@admin")[0]
+    expect(matcher[1] == "path" and tuple(matcher[2:]) == ADMIN_PATHS, matcher)
+    expect(find(no_admin[1], "handle", "@admin")[1] == [(["respond", "404"], [])], no_admin)
+    for name in ("(site)", "(api_site)"):
+        lines = [tokens for tokens, _ in find(tree, name)[1]]
+        expect(lines[:2] == [["import", "common"], ["import", "no_admin"]], f"{name}: {lines[:2]}")
+    tokens = [tok for line in _lines(CADDYFILE.read_text()) for tok in line]  # comments removed
+    expect(tokens.count("/admin/*") == 1, "only no_admin may name /admin/*")
 
 
 def test_every_api_route_is_under_a_prefix_caddy_sends_to_the_api() -> None:
@@ -162,7 +184,12 @@ def test_hosts_match_the_cloudflare_records_in_dns_tf(tree: list[Block]) -> None
                 "api": ["import", "api_site"],
             }.get(role)
             if wanted is None:
-                expect(first == ["redir", "https://{$DOMAIN}{uri}", "permanent"], first)
+                lines = [tokens for tokens, _ in served[host]]
+                expect(
+                    lines
+                    == [["import", "security_headers"], ["redir", "https://{$DOMAIN}{uri}", "permanent"]],
+                    lines,
+                )
             else:
                 expect(first == wanted, f"{host}: {first}")
     expect(find(tree, "import")[0] == ["import", "hosts_{$ENVIRONMENT}"], "hosts chosen by ENVIRONMENT")
@@ -186,6 +213,113 @@ def test_every_upstream_gets_the_resolved_client_and_no_internal_header(tree: li
     common = [tokens for tokens, _ in find(tree, "(common)")[1]]
     expect(["request_header", "-X-Internal-Token"] in common, common)
     expect(["request_header", "-X-Visitor-IP"] in common, common)
+
+
+# ------------------------------------------------------------------------------ security headers
+WEB = ROOT / "web"
+SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+}
+REPORT_ONLY = "Content-Security-Policy-Report-Only"
+
+
+def _headers(tree: list[Block]) -> dict[str, str]:
+    """The `(security_headers)` snippet's fields, `?` (write only when absent) stripped."""
+    block = find(find(tree, "(security_headers)")[1], "header")
+    fields = {}
+    for tokens, _ in block[1]:
+        expect(tokens[0].startswith("?") and len(tokens) == 2, f"every field is a default: {tokens}")
+        fields[tokens[0][1:]] = tokens[1]
+    return fields
+
+
+def _policy(value: str) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for directive in value.split(";"):
+        parts = directive.split()
+        if parts:
+            out[parts[0]] = parts[1:]
+    return out
+
+
+def _inline_script_hashes() -> set[str]:
+    """CSP hashes of every executable inline script in the templates. JSON data blocks
+    (`application/json`, `application/ld+json`) are not scripts the browser runs."""
+    hashes = set()
+    for template in sorted((WEB / "templates").rglob("*.html")):
+        for match in re.finditer(
+            r"<script(?P<attrs>[^>]*)>(?P<body>.*?)</script>", template.read_text(), re.S
+        ):
+            attrs = match.group("attrs")
+            if "src=" in attrs or re.search(r'type="application/(ld\+)?json"', attrs):
+                continue
+            digest = hashlib.sha256(match.group("body").encode()).digest()
+            hashes.add(f"'sha256-{base64.b64encode(digest).decode()}'")
+    return hashes
+
+
+def test_every_host_sends_the_security_headers(tree: list[Block]) -> None:
+    """docs/51 §2.4 item 5: no HSTS, nosniff, referrer policy or CSP anywhere before 2026-10-10."""
+    fields = _headers(tree)
+    expect({k: v for k, v in fields.items() if k != REPORT_ONLY} == SECURITY_HEADERS, fields)
+    expect(REPORT_ONLY in fields, "the full policy is report-only for now")
+    common = [tokens for tokens, _ in find(tree, "(common)")[1]]
+    expect(common[0] == ["import", "security_headers"], common)
+    for environment in HOSTS:
+        for tokens, children in find(tree, f"(hosts_{environment})")[1]:
+            first = children[0][0]
+            # Each host imports a role that imports `common`, or (the www redirect) the headers.
+            expect(
+                first
+                in (
+                    ["import", "site"],
+                    ["import", "admin_site"],
+                    ["import", "api_site"],
+                    ["import", "security_headers"],
+                ),
+                f"{tokens}: {first}",
+            )
+    for role in ("(site)", "(admin_site)", "(api_site)"):
+        expect(find(tree, role)[1][0][0] == ["import", "common"], role)
+
+
+def test_the_report_only_policy_allows_the_site_as_it_is(tree: list[Block]) -> None:
+    """Derived from web/, so a new CDN package, inline script or third-party origin fails here
+    instead of turning into console reports nobody reads."""
+    from web.assets import CDN_ASSETS
+
+    policy = _policy(_headers(tree)[REPORT_ONLY])
+    packages = {name: asset["url"].split("/dist/")[0] + "/" for name, asset in CDN_ASSETS.items()}
+    expect(all(url.startswith("https://cdn.jsdelivr.net/npm/") for url in packages.values()), packages)
+    turnstile = re.search(r'TURNSTILE_SCRIPT = "(https://[^/"]+)/', (WEB / "reports.py").read_text())
+    expect(turnstile is not None, "web/reports.py TURNSTILE_SCRIPT moved")
+    turnstile_origin = turnstile.group(1) if turnstile else ""
+    basemap = (WEB / "static" / "js" / "basemap.js").read_text()
+    protomaps = "https://protomaps.github.io/basemaps-assets/"
+    expect(f'"{protomaps}fonts/' in basemap and f'"{protomaps}sprites/' in basemap, "glyph/sprite host moved")
+    hashes = _inline_script_hashes()
+    expect(len(hashes) == 1, f"one inline script today (base.html's js class): {hashes}")
+    scripts = {packages[n] for n in ("maplibre_js", "pmtiles_js", "basemaps_js")}
+    expect(set(policy["script-src"]) == {"'self'", *scripts, turnstile_origin, *hashes}, policy["script-src"])
+    expect(set(policy["style-src"]) == {"'self'", packages["maplibre_css"], "'unsafe-inline'"}, policy)
+    expect(set(policy["img-src"]) == {"'self'", "data:", "blob:", protomaps, "{$MAP_TILE_URL}"}, policy)
+    expect(set(policy["connect-src"]) == {"'self'", protomaps, "{$MAP_TILE_URL}"}, policy)
+    expect(policy["frame-src"] == [turnstile_origin] and policy["font-src"] == ["'self'"], policy)
+    expect(policy["worker-src"] == ["'self'", "blob:"] and policy["object-src"] == ["'none'"], policy)
+    expect(policy["default-src"] == ["'self'"] and policy["base-uri"] == ["'self'"], policy)
+    expect("'unsafe-eval'" not in _headers(tree)[REPORT_ONLY], "nothing on the site evaluates strings")
+    base = (WEB / "templates" / "base.html").read_text()
+    expect("fonts.googleapis.com" not in base and "fonts.gstatic.com" not in base, "fonts are self-hosted")
+
+
+def test_caddy_receives_the_basemap_url_its_policy_names() -> None:
+    prod = (ROOT / "infra" / "compose" / "compose.prod.yml").read_text()
+    expect(
+        "      MAP_TILE_URL: ${MAP_TILE_URL:-}\n" in prod, "compose.prod.yml must pass MAP_TILE_URL to caddy"
+    )
 
 
 # ------------------------------------------------------------------------------ with Caddy
@@ -214,6 +348,8 @@ class _Echo(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if self.headers.get("X-Test-Upstream-Referrer-Policy"):  # an upstream with its own value
+            self.send_header("Referrer-Policy", self.headers["X-Test-Upstream-Referrer-Policy"])
         self.end_headers()
         self.wfile.write(body)
 
@@ -238,6 +374,7 @@ def _env(tmp: pathlib.Path, environment: str) -> dict[str, str]:
         "XDG_CONFIG_HOME": str(tmp / "config"),
         "DOMAIN": DOMAIN,
         "ENVIRONMENT": environment,
+        "MAP_TILE_URL": TILE_URL,
     }
 
 
@@ -342,7 +479,19 @@ def _running_caddy(
                     raise AssertionError(f"caddy exited: {log.read_text()[-2000:]}") from None
                 expect(time.monotonic() < deadline, "caddy did not listen within 20 s")
                 time.sleep(0.1)
-        yield LiveCaddy(https_port)
+        caddy = LiveCaddy(https_port)
+        # Listening is not ready: Caddy issues each host's local certificate after it binds, and a
+        # handshake before that fails with an internal-error alert (seen 2026-10-10 as a flaky first
+        # request). Wait until every host completes a TLS handshake; any HTTP status will do.
+        for host in HOSTS["production"]:
+            while True:
+                try:
+                    caddy.request(host, "/health")
+                    break
+                except httpx.ConnectError:
+                    expect(time.monotonic() < deadline, f"no certificate for {host} within 20 s")
+                    time.sleep(0.1)
+        yield caddy
     finally:
         process.terminate()
         process.wait(timeout=10)
@@ -384,17 +533,13 @@ def gated(tmp_path_factory: pytest.TempPathFactory) -> Iterator[LiveCaddy]:
 ROUTES = [
     (DOMAIN, "GET", "/v1/sources", "api"),
     (DOMAIN, "GET", "/v1/proposals/geo?bbox=-125,24,-66,50&zoom=4", "api"),
-    (DOMAIN, "GET", "/admin/v1/records", "api"),
     (DOMAIN, "GET", "/feeds/proposals.rss", "api"),
     (DOMAIN, "GET", "/feeds/saved/abc123", "api"),
     (DOMAIN, "POST", "/webhooks/stripe", "api"),
     (DOMAIN, "GET", "/", "web"),
     (DOMAIN, "GET", "/proposals", "web"),
     (DOMAIN, "GET", "/api/proposals/geo", "web"),
-    (DOMAIN, "GET", "/admin", "web"),
-    (DOMAIN, "GET", "/admin/sources", "web"),
-    (DOMAIN, "GET", "/admin/records", "web"),
-    (DOMAIN, "GET", "/admin/keys", "web"),
+    (DOMAIN, "GET", "/administration-costs", "web"),  # only /admin and /admin/* are refused
     (DOMAIN, "GET", "/login", "web"),
     (f"admin.{DOMAIN}", "GET", "/admin", "web"),
     (f"admin.{DOMAIN}", "GET", "/admin/sources", "web"),
@@ -424,6 +569,64 @@ def test_each_route_reaches_its_upstream(
     expect(body["upstream"] == upstream, f"{method} {host}{path} went to {body['upstream']}")
     expect(body["path"] == path, f"path rewritten: {body['path']}")
     expect(body["headers"]["host"] == host, body["headers"])
+
+
+ADMIN_ELSEWHERE = [
+    (host, method, path)
+    for host in (DOMAIN, f"api.{DOMAIN}")
+    for method, path in (
+        ("GET", "/admin"),
+        ("GET", "/admin/"),
+        ("GET", "/admin/sources"),
+        ("GET", "/Admin/keys"),
+        ("GET", "/admin/v1/records"),
+        ("POST", "/admin/v1/sources/x/run"),
+    )
+]
+
+
+@needs_caddy
+@pytest.mark.parametrize("live", [False], indirect=True)
+@pytest.mark.parametrize(("host", "method", "path"), ADMIN_ELSEWHERE)
+def test_admin_is_a_404_off_the_admin_host(live: LiveCaddy, host: str, method: str, path: str) -> None:
+    response = live.request(host, path, method)
+    expect(
+        response.status_code == 404, f"{method} {host}{path}: {response.status_code} {response.text[:200]}"
+    )
+    expect("upstream" not in response.text, "no upstream may answer an admin path off the admin host")
+    expect(response.headers.get("x-content-type-options") == "nosniff", response.headers)
+
+
+@needs_caddy
+@pytest.mark.parametrize("live", [False], indirect=True)
+@pytest.mark.parametrize(
+    ("host", "path"),
+    [
+        (DOMAIN, "/proposals"),
+        (DOMAIN, "/v1/sources"),
+        (f"admin.{DOMAIN}", "/admin"),
+        (f"api.{DOMAIN}", "/v1/proposals"),
+    ],
+)
+def test_every_response_carries_the_security_headers(live: LiveCaddy, host: str, path: str) -> None:
+    response = live.request(host, path)
+    expect(response.status_code == 200, response.status_code)
+    for name, value in SECURITY_HEADERS.items():
+        expect(response.headers.get(name) == value, f"{host}{path} {name}: {response.headers.get(name)}")
+    policy = _policy(response.headers.get(REPORT_ONLY, ""))
+    expect(TILE_URL in policy["connect-src"] and TILE_URL in policy["img-src"], policy)
+    expect(len(response.headers.get_list("Content-Security-Policy")) == 1, "one enforced policy")
+
+
+@needs_caddy
+@pytest.mark.parametrize("live", [False], indirect=True)
+def test_the_redirects_carry_them_too_and_an_upstream_value_wins(live: LiveCaddy) -> None:
+    for host, path in ((f"www.{DOMAIN}", "/proposals"), (f"admin.{DOMAIN}", "/")):
+        redirect = live.request(host, path)
+        expect(redirect.status_code in (301, 302), redirect.status_code)
+        expect(redirect.headers.get("strict-transport-security") == "max-age=31536000", redirect.headers)
+    own = live.request(DOMAIN, "/proposals", headers={"X-Test-Upstream-Referrer-Policy": "no-referrer"})
+    expect(own.headers.get_list("Referrer-Policy") == ["no-referrer"], own.headers)
 
 
 @needs_caddy
@@ -499,6 +702,19 @@ def test_the_beta_gate_asks_for_the_login_and_forwards_none_of_it(
     expect("authorization" not in body["headers"], "the beta login reached the upstream")
     expect(answered.headers.get("x-robots-tag") == "noindex, nofollow", answered.headers)
     expect(answered.headers.get("cache-control") == "private, no-store", answered.headers)
+
+
+@needs_caddy
+@pytest.mark.parametrize("host", [DOMAIN, f"api.{DOMAIN}"])
+def test_behind_the_gate_admin_off_the_admin_host_asks_for_the_login_then_404s(
+    gated: LiveCaddy, host: str
+) -> None:
+    refused = gated.request(host, "/admin/v1/records")
+    expect(refused.status_code == 401, refused.status_code)
+    answered = gated.request(host, "/admin/v1/records", headers=_basic(GATE_USER, GATE_PASSWORD))
+    expect(answered.status_code == 404, answered.status_code)
+    admin = gated.request(f"admin.{DOMAIN}", "/admin/v1/records", headers=_basic(GATE_USER, GATE_PASSWORD))
+    expect(admin.status_code == 200 and admin.json()["upstream"] == "api", admin.status_code)
 
 
 @needs_caddy

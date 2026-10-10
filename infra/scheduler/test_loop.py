@@ -531,6 +531,22 @@ def test_default_resolve_runs_over_the_store_without_a_normalised_frame(
         raise AssertionError(report)
 
 
+def test_a_site_rebuild_failure_does_not_fail_the_resolve_tick(
+    factory: _Factory, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sites rebuild last and are derived (docs/21 §3.25); a defect there is reported, while the
+    resolve tick still succeeds, so the enrich and match passes chained after it still run."""
+    import services.sites.build as site_build
+
+    def broken(session_factory: object) -> dict[str, object]:
+        raise RuntimeError("site rebuild defect")
+
+    monkeypatch.setattr(site_build, "run", broken)
+    report = jobs.resolve_tick_job(_run=None, _session_factory=factory, _data_root=tmp_path)
+    if report.get("sites") != {"error": "RuntimeError"} or "personal_data" not in report:
+        raise AssertionError(report)
+
+
 def test_resolver_frames_are_only_sources_the_loader_loads(tmp_path: pathlib.Path) -> None:
     """docs/25 §3.9: `_latest_proposal_frames` applies the loader's own refusal rule. A gated reuse
     class (`registry.status()` already said `gated`) and a `publication: none` source (which only

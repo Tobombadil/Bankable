@@ -14,6 +14,10 @@ several releases in the window the latest by `date` wins.
 source_record_id: the `ocid` (the procurement process; releases are its versions).
 Personal data: `parties[].contactPoint` (named officers, emails, phones) is removed before the
 snapshot is stored (`redact`, docs/13 §5.4 rule 1) — buyer organisations stay.
+Unchanged check: every page's `uri` and `links.next` echo `updatedTo=<the time of the request>`
+(the cursor encodes it too), so two fetches of the same releases never matched byte for byte and
+every hourly run stored a new 4.7 MB snapshot and queued a load (review 2026-10-10 §2.7 item 6).
+`canonical_content` drops those two request echoes; the stored snapshot keeps them.
 Reuse: OGL v3 with credit.
 """
 
@@ -43,6 +47,9 @@ NOTICE_URL = "https://www.find-tender.service.gov.uk/Notice/{notice_id}"
 CPV_PREFIXES = ("09", "31", "45231", "71314")
 MAX_PAGES = 40
 WINDOW_DAYS = 2
+#: Page keys that describe the request, not the releases: `uri` and `links.next` carry the
+#: request's own `updatedTo` timestamp and a cursor derived from it.
+REQUEST_ECHO_KEYS = frozenset({"uri", "links"})
 
 
 def release_cpvs(rel: dict[str, Any]) -> list[str]:
@@ -139,6 +146,16 @@ class Connector(BaseConnector):
         doc = json.loads(content)
         doc["pages"] = [strip_contacts(p) for p in doc.get("pages", [])]
         return json.dumps(doc, ensure_ascii=False).encode("utf-8")
+
+    def canonical_content(self, content: bytes) -> bytes:
+        """The bundle without each page's request echoes, `uri` and `links` (module docstring)."""
+        try:
+            doc = json.loads(content)
+            pages = [{k: v for k, v in page.items() if k not in REQUEST_ECHO_KEYS} for page in doc["pages"]]
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return content
+        doc["pages"] = pages
+        return json.dumps(doc, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
         doc = json.loads(raw.content)

@@ -29,10 +29,28 @@
 {%- if r.deadline_passed %}<span class="slip-note slip-note--warn">Deadline passed {{ r.due_at | display_date }}<span class="visually-hidden">; the source still lists it as open</span></span>{% endif -%}
 {%- endmacro %}
 
+{#- Review 2026-10-10 §2.6 item 7: a name its register files in capitals ("TRENT WIND FARM LLC") is
+    set in a readable case in the H1, the breadcrumb and the title (`readable_name`,
+    web/formatting.py), and printed once here as filed. Nothing renders when the register already
+    uses a readable case. Search, URLs and structured data keep the name as filed. -#}
+{% macro as_filed(name) -%}
+{%- if name and (name | readable_name) != name %}
+<p class="as-filed">As filed: <span class="as-filed__name">{{ name }}</span></p>
+{%- endif %}
+{%- endmacro %}
+
+{#- The dev-only preview label (docs/00-PLAN.md task item 5), on its own so the home page, which has
+    no tier notice since 2026-10-10, still says when the preview override is on. -#}
+{% macro preview_banner(delayed) -%}
+{%- if delayed.preview_active %}
+<p class="preview-banner" role="status"><span class="stamp-label">Dev preview</span> The publish delay was bypassed for this data. Since records carry no delay, this now changes nothing except for rows loaded before that decision; the configured lag is still the one the API reports.</p>
+{%- endif %}
+{%- endmacro %}
+
 {% macro delayed_banner(delayed) -%}
 {%- if delayed.lag_days %}
 <p class="delayed-notice" role="status">
-  <span class="stamp-label">Delayed</span> Public data is <span class="tnum">{{ delayed.lag_days }}</span> days delayed (as of <span class="tnum">{{ delayed.data_as_of }}</span>). <a href="/about#tiers">Live in Pro &rarr;</a>
+  <span class="stamp-label">Delayed</span> Public data is <span class="tnum">{{ delayed.lag_days }}</span> days delayed (as of <span class="tnum">{{ delayed.data_as_of }}</span>).{% if delayed.paid_tiers_offered is not false %} <a href="/about#tiers">Live in Pro &rarr;</a>{% endif %}
 </p>
 {%- else %}
 {#- "Live" only while every scheduled source is within its fetch allowance (`delayed.freshness`,
@@ -41,16 +59,15 @@
 {%- set fresh = delayed.freshness or {} %}
 <div class="delayed-notice" role="status">
   <span class="stamp-label">{% if fresh.available and not fresh.behind %}Live{% else %}No delay{% endif %}</span> Every record and every change event is published as soon as it is ingested.
-  {%- if delayed.free_alerts %} <a href="/alerts">Free email alerts &rarr;</a>{% else %} <a href="/about#tiers">Alerts and API in Pro &rarr;</a>{% endif %}
+  {#- No "in Pro" call to action while the paid tiers are not offered (`paid_tiers_offered`). -#}
+  {%- if delayed.free_alerts %} <a href="/alerts">Free email alerts &rarr;</a>{% elif delayed.paid_tiers_offered is not false %} <a href="/about#tiers">Alerts and API in Pro &rarr;</a>{% endif %}
   {%- if fresh.behind %}
   <details class="delayed-notice__stale"><summary>{{ fresh.behind | length }} source{{ 's are' if fresh.behind | length != 1 else ' is' }} behind {{ 'their' if fresh.behind | length != 1 else 'its' }} fetch schedule</summary>
   {% for b in fresh.behind %}{{ b.name }}{% if b.fetched_at %} (last fetched {{ b.fetched_at | display_date }}){% else %} (never fetched){% endif %}{{ '; ' if not loop.last }}{% endfor %}. <a href="/methodology#vintage">Dates per source</a>.</details>
   {%- endif %}
 </div>
 {%- endif %}
-{%- if delayed.preview_active %}
-<p class="preview-banner" role="status"><span class="stamp-label">Dev preview</span> The publish delay was bypassed for this data. Since records carry no delay, this now changes nothing except for rows loaded before that decision; the notice above still states the real configured lag either way.</p>
-{%- endif %}
+{{- preview_banner(delayed) }}
 {%- endmacro %}
 
 {#- "Save this search as an alert" (owner decision 2026-09-30; docs/30 §4.3): a link to
@@ -207,9 +224,11 @@
    record whose visible evidence was gated (docs/31 §5.2) -- a caller whose record simply has no
    source rows must not call this macro with an empty list; organization_detail.html skips the
    section instead. -#}
-{% macro provenance_panel(rows, number=None, note=None) -%}
+{#- `id`, when given, goes on the heading so another part of the page can link to the panel (the
+    company page's pipeline summary). -#}
+{% macro provenance_panel(rows, number=None, note=None, id=None) -%}
 <section class="provenance-panel" aria-label="Sources">
-  {% if number %}{{ section_heading(number, "Sources") }}{% else %}<h2>Sources</h2>{% endif %}
+  {% if number %}{{ section_heading(number, "Sources", id=id) }}{% else %}<h2{% if id %} id="{{ id }}"{% endif %}>Sources</h2>{% endif %}
   {% if note %}<p class="attribution-line">{{ note }}</p>{% endif %}
   {% if rows %}
   <ul class="provenance-panel__list">

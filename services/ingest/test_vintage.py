@@ -93,7 +93,75 @@ def test_the_module_offers_no_way_to_derive_a_vintage_from_a_fetch_date() -> Non
     """A guard, not a tautology: every future extractor must take something the source published.
     If a `from_retrieved_at` ever appears, this fails and the reviewer has to argue for it."""
     exported = {name for name in dir(v) if name.startswith("from_")}
-    assert exported == {"from_artefact_url", "from_atlas_token", "from_attributes", "from_source_urls"}
+    # `from_run_record` reads the source's own names for its artefact (ERCOT's document name,
+    # NESO's resource file), never the record's `retrieved_at` (pinned below).
+    assert exported == {
+        "from_artefact_url",
+        "from_atlas_token",
+        "from_attributes",
+        "from_run_record",
+        "from_source_urls",
+    }
+
+
+# ------------------------------------------------------- run records (review 2026-10-10 §2.7 #4)
+def _record(friendly_name: str | None = None, url: str | None = None, **extra: object) -> dict[str, object]:
+    meta = {"doc_id": "1281327706", "friendly_name": friendly_name} if friendly_name else {}
+    return {"status": "unchanged", "snapshot": {"fetched_url": url, "meta": meta, **extra}}
+
+
+def test_ercots_document_name_states_the_report_month() -> None:
+    """The 2026-10-09 run on the operator's data root: GIS_Report_September2026, published
+    2026-10-01T16:08:28-05:00, downloaded from an opaque doclookupId URL."""
+    got = v.from_run_record(
+        _record(
+            "GIS_Report_September2026",
+            "https://www.ercot.com/misdownload/servlets/mirDownload?doclookupId=1281327706",
+        )
+    )
+    assert (got.value, got.basis, got.label) == ("2026-09", v.ARTEFACT_FILENAME, "September 2026")
+
+
+def test_nesos_resource_file_states_the_register_date() -> None:
+    url = (
+        "https://api.neso.energy/dataset/cbd45e54-e6e2-4a38-99f1-8de6fd96d7c1/resource/"
+        "17becbab-e3e8-473f-b303-3806f43a6a10/download/tec-register-10-october-2026.csv"
+    )
+    got = v.from_run_record(_record(url=url))
+    assert (got.value, got.basis, got.label) == ("2026-10-10", v.ARTEFACT_FILENAME, "10 October 2026")
+    assert v.from_run_record(_record(url=url.replace("10-october", "31-september"))) == v.NOT_STATED_VINTAGE
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        _record(url="https://www.eia.gov/electricity/data/eia860m/xls/july_generator2026.xlsx"),
+        _record("GIS_Report_Colocated_Battery_September2026"),
+        _record(url="https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx"),
+        _record(retrieved_at="2026-10-09T19:56:29Z"),
+        {"status": "failed", "snapshot": None},
+        None,
+    ],
+)
+def test_a_run_record_naming_no_release_is_not_stated(record: object) -> None:
+    assert v.from_run_record(record) == v.NOT_STATED_VINTAGE
+
+
+@pytest.mark.parametrize(
+    ("value", "end"),
+    [
+        ("2026-10-10", "2026-10-10"),
+        ("2026-09", "2026-10-01"),
+        ("2026-12", "2027-01-01"),
+        ("2017", "2018-01-01"),
+        ("2026-13", None),
+        ("v2", None),
+        (None, None),
+    ],
+)
+def test_period_end_is_when_the_named_release_is_complete(value: str | None, end: str | None) -> None:
+    got = v.period_end(value)
+    assert (got.isoformat() if got else None) == end
 
 
 # ------------------------------------------------------- the loader writes it on every load

@@ -125,6 +125,18 @@ ASSET_EVENT_TYPES = (
     "retired",
     "returned_to_service",
 )
+#: `event.event_type` for a row that is no longer in its source's file, from a source that does not
+#: declare that a disappearance means withdrawal (`pipeline.connectors.base.Connector.removal_meaning`;
+#: docs/21 §7.3; docs/51 §2.7 item 1). Its `after` carries `{"removal_meaning": ...}`. Written with
+#: `published_at`/`public_at` NULL, as every non-public event is (`admin_edit` redactions,
+#: match events of a withheld rule set), and named in `NON_PUBLIC_EVENT_TYPES` below.
+REMOVED_FROM_SOURCE_EVENT_TYPE = "removed_from_source"
+#: Event types that no public or paid surface serves, whatever their timestamps say: the event
+#: predicate (`services/api/visibility.py::event_visibility_filter`, which the list, detail, feeds,
+#: alerts and webhooks all read through) and the social bridge (`services/social/db_events.py`)
+#: exclude them by name, beside the NULL `published_at`/`public_at` they are written with. Admin
+#: reads still show them. No CHECK constraint lists event types, so adding one needs no migration.
+NON_PUBLIC_EVENT_TYPES: frozenset[str] = frozenset({REMOVED_FROM_SOURCE_EVENT_TYPE})
 #: `asset_owner.role` (docs/21 §3.23).
 ASSET_OWNER_ROLES = ("owner", "operator")
 
@@ -1845,6 +1857,140 @@ class InterconnectionPoint(Base, TimestampMixin):
         sa.UniqueConstraint("source_id", "name_key", name="uq_interconnection_point_source_key"),
         sa.Index("ix_interconnection_point_operator", "operator"),
         sa.Index("ix_interconnection_point_jurisdiction", "jurisdiction"),
+    )
+
+
+# ======================================================================= site (docs/21 §3.25, 2026-10-10)
+#: `site_member.grouping_rule`, strongest first (`services/sites/rules.py::GROUPING_RULES`).
+SITE_GROUPING_RULES = ("eia_plant", "exact_point_sponsor", "exact_point_stem", "poi_sponsor", "poi_stem")
+#: `site_member.relation`: how a member relates to its site's lead ("member <relation> lead").
+SITE_RELATIONS = (
+    "lead",
+    "unit_of",
+    "phase_of",
+    "co_located",
+    "refiling_of",
+    "superseded_by",
+    "expansion_of",
+    "expanded_by",
+    "same_site",
+)
+SITE_CONFIDENCES = ("high", "medium", "low")
+SITE_REVIEW_FLAGS = ("oversize",)
+#: `site_audit.kind`: what a rebuild did to a site (docs/21 §3.25). Operators only, never public.
+SITE_AUDIT_KINDS = ("created", "members_gained", "members_lost", "lead_changed", "split", "merged", "retired")
+
+
+class Site(Base, TimestampMixin):
+    """The parent of proposals that share a place by unique identifier (owner decision 2026-10-10,
+    docs/51 §7 Q6; docs/21 §3.25). Its members are existing proposals, which keep their own ids;
+    the site has a stable id of its own because its lead changes as filings arrive and record URLs,
+    alerts and the change feed must not move. Rebuilt every resolve tick by `services/sites/build.py`
+    (deterministic, idempotent); a rebuilt cluster inherits the id of the site it shares the most
+    members with, and a site that loses every member is retired (`retired_at`), never deleted or
+    reused. Derived data, so no provenance quartet: every member carries its own, and attribution
+    renders per member. `name_display` is the lead's stored name at the last build, for operators;
+    readers are served the name of the lead *they* may see (`services/api/sites.py`)."""
+
+    __tablename__ = "site"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    public_id: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    name_display: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    lead_proposal_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("proposal.id"))
+    member_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: `services/sites/rules.py::RULE_VERSION` of the build that last wrote the row.
+    rule_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: `oversize` when the site groups more distinct things than the review cap; such a site is
+    #: built and reported but not served until an operator clears the flag.
+    review_flag: Mapped[str | None] = mapped_column(sa.Text)
+    #: External identifiers the site rests on, for verification: `eia_plant_ids` (its members' EIA
+    #: plant ids), `interconnection_point_ids` (its members' points, internal ids) and `assets`
+    #: (EIA plant id -> the `power_plant` asset of that id, internal ids). Served per viewer.
+    anchors: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    built_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False, default=utcnow)
+    retired_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    #: Set on retirement when most of the former members now sit in one site: where its URL leads.
+    successor_site_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("site.id"))
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "review_flag IS NULL OR review_flag IN (" + ", ".join(repr(v) for v in SITE_REVIEW_FLAGS) + ")",
+            name="review_flag_vocab",
+        ),
+        sa.Index("ix_site_lead_proposal_id", "lead_proposal_id"),
+        sa.Index("ix_site_retired_at", "retired_at"),
+    )
+
+
+class SiteMember(Base, TimestampMixin):
+    """One proposal's membership of one site (docs/21 §3.25): at most one site per proposal. The
+    table is a derived materialisation rebuilt each resolve tick, like a search index: a row is
+    updated in place when its proposal moves and removed when the proposal no longer groups with
+    anything (the proposal itself is untouched). `grouping_rule` is the strongest rule among the
+    member's own edges; `grouping_evidence` lists every rule and identifier that carried them
+    (operators only). `relation`/`relation_rule`/`confidence` label the member relative to the
+    site's lead; `basis` holds what those rules read, so a reader who may not see the stored lead
+    gets the same rules re-run over the members they may see."""
+
+    __tablename__ = "site_member"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    site_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("site.id"), nullable=False)
+    proposal_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("proposal.id"), nullable=False, unique=True
+    )
+    is_lead: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    #: Position in display order (0 = the lead; each plant group's head followed by its units):
+    #: `services/sites/rules.py::label_site`.
+    lead_rank: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: The member's group inside the site: `eia:<plant ids>` for generators of one EIA plant (or
+    #: plants one record bridges), `proposal:<public_id>` for a record with no EIA plant.
+    group_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: The head of the member's plant group when the member is one of its units (`relation` is then
+    #: `unit_of` that head); NULL for a group head, whose `relation` is to the site's lead. A
+    #: proposal, not a membership row, so a rebuild can re-parent members in any order.
+    parent_proposal_id: Mapped[_uuid.UUID | None] = mapped_column(GUID(), sa.ForeignKey("proposal.id"))
+    grouping_rule: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    grouping_evidence: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    relation: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    relation_rule: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    confidence: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    basis: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+
+    site: Mapped[Site] = relationship(lazy="select")
+
+    __table_args__ = (
+        sa.CheckConstraint(f"grouping_rule IN {SITE_GROUPING_RULES!r}", name="grouping_rule_vocab"),
+        sa.CheckConstraint(f"relation IN {SITE_RELATIONS!r}", name="relation_vocab"),
+        sa.CheckConstraint(f"confidence IN {SITE_CONFIDENCES!r}", name="confidence_vocab"),
+        sa.Index("ix_site_member_site_id", "site_id"),
+    )
+
+
+class SiteAudit(Base):
+    """What each rebuild did to a site (docs/21 §3.25; owner, 2026-10-10): created, members gained
+    or lost, lead changed, split, merged, retired, with the proposal `public_id`s and site
+    `public_id`s involved in `detail`. Append-only and operators only: no API route, feed, alert or
+    webhook reads it (a future "watch this site" can, to tell watchers a site split). A table of its
+    own rather than `event` rows, so nothing about a derived grouping can reach the public change
+    feed's consumers by mistake."""
+
+    __tablename__ = "site_audit"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    site_id: Mapped[_uuid.UUID] = mapped_column(GUID(), sa.ForeignKey("site.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    rule_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    recorded_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    __table_args__ = (
+        sa.CheckConstraint(f"kind IN {SITE_AUDIT_KINDS!r}", name="kind_vocab"),
+        sa.Index("ix_site_audit_site_recorded", "site_id", "recorded_at"),
     )
 
 

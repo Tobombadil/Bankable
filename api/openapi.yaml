@@ -93,6 +93,8 @@ tags:
     description: Clustered GeoJSON for the map-first surface (docs/04 §2.2). Same filters and tier rules as the lists.
   - name: Interconnection points
     description: Where proposals connect to the grid, as each register names it (docs/21 §3.24), with the queue behind each point. Totals are computed per request over the proposals the caller's tier may see.
+  - name: Sites
+    description: The parent over proposals that share a place by unique identifier — an EIA plant id, an exact point, an interconnection point with the same developer or project name (docs/21 §3.25; owner decision 2026-10-10). Members keep their own ids; every list and total is computed per request over the members the caller's tier may see.
   - name: Context
     description: Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14) — existing plants under the proposals map, and its identifier-free interaction measurement (docs/21 §3.20-§3.21). Public on every tier; no proposal semantics.
   - name: Documents
@@ -1471,8 +1473,11 @@ paths:
       summary: Liveness and data freshness
       description: |
         `status`, `data_as_of` for the public materialised view, `lag_days` defaults and the checks the launch
-        checklist probes (rate limiter active, backup age, queue age) (US-604, US-904, US-908). Never carries source
-        payloads or internal ids. Unauthenticated, edge-cached 60 s.
+        checklist probes (database, job-queue schema, queue age) (US-604, US-904, US-908). Never carries source
+        payloads or internal ids. Unauthenticated and never cached (`Cache-Control: no-store`): a probe must reach
+        the origin. HTTP 503 with the same body when the database check fails, so a healthcheck that reads the
+        status code fails with it (until 2026-10-10 it answered 200 with `status: degraded`). The queue checks
+        never change the status code.
       x-tier: public
       x-status: live
       x-sprint: 1
@@ -1480,14 +1485,21 @@ paths:
       security: *sec_public
       responses:
         '200':
-          description: Healthy or degraded.
+          description: The database answered (`status` is `ok`).
           headers: *std_headers
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
         '503':
-          $ref: '#/components/responses/ServiceUnavailable'
+          description: >-
+            The database check failed (`status` is `degraded`, `checks.database` is `false`). The body is the
+            health body, not a problem document; every field read from the store is null.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
 
   # ───────────────────────────────────── Assets (docs/21 §3.22-§3.23, ADR 0008) ─────────────────────────────────────
   /v1/interconnection-points:
@@ -1558,6 +1570,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InterconnectionPointDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/sites/{public_id}:
+    parameters:
+      - $ref: '#/components/parameters/SitePublicId'
+    get:
+      operationId: getSite
+      tags: [Sites, Proposals]
+      summary: Site detail
+      description: >-
+        A site groups proposals that share a place by unique identifier (docs/21 §3.25; owner decision 2026-10-10,
+        answering docs/51 §7 Q6): the same EIA plant id; the same exact point with the same sponsor or a shared name
+        stem; the same interconnection point with the same sponsor or a shared name stem. County and state centroids
+        group nothing. The members are existing proposals, which keep their own ids. `lead` is "the latest and
+        largest filing": among members not withdrawn or cancelled, the largest `capacity_mw`, then the latest filing
+        date, then `public_id`; the site's `name` is the lead's. Each member carries its `relation` to the lead
+        (`unit_of`, `phase_of`, `co_located`, `refiling_of`, `superseded_by`, `expansion_of`, `expanded_by`,
+        `same_site`), the `relation_rule` that fired, a `confidence` word (`high | medium | low`, not a probability)
+        and the `grouping_rule` that put it in the site. Every member, count and total is computed over the members
+        the caller's tier may see (the proposal predicate); when any member is hidden from the caller, the same
+        rules are re-run over the visible members. Two levels where EIA provides them: generators of one EIA plant
+        form a plant group, each a `unit_of` its group's head (`parent_public_id`); group heads carry their
+        relation to the lead's group. `sponsors` lists the members' sponsor organisations (never a level). `shares_interconnection_point` lists visible proposals at a
+        member's interconnection point that the rules did not group (another or no named developer): neighbours,
+        not members. `anchors` are the external identifiers the site rests on: the visible members' EIA plant ids,
+        their interconnection points, and the `power_plant` assets of those plant ids with their owners. `404` for an
+        unknown id and, identically, for a site with fewer than two visible members or one flagged for review, and
+        for every site while the operator's kill switch (`SITES_ENABLED=0`) is set; a retired site answers `301`
+        to its successor when the successor is visible, else `404`.
+      x-tier: public
+      x-status: live
+      x-sprint: 5
+      x-prd-stories: [US-201]
+      security: *sec_public
+      responses:
+        '200':
+          description: The site inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteDetailResponse'
+        '301':
+          $ref: '#/components/responses/MovedPermanently'
         '404':
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
@@ -7538,6 +7596,12 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/InterconnectionPointPublicId'
+    SitePublicId:
+      name: public_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/SitePublicId'
     AssetPublicId:
       name: public_id
       in: path
@@ -8106,6 +8170,10 @@ components:
       type: string
       pattern: '^poi_[0-9A-HJKMNP-TV-Z]{10,26}$'
       examples: [poi_01JBQ8K2P4]
+    SitePublicId:
+      type: string
+      pattern: '^site_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      examples: [site_1M4KDKH9SEAESTS0B0TG2C5TV]
     MatchPublicId:
       type: string
       pattern: '^mat_[0-9A-HJKMNP-TV-Z]{10,26}$'
@@ -8255,7 +8323,11 @@ components:
       enum: [proposal, opportunity, organization, match, document, source, licence, post, user, account, api_key]
     EventType:
       type: string
-      description: docs/21 §7.3. Identity, proposal lifecycle, opportunity lifecycle, field-level, matching, publication and operational groups.
+      description: >-
+        docs/21 §7.3. Identity, proposal lifecycle, opportunity lifecycle, field-level, matching, publication,
+        operational and register groups. `removed_from_source` (a record that is no longer in its source's file,
+        which is not a withdrawal) is never returned by a public or Pro read, a feed or a webhook; admin reads
+        show it.
       enum:
         - created
         - source_linked
@@ -8296,6 +8368,7 @@ components:
         - personal_data_redacted
         - key_issued
         - key_revoked
+        - removed_from_source
     ActorType:
       type: string
       enum: [pipeline, model, user, system]
@@ -9092,6 +9165,14 @@ components:
             Proposal detail, the proposal list (since 2026-10-07) and bulk lines: the grid interconnection point the
             project connects at (docs/21 §3.24), with its active queued MW and counts at the caller's tier; `null`
             when the register names none or the naming register is not visible to the tier.
+        site:
+          oneOf:
+            - $ref: '#/components/schemas/SiteEmbed'
+            - type: 'null'
+          description: >-
+            Proposal detail and bulk lines (docs/21 §3.25). The site this record belongs to as the caller may see it, and this record's
+            relationship to the site's lead; `null` when it belongs to none, when fewer than two of the site's
+            members are visible to the caller, or while the operator's kill switch (`SITES_ENABLED=0`) is set.
         field_provenance:
           $ref: '#/components/schemas/FieldProvenance'
         field_sources:
@@ -10831,6 +10912,263 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/InterconnectionPointDetail'
+    SiteRelation:
+      type: string
+      description: >-
+        How a member relates to its site's lead, read "member <relation> lead": `lead`; `unit_of` (another generator
+        of the lead's EIA plant); `phase_of` (a shared name stem with differing phase markers); `co_located` (a
+        different technology family); `refiling_of` (a later filing of the lead's project, itself withdrawn);
+        `superseded_by` (an earlier, withdrawn filing the lead replaces); `expansion_of` (an addition to the lead: an
+        operating lead, a stated MW increase, or an expansion in the name); `expanded_by` (the operating member the
+        lead adds to); `same_site` (grouped, relation unclear).
+      enum: [lead, unit_of, phase_of, co_located, refiling_of, superseded_by, expansion_of, expanded_by, same_site]
+    SiteGroupingRule:
+      type: string
+      description: >-
+        The strongest rule that put the member in the site: `eia_plant` (the same EIA plant id),
+        `exact_point_sponsor` / `exact_point_stem` (exact points within 200 m and the same sponsor, or a shared name
+        stem with sponsors not in conflict), `poi_sponsor` / `poi_stem` (the same interconnection point and the same
+        sponsor, or a shared name stem that is not the point's own name).
+      enum: [eia_plant, exact_point_sponsor, exact_point_stem, poi_sponsor, poi_stem]
+    SiteConfidence:
+      type: string
+      description: A word, not a probability (no labelled sample calibrates one yet).
+      enum: [high, medium, low]
+    SiteEmbed:
+      type: object
+      description: The site a proposal belongs to, at the caller's tier (proposal detail only).
+      required: [public_id, url, name, member_count, is_lead, parent_public_id, relation, relation_rule, confidence, grouping_rule, lead]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/SitePublicId'
+        url: {type: string, format: uri}
+        name:
+          type: string
+          description: The served name of the site's lead (the caller's lead when the stored one is hidden).
+        member_count:
+          type: integer
+          minimum: 2
+          description: Members visible to the caller.
+        is_lead: {type: boolean}
+        parent_public_id:
+          oneOf:
+            - $ref: '#/components/schemas/ProposalPublicId'
+            - type: 'null'
+          description: The head of this record's plant group when it is one of the group's units, else `null`.
+        relation:
+          $ref: '#/components/schemas/SiteRelation'
+        relation_rule:
+          type: string
+          examples: [shared_eia_plant, different_technology_family, differing_phase_markers, withdrawn_earlier_filing]
+        confidence:
+          $ref: '#/components/schemas/SiteConfidence'
+        grouping_rule:
+          $ref: '#/components/schemas/SiteGroupingRule'
+        lead:
+          type: object
+          required: [public_id, slug, url, name_canonical]
+          properties:
+            public_id:
+              $ref: '#/components/schemas/ProposalPublicId'
+            slug: {type: string}
+            url: {type: string, format: uri}
+            name_canonical: {type: string}
+    SiteProposalRow:
+      type: object
+      description: One proposal as a site lists it, from its served view; `provenance[]` credits its visible sources.
+      required: [public_id, slug, url, name_canonical, kind, lifecycle_state, lifecycle_bucket, jurisdiction, provenance]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/ProposalPublicId'
+        slug: {type: string}
+        url: {type: string, format: uri}
+        name_canonical: {type: string}
+        kind: {type: string}
+        technology: {type: [string, 'null']}
+        capacity_mw: {type: [number, 'null']}
+        lifecycle_state:
+          $ref: '#/components/schemas/LifecycleState'
+        lifecycle_bucket:
+          type: string
+          enum: [active, withdrawn, built, other]
+        jurisdiction: {type: string}
+        proposed_online_date: {type: [string, 'null'], format: date}
+        sponsor:
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationSummary'
+            - type: 'null'
+          description: The sponsor organisation when the caller may see it.
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProvenanceRow'
+    SiteMemberRow:
+      allOf:
+        - $ref: '#/components/schemas/SiteProposalRow'
+        - type: object
+          required: [is_lead, group, parent_public_id, relation, relation_rule, confidence, grouping_rule]
+          properties:
+            is_lead: {type: boolean}
+            group:
+              type: object
+              description: >-
+                The member's group inside the site (site > plant group > unit): generators of one EIA plant are
+                one group (`eia_plant_ids`), a record with no EIA plant is a group of its own (empty list).
+              required: [key, eia_plant_ids]
+              properties:
+                key: {type: string, examples: ['eia:69798', 'proposal:prop_1M4H5ZGV4EK98QYYWAB2QC06H']}
+                eia_plant_ids:
+                  type: array
+                  items: {type: string}
+            parent_public_id:
+              oneOf:
+                - $ref: '#/components/schemas/ProposalPublicId'
+                - type: 'null'
+              description: >-
+                The head of the member's plant group when the member is one of its units (`relation` is then
+                `unit_of` that head); `null` for a group head, whose `relation` is to the site's lead.
+            relation:
+              $ref: '#/components/schemas/SiteRelation'
+            relation_rule: {type: string}
+            confidence:
+              $ref: '#/components/schemas/SiteConfidence'
+            grouping_rule:
+              $ref: '#/components/schemas/SiteGroupingRule'
+    SiteNeighbourRow:
+      allOf:
+        - $ref: '#/components/schemas/SiteProposalRow'
+        - type: object
+          required: [relation, interconnection_point]
+          properties:
+            relation:
+              type: string
+              const: shares_interconnection_point
+            interconnection_point:
+              type: object
+              required: [public_id, url, name]
+              properties:
+                public_id:
+                  $ref: '#/components/schemas/InterconnectionPointPublicId'
+                url: {type: string, format: uri}
+                name: {type: string}
+    SiteTotals:
+      type: object
+      description: >-
+        Over the visible members, by lifecycle bucket (the interconnection point's buckets): active is announced
+        through under construction, withdrawn is withdrawn or cancelled, built is built, other is unknown. MW is the
+        sum of stated `capacity_mw`; a member stating none counts and adds nothing.
+      required: [member_count, total_mw, active_count, active_mw, withdrawn_count, withdrawn_mw, built_count, built_mw, other_count, other_mw]
+      properties:
+        member_count: {type: integer, minimum: 2}
+        total_mw: {type: number, minimum: 0}
+        active_count: {type: integer, minimum: 0}
+        active_mw: {type: number, minimum: 0}
+        withdrawn_count: {type: integer, minimum: 0}
+        withdrawn_mw: {type: number, minimum: 0}
+        built_count: {type: integer, minimum: 0}
+        built_mw: {type: number, minimum: 0}
+        other_count: {type: integer, minimum: 0}
+        other_mw: {type: number, minimum: 0}
+    SiteAnchors:
+      type: object
+      description: >-
+        The external identifiers the site rests on, from the visible members only: their EIA plant ids, their
+        interconnection points whose register the caller may see, and the visible EIA-860M `power_plant` assets of
+        those plant ids with their visible owners.
+      required: [eia_plant_ids, interconnection_points, assets]
+      properties:
+        eia_plant_ids:
+          type: array
+          items: {type: string}
+        interconnection_points:
+          type: array
+          items:
+            type: object
+            required: [public_id, url, name]
+            properties:
+              public_id:
+                $ref: '#/components/schemas/InterconnectionPointPublicId'
+              url: {type: string, format: uri}
+              name: {type: string}
+        assets:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/AssetSummary'
+              - type: object
+                required: [eia_plant_id, owners]
+                properties:
+                  eia_plant_id: {type: string}
+                  owners:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssetOwnerRow'
+    SiteDetail:
+      type: object
+      required: [public_id, url, name, rule_version, member_count, lead, members, members_truncated, totals, sponsors, anchors, shares_interconnection_point, shares_interconnection_point_count]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/SitePublicId'
+        url:
+          type: string
+          format: uri
+          description: Canonical page (`https://infraque.com/sites/{public_id}`).
+        name:
+          type: string
+          description: The lead's served name.
+        rule_version:
+          type: string
+          description: Version of the grouping and labelling rules that built the site.
+          examples: ['2026-10-10.1']
+        member_count:
+          type: integer
+          minimum: 2
+        lead:
+          $ref: '#/components/schemas/SiteMemberRow'
+        members:
+          type: array
+          maxItems: 500
+          description: >-
+            Two levels where EIA provides them (site > plant group > unit): the lead's group first, then each
+            other group in the lead order of its head (active before withdrawn, larger before smaller, later
+            before earlier), each head followed by its units.
+          items:
+            $ref: '#/components/schemas/SiteMemberRow'
+        members_truncated: {type: boolean}
+        totals:
+          $ref: '#/components/schemas/SiteTotals'
+        sponsors:
+          type: array
+          description: >-
+            The visible members' sponsor organisations the caller may see, each with how many members it
+            sponsors, most first. Listed, never a level of the hierarchy.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/OrganizationSummary'
+              - type: object
+                required: [member_count]
+                properties:
+                  member_count: {type: integer, minimum: 1}
+        anchors:
+          $ref: '#/components/schemas/SiteAnchors'
+        shares_interconnection_point:
+          type: array
+          maxItems: 100
+          description: >-
+            Not members: visible proposals at a member's interconnection point that the rules did not group, active
+            first, then built, other and withdrawn, each by capacity.
+          items:
+            $ref: '#/components/schemas/SiteNeighbourRow'
+        shares_interconnection_point_count:
+          type: integer
+          minimum: 0
+    SiteDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SiteDetail'
     AssetListResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'
@@ -11191,6 +11529,7 @@ components:
         status:
           type: string
           enum: [ok, degraded]
+          description: '`degraded` exactly when `checks.database` is false, and then the HTTP status is 503.'
         api_version:
           type: string
           const: v1
@@ -11238,13 +11577,14 @@ components:
             fetched from a source, which moves independently of `data_as_of` above (that one is
             publication time, which no longer lags anything). Null when nothing is loaded.
         source_vintage:
-          type: object
+          type: [object, 'null']
           description: >-
             The releases the sources themselves state, summarised — the counterpart to
             `source_data_as_of` above, which is only when *we* last fetched. `oldest` is the bound
             on how old the loaded data can be; `sources_stating_none` is how many loaded sources
             publish no release label at all, for which the fetch date is the best available
-            statement and is labelled as a fetch, not as a release.
+            statement and is labelled as a fetch, not as a release. Null when the database check
+            failed.
           properties:
             oldest:
               type: [string, 'null']
@@ -11269,7 +11609,11 @@ components:
               type: integer
         checks:
           type: object
-          description: Launch-checklist probes (US-908). Booleans only, no internals.
+          description: >-
+            Launch-checklist probes (US-908), each one measured on the request, no internals.
+            `rate_limiter_active`, `edge_cache` and `backup_age_hours` were removed on 2026-10-10:
+            they were constants this process cannot check (the backup stamp lives on the host,
+            docs/60 §7).
           properties:
             database:
               type: boolean
@@ -11281,14 +11625,15 @@ components:
                 `null` when not applicable (a SQLite store, which runs no workers). Not folded into
                 `status`: the API serves reads without it. The deploy script requires `true` before
                 it starts any worker.
-            rate_limiter_active:
-              type: boolean
-            edge_cache:
-              type: boolean
-            backup_age_hours:
-              type: [number, 'null']
             queue_age_seconds:
-              type: [number, 'null']
+              type: [integer, 'null']
+              minimum: 0
+              description: >-
+                Whole seconds the oldest runnable job has waited: a `todo` job counts from the later of
+                when it entered `todo` and its `scheduled_at`, so a job blocked behind another's lock
+                counts and one scheduled for later does not. `0` when nothing is waiting; `null` when it
+                cannot be known (no queue schema, the database down, a SQLite store, or the read
+                failing). Not folded into `status`: how long is too long depends on the job.
             billing_configured:
               type: boolean
               description: >-

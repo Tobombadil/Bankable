@@ -76,6 +76,20 @@ and code, it is held again (`rechecked_hold` names the run it repeats). Health s
 and alerts, and the newest held run is the one to release (an older one is superseded by it).
 Once a hold is released (its record is rewritten `ok`) the same bytes are `unchanged` again.
 
+Same data in different envelope bytes is unchanged (2026-10-10, review docs/51 §2.7 item 6). Find a
+Tender echoes `updatedTo=<now>` in every page's `uri` and `links.next`, and grants.gov returned a
+fresh token with every page, so every hourly run hashed differently, ended `ok`, stored another
+snapshot (4.7 MB for Find a Tender) and queued load, resolve, enrich and match for no change. The
+run of a connector that overrides `Connector.canonical_content` (the redacted payload without those
+bytes) now also records its digest as `snapshot.canonical_sha256`, and step 2 counts a matching
+canonical digest as the same snapshot; every other connector is compared by `sha256` alone, exactly
+as before, and its record carries no such field. Such a run stores nothing, and its record names the
+stored object it matched (`sha256`, `byte_size`) with the digest of what it fetched kept as
+`fetched_sha256`, so every reader that follows a SHA-256 to a stored object (`Store.last_snapshot`,
+`Store.snapshot_bytes`, reparse, retention) still finds one. A previous record written before this
+field existed is compared by the canonical form of its stored bytes, read once, so the first run
+after the change is not a spurious `ok` either.
+
 `release_held` is the other way a run's output reaches `normalized/`: an operator accepted a
 data-quality hold (`POST /admin/v1/source-runs/{run_id}/release`), so the held frame is diffed
 against the previous normalised snapshot and written exactly as step 6 of `run` would have, the
@@ -87,6 +101,7 @@ runner and the loader apply; a release never makes quarantined output publishabl
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import logging
 import pathlib
@@ -442,6 +457,42 @@ def _snapshot_parser_version(record: dict[str, Any]) -> str:
     return str((record.get("snapshot") or {}).get("parser_version") or record.get("parser_version") or "")
 
 
+def _overrides_canonical(connector: Connector) -> bool:
+    return type(connector).canonical_content is not Connector.canonical_content
+
+
+def _canonical_sha256(connector: Connector, content: bytes) -> str | None:
+    """Digest of `Connector.canonical_content` (module docstring, "Same data in different envelope
+    bytes"); None for a connector that does not override it, or when the hook raises: that run is
+    compared byte for byte."""
+    if not _overrides_canonical(connector):
+        return None
+    try:
+        canonical = connector.canonical_content(content)
+    except Exception:
+        log.warning(
+            "canonical form unreadable; compared byte for byte", extra={"source_id": connector.source_id}
+        )
+        return None
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _previous_canonical_sha256(
+    connector: Connector, st: Store, source_id: str, last: tuple[str, dict[str, Any]]
+) -> str | None:
+    """The canonical digest of the snapshot step 2 compares against: as recorded, or, for a record
+    written before `canonical_sha256` existed, computed from its stored bytes (read once: the run
+    that follows records it)."""
+    snap = last[1].get("snapshot") or {}
+    if snap.get("canonical_sha256"):
+        return str(snap["canonical_sha256"])
+    try:
+        body = st.snapshot_bytes(source_id, last[0], last[1])
+    except Exception:
+        body = None
+    return _canonical_sha256(connector, body) if body is not None else None
+
+
 def reparse_skip_reason(
     source_id: str,
     *,
@@ -637,23 +688,40 @@ def run(
         "redacted": snap.redacted,
         "meta": snap.meta,
     }
+    canonical_sha = _canonical_sha256(connector, content)
+    if canonical_sha is not None:
+        record["snapshot"]["canonical_sha256"] = canonical_sha
 
     # 2. snapshot (unchanged short-circuit, docs/20 §3.2) ------------------
     # Same bytes *and* the same parser: nothing new can come out of this run. Same bytes under a
     # changed parser go on, so a parser fix reaches an unchanged source (module docstring).
     # Same bytes as a run still held by its DQ gates are not `unchanged` either: the run goes on
     # from the stored object and is held again, so the hold stays visible until it is released
-    # (module docstring, "A hold stays held").
+    # (module docstring, "A hold stays held"). "Same bytes" includes the same canonical payload
+    # (module docstring, "Same data in different envelope bytes").
     last = st._last_snapshot_entry(source_id)
+    same_bytes = last is not None and str(last[1]["snapshot"]["sha256"]) == snap.sha256
     if (
         not reparse
         and last is not None
-        and str(last[1]["snapshot"]["sha256"]) == snap.sha256
         and _snapshot_parser_version(last[1]) == record["parser_version"]
+        and (
+            same_bytes
+            or (
+                canonical_sha is not None
+                and _previous_canonical_sha256(connector, st, source_id, last) == canonical_sha
+            )
+        )
     ):
+        reused_key = (last[1].get("snapshot") or {}).get("object_key") or None
+        if not same_bytes and (reused_key or last[1].get("status") != "partial"):
+            # Nothing of these bytes is stored: the record names the object it matched.
+            matched = last[1]["snapshot"]
+            record["snapshot"]["fetched_sha256"] = snap.sha256
+            record["snapshot"]["sha256"] = str(matched["sha256"])
+            record["snapshot"]["byte_size"] = matched.get("byte_size")
         if last[1].get("status") != "partial":
             return finish("unchanged")
-        reused_key = (last[1].get("snapshot") or {}).get("object_key") or None
         record["rechecked_hold"] = {"run_id": last[1].get("id"), "ts": last[0]}
         log.warning(
             "same bytes as an unreleased DQ hold: re-checked, not short-circuited",

@@ -21,6 +21,13 @@ parquet) carry a constant `lifecycle_state`, and until this change the loader re
 "this is a proposal frame" and published every filing as an "Untitled" proposal. Nothing writes
 `document` rows yet (`services/api/documents.py`), so refusal is the only correct answer here.
 
+Removals (2026-10-10, docs/51 §2.7 item 1): a `removed` diff row says only that a record is no
+longer in its source's file. It is written as a public `withdrawn` event only for a source whose
+connector declares `removal_meaning = "withdrawn"` (none does today); every other removal is a
+`removed_from_source` event with NULL `published_at`/`public_at` and the declared meaning
+(`completed`, `closed`, `unknown`) in `after`, which no public or paid surface serves. The link's
+`gone_at` is set either way, and no removal changes a record's lifecycle state (it never did).
+
 Simplifications this sprint (no upstream producer yet — recorded here, not silently dropped):
   - **No cross-source fusion.** `pipeline/resolve.py` (entity resolution across sources) is a
     later, data-scientist-owned stage. Each `(source_id, source_record_id)` becomes its own
@@ -120,6 +127,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pipeline.connectors.base import REMOVAL_MEANINGS, RemovalMeaning
 from pipeline.connectors.dedupe import (
     CONTENT_SUFFIX_RE,
     content_disambiguator,
@@ -137,6 +145,7 @@ from pipeline.connectors.registry import (
 from pipeline.connectors.store import Store
 from pipeline.normalize import MILESTONE_COLUMNS, milestones_from_raw
 from services.db.models import (
+    REMOVED_FROM_SOURCE_EVENT_TYPE,
     Event,
     Licence,
     Location,
@@ -223,14 +232,27 @@ Kind = Literal["proposal", "opportunity"]
 GENERIC_LOAD_KINDS: tuple[Kind, ...] = ("proposal", "opportunity")
 
 #: pipeline/diff.py event_type -> docs/21 §7.3 event_type vocabulary.
+#:
+#: `removed` (2026-10-10, docs/51 §2.7 item 1) is not a withdrawal: it says only that the row is no
+#: longer in the source's file. It maps to the non-public `removed_from_source`, and becomes a
+#: public `withdrawn` only for a source whose connector declares `removal_meaning = "withdrawn"`
+#: (`removal_event_type`). Before this, every removal was published as `withdrawn`, so an EIA-860M
+#: unit entering operation or a grants.gov notice closing reached the feed, alerts, webhooks and
+#: social drafts as a withdrawal.
 DIFF_EVENT_TYPE_MAP: dict[str, str] = {
     "new": "created",
     "status_change": "status_change",
     "withdrawn": "withdrawn",
     "capacity_change": "capacity_changed",
     "cod_change": "field_changed",
-    "removed": "withdrawn",
+    "removed": REMOVED_FROM_SOURCE_EVENT_TYPE,
 }
+
+
+def removal_event_type(removal_meaning: str) -> str:
+    """The event type a `removed` diff row is stored as: `withdrawn` only where the source declares
+    that a row leaves its file because the request was withdrawn, else `removed_from_source`."""
+    return "withdrawn" if removal_meaning == "withdrawn" else REMOVED_FROM_SOURCE_EVENT_TYPE
 
 
 class GateRefused(Exception):
@@ -251,6 +273,28 @@ def connector_kind(registry: Registry, source_id: str) -> str | None:
         return None
     kind = getattr(cls, "kind", None)
     return str(kind) if kind is not None else None
+
+
+def connector_removal_meaning(registry: Registry, source_id: str) -> RemovalMeaning:
+    """What a `removed` diff row means at `source_id`, as its connector class declares it
+    (`Connector.removal_meaning`), read the way `connector_kind` reads `kind`. `unknown` when the
+    source has no connector class or declares a value outside `REMOVAL_MEANINGS`; the second is
+    logged. Failing to `unknown` fails closed: the removal is stored, never published."""
+    try:
+        cls = registry.connector_class(source_id)
+    except RegistrationError:
+        return "unknown"
+    declared = getattr(cls, "removal_meaning", "unknown")
+    for meaning in REMOVAL_MEANINGS:
+        if declared == meaning:
+            return meaning
+    log.warning(
+        "%s: connector removal_meaning=%r is not one of %s; read as 'unknown'",
+        source_id,
+        declared,
+        REMOVAL_MEANINGS,
+    )
+    return "unknown"
 
 
 def generic_load_kind(registry: Registry, source_id: str, requested: Kind | None = None) -> Kind:
@@ -329,6 +373,8 @@ class LoadResult:
     opportunities_updated: int = 0
     events_created: int = 0
     events_skipped_idempotent: int = 0
+    #: Of `events_created`, the `removed` diff rows stored as non-public `removed_from_source`.
+    removals_unpublished: int = 0
     locations_created: int = 0
     locations_exact_promoted: int = 0
     organizations_created: int = 0
@@ -1325,6 +1371,8 @@ class _LoadContext:
     source: Source
     kind: Kind
     run: SourceRun | None
+    #: What a `removed` diff row means at this source (`connector_removal_meaning`).
+    removal_meaning: RemovalMeaning = "unknown"
     #: Per updated record, its `last_changed` and served values before this load touched it
     #: (`_stamp_last_changed`); the first sight in a load wins.
     served_before: dict[_uuid.UUID, tuple[dt.datetime | None, dict[str, Any]]] = field(default_factory=dict)
@@ -1388,6 +1436,7 @@ def _prepare_load_context(
     kind: Kind,
     records_df: pd.DataFrame,
     run: SourceRun | None,
+    removal_meaning: RemovalMeaning = "unknown",
 ) -> _LoadContext:
     """`load_dataframe`'s setup step (module phase map blocks 01-10)."""
     now = utcnow()
@@ -1419,6 +1468,7 @@ def _prepare_load_context(
         source=source,
         kind=kind,
         run=run,
+        removal_meaning=removal_meaning,
     )
 
 
@@ -1713,7 +1763,13 @@ def _load_one_event(
 ) -> None:
     """One row of the events step: resolve the event's subject (via `ctx.record_id_to_internal`,
     or the stored link for a `removed` record), then write it unless already recorded (module
-    docstring, "Change-event identity")."""
+    docstring, "Change-event identity").
+
+    A `removed` row (2026-10-10, docs/51 §2.7 item 1) is a public `withdrawn` event only when the
+    source declares that meaning (`ctx.removal_meaning`); otherwise it is a `removed_from_source`
+    event with `published_at`/`public_at` NULL and the declared meaning in `after`, which no public
+    or paid surface serves (`services.db.models.NON_PUBLIC_EVENT_TYPES`). Either way the link's
+    `gone_at` is set and the record's lifecycle state is left as the source last stated it."""
     source, kind, run = ctx.source, ctx.kind, ctx.run
     diff_type = str(ev["event_type"])
     record_id = str(ev["record_id"])
@@ -1725,7 +1781,12 @@ def _load_one_event(
     if subject_id is None:
         ctx.result.warnings.append(f"event for unknown record_id {record_id!r} skipped")
         return
-    event_type = DIFF_EVENT_TYPE_MAP.get(diff_type, "field_changed")
+    event_type = (
+        removal_event_type(ctx.removal_meaning)
+        if diff_type == "removed"
+        else DIFF_EVENT_TYPE_MAP.get(diff_type, "field_changed")
+    )
+    unpublished_removal = event_type == REMOVED_FROM_SOURCE_EVENT_TYPE
     observed_at = _to_datetime(ev.get("observed_at")) or ctx.now
     field_name = ev.get("field") or "lifecycle_state"
     before_val = ev.get("before")
@@ -1754,13 +1815,22 @@ def _load_one_event(
         link = _link_for_event_record_id(ctx.cache, source, record_id)
     event_source_url = str(getattr(link, "source_url", None) or source.url)
 
-    published_at = ctx.now
+    published_at: dt.datetime | None = ctx.now
     # A change event is public the moment it is published, like the record it belongs to
     # (owner, 2026-09-21: the ISO change-event delay is dropped, and its per-source knob
     # with it -- `services/ingest/lag.py` argues why the knob went too). `public_at` stays
     # a stored column because `services/api/visibility.py` reads it; it is now always
-    # `published_at`.
-    public_at = record_public_at(published_at)
+    # `published_at`. A removal the source does not call a withdrawal is never published.
+    public_at: dt.datetime | None = record_public_at(ctx.now)
+    after_payload = {field_name: after_val} if after_val is not None else None
+    reason: str | None = None
+    if unpublished_removal:
+        published_at = public_at = None
+        after_payload = {"removal_meaning": ctx.removal_meaning}
+        reason = (
+            "no longer in the source's file; the source does not say this means withdrawal "
+            f"(declared meaning: {ctx.removal_meaning})"
+        )
     event = Event(
         subject_type=kind,
         subject_id=subject_id,
@@ -1773,9 +1843,10 @@ def _load_one_event(
         retrieved_at=observed_at,
         licence_id=source.licence_id,
         before=({field_name: before_val} if before_val is not None else None),
-        after=({field_name: after_val} if after_val is not None else None),
+        after=after_payload,
         changed_keys=[str(field_name)],
         actor_type="pipeline",
+        reason=reason,
         run_id=run.id if run else None,
         idempotency_key=idempotency_key,
     )
@@ -1788,6 +1859,8 @@ def _load_one_event(
     session.flush()
     existing_event_keys.add(idempotency_key)
     ctx.result.events_created += 1
+    if unpublished_removal:
+        ctx.result.removals_unpublished += 1
 
     if diff_type == "removed":
         link = ctx.cache.links_by_entity.get(subject_id)
@@ -1825,6 +1898,7 @@ def load_dataframe(
     *,
     run: SourceRun | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
+    removal_meaning: RemovalMeaning = "unknown",
 ) -> LoadResult:
     """Upsert one connector run's normalised records and diff events (idempotent).
 
@@ -1845,12 +1919,19 @@ def load_dataframe(
     `MAX(seq)+1` per row and collides if two new events are flushed together, so events are still
     flushed one at a time regardless of this setting, exactly as before.
 
+    `removal_meaning` is what a `removed` event means at this source (`Connector.removal_meaning`,
+    which `load_from_files` reads through `connector_removal_meaning`). The default, `unknown`,
+    stores every removal as a non-public `removed_from_source` event: a direct caller that does not
+    say otherwise never publishes a disappearance as a withdrawal.
+
     An orchestrator over four steps (module phase map, docs/42 §5): `_prepare_load_context`,
     `_index_records`, `_upsert_records`, `_load_events` -- the last two sharing `_LoadContext`.
     """
     if kind not in GENERIC_LOAD_KINDS:
         raise KindRefused(f"{source.id}: load_dataframe writes only {GENERIC_LOAD_KINDS}, not {kind!r}")
-    ctx = _prepare_load_context(session, source, kind, records_df, run)
+    if removal_meaning not in REMOVAL_MEANINGS:
+        raise ValueError(f"{source.id}: removal_meaning={removal_meaning!r} not in {REMOVAL_MEANINGS}")
+    ctx = _prepare_load_context(session, source, kind, records_df, run, removal_meaning)
     ctx.result.kind = kind
     records, dup_naturals = _index_records(records_df)
     _upsert_records(session, ctx, records, dup_naturals, batch_size)
@@ -1933,7 +2014,15 @@ def load_from_files(
     source = upsert_licence_and_source(session, entry, registry.version)
     run = _run_for_load(session, source, run_record, records_df, events_df, entry.egress)
 
-    result = load_dataframe(session, source, load_kind, records_df, events_df, run=run)
+    result = load_dataframe(
+        session,
+        source,
+        load_kind,
+        records_df,
+        events_df,
+        run=run,
+        removal_meaning=connector_removal_meaning(registry, source_id),
+    )
     result.source_run_id = run.id
     _mark_loaded(session, source_id, ts)
     return result

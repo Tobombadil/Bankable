@@ -75,7 +75,9 @@
     masthead used to say "Every record and every change live" whatever the fetch dates were. -#}
 {% set fresh = source_freshness(request) %}
 <header class="site-header">
-  <div class="masthead">
+  {#- `masthead_modifier`: the home page keeps the source-lateness link below 720px, where it has no
+      tier notice to carry it (review 2026-10-10 §2.6 item 2). -#}
+  <div class="masthead{% block masthead_modifier %}{% endblock %}">
     <span class="masthead__ref">Infraque register &middot; public edition</span>
     <span class="masthead__lag">
       {%- if fresh.available and not fresh.behind -%}
@@ -102,7 +104,12 @@
       <a href="/interconnection-points">Grid connection points</a>
       <a href="/organizations">Companies</a>
       <a href="/about">About &amp; sources</a>
+      {#- Owner, 2026-10-10: paid tiers stay off and must not distract the private beta. Under the
+          noncommercial posture the link is left out; /pricing still answers by URL and says why
+          the tiers are not offered (`web/page.py::paid_tiers_offered`, docs/26 §3). -#}
+      {%- if paid_tiers_offered(request) %}
       <a href="/pricing">Pricing</a>
+      {%- endif %}
       <a href="/alerts">Alerts</a>
       {% if request.cookies.get('session') %}
       <a href="/account">Account</a>

@@ -320,3 +320,40 @@ def test_single_host_refuses_to_render_without_a_database_password(tmp_path: pat
         result = _render(_documented_env(tmp_path, "production", POSTGRES_PASSWORD=value), SINGLE)  # type: ignore[arg-type]
         expect(result.returncode != 0, f"POSTGRES_PASSWORD={value!r} rendered")
         expect("POSTGRES_PASSWORD" in result.stderr, result.stderr)
+
+
+#: Docker's grace between SIGTERM and SIGKILL for the job runners (docs/51 §2.9 item 2): Procrastinate
+#: waits for running jobs on SIGTERM, and Docker's default 10 s killed most of them mid-job, which
+#: left them `doing` and their locks held. infra/scheduler/queue_maintenance.py STOP_GRACE_S is the
+#: same figure, and its stalled threshold is twice it.
+JOB_RUNNERS = ("scheduler", "worker", "browser-worker")
+
+
+def test_job_runners_get_five_minutes_to_finish_their_jobs(
+    base: dict[str, Any], prod: dict[str, Any]
+) -> None:
+    from infra.scheduler.queue_maintenance import STOP_GRACE_S
+
+    for name in JOB_RUNNERS:
+        expect(base["services"][name].get("stop_grace_period") == f"{STOP_GRACE_S}s", f"{name}: grace")
+    single, _tags = load(SINGLE)
+    for overlay in (prod, single):
+        for name, svc in overlay["services"].items():
+            expect("stop_grace_period" not in svc, f"{name}: an overlay must not shorten the grace")
+    for name in ("api", "web", "caddy"):
+        expect("stop_grace_period" not in base["services"].get(name, {}), f"{name} runs no jobs")
+
+
+def test_the_single_host_renders_the_grace_on_every_job_runner(tmp_path: pathlib.Path) -> None:
+    _needs_compose()
+    env_file = _documented_env(
+        tmp_path, "production", POSTGRES_PASSWORD=SINGLE_DB_PASSWORD, SNAPSHOT_STORE="local"
+    )
+    result = _render(env_file, SINGLE)
+    expect(result.returncode == 0, result.stderr)
+    services = yaml.safe_load(result.stdout)["services"]
+    for name in ("scheduler", "worker"):
+        expect(
+            services[name]["stop_grace_period"] == "5m0s",
+            f"{name}: {services[name].get('stop_grace_period')}",
+        )

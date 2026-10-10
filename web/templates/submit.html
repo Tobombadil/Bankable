@@ -36,7 +36,7 @@
   </select>
 </div>
 {%- endmacro -%}
-{% block title %}{% if s.sent %}Submission received{% elif s.error_rows %}Check your answers: submit a project{% else %}Submit a project{% endif %} -- Infraque{% endblock %}
+{% block title %}{% if s.sent %}Submission received{% elif s.error_rows %}Check your answers: submit a project{% else %}Submit a project{% endif %} — Infraque{% endblock %}
 {% block robots %}{% if s.sent or s.problem %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
 {% block meta_description %}Tell the register about an energy or infrastructure project it does not list yet. An editor reviews every submission before anything is published.{% endblock %}
 {% block content %}

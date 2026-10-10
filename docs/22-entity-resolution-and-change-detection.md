@@ -383,6 +383,15 @@ Deterministic, model-free (`docs/20` §3.3), keyed on `record_id`, one event row
 Removal is an event, never a delete: for ERCOT (no withdrawn rows in the file) and EIA-860M Planned (units leave
 the sheet on COD) it is the *only* way those transitions are observable.
 
+**A removal is not published as a withdrawal (2026-10-10, `docs/51` §2.7 item 1).** One disappearance can mean
+several things. ERCOT's report also drops projects that go inactive (`status = INA`) or are split into new INRs.
+An EIA-860M unit also leaves the Planned sheet when it moves to "Canceled or Postponed". A grants.gov notice leaves
+the search when it closes. So the loader writes `removed` as the non-public `removed_from_source` event. It carries
+the meaning the connector declares (`Connector.removal_meaning`; `docs/21` §7.3), and `gone_at` is set as before.
+Only a declared `withdrawn` publishes a `withdrawn` event, and no source declares it. ERCOT and EIA-860M declare
+`unknown`; grants.gov declares `closed`. A churn gate in `pipeline/connectors/dq.py` holds a run that re-keys its
+source (less than 90 % of the previous keys kept, or removals plus status moves over 15 % of the previous rows).
+
 Event identity in the store (`services/ingest/loader.py`, changed 2026-09-18, audit §3.1):
 `event.idempotency_key = source:record_id:event_type:field:sha1(before)[:12]:sha1(after)[:12]:observed_at`.
 The key used to be `source:record_id:event_type:sha1(after)`, so a status that returned to an earlier value

@@ -312,3 +312,57 @@ def test_the_map_page_hands_the_drawer_the_same_table(web_client: TestClient) ->
     }
     assert "</" not in proposal_fields_json()
     assert 'fieldApplies(p.kind, "capacity_mw", p.capacity_mw)' in MAP_JS
+
+
+# ---- review 2026-10-10 §2.6 item 7: capacity through `mw`, names in a readable case ----
+def test_the_field_grid_and_description_print_capacity_through_mw(web_client: TestClient) -> None:
+    """Before: "3200.0" in the grid and "3200.0 MW" in the meta description (the one page left
+    on `'%.1f'`, docs/31 §4)."""
+    _install(
+        [
+            _solar()
+            | {"capacity_mw": 3200.0, "storage_mwh": 1200.5, "kind": "storage", "technology": "storage"}
+        ]
+    )
+    body = web_client.get("/proposals/solar-one").text
+    grid = _grid(body)
+    assert re.search(r"<dt>Capacity \(MW\)</dt><dd class=\"tnum\">3,200\b", grid)
+    assert re.search(r"<dt>Storage \(MWh\)</dt><dd class=\"tnum\">1,200\.5<", grid)
+    assert "3200.0" not in body
+    description = re.search(r'<meta name="description" content="([^"]*)"', body)
+    assert description is not None and "3,200 MW" in description.group(1)
+
+
+def test_a_name_filed_in_capitals_is_readable_in_the_heading_and_title_and_shown_once_as_filed(
+    web_client: TestClient,
+) -> None:
+    _install([_solar() | {"name_canonical": "SUNSETTER BESS SOLAR"}])
+    body = web_client.get("/proposals/solar-one").text
+    assert "<h1>Sunsetter BESS Solar</h1>" in body
+    assert "<title>Sunsetter BESS Solar — Infraque</title>" in body
+    assert re.search(r'<nav class="breadcrumbs"[^>]*>.*/ Sunsetter BESS Solar</nav>', body)
+    assert (
+        body.count(
+            '<p class="as-filed">As filed: <span class="as-filed__name">SUNSETTER BESS SOLAR</span></p>'
+        )
+        == 1
+    )
+    # Search engines and the URL keep the register's own spelling.
+    description = re.search(r'<meta name="description" content="([^"]*)"', body)
+    assert description is not None and description.group(1).startswith("SUNSETTER BESS SOLAR:")
+
+
+def test_a_name_in_a_readable_case_has_no_as_filed_line(web_client: TestClient) -> None:
+    _install([_solar()])
+    body = web_client.get("/proposals/solar-one").text
+    assert "<h1>Record solar-one</h1>" in body and "as-filed" not in body
+
+
+def test_no_visible_title_uses_a_double_hyphen() -> None:
+    """docs/31: a title separates the page from the site with a dash, not " -- "."""
+    offenders = []
+    for path in (WEB / "templates").rglob("*.html"):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if ("{% block title %}" in line or "<title>" in line) and " -- " in line:
+                offenders.append(f"{path.relative_to(WEB)}:{number}")
+    assert offenders == []

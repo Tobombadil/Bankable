@@ -1213,6 +1213,19 @@
     return out;
   }
 
+  // The key sits on the map (review 2026-10-10): "Key" hides it and shows it again. Without this
+  // script the button stays hidden and the key stays shown.
+  var mapKey = document.getElementById("map-key");
+  var mapKeyToggle = document.getElementById("map-key-toggle");
+  if (mapKey && mapKeyToggle) {
+    mapKeyToggle.hidden = false;
+    mapKeyToggle.addEventListener("click", function () {
+      var open = mapKeyToggle.getAttribute("aria-expanded") !== "true";
+      mapKeyToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      mapKey.hidden = !open;
+    });
+  }
+
   // Designer D-2: the status key lists only the families the filters can draw.
   var lifecycleLegendItems = Array.prototype.slice.call(document.querySelectorAll("[data-legend-family]"));
   function updateLifecycleLegend(counts) {

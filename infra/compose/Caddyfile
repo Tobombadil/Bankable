@@ -11,13 +11,16 @@
 #                  staging     staging.{DOMAIN}  admin-staging.{DOMAIN}  api-staging.{DOMAIN}  (no www record)
 #
 # Routing (devops audit 2026-09-30 F2, architect A7, PM-3). The API owns four path prefixes; every
-# other path, the operator admin UI at /admin/<page> included, is the web app:
-#   /v1/*  /admin/v1/*  /feeds/*  /webhooks/*   -> api:8000
-#   everything else                             -> web:8001
-# The admin host serves the same web app (its admin pages call the API server-side with the
-# operator's cookie, web/admin/shell.py) plus /admin/v1/*; its root redirects to /admin. The api
-# host is the API alone: it is the server in api/openapi.yaml, the Attio webhook target and the
-# host of download, unsubscribe and problem-type URLs (services/api/common.py API_HOST).
+# other path is the web app:
+#   /v1/*  /feeds/*  /webhooks/*   -> api:8000 (site and api hosts)
+#   /admin/v1/*                    -> api:8000 (admin host only)
+#   everything else                -> web:8001
+# Admin lives on the admin host alone (2026-10-10, docs/51 §2.4 item 5; D-16): it serves the web
+# app, the operator UI at /admin/<page> included (its pages call the API server-side with the
+# operator's cookie, web/admin/shell.py), plus /admin/v1/*; its root redirects to /admin. The site
+# and api hosts answer 404 for /admin, /admin/* and /admin/v1/* (`no_admin`). The api host is the
+# API alone: it is the server in api/openapi.yaml, the Attio webhook target and the host of
+# download, unsubscribe and problem-type URLs (services/api/common.py API_HOST).
 # infra/test_caddyfile.py proves each route with a real Caddy and checks the API prefixes against
 # the API's own route table.
 #
@@ -76,7 +79,41 @@
 	}
 }
 
+# Response headers on every host (2026-10-10, docs/51 §2.4 item 5). `?` writes a header only when
+# the upstream sent none, so a page can still send a stricter value of its own. They go on every
+# response a handler writes (pages, API answers, redirects, the admin 404); Caddy's own error
+# responses (the gate's 401, a 502 while an upstream is down) carry none, and have no body to protect.
+# - HSTS: every host set below (production, staging) serves Let's Encrypt certificates; local and
+#   dev run no Caddy (the base Compose file has none, and any other ENVIRONMENT fails to adapt).
+#   One year; no includeSubDomains and no preload, which would bind every other name under DOMAIN
+#   and cannot be undone quickly. A rehearsal on `localhost` sends it too: probe with curl, not the
+#   browser you develop in.
+# - frame-ancestors 'none' is enforced, alone in its own policy, so it restricts nothing else.
+# - The full policy is Report-Only: the browser reports what it would block (in its console; there
+#   is no report endpoint yet) and blocks nothing. It allows the site as it is on 2026-10-10:
+#     scripts   self, the three CDN packages web/assets.py pins (SRI-checked), Cloudflare Turnstile
+#               (/submit and the report-a-problem form), and the one inline script, base.html's
+#               `document.documentElement.classList.add("js")`, by hash;
+#     styles    self, MapLibre's stylesheet, and 'unsafe-inline' for the templates' style attributes;
+#     images    self, data: and blob: (MapLibre), the Protomaps sprites, the basemap file;
+#     fetches   self, the basemap file (MAP_TILE_URL, a PMTiles URL in production: a valid source
+#               that matches exactly that file) and the Protomaps glyphs and sprites;
+#     fonts     self (web/static/fonts; no Google Fonts); workers self and blob: (MapLibre);
+#     frames    Turnstile only.
+#   infra/test_caddyfile.py derives the CDN packages, the Turnstile origin and the inline-script
+#   hashes from web/ and fails when the policy no longer matches the site.
+(security_headers) {
+	header {
+		?Strict-Transport-Security "max-age=31536000"
+		?X-Content-Type-Options "nosniff"
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		?Content-Security-Policy "frame-ancestors 'none'"
+		?Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/ https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/ https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/ https://challenges.cloudflare.com 'sha256-qOhFsq0QMV2REqNwk5hGH5bZE9SkX6gt6yeyKdYPv+U='; style-src 'self' https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/ 'unsafe-inline'; img-src 'self' data: blob: https://protomaps.github.io/basemaps-assets/ {$MAP_TILE_URL}; connect-src 'self' https://protomaps.github.io/basemaps-assets/ {$MAP_TILE_URL}; font-src 'self'; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'"
+	}
+}
+
 (common) {
+	import security_headers
 	import gate_{$SITE_ACCESS:open}
 	request_header -X-Internal-Token
 	request_header -X-Visitor-IP
@@ -87,9 +124,19 @@
 	}
 }
 
+# Admin is the admin host's alone (routing note at the top). On the site and api hosts every admin
+# path is a 404 before any upstream sees it; behind the beta gate the login is asked for first.
+(no_admin) {
+	@admin path /admin /admin/*
+	handle @admin {
+		respond 404
+	}
+}
+
 (site) {
 	import common
-	@api path /v1/* /admin/v1/* /feeds/* /webhooks/*
+	import no_admin
+	@api path /v1/* /feeds/* /webhooks/*
 	handle @api {
 		import to_api
 	}
@@ -113,6 +160,7 @@
 
 (api_site) {
 	import common
+	import no_admin
 	handle {
 		import to_api
 	}
@@ -129,6 +177,7 @@
 		import api_site
 	}
 	www.{$DOMAIN} {
+		import security_headers
 		redir https://{$DOMAIN}{uri} permanent
 	}
 }

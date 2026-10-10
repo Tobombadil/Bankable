@@ -22,7 +22,7 @@ the *change* events. The sources below are grouped by which of those they feed.
 | Source | Feeds | Access | Cadence | Reuse | Verified 2026-09-12 |
 |---|---|---|---|---|---|
 | CAISO Public Queue Report | supply | xlsx | weekly | attribution | ok, 2,278 rows |
-| ERCOT GIS Report | supply | xlsx via MIS JSON | monthly | **open** | ok, 1,778 rows |
+| ERCOT GIS Report | supply | xlsx via MIS JSON | monthly (published the 1st, ~21:00 UTC); polled daily since 2026-10-10 | **open** | ok, 1,778 rows |
 | ERCOT Large Load report | supply (load) | xlsx | monthly | open | page ok, product id to confirm (2026-10-07: still no data product, only PDF chart decks; catalogue API 403 from this environment; docs/25 §3.10.1) |
 | SPP GI summary CSV | supply | csv | daily | unknown | ok, 3,074 rows |
 | NYISO Interconnection Queue | supply | xlsx | weekly | unknown | ok, 3,164 rows |
@@ -38,7 +38,7 @@ the *change* events. The sources below are grouped by which of those they feed.
 | Utility / co-op / CCA RFPs | demand | curated HTML/PDF | continuous | attribution | not probed (curation task) |
 | EU TED API v3 | demand | JSON POST | daily | attribution | ok, 785 energy-CPV notices since 1 Sep |
 | World Bank procurement notices | demand | JSON | daily | CC BY 4.0 | ok (sector filter to fix) |
-| NESO TEC Register | supply (GB) | CKAN CSV | twice weekly | NESO Open Data | ok, 11 Sep 2026 file |
+| NESO TEC Register | supply (GB) | CKAN CSV | twice weekly; polled daily since 2026-10-10 | NESO Open Data | ok, 11 Sep 2026 file |
 | Global Energy Monitor trackers | supply (global spine) | xlsx | quarterly | CC BY 4.0 | ok |
 | Bluesky / LinkedIn / owned RSS+email | distribution | API | — | — | Bluesky ok |
 
@@ -48,8 +48,13 @@ news feeds) are fully specified in the YAML with tier, effort and notes.
 
 ## 3. Coverage map and the gaps that matter
 
-**Covered well by Tier 1:** ~70–75% of US queued generation/storage capacity (five ISOs live today, PJM once keyed,
-MISO once unblocked); federal funding and permitting stage signals; EU/UK/MDB tenders; GB transmission queue.
+**Covered by Tier 1 today:** about a quarter of the US active queue, not the ~70–75 % this section claimed until
+2026-10-10. Measured in the 2026-10-10 review (`docs/51` §2.7 item 5): 2,118 active rows / 524 GW from the three ISO
+queues live (ERCOT, CAISO, NYISO) against LBNL's ~8,200 projects / ~2,060 GW, and ERCOT is 78 % of those active rows.
+(Recomputed from the operator's 2026-10-09 data root: rows not built, withdrawn or cancelled.) The 70–75 % figure
+assumed five ISOs live plus PJM and MISO; SPP and ISO-NE have no connector (terms unread), PJM still needs a licence
+and MISO is blocked. Also covered: federal funding and permitting stage signals; EU/UK/MDB tenders
+(TED is 81 % of opportunities); the GB transmission queue.
 
 **Gaps, in order of commercial importance:**
 

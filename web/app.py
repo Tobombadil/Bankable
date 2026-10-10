@@ -56,6 +56,7 @@ from web.page import (
     is_preview_active,
     item_list_jsonld,
     not_found_response,
+    paid_tiers_offered,
     querystring_without,
     save_alert_href,
     templates,
@@ -203,6 +204,11 @@ from web.interconnection_points import router as interconnection_points_router  
 
 app.include_router(interconnection_points_router)
 
+# Sites (owner decision 2026-10-10; docs/21 §3.25): `/sites/{public_id}` and the proposal page's panel.
+from web.sites import router as sites_router  # noqa: E402
+
+app.include_router(sites_router)
+
 from web.coverage_statement import uncovered_iso_notes  # noqa: E402
 
 # Audit 2026-10-07 UX-6: `/docs/api` and the development relay for `/feeds/*` (web/feeds.py).
@@ -283,6 +289,8 @@ def delayed_notice(request: Request, kind: str) -> dict[str, Any]:
         # Owner decision 2026-09-30: under the noncommercial posture the notice's call to action is
         # the free alerts page, not the paid tiers (`get_free_alerts`, read from `/v1/health`).
         "free_alerts": get_free_alerts(request),
+        # No "in Pro" call to action while the posture keeps the paid tiers off (owner, 2026-10-10).
+        "paid_tiers_offered": paid_tiers_offered(request),
         # Whether "live" is true of the sources right now (`source_freshness`, `/v1/coverage`).
         "freshness": source_freshness(request, get_api(request)),
     }

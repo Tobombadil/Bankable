@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Save an alert -- Infraque{% endblock %}
+{% block title %}Save an alert — Infraque{% endblock %}
 {% block robots %}noindex, nofollow{% endblock %}
 {% block meta_description %}Save an Infraque search as an email alert.{% endblock %}
 {% block content %}
@@ -19,7 +19,7 @@
 {%- if not plan %}
 <div class="notice" role="status">
   <p class="notice__title">Email alerts are part of the paid plans.</p>
-  <p>The results stay free to read, and every list has an RSS feed. <a href="/pricing">See what the plans include</a>.</p>
+  <p>The results stay free to read, and every list has an RSS feed.{% if paid_tiers_offered(request) %} <a href="/pricing">See what the plans include</a>.{% endif %}</p>
 </div>
 {%- elif needs_verification %}
 <div class="notice" role="status">
