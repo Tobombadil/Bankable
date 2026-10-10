@@ -4,7 +4,12 @@
 The API has already applied the proposal predicate to every member, neighbour, count and total, and
 re-run the lead and labels when the stored lead is hidden from the caller; the page adds wording and
 formatting only, so it can never print a member the API withheld. A record with no site, or whose
-site has fewer than two members this viewer may see, gets no panel (the embed is `null`).
+site has fewer than two members this viewer may see, gets no panel (the embed is `null`). When the
+members a viewer may see are not all linked to each other without a hidden one (lane S2), the API
+serves one linked group: the panel asks for its own record's group (`?member=`), the site page gets
+the largest, and both say that other records of the site keep their own pages (`partial`).
+
+A site page view is counted like the other detail pages (`page.viewed`, `page_type = site`).
 
 The panel is a template global (`site_panel`), the way `source_freshness` is (`web/auth.py`), so the
 proposal page needs one `{% include "_site_panel.html" %}` line and no change to its route. It costs
@@ -27,7 +32,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from services.sites.switch import sites_enabled
 from web import formatting
 from web.api_client import ApiError, ApiNotFound
-from web.page import breadcrumb_jsonld, get_api, not_found_response, templates, unavailable_response
+from web.page import (
+    breadcrumb_jsonld,
+    count_page_view,
+    get_api,
+    not_found_response,
+    templates,
+    unavailable_response,
+)
 from web.viewmodels import lifecycle_family, page_credits, provenance_panel_rows, web_relative_url
 
 router = APIRouter()
@@ -120,6 +132,7 @@ def flatten_site(entity: Mapping[str, Any]) -> dict[str, Any]:
         "href": f"/sites/{entity.get('public_id')}",
         "name": entity.get("name"),
         "member_count": entity.get("member_count") or len(members),
+        "partial": bool(entity.get("partial")),
         "members": members,
         "members_truncated": bool(entity.get("members_truncated")),
         "lead": members[0] if members else None,
@@ -169,7 +182,8 @@ def site_panel(request: Request, record: Mapping[str, Any]) -> dict[str, Any] | 
         embed = api.get(f"/v1/proposals/{public_id}")["data"].get("site")
         if not embed:
             return None
-        envelope = api.get(f"/v1/sites/{embed['public_id']}")
+        # This record's own linked group, which is not always the site page's largest one.
+        envelope = api.get(f"/v1/sites/{embed['public_id']}", params={"member": public_id})
         site = flatten_site(envelope["data"])
     except _API_FAILURES:
         return None
@@ -202,7 +216,7 @@ def site_detail(request: Request, public_id: str) -> Response:
     provenance: list[dict[str, Any]] = []
     for row in [*site["members"], *site["neighbours"]]:
         provenance.extend(row["provenance"])
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "site_detail.html",
         {
@@ -215,3 +229,4 @@ def site_detail(request: Request, public_id: str) -> Response:
             ],
         },
     )
+    return count_page_view(request, response, "site")

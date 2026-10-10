@@ -24,6 +24,7 @@
 
 <section aria-label="Records at this site">
   {{ m.section_heading("1.", "Records at this site") }}
+  {% if site.partial %}<p class="attribution-line">This page lists the largest group of linked records at this site. Other records at this site are not linked to these by anything shown here; each keeps its own page.</p>{% endif %}
   {% if site.members_truncated %}<p class="attribution-line">Showing the first {{ site.members | length }} of {{ site.member_count }} records; the totals above cover all of them.</p>{% endif %}
   <div class="table-scroll">
   <table class="record-table">

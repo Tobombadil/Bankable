@@ -37,6 +37,7 @@ ADMIN_NAV: tuple[tuple[str, str, str], ...] = (
     ("/admin/sources", "Sources", "sources"),
     ("/admin/records", "Records", "records"),
     ("/admin/resolution", "Resolution", "resolution"),
+    ("/admin/sites", "Sites", "sites"),
     ("/admin/extractions", "Extractions", "extractions"),
     ("/admin/tasks", "Tasks", "tasks"),
     ("/admin/posts", "Posts", "posts"),

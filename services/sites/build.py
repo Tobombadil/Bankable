@@ -272,6 +272,18 @@ class PlannedSite:
         return sorted({m.candidate.poi_key for m in self.members if m.candidate.poi_key is not None})
 
 
+def _links(candidates: Sequence[Candidate], i: int, partners: Mapping[int, str]) -> dict[str, str]:
+    """`grouping_evidence["links"]` for member `i` (`rules.LINKS_KEY`): its direct rule b-c partners by
+    `public_id`, leaving out any partner that shares an EIA plant id with it (the plant id already
+    joins the two wherever both are visible)."""
+    mine = candidates[i].plant_ids
+    return {
+        candidates[j].public_id: rule
+        for j, rule in sorted(partners.items(), key=lambda kv: candidates[kv[0]].public_id)
+        if not (mine & candidates[j].plant_ids)
+    }
+
+
 def plan(candidates: Sequence[Candidate], edges: Sequence[rules.Edge] | None = None) -> list[PlannedSite]:
     """Group, rank and label `candidates` (no store access). Sites are ordered by their lead's
     `public_id`."""
@@ -291,7 +303,7 @@ def plan(candidates: Sequence[Candidate], edges: Sequence[rules.Edge] | None = N
                     placed.label,
                     placed.rank,
                     comp.rule_of[i],
-                    comp.evidence_of[i],
+                    {**comp.evidence_of[i], rules.LINKS_KEY: _links(candidates, i, comp.links_of.get(i, {}))},
                     placed.group_key,
                     parent,
                 )

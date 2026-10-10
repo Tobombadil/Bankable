@@ -254,10 +254,12 @@ app.include_router(admin_posts_router)
 from web.admin.engagement import router as admin_engagement_router  # noqa: E402
 from web.admin.ops import router as admin_ops_router  # noqa: E402
 from web.admin.people import router as admin_people_router  # noqa: E402
+from web.admin.sites import router as admin_sites_router  # noqa: E402
 
 app.include_router(admin_people_router)
 app.include_router(admin_ops_router)
 app.include_router(admin_engagement_router)
+app.include_router(admin_sites_router)
 
 
 #: docs/50 §3.2 web bullet ("no Open Graph or structured data") and docs/00-PLAN.md 2026-09-19

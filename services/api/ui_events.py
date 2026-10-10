@@ -9,7 +9,8 @@ per-IP rate limiter below — never stored, never logged, discarded the instant 
 `GET /admin/v1/ui-events/summary` is the operator-only read side, weekly counts per event name.
 
 **`page.viewed`** (owner decision 2026-09-30; PM-5, sales F8): one view of a proposal, company,
-asset or grid-point page, the denominator of "alerts created per page view". It is recorded by the
+asset, grid-point or site page (`PAGE_VIEW_TYPES`; site since lane S2, 2026-10-10), the denominator
+of "alerts created per page view". It is recorded by the
 public site's own server when it renders one of those pages, never by a browser, so it is accepted
 only from the site's service identity (`X-Internal-Token`, the same credential
 `services/api/app.py`'s middleware recognises) and refused from anyone else -- a counter any

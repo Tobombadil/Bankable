@@ -1086,9 +1086,22 @@ its own edges (`grouping_rule`) and every rule and identifier behind them (`grou
 | d. — | County, state and country centroids group nothing | A centroid is a region, not a place |
 
 *Name stem* (`evidence.name_stem`): lower-cased, parentheticals dropped, then legal forms, technology and facility
-words, phase words (phase, unit, stage, expansion, repower …), roman numerals, number words after the first word,
-tokens of one or two letters and every token holding a digit removed; fewer than four letters is no stem. "Darden IV
-Solar" and "DARDEN" share `darden`. *Sponsor conflict*: both name a sponsor, the organisations differ (after
+words, phase words (phase, unit, stage, expansion, repower …), roman numerals, suffixed phase markers (below),
+number words after the first word, tokens of one or two letters and every token holding a digit removed; fewer
+than four letters is no stem. "Darden IV Solar" and "DARDEN" share `darden`; "St Gall IIIA" and "St Gall IIIB"
+share `gall`.
+
+*Phase markers* (`evidence.phase_markers`, rule version `2026-10-10.2`, lane S2): the resolver's
+(`pipeline.resolve.phase_tokens`: "Darden II" → `2`, "Phase B" → `B`), plus a numeral with a one-letter suffix
+A–H as one token, Arabic ("2A", "3b") or Roman of two or more letters ("IIA", "IIIB", "VIIIc"), read as `3A` etc.
+Such a token counts after a phase word (phase, ph, unit, stage, block, tranche: "Phase 2a") or as a later word
+followed only by facility and legal words ("St Gall IIIA", "SAN JOAQUIN 2B"). Not read: a lone I/V/X with a letter
+("IA", "VA" are state codes), the words "via", "iva", "vic", "vie", a first word ("2A Solar"), a token inside a name
+("Route 2A Crossing"). On a copy of the e2e store (9,563 live records, 7,212 distinct names; no exact points or
+interconnection points there, so every site groups by EIA plant), 11 names gain a marker and 2 change stem, and no
+site membership or label changes (326 sites, 1,072 members, before and after). On the beta store, St Gall IIIA and
+IIIB move from `same_site` (low) to `phase_of` (high); the beta-store count was not re-measured (its Postgres was
+offline). *Sponsor conflict*: both name a sponsor, the organisations differ (after
 organisation merges), their ultimate GLEIF parents differ, and their name stems neither match nor start with the same
 word of four or more letters ("Fermi America"/"Fermi Nuclear" do not conflict; NextEra/Invenergy do). A sponsor named
 after the project itself ("Cowboy Solar I" sponsoring "Cowboy Solar II") counts as unnamed.
@@ -1143,7 +1156,7 @@ to the cluster holding most of its former members, and is never reused; `GET /v1
 
 | `site` field | Type | Null | Meaning |
 |---|---|---|---|
-| `id`, `public_id` (`site_…`), `slug` | uuid, text, text | No | Stable identity; `slug` is set once from the first lead's name and is not served (the URL is `/sites/{public_id}`) |
+| `id`, `public_id` (`site_…`), `slug` | uuid, text, text | No | Stable identity; `slug` is set once from the first lead's name and is not served (the URL is `/sites/{public_id}`). Lane S2 kept it so: the first lead can be a record no public tier sees (a PJM row), so a slug URL would print a hidden name, and resolving it would answer whether such a name exists; a safe slug needs one built from the public lead with a redirect history |
 | `name_display` | text | No | The stored lead's name at the last build (operators); readers get the name of the lead *they* may see |
 | `lead_proposal_id` | uuid | Yes | FK `proposal`; NULL once retired |
 | `member_count` | int | No | Members at the last build |
@@ -1157,7 +1170,7 @@ to the cluster holding most of its former members, and is never reused; `GET /v1
 | `site_id`, `proposal_id` | uuid | No | FK; `proposal_id` unique (one site per proposal) |
 | `is_lead`, `lead_rank` | bool, int | No | Display order: lead group first, each head followed by its units |
 | `group_key`, `parent_proposal_id` | text, uuid | No, Yes | Plant group; the group head for a unit |
-| `grouping_rule`, `grouping_evidence` | text, jsonb | No | Strongest rule (CHECK) and every rule/identifier behind the member's edges |
+| `grouping_rule`, `grouping_evidence` | text, jsonb | No | Strongest rule (CHECK) and every rule/identifier behind the member's edges; `links` (lane S2): `{partner public_id: strongest rule}` for each member it shares a rule b or c edge with directly. Rule a edges are not stored, and neither is a pair that shares an EIA plant id: the plant ids in both members' `basis` join them. Stored in the existing column, so no migration |
 | `relation`, `relation_rule`, `confidence` | text | No | The label (CHECKs on `relation` and `confidence`) |
 | `basis` | jsonb | No | What the lead and label rules read (capacity, lifecycle, filing date, plant ids, stems, phase markers, families, sponsor key), so the API re-runs the rules over a caller's visible members |
 
@@ -1170,8 +1183,15 @@ table of its own rather than `event` rows, so nothing about a derived grouping c
 **Visibility** (`services/api/sites.py`): every member, count and total is computed per request over the members
 that pass the proposal predicate (§5.4) at the caller's tier, and each row is the served view (`GatedRecord`). When any
 member is hidden, the lead, groups and labels are re-run over the visible members' stored `basis`, so a PJM row or an
-unpublished record never heads or names a site. Fewer than two visible members: no site on that tier (`404`, embed
-`null`). Anchors are served from visible members only, with the asset and owner predicates. **Kill switch:**
+unpublished record never heads or names a site. **No bridging through a hidden record** (lane S2): when any member
+is hidden, connectivity is recomputed over the visible members alone (`rules.connected_groups`: a shared EIA plant
+id in `basis`, or a stored `links` entry between two visible members), and one connected group is served, with its
+own lead and labels: on the proposal embed, the group holding that record; on `GET /v1/sites/{id}`, the largest
+(ties to the stronger lead), or the group holding `?member=<proposal public id>` (the proposal page's panel asks
+this way). `partial: true` says other visible records of the site are not listed; it never says why. A row stored
+before `links` existed joins others by plant id only while a member is hidden (fail closed until the next
+rebuild, which every resolve tick runs). Fewer than two visible members in the group: no site on that tier
+(`404`, embed `null`). Anchors are served from visible members only, with the asset and owner predicates. **Kill switch:**
 `SITES_ENABLED=0` (read at the point of use, `services/sites/switch.py`) hides every site from the API and the web
 without a deploy; the builder keeps running. Owner rule: more than about one site in ten wrong in the 100-record hand
 check turns sites off for the beta.
@@ -1187,9 +1207,20 @@ asset; 762 to an interconnection point. A full rebuild takes 5–7 s on Postgres
 **Limits, recorded.** (1) Darden I–IV are one merged record today (CAISO 1949 plus EIA 69661–69664) and so form no
 site; splitting such merges is the next step after the owner's hand check (docs/51 §2.8; lane S report). After a
 split, the CAISO request (county centroid, a POI) and the EIA plants (exact points, no POI) share no identifier under
-rules a–c, so the request would stand alone unless a rule keeps the resolver's request↔plant evidence. (2) A visible
-member grouped only through a hidden one still appears in the site: the hidden record's fields are never served, but
-the relation it carried is. (3) The labels have no labelled sample; the owner's 100-record hand check is the first.
+rules a–c, so the request would stand alone unless a rule keeps the resolver's request↔plant evidence. (2) Closed by
+lane S2 (above): a visible member grouped only through a hidden one is no longer shown with the others. What remains:
+the groups a hidden member splits keep one site id, so a reader who compares two records' embeds can tell that
+something joins them; closing that needs an identity per visible group. (3) The labels have no labelled sample; the
+owner's 100-record hand check is the first.
+
+**Operators and measurement (lane S2).** `GET /admin/v1/sites/review` and the admin page `/admin/sites` list recent
+`site_audit` rows (kind, site, members involved, time) and every live site flagged `oversize`, each linked to its
+public page. Read only: clearing a flag needs an override the builder honours, since the next pass sets it again.
+Site page views count as `page.viewed` with `page_type = site` (`PAGE_VIEW_TYPES`; validated at the API, no CHECK,
+so no migration). The nightly M-11 audit covers sites (`services/visibility_audit/run.py`, "Sites"): members,
+neighbours, sponsors and anchors of every site where something could be hidden, every proposal's `site` embed
+(detail and bulk), bridging, flagged and retired sites, and a served sample of the API detail, an embed, the site
+page and a member's page with its panel.
 
 **Hand check: regenerate and score** (`services/sites/handcheck.py`, 2026-10-10). The worksheet for the owner's
 check is drawn from one store, **read only**, through the served view at the `public` tier (`served_site`,

@@ -1591,8 +1591,10 @@ paths:
         (`unit_of`, `phase_of`, `co_located`, `refiling_of`, `superseded_by`, `expansion_of`, `expanded_by`,
         `same_site`), the `relation_rule` that fired, a `confidence` word (`high | medium | low`, not a probability)
         and the `grouping_rule` that put it in the site. Every member, count and total is computed over the members
-        the caller's tier may see (the proposal predicate); when any member is hidden from the caller, the same
-        rules are re-run over the visible members. Two levels where EIA provides them: generators of one EIA plant
+        the caller's tier may see (the proposal predicate); when any member is hidden from the caller, the site's
+        links are recomputed over the visible members alone, one linked group is served (the one holding `member`
+        when given, else the largest) and the same rules are re-run over it, so a visible record linked to the
+        others only through a hidden one is not listed with them (`partial` is then true). Two levels where EIA provides them: generators of one EIA plant
         form a plant group, each a `unit_of` its group's head (`parent_public_id`); group heads carry their
         relation to the lead's group. `sponsors` lists the members' sponsor organisations (never a level). `shares_interconnection_point` lists visible proposals at a
         member's interconnection point that the rules did not group (another or no named developer): neighbours,
@@ -1606,6 +1608,17 @@ paths:
       x-sprint: 5
       x-prd-stories: [US-201]
       security: *sec_public
+      parameters:
+        - name: member
+          in: query
+          required: false
+          description: >-
+            A member's proposal public id: answer with the linked group of visible members that holds it (the
+            proposal page's "At this site" panel asks this way) rather than the largest. `404`, as for an unknown
+            site, when the record is not a member, is not visible to the caller, or is linked to no other visible
+            member.
+          schema:
+            $ref: '#/components/schemas/ProposalPublicId'
       responses:
         '200':
           description: The site inside the attribution envelope.
@@ -5780,6 +5793,41 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /admin/v1/sites/review:
+    servers: *admin_servers
+    get:
+      operationId: adminSiteReview
+      tags: [Admin — records]
+      summary: Recent site changes and sites flagged for review
+      description: |
+        Read-only operator view of the site pass (docs/21 §3.25): the most recent `site_audit` rows, newest first
+        (`kind`: created, members gained or lost, lead changed, split, merged, retired; the site; `detail` naming
+        the proposals and sites involved by public id; when), and every live site flagged for review (`oversize`),
+        which readers are not served. `site_audit` has no other reader. There is no write path: clearing a flag
+        needs an override the builder honours.
+      x-tier: admin
+      x-status: live
+      x-sprint: 5
+      x-prd-stories: [US-907, US-201]
+      security: *sec_admin
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Recent site audit rows and flagged sites.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSiteReviewResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         <<: *common_errors
 
   /admin/v1/ui-events/summary:
@@ -10948,7 +10996,9 @@ components:
         member_count:
           type: integer
           minimum: 2
-          description: Members visible to the caller.
+          description: >-
+            Members visible to the caller in the linked group that holds this record (when a hidden member is all
+            that links some visible members to the rest, they form groups of their own).
         is_lead: {type: boolean}
         parent_public_id:
           oneOf:
@@ -11105,7 +11155,7 @@ components:
                       $ref: '#/components/schemas/AssetOwnerRow'
     SiteDetail:
       type: object
-      required: [public_id, url, name, rule_version, member_count, lead, members, members_truncated, totals, sponsors, anchors, shares_interconnection_point, shares_interconnection_point_count]
+      required: [public_id, url, name, rule_version, member_count, partial, lead, members, members_truncated, totals, sponsors, anchors, shares_interconnection_point, shares_interconnection_point_count]
       properties:
         public_id:
           $ref: '#/components/schemas/SitePublicId'
@@ -11119,10 +11169,15 @@ components:
         rule_version:
           type: string
           description: Version of the grouping and labelling rules that built the site.
-          examples: ['2026-10-10.1']
+          examples: ['2026-10-10.2']
         member_count:
           type: integer
           minimum: 2
+        partial:
+          type: boolean
+          description: >-
+            True when the caller may see other members of this site that are not linked to these by any record the
+            caller may see; those are not listed here and each keeps its own page. False otherwise.
         lead:
           $ref: '#/components/schemas/SiteMemberRow'
         members:
@@ -11169,6 +11224,58 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/SiteDetail'
+    AdminSiteRow:
+      type: object
+      description: A site as operators see it (stored values, not a reader's view).
+      required: [public_id, name, member_count, review_flag, retired, built_at, rule_version]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/SitePublicId'
+        name:
+          type: string
+          description: The stored lead's name at the last build (operators only; readers get the name of the lead they may see).
+        member_count: {type: integer, minimum: 0}
+        review_flag:
+          type: [string, 'null']
+          enum: [oversize, null]
+        retired: {type: boolean}
+        built_at: {type: [string, 'null'], format: date-time}
+        rule_version: {type: string}
+    AdminSiteReviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [audit, flagged]
+              properties:
+                audit:
+                  type: array
+                  maxItems: 200
+                  description: '`site_audit` rows, newest first.'
+                  items:
+                    type: object
+                    required: [kind, site, detail, rule_version, recorded_at]
+                    properties:
+                      kind:
+                        type: string
+                        enum: [created, members_gained, members_lost, lead_changed, split, merged, retired]
+                      site:
+                        $ref: '#/components/schemas/AdminSiteRow'
+                      detail:
+                        type: object
+                        description: >-
+                          The proposals and sites involved, by public id: `members` (created, members gained or lost,
+                          retired), `lead` (created), `from`/`to` (lead changed; `from` lists sites when merged),
+                          `into` (split: site -> members), `successor` (retired).
+                      rule_version: {type: string}
+                      recorded_at: {type: string, format: date-time}
+                flagged:
+                  type: array
+                  description: Live sites flagged for review, which readers are not served.
+                  items:
+                    $ref: '#/components/schemas/AdminSiteRow'
     AssetListResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'
@@ -11402,7 +11509,7 @@ components:
           type: string
           enum: [map.layer_toggled, map.region_jumped, map.basemap_failed, auth.registered, alert.created, page.viewed]
           description: >-
-            `page.viewed` (props `{page_type: proposal | company | asset | point}`, required) is accepted only
+            `page.viewed` (props `{page_type: proposal | company | asset | point | site}`, required) is accepted only
             from the public site's own server (its `X-Internal-Token` service identity); from any other caller
             it is `400 validation_error`. That caller is not subject to the per-IP limit (migration 0029).
         props:
@@ -11438,6 +11545,7 @@ components:
             company: {type: integer, minimum: 0}
             asset: {type: integer, minimum: 0}
             point: {type: integer, minimum: 0}
+            site: {type: integer, minimum: 0}
     UiEventsSummaryResponse:
       allOf:
         - $ref: '#/components/schemas/Envelope'
@@ -13596,12 +13704,13 @@ components:
       properties:
         surface:
           type: string
-          enum: [proposals, opportunities, events, organizations, assets, source_links, interconnection_points]
+          enum: [proposals, opportunities, events, organizations, assets, source_links, interconnection_points, sites]
         public_id:
           type: string
           description: >-
-            The record's public id (`prop_…`, `opp_…`, `evt_…`, `org_…`, `asset_…`, `poi_…`). An
-            `interconnection_points` breach about a proposal's `interconnection_point` embed names the proposal.
+            The record's public id (`prop_…`, `opp_…`, `evt_…`, `org_…`, `asset_…`, `poi_…`, `site_…`). An
+            `interconnection_points` breach about a proposal's `interconnection_point` embed names the proposal, as
+            does a `sites` breach about a proposal's `site` embed.
         source_id:
           type: [string, 'null']
           description: The offending source where the breach is about a source or a link; null for a record-state breach.
@@ -13610,8 +13719,9 @@ components:
           description: >-
             Machine-readable `<check>:<detail>`, e.g. `source_link_gated:register:publication=none`,
             `record_not_public:unpublished`, `served_hidden:publish_state=unpublished`,
-            `point_total_printed:totals:active_mw`, `point_oracle_served:proposals_filter`. Point reasons name the
-            field that disagreed, never a point's name or a megawatt figure.
+            `point_total_printed:totals:active_mw`, `point_oracle_served:proposals_filter`,
+            `site_bridge_printed:linked_only_through_a_hidden_member`, `site_embed_printed:bulk_embed:lead_not_visible`.
+            Point reasons name the field that disagreed, never a point's name or a megawatt figure.
         served_status:
           type: [integer, 'null']
           description: HTTP status an anonymous request for the row received in the served pass; null when the row was outside the sample.
@@ -13625,14 +13735,17 @@ components:
       properties:
         kind:
           type: string
-          enum: [breach, must_be_hidden, withheld_name, point_oracle, point_totals]
+          enum: [breach, must_be_hidden, withheld_name, point_oracle, point_totals, site_members]
           description: >-
             `breach` re-requests a store-pass breach; `must_be_hidden` requests a row (or a hidden interconnection
-            point's web page) that must answer 404; `withheld_name` requests an asset page or an asset search that
+            point's or flagged site's web page) that must answer 404; `withheld_name` requests an asset page or an asset search that
             must not print, or match through, the name of an organisation that is not public (the asset itself is
             rightly served); `point_oracle` requests the proposal list filtered to a hidden interconnection point,
             which must answer exactly what an unknown id gets; `point_totals` requests a visible point's list row,
-            detail, a proposal's embed or its web page, whose totals and rows must be those over visible proposals.
+            detail, a proposal's embed or its web page, whose totals and rows must be those over visible proposals;
+            `site_members` requests a site that holds a member that is not public (its detail, a public member's
+            `site` embed, the site's web page and that member's web page), which must name no hidden member and link
+            no members only through one.
         surface:
           type: string
         public_id:
@@ -13664,8 +13777,9 @@ components:
           type: string
           enum: [checked, unavailable, not_needed]
           description: >-
-            Whether the public site's interconnection point pages were requested: `checked`; `unavailable` where the
-            `web` package is not installed (the scheduler image); `not_needed` when the store holds no point.
+            Whether the public site's interconnection point and site pages were requested: `checked`; `unavailable`
+            where the `web` package is not installed (the scheduler image); `not_needed` when the store holds no
+            point and no site needing a probe.
         checks:
           type: array
           items:
@@ -13723,6 +13837,8 @@ components:
             source_links:
               $ref: '#/components/schemas/VisibilityAuditCounts'
             interconnection_points:
+              $ref: '#/components/schemas/VisibilityAuditCounts'
+            sites:
               $ref: '#/components/schemas/VisibilityAuditCounts'
           additionalProperties: false
         breach_total:
