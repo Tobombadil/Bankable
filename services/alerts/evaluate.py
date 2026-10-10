@@ -377,7 +377,9 @@ def run_alert_cycle(db: Session, *, email_port: Any, now: dt.datetime | None = N
             alert.public_id = public_id("alr", alert.id)
             if channel == "email" and user.email and is_suppressed(db, user.email):
                 # The suppression store wins over the saved search's own channel list: an erased
-                # or unsubscribed address is never written to again, whatever the row says.
+                # or unsubscribed address is never written to again, whatever the row says (an
+                # erasure row is lifted only by a fresh sign-up that verifies the address,
+                # `services/alerts/suppression.py::lift_on_verified_sign_up`).
                 alert.status = "suppressed"
                 alert.error = "recipient is on the suppression list"
             elif channel == "email" and user.email:

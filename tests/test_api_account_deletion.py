@@ -17,9 +17,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from services.alerts.suppression import is_suppressed, suppress
 from services.api.app import app
 from services.api.audit import hash_identifier
-from services.api.auth import ResendEmailAdapter, create_session
+from services.api.auth import ResendEmailAdapter, create_session, make_verification_token
 from services.api.auth_routes import get_email_port
 from services.billing.fake import InMemoryBilling
 from services.crm.fake import InMemoryCrm
@@ -266,6 +267,107 @@ def test_the_address_can_register_again_after_deletion(client: TestClient, ports
     client.cookies.clear()
     again = client.post("/v1/auth/register", json={"email": "returning@example.com", "password": PASSWORD})
     assert again.status_code == 201, again.text
+
+
+# ---------------------------------------------- coming back: a verified sign-up lifts the erasure row
+def _suppression_reasons(db: Session, email: str) -> list[str]:
+    db.expire_all()
+    digest = hash_identifier(email)
+    return sorted(db.scalars(select(Suppression.reason).where(Suppression.email_hash == digest)).all())
+
+
+def _user_by_email(db: Session, email: str) -> User:
+    db.expire_all()
+    user = db.scalar(select(User).where(User.email == email))
+    assert user is not None
+    return user
+
+
+def _verify(client: TestClient, token: str) -> Any:
+    return client.get("/v1/auth/verify", params={"token": token})
+
+
+def test_a_verified_fresh_sign_up_lifts_the_erasure_suppression(
+    client: TestClient, db: Session, ports: dict[str, Any]
+) -> None:
+    """Owner decision 2026-10-10: a person who deleted their account and signs up again with the same
+    address gets alerts again once the new account's verification link proves the address.
+    Registering alone lifts nothing, since anyone can type someone else's address."""
+    _register(client, "returning@example.com")
+    assert _delete(client).status_code == 200
+    assert _suppression_reasons(db, "returning@example.com") == ["erasure"]
+
+    client.cookies.clear()
+    again = client.post("/v1/auth/register", json={"email": "returning@example.com", "password": PASSWORD})
+    assert again.status_code == 201, again.text
+    assert _suppression_reasons(db, "returning@example.com") == ["erasure"]  # not yet proven
+
+    user = _user_by_email(db, "returning@example.com")
+    assert _verify(client, make_verification_token(user)).json() == {"verified": True}
+    assert _suppression_reasons(db, "returning@example.com") == []
+    assert not is_suppressed(db, "returning@example.com")
+
+    events = db.scalars(
+        select(Event).where(Event.subject_id == user.id, Event.event_type == "suppression_lifted")
+    ).all()
+    assert len(events) == 1
+    assert events[0].before == {"suppression": ["erasure"]} and events[0].after == {"suppression": []}
+    assert "returning@example.com" not in repr((events[0].before, events[0].after, events[0].reason))
+
+    # A second click on the link changes nothing and writes nothing.
+    assert _verify(client, make_verification_token(user)).status_code == 200
+    db.expire_all()
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(Event)
+            .where(Event.subject_id == user.id, Event.event_type == "suppression_lifted")
+        )
+        == 1
+    )
+
+
+def test_an_unsubscribe_survives_a_verified_sign_up(
+    client: TestClient, db: Session, ports: dict[str, Any]
+) -> None:
+    """Only the erasure row is lifted: an unsubscribe (or a bounce, or a complaint) is the person's own
+    instruction, which a new sign-up does not withdraw."""
+    _register(client, "careful-return@example.com")
+    assert _delete(client).status_code == 200
+    suppress(db, "careful-return@example.com", "unsubscribe")
+    db.commit()
+    client.cookies.clear()
+    assert (
+        client.post(
+            "/v1/auth/register", json={"email": "careful-return@example.com", "password": PASSWORD}
+        ).status_code
+        == 201
+    )
+    user = _user_by_email(db, "careful-return@example.com")
+    assert _verify(client, make_verification_token(user)).status_code == 200
+    assert _suppression_reasons(db, "careful-return@example.com") == ["unsubscribe"]
+    assert is_suppressed(db, "careful-return@example.com")
+
+
+def test_a_link_for_an_address_the_account_no_longer_has_lifts_nothing(
+    client: TestClient, db: Session, ports: dict[str, Any]
+) -> None:
+    """The link proves the address it was sent to, not whatever the account holds now."""
+    _register(client, "first@example.com")
+    assert _delete(client).status_code == 200
+    client.cookies.clear()
+    assert (
+        client.post(
+            "/v1/auth/register", json={"email": "first@example.com", "password": PASSWORD}
+        ).status_code
+        == 201
+    )
+    user = _user_by_email(db, "first@example.com")
+    token = make_verification_token(user)
+    user.email = "second@example.com"
+    db.commit()
+    assert _verify(client, token).status_code == 200
+    assert _suppression_reasons(db, "first@example.com") == ["erasure"]
 
 
 # ------------------------------------------------------------------------------------- refusals

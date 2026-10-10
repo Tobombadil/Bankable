@@ -56,7 +56,7 @@ templates.env.globals["asset_version"] = ASSET_VERSION
 #: is the deletion process it points to.
 PRIVACY_EMAIL = f"privacy@{DOMAIN}"
 
-LAST_UPDATED = "2026-10-07"
+LAST_UPDATED = "2026-10-10"
 REUSE_LAST_UPDATED = "2026-10-07"
 
 _MANIFEST = Path(__file__).resolve().parents[1] / "data" / "sources.yaml"

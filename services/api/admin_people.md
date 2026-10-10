@@ -259,7 +259,8 @@ naming the subscription refs. (2) docs/21 §6.6's rewrite of historical `before`
 not implemented on either path; no event written about a user carries an address or a name, but a
 free-text `reason` an operator typed could. (3) Every erasure opens a CRM task for a human
 (`request_personal_data_deletion`), including for members the CRM never held; with Attio live that
-is one task per in-app deletion. (4) The `erasure` suppression row outlives the account: a person
-who registers again with the same address gets no alert email, because the alert cycle checks
-suppression by any reason. Whether a fresh, verified registration lifts an `erasure` suppression is a
-privacy decision for the owner (the notice says "we never write to you again").
+is one task per in-app deletion. (4) *Decided 2026-10-10 (owner):* the `erasure` suppression row
+outlives the account until a fresh sign-up with the same address is verified: `GET /v1/auth/verify`
+then lifts the `erasure` row (never an `unsubscribe`, `bounce` or `complaint` one) and writes a
+`suppression_lifted` event with the reasons only. Registration alone lifts nothing. The privacy
+notice says so (`web/templates/legal/privacy.html`, updated 2026-10-10).

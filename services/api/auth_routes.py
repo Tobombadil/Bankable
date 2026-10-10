@@ -71,7 +71,9 @@ from fastapi import APIRouter, Cookie, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from services.alerts.suppression import lift_on_verified_sign_up
 from services.api.account_erasure import erase_user
+from services.api.audit import record_audit_event
 from services.api.auth import (
     AuthContext,
     EmailPort,
@@ -382,7 +384,7 @@ def verify_email(
             errors=[{"field": "token", "message": "invalid or expired"}],
             instance=request.url.path,
         )
-    uid, _email = result
+    uid, token_email = result
     user = db.scalar(select(User).where(User.public_id == uid))
     if user is None:
         raise ProblemError(
@@ -394,6 +396,23 @@ def verify_email(
         )
     if user.email_verified_at is None:
         user.email_verified_at = utcnow()
+        # The link proves the address it was sent to. When that is still the account's address, a
+        # fresh sign-up lifts the `erasure` suppression an earlier, deleted account left on it, so
+        # the person who came back gets the alerts they set up (owner decision, 2026-10-10;
+        # `services/alerts/suppression.py`). Unsubscribe, bounce and complaint rows stay.
+        if user.email and token_email and token_email.casefold() == user.email.casefold():
+            lifted = lift_on_verified_sign_up(db, user.email)
+            if lifted:
+                record_audit_event(
+                    db,
+                    subject_type="user",
+                    subject_id=user.id,
+                    event_type="suppression_lifted",
+                    actor=user,
+                    reason="A fresh sign-up verified this address (owner decision 2026-10-10)",
+                    before={"suppression": lifted},
+                    after={"suppression": []},
+                )
         db.flush()
     return {"verified": True}
 

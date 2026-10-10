@@ -11,6 +11,11 @@ holds an address:
   the mail port, and by anything that would draft to an address. `services/social` drafts social
   posts, not messages to addresses, so it has no call site today; when an outreach drafting path
   lands it calls this before touching a contact.
+- `lift_on_verified_sign_up(db, email)`: the one deletion. A new account whose address is proven by
+  its verification link (`services/api/auth_routes.py::verify_email`) lifts that address's
+  `erasure` row, so the person who came back gets the alerts they set up (owner decision,
+  2026-10-10). Every other reason stays: an unsubscribe, a bounce or a complaint is the person's,
+  or their mail server's, own instruction, which a new sign-up does not withdraw.
 
 A suppressed digest is written as an `Alert` row with `status = "suppressed"` and a non-personal
 `error`, so the operator can see that the cycle ran and why nothing went out.
@@ -53,4 +58,26 @@ def is_suppressed(db: Session, email: str | None) -> bool:
     return db.scalar(select(Suppression.id).where(Suppression.email_hash == digest).limit(1)) is not None
 
 
-__all__ = ["is_suppressed", "suppress"]
+#: Reasons a fresh, verified sign-up with the same address lifts (module docstring).
+LIFTED_BY_VERIFIED_SIGN_UP = ("erasure",)
+
+
+def lift_on_verified_sign_up(db: Session, email: str | None) -> list[str]:
+    """Delete the `LIFTED_BY_VERIFIED_SIGN_UP` rows for `email` and return the reasons lifted (empty
+    when there were none). Call it only once the address is proven: registration alone proves
+    nothing, since anyone can type someone else's address."""
+    digest = hash_identifier(email)
+    if digest is None:
+        return []
+    rows = db.scalars(
+        select(Suppression).where(
+            Suppression.email_hash == digest, Suppression.reason.in_(LIFTED_BY_VERIFIED_SIGN_UP)
+        )
+    ).all()
+    for row in rows:
+        db.delete(row)
+    db.flush()
+    return sorted(row.reason for row in rows)
+
+
+__all__ = ["LIFTED_BY_VERIFIED_SIGN_UP", "is_suppressed", "lift_on_verified_sign_up", "suppress"]
