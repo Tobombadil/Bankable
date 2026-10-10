@@ -1191,6 +1191,36 @@ rules a–c, so the request would stand alone unless a rule keeps the resolver's
 member grouped only through a hidden one still appears in the site: the hidden record's fields are never served, but
 the relation it carried is. (3) The labels have no labelled sample; the owner's 100-record hand check is the first.
 
+**Hand check: regenerate and score** (`services/sites/handcheck.py`, 2026-10-10). The worksheet for the owner's
+check is drawn from one store, **read only**, through the served view at the `public` tier (`served_site`,
+`gated_record`, `visible_source_links`, `member_row`), so it prints nothing the public site does not. Items whose
+sponsor the personal-data pass flagged, or any of whose printed names `services.personal_names` reads as a person's,
+are left out and counted. Public ids are minted per store, so generate it on the beta after seeding, from the
+directory holding the compose files (docs/64 §5), and copy `/opt/infraque/handcheck/<date>-beta/` back to
+`data/eval/handcheck/`:
+
+    mkdir -p /opt/infraque/handcheck && chown 10001 /opt/infraque/handcheck   # the image runs as uid 10001
+    docker compose ... run --rm -v /opt/infraque/handcheck:/out worker \
+      python -m services.sites.handcheck generate --out /out/2026-10-14-beta \
+      --seed 20261014 --posture noncommercial --base-url https://<beta domain>
+    python -m services.sites.handcheck score <filled.xlsx>      # or a directory of its CSVs; --json
+
+The sample: 50 sites and 50 merged records (a live record served with two or more source links). Site strata, the
+first that holds: the 5 largest sites (all checked); sites holding a `same_site` label; then the site's weakest
+grouping rule (`eia_plant`, `exact_point`, `poi_sponsor`, `poi_stem`) × its lowest label confidence. Merged strata,
+the first that holds: several EIA plants in one record; several requests from one register; source names with
+differing phase markers; several generators of one plant; two or more registers. Budgets are shared by the square root
+of each stratum's size, at least 2 each; within a stratum the items with the smallest permanent random numbers
+(SHA-256 of the seed and the item's smallest `source_id:source_record_id` key) are taken, so a seed reproduces the
+sample and another store draws the same items where the two agree. Every row carries those stable keys (a hash where
+the licence withholds the record id) and the EIA plant ids. The scorer counts a site answered No as a grouping error
+unless the problem picked is a missing record, wrong lead or wrong label; it reports the share with a Wilson 95 %
+interval, the stratum-weighted share of all served sites (Wilson at Kish's effective n), and whether the owner's rule
+is crossed on the weighted point estimate (> 10 %: `SITES_ENABLED=0`) and on its lower bound. With 50 sites judged,
+0 wrong gives an interval of 0–7.1 %, 6 or more puts the point estimate above 10 %, 10 or more the lower bound. A
+format reference built from a copy of the 4-source e2e store is in `data/eval/handcheck/2026-10-10-e2e-reference/`
+(that store has no connection points and no merges, so it shows only `eia_plant` sites and an empty merged sheet).
+
 ## 4. Operational entities
 
 These carry the pipeline's own state. They are as much a part of the product as the graph: source health,
