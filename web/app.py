@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import QueryParams
 from starlette.types import Scope
 
+from services.environment import is_dev_environment
 from web.api_client import ApiClient, ApiError, ApiNotFound, VisitorIpMiddleware
 from web.auth import router as auth_router
 from web.empty_state import empty_result_facets, range_error
@@ -134,7 +135,16 @@ HOME_MAP_ASSET_TYPES: list[tuple[str, str, bool]] = [
 
 logger = logging.getLogger("web.app")
 
-app = FastAPI(title="Infraque -- public site")
+# FastAPI's own `/docs`, `/redoc` and `/openapi.json` describe the site's HTML routes, which no one
+# reads as an API; nothing links them, and the two pages load scripts and fonts the site's content
+# security policy refuses (docs/60 §2). Development only. `app.openapi()` itself still works.
+_FRAMEWORK_DOCS = is_dev_environment()
+app = FastAPI(
+    title="Infraque -- public site",
+    docs_url="/docs" if _FRAMEWORK_DOCS else None,
+    redoc_url="/redoc" if _FRAMEWORK_DOCS else None,
+    openapi_url="/openapi.json" if _FRAMEWORK_DOCS else None,
+)
 # Every server-side API call carries the visitor's address (web/api_client.py; devops audit F1).
 app.add_middleware(VisitorIpMiddleware)
 # `HEAD` on every `GET` route, page and static alike, with the `GET`'s status and headers and no
@@ -235,6 +245,11 @@ app.include_router(reports_router)
 from web.submit import router as submit_router  # noqa: E402
 
 app.include_router(submit_router)
+
+# docs/60 §2: Content-Security-Policy violation reports, the policy's `report-uri` and `report-to`.
+from web.csp_reports import router as csp_reports_router  # noqa: E402
+
+app.include_router(csp_reports_router)
 
 # Sprint 3 item 3: the admin panel shell (operator guard, chrome) — page routers for each nav
 # group are mounted below it as they land.

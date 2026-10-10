@@ -296,7 +296,14 @@ def test_map_has_the_retired_layer_toggle_legend_and_status_labels(web_client: T
     assert resp.status_code == 200
     body = resp.text
     assert 'id="mf-layer-retired"' in body and "Retired &amp; retiring plants" in body
-    assert 'id="retired-legend"' in body and "--asset-retired" in body and "--asset-retiring" in body
+    # The marks take their colour from classes, not `style` attributes (the CSP allows none, docs/60 §2).
+    assert 'id="retired-legend"' in body
+    assert "legend__item--retired" in body and "legend__item--retiring" in body
+    css = (Path(__file__).parent / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    assert ".legend__item--retired { color: var(--asset-retired); }" in css.replace(
+        '.legend__item[data-legend-mark="retired-cluster"], ', ""
+    )
+    assert ".legend__item--retiring { color: var(--asset-retiring); }" in css
     labels = json.loads(
         re.search(r'<script type="application/json" id="map-labels">(.*?)</script>', body, re.S).group(1)
     )  # type: ignore[union-attr]

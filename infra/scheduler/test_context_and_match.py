@@ -39,6 +39,9 @@ class _FakeTask:
 @pytest.fixture()
 def scheduler_app(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")  # never connected
+    # The store-wide passes take their advisory lock through the worker's session factory
+    # (`jobs.run_store_pass`): SQLite here, where the lock is a no-op.
+    monkeypatch.setattr(jobs, "build_session_factory", _Factory)
     import infra.scheduler.app as app_module
 
     return app_module

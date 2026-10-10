@@ -27,7 +27,7 @@
       <tbody>
         {% for r in pipeline.by_status %}
         <tr>
-          <th scope="row"><span class="pipeline-table__status" style="color:var(--family-{{ r.family }}-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-{{ r.family }}"></use></svg></span> {{ r.label }}</th>
+          <th scope="row"><span class="pipeline-table__status pipeline-table__status--{{ r.family }}"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-{{ r.family }}"></use></svg></span> {{ r.label }}</th>
           <td class="num tnum">{{ count_cell(r, r.label | lower ~ ' proposals') }}</td>
           <td class="num tnum">{{ mw_cell(r) }}</td>
         </tr>

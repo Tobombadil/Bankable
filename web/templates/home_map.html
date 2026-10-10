@@ -152,11 +152,11 @@
             technology. map.js hides a row whose family has no proposal under the current filters. -#}
         <div class="legend legend--lifecycle" id="lifecycle-legend" role="group" aria-label="Proposal status key">
           <span class="legend__group-name">Proposal status</span>
-          <span class="legend__item" data-legend-family="neutral" style="color:var(--family-neutral-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-neutral"></use></svg> Announced, or status unknown</span>
-          <span class="legend__item" data-legend-family="progress" style="color:var(--family-progress-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-progress"></use></svg> <span class="legend__long">In process: filed, studied, permitted, under construction</span><span class="legend__short" aria-hidden="true">In process</span></span>
-          <span class="legend__item" data-legend-family="committed" style="color:var(--family-committed-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-committed"></use></svg> Contracted</span>
-          <span class="legend__item" data-legend-family="success" style="color:var(--family-success-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-success"></use></svg> Built</span>
-          <span class="legend__item" data-legend-family="danger" style="color:var(--family-danger-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-danger"></use></svg> Withdrawn or cancelled</span>
+          <span class="legend__item" data-legend-family="neutral"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-neutral"></use></svg> Announced, or status unknown</span>
+          <span class="legend__item" data-legend-family="progress"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-progress"></use></svg> <span class="legend__long">In process: filed, studied, permitted, under construction</span><span class="legend__short" aria-hidden="true">In process</span></span>
+          <span class="legend__item" data-legend-family="committed"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-committed"></use></svg> Contracted</span>
+          <span class="legend__item" data-legend-family="success"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-success"></use></svg> Built</span>
+          <span class="legend__item" data-legend-family="danger"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-danger"></use></svg> Withdrawn or cancelled</span>
           <span class="legend__note">A solid ring with a number is a cluster of proposals, showing its most common status.</span>
           {#- UX-5: the grey areas were unexplained. map.js shows this row while any region is drawn. -#}
           <span class="legend__item legend__item--region" id="region-legend" hidden><svg class="legend__sample" width="28" height="12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" fill="currentColor" fill-opacity="0.3" stroke="currentColor" stroke-width="1"/><rect x="15" y="1" width="12" height="10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 2"/></svg> <span>Proposals the source places only by area<span class="legend__detail">: a shaded county (darker holds more) or a dashed state or country outline; the number is how many</span></span></span>
@@ -172,31 +172,31 @@
           <div class="map-key__section-body">
           <div class="legend__group" data-legend-type="power_plant">
             <span class="legend__group-name">Power plants</span>
-            {% for value, label in plant_families %}<span class="legend__item" style="color:var(--plant-{{ value }})">&#9632; {{ label }}</span>{% endfor %}
+            {% for value, label in plant_families %}<span class="legend__item legend__item--plant-{{ value }}">&#9632; {{ label }}</span>{% endfor %}
           </div>
-          <div class="legend__group" data-legend-type="gas_pipeline" style="color:var(--asset-gas-pipeline)">
+          <div class="legend__group" data-legend-type="gas_pipeline">
             <span class="legend__group-name">Gas pipelines</span>
             <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg> Interstate</span>
             <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="6 4"/></svg> Intrastate</span>
           </div>
-          <div class="legend__group" data-legend-type="gas_processing_plant" style="color:var(--asset-gas-processing)">
+          <div class="legend__group" data-legend-type="gas_processing_plant">
             <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.5 6 6 11.5 0.5 6Z" fill="currentColor"/></svg> Gas processing plants</span>
           </div>
-          <div class="legend__group" data-legend-type="gas_storage" style="color:var(--asset-gas-storage)">
+          <div class="legend__group" data-legend-type="gas_storage">
             <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.2" fill="none" stroke="currentColor" stroke-width="2.4"/></svg> Gas storage</span>
           </div>
-          <div class="legend__group" data-legend-type="lng_terminal" style="color:var(--asset-lng-terminal)">
+          <div class="legend__group" data-legend-type="lng_terminal">
             <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.8 11.4 10.6 0.6 10.6Z" fill="currentColor"/></svg> LNG terminals</span>
           </div>
-          <div class="legend__group" data-legend-type="ethanol_plant" style="color:var(--asset-ethanol)">
+          <div class="legend__group" data-legend-type="ethanol_plant">
             <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M11.5 6 8.75 10.76 3.25 10.76 0.5 6 3.25 1.24 8.75 1.24Z" fill="currentColor"/></svg> Ethanol plants</span>
             <span class="legend__note">exact sites only; capacity-table plants at state grade are on the lists</span>
           </div>
-          <div class="legend__group" data-legend-type="rng_project" style="color:var(--asset-rng)">
+          <div class="legend__group" data-legend-type="rng_project">
             <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.23 4.3 9.23 10.45 2.77 10.45 0.77 4.3Z" fill="currentColor"/></svg> RNG projects</span>
             <span class="legend__note">landfill gas (electricity, direct use, RNG); farm digesters at county grade are on the lists</span>
           </div>
-          <div class="legend__group" data-legend-type="transmission_line" style="color:var(--asset-transmission)">
+          <div class="legend__group" data-legend-type="transmission_line">
             <span class="legend__group-name">Transmission lines</span>
             <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="8 3 2 3"/></svg> 70&ndash;765 kV</span>
             <span class="legend__note">lines FERC Form 1 filers own (LBNL); not the whole grid</span>
@@ -210,9 +210,9 @@
           <details class="map-key__section" open>
           <summary class="map-key__section-name">Retired &amp; retiring plants</summary>
           <div class="legend__group">
-            <span class="legend__item" data-legend-mark="retired-cluster" style="color:var(--asset-retired)"><svg class="legend__sample" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 1.7"/></svg> Dashed ring with a number: a group of retired and retiring plants (zoom in to separate)</span>
-            <span class="legend__item" style="color:var(--asset-retiring)"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg> Retiring (most capacity scheduled to retire)</span>
-            <span class="legend__item" style="color:var(--asset-retired)"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.3 3.3 8.7 8.7M8.7 3.3 3.3 8.7" stroke="currentColor" stroke-width="1.6"/></svg> Retired</span>
+            <span class="legend__item" data-legend-mark="retired-cluster"><svg class="legend__sample" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 1.7"/></svg> Dashed ring with a number: a group of retired and retiring plants (zoom in to separate)</span>
+            <span class="legend__item legend__item--retiring"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg> Retiring (most capacity scheduled to retire)</span>
+            <span class="legend__item legend__item--retired"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.3 3.3 8.7 8.7M8.7 3.3 3.3 8.7" stroke="currentColor" stroke-width="1.6"/></svg> Retired</span>
             <span class="legend__note">EIA-860M; larger rings are larger plants. A retired site may keep its grid connection.</span>
           </div>
           </details>

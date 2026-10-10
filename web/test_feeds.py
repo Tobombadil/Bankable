@@ -122,12 +122,12 @@ def test_footer_links_the_api_page_and_it_lists_every_feed(transport: FakeTransp
     for name in ("proposals", "opportunities", "events"):
         for fmt in ("rss", "json"):
             assert f'href="/feeds/{name}.{fmt}"' in page.text
-    assert 'href="https://api.infraque.com/redoc"' in page.text
+    assert 'href="https://api.infraque.com/openapi.json"' in page.text  # /redoc is off outside development
 
 
 def test_api_page_names_this_deployments_api_host(transport: FakeTransport, monkeypatch: Any) -> None:
     with TestClient(web_app, base_url="https://staging.infraque.com") as client:
-        assert "https://api-staging.infraque.com/redoc" in client.get("/docs/api").text
+        assert "https://api-staging.infraque.com/openapi.json" in client.get("/docs/api").text
     monkeypatch.setenv("PUBLIC_API_URL", "http://127.0.0.1:8000/")
     with TestClient(web_app) as client:
         assert 'href="http://127.0.0.1:8000/openapi.json"' in client.get("/docs/api").text

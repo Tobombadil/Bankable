@@ -105,16 +105,24 @@ from services.db.models import (
     Proposal,
     Source,
 )
+from services.environment import is_dev_environment
 from services.ids import public_id
 from services.ingest.lag import RECORD_LAG_DAYS
 from services.posture import platform_posture, posture_statement
 from services.sor.ports import BillingPort
 from services.sor.wiring import get_billing_port
 
+# FastAPI's own `/docs` and `/redoc` pages are development tools (docs/60 §2, 2026-10-10): they load an
+# unpinned script and Google Fonts that the content security policy refuses, and they describe the
+# routes rather than the contract in `api/openapi.yaml` (docs/51 §2.5). Off in staging and production;
+# `/openapi.json`, which the site's /docs/api page links, stays.
+_FRAMEWORK_DOCS = is_dev_environment()
 app = FastAPI(
     title="Platform API",
     version="1.0.0-draft",
     description="Public tier only (Sprint 2 backend brief). See api/openapi.yaml for the full contract.",
+    docs_url="/docs" if _FRAMEWORK_DOCS else None,
+    redoc_url="/redoc" if _FRAMEWORK_DOCS else None,
     # Every route resolves a presented credential, so only a valid one exempts a request from the
     # public windows (backend audit 2026-09-30 F8), and spends its read, search and daily windows in
     # one all-or-nothing step (`services/api/ratelimit.py::meter_request`, docs/23 §6).

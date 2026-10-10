@@ -1503,3 +1503,35 @@ a.button-secondary:visited { color: var(--link); }
   .js .filter-bar--map[data-collapse]:not(.is-open) { display: none; }
   .js .filter-bar--map[data-collapse].is-open .filter-bar__done { display: inline-flex; align-items: center; }
 }
+
+/* Style attributes moved into classes (2026-10-10, docs/60 §2), so the content security policy needs no
+   'unsafe-inline' for styles. Same values as the attributes they replace. Where the element already
+   names its family or type in a data attribute the rule keys on that, so the template only drops its
+   `style`; the plant swatches, the two retired-plant marks and the company pipeline's status icon
+   take a class. `.svg-sprite` is base.html's icon sprite. */
+.svg-sprite { display: none; }
+.legend__item[data-legend-family="neutral"], .pipeline-table__status--neutral { color: var(--family-neutral-text); }
+.legend__item[data-legend-family="progress"], .pipeline-table__status--progress { color: var(--family-progress-text); }
+.legend__item[data-legend-family="committed"], .pipeline-table__status--committed { color: var(--family-committed-text); }
+.legend__item[data-legend-family="success"], .pipeline-table__status--success { color: var(--family-success-text); }
+.legend__item[data-legend-family="danger"], .pipeline-table__status--danger { color: var(--family-danger-text); }
+.legend__item--plant-solar { color: var(--plant-solar); }
+.legend__item--plant-wind { color: var(--plant-wind); }
+.legend__item--plant-gas { color: var(--plant-gas); }
+.legend__item--plant-oil { color: var(--plant-oil); }
+.legend__item--plant-coal { color: var(--plant-coal); }
+.legend__item--plant-nuclear { color: var(--plant-nuclear); }
+.legend__item--plant-hydro { color: var(--plant-hydro); }
+.legend__item--plant-storage { color: var(--plant-storage); }
+.legend__item--plant-biomass { color: var(--plant-biomass); }
+.legend__item--plant-geothermal { color: var(--plant-geothermal); }
+.legend__item--plant-other { color: var(--plant-other); }
+.legend__group[data-legend-type="gas_pipeline"] { color: var(--asset-gas-pipeline); }
+.legend__group[data-legend-type="gas_processing_plant"] { color: var(--asset-gas-processing); }
+.legend__group[data-legend-type="gas_storage"] { color: var(--asset-gas-storage); }
+.legend__group[data-legend-type="lng_terminal"] { color: var(--asset-lng-terminal); }
+.legend__group[data-legend-type="ethanol_plant"] { color: var(--asset-ethanol); }
+.legend__group[data-legend-type="rng_project"] { color: var(--asset-rng); }
+.legend__group[data-legend-type="transmission_line"] { color: var(--asset-transmission); }
+.legend__item[data-legend-mark="retired-cluster"], .legend__item--retired { color: var(--asset-retired); }
+.legend__item--retiring { color: var(--asset-retiring); }
