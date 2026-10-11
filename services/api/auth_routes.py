@@ -108,6 +108,7 @@ from services.api.serialize import (
     serialize_user,
 )
 from services.db.models import PRIVACY_REQUEST_RESPONSE_DAYS, Account, Task, User, UserSession
+from services.environment import is_dev_environment
 from services.ids import public_id
 from services.sor.ports import BillingPort, CrmPort, SorUnavailable
 from services.sor.wiring import get_billing_port, get_crm_port
@@ -149,6 +150,13 @@ def get_email_port() -> EmailPort:
     if _email_port is None:
         _email_port = ResendEmailAdapter()
     return _email_port
+
+
+def _dev_links(email_port: EmailPort) -> bool:
+    """Whether a response may carry the link the email would have: only on a dry-run port, and only
+    in a development environment. A deployed environment without `RESEND_API_KEY` must not hand a
+    password-reset link for any address to whoever asks for it (2026-10-11, before the beta)."""
+    return bool(getattr(email_port, "dry_run", False)) and is_dev_environment()
 
 
 # ------------------------------------------------------------------------------------- cookies
@@ -289,7 +297,7 @@ def register(
         "email_verified": False,
         "verification_sent": True,
     }
-    if getattr(email_port, "dry_run", False):
+    if _dev_links(email_port):
         data["dev_verification_url"] = _verification_url(token)
     return build_envelope(
         data,
@@ -443,7 +451,7 @@ def resend_verification(
     token = make_verification_token(user)
     send_verification_email(email_port, user, token=token)
     data: dict[str, Any] = {"verification_sent": True}
-    if getattr(email_port, "dry_run", False):
+    if _dev_links(email_port):
         data["dev_verification_url"] = _verification_url(token)
     return data
 
@@ -488,7 +496,7 @@ def request_password_reset(
     if user is not None and user.password_hash:
         url = _reset_url(make_password_reset_token(user))
         send_password_reset_email(email_port, user, url=url)
-        if getattr(email_port, "dry_run", False):
+        if _dev_links(email_port):
             data["dev_reset_url"] = url
     return data
 

@@ -482,8 +482,10 @@ for a form whose cookie is already `HttpOnly` + `SameSite=Lax`.
 ### Dry-run verification link
 
 `services/api/auth.py`'s `ResendEmailAdapter` is dry-run whenever `RESEND_API_KEY` is unset (no
-credential exists in this environment to make a real send possible). In dry-run,
-`POST /v1/auth/register` and `POST /v1/auth/resend-verification` include a `dev_verification_url`
+credential exists in this environment to make a real send possible). In dry-run, and only in a
+development environment (`services/environment.py`; since 2026-10-11 a deployed server without the
+key never returns the link), `POST /v1/auth/register` and `POST /v1/auth/resend-verification`
+include a `dev_verification_url`
 field alongside the normal response — the exact URL that went into the (unsent) email body. The
 API builds it from `services.api.common.WEB_HOST`, which is still the literal `infraque.com`
 placeholder (docs/00-PLAN.md: product name not chosen yet) and therefore not a navigable link on

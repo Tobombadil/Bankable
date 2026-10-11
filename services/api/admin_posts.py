@@ -55,6 +55,17 @@ Decisions (numbered; see `services/api/admin_posts.md` for the full rationale an
 8. Channel body-length checks (US-32 §4.3 item 1) count Python string length (Unicode code
    points), not extended grapheme clusters — no grapheme-clustering library is in
    `requirements.txt`. Documented as a follow-up, not a silent gap.
+
+Beta feedback (2026-10-11, docs/65; `services/api/admin_posts.md`): `POST /v1/reports` with
+`issue_type: beta_feedback` is the private beta's "Tell us what you were trying to do" form
+(web/feedback.py). It is about the site, not a record, so it names no `public_id` and the task has
+no subject. It is the smallest extension of the report pipeline that reaches the same admin queue:
+the same task type (`report`), rate-limit bucket, honeypot and Turnstile rule, and no migration
+(`task.type` has a CHECK constraint; `issue_type` does not). `description` holds what the reader
+was trying to do; `pending_record` holds only `page_path` and `what_happened`, each when given;
+`contact` holds the email only when given. No IP address or user agent is stored. `page_path` must
+be a bare site path: a query string is refused rather than trimmed, so a search a reader typed
+cannot reach the store even from a client other than the site.
 """
 
 from __future__ import annotations
@@ -144,6 +155,14 @@ LIFECYCLE_STATES = (
     "cancelled",
 )
 REPORT_ISSUE_TYPES = ("wrong_merge", "wrong_status", "wrong_sponsor", "other")
+#: Beta feedback (module docstring): a report about the site, not a record, from the private beta's
+#: feedback form. Kept out of `REPORT_ISSUE_TYPES`, which is the record form's list of choices.
+BETA_FEEDBACK_ISSUE = "beta_feedback"
+REPORT_TEXT_MAX = 2000
+PAGE_PATH_MAX = 512
+#: A site path and nothing else: one leading slash (never `//host`), no query, fragment, space,
+#: control character or backslash (browsers read `/\host` as `//host`). Same as web/beta.py.
+_PAGE_PATH_RE = re.compile(r"^/(?:[^/?#\s\\\x00-\x1f\x7f][^?#\s\\\x00-\x1f\x7f]*)?$")
 
 #: docs/32 §4.3 item 1. True grapheme clustering is a follow-up (decision 8 above); Python string
 #: length is the interim measure.
@@ -1115,6 +1134,71 @@ def _resolve_reportable_subject(db: Session, value: str) -> tuple[str, _uuid.UUI
     return (None, None)
 
 
+def _optional_text(body: dict[str, Any], field: str, instance: str, max_length: int) -> str | None:
+    value = body.get(field)
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or len(value) > max_length:
+        raise validation_error(field, f"must be text of at most {max_length} characters", instance)
+    return value
+
+
+def _create_beta_feedback(request: Request, body: dict[str, Any], db: Session, instance: str) -> Any:
+    """Beta feedback (module docstring): a `report` task with no subject and `issue_type:
+    beta_feedback`. The caller has already applied the rate limit, the honeypot and Turnstile."""
+    if body.get("public_id"):
+        raise validation_error(
+            "public_id", "beta feedback is about the site, not a record: omit public_id", instance
+        )
+    description = body.get("description")
+    if not isinstance(description, str) or not description.strip() or len(description) > REPORT_TEXT_MAX:
+        raise validation_error(
+            "description", f"description is required (max {REPORT_TEXT_MAX} characters)", instance
+        )
+    what_happened = _optional_text(body, "what_happened", instance, REPORT_TEXT_MAX)
+    page_path = _optional_text(body, "page_path", instance, PAGE_PATH_MAX)
+    if page_path is not None and not _PAGE_PATH_RE.match(page_path):
+        raise validation_error(
+            "page_path", "must be a site path such as /proposals, with no query string or fragment", instance
+        )
+    email = body.get("email")
+    if email and (not isinstance(email, str) or not _EMAIL_RE.match(email)):
+        raise validation_error("email", "must be a valid email address", instance)
+
+    answers = (("page_path", page_path), ("what_happened", what_happened))
+    pending_record = {key: value for key, value in answers if value} or None
+    idempotency_key = request.headers.get("Idempotency-Key")
+    existing = _find_idempotent_task(db, idempotency_key)
+    if existing is not None:
+        same = (
+            existing.type == "report"
+            and existing.issue_type == BETA_FEEDBACK_ISSUE
+            and existing.description == description
+            and existing.pending_record == pending_record
+        )
+        if not same:
+            raise ProblemError(
+                "conflict", "Idempotency key reused with a different request", instance=instance
+            )
+        return _report_accepted_response(existing)
+
+    task = Task(
+        public_id="",
+        type="report",
+        status="open",
+        issue_type=BETA_FEEDBACK_ISSUE,
+        description=description,
+        contact={"email": email} if email else None,
+        pending_record=pending_record,
+        idempotency_key=idempotency_key,
+    )
+    db.add(task)
+    db.flush()
+    task.public_id = public_id("task", task.id)
+    db.flush()
+    return _report_accepted_response(task)
+
+
 @router.post("/v1/reports", status_code=202)
 def create_report(request: Request, body: dict[str, Any], db: Annotated[Session, Depends(get_db)]) -> Any:
     instance = request.url.path
@@ -1126,6 +1210,9 @@ def create_report(request: Request, body: dict[str, Any], db: Annotated[Session,
         if not body.get("captcha_token"):
             raise validation_error("captcha_token", "captcha_token is required", instance)
         _verify_captcha(request, body, instance)
+
+    if body.get("issue_type") == BETA_FEEDBACK_ISSUE:
+        return _create_beta_feedback(request, body, db, instance)
 
     public_id_value = _require_field(body, "public_id", instance)
     issue_type = body.get("issue_type")

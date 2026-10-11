@@ -32,6 +32,7 @@ from services.posture import DEFAULT_POSTURE
 from web import formatting, labels
 from web.api_client import ApiClient, ApiError, build_client
 from web.assets import ASSET_VERSION, CDN_ASSETS
+from web.beta import feedback_href
 from web.head_requests import is_head_request
 from web.viewmodels import ALL_OPPORTUNITY_STATUSES, group_source_rows
 from web.viewmodels import footer_build as vm_footer_build
@@ -303,6 +304,8 @@ templates.env.globals["footer_lag_days"] = get_lag_days
 # Every environment that renders `base.html` registers this (web/auth.py, web/legal.py,
 # web/pricing.py): the primary navigation leaves "Pricing" out under the noncommercial posture.
 templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
+# The same four register the private beta's header link (web/beta.py; off unless SITE_ACCESS=basic).
+templates.env.globals["beta_feedback_href"] = feedback_href
 templates.env.globals["asset_version"] = ASSET_VERSION
 templates.env.globals["cdn"] = CDN_ASSETS  # UX-19: `_macros.html` cdn_script / cdn_style
 templates.env.filters["group_source_rows"] = group_source_rows  # UX-11: one Sources row per register

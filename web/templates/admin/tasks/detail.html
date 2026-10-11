@@ -15,7 +15,12 @@
 {% if not task %}
 <p>This task could not be loaded.</p>
 {% else %}
-<h1>{{ task.type | replace('_', ' ') | capitalize }}
+{#- Private beta feedback (web/feedback.py; docs/65) is a `report` task with no subject whose
+    `pending_record` holds the page path and the "what happened" answer (api/openapi.yaml
+    `BetaFeedbackDetail`), so it reads as feedback rather than as a record report. -#}
+{%- set is_feedback = task.issue_type == 'beta_feedback' %}
+{%- set feedback = task.pending_record or {} %}
+<h1>{% if is_feedback %}Beta feedback{% else %}{{ task.type | replace('_', ' ') | capitalize }}{% endif %}
   <span class="chip chip--{{ status_family.get(task.status, 'neutral') }}">{{ task.status | replace('_', ' ') }}</span>
 </h1>
 <dl class="admin-dl">
@@ -30,6 +35,7 @@
     {%- if task.issue_type == 'wrong_merge' and subject.history_href %} &middot; <a href="{{ subject.history_href }}">Merge history</a>{% endif %}
     {%- if task.issue_type == 'wrong_merge' and subject.unmerge_href %} &middot; <a href="{{ subject.unmerge_href }}">Unmerge</a>{% endif %}
     {%- elif task.subject_id %}<span class="mono">{{ task.subject_id }}</span> ({{ task.subject_type }})
+    {%- elif is_feedback %}None: feedback about the site, not a record
     {%- else %}&mdash;{% endif -%}
   </dd>
   <dt>Assignee</dt><dd>{{ task.assignee_user_id or '—' }}</dd>
@@ -38,7 +44,11 @@
   <dt>Due</dt><dd class="mono">{{ (task.due_at | rfc3339) or '—' }}</dd>
   <dt>Completed</dt><dd class="mono">{{ (task.completed_at | rfc3339) or '—' }}</dd>
   {% if task.issue_type %}<dt>Issue type</dt><dd>{{ task.issue_type | issue_type_label }} <span class="admin-muted mono">({{ task.issue_type }})</span></dd>{% endif %}
-  {% if task.description %}<dt>Description</dt><dd>{{ task.description }}</dd>{% endif %}
+  {% if task.description %}<dt>{% if is_feedback %}What they were trying to do{% else %}Description{% endif %}</dt><dd>{{ task.description }}</dd>{% endif %}
+  {% if is_feedback %}
+  <dt>What happened</dt><dd id="feedback-what-happened">{{ feedback.what_happened or '—' }}</dd>
+  <dt>Page they came from</dt><dd id="feedback-page"{% if feedback.page_path %} class="mono"{% endif %}>{{ feedback.page_path or 'Not given' }}</dd>
+  {% endif %}
   <dt>Notes</dt><dd>{{ task.notes or '—' }}</dd>
   <dt>Audit events</dt>
   <dd>
@@ -57,7 +67,7 @@
 </dl>
 {% endif %}
 
-{% if task.pending_record %}
+{% if task.pending_record and not is_feedback %}
 <h2>Pending record</h2>
 <dl class="admin-dl">
   {% for k, v in task.pending_record.items() %}

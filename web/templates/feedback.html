@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{#- "Tell us what you were trying to do", the private beta's feedback form (web/feedback.py; docs/65).
+    `feedback` comes from `web/feedback.py::feedback_context`. Field names are `ReportRequest` keys
+    (api/openapi.yaml), so an API `errors[].field` names the input it is about. Every field is
+    labelled, its hint and its error are tied to it through `aria-describedby`, and an error is said
+    in words and marked `aria-invalid` (docs/31 §7, SC 3.3.1). The form classes are /submit's. -#}
+{%- set f = feedback -%}
+{%- macro described(name, fid) -%}
+{%- set ids = [fid ~ '-hint'] + ([fid ~ '-error'] if f.errors.get(name) else []) %} aria-describedby="{{ ids | join(' ') }}"{% if f.errors.get(name) %} aria-invalid="true"{% endif -%}
+{%- endmacro -%}
+{%- macro error(name, fid) -%}
+{%- if f.errors.get(name) %}<p class="field__error" id="{{ fid }}-error"><span class="visually-hidden">Error: </span>{{ f.errors[name] }}</p>{% endif -%}
+{%- endmacro -%}
+{% block title %}{% if f.sent %}Feedback sent{% elif f.problem %}Check your feedback{% else %}Tell us what you were trying to do{% endif %} — Infraque{% endblock %}
+{% block robots %}noindex, nofollow{% endblock %}
+{% block meta_description %}Private beta feedback: tell the Infraque team what you were trying to do, and what happened.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Tell us what you were trying to do</h1>
+  <p>This is a private beta. When the site does not help with what you came to do, a few lines here tell us what to fix first. A person on the team reads every message. To flag a wrong record, use &ldquo;Report a problem&rdquo; on that record&rsquo;s page instead.</p>
+</div>
+
+{% if f.sent %}
+<div class="notice submit-status" id="feedback-status" role="status" tabindex="-1" autofocus>
+  <p class="notice__title">Thanks. Your feedback has reached the team.</p>
+  <p>We read every message and write back only if you gave an email address.{% if f.reference %} Reference <span class="submit-ref">{{ f.reference }}</span>.{% endif %}</p>
+</div>
+<p>{% if f.page_path %}<a href="{{ f.page_path }}">Back to the page you were on</a> &middot; {% endif %}<a href="/feedback{% if f.page_path %}?from={{ f.page_path | urlencode }}{% endif %}">Send more feedback</a></p>
+{% else %}
+
+{% if f.problem %}
+<div class="notice notice--error submit-status" id="feedback-status" role="alert" tabindex="-1" autofocus>
+  {%- set n = f.error_rows | length %}
+  {% if f.problem.rate_limited %}
+  <p class="notice__title">{{ f.problem.title }}.</p>
+  <p>Too many messages have come from your connection this hour, so nothing was sent. What you typed is kept below; please send it again later.</p>
+  {% elif n %}
+  <p class="notice__title">{% if f.problem.title %}{{ f.problem.title }}. {% endif %}Nothing was sent: {{ n }} answer{{ 's' if n != 1 }} need{{ 's' if n == 1 }} changing.</p>
+  <ul class="submit-status__list">
+    {% for row in f.error_rows %}<li><a href="{{ row.href }}">{{ row.label }}: {{ row.message }}</a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="notice__title">{{ f.problem.title }}.</p>
+  <p>Nothing was sent. What you typed is kept below; please try again in a few minutes.</p>
+  {% endif %}
+  {% if f.problem.request_id %}<p class="notice__ref">Request <span class="submit-ref">{{ f.problem.request_id }}</span></p>{% endif %}
+</div>
+{% endif %}
+
+<form class="intake-form feedback-form" id="feedback-form" method="post" action="/feedback" novalidate>
+  <input type="hidden" name="page_path" value="{{ f.page_path or '' }}">
+  <div class="field">
+    <label for="feedback-description">What were you trying to do?</label>
+    <p class="field-hint" id="feedback-description-hint">For example: find substations in Texas with room for a large load, or check one developer&rsquo;s projects against their filings. Up to {{ '{:,}'.format(f.text_max) }} characters.</p>
+    {{ error('description', 'feedback-description') }}
+    <textarea id="feedback-description" name="description" rows="5" maxlength="{{ f.text_max }}" required{{ described('description', 'feedback-description') }}>{{ f.typed.get('description', '') }}</textarea>
+  </div>
+  <div class="field">
+    <label for="feedback-what-happened">What happened? <span class="intake-form__optional">(optional)</span></label>
+    <p class="field-hint" id="feedback-what-happened-hint">What you saw instead, or where you got stuck.</p>
+    {{ error('what_happened', 'feedback-what-happened') }}
+    <textarea id="feedback-what-happened" name="what_happened" rows="4" maxlength="{{ f.text_max }}"{{ described('what_happened', 'feedback-what-happened') }}>{{ f.typed.get('what_happened', '') }}</textarea>
+  </div>
+  <div class="field">
+    <label for="feedback-email">Optional email if you&rsquo;re happy for us to follow up</label>
+    <p class="field-hint" id="feedback-email-hint">Used only to reply about this message. Leave it empty to send without one. See the <a href="/privacy#what-we-store">privacy notice</a>.</p>
+    {{ error('email', 'feedback-email') }}
+    <input type="email" id="feedback-email" name="email" autocomplete="email" value="{{ f.typed.get('email', '') }}"{{ described('email', 'feedback-email') }}>
+  </div>
+  {% if f.page_path %}
+  <p class="field-hint" id="feedback-page">We also keep the address of the page you came from, <span class="submit-ref">{{ f.page_path }}</span>, without anything after a question mark, so a search you typed is not kept.</p>
+  {% endif %}
+
+  {#- Honeypot (services/api/admin_posts.py decision 7): hidden from people and from assistive
+      technology, out of the tab order, filled only by bots. Relayed to the API as typed. -#}
+  <div class="intake-form__trap" aria-hidden="true">
+    <label for="feedback-website">Leave this empty</label>
+    <input type="text" id="feedback-website" name="website" tabindex="-1" autocomplete="off">
+  </div>
+
+  {% if f.site_key %}
+  {#- Cloudflare Turnstile, only where the deployment sets `TURNSTILE_SITE_KEY`, as on /submit. -#}
+  <div class="field intake-form__captcha" id="feedback-captcha" tabindex="-1">
+    {{ error('captcha_token', 'feedback-captcha') }}
+    <div class="cf-turnstile" data-sitekey="{{ f.site_key }}"></div>
+    <script src="{{ f.turnstile_script }}" async defer></script>
+  </div>
+  {% endif %}
+
+  <div class="form-actions">
+    <button type="submit">Send feedback</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

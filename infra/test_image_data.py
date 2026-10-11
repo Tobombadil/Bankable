@@ -32,6 +32,8 @@ NOT_IN_IMAGE = (
     "data/probes",
     "data/eval/raw",
     "data/eval/normalized.parquet",
+    # Hand-check worksheets are generated output; the preflight only looks for one there (2026-10-11).
+    "data/eval/handcheck",
 )
 #: A bare `ROOT / "data" / "eval"` is an offline script's output directory, not something to ship.
 BARE_DIRS_NOT_SHIPPED = ("data/eval",)

@@ -129,6 +129,10 @@ REPORT_ISSUE_LABELS: dict[str, str] = {
     "wrong_sponsor": "The sponsor or owner is wrong",
     "other": "Something else",
 }
+#: Every `issue_type` a task can carry, for the admin queue: the record form's choices above, plus
+#: the private beta's feedback form (`beta_feedback`, web/feedback.py), which names no record and so
+#: is not one of the record form's choices.
+TASK_ISSUE_LABELS: dict[str, str] = {**REPORT_ISSUE_LABELS, "beta_feedback": "Beta feedback"}
 
 #: Words for the asset `attributes` keys the loaders write (ADR 0008; inventory of the dev store on
 #: 2026-10-06), with the unit in the label rather than in the key. A trailing `_YYYY` is a year

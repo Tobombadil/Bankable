@@ -45,8 +45,9 @@ That is about 15–35 USD a month before email, against 80–170 USD for the thr
 
 ## 2. Owner actions, in order
 
-The coordinator's recommendations, which the owner accepted on 2026-10-10. Allow under an hour. Each step names
-what to create and where its value goes:
+The coordinator's recommendations, which the owner accepted on 2026-10-10. Allow about 75 minutes of work, plus
+waiting time for DNS: **start step 9 (email) first**, because its domain check can take up to 72 hours. Each step
+names what to create and where its value goes:
 - **secret** values go only into the encrypted secrets file (`infra/sops/README.md`), never into chat or the
   repository;
 - **config** values may go in the file in the clear.
@@ -85,8 +86,8 @@ what to create and where its value goes:
 - [ ] **5. A GHCR read token (2 min)** while the packages are private: `GHCR_USER` and `GHCR_READ_TOKEN`, in the
   shell that runs `deploy.sh`.
 - [ ] **6. The production age key and secrets file (8 min)** (`infra/sops/README.md`), from
-  `infra/sops/secrets.example.plain.yaml`. Add the R2 values from step 4, `SENTRY_DSN` from step 8, and these beta
-  values:
+  `infra/sops/secrets.example.plain.yaml`. Add the R2 values from step 4, `SENTRY_DSN` from step 8, the three email values
+  from step 9, and these beta values:
 
    ```
    POSTGRES_PASSWORD=<openssl rand -hex 24>
@@ -128,8 +129,47 @@ what to create and where its value goes:
     (secret).
   - Every process reads it at start (`infra/observability.py`). Without it, nothing is reported. The release is the
     image tag; personal data sending is off.
-- [ ] **9. After the first deploy (2 min).** Check that both monitors read "up", and that a report reaches the CSP
-  endpoint from Chrome (§5).
+- [ ] **9. Email: Resend (15 min, then up to 72 hours of DNS; start this first).** Without it the beta cannot
+  verify a sign-up, reset a password or send an alert. Nothing fails loudly: with no key, every email is a dry run
+  that goes nowhere (`services/api/auth.py` `ResendEmailAdapter`).
+  - **The domain is fixed in code.** Every email's links and From address are built from `infraque.com`
+    (`services/api/common.py` `DOMAIN`: From `alerts@infraque.com`, reply-to `hello@infraque.com`). So `DOMAIN` in
+    the secrets file must be `infraque.com`, and that is the domain to verify. The preflight (§3) fails if they
+    differ.
+  - **Verify the domain.** Create a Resend account, add `infraque.com` under Domains, and copy the DKIM and SPF
+    records it generates (`TXT`, plus `MX` for the return path, which defaults to `send.infraque.com`) into
+    Cloudflare exactly as shown, with the proxy **off** (grey cloud). Resend says most domains verify within 15
+    minutes and DNS can take up to 72 hours (https://resend.com/docs/add-a-domain). Cloudflare specifics:
+    https://resend.com/docs/knowledge-base/cloudflare.
+  - **Add DMARC.** Resend does not require DMARC to verify the domain, but `docs/32` §2.3 asks for it before
+    launch: a `TXT` record at `_dmarc` with `p=quarantine` at minimum
+    (https://resend.com/docs/dashboard/domains/dmarc). Then send one test to a Gmail, an Outlook and an Apple
+    Mail address, and check that none lands in spam.
+  - **Receive replies.** Alerts set reply-to `hello@` and a `mailto:unsubscribe@` unsubscribe header
+    (`services/alerts/mail.py`). Forward both addresses to the owner's inbox, for example with Cloudflare Email
+    Routing on the apex (free). The one-click unsubscribe works over HTTPS without it; replies and mailed
+    unsubscribes bounce without it.
+  - **The three values:**
+    - `RESEND_API_KEY` (secret): an API key with sending access only, limited to `infraque.com` (`docs/32` §2.4);
+    - `SENDER_LEGAL_NAME` (config): the legal sender, decided 2026-09-18 as Compass International Trading Group
+      LLC (`docs/00-PLAN.md` open question 3);
+    - `SENDER_POSTAL_ADDRESS` (config): a real postal address where that entity receives mail. A street address,
+      a USPS-registered PO box or a registered private mailbox all qualify
+      (https://www.ftc.gov/business-guidance/resources/can-spam-act-compliance-guide-business).
+  - **Why the address matters.** `deploy.sh` only checks that the two sender values are present, so the template's
+    `Replace Me LLC` would pass it. Production refuses to send an alert when either value is missing
+    (`services/alerts/mail.py` `SenderIdentityMissing`), and the preflight (§3) fails on the placeholders. The same
+    two values name the controller on the privacy notice (`web/legal.py`).
+  - **Since 2026-10-11, a server without the key does not show the link instead.** Before then, a dry-run
+    sign-up or reset answered with the link the email would have carried. That is convenient on a laptop, and on a
+    deployed server it would hand anyone a reset link for any account. Now only development environments do it
+    (`services/api/auth_routes.py` `_dev_links`).
+- [ ] **10. After the first deploy (5 min).**
+  - Check that both monitors read "up".
+  - Check that a report reaches the CSP endpoint from Chrome (§5).
+  - Sign up with a personal address, and confirm that the verification email arrives and its link works.
+  - Request a password reset for that account, and confirm that the email arrives.
+  - Preflight checks 9 and 10 read PASS (§3).
 
 ## 3. Deploy and seed
 
@@ -175,8 +215,57 @@ Every step runs in the worker image. A server seeded with no local data can run 
 alone, then `bootstrap context --build` once the EIA-860M, EIA-860 and GHGRP fetches have stored
 their snapshots: the build reads them for the plant, owner and GHGRP layers.
 
+**After seeding, measure on the beta store** (owner decision 2026-10-11; these figures could not be
+measured in the sandbox):
+1. Records no register lists any more, active states only:
+   `GET /v1/proposals?listed=false&include=count&limit=1&lifecycle_state=<the active states>`.
+2. What the map's hidden-records count costs. Take the median server time of 15 requests each to `/`
+   (hides and counts) and to `/?unlisted=include` (neither). If the difference is above **150 ms**,
+   replace the number with a line without one (lane U's alternative, docs/30 §5.1) and record it.
+3. Generate the 100-item hand-check worksheet from this store
+   (`data/eval/handcheck/2026-10-10-e2e-reference/README.md` gives the command) before the owner's
+   check on 14–15 October.
+
+**Run the preflight; invite testers only on GO** (2026-10-11, `infra/scheduler/preflight.py`). Once the
+seed's jobs have finished, on the host:
+
+```bash
+cd /opt/infraque/compose && IMAGE_TAG=$(cat /opt/infraque/current-tag) INFRAQUE_ENV_FILE=/opt/infraque/secrets/.env \
+  docker compose -f docker-compose.yml -f compose.prod.yml -f compose.single.yml --env-file /opt/infraque/secrets/.env \
+  run --rm --no-deps -T worker python -m infra.scheduler.bootstrap preflight
+```
+
+It prints one line per check, PASS, WARN or FAIL, with the figure it measured and what to do. Then it prints
+GO or NO-GO, and exits 1 on NO-GO. A WARN does not block, but read each one. The twelve checks:
+
+1. the database is at the migration head;
+2. every scheduled source has succeeded and none is stale;
+3. no data-quality hold is waiting for release;
+4. live and public counts are sane;
+5. the M-11 visibility audit is clean;
+6. sites are built, none oversize;
+7. records no register lists any more (item 1 above);
+8. the map's hidden-count cost, timed from inside the stack against `web:8001` (item 2 above);
+9. email can be sent: key set, sender values not the placeholders;
+10. the `DOMAIN` setting matches the code's;
+11. the gate, CSP mode and Sentry;
+12. the hand-check worksheet (item 3 above), printing the generate command when it is missing.
+
+Record the figures from checks 7 and 8 here.
+
+- **What it writes.** It is read-only apart from its own record, `<data root>/preflight/<ts>.json`, which
+  the next run compares counts against. `--json` prints that record.
+- **Time.** It takes at most about two minutes (`--budget`).
+- **Seeing the worksheet.** Once the worksheet is generated, add `-v /opt/infraque/handcheck:/out:ro`
+  before `worker`, so check 12 can see it.
+- **Not yet run anywhere real.** It has run only on SQLite in the sandbox. Its Postgres-only paths (the
+  read-only transaction, the statement timeout, the last-resolve query) and the `web:8001` timing are
+  first exercised on the beta host.
+
 **Testers.** Give them the one login out of band. Rotate it by changing `SITE_ACCESS_HASH` and
-redeploying the same tag.
+redeploying the same tag. The tester guide, the invitation draft, the debrief script and the owner's
+weekly review are in [`docs/65`](65-beta-tester-kit.md). While `SITE_ACCESS=basic`, every page shows
+"Tell us what you were trying to do", which files feedback into the admin review queue.
 
 ## 4. Rehearsal, 2026-10-09 (this sandbox, not a cloud VM)
 
@@ -301,7 +390,8 @@ Rehearse once against the real VM with the gate on before inviting anyone.
 
 ## 6. Opening it to the public
 
-Set `SITE_ACCESS=open` (or remove the three keys) and redeploy the same tag. Before that, the
+Set `SITE_ACCESS=open` (or remove the three keys) and redeploy the same tag. The header's beta feedback
+link and `/feedback` go with the gate (`web/beta.py`). Before that, the
 launch checklist in `docs/40` applies unchanged, counsel items included. Moving to three VMs later
 needs:
 - `pg_dump` from the single host, restored into the managed database (`docs/60` §10.3);
@@ -386,6 +476,13 @@ Still open:
   0.9 GB a year. Storing unchanged bytes again also departs from `docs/20` §3.2 ("the run is recorded as
   `unchanged`"); stopping that is a change to the builders.
 - **API keys do not work while the gate is on** (§1).
+- **No bounce or complaint webhook from Resend** (found 2026-10-11). `docs/32` §2.4 asks for one. Until it exists,
+  a bounced verification or alert email is visible only in the Resend dashboard, and a complaint does not
+  suppress the address. At beta scale (8–12 testers) the owner can check the dashboard by hand.
+- **The email domain is a code constant, not a setting** (found 2026-10-11). `services/api/common.py` `DOMAIN`
+  builds every email's links and From address. Until 2026-10-11, `services/api/auth.py` also repeated
+  `alerts@infraque.com` literally; it now uses the constant. A deployment on any other domain would send links to
+  the wrong host. Preflight check 10 catches the mismatch; making it a setting is post-beta work.
 
 ## 8. Assumptions
 

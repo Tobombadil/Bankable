@@ -30,7 +30,7 @@ from web.admin.shell import (
     require_same_origin,
     templates,
 )
-from web.labels import REPORT_ISSUE_LABELS, humanise
+from web.labels import TASK_ISSUE_LABELS, humanise
 
 router = APIRouter()
 
@@ -59,10 +59,11 @@ def record_admin_href(subject_type: str | None, subject_id: str | None) -> str |
 
 
 def issue_type_label(token: str | None) -> str:
-    """A report's issue type in the words the reader picked it by (`REPORT_ISSUE_LABELS`)."""
+    """A report's issue type in the words the reader picked it by (`REPORT_ISSUE_LABELS`), or
+    "Beta feedback" for the private beta's form (`TASK_ISSUE_LABELS`)."""
     if not token:
         return ""
-    return REPORT_ISSUE_LABELS.get(token) or humanise(token)
+    return TASK_ISSUE_LABELS.get(token) or humanise(token)
 
 
 templates.env.globals["record_admin_href"] = record_admin_href

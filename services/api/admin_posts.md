@@ -149,6 +149,24 @@ untouched — nothing in this module calls a social platform; these routes only 
   label is the channel's posture-aware docs/13 §6.5 account disclosure, replacing "Automated post —
   see disclosure". The worker re-checks graduation per post.
 
+## 2026-10-11: beta feedback through `POST /v1/reports` (docs/65)
+
+- **What:** the private beta's "Tell us what you were trying to do" form (`web/feedback.py`, `/feedback`)
+  posts `issue_type: beta_feedback` with no `public_id`. The result is a `report` task with no subject,
+  in the same admin queue as record reports, labelled "Beta feedback" there.
+- **Why this shape:** the smallest extension that reuses the pipeline. `task.type` has a CHECK constraint
+  (a new type would need a migration); `issue_type` has none. The rate-limit bucket (`intake:<ip>`,
+  5/hour), the honeypot and the Turnstile rule are the same code path, applied before the branch.
+- **What is stored:** `description` (what the reader was trying to do), `pending_record` with
+  `page_path` and `what_happened` only when given (spec `BetaFeedbackDetail`), `contact.email` only when
+  given (spec `ReportContact`). No IP address, user agent or referrer. A `page_path` with a query string
+  or fragment is refused (`400`), not trimmed: the site sends a bare path, and any other client that
+  sends more is told so rather than having part of it kept.
+- **Spec:** `ReportRequest.public_id` is required unless `issue_type` is `beta_feedback`, where it must be
+  absent (`if`/`then`/`else`). `Task.contact` also admits `ReportContact`, which is what record reports
+  already stored (an email alone did not validate against `IntakeContact`, which requires a name).
+- **Tests:** `services/api/test_beta_feedback.py`, `web/test_feedback.py`.
+
 ## Deferred (follow-ups, not silent gaps)
 
 - **Captcha provider.** No provider (hCaptcha, Turnstile, reCAPTCHA, ...) is integrated; `captcha_token`
