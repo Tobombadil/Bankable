@@ -1535,3 +1535,15 @@ a.button-secondary:visited { color: var(--link); }
 .legend__group[data-legend-type="transmission_line"] { color: var(--asset-transmission); }
 .legend__item[data-legend-mark="retired-cluster"], .legend__item--retired { color: var(--asset-retired); }
 .legend__item--retiring { color: var(--asset-retiring); }
+
+/* Records no register lists any more (owner, 2026-10-11; web/unlisted.py). The box sits in the Status
+   disclosure under the status groups, laid out as the single-checkbox fields are. Its note says the
+   box has no effect while a status outside the default is ticked (such a view hides nothing); it
+   shows only then, read from the boxes themselves as the reader ticks them, before the list's
+   "Apply filters" and as the map redraws, with no script. A browser without `:has` keeps the note
+   hidden. The hidden-records line sits under the lifecycle notice, as part of it. */
+.filter-unlisted { display: flex; flex-direction: column; gap: var(--space-1); }
+.filter-unlisted__note { display: none; margin: 0; }
+.filter-status:has(input[name="lifecycle_state"]:not([data-default]):checked) .filter-unlisted__note { display: block; }
+.view-notice + .view-notice--unlisted { margin-top: calc(-1 * var(--space-4)); padding-top: 0; }
+.map-status .view-notice + .view-notice--unlisted { margin-top: 0; }

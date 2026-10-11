@@ -407,6 +407,15 @@ i.e. `announced, filed, studied, permitted, contracted, under_construction` (pro
 cancelled and unknown are off. The summary reads "active" for the default and "active, built" and so on beyond it;
 the 400px "Filters (N active)" count counts a change from the default. The map and the list now share this control;
 they still differ in capacity and schedule (list only) and layers and placement (map only).
+**Records no register lists any more (2026-10-11, owner decision; `docs/30` §5.1).** At the foot of the Status
+disclosure, outside the status fieldset, one checkbox: "Include proposals no register lists any more" (`unlisted`,
+value `include`; `{prefix}-unlisted`). It is not a status group, so it has its own name and no `data-default`: the
+"Filters (N active)" count counts it when ticked, and the summary adds "no longer listed". Under it a muted note,
+"Always included while Built, Withdrawn or Status unknown is ticked.", shown by CSS (`:has`) only while a box outside
+the default is ticked, because such a view hides nothing whatever the box says. With the lifecycle notice, the
+**hidden-records line** (`unlisted_notice` macro): `view-notice--unlisted`, `role="status"`, "N proposals no register
+lists any more are hidden. Show them", the link carrying the view with `unlisted=include`; rendered only while the
+view hides at least one. Tokens: none new.
 **Rule satisfied:** D-4, D-17, API-3.
 
 ### 5.10 Saved-search card
@@ -648,3 +657,5 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
   1079px; §4 `map.js` capacity through one formatter matching `mw`; §5.4 the map page's tier notice as lane H
   built it (lateness once, in the masthead); §5.17 the map key added (lane H's placement, the compact state with
   a layer on). No new tokens.
+- 2026-10-11 — as built (frontend-developer, lane U): §5.9 the Status disclosure's "Include proposals no register
+  lists any more" box and its note, and the hidden-records line under the lifecycle notice. No new tokens.

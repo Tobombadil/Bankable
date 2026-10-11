@@ -584,6 +584,35 @@ Still open:
   is a site-wide change and was not made.
 - With "Existing assets" on, the asset-type row moves the map to 528 px at 1440×900 (budget 450).
 
+**As built, 2026-10-11 (owner decision: records no register lists any more are hidden by default on the map and the
+list, with a toggle; `web/unlisted.py`).** A project every register has dropped keeps the status its register last
+stated (a removal is not a withdrawal), so it read as active pipeline. The rule: a view whose lifecycle choice is made
+only of active states (the default, or any subset of announced through under construction) asks the API for
+`listed=true` on every read it makes: the list's rows, the map's geo and cluster reads through `/api/proposals/geo`,
+the lifecycle notice's active count and the empty-state facet counts, so "Showing N active proposals", the count line
+and the rows are one set. A view that names any other state (built, withdrawn, cancelled, unknown, or "include
+withdrawn") hides nothing, and a link that sets `listed` itself (a company page's "No longer listed" row) keeps it.
+The toggle is `unlisted=include`, a site-only parameter never sent to the API; it is a box at the foot of the Status
+disclosure on both bars ("Include proposals no register lists any more"; the summary then reads "active, no longer
+listed"; a note says the box has no effect while a status outside the default is ticked). "View as: Map · List"
+carries it both ways, `map.js` keeps it in the URL, "Clear all" clears it. Under the lifecycle notice, while the view
+hides some, one line says how many with a link that shows them: "335 proposals no register lists any more are hidden.
+Show them" (on the map the link ticks the box in place). Unchanged: "Save this search as an alert" stays on the
+default view (the hiding is not in the query string) and an alert still matches every record, since a departure is
+what a follower wants; the RSS and JSON feeds keep every record; the company pipeline and record pages already say
+"no longer listed". The list offers no CSV or JSON export link (exports are the signed-in `POST /v1/exports`); a
+future one must be built from the list's own API query.
+
+The count costs one `limit=1&include=count` call, as each notice bucket does. Measured on a SQLite copy of the e2e
+store with 335 of 4,014 active records' links marked gone (in-process app, median of 15): that call 70–79 ms. On the
+list it adds no call: the default view's own total is the notice's active count, which is no longer asked for
+separately (rows plus four counts, as before); `/proposals` 416–419 → 434–459 ms, most of it the `listed` predicate
+the rule needs anyway. On the map it is a fifth count: `/` 316–323 → 416–436 ms, the notice fragment map.js fetches
+after a filter change 248–274 → 356–363 ms (it runs beside the geo read). With the line, the map starts 19 px lower
+(1440×900 409 → 428 px, 1024×768 554 → 573, 400×800 616 → 635; budgets 450, 600 and 640); the e2e store holds no
+dropped record, so its pages show no line. axe-core 4.13.0 (WCAG 2.0–2.2 A and AA, best practice) on `/` and
+`/proposals`, toggle off and on, Status open, light and dark, 400×800 and 1440×900: 0 violations in 18 runs.
+
 States: empty — zero markers, filter bar names the facet + Clear all (D-29). Loading — skeleton tiles + list rows,
 no spinner. Error — RFC 9457 `title`/`request_id` in place of the map; list loads independently. Delayed-tier —
 D-3 banner, never dismissible on public. Restricted-precision — centroid marker labelled "county level (source
@@ -739,3 +768,6 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 - 2026-10-10 — as built (backend, lane P): §3.1 the company pipeline from one aggregate, group links by
   `sponsor_scope`, "No longer listed" apart from the active pipeline, one name per grid; labelled company and
   connection-point lists; the record page's "no longer listed" line.
+- 2026-10-11 — as built (frontend-developer, lane U, owner decision): §5.1 records no register lists any more are
+  hidden from the map and the list on a view of active states, with the `unlisted=include` toggle, the hidden-records
+  line and its measured cost.

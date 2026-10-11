@@ -627,6 +627,67 @@ def test_map_status_control_draws_built_proposals_and_the_list_keeps_the_choice(
             browser.close()
 
 
+def test_unlisted_toggle_on_the_map_and_the_list_keeps_it_both_ways(server: object) -> None:
+    """Owner, 2026-10-11 (`web/unlisted.py`): a view of active states hides the records no register
+    lists any more; a box in the Status disclosure shows them. Walks the real pages from the
+    keyboard: on the map, Space on the box asks the site's geo route with `unlisted=include` (the
+    site sends the API `listed=true` without it, never `unlisted`), the count is that read's own
+    total, the URL, the summary and the List link carry it, the feed does not and the alert link
+    stays; the list opens with the box ticked and "Clear all" offered, and unticking it there (then
+    "Apply filters", the next stop) drops it from the URL and from the Map link. The e2e store holds
+    no dropped record, so the counts match either way; `web/test_default_view.py` holds the counts
+    on a store that has them."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            _ok_ui_events(page)
+            page.goto(BASE_URL + "/")
+            page.wait_for_selector("#map canvas", timeout=10000)
+            page.wait_for_function("() => window.__map && window.__map.isStyleLoaded()", timeout=15000)
+            page.wait_for_function(_COUNT_READY, timeout=15000)
+            assert page.inner_text("#mf-status [data-status-summary]") == "active"
+            assert not page.is_checked("#mf-unlisted")
+            page.click("#mf-status summary")
+            page.focus("#mf-unlisted")
+            with page.expect_response(
+                lambda r: "/api/proposals/geo?" in r.url and "unlisted=include" in r.url, timeout=30000
+            ) as geo_info:
+                page.keyboard.press("Space")
+            assert page.is_checked("#mf-unlisted")
+            page.wait_for_function(_COUNT_READY, timeout=15000)
+            shown = int(page.inner_text("#map-result-count").split()[0].replace(",", ""))
+            assert shown == geo_info.value.json()["data"]["totals"]["records"]
+            assert parse_qs(urlsplit(page.url).query).get("unlisted") == ["include"], page.url
+            assert page.inner_text("#mf-status [data-status-summary]") == "active, no longer listed"
+            list_query = parse_qs(urlsplit(page.get_attribute("#view-as-list", "href") or "").query)
+            assert list_query.get("unlisted") == ["include"], list_query
+            feed_query = parse_qs(urlsplit(page.get_attribute("#view-as-feed", "href") or "").query)
+            assert "unlisted" not in feed_query and "listed" not in feed_query
+            assert page.is_visible("#mf-save-alert")
+
+            page.click("#view-as-list")
+            page.wait_for_selector("#view-as-map")
+            assert page.is_checked("#f-unlisted")
+            assert page.inner_text("#f-status [data-status-summary]") == "active, no longer listed"
+            assert page.is_visible("a.filter-bar__clear")
+            page.click("#f-status summary")
+            page.focus("#f-unlisted")
+            page.keyboard.press("Space")
+            # The next stop is "Apply filters": the list's form is a plain GET form.
+            page.keyboard.press("Tab")
+            assert page.evaluate("() => document.activeElement.textContent.trim()") == "Apply filters"
+            with page.expect_navigation(timeout=30000):
+                page.keyboard.press("Enter")
+            assert "unlisted" not in parse_qs(urlsplit(page.url).query), page.url
+            assert not page.is_checked("#f-unlisted")
+            back = parse_qs(urlsplit(page.get_attribute("#view-as-map", "href") or "").query)
+            assert "unlisted" not in back, back
+        finally:
+            browser.close()
+
+
 def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) -> None:
     """Lane H7: the in-view row printed the bare token ("load · US-VA"). It now prints the label
     the proposal list prints, read from the `#map-labels` tag the server renders from

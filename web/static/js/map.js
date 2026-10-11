@@ -456,6 +456,16 @@
   // (active), `include_withdrawn=1` for active plus withdrawn, else one `lifecycle_state` csv.
   var statusFieldset = document.querySelector("#map-filters .filter-field--status");
   var statusBoxes = Array.prototype.slice.call(document.querySelectorAll('#map-filters input[name="lifecycle_state"]'));
+  // Owner, 2026-10-11 (web/unlisted.py): records no register lists any more are hidden from a view
+  // of active states; this box (`unlisted=include`) shows them. The URL, the list link and the
+  // site's own geo and notice routes carry it; those routes never send it to the API, they send
+  // `listed=true` instead while the view hides them. The feed does not carry it (a change feed keeps
+  // every record); the alert link may, and the saved search leaves it out (an alert watches every
+  // record either way, web/alerts.py).
+  var unlistedBox = document.querySelector('#map-filters input[name="unlisted"]');
+  function readUnlisted(params) {
+    return (params.get("unlisted") || "").toLowerCase() === "include";
+  }
   function csvList(value) {
     return String(value || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
   }
@@ -504,7 +514,9 @@
     statusBoxes.forEach(function (b) {
       if (b.checked && !(defaultsOn && b.hasAttribute("data-default"))) words.push(b.getAttribute("data-status-short") || b.value);
     });
-    summary.textContent = words.join(", ") || "active";
+    if (!words.length) words.push("active");
+    if (unlistedBox && unlistedBox.checked) words.push("no longer listed");
+    summary.textContent = words.join(", ");
   }
 
   function readUrlOnlyFilters(params) {
@@ -523,6 +535,7 @@
     if (filters.kind) params.set("kind", filters.kind);
     if (filters.jurisdiction) params.set("jurisdiction", filters.jurisdiction);
     appendStatuses(params, filters.statuses);
+    if (filters.unlisted) params.set("unlisted", "include");
     var urlOnly = filters.url_only || {};
     URL_ONLY_FILTERS.forEach(function (name) {
       if (urlOnly[name]) params.set(name, urlOnly[name]);
@@ -557,6 +570,7 @@
       kind: params.get("kind") || "",
       jurisdiction: params.get("jurisdiction") || "",
       statuses: readStatuses(params),
+      unlisted: readUnlisted(params),
       url_only: readUrlOnlyFilters(params),
       layers: layersParam ? layersParam.split(",").filter(Boolean) : [],
       region: params.get("region") || "",
@@ -607,6 +621,7 @@
       var feedParams = new URLSearchParams();
       appendProposalFilters(feedParams, filters);
       feedParams.delete("include_withdrawn");
+      feedParams.delete("unlisted");
       feedParams.set("lifecycle_state", (filters.statuses && filters.statuses.length ? filters.statuses : DEFAULT_STATES).join(","));
       feedLink.href = "/feeds/proposals.rss?" + feedParams.toString();
     }
@@ -764,6 +779,7 @@
   document.getElementById("mf-technology").value = filters.technology;
   document.getElementById("mf-kind").value = filters.kind;
   document.getElementById("mf-jurisdiction").value = filters.jurisdiction;
+  if (unlistedBox) unlistedBox.checked = filters.unlisted;
   syncStatusControl(filters.statuses);
   var plantsToggle = document.getElementById("mf-layer-plants");
   plantsToggle.checked = filters.layers.indexOf("plants") !== -1;
@@ -2144,6 +2160,7 @@
       kind: document.getElementById("mf-kind").value,
       jurisdiction: document.getElementById("mf-jurisdiction").value,
       statuses: currentStatuses(),
+      unlisted: unlistedBox ? unlistedBox.checked : false,
       url_only: filters.url_only,
       layers: filters.layers,
       region: filters.region,
@@ -2171,15 +2188,26 @@
   document.getElementById("mf-kind").addEventListener("change", applyFilters);
   document.getElementById("mf-jurisdiction").addEventListener("change", applyFilters);
   statusBoxes.forEach(function (box) { box.addEventListener("change", applyFilters); });
-  // The notice's "N built" link turns Built on in place rather than reloading the map (UX-1).
+  if (unlistedBox) unlistedBox.addEventListener("change", applyFilters);
+  // The notice's "N built" link turns Built on in place rather than reloading the map (UX-1), and
+  // its "Show them" link (records no register lists any more) ticks that box the same way.
   if (noticeEl) {
     noticeEl.addEventListener("click", function (e) {
-      var link = e.target && e.target.closest ? e.target.closest("a.view-notice__show") : null;
+      var target = e.target && e.target.closest ? e.target : null;
+      var link = target ? target.closest("a.view-notice__show") : null;
       var builtBox = document.getElementById("mf-status-built");
-      if (!link || !builtBox) return;
-      e.preventDefault();
-      builtBox.checked = true;
-      applyFilters();
+      if (link && builtBox) {
+        e.preventDefault();
+        builtBox.checked = true;
+        applyFilters();
+        return;
+      }
+      var show = target ? target.closest("a[data-unlisted-show]") : null;
+      if (show && unlistedBox) {
+        e.preventDefault();
+        unlistedBox.checked = true;
+        applyFilters();
+      }
     });
   }
   plantsToggle.addEventListener("change", function () {
@@ -2215,6 +2243,7 @@
     document.getElementById("mf-technology").value = "";
     document.getElementById("mf-kind").value = "";
     document.getElementById("mf-jurisdiction").value = "";
+    if (unlistedBox) unlistedBox.checked = false;
     syncStatusControl(DEFAULT_STATES);
     // "Clear all" also drops the filters that arrived in the link with no control on this page:
     // left in place they would go on narrowing the map with nothing on screen saying so.

@@ -198,10 +198,15 @@
     active"); one checkbox per group, each sending its states as a `lifecycle_state` csv. The
     default groups carry `data-default="checked"`, so the 400 px "Filters (N active)" count
     (site.js) counts a change from the default, not the default itself. `data-*-states` let
-    map.js write the shortest URL for the choice (`web/viewmodels.py::lifecycle_query_items`). -#}
-{% macro status_filter(prefix, choices) -%}
+    map.js write the shortest URL for the choice (`web/viewmodels.py::lifecycle_query_items`).
+    `unlisted` (owner, 2026-10-11; `web/unlisted.py::unlisted_toggle`): the box that shows the records
+    no register lists any more, which a view of active states hides. It is not a status group: its
+    own name (`unlisted=include`, never sent to the API), outside the fieldset, and the summary names
+    it when it is on. Its note shows (styles.css, `:has`) while a box outside the default is ticked,
+    because such a view hides nothing whatever the box says. -#}
+{% macro status_filter(prefix, choices, unlisted=None) -%}
 <details class="filter-more filter-status" id="{{ prefix }}-status"{% if choices.explicit %} open{% endif %}>
-  <summary>Status:&nbsp;<span data-status-summary>{{ choices.summary }}</span></summary>
+  <summary>Status:&nbsp;<span data-status-summary>{{ choices.summary }}{% if unlisted and unlisted.checked %}, no longer listed{% endif %}</span></summary>
   <div class="filter-more__body">
   <fieldset class="filter-field filter-field--placement filter-field--status" data-default-states="{{ choices.default_states }}" data-withdrawn-states="{{ choices.withdrawn_states }}">
     <legend>Show proposals that are</legend>
@@ -212,8 +217,28 @@
     </label>
     {%- endfor %}
   </fieldset>
+  {%- if unlisted %}
+  <div class="filter-unlisted">
+    <div class="filter-field filter-field--checkbox">
+      <label for="{{ prefix }}-unlisted">
+        <input id="{{ prefix }}-unlisted" type="checkbox" name="{{ unlisted.name }}" value="{{ unlisted.value }}"{% if unlisted.checked %} checked{% endif %}>
+        Include proposals no register lists any more
+      </label>
+    </div>
+    <p class="filter-field__note filter-unlisted__note">Always included while Built, Withdrawn or Status unknown is ticked.</p>
+  </div>
+  {%- endif %}
   </div>
 </details>
+{%- endmacro %}
+
+{#- Owner, 2026-10-11 (`web/unlisted.py::unlisted_notice`): on a view that hides the records no
+    register lists any more, one line saying how many, with a link to the same view showing them.
+    Nothing when it hides none. On the map, map.js ticks the box in place instead of reloading. -#}
+{% macro unlisted_notice(notice) -%}
+{%- if notice %}
+<p class="view-notice view-notice--unlisted" role="status">{{ notice.count|thousands }} {{ 'proposal' if notice.count == 1 else 'proposals' }} no register lists any more {{ 'is' if notice.count == 1 else 'are' }} hidden. <a href="{{ notice.show_href }}" class="view-notice__unlisted" data-unlisted-show>Show {{ 'it' if notice.count == 1 else 'them' }}</a></p>
+{%- endif %}
 {%- endmacro %}
 
 {# Class stays "provenance-panel" (web/test_e2e.py selects it); the provenance-bar idiom described
