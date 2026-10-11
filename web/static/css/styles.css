@@ -1547,3 +1547,23 @@ a.button-secondary:visited { color: var(--link); }
 .filter-status:has(input[name="lifecycle_state"]:not([data-default]):checked) .filter-unlisted__note { display: block; }
 .view-notice + .view-notice--unlisted { margin-top: calc(-1 * var(--space-4)); padding-top: 0; }
 .map-status .view-notice + .view-notice--unlisted { margin-top: 0; }
+
+/* ---------- Private beta feedback (2026-10-11; web/beta.py, web/feedback.py, docs/65) ----------
+   One line at the top of the header on every public page while the beta's shared login is on
+   (SITE_ACCESS=basic): what the site is, and the way to say what a reader was trying to do. It is
+   not hidden below 720px as the masthead is, and it wraps rather than scrolling at 400px. Ink and
+   copper link on --surface, as everywhere else (both themes through the tokens). The link is at
+   least 24px tall (SC 2.5.8). The form itself reuses /submit's `.intake-form` rules. */
+.beta-bar { background: var(--surface); border-bottom: 1px solid var(--border); }
+.beta-bar__text {
+  max-width: 1440px; margin: 0 auto; padding: var(--space-1) var(--space-5);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-2);
+  font-size: var(--text-1); color: var(--text);
+}
+.beta-bar__label { font-weight: 600; }
+.beta-bar__link { display: inline-flex; align-items: center; min-height: 1.5rem; color: var(--link); }
+.beta-bar__link[aria-current="page"] { font-weight: 600; }
+.feedback-form { gap: var(--space-5); }
+@media (max-width: 719px) {
+  .beta-bar__text { padding: var(--space-1) var(--space-4); }
+}

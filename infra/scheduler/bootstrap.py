@@ -10,6 +10,7 @@ because a hand run records no `source_run` row and queues nothing.
     python -m infra.scheduler.bootstrap load              # each source's latest stored promoted run
     python -m infra.scheduler.bootstrap context           # the context layers on disk, now
     python -m infra.scheduler.bootstrap context --build   # rebuild them first (`context_build`)
+    python -m infra.scheduler.bootstrap preflight [--json] # read-only GO / NO-GO before inviting anyone
 
 Both queue the jobs the ticks queue (`run_connector`, `load_source`) under the same per-source
 `lock` and `queueing_lock`, so they are safe while the scheduler and workers run and safe to
@@ -24,6 +25,10 @@ with `--build`, its `context_build`, which chains into the load), for a data roo
 
 The selection and the deferral are separate functions so the tests need no database; `main` wires
 them to the Procrastinate app, which needs `DATABASE_URL` (`infra/scheduler/app.py`).
+
+`preflight` queues nothing: it is the check the operator runs after the seed and before inviting
+testers (docs/64 §3), and lives in `infra/scheduler/preflight.py`, which documents each check. It
+needs no Procrastinate app, so it is dispatched before one is imported.
 """
 
 from __future__ import annotations
@@ -129,12 +134,21 @@ def queue_context(task_name: str, defer: Callable[[], Any]) -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if args_list[:1] == ["preflight"]:
+        from infra.scheduler import preflight
+
+        return preflight.main(args_list[1:])
     parser = argparse.ArgumentParser(
         prog="python -m infra.scheduler.bootstrap", description=__doc__.split("\n\n")[0]
     )
-    parser.add_argument("action", choices=("fetch", "load", "context"))
+    parser.add_argument(
+        "action",
+        choices=("fetch", "load", "context", "preflight"),
+        help="preflight takes its own flags: `preflight --help`",
+    )
     parser.add_argument("--build", action="store_true", help="context: rebuild the files before loading them")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(args_list)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     # Deferred: importing the app opens no connection but needs DATABASE_URL.

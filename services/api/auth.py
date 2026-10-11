@@ -39,6 +39,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from services.api.client_ip import client_ip_prefix, is_internal_request, rate_limit_address
+from services.api.common import DOMAIN
 from services.api.deps import get_db
 from services.api.errors import ProblemError
 from services.db.models import Account, ApiKey, User, UserSession
@@ -109,7 +110,7 @@ class ResendEmailAdapter:
             resp = httpx.post(
                 "https://api.resend.com/emails",
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                json={"from": "alerts@infraque.com", "to": [to], "subject": subject, "text": body},
+                json={"from": f"alerts@{DOMAIN}", "to": [to], "subject": subject, "text": body},
                 timeout=10.0,
             )
             resp.raise_for_status()

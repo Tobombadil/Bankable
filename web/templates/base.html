@@ -74,7 +74,17 @@
 {#- How current the sources are, from `/v1/coverage` (web/viewmodels.py `source_freshness`). The
     masthead used to say "Every record and every change live" whatever the fetch dates were. -#}
 {% set fresh = source_freshness(request) %}
+{#- The private beta's feedback link (web/beta.py, web/feedback.py; docs/65): only while the shared
+    login is on (`SITE_ACCESS=basic`), on every page that extends this one. It carries this page's
+    path, never its query string. `is defined` keeps a Jinja environment that has not registered the
+    global rendering as before. -#}
+{%- set beta_feedback = beta_feedback_href(request) if beta_feedback_href is defined else none %}
 <header class="site-header">
+  {%- if beta_feedback %}
+  <div class="beta-bar">
+    <p class="beta-bar__text"><span class="beta-bar__label">Private beta.</span> <a class="beta-bar__link" href="{{ beta_feedback }}"{% if request.url.path == '/feedback' %} aria-current="page"{% endif %}>Tell us what you were trying to do</a></p>
+  </div>
+  {%- endif %}
   {#- `masthead_modifier`: the home page keeps the source-lateness link below 720px, where it has no
       tier notice to carry it (review 2026-10-10 §2.6 item 2). -#}
   <div class="masthead{% block masthead_modifier %}{% endblock %}">

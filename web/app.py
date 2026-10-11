@@ -247,6 +247,12 @@ from web.submit import router as submit_router  # noqa: E402
 
 app.include_router(submit_router)
 
+# Private beta (docs/65): "Tell us what you were trying to do", relayed to `/v1/reports` as
+# `beta_feedback` (web/feedback.py). Both routes answer 404 unless SITE_ACCESS=basic (web/beta.py).
+from web.feedback import router as feedback_router  # noqa: E402
+
+app.include_router(feedback_router)
+
 # docs/60 §2: Content-Security-Policy violation reports, the policy's `report-uri` and `report-to`.
 from web.csp_reports import router as csp_reports_router  # noqa: E402
 

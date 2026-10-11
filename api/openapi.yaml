@@ -1496,11 +1496,18 @@ paths:
     post:
       operationId: createReport
       tags: [Intake]
-      summary: Report a problem on a record
+      summary: Report a problem on a record, or send beta feedback
       description: |
         Captures record id, issue type (`wrong_merge`, `wrong_status`, `wrong_sponsor`, `other`), free text and an
         optional email; creates an admin task of type `report` and sends no outbound email (US-204 AC1). Minimum
         personal data; the response carries the privacy notice link (US-204 AC2). Limited to 5/hour per IP.
+
+        **Beta feedback** (2026-10-11, docs/65): `issue_type: beta_feedback` is the private beta's "Tell us what you
+        were trying to do" form (the site's `/feedback`). It is about the site, not a record, so it takes no
+        `public_id` (sending one is a `400`). `description` is what the reader was trying to do; `what_happened` and
+        `page_path` (the site path they came from, never a query string) are optional. It becomes a `report` task
+        with no subject and `issue_type: beta_feedback`, in the same admin queue, under the same rate limit, honeypot
+        and Turnstile rule. Nothing about the sender is stored beyond the email they choose to give: no IP address.
       x-tier: public
       x-status: live
       x-sprint: 2
@@ -2281,9 +2288,10 @@ paths:
         sends a verification email through the `EmailPort` (`services/README.md` "Pro tier and
         alerts" decision 2: password auth alongside docs/20 §7's passwordless magic-link/Google,
         which remain unbuilt), and signs the caller in immediately — `email_verified` is `false`
-        in the response until the link is followed. `dev_verification_url` is present only when
-        no `RESEND_API_KEY` is configured (the dry-run `EmailPort`), so the local/CI flow can be
-        completed without a mail provider; it is never present against a real one.
+        in the response until the link is followed. `dev_verification_url` is present only in a
+        development environment (`ENVIRONMENT` unset, `dev`, `test` or `ci`) with no `RESEND_API_KEY`
+        configured (the dry-run `EmailPort`), so the local/CI flow can be completed without a mail
+        provider; it is never present against a real provider or on a deployed environment.
       x-tier: public
       x-status: live
       x-sprint: 3
@@ -2446,7 +2454,7 @@ paths:
                     type: boolean
                   dev_verification_url:
                     type: string
-                    description: Present only when no `RESEND_API_KEY` is configured (dry-run `EmailPort`) — never present against a real provider.
+                    description: Present only in a development environment with no `RESEND_API_KEY` configured (dry-run `EmailPort`) — never against a real provider or on a deployed environment.
         '401':
           $ref: '#/components/responses/Unauthenticated'
         <<: *common_errors
@@ -2491,8 +2499,10 @@ paths:
       description: |
         Always `202`, whether or not the address has an account, so the answer reveals nothing. When it does,
         a signed link valid for one hour and bound to the current password hash (so it works once) is sent
-        through the `EmailPort`. `dev_reset_url` is present only when no `RESEND_API_KEY` is configured
-        (dry-run) and a link was made; never against a real provider. Rate-limited per address prefix.
+        through the `EmailPort`. `dev_reset_url` is present only in a development environment with no
+        `RESEND_API_KEY` configured (dry-run) and a link was made; never against a real provider or on
+        a deployed environment, where it would hand out any account's reset link. Rate-limited per
+        address prefix.
       x-tier: public
       x-status: live
       x-sprint: 3
@@ -2524,7 +2534,7 @@ paths:
                     type: boolean
                   dev_reset_url:
                     type: string
-                    description: Dry-run only (no `RESEND_API_KEY`), and only when a link was made.
+                    description: Development environments only, dry-run only (no `RESEND_API_KEY`), and only when a link was made.
         '400':
           $ref: '#/components/responses/BadRequest'
         <<: *common_errors
@@ -8642,7 +8652,10 @@ components:
       enum: [open, in_progress, done, rejected]
     ReportIssueType:
       type: string
-      enum: [wrong_merge, wrong_status, wrong_sponsor, other]
+      description: >-
+        What a report is about. The first four are a record's problems; `beta_feedback` (2026-10-11) is the private
+        beta's feedback form, which names no record.
+      enum: [wrong_merge, wrong_status, wrong_sponsor, other, beta_feedback]
     RedactionReason:
       type: string
       description: '`licence` (raw/identifying field withheld), `licence_precision` (exact geometry replaced by a centroid), `tier` (kept for compatibility; nothing is withheld by age since 2026-09-21), `personal_data` (redacted), `publish_state` (source or record unpublished).'
@@ -12189,7 +12202,10 @@ components:
           type: string
     ReportRequest:
       type: object
-      required: [public_id, issue_type, description]
+      description: |
+        A problem with one record, named by `public_id`; or, with `issue_type: beta_feedback`, feedback about the site
+        from the private beta's form, which names no record (`public_id` must be absent).
+      required: [issue_type, description]
       properties:
         public_id:
           $ref: '#/components/schemas/AnyPublicIdValue'
@@ -12197,7 +12213,21 @@ components:
           $ref: '#/components/schemas/ReportIssueType'
         description:
           type: string
+          minLength: 1
           maxLength: 2000
+          description: The problem in the reader's words; for `beta_feedback`, what they were trying to do.
+        what_happened:
+          type: string
+          maxLength: 2000
+          description: '`beta_feedback` only, optional: what happened instead. Ignored on a record report.'
+        page_path:
+          type: string
+          maxLength: 512
+          pattern: '^/([^/?#\s\\\x00-\x1f\x7f][^?#\s\\\x00-\x1f\x7f]*)?$'
+          description: >-
+            `beta_feedback` only, optional: the site path the reader came from, such as `/proposals` or
+            `/organizations/acme-power`. A path only: a query string, fragment, backslash or control character is
+            refused, so nothing a reader typed into a search or filter is stored. Ignored on a record report.
         email:
           type: [string, 'null']
           format: email
@@ -12207,6 +12237,39 @@ components:
           description: >-
             Cloudflare Turnstile response token. Required and verified when verification is enabled
             (same rule as `IntakeProposalRequest.captcha_token`); optional otherwise.
+      if:
+        required: [issue_type]
+        properties:
+          issue_type:
+            const: beta_feedback
+      then:
+        not:
+          required: [public_id]
+      else:
+        required: [public_id]
+    BetaFeedbackDetail:
+      type: object
+      description: |
+        A `beta_feedback` report task's `pending_record` (`POST /v1/reports`): the two answers the task's `description`
+        does not hold. Each key is present only when the reader gave it.
+      additionalProperties: false
+      properties:
+        page_path:
+          type: string
+          maxLength: 512
+          description: The site path the reader came from, without a query string or fragment.
+        what_happened:
+          type: string
+          maxLength: 2000
+    ReportContact:
+      type: object
+      description: A report's or beta feedback's optional reply address; the only personal data either stores.
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
     ReportAcceptedResponse:
       type: object
       required: [task_id, privacy_notice_url]
@@ -15075,25 +15138,30 @@ components:
           oneOf:
             - $ref: '#/components/schemas/ReportIssueType'
             - type: 'null'
-          description: Report tasks.
+          description: Report tasks. `beta_feedback` marks feedback from the private beta's form, which has no subject.
         description:
           type: [string, 'null']
-          description: Submitter's free text.
+          description: Submitter's free text; for `beta_feedback`, what the reader was trying to do.
         contact:
           oneOf:
             - $ref: '#/components/schemas/IntakeContact'
+            - $ref: '#/components/schemas/ReportContact'
             - type: 'null'
-          description: Intake tasks — submitted personal data, admin only, redacted on deletion.
+          description: |
+            Intake tasks — submitted personal data, admin only, redacted on deletion. Report and `beta_feedback` tasks
+            hold only the optional reply address (`ReportContact`), and only when the sender gave one.
         pending_record:
           description: |
             The submission as received (`IntakeProposalRequest` / `IntakeOpportunityRequest`) until the operator
             approves it, or an admin-shaped draft when the task was raised from inside the panel; `adminApproveIntake`
-            reads either shape (US-1002).
+            reads either shape (US-1002). A `beta_feedback` report holds its page path and "what happened" answer here
+            (`BetaFeedbackDetail`); nothing approves it.
           oneOf:
             - $ref: '#/components/schemas/IntakeProposalRequest'
             - $ref: '#/components/schemas/IntakeOpportunityRequest'
             - $ref: '#/components/schemas/AdminProposal'
             - $ref: '#/components/schemas/AdminOpportunity'
+            - $ref: '#/components/schemas/BetaFeedbackDetail'
             - type: 'null'
         resolver_suggestions:
           type: array

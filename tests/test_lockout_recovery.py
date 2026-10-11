@@ -132,6 +132,30 @@ def test_password_reset_end_to_end(client, db, email_port) -> None:
     assert reused.status_code == 400 and reused.json()["errors"][0]["field"] == "token"
 
 
+def test_a_deployed_environment_never_returns_the_emailed_links(client, db, email_port, monkeypatch) -> None:
+    """Without `RESEND_API_KEY` the port is a dry run. Outside development the response must still
+    not carry the reset or verification link: anyone could otherwise reset any account's password
+    by asking for it (2026-10-11, before the beta)."""
+    monkeypatch.setenv("ENVIRONMENT", "staging")
+    monkeypatch.setenv("SESSION_SECRET", "s" * 48)
+    account = make_account(db, entitlement="pro")
+    make_user(db, account, email="target@example.com")
+    db.commit()
+
+    reset = client.post("/v1/auth/password-reset/request", json={"email": "target@example.com"})
+    assert reset.status_code == 202 and reset.json() == {"reset_requested": True}
+    assert len(email_port.sent) == 1  # the email is still made; only the response changes
+
+    signup = client.post(
+        "/v1/auth/register", json={"email": "newcomer@example.com", "password": "a long enough passphrase"}
+    )
+    assert signup.status_code == 201, signup.text
+    assert "dev_verification_url" not in signup.json()["data"]
+    resend = client.post("/v1/auth/resend-verification")
+    assert resend.status_code == 202, resend.text
+    assert "dev_verification_url" not in resend.json()
+
+
 def test_a_forged_token_is_refused(client, db) -> None:
     resp = client.post(
         "/v1/auth/password-reset", json={"token": "not-a-token", "password": "a brand new passphrase"}

@@ -487,7 +487,9 @@ Two store-wide passes the scheduler did not run before 2026-10-09 (`docs/64` §7
 | `context_load` | after `context_build` | `resolve` | `resolve` | 60 min; `LOAD_RETRY` | `services.ingest.context_layers.load_context_layers` over `INFRAQUE_DATA_DIR`: plants, EIA-860M retirements, asset layers, owner shares, features, organisation graph |
 
 Each carries a `queueing_lock` of its own name. `python -m infra.scheduler.bootstrap context [--build]` queues the load (or
-the build and then the load) by hand. Every builder writes under `INFRAQUE_DATA_DIR`
+the build and then the load) by hand. `python -m infra.scheduler.bootstrap preflight [--json]` queues nothing: it is the
+read-only GO / NO-GO run in the worker image after seeding and before inviting testers (`docs/64` §3; checks and thresholds
+in `infra/scheduler/preflight.py`), and exits 1 on NO-GO. Every builder writes under `INFRAQUE_DATA_DIR`
 (`pipeline.connectors.store.DATA_DIR`), the same root the connectors and the loader use. The chain assumes one data
 root on one host (`docs/64` §7).
 

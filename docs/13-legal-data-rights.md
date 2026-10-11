@@ -223,6 +223,29 @@ Classification: `restricted` for Data Miner 2 / API portal; `attribution-restric
 pages. Publication rule: `derived-only` for planning-page-sourced rows *after* counsel signs off, otherwise
 `link-out-only`; `paid-api-only` for anything Data Miner-sourced and only under a Redistribution Licence.
 
+**(d) Re-checked 2026-10-11, while drafting the permission request (`docs/37` §1 has every quote and URL).** The
+reading above stands, and four things are added:
+
+- **The queue now sits on two pages.** These are the Serial and the Cycle Service Request Status pages. The serial
+  page says its Transition Cycle 2 data is "no longer current". Neither page carries a terms notice or a clickwrap.
+- **The downloads are not Data Miner 2.** The XML export is a static pjm.com file. The XLS comes from PJM's
+  Planning API, for which no terms were found.
+- **A fourth text.** PJM's Data Miner page and its Learning Center FAQ make redistribution of Data Miner data
+  conditional on "an active PJM Membership. A minimum level of Associate Membership is required" (Associate
+  Membership: $2,500 a year). The Wayback Machine shows the sentence there on 2026-07-03, so it predates this
+  register; it was missed, not added. It conflicts with (b)'s "Redistribution License".
+- **The cut text of clause 9.** The opening that (a) omits also binds the user to the indemnities in the
+  Operating Agreement §16 and the OATT §10.
+
+Two more facts:
+- PJM's "Obtaining Interconnection Information" guide states that "FERC requires that all information related to
+  all interconnection projects be made available to the public".
+- The Legal & Privacy notice names General Counsel, 2750 Monroe Blvd., Audubon, PA 19403 for inquiries.
+
+`data/sources.yaml` still names the source "Queue Point / Data Miner" at `apiportal.pjm.com`. Queue Point is the
+application developers use to submit requests, not the public queue. Correct the manifest entry when PJM answers
+(`docs/37` §3(d)). Status: request drafted, not sent.
+
 ### 1.4 SPP — retrieved, and materially worse than the repo assumed
 
 Source: https://www.spp.org/terms-conditions/ — retrieved 2026-09-12 (HTTP 200 on retry; a fetch-and-summarise
@@ -305,7 +328,7 @@ Classification: `attribution-restricted` (attribution is our policy, not their r
 
 ### 1.6 ISO New England — retrieved, restrictive on its face
 
-Source: https://www.iso-ne.com/participate/support/legal-privacy (ISO-NE "Legal and Privacy"), retrieved
+Source: https://www.iso-ne.com/participate/support/legal-privacy (ISO-NE "Legal and Privacy"; moved to https://www.iso-ne.com/legal-privacy by 2026-10-11, clauses unchanged, `docs/37` §4), retrieved
 2026-09-12 (HTTP 200 via browser-UA fetch; the page 403s to plain non-browser clients, which is why earlier
 probes recorded 403).
 
