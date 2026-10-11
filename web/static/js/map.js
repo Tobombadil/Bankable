@@ -1245,6 +1245,7 @@
       var open = mapKeyToggle.getAttribute("aria-expanded") !== "true";
       mapKeyToggle.setAttribute("aria-expanded", open ? "true" : "false");
       mapKey.hidden = !open;
+      if (open && typeof syncKeyFocusable === "function") syncKeyFocusable();
     });
   }
   // With the existing-asset or retired-plant layer on, the key is compact, so it no longer grows
@@ -1258,9 +1259,28 @@
     if (!mapKey || !mapKeyPanel) return;
     var compact = !plantsLegend.hidden || !retiredLegend.hidden;
     mapKey.classList.toggle("map-key--compact", compact);
-    if (compact) mapKeyPanel.setAttribute("tabindex", "0");
+    syncKeyFocusable();
+  }
+  // A panel that scrolls is a tab stop, so a keyboard can scroll it (axe
+  // `scrollable-region-focusable`): always the compact key, and the plain key whenever its content is
+  // taller than its max-height, as in a short window (axe's CI browser is 800x600). A panel that does
+  // not scroll adds no tab stop. Run at load, on resize, when the key opens and when its rows change.
+  function syncKeyFocusable() {
+    if (!mapKey || !mapKeyPanel) return;
+    var scrolls = mapKeyPanel.scrollHeight > mapKeyPanel.clientHeight + 1;
+    if (mapKey.classList.contains("map-key--compact") || scrolls) mapKeyPanel.setAttribute("tabindex", "0");
     else mapKeyPanel.removeAttribute("tabindex");
   }
+  // A ResizeObserver reports once after the first layout (fonts and styles in place) and again
+  // whenever the panel or a section in it changes size; resize and load are the fallbacks.
+  if (mapKeyPanel && typeof ResizeObserver === "function") {
+    var keyObserver = new ResizeObserver(function () { syncKeyFocusable(); });
+    keyObserver.observe(mapKeyPanel);
+    Array.prototype.forEach.call(mapKeyPanel.children, function (child) { keyObserver.observe(child); });
+  }
+  syncKeyFocusable();
+  window.addEventListener("resize", syncKeyFocusable);
+  window.addEventListener("load", syncKeyFocusable);
 
   // Designer D-2: the status key lists only the families the filters can draw.
   var lifecycleLegendItems = Array.prototype.slice.call(document.querySelectorAll("[data-legend-family]"));
@@ -1268,6 +1288,7 @@
     var present = {};
     Object.keys(counts).forEach(function (state) { if (Number(counts[state]) > 0) present[familyOf(state)] = true; });
     lifecycleLegendItems.forEach(function (item) { item.hidden = !present[item.getAttribute("data-legend-family")]; });
+    syncKeyFocusable();
   }
   function plural(n, noun) { return fmtCount(n) + " " + noun + (n === 1 || /more$/.test(noun) ? "" : "s"); }
   function fmtCount(n) { return Number(n || 0).toLocaleString("en-US"); }

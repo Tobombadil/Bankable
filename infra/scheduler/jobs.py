@@ -151,8 +151,20 @@ def run_store_pass(
             except Exception:
                 logger.exception("%s: advisory unlock failed; closing its connection frees it", name)
     finally:
-        connection.invalidate()
-        connection.close()
+        _discard_connection(connection, name)
+
+
+def _discard_connection(connection: Any, name: str) -> None:
+    """Close the lock's connection without returning it to the pool. SQLAlchemy's autobegun
+    (autocommit) transaction is ended first: closing an invalidated connection that still has one
+    rolls it back, and the Engine-wide rollback listener (`services/api/geo_cache.py`) then reads
+    `conn.info` on the invalid connection and raises `PendingRollbackError` (CI, 2026-10-11)."""
+    try:
+        connection.rollback()
+    except Exception:
+        logger.exception("%s: rollback before discarding the lock connection failed", name)
+    connection.invalidate()
+    connection.close()
 
 
 def _report_to_dict(report: Any) -> dict[str, Any]:

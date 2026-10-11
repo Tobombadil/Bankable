@@ -97,6 +97,24 @@ def test_on_sqlite_the_pass_runs_unguarded() -> None:
     _expect(report == {"ran": True}, report)
 
 
+def test_the_lock_connection_is_discarded_cleanly_with_the_geo_cache_listener() -> None:
+    """The Engine-wide rollback listener (`services/api/geo_cache.py`, registered whenever the API is
+    imported, as in CI's Postgres step) read `conn.info` on the invalidated lock connection while it
+    closed, and raised `PendingRollbackError` (CI, 2026-10-11). Runs everywhere: the mechanism is
+    SQLAlchemy's, not Postgres's."""
+    import services.api.geo_cache  # noqa: F401 -- registers the listener under test
+
+    engine = sa.create_engine("sqlite+pysqlite:///:memory:")
+    invalidated: list[bool] = []
+    sa.event.listen(engine, "invalidate", lambda *_args: invalidated.append(True))
+    connection = engine.connect()
+    connection.execution_options(isolation_level="AUTOCOMMIT")
+    connection.execute(sa.text("SELECT 1")).scalar()
+    jobs._discard_connection(connection, "test")  # raised PendingRollbackError before the fix
+    _expect(connection.closed, "the lock connection must be closed")
+    _expect(invalidated == [True], "the lock connection must be discarded, not returned to the pool")
+
+
 @needs_postgres
 def test_a_second_pass_is_skipped_while_the_first_holds_the_lock(postgres: Any) -> None:
     first = _Blocking()

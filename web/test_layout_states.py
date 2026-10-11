@@ -508,8 +508,16 @@ def test_the_compact_key_is_smaller_than_the_no_layer_key_and_a_named_tab_stop()
     sync = map_js.split("function syncKeyCompact() {", 1)[1].split("\n  }\n", 1)[0]
     assert "var compact = !plantsLegend.hidden || !retiredLegend.hidden;" in sync
     assert 'mapKey.classList.toggle("map-key--compact", compact);' in sync
-    assert 'if (compact) mapKeyPanel.setAttribute("tabindex", "0");' in sync
-    assert 'else mapKeyPanel.removeAttribute("tabindex");' in sync
+    assert "syncKeyFocusable();" in sync
+    # The panel is a tab stop whenever it scrolls: the compact key, or the plain key in a short window
+    # (axe `scrollable-region-focusable` on CI's 800x600 browser, 2026-10-11).
+    focusable = map_js.split("function syncKeyFocusable() {", 1)[1].split("\n  }\n", 1)[0]
+    assert "mapKeyPanel.scrollHeight > mapKeyPanel.clientHeight + 1" in focusable
+    assert 'mapKey.classList.contains("map-key--compact") || scrolls' in focusable
+    assert 'mapKeyPanel.setAttribute("tabindex", "0")' in focusable
+    assert 'mapKeyPanel.removeAttribute("tabindex")' in focusable
+    assert 'window.addEventListener("resize", syncKeyFocusable);' in map_js
+    assert "new ResizeObserver(function () { syncKeyFocusable(); })" in map_js
     for setter in ("function setRetiredLayerVisible(on) {", "function setPlantsLayerVisible(on) {"):
         assert "syncKeyCompact();" in map_js.split(setter, 1)[1].split("\n  }\n", 1)[0], setter
     for legend in ("plantsLegend", "retiredLegend"):
