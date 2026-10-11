@@ -208,11 +208,15 @@ def test_a_linked_kind_and_state_reach_the_map_page(transport: FakeTransport) ->
     assert "state" in names
     assert "utm_source" not in names
     # The server-rendered breakdown counted the same filtered set the map will draw.
-    breakdown = transport.params_for("/v1/proposals")
+    calls = transport.params_for("/v1/proposals")
+    breakdown = [p for p in calls if p.get("listed") != "false"]
     assert len(breakdown) == 4  # active, withdrawn, built, unknown: one `include=count` call each (UX-1)
-    assert all(p.get("kind") == "load" and p.get("state") == "US-VA" for p in breakdown)
-    assert all(p.get("limit") == 1 and p.get("include") == "count" for p in breakdown)
-    assert all("utm_source" not in p for p in breakdown)
+    # Plus one for the line saying how many records no register lists any more are hidden
+    # (owner, 2026-10-11; web/unlisted.py).
+    assert len(calls) == 5
+    assert all(p.get("kind") == "load" and p.get("state") == "US-VA" for p in calls)
+    assert all(p.get("limit") == 1 and p.get("include") == "count" for p in calls)
+    assert all("utm_source" not in p for p in calls)
     # Frontend audit F9: no world-wide clustered geo query is run just to count states.
     assert transport.params_for("/v1/proposals/geo") == []
     assert "Showing 46 active proposals" in _squash(page.notice_text)
@@ -254,7 +258,8 @@ def test_notice_fragment_counts_the_filters_map_js_applied(transport: FakeTransp
         )
     assert fragment.status_code == 200
     assert fragment.headers["content-type"].startswith("text/html")
-    counts = transport.params_for("/v1/proposals")
+    # The hidden-records count (`listed=false`, web/unlisted.py) is the one call beside the buckets.
+    counts = [p for p in transport.params_for("/v1/proposals") if p.get("listed") != "false"]
     assert len(counts) == 4  # active, withdrawn, built, unknown (UX-1 splits "other")
     assert transport.params_for("/v1/proposals/geo") == []
     for params in counts:

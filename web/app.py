@@ -66,6 +66,7 @@ from web.page import (
 )
 from web.proposal_location import proposal_location
 from web.regions import Region, regions_with_data
+from web.unlisted import listed_param, unlisted_notice, unlisted_query_items, unlisted_toggle
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
     ALL_PROPOSAL_LIFECYCLE_STATES,
@@ -331,7 +332,9 @@ OTHER_PROPOSAL_STATES: tuple[str, ...] = tuple(
 MAP_DEFAULT_PLACEMENT = "exact,region"
 
 
-def lifecycle_counts(api: ApiClient, qp: QueryParams, *, surface: str = "list") -> dict[str, int]:
+def lifecycle_counts(
+    api: ApiClient, qp: QueryParams, *, surface: str = "list", active_total: int | None = None
+) -> dict[str, int]:
     """Active / withdrawn / built / unknown counts behind the lifecycle notice, for every filter in play
     except the lifecycle one (product defect A: "so the choice is visible").
 
@@ -339,11 +342,20 @@ def lifecycle_counts(api: ApiClient, qp: QueryParams, *, surface: str = "list") 
     was one world-wide clustered `GET /v1/proposals/geo` at zoom 1 whose features were thrown away
     for its `lifecycle_state_counts` (frontend audit F9): 1.0-1.4 s of every home, `/proposals`
     and map-filter request against 0.04-0.09 s per count on the same store. A failed count reads
-    as zero, as the geo version did, so the page still renders."""
+    as zero, as the geo version did, so the page still renders.
+
+    `active_total`: the list's own total when its view is the default (active states, the same
+    filters and the same `listed`), which is the active bucket's answer, so it is not asked twice.
+    The call that saves pays for the hidden-records count (`web/unlisted.py`), so the default list
+    makes as many calls as it did before records no register lists were hidden."""
     params: dict[str, str] = {n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n)}
     if surface == "map":
         params.pop("placement", None)  # the map's count line counts every placement grade
     counts: dict[str, int] = {}
+    # A view that hides the records no register lists any more (`web/unlisted.py`) counts its active
+    # bucket the same way, so "Showing N active proposals" is the number of rows under it. The other
+    # buckets count states outside the view, and a view showing any of them hides nothing.
+    hidden = listed_param(qp)
     # `built` and `unknown` are counted apart (UX-1) so the notice can offer the built ones, which
     # the status control shows; `other` stays their sum for the sentences that say "outside this view".
     for bucket, states in (
@@ -352,10 +364,19 @@ def lifecycle_counts(api: ApiClient, qp: QueryParams, *, surface: str = "list") 
         ("built", ("built",)),
         ("unknown", tuple(s for s in OTHER_PROPOSAL_STATES if s != "built")),
     ):
+        if bucket == "active" and active_total is not None:
+            counts[bucket] = active_total
+            continue
         try:
             envelope = api.get(
                 "/v1/proposals",
-                params={**params, "lifecycle_state": ",".join(states), "limit": 1, "include": "count"},
+                params={
+                    **params,
+                    **(hidden if bucket == "active" else {}),
+                    "lifecycle_state": ",".join(states),
+                    "limit": 1,
+                    "include": "count",
+                },
             )
             counts[bucket] = int((envelope.get("meta") or {}).get("total") or 0)
         except ApiError:
@@ -387,6 +408,7 @@ def map_empty_facets(api: ApiClient, qp: QueryParams, breakdown: Mapping[str, in
     lifecycle_csv, _explicit, _include = resolve_proposal_lifecycle_param(qp)
     params: dict[str, str | None] = {n: qp[n] for n in BREAKDOWN_FILTERS if qp.get(n) and n != "placement"}
     params["lifecycle_state"] = lifecycle_csv
+    params.update(listed_param(qp))
     return empty_result_facets(
         api,
         entity="proposal",
@@ -408,7 +430,7 @@ def list_view_href(qp: QueryParams) -> str:
         and (k in PROPOSAL_PASSTHROUGH_FILTERS or k in ("center", "zoom"))
         and not (k == "placement" and v == MAP_DEFAULT_PLACEMENT)
     ]
-    kept += lifecycle_query_items(qp)
+    kept += lifecycle_query_items(qp) + unlisted_query_items(qp)
     return "/proposals" + ("?" + urlencode(kept) if kept else "")
 
 
@@ -417,7 +439,7 @@ def map_view_href(qp: QueryParams) -> str:
     lifecycle choice, and the viewport when the list was reached from the map (designer D-8). The
     map honours every one of these (W3/H3: map.js forwards each passthrough filter)."""
     kept = [(k, v) for k, v in qp.multi_items() if v and k in PROPOSAL_PASSTHROUGH_FILTERS]
-    kept += lifecycle_query_items(qp)
+    kept += lifecycle_query_items(qp) + unlisted_query_items(qp)
     if _VIEW_CENTER.fullmatch(qp.get("center") or "") and _VIEW_ZOOM.fullmatch(qp.get("zoom") or ""):
         kept += [("center", qp["center"]), ("zoom", qp["zoom"])]
     return "/" + ("?" + urlencode(kept) if kept else "")
@@ -429,8 +451,12 @@ def is_load_view(qp: QueryParams) -> bool:
 
 
 def _proposal_params(qp: QueryParams, *, lifecycle_csv: str) -> dict[str, str | None]:
+    """The API query for the list's rows and the map's geo and cluster reads: the passthrough
+    filters, the lifecycle choice and, on a view of active states only, `listed=true`
+    (`web/unlisted.py`). The web-only `unlisted` toggle is never among them."""
     params: dict[str, str | None] = {name: qp[name] for name in PROPOSAL_PASSTHROUGH_FILTERS if qp.get(name)}
     params["lifecycle_state"] = lifecycle_csv
+    params.update(listed_param(qp))
     return params
 
 
@@ -483,6 +509,10 @@ def home_map(request: Request) -> HTMLResponse:
             "include_withdrawn": include_withdrawn,
             "lifecycle_explicit": explicit,
             "status_choices": proposal_status_choices(qp),
+            # Owner, 2026-10-11: records no register lists any more are hidden from a view of active
+            # states; the box and the line that says how many (`web/unlisted.py`).
+            "unlisted_toggle": unlisted_toggle(qp),
+            "unlisted_notice": unlisted_notice(api, qp, BREAKDOWN_FILTERS, path="/", surface="map"),
             "built_href": with_built_href("/", qp),
             "feed_href": feed_href("proposal", qp),
             "feed_alternate": {"title": "Proposals (RSS)", "href": feed_href("proposal", qp)},
@@ -528,6 +558,7 @@ def proposals_notice_fragment(request: Request) -> HTMLResponse:
             "include_withdrawn": include_withdrawn,
             "lifecycle_explicit": explicit,
             "built_href": with_built_href("/", qp),
+            "unlisted_notice": unlisted_notice(api, qp, BREAKDOWN_FILTERS, path="/", surface="map"),
             "iso_gap_notes": uncovered_iso_notes(qp.get("iso"), coverage_data(request, api)),
             "empty_facets": map_empty_facets(api, qp, breakdown),
         },
@@ -662,7 +693,9 @@ async def ui_events_proxy(request: Request) -> JSONResponse:
 def _alert_cannot_watch(qp: QueryParams) -> bool:
     """Whether the view uses a list filter a saved search cannot carry yet: `listed`, or a
     `sponsor_scope` wider than the default `self` (`services/api/records.py::PROPOSAL_VIEW_FILTERS`;
-    the alert matcher does not evaluate them)."""
+    the alert matcher does not evaluate them). Only a `listed` the link itself names counts: the
+    default view's hiding of records no register lists (`web/unlisted.py`) is not in the query
+    string, so the default view keeps its alert, which watches every record (owner, 2026-10-11)."""
     return bool(qp.get("listed")) or (qp.get("sponsor_scope") or "self").strip().lower() != "self"
 
 
@@ -685,8 +718,13 @@ def proposals_list(request: Request) -> HTMLResponse:
     envelope = NO_ROWS if capacity_error else api.get("/v1/proposals", params=params)
     vocab = api.get("/v1/meta/vocabularies")["data"]
     # No lifecycle counts for an impossible range either: "Showing 0 active proposals" would read
-    # as a fact about the register rather than about the query.
-    breakdown = None if capacity_error else lifecycle_counts(api, qp)
+    # as a fact about the register rather than about the query. The default view's own total is
+    # the notice's active count (`lifecycle_counts`' `active_total`).
+    total = envelope["meta"].get("total")
+    default_view = not explicit and not include_withdrawn and isinstance(total, int)
+    breakdown = (
+        None if capacity_error else lifecycle_counts(api, qp, active_total=total if default_view else None)
+    )
 
     records = [flatten_proposal(e) for e in envelope["data"]]
     empty_facets = (
@@ -735,6 +773,12 @@ def proposals_list(request: Request) -> HTMLResponse:
         "include_withdrawn": include_withdrawn,
         "lifecycle_explicit": explicit,
         "status_choices": proposal_status_choices(qp),
+        # Owner, 2026-10-11: the box that shows records no register lists any more, and the line
+        # saying how many this view hides (`web/unlisted.py`); no count for an impossible range.
+        "unlisted_toggle": unlisted_toggle(qp),
+        "unlisted_notice": None
+        if capacity_error
+        else unlisted_notice(api, qp, BREAKDOWN_FILTERS, path="/proposals"),
         "built_href": with_built_href("/proposals", qp),
         "feed_href": feed_href("proposal", qp),
         "feed_alternate": {"title": "These proposals (RSS)", "href": feed_href("proposal", qp)},

@@ -43,7 +43,7 @@
     <input id="mf-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX">
   </div>
   {#- UX-1: which lifecycle states to draw (default: active), the same control as the list's. -#}
-  {{ m.status_filter("mf", status_choices) }}
+  {{ m.status_filter("mf", status_choices, unlisted_toggle) }}
   <div class="filter-field filter-field--checkbox">
     <label for="mf-layer-plants">
       <input id="mf-layer-plants" type="checkbox" name="layer_plants" value="1">

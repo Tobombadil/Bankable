@@ -30,14 +30,17 @@ unnoticed. A store that lacks any of active, withdrawn or cancelled rows fails
 
 from __future__ import annotations
 
+import datetime as dt
 import html
 import os
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from conftest import snapshot
@@ -47,6 +50,7 @@ from pipeline.connectors.store import Store
 from services.api.app import app as api_app
 from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
+from services.db.models import Proposal
 from services.db.session import get_engine, get_sessionmaker, init_db
 from web.api_client import ApiClient
 from web.app import app as web_app
@@ -293,3 +297,156 @@ def test_proposal_detail_provenance_matches_the_api_envelope(
         # Rendered inside an href, so `&` in a query string appears as `&amp;` (correct HTML escaping).
         assert f'href="{html.escape(row["source_url"])}"' in panel
         assert f"retrieved {display_date(row['retrieved_at'])}" in panel  # docs/31 §4 (UX-8)
+
+
+# -------------------------------------------------------------- records no register lists any more
+# Owner, 2026-10-11 (`web/unlisted.py`): a view of active states hides the records every register
+# has dropped, `unlisted=include` shows them, and a view naming any other state hides nothing. Run on
+# the committed store with some records' links marked gone, as a register's departure leaves them
+# (`proposal_source.gone_at`, lifecycle unchanged), so every count below is the store's own answer.
+# `web/test_unlisted_view.py` pins the same rules against a fake API, with what is sent to it.
+
+GONE_AT = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
+WORLD_MAP = {**WORLD, "placement": "exact,region"}
+
+
+@pytest.fixture(scope="module")
+def unlisted_db(tmp_path_factory: pytest.TempPathFactory) -> sessionmaker[Session]:
+    """The committed store with every third active proposal, one built and one withdrawn proposal
+    dropped by every register that lists them."""
+    engine = get_engine("sqlite+pysqlite:///:memory:")
+    init_db(engine)
+    session_factory = get_sessionmaker(engine)
+    with session_factory() as session:
+        _load_committed(session, tmp_path_factory.mktemp("unlisted-store"))
+        by_id = select(Proposal).order_by(Proposal.id)
+        dropped = list(session.scalars(by_id.where(Proposal.lifecycle_state.in_(ACTIVE_PROPOSAL_STATES))))[
+            ::3
+        ]
+        for state in ("built", "withdrawn"):
+            one = session.scalars(by_id.where(Proposal.lifecycle_state == state)).first()
+            assert one is not None, f"the committed store holds no {state} proposal"
+            dropped.append(one)
+        for proposal in dropped:
+            for link in proposal.sources:
+                link.gone_at = GONE_AT
+        session.commit()
+    return session_factory
+
+
+@pytest.fixture()
+def unlisted_api(unlisted_db: sessionmaker[Session]) -> Iterator[ApiClient]:
+    def _override_get_db() -> Iterator[Session]:
+        session = unlisted_db()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    api_app.dependency_overrides[get_db] = _override_get_db
+    try:
+        yield ApiClient(TestClient(api_app, base_url="http://api-internal"))
+    finally:
+        api_app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def unlisted_client(unlisted_api: ApiClient) -> Iterator[TestClient]:
+    web_app.state.api_client = unlisted_api
+    web_app.state.lag_days_default = None
+    try:
+        with TestClient(web_app) as client:
+            yield client
+    finally:
+        del web_app.state.api_client
+
+
+def _total(api: ApiClient, states: str, listed: str | None = None) -> int:
+    params = {
+        "lifecycle_state": states,
+        "limit": 1,
+        "include": "count",
+        **({"listed": listed} if listed else {}),
+    }
+    return int(api.get("/v1/proposals", params=params)["meta"]["total"])
+
+
+def _dropped(api: ApiClient, states: str) -> dict[str, Any]:
+    rows = api.get("/v1/proposals", params={"lifecycle_state": states, "listed": "false", "limit": 1})["data"]
+    assert rows, f"the fixture dropped no {states} proposal"
+    assert rows[0]["listed"] is False
+    return dict(rows[0])
+
+
+def _page_total(body: str) -> int:
+    match = re.search(r'class="result-count"[^>]*>\s*([\d,]+) proposals? match', body)
+    assert match, body[:2000]
+    return int(match.group(1).replace(",", ""))
+
+
+def _flat(body: str) -> str:
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", body)).split())
+
+
+def _map_records(client: TestClient, **params: str) -> int:
+    response = client.get("/api/proposals/geo", params={**WORLD_MAP, **params})
+    assert response.status_code == 200
+    totals = response.json()["data"]["totals"]
+    assert sum(totals["lifecycle_state_counts"].values()) == totals["records"]
+    return int(totals["records"])
+
+
+def test_default_list_and_map_hide_unlisted_records_and_count_the_rows_they_show(
+    unlisted_client: TestClient, unlisted_api: ApiClient
+) -> None:
+    every = _total(unlisted_api, ACTIVE_STATES_CSV)
+    listed = _total(unlisted_api, ACTIVE_STATES_CSV, "true")
+    hidden = every - listed
+    assert hidden > 0 and listed > 0
+    body = unlisted_client.get("/proposals").text
+    assert _page_total(body) == listed
+    assert f"Showing {listed:,} active proposals" in _flat(body)
+    assert f"{hidden:,} proposals no register lists any more are hidden. Show them" in _flat(body)
+    home = unlisted_client.get("/").text
+    assert f"Showing {listed:,} active proposals" in _flat(home)
+    assert f"{hidden:,} proposals no register lists any more are hidden" in _flat(home)
+    assert _map_records(unlisted_client) == listed  # the map's count line and its notice agree
+    notice = unlisted_client.get("/api/proposals/notice", params={"placement": "exact,region"}).text
+    assert f"Showing {listed:,} active proposals" in _flat(notice)
+
+
+def test_a_dropped_record_is_hidden_then_shown_by_the_toggle(
+    unlisted_client: TestClient, unlisted_api: ApiClient
+) -> None:
+    entity = _dropped(unlisted_api, ACTIVE_STATES_CSV)
+    href = f'href="/proposals/{entity["slug"]}"'
+    default = unlisted_client.get("/proposals", params={"slug": entity["slug"]}).text
+    shown = unlisted_client.get("/proposals", params={"slug": entity["slug"], "unlisted": "include"}).text
+    assert href not in default and _page_total(default) == 0
+    assert "1 proposal no register lists any more is hidden. Show it" in _flat(default)
+    assert href in shown and _page_total(shown) == 1
+    every = _total(unlisted_api, ACTIVE_STATES_CSV)
+    assert _page_total(unlisted_client.get("/proposals", params={"unlisted": "include"}).text) == every
+    assert _map_records(unlisted_client, unlisted="include") == every
+    home = unlisted_client.get("/", params={"unlisted": "include"}).text
+    assert f"Showing {every:,} active proposals" in _flat(home)
+    assert "no register lists any more are hidden" not in _flat(home)
+
+
+@pytest.mark.parametrize("state", ["built", "withdrawn"])
+def test_a_view_of_built_or_withdrawn_hides_nothing(
+    unlisted_client: TestClient, unlisted_api: ApiClient, state: str
+) -> None:
+    entity = _dropped(unlisted_api, state)
+    every = _total(unlisted_api, state)
+    body = unlisted_client.get("/proposals", params={"lifecycle_state": state}).text
+    assert _page_total(body) == every
+    assert "no register lists any more are hidden" not in _flat(body)
+    one = unlisted_client.get("/proposals", params={"lifecycle_state": state, "slug": entity["slug"]}).text
+    assert f'href="/proposals/{entity["slug"]}"' in one
+    assert _map_records(unlisted_client, lifecycle_state=state) == every
+    # Active and built together: every active record too, the dropped ones included.
+    both = f"{ACTIVE_STATES_CSV},{state}"
+    expected = _total(unlisted_api, both)
+    assert _page_total(unlisted_client.get("/proposals", params={"lifecycle_state": both}).text) == expected
+    assert _map_records(unlisted_client, lifecycle_state=both) == expected
