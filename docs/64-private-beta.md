@@ -175,6 +175,17 @@ Every step runs in the worker image. A server seeded with no local data can run 
 alone, then `bootstrap context --build` once the EIA-860M, EIA-860 and GHGRP fetches have stored
 their snapshots: the build reads them for the plant, owner and GHGRP layers.
 
+**After seeding, measure on the beta store** (owner decision 2026-10-11; these figures could not be
+measured in the sandbox):
+1. Records no register lists any more, active states only:
+   `GET /v1/proposals?listed=false&include=count&limit=1&lifecycle_state=<the active states>`.
+2. What the map's hidden-records count costs. Take the median server time of 15 requests each to `/`
+   (hides and counts) and to `/?unlisted=include` (neither). If the difference is above **150 ms**,
+   replace the number with a line without one (lane U's alternative, docs/30 §5.1) and record it.
+3. Generate the 100-item hand-check worksheet from this store
+   (`data/eval/handcheck/2026-10-10-e2e-reference/README.md` gives the command) before the owner's
+   check on 14–15 October.
+
 **Testers.** Give them the one login out of band. Rotate it by changing `SITE_ACCESS_HASH` and
 redeploying the same tag.
 
