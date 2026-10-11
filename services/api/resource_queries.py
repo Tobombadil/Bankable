@@ -52,6 +52,7 @@ from services.api.records import (
     OPPORTUNITY_SORT_ALLOWLIST,
     PROPOSAL_FILTERS,
     PROPOSAL_SORT_ALLOWLIST,
+    PROPOSAL_VIEW_FILTERS,
     SYNC_FILTERS,
     _opportunity_query_with_filters,
     _proposal_query_with_filters,
@@ -117,7 +118,7 @@ _CHANGED_KEY_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,100}$")
 #: `sort` (both of which shape "the list I am looking at"); never `limit`/`cursor`/`include`,
 #: which describe a page, not a result set.
 EXPORT_QUERY_KEYS: dict[Resource, set[str]] = {
-    "proposal": PROPOSAL_FILTERS | SYNC_FILTERS | {"q", "sort"},
+    "proposal": PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS | {"q", "sort"},
     "opportunity": OPPORTUNITY_FILTERS | SYNC_FILTERS | {"q", "sort"},
     "event": EVENT_FILTERS | {"sort"},
 }

@@ -457,6 +457,93 @@ def test_the_map_key_styles_and_toggle_are_in_place() -> None:
     assert "mapKey.hidden = !open;" in map_js
 
 
+# ---- Lane F (2026-10-10): the compact key with a layer on; the map's Filters at 720-1079px ----
+
+
+def _media_block(css: str, query: str) -> str:
+    """The body of the first `@media <query> {` block, up to its closing brace at column 0."""
+    start = css.index(f"@media {query} {{\n")
+    return css[start : css.index("\n}\n", start)]
+
+
+def test_with_a_layer_on_each_layer_key_is_a_section_that_closes(transport: FakeTransport) -> None:
+    """With the existing-asset or retired layer on, the key grew to the map's foot at 1440x900
+    (272x554px, 23% of the canvas, Seattle to San Diego under it) and scrolled with nothing in it a
+    keyboard could reach (axe `scrollable-region-focusable`, serious, at every size and theme).
+    Each layer's key is now a native disclosure, open on arrival; the status key has none, so the
+    no-layer key is unchanged."""
+    with TestClient(web_app) as client:
+        html = client.get("/?layers=plants,retired").text
+    plants = html.split('id="plants-legend"', 1)[1].split('id="retired-legend"', 1)[0]
+    retired = html.split('id="retired-legend"', 1)[1].split('<div id="map"', 1)[0]
+    for legend, name in ((plants, "Existing assets"), (retired, "Retired &amp; retiring plants")):
+        assert '<details class="map-key__section" open>' in legend, name
+        assert f'<summary class="map-key__section-name">{name}</summary>' in legend
+    # The section names its key once: the retired group no longer repeats it as a group name.
+    assert '<span class="legend__group-name">Retired' not in retired
+    lifecycle = html.split('id="lifecycle-legend"', 1)[1].split('id="plants-legend"', 1)[0]
+    assert "map-key__section" not in lifecycle and "<summary" not in lifecycle
+    # The panel is a group named "Map key" in every state; map.js only adds the tab stop.
+    assert '<div class="map-key__panel" role="group" aria-label="Map key">' in html
+
+
+def test_the_compact_key_is_smaller_than_the_no_layer_key_and_a_named_tab_stop() -> None:
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    map_js = (WEB / "static" / "js" / "map.js").read_text(encoding="utf-8")
+    # The no-layer panel is as lane H built it: 17rem wide, as tall as its words.
+    wide = css.split("@media (min-width: 720px) {\n  .map-key__panel {", 1)[1].split("}", 1)[0]
+    assert "width: 17rem;" in wide and "max-height: calc(70vh - 2.25rem - var(--space-8));" in wide
+    # Compact: 15rem at most from 720px (the no-layer panel is 276px at 1440x900), later in the
+    # sheet and more specific, so it wins; the status key is the narrow strip of short words.
+    compact = ".map-key--compact .map-key__panel { max-height: 15rem; }"
+    no_layer = "@media (min-width: 720px) {\n  .map-key__panel {"
+    assert compact in css and css.index(compact) > css.index(no_layer)
+    assert ".map-key--compact .legend__short { display: inline; }" in css
+    assert ".map-key--compact .legend--lifecycle > .legend__note {" in css
+    assert ".map-key--compact .map-key__panel { clip-path: inset(" in css
+    summary = css.split(".map-key__section > summary {", 1)[1].split("}", 1)[0]
+    assert "min-height: 1.5rem;" in summary and "display:" not in summary  # keeps its triangle
+    # map.js: compact, and a named tab stop, only while a layer key shows; both layer setters and
+    # both before-load branches keep `aria-hidden` and the compact state in step.
+    sync = map_js.split("function syncKeyCompact() {", 1)[1].split("\n  }\n", 1)[0]
+    assert "var compact = !plantsLegend.hidden || !retiredLegend.hidden;" in sync
+    assert 'mapKey.classList.toggle("map-key--compact", compact);' in sync
+    assert 'if (compact) mapKeyPanel.setAttribute("tabindex", "0");' in sync
+    assert 'else mapKeyPanel.removeAttribute("tabindex");' in sync
+    for setter in ("function setRetiredLayerVisible(on) {", "function setPlantsLayerVisible(on) {"):
+        assert "syncKeyCompact();" in map_js.split(setter, 1)[1].split("\n  }\n", 1)[0], setter
+    for legend in ("plantsLegend", "retiredLegend"):
+        before_load = (
+            f"else {{ {legend}.hidden = !on; "
+            f'{legend}.setAttribute("aria-hidden", on ? "false" : "true"); syncKeyCompact(); }}'
+        )
+        assert before_load in map_js, legend
+
+
+def test_the_map_filter_bar_is_a_disclosure_from_720_to_1079_px(transport: FakeTransport) -> None:
+    """Designer D-3 at tablet widths: two rows of filters put the map's top at 634px of 768 at
+    1024x768 (761px at 720x900). From 720 to 1079px the map's bar is the "Filters (N active)"
+    disclosure it already is below 720px; the list pages keep their bar open at these widths."""
+    with TestClient(web_app) as client:
+        home = client.get("/").text
+    opening = r'<button type="button" class="filter-toggle"[^>]*aria-controls="map-filters"[^>]*>'
+    toggle = re.search(opening, home)
+    assert toggle is not None and 'aria-expanded="false"' in toggle.group(0)
+    assert home.index('aria-controls="map-filters"') < home.index('<form id="map-filters"')
+    form = home.split('<form id="map-filters"', 1)[1].split("</form>", 1)[0]
+    assert form.startswith(' class="filter-bar filter-bar--map" data-collapse') and "data-filter-done" in form
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    tablet = _media_block(css, "(min-width: 720px) and (max-width: 1079px)")
+    assert '.js .filter-toggle[aria-controls="map-filters"] { display: inline-flex;' in tablet
+    assert ".js .filter-bar--map[data-collapse]:not(.is-open) { display: none; }" in tablet
+    assert ".js .filter-bar--map[data-collapse].is-open .filter-bar__done {" in tablet
+    # Only the map's bar: neither the generic toggle nor a list bar collapses at these widths, and
+    # every collapsed rule keys on `.js`, so without scripts the bar stays open.
+    assert ".js .filter-toggle {" not in tablet and ".js .filter-bar[data-collapse]" not in tablet
+    rules = [line.strip() for line in tablet.splitlines()[1:] if line.strip()]
+    assert rules and all(rule.startswith(".js ") for rule in rules)
+
+
 # ---- D-8: the proposal page says where the record is and links to the map ----
 
 

@@ -262,6 +262,7 @@ def test_the_documented_keys_render_a_complete_config(tmp_path: pathlib.Path, en
     expect(
         services["caddy"]["environment"]["SITE_ACCESS"] == "open", "the access gate is off unless asked for"
     )
+    expect(services["caddy"]["environment"]["CSP_MODE"] == "report", "the policy only reports unless asked")
 
 
 @pytest.mark.parametrize("missing", ["DOMAIN", "PLATFORM_POSTURE", "MAP_TILE_URL", "ENVIRONMENT"])

@@ -233,6 +233,20 @@ pipeline name and its operator both resolve) and `/sitemap.xml`.
   technology, ISO) on that endpoint, so a large sponsor costs up to five reads; `iso` holds EIA balancing-authority
   codes for EIA-860M rows (`ERCO`, `NYIS`, `CISO`, `SWPP`) beside ISO names (`ERCOT`, `NYISO`), so one grid can appear
   as two rows.
+  **As built, 2026-10-10 (lane P), closing those gaps.** The block is one read, `GET /v1/organizations/{id}/pipeline`
+  at the page's scope, and is never partial. Its links carry the API's `list_query`: one `sponsor_id`, plus
+  `sponsor_scope=children|all` when the scope spans subsidiaries (no longer every subsidiary's id). The active status
+  groups count only records some register still lists (`listed=true`); a record every register has dropped keeps
+  its last status but sits in its own **No longer listed** row (`listed=false`), and the opening line says how many
+  there are and that they are not counted as active. Built, withdrawn and unknown count every record in those states.
+  The technology and ISO tables cover the listed active pipeline. A grid is one row under its ISO's name: `iso=ERCOT`
+  also opens the `ERCO` rows. `tests/test_api_org_pipeline.py` holds every link against the real API at each scope.
+  The 6, 15 and 17 links of the fixture company's self, children and all scopes each open exactly their count.
+  `/proposals` filtered to one company, its group or one connection point is headed "Proposals sponsored by <name>
+  (and its subsidiaries)" or "Proposals connecting at <point>", with a link back. The filter form keeps that subject.
+  A view an alert cannot watch yet (`sponsor_scope`, `listed`) offers no "save as alert". A record page whose record
+  no register lists says "No longer listed in any register since <date>" under its status (`web/list_subject.py`,
+  `proposals_list.html`, `proposal_detail.html`).
 - **Map** (`/`): the "Existing assets" toggle now carries an **Asset types** checkbox set (power plants, gas
   pipelines, gas processing, gas storage, LNG terminals, ethanol plants, RNG projects), written to the URL as
   `asset_type=` csv. Ethanol capacity-table plants (state grade) and AgSTAR digesters (county grade) are never
@@ -541,6 +555,35 @@ the e2e store, dev-preview banner on as in the e2e server: map top 432 → 409 p
 in both themes at both sizes. Open: with layers on, the panel covers the West Coast at the default view until "Key"
 is pressed; at 720–1079px the expanded filter bar still puts the map at about 760 px.
 
+**As built, 2026-10-10 (lane F), closing both.** With the existing-asset or retired layer on, the key is compact
+(`docs/31` §5.17). The status key becomes the strip of short words, each layer's key is a section that closes, and the
+panel stops at 15rem and scrolls inside, as a tab stop named "Map key". From 720 to 1079px the map's filter bar is
+the "Filters (N active)" disclosure it already is below 720px; list pages keep theirs open. Measured as lane H did
+(headless Chromium 141, a copy of the e2e store, dev-preview label on, app in process):
+
+| | Before | After |
+|---|---|---|
+| Key panel, 1440×900, both layers on | 272×554 px, 150,688 px², 23.2 % of the canvas; Seattle, Portland, Sacramento, San Francisco, Los Angeles, San Diego under it | 272×240 px, 65,280 px², 10.0 %; Seattle, Portland (196 px tall with both sections closed) |
+| Key panel, 1440×900, no layer | 272×276 px, 75,140 px², 11.6 %; Seattle, Portland | unchanged |
+| Map top, 1024×768 | 634 px | 554 px |
+| Map top, 768×1024 / 720×900 / 1079×800 | 741 / 761 / 577 px | 661 / 680 / 497 px |
+| Map top, 1440×900 / 400×800 | 409 / 616 px | unchanged (budgets 450 / 640) |
+
+At 1024×768 the budget is 600 px. At these widths the page is one column, as at 400px, so the 400×800 budget's
+rule applies: keep 160 px of canvas (the zoom row and the key's first rows) in the first viewport, and 768 − 160 =
+608, rounded down to 600. The measured 554 leaves 46 px, about the headroom lane H's budgets had. `web/test_e2e.py`
+asserts it. axe-core 4.13.0 (WCAG 2.0–2.2 A and AA tags) in light and dark at 1440×900, 1024×768 and 400×800, in six
+states each (no layer; both layers; retired only; both sections closed; Filters open, with and without layers):
+0 violations in 36 runs. Before, the panel had a serious `scrollable-region-focusable` violation (it scrolled with
+nothing a keyboard could reach) at all three sizes in both themes when layers were on.
+
+Still open:
+
+- At 1024×768 the header takes 233 px in three rows (wordmark, links, search). Collapsing it behind "Menu" up to
+  1079px, as below 720px, would put the map at 432 px (measured with the rule injected; 490 px at 768×1024). That
+  is a site-wide change and was not made.
+- With "Existing assets" on, the asset-type row moves the map to 528 px at 1440×900 (budget 450).
+
 States: empty — zero markers, filter bar names the facet + Clear all (D-29). Loading — skeleton tiles + list rows,
 no spinner. Error — RFC 9457 `title`/`request_id` in place of the map; list loads independently. Delayed-tier —
 D-3 banner, never dismissible on public. Restricted-precision — centroid marker labelled "county level (source
@@ -691,3 +734,8 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 - 2026-10-10 — as built (frontend-developer, pre-beta lane H, review `docs/51` §2.6): §1 Pricing out of the nav under
   the noncommercial posture; §3.1 company-page pipeline; §5.1 map page opening line, lateness once in the masthead,
   the key on the map; §5.2 readable record names, `mw` on the proposal page, title dash; §6 tier notice row.
+- 2026-10-10 — as built (frontend-developer, lane F): §5.1 the compact key with a layer on and the map's filter
+  bar as a disclosure at 720–1079px, with before/after measurements and the 1024×768 budget.
+- 2026-10-10 — as built (backend, lane P): §3.1 the company pipeline from one aggregate, group links by
+  `sponsor_scope`, "No longer listed" apart from the active pipeline, one name per grid; labelled company and
+  connection-point lists; the record page's "no longer listed" line.

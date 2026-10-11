@@ -328,6 +328,8 @@ paths:
         - $ref: '#/components/parameters/Slipped'
         - $ref: '#/components/parameters/SlipBucket'
         - $ref: '#/components/parameters/SponsorId'
+        - $ref: '#/components/parameters/SponsorScope'
+        - $ref: '#/components/parameters/Listed'
         - $ref: '#/components/parameters/InterconnectionPointId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
@@ -411,6 +413,8 @@ paths:
         - $ref: '#/components/parameters/Slipped'
         - $ref: '#/components/parameters/SlipBucket'
         - $ref: '#/components/parameters/SponsorId'
+        - $ref: '#/components/parameters/SponsorScope'
+        - $ref: '#/components/parameters/Listed'
         - $ref: '#/components/parameters/InterconnectionPointId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
@@ -952,6 +956,64 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrganizationProposalsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/organizations/{public_id}/pipeline:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationPublicId'
+    get:
+      operationId: getOrganizationPipeline
+      tags: [Organizations, Proposals]
+      summary: The organization's pipeline in one read
+      description: >-
+        Counts and summed MW of the proposals the organisation sponsors (at `scope`), by lifecycle state, by technology and
+        by grid operator, the records no register lists any more, and the registers behind them with how many records
+        each backs and its latest retrieval (2026-10-10). One aggregate in place of paging
+        `/v1/organizations/{public_id}/proposals`.
+
+
+        **Each count is the total of a list query.** The records are selected by `GET /v1/proposals`' own filters and
+        visibility predicate from `data.list_query` (`sponsor_id`, plus `sponsor_scope` when the scope spans
+        subsidiaries), so `GET /v1/proposals?<list_query>&<filter>&include=count` returns each count as `meta.total`:
+        a `by_lifecycle_state` entry's `listed`/`not_listed` with `lifecycle_state=<state>&listed=true|false`; `active`
+        with `lifecycle_state=<active_states>&listed=true` and `not_listed` with `listed=false`; a `by_technology` or
+        `by_iso` entry with the `active` filters plus `technology=` or `iso=` (`by_iso` groups by grid operator, a
+        balancing-authority code of an ISO counted under the ISO's token, as `iso=` matches it); a `sources` entry with
+        `source_id=` over every lifecycle state. A `null` technology or operator is its own bucket, which no filter
+        selects. A record the caller's tier may not see is never counted; a visible record whose stored value for a
+        counted field came from a source the tier may not read is counted as served, as the map's totals are.
+
+
+        **Active pipeline** is `announced` through `under_construction` (`active_states`) **and** listed: a record every
+        register has dropped keeps its last status but is counted in `not_listed`, never as active.
+
+
+        **Capacity** sums `capacity_mw` only over kinds that state generating or storage capacity; `load`,
+        `transmission`, `pipeline`, `lng`, `ccs` and `hydrogen` records are counted in `not_summed_records` and never added
+        (`capacity_not_summed_kinds`). `capacity_mw` is `null`, never `0`, where no counted record states one.
+
+
+        **Rate limits.** One unit of the caller's read window and daily cap (`x-rate-limits`), as any `GET` without `q`;
+        no search unit, no window of its own.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-203]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/OrganizationScope'
+      responses:
+        '200':
+          description: The organization's pipeline inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationPipelineResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -1554,7 +1616,8 @@ paths:
         The point, its `totals` at the caller's tier, and `proposals[]`: the visible proposals that connect at it,
         active first, then built, other and withdrawn, each by capacity (at most 500; `proposals_truncated` says
         when more exist, and `totals` always covers all of them). `recent_changes[]` is the newest ten change events
-        of those proposals (a project entering the queue here, its status changes, its withdrawal), in the `Event`
+        of those proposals (a project entering the queue here, its status changes, its withdrawal, its leaving the
+        register's report), in the `Event`
         shape and under the events endpoints' visibility rules. `404` for an unknown id and, identically, for a
         point with no visible proposal or whose register the tier may not see.
       x-tier: public
@@ -1591,8 +1654,10 @@ paths:
         (`unit_of`, `phase_of`, `co_located`, `refiling_of`, `superseded_by`, `expansion_of`, `expanded_by`,
         `same_site`), the `relation_rule` that fired, a `confidence` word (`high | medium | low`, not a probability)
         and the `grouping_rule` that put it in the site. Every member, count and total is computed over the members
-        the caller's tier may see (the proposal predicate); when any member is hidden from the caller, the same
-        rules are re-run over the visible members. Two levels where EIA provides them: generators of one EIA plant
+        the caller's tier may see (the proposal predicate); when any member is hidden from the caller, the site's
+        links are recomputed over the visible members alone, one linked group is served (the one holding `member`
+        when given, else the largest) and the same rules are re-run over it, so a visible record linked to the
+        others only through a hidden one is not listed with them (`partial` is then true). Two levels where EIA provides them: generators of one EIA plant
         form a plant group, each a `unit_of` its group's head (`parent_public_id`); group heads carry their
         relation to the lead's group. `sponsors` lists the members' sponsor organisations (never a level). `shares_interconnection_point` lists visible proposals at a
         member's interconnection point that the rules did not group (another or no named developer): neighbours,
@@ -1606,6 +1671,17 @@ paths:
       x-sprint: 5
       x-prd-stories: [US-201]
       security: *sec_public
+      parameters:
+        - name: member
+          in: query
+          required: false
+          description: >-
+            A member's proposal public id: answer with the linked group of visible members that holds it (the
+            proposal page's "At this site" panel asks this way) rather than the largest. `404`, as for an unknown
+            site, when the record is not a member, is not visible to the caller, or is linked to no other visible
+            member.
+          schema:
+            $ref: '#/components/schemas/ProposalPublicId'
       responses:
         '200':
           description: The site inside the attribution envelope.
@@ -5782,6 +5858,41 @@ paths:
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
 
+  /admin/v1/sites/review:
+    servers: *admin_servers
+    get:
+      operationId: adminSiteReview
+      tags: [Admin — records]
+      summary: Recent site changes and sites flagged for review
+      description: |
+        Read-only operator view of the site pass (docs/21 §3.25): the most recent `site_audit` rows, newest first
+        (`kind`: created, members gained or lost, lead changed, split, merged, retired; the site; `detail` naming
+        the proposals and sites involved by public id; when), and every live site flagged for review (`oversize`),
+        which readers are not served. `site_audit` has no other reader. There is no write path: clearing a flag
+        needs an override the builder honours.
+      x-tier: admin
+      x-status: live
+      x-sprint: 5
+      x-prd-stories: [US-907, US-201]
+      security: *sec_admin
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Recent site audit rows and flagged sites.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSiteReviewResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        <<: *common_errors
+
   /admin/v1/ui-events/summary:
     servers: *admin_servers
     get:
@@ -5854,6 +5965,8 @@ paths:
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
         - $ref: '#/components/parameters/SponsorId'
+        - $ref: '#/components/parameters/SponsorScope'
+        - $ref: '#/components/parameters/Listed'
         - $ref: '#/components/parameters/InterconnectionPointId'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/CapacityMwGte'
@@ -6727,7 +6840,13 @@ components:
     Iso:
       name: iso
       in: query
-      description: Market operator token (`CAISO`, `ERCOT`, `NYISO`, `ISONE`, `SPP`, `MISO`, `PJM`); comma-separated for OR.
+      description: >-
+        Market operator token (`CAISO`, `ERCOT`, `NYISO`, `ISONE`, `SPP`, `MISO`, `PJM`); comma-separated for OR. Matches
+        every stored spelling of the grid it names (since 2026-10-10): EIA-860M rows loaded before 2026-09-27 carry the
+        EIA balancing-authority code of an ISO/RTO (`CISO`, `ERCO`, `ISNE`, `MISO`, `NYIS`, `PJM`, `SWPP`), so `iso=ERCOT`
+        also selects `ERCO` rows and `iso=ERCO` selects `ERCOT` rows. Stored values are not rewritten and are served as
+        the register gave them. Any other balancing authority (a utility such as `TVA` or `SOCO`) is not an ISO and
+        matches only itself. The alias table is the connector's own, `pipeline/normalize.py::EIA_BA_ISO_TOKENS`.
       style: form
       explode: false
       schema:
@@ -6960,7 +7079,8 @@ components:
       in: query
       description: >-
         Organization public id or slug of the sponsor (the slug since 2026-10-07); comma-separated for OR. The exact
-        organisation, not its group (the organisation's own `/proposals?scope=` widens). On a list, map or feed an
+        organisation, not its group, unless `sponsor_scope` widens it (as the organisation's own `/proposals?scope=`
+        does). On a list, map or feed an
         organisation that is not public (taken down) matches nothing, exactly as one that does not exist, so the filter
         never confirms a hidden organisation. In a saved search or webhook `query`, a value naming no published
         organisation is a `400 validation_error` (the same answer for a hidden one) and the stored value is the public
@@ -6972,6 +7092,32 @@ components:
         items:
           type: string
           description: An `org_…` public id or an organisation slug.
+    SponsorScope:
+      name: sponsor_scope
+      in: query
+      description: >-
+        Widens `sponsor_id` down the ownership tree (2026-10-10): `self` (default) the named organisations only,
+        `children` each with its direct subsidiaries, `all` each with its whole descent. The walk is the one
+        `GET /v1/organizations/{public_id}/proposals?scope=` makes (`organization.parent_org_id`; a merged-away or
+        non-public subsidiary is not entered, nor anything below it; bounded at 10 levels; a cycle is visited once), so
+        `sponsor_id=<org>&sponsor_scope=all` is that organisation's group. Without `sponsor_id` there is nothing to widen
+        and it selects as if absent; an unknown value is a `400 validation_error`. Not a saved-search or webhook filter:
+        the alert matcher does not evaluate it yet, so a stored `query` naming it is a `400 unknown_parameter`.
+      schema:
+        type: string
+        enum: [self, children, all]
+        default: self
+    Listed:
+      name: listed
+      in: query
+      description: >-
+        Whether any register still lists the record (2026-10-10): `true` keeps records with at least one source link the
+        caller's tier may see whose row is still in its register (`gone_at` null), `false` keeps the rest, which every
+        such register has dropped. The record's `listed` field, filtered. A removal is not a withdrawal
+        (`lifecycle_state` keeps the last status a register stated), so `lifecycle_state=filed&listed=false` is filed
+        projects no register lists any more. Not a saved-search or webhook filter yet (see `sponsor_scope`).
+      schema:
+        type: boolean
     IssuerId:
       name: issuer_id
       in: query
@@ -8242,12 +8388,20 @@ components:
     SourceIdValue:
       type: string
       description: The `data/sources.yaml` id — dotted, lower-case.
-      pattern: '^[a-z]{2,6}(\.[a-z0-9_]+){1,4}$'
-      examples: [us.iso.caiso.gen_queue]
+      pattern: '^[a-z]{2,10}(\.[a-z0-9_]+){1,4}$'
+      examples: [us.iso.caiso.gen_queue, curated.organization_parents]
     LicenceIdValue:
       type: string
-      pattern: '^[a-z0-9][a-z0-9-]{1,63}$'
-      examples: [caiso-tou]
+      description: >-
+        A `licence` row's key. Two shapes are minted. The loader keys a source's licence on the source id and the
+        first 10 hex digits of the SHA-256 of the terms recorded for it (`pipeline/connectors/registry.py`
+        `SourceEntry.licence_id`: `us.eia.860m#f142611d41`), so a change to the quoted terms yields a new id and old
+        observations keep theirs; an operator's reclassification appends `-<reuse_class>` and, when taken, `-<n>`
+        (`services/api/admin_sources.py::_next_licence_id`: `us.eia.860m#f142611d41-noncommercial-2`). Hand-made rows
+        use a lower-case slug (`caiso-tou`, `curated-issuer-attribution`). Before 2026-10-10 this pattern admitted only
+        the slug and rejected every minted id the API serves.
+      pattern: '^(?:[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+#[0-9a-f]{10}(?:-[a-z0-9]+)*|[a-z0-9][a-z0-9-]{1,63})$'
+      examples: [caiso-tou, 'us.eia.860m#f142611d41']
 
     # ---------- Vocabularies (docs/21 §7; served live at /v1/meta/vocabularies) ----------
     ProposalKind:
@@ -8325,9 +8479,16 @@ components:
       type: string
       description: >-
         docs/21 §7.3. Identity, proposal lifecycle, opportunity lifecycle, field-level, matching, publication,
-        operational and register groups. `removed_from_source` (a record that is no longer in its source's file,
-        which is not a withdrawal) is never returned by a public or Pro read, a feed or a webhook; admin reads
-        show it.
+        operational and register groups. `delisted` (2026-10-10): a record that is no longer in the report of a
+        full-register interconnection queue (ERCOT, CAISO, NYISO, NESO), and whose project is not listed there under
+        another key (a re-key is not a departure). The register states no reason, so it is
+        never a withdrawal and the record's `lifecycle_state` is unchanged; it reads "No longer in <register>'s
+        report (reason not stated)" (`reason`), and `after` is `{"source_id", "register_name", "reason":
+        "not stated"}` with no `before` and no `changed_keys`. It is public and alertable like any change event
+        (event lists, feeds, alerts, webhooks as `event.published`) and is never drafted as a social post.
+        `removed_from_source` (a record that is no longer in its source's file where no announcement applies,
+        such as EIA-860M, which is not a withdrawal) is never returned by a public or Pro read, a feed or a
+        webhook; admin reads show it.
       enum:
         - created
         - source_linked
@@ -8369,6 +8530,7 @@ components:
         - key_issued
         - key_revoked
         - removed_from_source
+        - delisted
     ActorType:
       type: string
       enum: [pipeline, model, user, system]
@@ -9105,6 +9267,19 @@ components:
         status_raw:
           type: [string, 'null']
           description: Verbatim source status — raw class, gated.
+        listed:
+          type: boolean
+          description: >-
+            Derived at read time, never stored (2026-10-10): `true` while at least one source link the caller's tier may see
+            is still in its register (`provenance[].gone_at` null). `false` when every such register has dropped the row:
+            `lifecycle_state` is then the last status a register stated, not a current one (a removal is not a withdrawal),
+            and the record is not active pipeline. A link to a source the tier may not read counts neither way. Filter with
+            `listed=`. On every proposal the API serves (list, detail, bulk, nearby, organisation lists); not required by
+            this schema only because an admin task's stored `pending_record` draft (`AdminProposal`) has no links to judge.
+        delisted_at:
+          type: [string, 'null']
+          format: date-time
+          description: When `listed` is `false`, the latest `gone_at` among those links (when the last register dropped it); `null` while listed.
         identifiers:
           $ref: '#/components/schemas/ProposalIdentifiers'
         proposed_online_date:
@@ -9702,7 +9877,11 @@ components:
           description: Admin audit views only.
         reason:
           type: [string, 'null']
-          description: Present on `actor_type = user` events.
+          description: >-
+            Why the event was written, in words, or null. Set on `actor_type = user` events, on resolver merges
+            (the rationale), and on the removal events: on `delisted` it is the sentence every surface prints
+            ("No longer in ERCOT's report (reason not stated)"); on `removed_from_source` (admin reads only) it
+            says why the removal is not published, including a re-key within the register.
         confidence:
           type: [number, 'null']
           minimum: 0
@@ -10736,6 +10915,141 @@ components:
           properties:
             scope:
               $ref: '#/components/schemas/OrganizationScopeMeta'
+    PipelineTally:
+      type: object
+      description: One bucket of `GET /v1/organizations/{public_id}/pipeline`.
+      required: [records, capacity_mw, capacity_records, not_summed_records]
+      properties:
+        records:
+          type: integer
+          minimum: 0
+        capacity_mw:
+          type: [number, 'null']
+          description: Sum of `capacity_mw` over the bucket's records of a summed kind that state one; `null` when none does.
+        capacity_records:
+          type: integer
+          minimum: 0
+          description: Records whose capacity is in `capacity_mw`.
+        not_summed_records:
+          type: integer
+          minimum: 0
+          description: Records of a kind whose MW is not generating or storage capacity (`capacity_not_summed_kinds`), counted and never summed. `records - capacity_records - not_summed_records` state no capacity.
+    OrganizationPipeline:
+      type: object
+      required: [organization, scope, list_query, active_states, capacity_not_summed_kinds, totals, active, not_listed, by_lifecycle_state, by_technology, by_iso, not_summed_by_kind, sources]
+      properties:
+        organization:
+          $ref: '#/components/schemas/OrganizationSummary'
+        scope:
+          $ref: '#/components/schemas/OrganizationScopeMeta'
+        list_query:
+          type: object
+          description: The `GET /v1/proposals` filters that select exactly the counted records. `sponsor_scope` is present only when the scope spans more than the organisation itself.
+          required: [sponsor_id]
+          properties:
+            sponsor_id:
+              $ref: '#/components/schemas/OrganizationPublicId'
+            sponsor_scope:
+              type: string
+              enum: [children, all]
+          additionalProperties: false
+        active_states:
+          type: array
+          description: The lifecycle states of the active pipeline.
+          items:
+            $ref: '#/components/schemas/LifecycleState'
+        capacity_not_summed_kinds:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProposalKind'
+        totals:
+          $ref: '#/components/schemas/PipelineTally'
+        active:
+          allOf:
+            - $ref: '#/components/schemas/PipelineTally'
+          description: In an active state and listed.
+        not_listed:
+          allOf:
+            - $ref: '#/components/schemas/PipelineTally'
+          description: In an active state as last stated, and no register lists it any more.
+        by_lifecycle_state:
+          type: array
+          description: Every record by lifecycle state (active states first, `unknown` last), split by whether a register still lists it; states with no record are left out.
+          items:
+            type: object
+            required: [lifecycle_state, listed, not_listed]
+            properties:
+              lifecycle_state:
+                $ref: '#/components/schemas/LifecycleState'
+              listed:
+                $ref: '#/components/schemas/PipelineTally'
+              not_listed:
+                $ref: '#/components/schemas/PipelineTally'
+        by_technology:
+          type: array
+          description: The active pipeline by technology token, largest capacity first, `null` (not stated) last.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/PipelineTally'
+              - type: object
+                required: [technology]
+                properties:
+                  technology:
+                    type: [string, 'null']
+        by_iso:
+          type: array
+          description: The active pipeline by grid operator (an ISO/RTO balancing-authority code under its ISO's token), largest capacity first, `null` (none stated) last.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/PipelineTally'
+              - type: object
+                required: [iso]
+                properties:
+                  iso:
+                    type: [string, 'null']
+        not_summed_by_kind:
+          type: array
+          description: Every record of a kind whose MW is not summed, by kind.
+          items:
+            type: object
+            required: [kind, records]
+            properties:
+              kind:
+                $ref: '#/components/schemas/ProposalKind'
+              records:
+                type: integer
+                minimum: 0
+        sources:
+          type: array
+          description: Per register the caller's tier may read, how many of the counted records it lists or listed (an active link, as `source_id=` selects), and its latest retrieval; most records first.
+          items:
+            type: object
+            required: [source_id, name, records, retrieved_at_max, licence_id, reuse_class, attribution_text]
+            properties:
+              source_id:
+                $ref: '#/components/schemas/SourceIdValue'
+              name:
+                type: string
+              records:
+                type: integer
+                minimum: 1
+              retrieved_at_max:
+                type: [string, 'null']
+                format: date-time
+              licence_id:
+                $ref: '#/components/schemas/LicenceIdValue'
+              reuse_class:
+                $ref: '#/components/schemas/ReuseClass'
+              attribution_text:
+                type: [string, 'null']
+    OrganizationPipelineResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/OrganizationPipeline'
     OrganizationAssetsResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'
@@ -10873,8 +11187,9 @@ components:
                 "Recent changes at this point": the newest change events (newest `observed_at` first, `seq` breaking
                 ties) whose subject is one of the proposals the caller's tier may see at this point. Event types are
                 `created` (a project entered the queue here) and the proposal-lifecycle group of docs/21 §7.3
-                (`status_change`, `filed`, `studied`, `permitted`, `contracted`, `built`, `withdrawn`, `cancelled`);
-                field-level, matching and publication events are not listed. Each row is the stored event under the
+                (`status_change`, `filed`, `studied`, `permitted`, `contracted`, `built`, `withdrawn`, `cancelled`),
+                and `delisted` (no longer in the register's report, reason not stated); field-level, matching and
+                publication events are not listed. Each row is the stored event under the
                 same visibility rule as `GET /v1/events` (its own timing, source and licence, and its subject's
                 visibility), so no row names a proposal `proposals[]` withholds. `subject` names and links the
                 proposal; `provenance` is the event's own quartet. Empty when no such event is recorded. No new
@@ -10948,7 +11263,9 @@ components:
         member_count:
           type: integer
           minimum: 2
-          description: Members visible to the caller.
+          description: >-
+            Members visible to the caller in the linked group that holds this record (when a hidden member is all
+            that links some visible members to the rest, they form groups of their own).
         is_lead: {type: boolean}
         parent_public_id:
           oneOf:
@@ -11105,7 +11422,7 @@ components:
                       $ref: '#/components/schemas/AssetOwnerRow'
     SiteDetail:
       type: object
-      required: [public_id, url, name, rule_version, member_count, lead, members, members_truncated, totals, sponsors, anchors, shares_interconnection_point, shares_interconnection_point_count]
+      required: [public_id, url, name, rule_version, member_count, partial, lead, members, members_truncated, totals, sponsors, anchors, shares_interconnection_point, shares_interconnection_point_count]
       properties:
         public_id:
           $ref: '#/components/schemas/SitePublicId'
@@ -11119,10 +11436,15 @@ components:
         rule_version:
           type: string
           description: Version of the grouping and labelling rules that built the site.
-          examples: ['2026-10-10.1']
+          examples: ['2026-10-10.2']
         member_count:
           type: integer
           minimum: 2
+        partial:
+          type: boolean
+          description: >-
+            True when the caller may see other members of this site that are not linked to these by any record the
+            caller may see; those are not listed here and each keeps its own page. False otherwise.
         lead:
           $ref: '#/components/schemas/SiteMemberRow'
         members:
@@ -11169,6 +11491,58 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/SiteDetail'
+    AdminSiteRow:
+      type: object
+      description: A site as operators see it (stored values, not a reader's view).
+      required: [public_id, name, member_count, review_flag, retired, built_at, rule_version]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/SitePublicId'
+        name:
+          type: string
+          description: The stored lead's name at the last build (operators only; readers get the name of the lead they may see).
+        member_count: {type: integer, minimum: 0}
+        review_flag:
+          type: [string, 'null']
+          enum: [oversize, null]
+        retired: {type: boolean}
+        built_at: {type: [string, 'null'], format: date-time}
+        rule_version: {type: string}
+    AdminSiteReviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [audit, flagged]
+              properties:
+                audit:
+                  type: array
+                  maxItems: 200
+                  description: '`site_audit` rows, newest first.'
+                  items:
+                    type: object
+                    required: [kind, site, detail, rule_version, recorded_at]
+                    properties:
+                      kind:
+                        type: string
+                        enum: [created, members_gained, members_lost, lead_changed, split, merged, retired]
+                      site:
+                        $ref: '#/components/schemas/AdminSiteRow'
+                      detail:
+                        type: object
+                        description: >-
+                          The proposals and sites involved, by public id: `members` (created, members gained or lost,
+                          retired), `lead` (created), `from`/`to` (lead changed; `from` lists sites when merged),
+                          `into` (split: site -> members), `successor` (retired).
+                      rule_version: {type: string}
+                      recorded_at: {type: string, format: date-time}
+                flagged:
+                  type: array
+                  description: Live sites flagged for review, which readers are not served.
+                  items:
+                    $ref: '#/components/schemas/AdminSiteRow'
     AssetListResponse:
       allOf:
         - $ref: '#/components/schemas/ListEnvelope'
@@ -11402,7 +11776,7 @@ components:
           type: string
           enum: [map.layer_toggled, map.region_jumped, map.basemap_failed, auth.registered, alert.created, page.viewed]
           description: >-
-            `page.viewed` (props `{page_type: proposal | company | asset | point}`, required) is accepted only
+            `page.viewed` (props `{page_type: proposal | company | asset | point | site}`, required) is accepted only
             from the public site's own server (its `X-Internal-Token` service identity); from any other caller
             it is `400 validation_error`. That caller is not subject to the per-IP limit (migration 0029).
         props:
@@ -11438,6 +11812,7 @@ components:
             company: {type: integer, minimum: 0}
             asset: {type: integer, minimum: 0}
             point: {type: integer, minimum: 0}
+            site: {type: integer, minimum: 0}
     UiEventsSummaryResponse:
       allOf:
         - $ref: '#/components/schemas/Envelope'
@@ -12851,7 +13226,7 @@ components:
                   $ref: '#/components/schemas/Account'
     SavedSearchQuery:
       type: object
-      description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results. Keys are the filters of the `entity`'s list endpoint; any other key is a `400 unknown_parameter` on create and update.
+      description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results. Keys are the filters of the `entity`'s list endpoint, except the proposal list's `sponsor_scope` and `listed`, which the alert matcher does not evaluate yet; any other key is a `400 unknown_parameter` on create and update.
       additionalProperties: true
       examples:
         - kind: [storage]
@@ -13596,12 +13971,13 @@ components:
       properties:
         surface:
           type: string
-          enum: [proposals, opportunities, events, organizations, assets, source_links, interconnection_points]
+          enum: [proposals, opportunities, events, organizations, assets, source_links, interconnection_points, sites]
         public_id:
           type: string
           description: >-
-            The record's public id (`prop_…`, `opp_…`, `evt_…`, `org_…`, `asset_…`, `poi_…`). An
-            `interconnection_points` breach about a proposal's `interconnection_point` embed names the proposal.
+            The record's public id (`prop_…`, `opp_…`, `evt_…`, `org_…`, `asset_…`, `poi_…`, `site_…`). An
+            `interconnection_points` breach about a proposal's `interconnection_point` embed names the proposal, as
+            does a `sites` breach about a proposal's `site` embed.
         source_id:
           type: [string, 'null']
           description: The offending source where the breach is about a source or a link; null for a record-state breach.
@@ -13610,8 +13986,9 @@ components:
           description: >-
             Machine-readable `<check>:<detail>`, e.g. `source_link_gated:register:publication=none`,
             `record_not_public:unpublished`, `served_hidden:publish_state=unpublished`,
-            `point_total_printed:totals:active_mw`, `point_oracle_served:proposals_filter`. Point reasons name the
-            field that disagreed, never a point's name or a megawatt figure.
+            `point_total_printed:totals:active_mw`, `point_oracle_served:proposals_filter`,
+            `site_bridge_printed:linked_only_through_a_hidden_member`, `site_embed_printed:bulk_embed:lead_not_visible`.
+            Point reasons name the field that disagreed, never a point's name or a megawatt figure.
         served_status:
           type: [integer, 'null']
           description: HTTP status an anonymous request for the row received in the served pass; null when the row was outside the sample.
@@ -13625,14 +14002,17 @@ components:
       properties:
         kind:
           type: string
-          enum: [breach, must_be_hidden, withheld_name, point_oracle, point_totals]
+          enum: [breach, must_be_hidden, withheld_name, point_oracle, point_totals, site_members]
           description: >-
             `breach` re-requests a store-pass breach; `must_be_hidden` requests a row (or a hidden interconnection
-            point's web page) that must answer 404; `withheld_name` requests an asset page or an asset search that
+            point's or flagged site's web page) that must answer 404; `withheld_name` requests an asset page or an asset search that
             must not print, or match through, the name of an organisation that is not public (the asset itself is
             rightly served); `point_oracle` requests the proposal list filtered to a hidden interconnection point,
             which must answer exactly what an unknown id gets; `point_totals` requests a visible point's list row,
-            detail, a proposal's embed or its web page, whose totals and rows must be those over visible proposals.
+            detail, a proposal's embed or its web page, whose totals and rows must be those over visible proposals;
+            `site_members` requests a site that holds a member that is not public (its detail, a public member's
+            `site` embed, the site's web page and that member's web page), which must name no hidden member and link
+            no members only through one.
         surface:
           type: string
         public_id:
@@ -13664,8 +14044,9 @@ components:
           type: string
           enum: [checked, unavailable, not_needed]
           description: >-
-            Whether the public site's interconnection point pages were requested: `checked`; `unavailable` where the
-            `web` package is not installed (the scheduler image); `not_needed` when the store holds no point.
+            Whether the public site's interconnection point and site pages were requested: `checked`; `unavailable`
+            where the `web` package is not installed (the scheduler image); `not_needed` when the store holds no
+            point and no site needing a probe.
         checks:
           type: array
           items:
@@ -13723,6 +14104,8 @@ components:
             source_links:
               $ref: '#/components/schemas/VisibilityAuditCounts'
             interconnection_points:
+              $ref: '#/components/schemas/VisibilityAuditCounts'
+            sites:
               $ref: '#/components/schemas/VisibilityAuditCounts'
           additionalProperties: false
         breach_total:
@@ -15408,6 +15791,8 @@ components:
                 reuse_class: attribution
                 attribution_text: 'Source: California ISO'
             lifecycle_state: studied
+            listed: true
+            delisted_at: null
             identifiers:
               queue_ids:
                 - iso: CAISO
@@ -15532,6 +15917,8 @@ components:
               licence_id: caiso-tou
               reuse_class: attribution
           lifecycle_state: studied
+          listed: true
+          delisted_at: null
           identifiers:
             queue_ids:
               - iso: CAISO

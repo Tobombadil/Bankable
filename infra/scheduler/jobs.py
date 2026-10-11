@@ -94,6 +94,67 @@ def build_session_factory() -> Any:
     return get_sessionmaker(engine)
 
 
+#: The store-wide passes (`resolve_tick`, `enrich_tick`, `match_tick`, `context_load`: Procrastinate's
+#: `lock="resolve"`) also hold this session-level advisory lock, taken by the work itself
+#: (`run_store_pass`; 2026-10-10, docs/60 §6.4). Procrastinate's lock belongs to the job row: when
+#: `_run_with_timeout` (infra/scheduler/app.py) gives up on a pass, the job fails and that lock is
+#: released while the abandoned thread keeps writing, so the next pass could start beside it. This
+#: one belongs to the thread doing the work and is released only when that work ends, or when its
+#: connection does (a worker killed mid-pass). Next to `queue_schema.ADVISORY_LOCK_KEY`
+#: (0x1F0E0A5C4E0E0001) and outside the event-seq horizon's range (services/db/event_horizon.py).
+STORE_WIDE_LOCK_KEY = 0x1F0E_0A5C_4E0E_0002
+#: What a pass that finds the lock taken reports, and logs at WARNING, instead of running.
+STORE_WIDE_BUSY = "previous pass still running"
+
+
+def run_store_pass(
+    name: str, work: Callable[[], dict[str, Any]], *, _session_factory: Any = None
+) -> dict[str, Any]:
+    """Run one store-wide pass while holding `STORE_WIDE_LOCK_KEY`, or skip it if another holds it.
+
+    On Postgres the lock is `pg_try_advisory_lock` on a connection of its own, in autocommit, so it
+    never waits and holds no transaction (and no snapshot) open for the length of the pass; the
+    work's sessions use other connections. The connection is closed rather than returned to the
+    pool when the pass ends, so even an unlock that could not run cannot leave a pooled connection
+    holding the lock. Call this inside the thread that does the work (`app._store_pass`): an
+    abandoned thread then keeps the lock until it finishes.
+
+    A pass that cannot take the lock ends cleanly with `{"skipped": STORE_WIDE_BUSY}`. The four
+    passes chain only after a pass that ran (app.py), and each has a later trigger that retries it:
+    the next load's resolve chain or the daily `tick_resolve`; `context_load`, which runs monthly,
+    reruns with `bootstrap context` (docs/64 §5). Retrying in-job would only queue behind a thread
+    that has already outlived its timeout.
+
+    SQLite (development and the test suite) has no advisory locks and one writer at a time: the
+    work runs unguarded, as before."""
+    import sqlalchemy as sa
+
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    with factory() as session:
+        engine = session.get_bind()
+    if engine.dialect.name != "postgresql":
+        return work()
+    connection = engine.connect()
+    try:
+        connection.execution_options(isolation_level="AUTOCOMMIT")
+        key = {"key": STORE_WIDE_LOCK_KEY}
+        if not connection.execute(sa.text("SELECT pg_try_advisory_lock(:key)"), key).scalar():
+            logger.warning(
+                "%s skipped: %s", name, STORE_WIDE_BUSY, extra={"job": name, "skipped": STORE_WIDE_BUSY}
+            )
+            return {"skipped": STORE_WIDE_BUSY}
+        try:
+            return work()
+        finally:
+            try:
+                connection.execute(sa.text("SELECT pg_advisory_unlock(:key)"), key)
+            except Exception:
+                logger.exception("%s: advisory unlock failed; closing its connection frees it", name)
+    finally:
+        connection.invalidate()
+        connection.close()
+
+
 def _report_to_dict(report: Any) -> dict[str, Any]:
     """Normalise a worker report (a frozen dataclass per the contract, a plain dict, or a test
     double shaped like one) into a plain, JSON-safe dict for Procrastinate's job result column."""

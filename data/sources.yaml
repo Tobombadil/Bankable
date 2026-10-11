@@ -2049,7 +2049,7 @@ sources:
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok, rows: 2198, note: 'connector run: CKAN resource tec-register-11-september-2026.csv, 2,198 rows, DQ pass'}
+  verified: {date: 2026-10-09, result: ok, rows: 2225, note: 'connector run: CKAN resource tec-register-10-october-2026.csv (day-first DD/MM/YYYY dates, integer stages), 427,528 bytes, 2,225 rows, DQ pass; parser 2.0.0 restates it with 0 events (lane F2, 2026-10-10)'}
   notes: >-
     Mandatory exact attribution string "Supported by National Energy SO Open Data"; rights end automatically
     on breach; datasets are licensed individually — check the TEC Register licence field at ingest. Licence

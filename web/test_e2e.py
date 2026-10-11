@@ -1054,6 +1054,64 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
             key = wide.evaluate("document.getElementById('lifecycle-legend').getBoundingClientRect().top")
             assert top <= key < 800, f"map key starts at {key}px at 1440x900"
             assert wide.locator(".nav-toggle").is_hidden() and wide.locator("#map-filters").is_visible()
+            # Lane F: with a layer on, the key was 272x554px at 1440x900 (23% of the canvas, the West
+            # Coast under it). Now it is compact (as wide, at most 15rem tall: 272x240 against the
+            # no-layer key's 272x276 on the e2e store), a named tab stop that scrolls, and its layer
+            # section closes from the keyboard; with the layer off the key is as it was.
+            panel_box = (
+                "(() => { const b = document.querySelector('.map-key__panel').getBoundingClientRect();"
+                " return [b.width, b.height]; })()"
+            )
+            compact_on = "() => document.getElementById('map-key').classList.contains('map-key--compact')"
+            no_layer_w, _ = wide.evaluate(panel_box)
+            assert wide.get_attribute(".map-key__panel", "tabindex") is None
+            wide.check("#mf-layer-retired")
+            wide.wait_for_function(compact_on)
+            compact_w, compact_h = wide.evaluate(panel_box)
+            assert compact_w == no_layer_w and compact_h <= 241, f"compact key {compact_w}x{compact_h}px"
+            assert wide.get_attribute(".map-key__panel", "tabindex") == "0"
+            assert wide.get_attribute(".map-key__panel", "aria-label") == "Map key"
+            assert wide.get_attribute("#retired-legend", "aria-hidden") == "false"
+            section = "document.querySelector('#retired-legend details').open"
+            wide.locator("#retired-legend summary").focus()
+            wide.keyboard.press("Enter")
+            assert wide.evaluate(section) is False
+            wide.keyboard.press("Enter")
+            assert wide.evaluate(section) is True
+            wide.uncheck("#mf-layer-retired")
+            wide.wait_for_function(f"() => !({compact_on})()")
+            assert wide.get_attribute(".map-key__panel", "tabindex") is None
+
+            # Lane F: from 720 to 1079px the map's filter bar is the "Filters" disclosure, as below
+            # 720px (before: the map started at 634px of 768 at 1024x768, under two rows of filters).
+            # Budget 600: at these widths the page is one column, as at 400px, and 768 - 600 keeps
+            # the 400x800 budget's 160px of canvas (zoom row, the key's first rows) in view.
+            tablet = browser.new_page(viewport={"width": 1024, "height": 768})
+            _install_offline_routes(tablet)
+            _ok_ui_events(tablet)
+            tablet.goto(BASE_URL + "/")
+            tablet.wait_for_selector("#map canvas", timeout=10000)
+            top = tablet.evaluate("document.getElementById('map').getBoundingClientRect().top")
+            assert top < 600, f"map starts at {top}px at 1024x768"
+            key = tablet.evaluate("document.getElementById('lifecycle-legend').getBoundingClientRect().top")
+            assert top <= key < 768, f"map key starts at {key}px at 1024x768"
+            assert tablet.evaluate("document.documentElement.scrollWidth") <= 1025
+            filters = tablet.locator("[data-filter-toggle]")
+            assert filters.is_visible() and filters.get_attribute("aria-expanded") == "false"
+            assert tablet.locator("#map-filters").is_hidden()
+            filters.click()
+            assert tablet.locator("#map-filters").is_visible()
+            assert filters.get_attribute("aria-expanded") == "true"
+            tablet.select_option("#mf-technology", "solar")
+            assert "(1 active)" in filters.inner_text()
+            tablet.focus("#mf-jurisdiction")
+            tablet.keyboard.press("Escape")
+            assert tablet.locator("#map-filters").is_hidden()
+            assert tablet.evaluate("document.activeElement.hasAttribute('data-filter-toggle')")
+            # Only the map's bar: the proposal list keeps its filters open at this width.
+            tablet.goto(BASE_URL + "/proposals")
+            assert tablet.locator("#filters").is_visible()
+            assert tablet.locator("[data-filter-toggle]").is_hidden()
 
             page = browser.new_page(viewport={"width": 400, "height": 800})
             _install_offline_routes(page)

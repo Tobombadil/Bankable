@@ -875,6 +875,15 @@ def gated_record(
     return GatedRecord(record, entitlement, link_ok)
 
 
+def tier_links(record: Any, entitlement: Entitlement = "public") -> list[Any]:
+    """The active links of `record` (a model row or its served view) that `entitlement` may read,
+    before any shape narrowing (`link_ok`): what `source_count` counts. `services/api/listing.py`
+    reads `listed` from these, so bulk lines and list rows agree with the `listed` filter."""
+    if isinstance(record, GatedRecord):
+        return list(record._tier_links)
+    return visible_source_links(record.sources, entitlement)
+
+
 def gated_proposal(
     record: Proposal, entitlement: Entitlement = "public", link_ok: LinkOk | None = None
 ) -> Proposal:

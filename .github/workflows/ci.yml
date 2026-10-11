@@ -419,10 +419,11 @@ jobs:
       # job keeps its name so a required-check rule that names it still matches.
       # infra/scheduler/test_queue_schema.py's real-Postgres case (`ensure` inside a throwaway
       # schema) skipped everywhere until 2026-10-07: this step did not name it (audit QA-5).
-      - name: app on Postgres (tests/test_postgres.py, services/db/test_types_postgis.py, infra/scheduler/test_queue_schema.py)
+      # infra/scheduler/test_store_pass_lock.py: the store-wide passes' advisory lock (2026-10-10).
+      - name: app on Postgres (tests/test_postgres.py, services/db/test_types_postgis.py, infra/scheduler/test_queue_schema.py, infra/scheduler/test_store_pass_lock.py)
         env:
           POSTGIS_TEST_URL: postgresql+psycopg://infraque:infraque-ci-only@localhost:5432/infraque_ci
-        run: pytest tests/test_postgres.py services/db/test_types_postgis.py infra/scheduler/test_queue_schema.py -p no:warnings
+        run: pytest tests/test_postgres.py services/db/test_types_postgis.py infra/scheduler/test_queue_schema.py infra/scheduler/test_store_pass_lock.py -p no:warnings
 
   security:
     name: gitleaks + pip-audit

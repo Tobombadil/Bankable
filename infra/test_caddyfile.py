@@ -221,19 +221,33 @@ SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Reporting-Endpoints": 'csp="/csp-report"',
 }
 REPORT_ONLY = "Content-Security-Policy-Report-Only"
+#: The only rule enforced while `CSP_MODE=report` (the default).
+FRAME_ONLY = "frame-ancestors 'none'"
+#: The snippet line that hands the policy to `csp_report` or `csp_enforce`.
+POLICY_IMPORT = "csp_{$CSP_MODE:report}"
 
 
 def _headers(tree: list[Block]) -> dict[str, str]:
-    """The `(security_headers)` snippet's fields, `?` (write only when absent) stripped."""
-    block = find(find(tree, "(security_headers)")[1], "header")
+    """The `(security_headers)` snippet's fields, `?` (write only when absent) stripped. Each is its
+    own `header` line: in one `header { }` block Caddy gives every `?` field one shared condition
+    (all of them absent), so an upstream sending any one of them dropped all the others."""
     fields = {}
-    for tokens, _ in block[1]:
-        expect(tokens[0].startswith("?") and len(tokens) == 2, f"every field is a default: {tokens}")
-        fields[tokens[0][1:]] = tokens[1]
+    for tokens, children in find(tree, "(security_headers)")[1]:
+        if tokens[0] != "header":
+            continue
+        expect(not children and len(tokens) == 3, f"one default per header line: {tokens}")
+        expect(tokens[1].startswith("?"), f"every field is a default: {tokens}")
+        fields[tokens[1][1:]] = tokens[2].strip("`")
     return fields
+
+
+def _policy_text(tree: list[Block]) -> str:
+    imports = [t for t, _ in find(tree, "(security_headers)")[1] if t[:2] == ["import", POLICY_IMPORT]]
+    expect(len(imports) == 1 and len(imports[0]) == 3, f"one policy, passed to the mode's snippet: {imports}")
+    return str(imports[0][2])
 
 
 def _policy(value: str) -> dict[str, list[str]]:
@@ -243,6 +257,15 @@ def _policy(value: str) -> dict[str, list[str]]:
         if parts:
             out[parts[0]] = parts[1:]
     return out
+
+
+def _style_attributes() -> list[str]:
+    """Templates that still carry a `style` attribute (web/templates; none should, docs/60 §2)."""
+    return sorted(
+        str(t.relative_to(WEB))
+        for t in (WEB / "templates").rglob("*.html")
+        if re.search(r"\sstyle=\"", t.read_text())
+    )
 
 
 def _inline_script_hashes() -> set[str]:
@@ -263,9 +286,8 @@ def _inline_script_hashes() -> set[str]:
 
 def test_every_host_sends_the_security_headers(tree: list[Block]) -> None:
     """docs/51 §2.4 item 5: no HSTS, nosniff, referrer policy or CSP anywhere before 2026-10-10."""
-    fields = _headers(tree)
-    expect({k: v for k, v in fields.items() if k != REPORT_ONLY} == SECURITY_HEADERS, fields)
-    expect(REPORT_ONLY in fields, "the full policy is report-only for now")
+    expect(_headers(tree) == SECURITY_HEADERS, _headers(tree))
+    expect(bool(_policy_text(tree)), "the policy is passed to the CSP_MODE snippet")
     common = [tokens for tokens, _ in find(tree, "(common)")[1]]
     expect(common[0] == ["import", "security_headers"], common)
     for environment in HOSTS:
@@ -286,12 +308,29 @@ def test_every_host_sends_the_security_headers(tree: list[Block]) -> None:
         expect(find(tree, role)[1][0][0] == ["import", "common"], role)
 
 
-def test_the_report_only_policy_allows_the_site_as_it_is(tree: list[Block]) -> None:
-    """Derived from web/, so a new CDN package, inline script or third-party origin fails here
-    instead of turning into console reports nobody reads."""
-    from web.assets import CDN_ASSETS
+def test_csp_mode_picks_report_only_or_enforced_for_the_same_policy(tree: list[Block]) -> None:
+    """docs/64 §5: `report` (the default) enforces only `frame-ancestors 'none'` and reports the
+    rest; `enforce` enforces the whole policy. Both modes send the one policy string."""
+    report = [tokens for tokens, _ in find(tree, "(csp_report)")[1]]
+    enforce = [tokens for tokens, _ in find(tree, "(csp_enforce)")[1]]
+    expect(
+        report
+        == [
+            ["header", "?Content-Security-Policy", FRAME_ONLY],
+            ["header", f"?{REPORT_ONLY}", "{args[0]}"],
+        ],
+        report,
+    )
+    expect(enforce == [["header", "?Content-Security-Policy", "{args[0]}"]], enforce)
 
-    policy = _policy(_headers(tree)[REPORT_ONLY])
+
+def test_the_policy_allows_the_site_as_it_is(tree: list[Block]) -> None:
+    """Derived from web/, so a new CDN package, inline script or third-party origin fails here
+    instead of turning into reports or, once enforced, a broken page."""
+    from web.assets import CDN_ASSETS
+    from web.csp_reports import REPORT_PATH
+
+    policy = _policy(_policy_text(tree))
     packages = {name: asset["url"].split("/dist/")[0] + "/" for name, asset in CDN_ASSETS.items()}
     expect(all(url.startswith("https://cdn.jsdelivr.net/npm/") for url in packages.values()), packages)
     turnstile = re.search(r'TURNSTILE_SCRIPT = "(https://[^/"]+)/', (WEB / "reports.py").read_text())
@@ -304,22 +343,54 @@ def test_the_report_only_policy_allows_the_site_as_it_is(tree: list[Block]) -> N
     expect(len(hashes) == 1, f"one inline script today (base.html's js class): {hashes}")
     scripts = {packages[n] for n in ("maplibre_js", "pmtiles_js", "basemaps_js")}
     expect(set(policy["script-src"]) == {"'self'", *scripts, turnstile_origin, *hashes}, policy["script-src"])
-    expect(set(policy["style-src"]) == {"'self'", packages["maplibre_css"], "'unsafe-inline'"}, policy)
+    expect(set(policy["style-src"]) == {"'self'", packages["maplibre_css"]}, policy["style-src"])
     expect(set(policy["img-src"]) == {"'self'", "data:", "blob:", protomaps, "{$MAP_TILE_URL}"}, policy)
     expect(set(policy["connect-src"]) == {"'self'", protomaps, "{$MAP_TILE_URL}"}, policy)
     expect(policy["frame-src"] == [turnstile_origin] and policy["font-src"] == ["'self'"], policy)
     expect(policy["worker-src"] == ["'self'", "blob:"] and policy["object-src"] == ["'none'"], policy)
     expect(policy["default-src"] == ["'self'"] and policy["base-uri"] == ["'self'"], policy)
-    expect("'unsafe-eval'" not in _headers(tree)[REPORT_ONLY], "nothing on the site evaluates strings")
+    expect(policy["frame-ancestors"] == ["'none'"], "the enforced policy keeps the framing rule")
+    expect(policy["report-uri"] == [REPORT_PATH] and policy["report-to"] == ["csp"], policy)
+    expect(SECURITY_HEADERS["Reporting-Endpoints"] == f'csp="{REPORT_PATH}"', "report-to names this endpoint")
+    expect("'unsafe-eval'" not in _policy_text(tree), "nothing on the site evaluates strings")
     base = (WEB / "templates" / "base.html").read_text()
     expect("fonts.googleapis.com" not in base and "fonts.gstatic.com" not in base, "fonts are self-hosted")
 
 
-def test_caddy_receives_the_basemap_url_its_policy_names() -> None:
+def test_inline_styles_are_allowed_only_while_a_template_has_a_style_attribute(tree: list[Block]) -> None:
+    """A ratchet (2026-10-10). `style-src-attr 'unsafe-inline'` stays only while a template carries
+    a `style` attribute; on that day two did, in templates other work owned (home_map.html's
+    legend, partials/_org_pipeline.html's status icon), and styles.css already has their classes.
+    Once none does, this fails until the allowance leaves the Caddyfile."""
+    policy = _policy(_policy_text(tree))
+    left = _style_attributes()
+    if left:
+        expect(policy.get("style-src-attr") == ["'unsafe-inline'"], f"{left} still need it: {policy}")
+    else:
+        expect("style-src-attr" not in policy, "no template has a style attribute: drop style-src-attr")
+    expect(
+        "'unsafe-inline'" not in policy["style-src"] + policy["script-src"], "never for <style> or <script>"
+    )
+    expect(
+        set(left) <= {"templates/home_map.html", "templates/partials/_org_pipeline.html"},
+        f"a new style attribute: {left}",
+    )
+
+
+def test_caddy_receives_the_basemap_url_its_policy_names_and_the_mode() -> None:
     prod = (ROOT / "infra" / "compose" / "compose.prod.yml").read_text()
     expect(
         "      MAP_TILE_URL: ${MAP_TILE_URL:-}\n" in prod, "compose.prod.yml must pass MAP_TILE_URL to caddy"
     )
+    expect("      CSP_MODE: ${CSP_MODE:-report}\n" in prod, "compose.prod.yml must pass CSP_MODE to caddy")
+
+
+def test_the_report_path_reaches_the_site_on_every_host_and_skips_the_gate(tree: list[Block]) -> None:
+    gate = [t for t, _ in find(tree, "(gate_basic)")[1] if t[:1] == ["@gated"]]
+    expect(bool(gate) and "/csp-report" in gate[0], f"browsers report without the login: {gate}")
+    api = find(tree, "(api_site)")[1]
+    handles = [tokens for tokens, _ in api if tokens[0] == "handle"]
+    expect(["handle", "/csp-report"] in handles, f"the api host sends reports to web: {handles}")
 
 
 # ------------------------------------------------------------------------------ with Caddy
@@ -556,6 +627,9 @@ ROUTES = [
     (f"api.{DOMAIN}", "GET", "/feeds/events.rss", "api"),
     (f"api.{DOMAIN}", "GET", "/errors/rate_limited", "api"),
     (f"api.{DOMAIN}", "GET", "/openapi.json", "api"),
+    (DOMAIN, "POST", "/csp-report", "web"),
+    (f"admin.{DOMAIN}", "POST", "/csp-report", "web"),
+    (f"api.{DOMAIN}", "POST", "/csp-report", "web"),
 ]
 
 
@@ -613,9 +687,49 @@ def test_every_response_carries_the_security_headers(live: LiveCaddy, host: str,
     expect(response.status_code == 200, response.status_code)
     for name, value in SECURITY_HEADERS.items():
         expect(response.headers.get(name) == value, f"{host}{path} {name}: {response.headers.get(name)}")
+    # CSP_MODE unset: report mode. Only the framing rule is enforced; the whole policy reports.
+    expect(response.headers.get_list("Content-Security-Policy") == [FRAME_ONLY], response.headers)
     policy = _policy(response.headers.get(REPORT_ONLY, ""))
     expect(TILE_URL in policy["connect-src"] and TILE_URL in policy["img-src"], policy)
-    expect(len(response.headers.get_list("Content-Security-Policy")) == 1, "one enforced policy")
+    expect(policy["report-uri"] == ["/csp-report"] and policy["frame-ancestors"] == ["'none'"], policy)
+
+
+@pytest.fixture(scope="module")
+def enforced(tmp_path_factory: pytest.TempPathFactory) -> Iterator[LiveCaddy]:
+    tmp = tmp_path_factory.mktemp("caddy-enforced")
+    with _running_caddy(tmp, trust_loopback=False, extra_env={"CSP_MODE": "enforce"}) as caddy:
+        yield caddy
+
+
+@needs_caddy
+@pytest.mark.parametrize(("host", "path"), [(DOMAIN, "/proposals"), (f"admin.{DOMAIN}", "/admin")])
+def test_csp_mode_enforce_sends_the_whole_policy_as_the_enforced_one(
+    enforced: LiveCaddy, host: str, path: str
+) -> None:
+    response = enforced.request(host, path)
+    expect(response.status_code == 200, response.status_code)
+    [header] = response.headers.get_list("Content-Security-Policy")
+    policy = _policy(header)
+    expect(
+        policy == _policy(_policy_text(parse(CADDYFILE.read_text())).replace("{$MAP_TILE_URL}", TILE_URL)),
+        policy,
+    )
+    expect(REPORT_ONLY not in response.headers, "enforce sends no report-only copy")
+    expect(response.headers.get("Reporting-Endpoints") == 'csp="/csp-report"', response.headers)
+
+
+@needs_caddy
+@pytest.mark.parametrize("mode", ["", "Enforce", "off", "report-only"])
+def test_caddy_refuses_a_csp_mode_it_does_not_know(tmp_path: pathlib.Path, mode: str) -> None:
+    env = _env(tmp_path, "production") | {"CSP_MODE": mode}
+    result = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+        [CADDY or "caddy", "adapt", "--config", str(CADDYFILE)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    expect(result.returncode != 0, f"CSP_MODE={mode!r} adapted")
 
 
 @needs_caddy
@@ -627,6 +741,14 @@ def test_the_redirects_carry_them_too_and_an_upstream_value_wins(live: LiveCaddy
         expect(redirect.headers.get("strict-transport-security") == "max-age=31536000", redirect.headers)
     own = live.request(DOMAIN, "/proposals", headers={"X-Test-Upstream-Referrer-Policy": "no-referrer"})
     expect(own.headers.get_list("Referrer-Policy") == ["no-referrer"], own.headers)
+    # An upstream's own value replaces that one default only. Until 2026-10-10 the defaults shared one
+    # condition (all absent), so this response would have carried no HSTS, nosniff or CSP at all.
+    for name, value in SECURITY_HEADERS.items():
+        if name != "Referrer-Policy":
+            expect(own.headers.get(name) == value, f"{name} dropped beside an upstream Referrer-Policy")
+    expect(
+        own.headers.get("Content-Security-Policy") == FRAME_ONLY and REPORT_ONLY in own.headers, own.headers
+    )
 
 
 @needs_caddy
@@ -725,6 +847,9 @@ def test_behind_the_gate_admin_off_the_admin_host_asks_for_the_login_then_404s(
         (f"api.{DOMAIN}", "POST", "/webhooks/attio", "api"),
         (DOMAIN, "GET", "/health", "web"),
         (f"api.{DOMAIN}", "GET", "/v1/health", "api"),
+        (DOMAIN, "POST", "/csp-report", "web"),
+        (f"admin.{DOMAIN}", "POST", "/csp-report", "web"),
+        (f"api.{DOMAIN}", "POST", "/csp-report", "web"),
     ],
 )
 def test_the_beta_gate_lets_webhooks_and_health_checks_through(

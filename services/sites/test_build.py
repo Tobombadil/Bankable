@@ -275,6 +275,45 @@ def test_poi_phases_group_and_competitors_do_not(db: Session) -> None:
     assert rival.id not in stored and alone.id not in stored
 
 
+def test_st_gall_iiia_and_iiib_are_phases_not_an_unclear_pair(db: Session) -> None:
+    """The beta store labelled these `same_site` (low): "IIIA" was not read as a phase marker and
+    kept the two names' stems apart. Both now read as numbered phases of `gall` (lane S2)."""
+    iv = point(db, "St Gall 115kV")
+    dev = org(db, "Gall Developer LLC")
+    a = prop(db, "st gall IIIA Storage", mw=200, poi=iv, sponsor=dev, technology="storage")
+    b = prop(db, "st gall IIIB Storage", mw=100, poi=iv, sponsor=dev, technology="storage")
+    build.rebuild_sites(db, now=T0)
+    db.commit()
+    (site,) = live_sites(db)
+    rows = members_of(db, site)
+    assert rows[a.public_id].relation == "lead"
+    assert (rows[b.public_id].relation, rows[b.public_id].confidence) == ("phase_of", "high")
+    assert rows[b.public_id].basis["phases"] == ["3B"]
+    assert site.rule_version == rules.RULE_VERSION
+
+
+def test_each_membership_stores_its_direct_links_but_not_a_shared_plant(db: Session) -> None:
+    """The per-edge evidence the API needs to recompute a viewer's connectivity: each member's rule
+    b-c partners by public id. Units of one plant need none (the plant id joins them)."""
+    iv = point(db)
+    dev = org(db, "Linked Dev")
+    a = prop(db, "Linked Solar", poi=iv, sponsor=dev)
+    b = prop(db, "Linked Storage", poi=iv, sponsor=dev, technology="storage")
+    u1 = prop(db, "Unit Plant", record="4242-1", technology="gas_ct")
+    u2 = prop(db, "Unit Plant", record="4242-2", technology="gas_ct")
+    build.rebuild_sites(db, now=T0)
+    db.commit()
+    rows = {
+        db.get(Proposal, r.proposal_id).public_id: r  # type: ignore[union-attr]
+        for r in db.scalars(select(SiteMember))
+    }
+    assert len(live_sites(db)) == 2
+    assert rows[a.public_id].grouping_evidence[rules.LINKS_KEY] == {b.public_id: "poi_sponsor"}
+    assert rows[b.public_id].grouping_evidence[rules.LINKS_KEY] == {a.public_id: "poi_sponsor"}
+    assert rows[u1.public_id].grouping_evidence[rules.LINKS_KEY] == {}
+    assert rows[u2.public_id].grouping_evidence[rules.LINKS_KEY] == {}
+
+
 def test_a_rerun_writes_nothing_and_keeps_ids(db: Session) -> None:
     iv = point(db)
     s1 = org(db, "Hiru Dev")

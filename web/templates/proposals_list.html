@@ -1,10 +1,13 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}Proposals — Infraque{% endblock %}
+{% block title %}{{ subject.heading if subject else 'Proposals' }} — Infraque{% endblock %}
 {% block meta_description %}{{ sources_phrase }}, filterable by kind, technology, lifecycle state, jurisdiction and capacity.{% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1>Proposals</h1>
+  {#- A list about one company, its group or one connection point says so, with a link back to that
+      page (web/list_subject.py); the form below keeps the filter that makes it so. -#}
+  <h1>{{ subject.heading if subject else 'Proposals' }}</h1>
+  {% if subject and subject.href %}<p>{{ subject.link_label }}: <a href="{{ subject.href }}">{{ subject.name }}</a></p>{% endif %}
   <p>Supply-side records: interconnection queue positions, planned generation and storage units, and data-centre sites from air-permit registers. Where two sources describe one project and have been matched, it is one row.</p>
   {#- docs/30 §4.5 and IA-3: the intake form is entered from the two list pages. -#}
   <p>Know of a project that is not listed? <a href="/submit">Submit it for review</a>.</p>
@@ -56,6 +59,7 @@
   {#- The map's viewport, when the list was opened from the map, so "View as map" returns there
       after the filters change (designer D-8). Not a filter: the API never sees it. -#}
   {% if view_center and view_zoom %}<input type="hidden" name="center" value="{{ view_center }}"><input type="hidden" name="zoom" value="{{ view_zoom }}">{% endif %}
+  {% for name, value in subject_fields or [] %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
   <button class="filter-bar__submit" type="submit">Apply filters</button>
   {% if filters.get('technology') or filters.get('kind') or filters.get('jurisdiction') or filters.get('capacity_mw[gte]') or filters.get('capacity_mw[lte]') or filters.get('slip_bucket') or include_withdrawn or lifecycle_explicit %}
   <a class="filter-bar__clear" href="/proposals">Clear all</a>

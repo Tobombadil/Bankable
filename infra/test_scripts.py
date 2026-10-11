@@ -29,6 +29,8 @@ case "$*" in  # swallow piped stdin (secrets, tokens); keep what would land in t
 esac
 healthy_body='{"status":"ok","checks":{"database":true,"queue":true}}'
 case "$*" in
+  *"alembic.ini heads"*) printf '%b\n' "${FAKE_HEADS-0036 (head)}" ;;  # the previous image's head
+  *"alembic.ini downgrade"*) exit "${FAKE_DOWNGRADE_RC:-0}" ;;
   *"procrastinate_jobs"*) printf '%s\n' "${FAKE_PENDING:-0}" ;;  # before current-tag: seed's compose reads it
   *"cat /opt/infraque/current-tag"*) printf '%s\n' "${FAKE_PREVIOUS_TAG:-}" ;;
   *"docker inspect"*) printf '%s\n' "${FAKE_HEALTH:-healthy}" ;;
@@ -359,26 +361,176 @@ def test_rollback_reruns_deploy_without_auto_rollback(shims: tuple[pathlib.Path,
     expect(not any("infraque-backup.service" in ln for ln in calls(log)), "no dump on a plain rollback")
     expect(not any("upgrade head" in ln for ln in calls(log)), "no migration on a rollback")
     expect(any("infra.scheduler.queue_schema" in ln for ln in calls(log)), "the queue schema step still runs")
-    log.write_text("")
-    result = run("rollback.sh", "staging", "sha-good111", "--downgrade-migration", env=env)
+
+
+#: The host runs the bad tag (deploy.sh recorded it in current-tag); the operator rolls back to the good one.
+BAD, GOOD = "sha-bad0000", "sha-good111"
+COMPOSE = "docker compose -f docker-compose.yml -f compose.prod.yml --env-file /opt/infraque/secrets/.env"
+
+
+def _in(tag: str, command: str, compose: str = COMPOSE) -> str:
+    return f"IMAGE_TAG={tag} INFRAQUE_ENV_FILE=/opt/infraque/secrets/.env {compose} {command}"
+
+
+def test_a_downgrade_runs_in_the_newer_image_to_the_previous_images_head(
+    shims: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    """docs/60 §10.2 (2026-10-10): the downgrade ran `downgrade -1` in the PREVIOUS image, which lacks
+    the newer revision's script, and alembic refused ("Can't locate revision"). Now the previous
+    image names its head, the newer image (which has the scripts) downgrades to it, with the
+    pipeline stopped and a dump taken just before, and only then does the previous tag go up."""
+    log, env = shims
+    result = run(
+        "rollback.sh", "staging", GOOD, "--downgrade-migration", env=env | {"FAKE_PREVIOUS_TAG": BAD}
+    )
     expect(result.returncode == 0, result.stdout + result.stderr)
     lines = calls(log)
+    heads = first_index(
+        lines, _in(GOOD, "run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini heads")
+    )
+    stop = first_index(lines, _in(BAD, "stop scheduler"))
     dump = first_index(lines, "systemctl start infraque-backup.service")
+    downgrade = first_index(
+        lines,
+        _in(BAD, "run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini downgrade 0036"),
+    )
+    redeploy = first_index(lines, _in(GOOD, "up -d --no-build caddy api web"))
+    expect(heads < stop < dump < downgrade < redeploy, lines)
+    for host in ("10.0.1.20", "10.0.1.21"):
+        expect(
+            first_index(lines, f"root@{host} cd /opt/infraque/compose && {_in(BAD, 'stop worker')}") < dump,
+            lines,
+        )
     expect(
-        dump < first_index(lines, "downgrade -1") < first_index(lines, "up -d --no-build caddy api web"),
+        first_index(lines, f"root@10.0.1.30 cd /opt/infraque/compose && {_in(BAD, 'stop browser-worker')}")
+        < dump,
         lines,
     )
     expect(sum("infraque-backup.service" in ln for ln in lines) == 1, "one dump, before the downgrade")
-    expect(not any("upgrade head" in ln for ln in lines), "the downgrade is the only schema change")
+    expect(sum("alembic" in ln and "downgrade" in ln for ln in lines) == 1, "one downgrade")
+    expect(
+        not any("downgrade -1" in ln or "upgrade head" in ln for ln in lines),
+        "the downgrade is the only change",
+    )
+    expect(
+        not any(
+            _in(GOOD, "run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini downgrade")
+            in ln
+            for ln in lines
+        ),
+        lines,
+    )
 
 
-def test_a_failed_dump_refuses_the_downgrade(shims: tuple[pathlib.Path, dict[str, str]]) -> None:
+def test_from_names_the_newer_image_when_the_host_already_runs_the_previous_one(
+    shims: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    """After an automatic rollback, current-tag is the previous tag: the newer image must be named."""
+    log, env = shims
+    env = env | {"FAKE_PREVIOUS_TAG": GOOD}
+    refused = run("rollback.sh", "staging", GOOD, "--downgrade-migration", env=env)
+    expect(refused.returncode == 1 and "--from" in refused.stderr, refused.stdout + refused.stderr)
+    expect(not any("alembic" in ln or " stop " in ln or "backup" in ln for ln in calls(log)), calls(log))
+    nothing = run(
+        "rollback.sh", "staging", GOOD, "--downgrade-migration", env=env | {"FAKE_PREVIOUS_TAG": ""}
+    )
+    expect(nothing.returncode == 1 and "no current-tag" in nothing.stderr, nothing.stderr)
+    result = run("rollback.sh", "staging", GOOD, "--downgrade-migration", "--from", BAD, env=env)
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    expect(
+        any(
+            _in(BAD, "run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini downgrade 0036")
+            in ln
+            for ln in calls(log)
+        ),
+        calls(log),
+    )
+    expect(
+        run("rollback.sh", "staging", GOOD, "--from", BAD, env=env).returncode == 1, "--from alone is refused"
+    )
+
+
+@pytest.mark.parametrize("heads", ["", "0036 (head)\\n0035b (head)", "garbage"])
+def test_a_previous_image_without_exactly_one_head_is_refused_before_anything_changes(
+    shims: tuple[pathlib.Path, dict[str, str]], heads: str
+) -> None:
+    log, env = shims
+    env = env | {"FAKE_PREVIOUS_TAG": BAD, "FAKE_HEADS": heads}
+    result = run("rollback.sh", "staging", GOOD, "--downgrade-migration", env=env)
+    expect(
+        result.returncode == 1 and "exactly one migration head" in result.stderr,
+        result.stdout + result.stderr,
+    )
+    for needle in (" stop ", "infraque-backup.service", "downgrade", "up -d"):
+        expect(not any(needle in ln for ln in calls(log)), f"{needle!r} ran: {calls(log)}")
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        ({"FAKE_BACKUP_RC": "1"}, "the dump failed"),
+        ({"FAKE_DOWNGRADE_RC": "1"}, "the downgrade in sha-bad0000 failed"),
+    ],
+)
+def test_a_failed_dump_or_downgrade_restarts_the_pipeline_and_redeploys_nothing(
+    shims: tuple[pathlib.Path, dict[str, str]], failure: dict[str, str], message: str
+) -> None:
     log, env = shims
     result = run(
-        "rollback.sh", "staging", "sha-good111", "--downgrade-migration", env=env | {"FAKE_BACKUP_RC": "1"}
+        "rollback.sh",
+        "staging",
+        GOOD,
+        "--downgrade-migration",
+        env=env | {"FAKE_PREVIOUS_TAG": BAD} | failure,
     )
-    expect(result.returncode == 1 and "not downgrading" in result.stderr, result.stdout + result.stderr)
-    expect(not any("downgrade -1" in ln or "up -d" in ln for ln in calls(log)), calls(log))
+    expect(result.returncode == 1 and message in result.stderr, result.stdout + result.stderr)
+    expect("not downgrading" in result.stderr, result.stderr)
+    lines = calls(log)
+    expect(not any("up -d" in ln for ln in lines), "nothing is redeployed")
+    expect(sum(" downgrade " in ln for ln in lines) == (1 if "FAKE_DOWNGRADE_RC" in failure else 0), lines)
+    stopped = first_index(lines, _in(BAD, "stop scheduler"))
+    restarted = [
+        ln
+        for ln in lines[stopped:]
+        if " start worker" in ln or " start browser-worker" in ln or " start scheduler" in ln
+    ]
+    expect(len(restarted) == 4, f"2 workers, the browser worker and the scheduler: {restarted}")
+
+
+def test_a_single_host_downgrade_uses_its_compose_files_and_one_worker(
+    shims: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    log, env = shims
+    result = run(
+        "rollback.sh",
+        "production",
+        GOOD,
+        "--downgrade-migration",
+        env=_single(env) | {"FAKE_PREVIOUS_TAG": BAD},
+    )
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    lines = calls(log)
+    single = COMPOSE.replace("compose.prod.yml", "compose.prod.yml -f compose.single.yml")
+    downgrade = first_index(
+        lines,
+        _in(
+            BAD,
+            "run --rm --no-deps -T api alembic -c services/db/migrations/alembic.ini downgrade 0036",
+            single,
+        ),
+    )
+    expect(first_index(lines, _in(BAD, "stop worker", single)) < downgrade, lines)
+    expect(not any("browser-worker" in ln for ln in lines[:downgrade]), "no browser worker on one host")
+    expect(all("10.0.1.10" in ln for ln in lines if ln.startswith("ssh ")), "everything on APP_HOST")
+
+
+def test_a_downgrade_needs_the_hosts_the_redeploy_needs(shims: tuple[pathlib.Path, dict[str, str]]) -> None:
+    log, env = shims
+    for missing in ("WORKER_HOSTS", "BROWSER_WORKER_HOST", "SOPS_AGE_KEY"):
+        partial = {k: v for k, v in env.items() if k != missing} | {"FAKE_PREVIOUS_TAG": BAD}
+        result = run("rollback.sh", "staging", GOOD, "--downgrade-migration", env=partial)
+        expect(result.returncode != 0 and missing in result.stderr, f"{missing}: {result.stderr}")
+    expect(calls(log) == [], "refused before touching a host")
 
 
 def test_a_failed_pre_migration_dump_stops_before_the_schema_and_restarts_what_it_stopped(
@@ -608,6 +760,30 @@ def test_deploy_refuses_an_access_gate_caddy_could_not_enforce(
     result = run("deploy.sh", "staging", "sha-x", env=env | {"FAKE_EXTRA": gate})
     expect(result.returncode != 0 and message in result.stderr, result.stderr)
     expect(not any("ssh " in ln for ln in calls(log)), "nothing may touch a host before the checks pass")
+
+
+@pytest.mark.parametrize("mode", ["Enforce", "off", "report-only"])
+def test_deploy_refuses_a_csp_mode_caddy_would_not_start_with(
+    shims: tuple[pathlib.Path, dict[str, str]], mode: str
+) -> None:
+    log, env = shims
+    result = run("deploy.sh", "staging", "sha-x", env=env | {"FAKE_EXTRA": f"CSP_MODE={mode}"})
+    expect(result.returncode != 0 and "CSP_MODE must be report or enforce" in result.stderr, result.stderr)
+    expect(not any("ssh " in ln for ln in calls(log)), "nothing may touch a host before the checks pass")
+
+
+@pytest.mark.parametrize("mode", ["report", "enforce"])
+def test_deploy_ships_either_csp_mode(shims: tuple[pathlib.Path, dict[str, str]], mode: str) -> None:
+    _, env = shims
+    secrets = pathlib.Path(env["HOME"]) / "shipped.env"
+    result = run(
+        "deploy.sh",
+        "staging",
+        "sha-x",
+        env=env | {"FAKE_EXTRA": f"CSP_MODE={mode}", "FAKE_SECRETS": str(secrets)},
+    )
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    expect(f"CSP_MODE={mode}" in secrets.read_text(), "the mode reaches the env file Caddy reads")
 
 
 def test_backup_on_a_single_host_dumps_the_stack_database_over_loopback(

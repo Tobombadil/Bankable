@@ -219,11 +219,14 @@ class FakeTransport:
     def __init__(self, responses: Mapping[str, tuple[int, Any]]) -> None:
         self.responses = dict(responses)
         self.calls: list[str] = []
+        self.params: list[tuple[str, dict[str, Any]]] = []
+        self.posted: list[tuple[str, Any]] = []
 
     def get(
         self, url: str, *, params: Mapping[str, Any] | None = None, cookies: dict[str, str] | None = None
     ) -> httpx.Response:
         self.calls.append(url)
+        self.params.append((url, dict(params or {})))
         if url in self.responses:
             status, body = self.responses[url]
             return httpx.Response(status, json=body)
@@ -233,6 +236,7 @@ class FakeTransport:
         self, url: str, *, json: Mapping[str, Any] | None = None, cookies: dict[str, str] | None = None
     ) -> httpx.Response:
         self.calls.append(url)
+        self.posted.append((url, json))
         return httpx.Response(202, json={})
 
     def request(self, method: str, url: str, **_: Any) -> httpx.Response:
@@ -340,6 +344,31 @@ def test_the_proposal_page_shows_the_site_panel(client: TestClient, install: Any
     assert 'aria-current="true"' in panel and "this record" in panel
     assert "<summary>Also at this interconnection point (1)</summary>" in panel
     assert "Sources of these rows: EIA-860M" in panel
+
+
+def test_the_panel_asks_for_its_own_records_linked_group(client: TestClient, install: Any) -> None:
+    """When a hidden record is all that links some visible members to the rest, the API serves one
+    linked group; the panel asks for the group holding this record, not the site page's largest."""
+    transport = install(_transport())
+    client.get("/proposals/prop_g2")
+    assert (f"/v1/sites/{SITE_ID}", {"member": "PROP_G2"}) in transport.params
+
+
+def test_a_partial_site_says_so_on_the_page_and_the_panel(client: TestClient, install: Any) -> None:
+    install(_transport(site={**_site(), "partial": True}))
+    page = client.get(f"/sites/{SITE_ID}").text
+    assert "This page lists the largest group of linked records at this site." in page
+    panel = client.get("/proposals/prop_g2").text
+    assert "Other records at this site are not linked to these by anything shown here." in panel
+    install(_transport())
+    assert "largest group of linked records" not in client.get(f"/sites/{SITE_ID}").text
+
+
+def test_a_site_page_view_is_counted_as_a_site(client: TestClient, install: Any) -> None:
+    """The beta is measured by use: a site page counts as `page.viewed {page_type: site}`."""
+    transport = install(_transport())
+    assert client.get(f"/sites/{SITE_ID}").status_code == 200
+    assert ("/v1/ui-events", {"name": "page.viewed", "props": {"page_type": "site"}}) in transport.posted
 
 
 def test_a_large_site_summarises_units_in_the_panel(client: TestClient, install: Any) -> None:

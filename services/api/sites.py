@@ -15,6 +15,14 @@ a reader may see of it is decided per request, through the proposal predicate:
   hidden from the caller, the lead and the labels are re-run over the visible members with the same
   rules (`services/sites/rules.py`), from the basis stored with each membership, so a hidden
   record's name never heads a page.
+* **No bridging through a hidden record** (lane S2). When any member is hidden, the site's
+  connectivity is recomputed over the visible members alone (`rules.connected_groups`, from the
+  plant ids in each `basis` and the direct links in each `grouping_evidence`), and only one
+  connected group is served: the one holding the record asked about (the proposal embed, or
+  `?member=` on the detail), else the largest. Lead and labels are re-run over that group, so a
+  visible record linked to the others only through a hidden one is not shown with them and the
+  relation the hidden record carried is not served. `partial` tells the reader that other records
+  of this site are not listed (each keeps its own page); it never says why.
 * **Flagged and retired sites are not served.** A site flagged `oversize` waits for review; a
   retired site answers `301` to its successor when the successor is served to the caller, else
   `404`.
@@ -37,6 +45,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session, selectinload
 
+from services.api.admin_sites import router as admin_router
 from services.api.auth import AuthContext, get_auth_context
 from services.api.common import WEB_HOST, iso
 from services.api.deps import get_db
@@ -78,6 +87,9 @@ from services.sites import rules
 from services.sites.switch import sites_enabled
 
 router = APIRouter()
+# The operator read of the site pass (`GET /admin/v1/sites/review`) rides on this router, so the
+# app's one `include_router(sites_router)` mounts both.
+router.include_router(admin_router)
 
 #: Neighbours listed under `shares_interconnection_point`; the count always covers all of them.
 NEIGHBOUR_CAP = 100
@@ -102,7 +114,11 @@ class ServedMember:
 @dataclass(frozen=True)
 class ServedSite:
     site: Site
+    #: One connected group of the members the caller may see, in display order (the lead first).
     members: list[ServedMember]
+    #: The caller may see members of this site that are not in `members` (they are connected to
+    #: these only through a member the caller may not see). Served as `partial`, never with a reason.
+    partial: bool = False
 
     @property
     def lead(self) -> ServedMember:
@@ -117,23 +133,49 @@ def _servable(site: Site) -> bool:
     return site.retired_at is None and site.review_flag is None
 
 
-def served_site(db: Session, site: Site, entitlement: str, *, with_sources: bool = True) -> ServedSite | None:
-    """The site as `entitlement` may see it (module docstring), or None when it may not. When every
-    member is visible the stored placement is served as built; otherwise `rules.label_site` is re-run
-    over the visible members' stored bases, so no lead, group head or label rests on a member this
-    caller may not see."""
+def stored_links(member: SiteMember) -> list[str] | None:
+    """The member's direct rule b-c partners (`rules.LINKS_KEY`), or None for a row written before
+    links were stored (`rules.connected_groups` then joins it by plant ids only)."""
+    links = (member.grouping_evidence or {}).get(rules.LINKS_KEY)
+    if isinstance(links, dict):
+        return [str(k) for k in links]
+    if isinstance(links, list):
+        return [str(k) for k in links]
+    return None
+
+
+def served_groups(
+    db: Session, site: Site, entitlement: str, *, with_sources: bool = True
+) -> list[ServedSite]:
+    """The site as `entitlement` may see it (module docstring): its connected groups of two or more
+    visible members, largest first, each with its own lead and labels; empty when there is none.
+    When every member is visible the stored placement is served as built (one group: a stored site
+    is connected by construction); otherwise connectivity is recomputed over the visible members
+    (`rules.connected_groups`) and `rules.label_site` re-run over each group's stored bases, so no
+    lead, group head, label or link rests on a member this caller may not see."""
     if not sites_enabled() or not _servable(site):
-        return None
+        return []
+    # The members' ids first, and the join narrowed to them. Without planner statistics SQLite drives
+    # this query from the publish-state index over every public proposal rather than from the site's
+    # index; the id list halves that (median 45.6 -> 23.2 ms per call over 60 sites of a copy of the
+    # e2e store, 2026-10-10). Postgres plans from statistics; there it costs one indexed query.
+    member_ids = list(db.scalars(select(SiteMember.proposal_id).where(SiteMember.site_id == site.id)))
+    if len(member_ids) < 2:
+        return []
     stmt = (
         select(SiteMember, Proposal)
         .join(Proposal, Proposal.id == SiteMember.proposal_id)
-        .where(SiteMember.site_id == site.id, *proposal_visibility_filter(entitlement))
+        .where(
+            SiteMember.site_id == site.id,
+            Proposal.id.in_(member_ids),
+            *proposal_visibility_filter(entitlement),
+        )
     )
     # Every member's links when every row is printed (the detail); the embed prints only the lead's
     # served name, whose links load on first use.
     rows = db.execute(stmt.options(selectinload(Proposal.sources)) if with_sources else stmt).all()
     if len(rows) < 2:
-        return None
+        return []
     pairs = [(cast(SiteMember, r[0]), cast(Proposal, r[1])) for r in rows]
     by_id = {p.id: p for _m, p in pairs}
     if len(pairs) == site.member_count and all(m.parent_proposal_id in (None, *by_id) for m, _p in pairs):
@@ -149,24 +191,49 @@ def served_site(db: Session, site: Site, entitlement: str, *, with_sources: bool
             )
             for i, (m, p) in enumerate(ordered)
         ]
-        return ServedSite(site, members)
+        return [ServedSite(site, members)]
     by_public = {p.public_id: (m, p) for m, p in pairs}
-    placed = rules.label_site(
-        rules.Basis.from_json({**(m.basis or {}), "public_id": p.public_id}) for m, p in pairs
-    )
-    return ServedSite(
-        site,
-        [
-            ServedMember(
-                *by_public[x.basis.public_id],
-                x.label,
-                x.rank,
-                x.group_key,
-                by_public[x.parent][1] if x.parent else None,
+    bases = [rules.Basis.from_json({**(m.basis or {}), "public_id": p.public_id}) for m, p in pairs]
+    groups = rules.connected_groups(bases, {p.public_id: stored_links(m) for m, p in pairs})
+    out: list[ServedSite] = []
+    for group in groups:
+        if len(group) < 2:
+            continue
+        placed = rules.label_site(group)
+        out.append(
+            ServedSite(
+                site,
+                [
+                    ServedMember(
+                        *by_public[x.basis.public_id],
+                        x.label,
+                        x.rank,
+                        x.group_key,
+                        by_public[x.parent][1] if x.parent else None,
+                    )
+                    for x in placed
+                ],
+                partial=len(group) < len(pairs),
             )
-            for x in placed
-        ],
-    )
+        )
+    return out
+
+
+def served_site(
+    db: Session,
+    site: Site,
+    entitlement: str,
+    *,
+    with_sources: bool = True,
+    member: _uuid.UUID | None = None,
+) -> ServedSite | None:
+    """The one group of `served_groups` a page shows: the group holding the proposal `member` when
+    one is named (None when it is in none), else the largest. None when the caller may see no
+    group of two."""
+    groups = served_groups(db, site, entitlement, with_sources=with_sources)
+    if member is None:
+        return groups[0] if groups else None
+    return next((g for g in groups if any(m.proposal.id == member for m in g.members)), None)
 
 
 # ---------------------------------------------------------------------------- proposal embed
@@ -202,9 +269,10 @@ def proposal_site_embeds(
 ) -> dict[_uuid.UUID, dict[str, Any] | None]:
     """`site` for each of `proposals` (keyed by proposal id): the site the record belongs to as the
     caller may see it -- its id, name, visible member count and lead, and this record's own place
-    in it -- or `None` when it has none on this tier. One membership query for the batch, then one
-    served-site read per distinct site, so the bulk stream carries the detail shape. `link_ok` (the
-    bulk stream's redistribution rule) narrows the lead's served name as it narrows every field."""
+    in it, all over the connected group that holds the record (`served_groups`) -- or `None` when it
+    has none on this tier. One membership query for the batch, then one served read per distinct
+    site, so the bulk stream carries the detail shape. `link_ok` (the bulk stream's redistribution
+    rule) narrows the lead's served name as it narrows every field."""
     out: dict[_uuid.UUID, dict[str, Any] | None] = {p.id: None for p in proposals}
     if not proposals or not sites_enabled():
         return out
@@ -213,11 +281,13 @@ def proposal_site_embeds(
         .join(Site, Site.id == SiteMember.site_id)
         .where(SiteMember.proposal_id.in_([p.id for p in proposals]))
     ).all()
-    served: dict[_uuid.UUID, ServedSite | None] = {}
+    served: dict[_uuid.UUID, list[ServedSite]] = {}
     for proposal_id, site in rows:
         if site.id not in served:
-            served[site.id] = served_site(db, site, entitlement, with_sources=False)
-        view = served[site.id]
+            served[site.id] = served_groups(db, site, entitlement, with_sources=False)
+        view = next(
+            (g for g in served[site.id] if any(m.proposal.id == proposal_id for m in g.members)), None
+        )
         out[proposal_id] = _embed(view, proposal_id, entitlement, link_ok) if view is not None else None
     return out
 
@@ -398,6 +468,7 @@ def serialize_site(
         "name": lead["name_canonical"],
         "rule_version": served.site.rule_version,
         "member_count": len(members),
+        "partial": served.partial,
         "lead": lead,
         "members": members[:MEMBER_CAP],
         "members_truncated": len(members) > MEMBER_CAP,
@@ -424,6 +495,18 @@ def _successor(db: Session, site: Site, entitlement: str) -> ServedSite | None:
     return None
 
 
+def _member_id(db: Session, site: Site, public_id: str | None) -> _uuid.UUID | None:
+    """The proposal `?member=` names when it is a member of `site` (visibility is applied by
+    `served_site`, which finds it in no group otherwise)."""
+    if not public_id:
+        return None
+    return db.scalar(
+        select(SiteMember.proposal_id)
+        .join(Proposal, Proposal.id == SiteMember.proposal_id)
+        .where(SiteMember.site_id == site.id, Proposal.public_id == public_id)
+    )
+
+
 @router.get("/v1/sites/{public_id}")
 def get_site(
     public_id: str,
@@ -431,7 +514,7 @@ def get_site(
     db: Annotated[Session, Depends(get_db)],
     ctx: Annotated[AuthContext, Depends(get_auth_context)],
 ) -> Any:
-    check_allowed(request, set())
+    check_allowed(request, {"member"})
     site = db.scalar(select(Site).where(Site.public_id == public_id)) if sites_enabled() else None
     if site is None:
         raise not_found(request.url.path)
@@ -442,7 +525,11 @@ def get_site(
         return RedirectResponse(
             str(request.url.replace(path=f"/v1/sites/{successor.site.public_id}")), status_code=301
         )
-    served = served_site(db, site, ctx.entitlement)
+    named = request.query_params.get("member")
+    member = _member_id(db, site, named)
+    if named and member is None:
+        raise not_found(request.url.path)
+    served = served_site(db, site, ctx.entitlement, member=member)
     if served is None:
         raise not_found(request.url.path)
     data, anchor_rows = serialize_site(db, served, ctx.entitlement)

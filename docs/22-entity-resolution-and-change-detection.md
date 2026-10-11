@@ -122,7 +122,7 @@ Refine rules run first, in file order; then the base map; else `unknown` with `s
 | | Approved for Energization present, not synchronised (4) | under_construction | `ercot.energized` |
 | | IA Signed present, neither later milestone (465) | contracted | `ercot.ia_signed`; gridstatus calls these "Completed" |
 | | none of the three (1,192) | studied | base (`Active`) |
-| | *(withdrawal)* | — | **not representable**: withdrawn projects vanish from the file; only a `removed` diff event can show it |
+| | *(withdrawal)* | — | **not representable**: withdrawn projects vanish from the file, as do inactive and re-numbered ones; a `removed` diff event shows that a project left, not why (published as `delisted`, §8) |
 | SPP | WITHDRAWN | withdrawn | keyed on **Status (Original)**, not gridstatus's harmonised Status |
 | | TERMINATED (47) | cancelled | |
 | | IA FULLY EXECUTED/COMMERCIAL OPERATION (333) | built | |
@@ -392,6 +392,16 @@ Only a declared `withdrawn` publishes a `withdrawn` event, and no source declare
 `unknown`; grants.gov declares `closed`. A churn gate in `pipeline/connectors/dq.py` holds a run that re-keys its
 source (less than 90 % of the previous keys kept, or removals plus status moves over 15 % of the previous rows).
 
+**A queue departure is announced, worded as what is known (owner decision 2026-10-10).** For ERCOT, CAISO, NYISO and
+NESO, full registers of interconnection requests, a project leaving the report is news a follower should hear.
+Their connectors declare `announce_removals` (a publication choice; `removal_meaning` stays `unknown`), and the
+loader writes the removal as the public, alertable `delisted` event: "No longer in ERCOT's report (reason not
+stated)", never "withdrawn", with `gone_at` and the lifecycle state as above. It is kept out of social drafts.
+EIA-860M and every other source keep `removed_from_source`, because a unit leaving EIA's Planned sheet may have
+started operating. The churn gate holds a mass re-key before any `delisted` event is written, and a single re-key
+is never announced: a removed key whose project (`Connector.project_root`) is still in the frame under another key
+stays `removed_from_source` (`docs/21` §7.3).
+
 Event identity in the store (`services/ingest/loader.py`, changed 2026-09-18, audit §3.1):
 `event.idempotency_key = source:record_id:event_type:field:sha1(before)[:12]:sha1(after)[:12]:observed_at`.
 The key used to be `source:record_id:event_type:sha1(after)`, so a status that returned to an earlier value
@@ -589,8 +599,9 @@ week, so the gateway's budget line (`docs/20` §6) is set by extraction, not by 
 - **Monitoring**, per weekly run: candidate count and acceptance rate per source pair (a 2× move flags a
   parser change upstream); share of pairs in the ambiguous band; D2 rejection count; `status_rule = *.unmapped`
   and `*.blank` counts (a new raw status value must not silently become `unknown`); `status_conflict` count;
-  diff event counts by type per source against a 4-week median (ERCOT `removed` is the withdrawal signal and
-  must never be zero for long); and a 20-pair weekly spot-check of new acceptances, logged as labels.
+  diff event counts by type per source against a 4-week median (ERCOT `removed`, published as `delisted`, is
+  its only departure signal and must never be zero for long); and a 20-pair weekly spot-check of new
+  acceptances, logged as labels.
 
 ## 11. Assumptions and decisions recorded here
 

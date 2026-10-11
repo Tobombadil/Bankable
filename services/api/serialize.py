@@ -411,12 +411,18 @@ def serialize_proposal(
     `provenance` array the readable links -- a link to a gated source is omitted, not greyed
     (docs/21 §8 item 3) -- and `source_count` over those links. `admin=True` (the admin detail
     and intake views) prints the stored row with `sources` exactly as given."""
-    from services.api.visibility import gated_proposal, visible_source_links
+    from services.api.listing import listing_state
+    from services.api.visibility import gated_proposal, tier_links, visible_source_links
 
     if not admin:
         proposal = gated_proposal(proposal, entitlement, link_ok)
     if sources is None:
         sources = visible_source_links(proposal.sources, entitlement)
+    # Whether a register still lists it, over the links the tier may see (services/api/listing.py);
+    # the admin views read every active link.
+    listed, delisted_at = listing_state(
+        [s for s in proposal.sources if s.active] if admin else tier_links(proposal, entitlement)
+    )
     out: dict[str, Any] = {
         "public_id": proposal.public_id,
         "slug": proposal.slug,
@@ -434,6 +440,10 @@ def serialize_proposal(
         "location": serialize_location(proposal.location) if proposal.location else None,
         "lifecycle_state": proposal.lifecycle_state,
         "status_raw": proposal.status_raw,
+        # `lifecycle_state` is the last status a register stated; these say whether any still lists
+        # the project (a removal is not a withdrawal, docs/51 §2.7 item 1). Derived, never stored.
+        "listed": listed,
+        "delisted_at": iso(delisted_at),
         "identifiers": proposal.identifiers or {},
         "proposed_online_date": iso(proposal.proposed_online_date),
         # Derived at read time against today's date, never stored (services/api/slippage.py);
@@ -770,11 +780,19 @@ def _event_public_id(event: Event) -> str:
 
 
 def _headline(event: Event, subject_name: str) -> str:
+    from services.db.models import DELISTED_EVENT_TYPE, DELISTED_WORDING
+
     after = event.after or {}
     if event.event_type == "status_change" and "lifecycle_state" in after:
         return f"{subject_name}: {after['lifecycle_state']}"
     if event.event_type == "created":
         return f"New record: {subject_name}"
+    if event.event_type == DELISTED_EVENT_TYPE:
+        # The event's own sentence, "No longer in ERCOT's report (reason not stated)" (docs/21 §7.3),
+        # never the bare type, and never a withdrawal.
+        register = after.get("register_name") or (event.source.operator if event.source else None)
+        sentence = event.reason or DELISTED_WORDING.format(register=register or event.source_id)
+        return f"{subject_name}: {sentence}"
     return f"{subject_name}: {event.event_type}"
 
 

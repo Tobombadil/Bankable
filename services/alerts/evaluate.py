@@ -68,7 +68,17 @@ from services.alerts.visibility import event_with_visible_subject_filter
 from services.api.common import WEB_HOST
 from services.api.visibility import gated_opportunity, gated_proposal
 from services.db.event_horizon import stable_event_seq
-from services.db.models import Account, Alert, Event, Opportunity, Proposal, SavedSearch, User
+from services.db.models import (
+    DELISTED_EVENT_TYPE,
+    DELISTED_WORDING,
+    Account,
+    Alert,
+    Event,
+    Opportunity,
+    Proposal,
+    SavedSearch,
+    User,
+)
 from services.ids import public_id
 from services.social.textgate import reject_bare_none
 
@@ -128,11 +138,25 @@ def _fmt_value(key: str, value: Any) -> str:
     return text.replace("_", " ")
 
 
+def _register_name(event: Event) -> str:
+    """The register a `delisted` event names: its own `after["register_name"]`, else the source's
+    operator or name, so the sentence never prints a blank."""
+    stated = (event.after or {}).get("register_name")
+    if isinstance(stated, str) and stated.strip():
+        return stated.strip()
+    source = event.source
+    return (source.operator or source.name) if source is not None else str(event.source_id)
+
+
 def describe_change(event: Event) -> str:
-    """`status announced → filed`, `capacity 100 MW → 150 MW`, `new record`, `withdrawn`. Built only
-    from the event row's own `before`/`after`/`changed_keys` (docs/21 §3.10)."""
+    """`status announced → filed`, `capacity 100 MW → 150 MW`, `new record`, `withdrawn`,
+    `No longer in ERCOT's report (reason not stated)`. Built only from the event row's own
+    `before`/`after`/`changed_keys` (docs/21 §3.10). A `delisted` event never reads as a withdrawal
+    (owner decision 2026-10-10; `services.db.models.DELISTED_WORDING`)."""
     if event.event_type == "created":
         return "new record"
+    if event.event_type == DELISTED_EVENT_TYPE:
+        return DELISTED_WORDING.format(register=_register_name(event))
     before = event.before or {}
     after = event.after or {}
     keys = list(event.changed_keys or []) or sorted(set(before) | set(after))

@@ -23,10 +23,17 @@ parquet) carry a constant `lifecycle_state`, and until this change the loader re
 
 Removals (2026-10-10, docs/51 §2.7 item 1): a `removed` diff row says only that a record is no
 longer in its source's file. It is written as a public `withdrawn` event only for a source whose
-connector declares `removal_meaning = "withdrawn"` (none does today); every other removal is a
-`removed_from_source` event with NULL `published_at`/`public_at` and the declared meaning
-(`completed`, `closed`, `unknown`) in `after`, which no public or paid surface serves. The link's
-`gone_at` is set either way, and no removal changes a record's lifecycle state (it never did).
+connector declares `removal_meaning = "withdrawn"` (none does today). A source whose connector
+announces removals (`announce_removals`, a publication choice: ERCOT, CAISO, NYISO and NESO, owner
+decision 2026-10-10) and declares the meaning `unknown` gets the public, alertable `delisted` event,
+"No longer in <register>'s report (reason not stated)", which is never drafted for social, unless
+the same project is still in the current frame under another key (`Connector.project_root`: NESO's
+unstaged rows becoming stages, a NYISO queue position's content suffix shifting): that re-key is a
+`removed_from_source` saying so, never a public departure. Every other removal (EIA-860M's,
+grants.gov's) is a `removed_from_source` event with NULL `published_at`/`public_at` and the
+declared meaning (`completed`, `closed`, `unknown`) in `after`, which no public or paid surface
+serves. The link's `gone_at` is set in every case, and no removal changes a record's lifecycle
+state (it never did).
 
 Simplifications this sprint (no upstream producer yet — recorded here, not silently dropped):
   - **No cross-source fusion.** `pipeline/resolve.py` (entity resolution across sources) is a
@@ -119,7 +126,7 @@ import logging
 import pathlib
 import re
 import uuid as _uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -145,6 +152,9 @@ from pipeline.connectors.registry import (
 from pipeline.connectors.store import Store
 from pipeline.normalize import MILESTONE_COLUMNS, milestones_from_raw
 from services.db.models import (
+    DELISTED_EVENT_TYPE,
+    DELISTED_REASON,
+    DELISTED_WORDING,
     REMOVED_FROM_SOURCE_EVENT_TYPE,
     Event,
     Licence,
@@ -235,10 +245,10 @@ GENERIC_LOAD_KINDS: tuple[Kind, ...] = ("proposal", "opportunity")
 #:
 #: `removed` (2026-10-10, docs/51 §2.7 item 1) is not a withdrawal: it says only that the row is no
 #: longer in the source's file. It maps to the non-public `removed_from_source`, and becomes a
-#: public `withdrawn` only for a source whose connector declares `removal_meaning = "withdrawn"`
-#: (`removal_event_type`). Before this, every removal was published as `withdrawn`, so an EIA-860M
-#: unit entering operation or a grants.gov notice closing reached the feed, alerts, webhooks and
-#: social drafts as a withdrawal.
+#: public `withdrawn` only for a source whose connector declares `removal_meaning = "withdrawn"`, or
+#: the public `delisted` for one that announces removals (`removal_event_type`). Before this, every
+#: removal was published as `withdrawn`, so an EIA-860M unit entering operation or a grants.gov
+#: notice closing reached the feed, alerts, webhooks and social drafts as a withdrawal.
 DIFF_EVENT_TYPE_MAP: dict[str, str] = {
     "new": "created",
     "status_change": "status_change",
@@ -249,10 +259,21 @@ DIFF_EVENT_TYPE_MAP: dict[str, str] = {
 }
 
 
-def removal_event_type(removal_meaning: str) -> str:
+def removal_event_type(removal_meaning: str, announce_removals: bool = False) -> str:
     """The event type a `removed` diff row is stored as: `withdrawn` only where the source declares
-    that a row leaves its file because the request was withdrawn, else `removed_from_source`."""
-    return "withdrawn" if removal_meaning == "withdrawn" else REMOVED_FROM_SOURCE_EVENT_TYPE
+    that a row leaves its file because the request was withdrawn; `delisted` where the connector
+    announces removals and the meaning is `unknown` (a source that states a meaning, such as
+    grants.gov's `closed`, is never announced as "reason not stated"); else `removed_from_source`."""
+    if removal_meaning == "withdrawn":
+        return "withdrawn"
+    if announce_removals and removal_meaning == "unknown":
+        return DELISTED_EVENT_TYPE
+    return REMOVED_FROM_SOURCE_EVENT_TYPE
+
+
+def delisted_sentence(register_name: str) -> str:
+    """How a `delisted` event reads: "No longer in ERCOT's report (reason not stated)"."""
+    return DELISTED_WORDING.format(register=register_name)
 
 
 class GateRefused(Exception):
@@ -295,6 +316,45 @@ def connector_removal_meaning(registry: Registry, source_id: str) -> RemovalMean
         REMOVAL_MEANINGS,
     )
     return "unknown"
+
+
+def connector_announces_removals(registry: Registry, source_id: str) -> bool:
+    """Whether `source_id`'s connector class announces removals (`Connector.announce_removals`).
+    Only a literal True counts; no connector class, or any other value, is False (fails closed: the
+    removal is stored, never published)."""
+    try:
+        cls = registry.connector_class(source_id)
+    except RegistrationError:
+        return False
+    return getattr(cls, "announce_removals", False) is True
+
+
+def _same_key(record_key: str) -> str:
+    """`Connector.project_root`'s default: every key is its own project."""
+    return record_key
+
+
+def connector_project_root(registry: Registry, source_id: str) -> Callable[[str], str]:
+    """`source_id`'s `Connector.project_root`, or the identity when the source has no connector
+    class (each key its own project, so nothing is held back as a re-key)."""
+    try:
+        cls = registry.connector_class(source_id)
+    except RegistrationError:
+        return _same_key
+    hook = getattr(cls, "project_root", None)
+    return hook if callable(hook) else _same_key
+
+
+def connector_register_name(registry: Registry, source_id: str) -> str | None:
+    """The register's display name its connector declares (`Connector.register_name`), or None."""
+    try:
+        cls = registry.connector_class(source_id)
+    except RegistrationError:
+        return None
+    name = getattr(cls, "register_name", None)
+    if not isinstance(name, str):
+        return None
+    return name.strip() or None
 
 
 def generic_load_kind(registry: Registry, source_id: str, requested: Kind | None = None) -> Kind:
@@ -375,6 +435,11 @@ class LoadResult:
     events_skipped_idempotent: int = 0
     #: Of `events_created`, the `removed` diff rows stored as non-public `removed_from_source`.
     removals_unpublished: int = 0
+    #: Of `events_created`, the `removed` diff rows published as `delisted`.
+    removals_announced: int = 0
+    #: Of `removals_unpublished`, the removals not announced because the same project is still in
+    #: the frame under another key (`Connector.project_root`).
+    removals_rekeyed: int = 0
     locations_created: int = 0
     locations_exact_promoted: int = 0
     organizations_created: int = 0
@@ -1340,12 +1405,16 @@ def _match_link(
     return exact
 
 
+def _record_key(source: Source, record_id: str) -> str:
+    """A connector `record_id` without its `<source_id>:` prefix: the stored link key."""
+    prefix = f"{source.id}:"
+    return record_id[len(prefix) :] if record_id.startswith(prefix) else record_id
+
+
 def _link_for_event_record_id(cache: _LoadCache, source: Source, record_id: str) -> Any | None:
     """A stored link for an event's `record_id` when the record is not in this frame (a
     `removed` event): the connector key with the source prefix stripped is the stored key."""
-    prefix = f"{source.id}:"
-    tail = record_id[len(prefix) :] if record_id.startswith(prefix) else record_id
-    return cache.links.get(tail)
+    return cache.links.get(_record_key(source, record_id))
 
 
 def _short_hash(value: Any) -> str:
@@ -1373,6 +1442,15 @@ class _LoadContext:
     run: SourceRun | None
     #: What a `removed` diff row means at this source (`connector_removal_meaning`).
     removal_meaning: RemovalMeaning = "unknown"
+    #: Whether this source's removals are announced as `delisted` (`connector_announces_removals`).
+    announce_removals: bool = False
+    #: The register's display name a `delisted` event names (`connector_register_name`, else the
+    #: source's operator, else its name).
+    register_name: str = ""
+    #: The project a record key belongs to (`connector_project_root`), and the projects this frame
+    #: lists: a removal whose project is among them is a re-key, never announced.
+    project_root: Callable[[str], str] = _same_key
+    current_project_roots: frozenset[str] = frozenset()
     #: Per updated record, its `last_changed` and served values before this load touched it
     #: (`_stamp_last_changed`); the first sight in a load wins.
     served_before: dict[_uuid.UUID, tuple[dt.datetime | None, dict[str, Any]]] = field(default_factory=dict)
@@ -1437,6 +1515,9 @@ def _prepare_load_context(
     records_df: pd.DataFrame,
     run: SourceRun | None,
     removal_meaning: RemovalMeaning = "unknown",
+    announce_removals: bool = False,
+    register_name: str | None = None,
+    project_root: Callable[[str], str] | None = None,
 ) -> _LoadContext:
     """`load_dataframe`'s setup step (module phase map blocks 01-10)."""
     now = utcnow()
@@ -1457,6 +1538,12 @@ def _prepare_load_context(
         else NOT_STATED_VINTAGE,
     )
     cache = _build_load_cache(session, source, entity_cls, link_cls, fk_name)
+    root_of = project_root or _same_key
+    current_roots = (
+        frozenset(root_of(_record_key(source, str(rid))) for rid in records_df["record_id"])
+        if announce_removals and "record_id" in records_df.columns
+        else frozenset()
+    )
     return _LoadContext(
         now=now,
         result=result,
@@ -1469,6 +1556,10 @@ def _prepare_load_context(
         kind=kind,
         run=run,
         removal_meaning=removal_meaning,
+        announce_removals=announce_removals,
+        register_name=(register_name or "").strip() or source.operator or source.name or source.id,
+        project_root=root_of,
+        current_project_roots=current_roots,
     )
 
 
@@ -1766,10 +1857,17 @@ def _load_one_event(
     docstring, "Change-event identity").
 
     A `removed` row (2026-10-10, docs/51 §2.7 item 1) is a public `withdrawn` event only when the
-    source declares that meaning (`ctx.removal_meaning`); otherwise it is a `removed_from_source`
-    event with `published_at`/`public_at` NULL and the declared meaning in `after`, which no public
-    or paid surface serves (`services.db.models.NON_PUBLIC_EVENT_TYPES`). Either way the link's
-    `gone_at` is set and the record's lifecycle state is left as the source last stated it."""
+    source declares that meaning (`ctx.removal_meaning`). Where the connector announces removals
+    (`ctx.announce_removals`) and the meaning is `unknown`, it is the public `delisted` event:
+    published like any change event, `after = {"source_id", "register_name", "reason": "not
+    stated"}`, `reason` the sentence every surface prints, no `before` and no `changed_keys`
+    (nothing about the record changed but its presence in the file). Not when the same project is
+    still in this frame under another key (`ctx.project_root`): that re-key is a
+    `removed_from_source` with `after.project_root` and a reason saying so. Otherwise it is a
+    `removed_from_source` event with `published_at`/`public_at` NULL and the declared meaning in
+    `after`, which no public or paid surface serves (`services.db.models.NON_PUBLIC_EVENT_TYPES`).
+    In every case the link's `gone_at` is set and the record's lifecycle state is left as the source
+    last stated it."""
     source, kind, run = ctx.source, ctx.kind, ctx.run
     diff_type = str(ev["event_type"])
     record_id = str(ev["record_id"])
@@ -1782,11 +1880,18 @@ def _load_one_event(
         ctx.result.warnings.append(f"event for unknown record_id {record_id!r} skipped")
         return
     event_type = (
-        removal_event_type(ctx.removal_meaning)
+        removal_event_type(ctx.removal_meaning, ctx.announce_removals)
         if diff_type == "removed"
         else DIFF_EVENT_TYPE_MAP.get(diff_type, "field_changed")
     )
+    rekeyed_root: str | None = None
+    if event_type == DELISTED_EVENT_TYPE:
+        root = ctx.project_root(_record_key(source, record_id))
+        if root in ctx.current_project_roots:
+            # The same project is still listed under another key: a re-key, not a departure.
+            event_type, rekeyed_root = REMOVED_FROM_SOURCE_EVENT_TYPE, root
     unpublished_removal = event_type == REMOVED_FROM_SOURCE_EVENT_TYPE
+    announced_removal = event_type == DELISTED_EVENT_TYPE
     observed_at = _to_datetime(ev.get("observed_at")) or ctx.now
     field_name = ev.get("field") or "lifecycle_state"
     before_val = ev.get("before")
@@ -1820,17 +1925,37 @@ def _load_one_event(
     # (owner, 2026-09-21: the ISO change-event delay is dropped, and its per-source knob
     # with it -- `services/ingest/lag.py` argues why the knob went too). `public_at` stays
     # a stored column because `services/api/visibility.py` reads it; it is now always
-    # `published_at`. A removal the source does not call a withdrawal is never published.
+    # `published_at`. A removal is published only as a declared `withdrawn` or an announced
+    # `delisted`; every other removal is stored unpublished below.
     public_at: dt.datetime | None = record_public_at(ctx.now)
+    before_payload = {field_name: before_val} if before_val is not None else None
     after_payload = {field_name: after_val} if after_val is not None else None
+    changed_keys = [str(field_name)]
     reason: str | None = None
-    if unpublished_removal:
+    if announced_removal:
+        # Public like any change event (timestamps above); the payload names the register and says
+        # the register gives no reason. The status the source last stated stays on the record.
+        before_payload = None
+        after_payload = {
+            "source_id": source.id,
+            "register_name": ctx.register_name,
+            "reason": DELISTED_REASON,
+        }
+        changed_keys = []
+        reason = delisted_sentence(ctx.register_name)
+    elif unpublished_removal:
         published_at = public_at = None
         after_payload = {"removal_meaning": ctx.removal_meaning}
         reason = (
             "no longer in the source's file; the source does not say this means withdrawal "
             f"(declared meaning: {ctx.removal_meaning})"
         )
+        if rekeyed_root is not None:
+            after_payload["project_root"] = rekeyed_root
+            reason = (
+                "re-keyed within the register: no longer in the source's file under this key, but "
+                f"the same project ({rekeyed_root}) is still listed under another key"
+            )
     event = Event(
         subject_type=kind,
         subject_id=subject_id,
@@ -1842,9 +1967,9 @@ def _load_one_event(
         source_url=event_source_url,
         retrieved_at=observed_at,
         licence_id=source.licence_id,
-        before=({field_name: before_val} if before_val is not None else None),
+        before=before_payload,
         after=after_payload,
-        changed_keys=[str(field_name)],
+        changed_keys=changed_keys,
         actor_type="pipeline",
         reason=reason,
         run_id=run.id if run else None,
@@ -1861,6 +1986,10 @@ def _load_one_event(
     ctx.result.events_created += 1
     if unpublished_removal:
         ctx.result.removals_unpublished += 1
+    if rekeyed_root is not None:
+        ctx.result.removals_rekeyed += 1
+    if announced_removal:
+        ctx.result.removals_announced += 1
 
     if diff_type == "removed":
         link = ctx.cache.links_by_entity.get(subject_id)
@@ -1899,6 +2028,9 @@ def load_dataframe(
     run: SourceRun | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     removal_meaning: RemovalMeaning = "unknown",
+    announce_removals: bool = False,
+    register_name: str | None = None,
+    project_root: Callable[[str], str] | None = None,
 ) -> LoadResult:
     """Upsert one connector run's normalised records and diff events (idempotent).
 
@@ -1924,6 +2056,14 @@ def load_dataframe(
     stores every removal as a non-public `removed_from_source` event: a direct caller that does not
     say otherwise never publishes a disappearance as a withdrawal.
 
+    `announce_removals` (`Connector.announce_removals`, read by `load_from_files` through
+    `connector_announces_removals`) publishes a removal of `unknown` meaning as `delisted`, worded
+    with `register_name` (`Connector.register_name`; the source's operator, else its name, when
+    none is given). Default False: a direct caller never announces a removal. A removal whose
+    project (`project_root`, `Connector.project_root`; default each key its own project) is still
+    in `records_df` under another key is a re-key: stored as `removed_from_source` with
+    `after.project_root`, never announced.
+
     An orchestrator over four steps (module phase map, docs/42 §5): `_prepare_load_context`,
     `_index_records`, `_upsert_records`, `_load_events` -- the last two sharing `_LoadContext`.
     """
@@ -1931,7 +2071,17 @@ def load_dataframe(
         raise KindRefused(f"{source.id}: load_dataframe writes only {GENERIC_LOAD_KINDS}, not {kind!r}")
     if removal_meaning not in REMOVAL_MEANINGS:
         raise ValueError(f"{source.id}: removal_meaning={removal_meaning!r} not in {REMOVAL_MEANINGS}")
-    ctx = _prepare_load_context(session, source, kind, records_df, run, removal_meaning)
+    ctx = _prepare_load_context(
+        session,
+        source,
+        kind,
+        records_df,
+        run,
+        removal_meaning,
+        announce_removals,
+        register_name,
+        project_root,
+    )
     ctx.result.kind = kind
     records, dup_naturals = _index_records(records_df)
     _upsert_records(session, ctx, records, dup_naturals, batch_size)
@@ -2022,6 +2172,9 @@ def load_from_files(
         events_df,
         run=run,
         removal_meaning=connector_removal_meaning(registry, source_id),
+        announce_removals=connector_announces_removals(registry, source_id),
+        register_name=connector_register_name(registry, source_id),
+        project_root=connector_project_root(registry, source_id),
     )
     result.source_run_id = run.id
     _mark_loaded(session, source_id, ts)

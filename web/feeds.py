@@ -91,7 +91,7 @@ def api_docs(request: Request) -> HTMLResponse:
         "docs_api.html",
         {
             "api_base": base,
-            "reference_url": f"{base}/redoc",
+            "reference_url": f"{base}/openapi.json",
             "openapi_url": f"{base}/openapi.json",
             "feeds": feeds,
             "example_feed": "/feeds/proposals.rss?kind=load&jurisdiction=US-VA",

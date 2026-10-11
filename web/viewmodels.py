@@ -762,14 +762,43 @@ _EVENT_FIELD_LABELS: dict[str, str] = {
 }
 
 
+#: How a `delisted` event reads (owner decision 2026-10-10): the same words the API's `reason`, the
+#: event feeds and alert emails use (`services.db.models.DELISTED_WORDING`, which `web` does not
+#: import; `web/test_event_history.py` and `services/ingest/test_loader_delisted.py` pin both to
+#: the same literal). Never "withdrawn".
+DELISTED_PHRASE = "No longer in {register}'s report (reason not stated)"
+
+
+def _delisted_register(event: Mapping[str, Any]) -> str:
+    """The register's display name for a `delisted` line: the name the event itself states
+    (`after.register_name`), else the short name this site prints for the source, else the
+    source's registered name."""
+    after = _mapping_or_empty(event.get("after"))
+    provenance = _mapping_or_empty(event.get("provenance"))
+    stated = after.get("register_name")
+    if isinstance(stated, str) and stated.strip():
+        return stated.strip()
+    return str(
+        source_label(provenance.get("source_id") or after.get("source_id"))
+        or provenance.get("source_name")
+        or "its source"
+    )
+
+
+def delisted_phrase(event: Mapping[str, Any]) -> str:
+    """A `delisted` event as a phrase, without a closing full stop: the record history adds one,
+    the interconnection point's "Recent changes" rows do not."""
+    return DELISTED_PHRASE.format(register=_delisted_register(event))
+
+
 def _event_line(event: Mapping[str, Any]) -> str | None:
     kind = event.get("event_type")
     source = (event.get("provenance") or {}).get("source_name") or "its source"
     before, after = event.get("before") or {}, event.get("after") or {}
     if kind == "created":
         return f"First published from {source}."
-    if kind == "removed":
-        return f"Left the {source} register."
+    if kind == "delisted":
+        return f"{delisted_phrase(event)}."
     keys = list(event.get("changed_keys") or [])
     key = keys[0] if keys else next(iter(after or before), None)
     if key is None:

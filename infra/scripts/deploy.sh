@@ -169,6 +169,11 @@ case "$(dotenv_value SITE_ACCESS)" in
     ;;
   *) refuse "SITE_ACCESS must be open or basic, not '$(dotenv_value SITE_ACCESS)'" ;;
 esac
+# The content security policy's mode (Caddyfile `csp_*`, docs/64 §5): Caddy refuses anything else.
+case "$(dotenv_value CSP_MODE)" in
+  ""|report|enforce) ;;
+  *) refuse "CSP_MODE must be report or enforce, not '$(dotenv_value CSP_MODE)'" ;;
+esac
 declared_environment="$(dotenv_value ENVIRONMENT)"
 if [[ -n "$declared_environment" && "$declared_environment" != "$environment" ]]; then
   refuse "infra/sops/secrets.${environment}.enc.yaml says ENVIRONMENT=${declared_environment}"

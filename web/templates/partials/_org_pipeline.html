@@ -1,6 +1,7 @@
 {#- The company's pipeline (owner, 2026-10-10: "check a developer's or owner's pipeline with a source
-    for every claim"). `pipeline` is web/org_pipeline.py::pipeline_summary over the proposals the
-    API serves for this page's ownership scope. Every count links to the list filtered to the same
+    for every claim"). `pipeline` is web/org_pipeline.py::pipeline_summary over the API's aggregate
+    for this page's ownership scope (`GET /v1/organizations/{id}/pipeline`), which counts every
+    record, so the figures are never partial. Every count links to the list filtered to the same
     rows; the registers behind them are named under the tables, and their licences and retrieval
     dates are in the Sources section at the foot of the page. -#}
 {% macro count_cell(r, noun) -%}
@@ -16,6 +17,7 @@
   <p class="org-pipeline__lede">
     <span class="tnum">{{ pipeline.total.count | thousands }}</span> proposal{{ 's' if pipeline.total.count != 1 }} sponsored by {{ 'this company and its subsidiaries' if pipeline.group else 'this company' }}
     {%- if pipeline.active.count %}, <span class="tnum">{{ pipeline.active.count | thousands }}</span> of {{ 'them' if pipeline.total.count != 1 else 'it' }} in the active pipeline (announced, in process or contracted){% if pipeline.active.mw is not none %}, <span class="tnum">{{ pipeline.active.mw | mw }}</span>&nbsp;MW{% endif %}{% endif %}.
+    {%- if pipeline.not_listed.count %} <a href="{{ pipeline.not_listed.href }}"><span class="tnum">{{ pipeline.not_listed.count | thousands }}</span> more</a> {{ 'were' if pipeline.not_listed.count != 1 else 'was' }} last stated as active but {{ 'are' if pipeline.not_listed.count != 1 else 'is' }} no longer listed in any register, so {{ 'they are' if pipeline.not_listed.count != 1 else 'it is' }} not counted as active.{% endif %}
     {%- if pipeline.linked %} Each count opens the matching list.{% endif %}
   </p>
   <div class="org-pipeline__tables">
@@ -25,7 +27,7 @@
       <tbody>
         {% for r in pipeline.by_status %}
         <tr>
-          <th scope="row"><span class="pipeline-table__status" style="color:var(--family-{{ r.family }}-text)"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-{{ r.family }}"></use></svg></span> {{ r.label }}</th>
+          <th scope="row"><span class="pipeline-table__status pipeline-table__status--{{ r.family }}"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-{{ r.family }}"></use></svg></span> {{ r.label }}</th>
           <td class="num tnum">{{ count_cell(r, r.label | lower ~ ' proposals') }}</td>
           <td class="num tnum">{{ mw_cell(r) }}</td>
         </tr>
@@ -62,7 +64,6 @@
     MW is the sum of the capacity each register states for generation and storage
     {%- if pipeline.not_summed %}; {% for k in pipeline.not_summed %}<span class="tnum">{{ k.count }}</span> {{ k.label | lower }}{{ ', ' if not loop.last }}{% endfor %} proposal{{ 's are' if pipeline.not_summed | sum(attribute='count') != 1 else ' is' }} counted but not added to it{% endif %}
     {%- if pipeline.no_capacity %}; <span class="tnum">{{ pipeline.no_capacity }}</span> state{{ 's' if pipeline.no_capacity == 1 }} no capacity{% endif %}.
-    {%- if not pipeline.complete %} These figures cover the <span class="tnum">{{ pipeline.total.count | thousands }}</span> most recently changed proposals; the company sponsors more{% if pipeline.total.href %}, and <a href="{{ pipeline.total.href }}">the list</a> holds all of them{% endif %}.{% endif %}
   </p>
   {% if pipeline.sources %}
   <p class="org-pipeline__sources">From

@@ -7,7 +7,8 @@ done-check says this must stay at zero after the deploy), how many registrations
 page with the layer on, and how many alerts were created.
 
 **Alert activation** (owner decisions 2026-09-18 (8) and 2026-09-30; PM-5, sales F8): the day-30
-posture decision reads alerts created per view of a proposal, company, asset or grid-point page.
+posture decision reads alerts created per view of a proposal, company, asset or grid-point page;
+site pages are counted beside them (lane S2, 2026-10-10: the beta is measured by use).
 `page.viewed` rows carry only `page_type` (`services/api/ui_events.py`), and `alert.created` carries
 nothing, so an alert cannot be attributed to the page type it came from without an identifier the
 design refuses. The table therefore divides the week's alerts by the week's views, overall and per
@@ -46,6 +47,7 @@ PAGE_TYPES: tuple[tuple[str, str], ...] = (
     ("company", "Company"),
     ("asset", "Asset"),
     ("point", "Grid point"),
+    ("site", "Site"),
 )
 DEFAULT_WEEKS = 8
 MAX_WEEKS = 52

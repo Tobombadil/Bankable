@@ -145,7 +145,11 @@ def test_home_map_lists_transmission_lines_live_with_a_legend_group(web_client: 
     tag = body.split('id="mf-asset-type-transmission_line"')[1].split(">")[0]
     assert "disabled" not in tag
     group = body.split('data-legend-type="transmission_line"')[1].split("</div>")[0]
-    assert "var(--asset-transmission)" in body.split('data-legend-type="transmission_line"')[1][:80]
+    # The group takes its colour from styles.css, keyed on its data attribute (no `style` attribute:
+    # the CSP allows none, docs/60 §2).
+    css = (Path(__file__).parent / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    assert '.legend__group[data-legend-type="transmission_line"] { color: var(--asset-transmission); }' in css
+    assert "style=" not in body.split('data-legend-type="transmission_line"')[1][:80]
     assert 'stroke-dasharray="8 3 2 3"' in group and "not the whole grid" in group
 
 

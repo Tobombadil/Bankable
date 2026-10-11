@@ -236,7 +236,7 @@ def test_the_site_is_not_held_to_the_per_ip_limit(client, db, site_headers):
 
 def test_summary_splits_page_views_by_type(client, db, spec):
     now = dt.datetime.now(UTC)
-    for page_type in ("proposal", "proposal", "company", "point"):
+    for page_type in ("proposal", "proposal", "company", "point", "site"):
         db.add(UiEvent(name="page.viewed", props={"page_type": page_type}, occurred_at=now))
     operator = _operator(db)
     db.commit()
@@ -244,5 +244,13 @@ def test_summary_splits_page_views_by_type(client, db, spec):
     body = client.get("/admin/v1/ui-events/summary").json()
     assert_valid(spec, "UiEventsSummaryResponse", body)
     row = next(r for r in body["data"] if r["name"] == "page.viewed")
-    assert row["count"] == 4
-    assert row["by_page_type"] == {"proposal": 2, "company": 1, "asset": 0, "point": 1}
+    assert row["count"] == 5
+    assert row["by_page_type"] == {"proposal": 2, "company": 1, "asset": 0, "point": 1, "site": 1}
+
+
+def test_a_site_page_view_is_a_known_page_type(client, db, site_headers):
+    """Site pages count like the other detail pages (lane S2, 2026-10-10: the beta is measured by use)."""
+    body = {"name": "page.viewed", "props": {"page_type": "site"}}
+    assert client.post("/v1/ui-events", json=body, headers=site_headers).status_code == 202
+    rows = list(db.scalars(select(UiEvent).where(UiEvent.name == "page.viewed")).all())
+    assert [r.props for r in rows] == [{"page_type": "site"}]
