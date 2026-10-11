@@ -58,15 +58,16 @@
 # Who may reach the site (docs/64). `SITE_ACCESS` unset or `open`: everyone, as production
 # serves. `basic` (the private beta): every request needs the one shared login, the browser's
 # own password prompt, except `/webhooks/*` (Stripe and Attio carry their own signatures and
-# cannot answer a prompt) and the health checks. Gated answers are `private, no-store` and
-# `noindex`, so neither an edge cache nor a search engine keeps a copy. SITE_ACCESS_HASH is
-# `caddy hash-password`'s bcrypt hash, base64-encoded so no `$` meets the env file's
-# interpolation; deploy.sh refuses `basic` without both values.
+# cannot answer a prompt), the health checks and `/csp-report` (a browser may send a violation
+# report without the login; web/csp_reports.py bounds and rate-limits it). Gated answers are
+# `private, no-store` and `noindex`, so neither an edge cache nor a search engine keeps a copy.
+# SITE_ACCESS_HASH is `caddy hash-password`'s bcrypt hash, base64-encoded so no `$` meets the env
+# file's interpolation; deploy.sh refuses `basic` without both values.
 (gate_open) {
 }
 
 (gate_basic) {
-	@gated not path /webhooks/* /health /v1/health
+	@gated not path /webhooks/* /health /v1/health /csp-report
 	basic_auth @gated {
 		{$SITE_ACCESS_USER} {$SITE_ACCESS_HASH}
 	}
@@ -80,36 +81,51 @@
 }
 
 # Response headers on every host (2026-10-10, docs/51 §2.4 item 5). `?` writes a header only when
-# the upstream sent none, so a page can still send a stricter value of its own. They go on every
-# response a handler writes (pages, API answers, redirects, the admin 404); Caddy's own error
-# responses (the gate's 401, a 502 while an upstream is down) carry none, and have no body to protect.
+# the upstream sent none, so a page can still send a stricter value of its own. Each default is its
+# own `header` line: in one block they share one condition, all of them absent, and an upstream
+# sending any one of them would drop every other. They go on every response a handler writes
+# (pages, API answers, redirects, the admin 404); Caddy's own error responses (the gate's 401, a 502
+# while an upstream is down) carry none, and have no body to protect.
 # - HSTS: every host set below (production, staging) serves Let's Encrypt certificates; local and
 #   dev run no Caddy (the base Compose file has none, and any other ENVIRONMENT fails to adapt).
 #   One year; no includeSubDomains and no preload, which would bind every other name under DOMAIN
 #   and cannot be undone quickly. A rehearsal on `localhost` sends it too: probe with curl, not the
 #   browser you develop in.
-# - frame-ancestors 'none' is enforced, alone in its own policy, so it restricts nothing else.
-# - The full policy is Report-Only: the browser reports what it would block (in its console; there
-#   is no report endpoint yet) and blocks nothing. It allows the site as it is on 2026-10-10:
+# - The content security policy, in one of two modes, `CSP_MODE` (docs/64 §5):
+#     report   (the default) the policy is Content-Security-Policy-Report-Only: the browser reports
+#              what it would block and blocks nothing; `frame-ancestors 'none'` alone is enforced;
+#     enforce  the same policy is the Content-Security-Policy.
+#   Any other value fails to adapt, so Caddy does not start. Reports go to `/csp-report` (web,
+#   web/csp_reports.py): `report-uri` for browsers without the Reporting API, `report-to csp` with
+#   the `Reporting-Endpoints` header for the rest. The policy allows the site as it is on 2026-10-10:
 #     scripts   self, the three CDN packages web/assets.py pins (SRI-checked), Cloudflare Turnstile
 #               (/submit and the report-a-problem form), and the one inline script, base.html's
 #               `document.documentElement.classList.add("js")`, by hash;
-#     styles    self, MapLibre's stylesheet, and 'unsafe-inline' for the templates' style attributes;
+#     styles    self and MapLibre's stylesheet; no inline <style> and no `style` attribute (the
+#               templates' moved into styles.css classes, 2026-10-10);
 #     images    self, data: and blob: (MapLibre), the Protomaps sprites, the basemap file;
 #     fetches   self, the basemap file (MAP_TILE_URL, a PMTiles URL in production: a valid source
 #               that matches exactly that file) and the Protomaps glyphs and sprites;
 #     fonts     self (web/static/fonts; no Google Fonts); workers self and blob: (MapLibre);
-#     frames    Turnstile only.
+#     frames    Turnstile only; nothing may frame the site.
 #   infra/test_caddyfile.py derives the CDN packages, the Turnstile origin and the inline-script
-#   hashes from web/ and fails when the policy no longer matches the site.
+#   hashes from web/ and fails when the policy no longer matches the site; web/test_csp_browser.py
+#   loads the main pages in Chromium with the policy enforced and fails on any violation.
+(csp_report) {
+	header ?Content-Security-Policy "frame-ancestors 'none'"
+	header ?Content-Security-Policy-Report-Only "{args[0]}"
+}
+
+(csp_enforce) {
+	header ?Content-Security-Policy "{args[0]}"
+}
+
 (security_headers) {
-	header {
-		?Strict-Transport-Security "max-age=31536000"
-		?X-Content-Type-Options "nosniff"
-		?Referrer-Policy "strict-origin-when-cross-origin"
-		?Content-Security-Policy "frame-ancestors 'none'"
-		?Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/ https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/ https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/ https://challenges.cloudflare.com 'sha256-qOhFsq0QMV2REqNwk5hGH5bZE9SkX6gt6yeyKdYPv+U='; style-src 'self' https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/ 'unsafe-inline'; img-src 'self' data: blob: https://protomaps.github.io/basemaps-assets/ {$MAP_TILE_URL}; connect-src 'self' https://protomaps.github.io/basemaps-assets/ {$MAP_TILE_URL}; font-src 'self'; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'"
-	}
+	header ?Strict-Transport-Security "max-age=31536000"
+	header ?X-Content-Type-Options "nosniff"
+	header ?Referrer-Policy "strict-origin-when-cross-origin"
+	header ?Reporting-Endpoints `csp="/csp-report"`
+	import csp_{$CSP_MODE:report} "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/ https://cdn.jsdelivr.net/npm/pmtiles@4.5.0/ https://cdn.jsdelivr.net/npm/@protomaps/basemaps@5.7.2/ https://challenges.cloudflare.com 'sha256-qOhFsq0QMV2REqNwk5hGH5bZE9SkX6gt6yeyKdYPv+U='; style-src 'self' https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/; img-src 'self' data: blob: https://protomaps.github.io/basemaps-assets/ {$MAP_TILE_URL}; connect-src 'self' https://protomaps.github.io/basemaps-assets/ {$MAP_TILE_URL}; font-src 'self'; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; report-uri /csp-report; report-to csp"
 }
 
 (common) {
@@ -161,6 +177,10 @@
 (api_site) {
 	import common
 	import no_admin
+	# The policy's report path is relative, so a page on this host reports here; web takes it.
+	handle /csp-report {
+		import to_web
+	}
 	handle {
 		import to_api
 	}

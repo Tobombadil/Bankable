@@ -1,13 +1,15 @@
 """A company's pipeline at the top of its page (owner, 2026-10-10: "check a developer's or owner's
 pipeline with a source for every claim"; `web/org_pipeline.py`, `partials/_org_pipeline.html`).
 
-Held here: the counts and MW by status, technology and ISO are taken from the proposals the API
-serves for the page's scope and nothing else; generation and storage MW are summed and other
-kinds' MW (a data centre's demand, a line's transfer capability) is not; every count links to the
-list filtered to the same rows (one sponsor id, or the group's ids); the registers behind the rows
-are named with how many each backs; the read follows the API's cursor and says when it stopped
-short. A fake `Transport` stands in for the API, as in `web/test_ownership.py` (duplicated, not
-imported: no `web/test_*.py` imports another).
+Held here: the counts and MW by status, technology and ISO are the API's aggregate
+(`GET /v1/organizations/{id}/pipeline`) and nothing else, so the summary is never partial; the
+active status groups count only records a register still lists, and the ones every register has
+dropped are their own row; every count links to the list with the API's `list_query` and the
+filter the API documents for its bucket (one sponsor id, or the id and `sponsor_scope` for a
+group); the registers behind the rows are named with how many each backs. That each link's total
+equals its count against a real API is `tests/test_api_org_pipeline.py`. A fake `Transport` stands
+in for the API, as in `web/test_ownership.py` (duplicated, not imported: no `web/test_*.py` imports
+another).
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from fastapi.testclient import TestClient
 
 from web.api_client import ApiClient
 from web.app import app as web_app
-from web.org_pipeline import MAX_PAGES, PAGE_SIZE, fetch_proposals, pipeline_summary
+from web.org_pipeline import PAGE_SIZE, fetch_pipeline, fetch_proposals, pipeline_summary
 
 Answer = tuple[int, Any] | Callable[[Mapping[str, Any]], tuple[int, Any]]
 
@@ -58,89 +60,121 @@ class FakeTransport:
 
 
 ORG_ID = "org_01CYPRESS"
-SUB_ID = "org_01CYPRESSSUB"
+ACTIVE = ["announced", "filed", "studied", "permitted", "contracted", "under_construction"]
 
 
-def _prov(source_id: str, name: str, retrieved: str = "2026-10-01T00:00:00Z") -> dict[str, Any]:
-    return {
-        "source_id": source_id,
-        "source_name": name,
-        "source_url": f"https://example.org/{source_id}",
-        "retrieved_at": retrieved,
-        "reuse_class": "open",
-        "attribution_text": name,
-        "source_record_id": "X",
-    }
-
-
-def _proposal(
-    n: int, state: str, technology: str | None, iso: str | None, mw: float | None, **extra: Any
+def _t(
+    records: int, mw: float | None = None, capacity: int | None = None, not_summed: int = 0
 ) -> dict[str, Any]:
-    row: dict[str, Any] = {
-        "public_id": f"prop_{n:03d}",
-        "slug": f"p-{n}",
-        "name_canonical": f"Project {n}",
-        "kind": extra.pop("kind", "generation"),
-        "technology": technology,
+    return {
+        "records": records,
         "capacity_mw": mw,
-        "iso": iso,
-        "jurisdiction": "US-TX",
-        "lifecycle_state": state,
-        "sponsor": {"public_id": extra.pop("sponsor", ORG_ID), "name_canonical": "Cypress Creek"},
-        "provenance": extra.pop("provenance", [_prov("us.iso.ercot.gen_queue", "ERCOT GIS Report")]),
+        "capacity_records": capacity if capacity is not None else (records if mw is not None else 0),
+        "not_summed_records": not_summed,
     }
-    row.update(extra)
-    return row
 
 
-ROWS = [
-    _proposal(1, "announced", "solar", "ERCOT", 100.0),
-    _proposal(2, "filed", "solar", "ERCOT", 200.0),
-    _proposal(3, "studied", "storage", "MISO", 50.5),
-    _proposal(4, "contracted", "solar", "MISO", None),
-    _proposal(5, "built", "wind", "ERCOT", 300.0),
-    _proposal(6, "withdrawn", "solar", "ERCOT", 80.0),
-    _proposal(7, "filed", "load", "ERCOT", 1000.0, kind="load"),  # demand: counted, never summed
-    _proposal(
-        8, "filed", None, None, 20.0, provenance=[_prov("us.eia.860m", "EIA-860M", "2026-09-12T00:00:00Z")]
-    ),
-]
+def _state(state: str, listed: dict[str, Any], not_listed: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {"lifecycle_state": state, "listed": listed, "not_listed": not_listed or _t(0)}
+
+
+#: What the API answers for a company with 9 records: 1 announced (100 MW); in process 2 filed
+#: (200 MW + a 1,000 MW load, not summed), 1 studied (50.5 MW) and 1 filed with no technology or
+#: operator (20 MW); 1 contracted with no capacity; 1 built; 1 withdrawn; and 1 filed solar project
+#: (40 MW) every register has dropped.
+AGGREGATE: dict[str, Any] = {
+    "organization": {"public_id": ORG_ID, "slug": "cypress-creek", "name_canonical": "Cypress Creek"},
+    "scope": {"scope": "self", "organizations": 1},
+    "list_query": {"sponsor_id": ORG_ID},
+    "active_states": ACTIVE,
+    "capacity_not_summed_kinds": ["load", "transmission", "pipeline", "lng", "ccs", "hydrogen"],
+    "totals": _t(9, 790.5, capacity=7, not_summed=1),
+    "active": _t(6, 370.5, capacity=4, not_summed=1),
+    "not_listed": _t(1, 40.0),
+    "by_lifecycle_state": [
+        _state("announced", _t(1, 100.0)),
+        _state("filed", _t(3, 220.0, capacity=2, not_summed=1), _t(1, 40.0)),
+        _state("studied", _t(1, 50.5)),
+        _state("contracted", _t(1, None)),
+        _state("built", _t(1, 300.0)),
+        _state("withdrawn", _t(1, 80.0)),
+    ],
+    "by_technology": [
+        {"technology": "solar", **_t(2, 300.0, capacity=1)},
+        {"technology": "storage", **_t(1, 50.5)},
+        {"technology": "load", **_t(1, None, capacity=0, not_summed=1)},
+        {"technology": None, **_t(1, 20.0)},
+    ],
+    "by_iso": [
+        {"iso": "ERCOT", **_t(3, 300.0, capacity=2, not_summed=1)},
+        {"iso": "MISO", **_t(2, 50.5, capacity=1)},
+        {"iso": None, **_t(1, 20.0)},
+    ],
+    "not_summed_by_kind": [{"kind": "load", "records": 1}],
+    "sources": [
+        {
+            "source_id": "us.iso.ercot.gen_queue",
+            "name": "ERCOT GIS Report",
+            "records": 8,
+            "retrieved_at_max": "2026-10-01T00:00:00Z",
+            "licence_id": "us.iso.ercot.gen_queue#59c5de49c6",
+            "reuse_class": "open",
+            "attribution_text": None,
+        },
+        {
+            "source_id": "us.eia.860m",
+            "name": "EIA-860M",
+            "records": 1,
+            "retrieved_at_max": "2026-09-12T00:00:00Z",
+            "licence_id": "us.eia.860m#f142611d41",
+            "reuse_class": "open",
+            "attribution_text": None,
+        },
+    ],
+}
+
+
+def _query(href: str | None) -> dict[str, list[str]]:
+    assert href is not None and href.startswith("/proposals?")
+    return parse_qs(urlsplit(href).query)
 
 
 # ------------------------------------------------------------------------------------- summary
-def test_status_rows_count_and_sum_generation_and_storage_only() -> None:
-    summary = pipeline_summary(ROWS)
+def test_status_rows_count_listed_active_records_and_drop_the_unlisted_into_their_own_row() -> None:
+    summary = pipeline_summary(AGGREGATE)
     assert summary is not None
     by_status = {r["label"]: (r["count"], r["mw"]) for r in summary["by_status"]}
     assert by_status == {
         "Announced": (1, 100.0),
-        "In process": (4, 270.5),  # 200 + 50.5 + 20; the 1,000 MW load is not added
+        "In process": (4, 270.5),  # 3 filed + 1 studied, listed; the dropped filed project is not here
         "Contracted": (1, None),  # no capacity stated: a dash, never a zero
+        "No longer listed": (1, 40.0),
         "Built or operating": (1, 300.0),
         "Withdrawn or cancelled": (1, 80.0),
     }
-    assert (summary["total"]["count"], summary["total"]["mw"]) == (8, 750.5)
+    assert sum(r["count"] for r in summary["by_status"]) == summary["total"]["count"] == 9
     assert (summary["active"]["count"], summary["active"]["mw"]) == (6, 370.5)
+    assert summary["not_listed"]["count"] == 1
     assert summary["not_summed"] == [
         {"kind": "load", "label": "Load (data centres, large loads)", "count": 1}
     ]
-    assert summary["no_capacity"] == 1
+    assert summary["no_capacity"] == 1  # 9 records, 7 with a summed capacity, 1 not summed
     assert [r["family"] for r in summary["by_status"]] == [
         "neutral",
         "progress",
         "committed",
+        "neutral",
         "success",
         "danger",
     ]
 
 
-def test_technology_and_iso_rows_cover_the_active_pipeline_largest_first() -> None:
-    summary = pipeline_summary(ROWS)
+def test_technology_and_iso_rows_are_the_apis_buckets_in_its_order() -> None:
+    summary = pipeline_summary(AGGREGATE)
     assert summary is not None
     tech = [(r["label"], r["count"], r["mw"]) for r in summary["by_technology"]]
-    # Built (wind) and withdrawn rows are not in the active pipeline; "not stated" goes last.
     assert tech == [
-        ("Solar", 3, 300.0),
+        ("Solar", 2, 300.0),
         ("Storage", 1, 50.5),
         ("Large load", 1, None),
         ("Not stated", 1, 20.0),
@@ -149,29 +183,34 @@ def test_technology_and_iso_rows_cover_the_active_pipeline_largest_first() -> No
     assert iso == [("ERCOT", 3, 300.0), ("MISO", 2, 50.5), ("None stated", 1, 20.0)]
 
 
-def test_every_count_links_to_the_same_rows_in_the_list() -> None:
-    summary = pipeline_summary(ROWS)
+def test_every_count_links_with_the_apis_list_query_and_its_buckets_filter() -> None:
+    summary = pipeline_summary(AGGREGATE)
     assert summary is not None and summary["linked"]
-
-    def query(href: str | None) -> dict[str, list[str]]:
-        assert href is not None and href.startswith("/proposals?")
-        return parse_qs(urlsplit(href).query)
-
-    in_process = next(r for r in summary["by_status"] if r["label"] == "In process")
-    assert query(in_process["href"]) == {
+    rows = {r["label"]: r for r in summary["by_status"]}
+    assert _query(rows["In process"]["href"]) == {
         "sponsor_id": [ORG_ID],
         "lifecycle_state": ["filed,studied,permitted,under_construction"],
+        "listed": ["true"],
     }
-    # The active pipeline is the list's default view, so its links name no status.
-    assert query(summary["active"]["href"]) == {"sponsor_id": [ORG_ID]}
+    assert _query(rows["No longer listed"]["href"]) == {
+        "sponsor_id": [ORG_ID],
+        "lifecycle_state": [",".join(ACTIVE)],
+        "listed": ["false"],
+    }
+    # Built, withdrawn and unknown count every record in those states, listed or not.
+    assert _query(rows["Withdrawn or cancelled"]["href"]) == {
+        "sponsor_id": [ORG_ID],
+        "lifecycle_state": ["withdrawn,cancelled"],
+    }
+    # The active pipeline is the list's default view of the listed records.
+    assert _query(summary["active"]["href"]) == {"sponsor_id": [ORG_ID], "listed": ["true"]}
     solar = next(r for r in summary["by_technology"] if r["label"] == "Solar")
-    assert query(solar["href"]) == {"sponsor_id": [ORG_ID], "technology": ["solar"]}
+    assert _query(solar["href"]) == {"sponsor_id": [ORG_ID], "technology": ["solar"], "listed": ["true"]}
     ercot = next(r for r in summary["by_iso"] if r["label"] == "ERCOT")
-    assert query(ercot["href"]) == {"sponsor_id": [ORG_ID], "iso": ["ERCOT"]}
+    assert _query(ercot["href"]) == {"sponsor_id": [ORG_ID], "iso": ["ERCOT"], "listed": ["true"]}
     # "Not stated" cannot be asked of the list, so it is not a link.
     assert next(r for r in summary["by_technology"] if r["label"] == "Not stated")["href"] is None
-    total = query(summary["total"]["href"])
-    assert total["lifecycle_state"][0].split(",") == [
+    assert _query(summary["total"]["href"])["lifecycle_state"][0].split(",") == [
         "announced",
         "filed",
         "studied",
@@ -185,68 +224,62 @@ def test_every_count_links_to_the_same_rows_in_the_list() -> None:
     ]
 
 
+def test_a_group_links_with_one_id_and_its_scope() -> None:
+    group = {
+        **AGGREGATE,
+        "scope": {"scope": "all", "organizations": 4},
+        "list_query": {"sponsor_id": ORG_ID, "sponsor_scope": "all"},
+    }
+    summary = pipeline_summary(group)
+    assert summary is not None and summary["group"]
+    assert _query(summary["active"]["href"]) == {
+        "sponsor_id": [ORG_ID],
+        "sponsor_scope": ["all"],
+        "listed": ["true"],
+    }
+
+
 def test_sources_name_each_register_with_how_many_proposals_it_backs() -> None:
-    summary = pipeline_summary(ROWS)
+    summary = pipeline_summary(AGGREGATE)
     assert summary is not None
     sources = [(s["name"], s["count"], s["retrieved_at"]) for s in summary["sources"]]
-    assert sources[0][0] == "ERCOT" and sources[0][1] == 7
+    assert sources[0][0] == "ERCOT" and sources[0][1] == 8
     assert sources[1] == ("EIA-860M", 1, "2026-09-12T00:00:00Z")
-    href = parse_qs(urlsplit(summary["sources"][1]["href"]).query)
+    href = _query(summary["sources"][1]["href"])
     assert href["source_id"] == ["us.eia.860m"] and href["sponsor_id"] == [ORG_ID]
+    assert len(href["lifecycle_state"][0].split(",")) == 10
 
 
-def test_a_group_page_links_with_every_sponsor_behind_the_rows() -> None:
-    rows = [*ROWS, _proposal(9, "filed", "solar", "ERCOT", 10.0, sponsor=SUB_ID)]
-    summary = pipeline_summary(rows, group=True)
-    assert summary is not None and summary["group"]
-    assert parse_qs(urlsplit(summary["active"]["href"]).query)["sponsor_id"] == [f"{ORG_ID},{SUB_ID}"]
-
-
-def test_no_links_when_a_row_does_not_name_its_sponsor() -> None:
-    """The list could not be filtered to that row, so a link would open fewer rows than counted."""
-    rows = [*ROWS, _proposal(9, "filed", "solar", "ERCOT", 10.0) | {"sponsor": None}]
-    summary = pipeline_summary(rows)
-    assert summary is not None and not summary["linked"]
-    assert all(r["href"] is None for r in summary["by_status"])
-
-
-def test_nothing_sponsored_renders_no_summary() -> None:
-    assert pipeline_summary([]) is None
+def test_nothing_sponsored_or_nothing_read_renders_no_summary() -> None:
+    assert pipeline_summary(None) is None
+    assert pipeline_summary({**AGGREGATE, "totals": _t(0)}) is None
 
 
 # ------------------------------------------------------------------------------------- reading
-def _paged(rows: list[dict[str, Any]], size: int) -> Callable[[Mapping[str, Any]], tuple[int, Any]]:
-    def answer(params: Mapping[str, Any]) -> tuple[int, Any]:
-        start = int(params.get("cursor") or 0)
-        chunk = rows[start : start + size]
-        more = start + size < len(rows)
-        return 200, {
-            "data": chunk,
-            "page": {"next_cursor": str(start + size) if more else None, "has_more": more},
-        }
-
-    return answer
+def test_the_pipeline_is_one_read_at_the_pages_scope() -> None:
+    transport = FakeTransport({f"/v1/organizations/{ORG_ID}/pipeline": (200, {"data": AGGREGATE})})
+    assert fetch_pipeline(ApiClient(transport), ORG_ID, {"scope": "all"}) == AGGREGATE
+    assert transport.calls == [(f"/v1/organizations/{ORG_ID}/pipeline", {"scope": "all"})]
 
 
-def test_the_read_follows_the_cursor_to_the_end() -> None:
-    rows = [_proposal(n, "filed", "solar", "ERCOT", 1.0) for n in range(450)]
-    transport = FakeTransport({f"/v1/organizations/{ORG_ID}/proposals": _paged(rows, PAGE_SIZE)})
+def test_a_failed_pipeline_read_leaves_the_section_out() -> None:
+    transport = FakeTransport({f"/v1/organizations/{ORG_ID}/pipeline": (500, {"title": "boom"})})
+    assert fetch_pipeline(ApiClient(transport), ORG_ID, {}) is None
+
+
+def test_the_list_section_reads_one_page() -> None:
+    rows = [{"public_id": f"prop_{n}", "slug": f"p-{n}"} for n in range(PAGE_SIZE)]
+    transport = FakeTransport(
+        {f"/v1/organizations/{ORG_ID}/proposals": (200, {"data": rows, "page": {"has_more": True}})}
+    )
     pages = fetch_proposals(ApiClient(transport), ORG_ID, {"scope": "all"})
-    assert len(pages.rows) == 450 and pages.complete and not pages.failed
-    assert [c[1].get("cursor") for c in transport.calls] == [None, "200", "400"]
-    assert all(c[1]["limit"] == PAGE_SIZE and c[1]["scope"] == "all" for c in transport.calls)
+    assert len(pages.rows) == PAGE_SIZE and not pages.complete and not pages.failed
+    assert transport.calls == [
+        (f"/v1/organizations/{ORG_ID}/proposals", {"limit": PAGE_SIZE, "scope": "all"})
+    ]
 
 
-def test_the_read_stops_at_its_cap_and_says_so() -> None:
-    rows = [_proposal(n, "filed", "solar", "ERCOT", 1.0) for n in range(PAGE_SIZE * MAX_PAGES + 1)]
-    transport = FakeTransport({f"/v1/organizations/{ORG_ID}/proposals": _paged(rows, PAGE_SIZE)})
-    pages = fetch_proposals(ApiClient(transport), ORG_ID, {})
-    assert len(pages.rows) == PAGE_SIZE * MAX_PAGES and not pages.complete
-    summary = pipeline_summary(pages.rows, complete=pages.complete)
-    assert summary is not None and summary["complete"] is False
-
-
-def test_a_failed_read_leaves_the_section_out() -> None:
+def test_a_failed_list_read_leaves_the_section_empty() -> None:
     transport = FakeTransport({f"/v1/organizations/{ORG_ID}/proposals": (500, {"title": "boom"})})
     pages = fetch_proposals(ApiClient(transport), ORG_ID, {})
     assert pages.rows == [] and pages.failed
@@ -265,6 +298,24 @@ ORG = {
 }
 
 
+def _proposal(n: int) -> dict[str, Any]:
+    return {
+        "public_id": f"prop_{n:03d}",
+        "slug": f"p-{n}",
+        "name_canonical": f"Project {n}",
+        "kind": "generation",
+        "technology": "solar",
+        "capacity_mw": 1.0,
+        "iso": "ERCOT",
+        "jurisdiction": "US-TX",
+        "lifecycle_state": "filed",
+        "listed": True,
+        "delisted_at": None,
+        "sponsor": {"public_id": ORG_ID, "name_canonical": "Cypress Creek"},
+        "provenance": [],
+    }
+
+
 @pytest.fixture()
 def client() -> Iterator[TestClient]:
     with TestClient(web_app) as test_client:
@@ -276,7 +327,7 @@ def client() -> Iterator[TestClient]:
             pass
 
 
-def _install(proposals: Answer) -> FakeTransport:
+def _install(aggregate: Answer, proposals: Answer) -> FakeTransport:
     transport = FakeTransport(
         {
             "/v1/health": (200, {"status": "ok", "lag_days_default": {"supply": 0, "opportunities": 0}}),
@@ -287,6 +338,7 @@ def _install(proposals: Answer) -> FakeTransport:
                 200,
                 {"data": [], "totals": {}, "scope": {"organizations": 1}},
             ),
+            f"/v1/organizations/{ORG_ID}/pipeline": aggregate,
             f"/v1/organizations/{ORG_ID}/proposals": proposals,
             f"/v1/organizations/{ORG_ID}/opportunities": (200, {"data": []}),
             f"/v1/organizations/{ORG_ID}/nearby-proposals": (200, {"data": [], "totals": {}}),
@@ -304,15 +356,22 @@ def _text(html: str) -> str:
 
 
 def test_the_company_page_opens_with_its_pipeline_and_the_registers_behind_it(client: TestClient) -> None:
-    _install((200, {"data": ROWS, "page": {"has_more": False, "next_cursor": None}}))
+    rows = [_proposal(n) for n in range(9)]
+    transport = _install((200, {"data": AGGREGATE}), (200, {"data": rows, "page": {"has_more": False}}))
     body = client.get("/organizations/cypress-creek").text
+    # The page's default scope (`all`) is asked of the aggregate once; no paging through the list.
+    assert [c for c in transport.calls if c[0].endswith("/pipeline")] == [
+        (f"/v1/organizations/{ORG_ID}/pipeline", {"scope": "all"})
+    ]
+    assert len([c for c in transport.calls if c[0].endswith("/proposals")]) == 1
     section = body.split('<section class="org-pipeline" id="pipeline"', 1)[1].split(">", 1)[1]
     section = section.split("</section>", 1)[0]
     # Near the top: before the assets, the nearby proposals and the proposal list.
     assert body.index('id="pipeline"') < body.index("Assets</h2>") < body.index("Proposals</h2>")
     assert _text(section).startswith(
-        "Pipeline 8 proposals sponsored by this company, 6 of them in the active pipeline "
-        "(announced, in process or contracted), 370.5 MW. Each count opens the matching list."
+        "Pipeline 9 proposals sponsored by this company, 6 of them in the active pipeline "
+        "(announced, in process or contracted), 370.5 MW. 1 more was last stated as active but is no "
+        "longer listed in any register, so it is not counted as active. Each count opens the matching list."
     )
     status = section.split('id="pipeline-by-status"', 1)[1].split("</table>", 1)[0]
     in_process = re.search(
@@ -322,10 +381,12 @@ def test_the_company_page_opens_with_its_pipeline_and_the_registers_behind_it(cl
     )
     assert in_process is not None
     assert (
-        'href="/proposals?sponsor_id=org_01CYPRESS&amp;lifecycle_state=filed%2Cstudied%2Cpermitted%2Cunder_construction"'
-        in in_process.group(1)
+        'href="/proposals?sponsor_id=org_01CYPRESS&amp;lifecycle_state=filed%2Cstudied%2Cpermitted%2Cunder_construction'
+        '&amp;listed=true"' in in_process.group(1)
     )
     assert _text(in_process.group(1)) == "4 in process proposals" and in_process.group(2) == "270.5"
+    dropped = re.search(r"No longer listed</th>\s*<td class=\"num tnum\">(.*?)</td>", status, re.S)
+    assert dropped is not None and "listed=false" in dropped.group(1)
     contracted = re.search(
         r"Contracted</th>\s*<td[^>]*>.*?</td>\s*<td class=\"num tnum\">(.*?)</td>", status, re.S
     )
@@ -336,34 +397,42 @@ def test_the_company_page_opens_with_its_pipeline_and_the_registers_behind_it(cl
         "MW is the sum of the capacity each register states for generation and storage; "
         "1 load (data centres, large loads) proposal is counted but not added to it; 1 states no capacity."
     )
+    assert "partial" not in _text(section) and "most recently changed" not in _text(section)
     sources = _text(section.split('class="org-pipeline__sources">', 1)[1].split("</p>", 1)[0])
     assert sources.startswith(
-        "From ERCOT (7 proposals, retrieved 1 Oct 2026); EIA-860M (1 proposal, retrieved 12 Sep 2026)."
+        "From ERCOT (8 proposals, retrieved 1 Oct 2026); EIA-860M (1 proposal, retrieved 12 Sep 2026)."
     )
-    assert 'href="#sources"' in section and 'id="sources"' in body  # the Sources section's heading
 
 
 def test_a_capitalised_company_name_reads_in_a_readable_case(client: TestClient) -> None:
-    _install((200, {"data": ROWS}))
+    _install((200, {"data": AGGREGATE}), (200, {"data": [_proposal(1)]}))
     body = client.get("/organizations/cypress-creek").text
     assert "<h1>Cypress Creek Renewables LLC</h1>" in body
     assert "<title>Cypress Creek Renewables LLC — Infraque</title>" in body
     assert body.count('As filed: <span class="as-filed__name">CYPRESS CREEK RENEWABLES LLC</span>') == 1
 
 
-def test_the_list_section_says_when_it_shows_only_the_latest_hundred(client: TestClient) -> None:
-    rows = [_proposal(n, "filed", "solar", "ERCOT", 1.0) for n in range(157)]
-    _install(_paged(rows, PAGE_SIZE))
+def test_the_list_section_counts_against_the_aggregates_total(client: TestClient) -> None:
+    aggregate = {**AGGREGATE, "totals": _t(157, 157.0)}
+    rows = [_proposal(n) for n in range(PAGE_SIZE)]
+    _install((200, {"data": aggregate}), (200, {"data": rows, "page": {"has_more": True}}))
     body = client.get("/organizations/cypress-creek").text
     shown = re.search(r'<p class="attribution-line" id="proposals-shown">(.*?)</p>', body, re.S)
     assert shown is not None
+    # The aggregate counted all 157, so the line says how many there are, not "or more".
     assert _text(shown.group(1)) == "The 100 most recently changed of 157; all of them in the list."
     assert body.count('<a href="/proposals/p-') == 100
-    assert "157" in _text(body.split('id="pipeline"', 1)[1].split("</p>", 1)[0])
 
 
 def test_a_company_that_sponsors_nothing_has_no_pipeline_section(client: TestClient) -> None:
-    _install((200, {"data": []}))
+    _install((200, {"data": {**AGGREGATE, "totals": _t(0)}}), (200, {"data": []}))
     body = client.get("/organizations/cypress-creek").text
     assert 'id="pipeline"' not in body
     assert "No proposals sponsored by this company." in body
+
+
+def test_an_unreadable_aggregate_leaves_the_section_out_and_the_list_in(client: TestClient) -> None:
+    _install((500, {"title": "boom"}), (200, {"data": [_proposal(1)], "page": {"has_more": False}}))
+    body = client.get("/organizations/cypress-creek").text
+    assert 'id="pipeline"' not in body
+    assert '<a href="/proposals/p-1">' in body

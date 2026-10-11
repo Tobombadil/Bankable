@@ -43,7 +43,10 @@ from services.api.common import WEB_HOST
 from services.api.deps import get_db
 from services.api.errors import validation_error
 from services.api.geo import GeoLicence, GeoRow, build_geo_feature_collection
+from services.api.grid_operators import iso_filter_values
+from services.api.listing import listed_clause, listed_param
 from services.api.merged_redirect import merged_redirect_or_404
+from services.api.orgtree import scope_ids_select, scope_param
 from services.api.pagination import paginate
 from services.api.params import (
     LIST_COMMON,
@@ -136,6 +139,17 @@ PROPOSAL_FILTERS = {
     # unknown id (`interconnection_point_source_filter`).
     "interconnection_point_id",
 }
+#: List filters that narrow what a reader is looking at but that the alert matcher
+#: (`services/alerts/matching.py`) does not evaluate yet (2026-10-10, lane P), so a saved search or
+#: webhook may not carry them: `validate_saved_search_query` answers `400 unknown_parameter`, never
+#: an alert that silently ignores them. The list, the map, the feeds and exports apply them.
+#: - `sponsor_scope` (`self` | `children` | `all`, default `self`) widens `sponsor_id` down the
+#:   ownership tree, the walk `/v1/organizations/{id}/proposals?scope=` makes
+#:   (`orgtree.scope_ids_select`); without `sponsor_id` there is nothing to widen and it selects
+#:   as if absent.
+#: - `listed` (`true` | `false`): whether any register the tier may see still lists the record
+#:   (`services/api/listing.py`), the `listed` field every proposal row carries.
+PROPOSAL_VIEW_FILTERS = {"sponsor_scope", "listed"}
 #: Filters the list, map and feed apply that a saved search or webhook may **not** carry.
 #: `updated_since` is the incremental-sync cursor (docs/23 §7; `services/api/bulk.py`): "rows whose
 #: `last_changed` is at or after this instant", identical to `last_changed[from]`. An alert already
@@ -494,7 +508,9 @@ def _apply_proposal_filters(
     if v := qp.get("jurisdiction"):
         stmt = stmt.where(Proposal.jurisdiction.in_(csv_param(v)))
     if v := qp.get("iso"):
-        stmt = stmt.where(Proposal.iso.in_(csv_param(v)))
+        # Every stored spelling of the grid: `iso=ERCOT` also selects EIA-860M rows loaded with the
+        # balancing-authority code `ERCO` (services/api/grid_operators.py; stored rows unchanged).
+        stmt = stmt.where(Proposal.iso.in_(iso_filter_values(csv_param(v))))
     if v := qp.get("source_id"):
         # A subquery, not a join: a proposal linked to two of the named sources would otherwise be
         # returned twice (`?source_id=a,b` answered 120 rows for 96 proposals on the parity store,
@@ -510,8 +526,20 @@ def _apply_proposal_filters(
         stmt = stmt.where(Proposal.capacity_mw <= number_filter("capacity_mw[lte]", v, request.url.path))
     if v := qp.get("storage_mwh[gte]"):
         stmt = stmt.where(Proposal.storage_mwh >= number_filter("storage_mwh[gte]", v, request.url.path))
+    # Validated whether or not `sponsor_id` is given, so a misspelt scope is a 400 either way.
+    sponsor_scope = scope_param(qp.get("sponsor_scope"), "sponsor_scope", request.url.path)
     if v := qp.get("sponsor_id"):
-        stmt = stmt.where(Proposal.sponsor_org_id.in_(visible_organization_ids(csv_param(v))))
+        refs = csv_param(v)
+        sponsors = (
+            visible_organization_ids(refs)
+            if sponsor_scope == "self"
+            else scope_ids_select(refs, sponsor_scope)
+        )
+        stmt = stmt.where(Proposal.sponsor_org_id.in_(sponsors))
+    listed = listed_param(qp.get("listed"), request.url.path)
+    if listed is not None:
+        clause = listed_clause(entitlement)
+        stmt = stmt.where(clause if listed else sa.not_(clause))
     if v := qp.get("interconnection_point_id"):
         # A subquery on the point's own register clauses: an id named by a gated register selects
         # nothing, the same empty page a made-up id gets, so the filter is no oracle for it. The
@@ -825,7 +853,7 @@ def list_proposals(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, LIST_COMMON | PROPOSAL_FILTERS | SYNC_FILTERS)
+    check_allowed(request, LIST_COMMON | PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS)
     if wants_csv(request):
         return _csv_list_response(request, db, ctx, "proposal")
     limit = page_limit(request)
@@ -986,7 +1014,7 @@ def get_proposals_geo(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, {"bbox", "zoom"} | PROPOSAL_FILTERS | SYNC_FILTERS | {"q"})
+    check_allowed(request, {"bbox", "zoom"} | PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS | {"q"})
     bbox_param = request.query_params.get("bbox")
     zoom_param = request.query_params.get("zoom")
     if not bbox_param or zoom_param is None:

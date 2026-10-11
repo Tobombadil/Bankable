@@ -52,6 +52,44 @@ def test_phase_markers_and_expansion_words() -> None:
     assert not evidence.has_expansion_marker("Myrtle Solar")
 
 
+@pytest.mark.parametrize(
+    ("name", "markers"),
+    [
+        # Roman or Arabic numerals with a letter suffix (lane S2: "St Gall IIIA" was read as no marker).
+        ("St Gall IIIA", ("3A",)),
+        ("st gall IIIB Storage", ("3B",)),
+        ("SAN JOAQUIN 2A", ("2A",)),
+        ("Bluepoint Wind 3b", ("3B",)),
+        ("LI Cable - Phase 2a", ("2A",)),
+        ("Keys Hollow Phase IIA Solar LLC", ("2A",)),
+        ("Darden VIIIB", ("8B",)),
+        ("Unit 4c", ("4C",)),
+        # Plain markers are read as before.
+        ("Darden II Solar", ("2",)),
+        ("Phase 2", ("2",)),
+        # Not phases: state codes, words, a token inside a name, a first word.
+        ("Solar IA", ()),
+        ("Coastal VA Storage", ()),
+        ("Via Verde Solar", ()),
+        ("Lake Iva Solar", ()),
+        ("Solar Via Roma", ()),
+        ("Route 2A Crossing", ()),
+        ("2A Solar", ()),
+        ("Bishop Ranch - BR 3-GG", ("3",)),
+    ],
+)
+def test_phase_markers_with_a_letter_suffix(name: str, markers: tuple[str, ...]) -> None:
+    assert evidence.phase_markers(name) == markers
+
+
+def test_a_suffixed_marker_leaves_the_stem_like_a_plain_numeral() -> None:
+    """ "St Gall IIIA" and "St Gall IIIB" share a stem now, so they can be phases of one project."""
+    assert evidence.name_stem("St Gall IIIA") == "gall"
+    assert evidence.name_stem("st gall IIIB Storage") == "gall"
+    assert evidence.name_stem("Via Verde Solar") == "via verde"
+    assert evidence.name_stem("Solar Via Roma") == "via roma"
+
+
 def test_eia_plant_id_from_860m_record_ids_only() -> None:
     assert evidence.eia_plant_id("us.eia.860m", "69661-IPD1B") == "69661"
     assert evidence.eia_plant_id("us.eia.860m", "plant:1239") == "1239"

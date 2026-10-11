@@ -143,22 +143,86 @@ shows uvicorn keeping `http` for an untrusted peer. For the same reason, `compos
 **Response headers and the firewall (2026-10-10, `docs/51` §2.4 item 5, §2.9 item 6).** Every response a
 Caddy handler writes, on every host, carries `Strict-Transport-Security: max-age=31536000` (no
 `includeSubDomains`, no `preload`), `X-Content-Type-Options: nosniff`, `Referrer-Policy:
-strict-origin-when-cross-origin` and an enforced `Content-Security-Policy: frame-ancestors 'none'`. Each is
-written only when the upstream sent none (`?` in the Caddyfile). Caddy's own error answers (the beta gate's
-401, a 502 while an upstream is down) carry none of them. The full policy ships as
-`Content-Security-Policy-Report-Only`. It allows the site as it was on 2026-10-10:
-- the three CDN packages `web/assets.py` pins;
-- Cloudflare Turnstile;
-- the one inline script, by hash;
-- the Protomaps glyphs and sprites, and the basemap file (`MAP_TILE_URL`, which `compose.prod.yml` now passes
-  to Caddy);
-- `'unsafe-inline'` styles, for the templates' `style` attributes.
+strict-origin-when-cross-origin`, `Reporting-Endpoints: csp="/csp-report"` and a content security policy. Each
+is written only when the upstream sent none (`?` in the Caddyfile), and each is its own `header` line. Until
+2026-10-10 they shared one `header` block, which Caddy turns into one condition, all five absent: an upstream
+sending any one of them would have dropped all the others (no upstream sends one today; `caddy adapt` showed the
+shared condition, and `infra/test_caddyfile.py` now proves an upstream `Referrer-Policy` leaves the rest). Caddy's
+own error answers (the beta gate's 401, a 502 while an upstream is down) carry none of them.
 
-There is no report endpoint, so a browser shows violations in its console only. `infra/test_caddyfile.py`
-derives the sources from `web/` and fails when the policy and the site disagree. Before enforcing it:
-1. add a report endpoint;
-2. move the style attributes into classes;
-3. decide on FastAPI's `/docs` and `/redoc`, which the policy would block (both apps serve them).
+**The content security policy (lane O2, 2026-10-10).** One policy, in one of two modes chosen by `CSP_MODE` in the
+secrets file (Caddyfile snippets `csp_report` and `csp_enforce`; `compose.prod.yml` passes it to Caddy):
+- `report` (the default): the policy is `Content-Security-Policy-Report-Only`, and only `frame-ancestors 'none'`
+  is enforced;
+- `enforce`: the same policy is the `Content-Security-Policy`.
+
+Any other value stops Caddy from adapting, and `deploy.sh` refuses it before touching a host. `docs/64` §5 says
+when to switch. The policy allows:
+- scripts: self, the three CDN packages `web/assets.py` pins (SRI-checked), Cloudflare Turnstile, and
+  `base.html`'s one inline script by hash;
+- styles: self and MapLibre's stylesheet. No `'unsafe-inline'` for `<style>` or `<script>`.
+  `style-src-attr 'unsafe-inline'` remains while a template carries a `style` attribute: on 2026-10-10 two did,
+  `home_map.html`'s legend and `partials/_org_pipeline.html`'s status icon, both owned by other work. Their classes
+  are already in `styles.css`. `base.html`'s sprite moved to a class. `infra/test_caddyfile.py` fails once no
+  template has a `style` attribute and the allowance is still there;
+- images: self, `data:`, `blob:`, the Protomaps sprites and the basemap file;
+- fetches: self, the basemap file (`MAP_TILE_URL`) and the Protomaps glyphs and sprites;
+- fonts: self. Workers: self and `blob:` (MapLibre). Frames: Turnstile only;
+- `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`.
+
+**Reports** go to `POST /csp-report` on the site (`web/csp_reports.py`), through `report-uri` and through
+`report-to csp` with the `Reporting-Endpoints` header. It is on the site rather than the API for three reasons:
+- every document the policy governs is a site page;
+- a relative path is same-origin on the site and admin hosts (Caddy sends it to the site from the API host too);
+- every API route spends the caller's public read window and is held to `api/openapi.yaml`.
+
+It accepts `application/csp-report` and `application/reports+json`. It writes one structured WARNING line per
+report, with four fields:
+- `csp_directive`;
+- `csp_blocked`: the blocked resource's origin, or a keyword such as `inline`;
+- `csp_page`: the page as its route template, such as `/proposals/{slug}`, so no record or account id and no query;
+- `csp_disposition`: `report` or `enforce`.
+
+It reads nothing else from the report and keeps no address or cookie. The per-client rate limit keys on an HMAC
+whose key is drawn at start-up and held in memory only. The bounds:
+- 64 KiB a body (413 above it);
+- 20 reports a batch;
+- 30 lines a minute per client and 300 in total. Over the limit it still answers 204, logs nothing more, and
+  warns once a minute.
+
+`/csp-report` is outside the beta login, because a browser may send a report without it.
+
+**Measured in Chromium with the policy enforced** (`web/test_csp_browser.py`). The site runs on a port the OS
+picks, over the evaluation fixture plus its sites and an operator. Pages: `/`, `/proposals`, a proposal, a company,
+a site, `/alerts`, `/submit`, `/docs/api`, `/pricing`, `/login`, `/organizations`, `/assets`, `/privacy`, and
+`/admin` with every page its navigation links:
+- violations: 0;
+- MapLibre runs under the policy, its `blob:` worker included;
+- without `style-src-attr`: 26 violations on `/` (the 16 legend attributes, one of them rendered for each of 11
+  plant types) and one per status row on a company page, all from the two templates named above. With those
+  attributes moved (patch held by the coordinator): 0, and the computed colours of all 38 elements are unchanged in
+  light and dark.
+
+A violating script on a page reached `/csp-report` through `report-uri` and was logged as
+`script-src-elem` / `https://evil.example` / `/docs/api` / `enforce`, with no query, no path and no address.
+
+**Not verified: delivery through `report-to`.** Browsers that support `report-to` ignore `report-uri`, so Chrome
+reports only this way. Chromium sent no Reporting API report in this sandbox:
+- over plain `http://127.0.0.1`, with a relative or an absolute endpoint, with and without
+  `--short-reporting-delay`, for up to 90 s;
+- over HTTPS through Caddy with its local CA, where it sent no `report-uri` report either. That run shows the
+  untrusted local certificate, not the endpoint.
+
+Chrome documents a batching delay of up to a minute
+(https://developer.chrome.com/docs/capabilities/web-apis/reporting-api). `docs/64` §5 has the check to run once on
+the real host, and the fallback if it fails.
+
+**FastAPI's own docs pages.** `/docs` and `/redoc` are off outside the development environments
+(`services.environment.is_dev_environment`) on both apps, and so is the site's `/openapi.json`. The pages load an
+unpinned script from jsDelivr and Google Fonts, which the policy refuses. They describe routes, not the contract
+(`docs/51` §2.5), and nothing on the site links to the site's copies. The API keeps `/openapi.json`, which `/docs/api`
+links. `/docs/api` also links the API's `/redoc` as "API reference": in staging and production that link now
+answers 404 until the page points elsewhere (open item, `web/feeds.py`).
 
 `infra/terraform` takes the firewall sources as variables:
 - `ssh_source_cidrs` defaults to anyone (key auth only), as before. Set it to the operator's address.
@@ -525,12 +589,35 @@ defaults. Values and reasoning are at `jobs.WORKER_STATEMENT_TIMEOUT_MS`:
 - The limits travel as the libpq `options` startup parameter. A transaction-mode pooler refuses that at
   connect, so point the worker at a direct endpoint.
 
-**Not fixed: `_run_with_timeout` still releases the lock early.** Its docstring records this. When an in-process
-job times out, the job fails and Procrastinate releases its lock, but the abandoned thread keeps writing. The
-statement limits bound any single statement it is stuck in, and each timeout is far above the measured run
-(resolve 43 s against 3,600 s). The fix is a lock held by the work itself, for example a session
-`pg_advisory_lock` the thread takes on its own connection. It needs a Postgres test and was not done for the
-beta.
+**The store-wide lock now outlives a timed-out job (lane O2, 2026-10-10).** When an in-process job times out,
+the job fails and Procrastinate releases its lock, but `_run_with_timeout`'s abandoned thread keeps writing. For
+the four store-wide passes (`resolve_tick`, `enrich_tick`, `match_tick`, `context_load`), the work itself now holds
+a session-level Postgres advisory lock for its whole duration (`infra/scheduler/jobs.py::run_store_pass`, key
+`STORE_WIDE_LOCK_KEY`, beside `queue_schema`'s):
+- **Taken where the work runs.** `pg_try_advisory_lock` runs inside the thread `_run_with_timeout` starts
+  (`app._store_pass`), on a connection of its own in autocommit. It never waits and holds no transaction open.
+- **Released when the work ends.** The thread unlocks it in a `finally`, abandoned or not. The connection is then
+  closed, not pooled, so an unlock that could not run cannot leave a pooled connection holding the lock. A worker
+  killed mid-pass closes the session, and Postgres frees the lock with it.
+- **A pass that finds the lock taken ends cleanly** with `{"skipped": "previous pass still running"}` and a WARNING,
+  and chains nothing. Its retry is the next trigger: the next load's resolve chain or the daily `tick_resolve`. A
+  skipped `context_load` reruns with `bootstrap context` (`docs/64` §5). Retrying in the job would only queue
+  behind a thread that has already outlived its timeout.
+- **SQLite** (development and the test suite) has no advisory locks: the work runs unguarded, as before.
+
+The statement limits still bound any one statement such a thread is stuck in.
+
+`infra/scheduler/test_store_pass_lock.py` covers it. The SQLite test runs everywhere. Four Postgres tests run under
+`POSTGIS_TEST_URL` and skip without it, as the other Postgres tests do:
+- a second pass is skipped while the first holds the lock;
+- a pass that raises releases it;
+- a terminated holder frees it;
+- through the real `resolve_tick` body with a 1 s timeout: the job fails, the abandoned pass keeps the lock,
+  `resolve_tick` and `match_tick` are skipped and chain nothing, and once the thread finishes the next pass runs
+  and chains to `enrich_tick`. Without the lock that test fails at "the abandoned pass keeps the lock after its
+  job failed".
+
+All five passed on 2026-10-10 against a local Postgres 16. CI runs the Postgres four with the other Postgres tests.
 
 ## 7. Observability
 
@@ -539,7 +626,7 @@ beta.
 | Structured logs | JSON to stdout, `docs/04` E-18 keys: `infra/logging_config.py` (stdlib only) emits one object per record with the standard fields **plus every `extra=` field**, which the previous `%(message)s` format dropped. `infra/entrypoint.py` installs it before importing the service, so each service's own `logging.basicConfig` is a no-op (`infra/test_logging_config.py` proves the claim in-process and in a bare interpreter) | every service (all Compose commands and Dockerfile CMDs run `python -m infra.entrypoint api|web|worker|scheduler`); Compose `logging.driver: json-file` caps local disk (`infra/compose/compose.prod.yml`); shipping to Grafana Cloud Loki (14-day retention, `docs/20` §10) — **not wired**, see §11 gaps |
 | Per-source success/latency/row-count | `source_run` rows (`pipeline/connectors`) | Grafana dashboard reading Postgres directly (no separate metrics pipeline needed at this scale, `docs/20` §10) — **dashboard not built this sprint**, see §11 |
 | Cost per model call | `model_call` rows (`docs/20` §4.5) | same Grafana dashboard, once `services/modelgw` exists |
-| Uptime | Caddy healthchecks + an external uptime check (UptimeRobot free tier or Grafana Cloud synthetic monitoring) hitting `/v1/health` and `/health` | alerts to the owner's email + chat channel on 2 consecutive failures |
+| Uptime | Caddy healthchecks + an external uptime check (UptimeRobot free tier) on `/v1/health` and `/health`. The API one is a *keyword* monitor (GET, `"status":"ok"`): UptimeRobot's free HTTP monitor sends `HEAD`, which the API answers 405 (the site's `/health` answers `HEAD`) | alerts to the owner's email; steps in `docs/64` §2 |
 | Certificate expiry | Caddy auto-renews; alert if a renewal has not happened in 60 days (Let's Encrypt certs are 90-day) | same channel |
 | Backup age | `/opt/infraque/backups/last-success` (written by `infra/scripts/backup.sh` on success), checked by a scheduled GitHub Actions job or a Grafana Cloud check | alert if > 26 h (`docs/04` O-7) — **check not wired**, see §11 |
 | Errors | Sentry free tier via `infra/observability.py::init_error_tracking(service)`: a no-op unless `SENTRY_DSN` is set (dev, CI, tests); with it set, `sentry-sdk` (pinned in `requirements.txt`) is initialised once per process with `environment=ENVIRONMENT`, `release=SENTRY_RELEASE` (= `IMAGE_TAG`, set by Compose), `send_default_pii=False`, tracing off, and a `service` tag (`infra/test_observability.py`, `infra/test_entrypoint.py` with a fake SDK and a stub DSN) | every service, DSN from `infra/sops/secrets.<env>.enc.yaml`; a Sentry project does not exist yet (§11 item 7) |
@@ -561,6 +648,8 @@ signals that exist:
   sources (`freshness_tick`). They land in `docker compose logs` on the host and nowhere else.
 - **Sentry** reports every unhandled exception once `SENTRY_DSN` is set (`infra/observability.py`, read at
   process start in every service). No DSN exists.
+- **Content security policy violations** are one WARNING line each from `web.csp_reports` (directive, blocked
+  origin, page template, mode; §2), in `docker compose logs web`.
 
 The owner-side steps are in `docs/64` §2 (uptime check and Sentry project) and §11 item 7 below.
 
@@ -760,12 +849,23 @@ per the S-9 runbook, before rolling back the deploy itself).
    R2 answering.
 2. Only pass `--downgrade-migration` if the migration being rolled back from documents itself as
    reversible (E-11); otherwise the old image runs against the new-but-compatible schema (expand/contract).
-   With it, `rollback.sh` dumps the database first (the same unit as §10.1 step 3) and refuses to downgrade
-   if the dump fails. **Known defect, not fixed (found 2026-10-10):** the downgrade runs in the *previous*
-   image, which does not contain the revision it is asked to undo. Alembic refuses with "Can't locate
-   revision" (same scratch reproduction). Until `rollback.sh` takes the image being rolled back from, run the
-   downgrade by hand in that image: `IMAGE_TAG=<bad tag> docker compose ... run --rm --no-deps -T api alembic
-   -c services/db/migrations/alembic.ini downgrade -1`, after the dump.
+   With it, `rollback.sh` (2026-10-10, lane O2; `infra/test_scripts.py` pins the order):
+   1. reads the revision the previous image expects, with `alembic heads` in the **previous** image. It refuses
+      unless there is exactly one head;
+   2. stops the workers and the scheduler (each waits for its running jobs, §6.4), so no job's transaction holds a
+      lock the DDL would queue behind;
+   3. dumps the database (the same unit as §10.1 step 3) and refuses without a dump;
+   4. runs `alembic downgrade <that head>` in the **newer** image, the one being rolled back from. Only it has the
+      newer revision's script, and so its `downgrade()`. Run in the previous image, as before, alembic refused with
+      "Can't locate revision". `services/db/migrations/env.py` runs it in one transaction (no migration uses an
+      autocommit block), so a failure changes nothing;
+   5. redeploys the previous tag (`deploy.sh`, no migration), which starts the workers and scheduler again.
+
+   If step 3 or 4 fails, it starts what step 2 stopped and redeploys nothing. The newer tag is the host's
+   `current-tag`. After an automatic rollback that tag is already the previous one, so name the newer image:
+   `rollback.sh <env> <previous-tag> --downgrade-migration --from <newer-tag>`. The newer image must still be
+   pullable or on the host. The host and key variables `deploy.sh` needs are checked before anything changes.
+   With `SINGLE_HOST=1` the commands include `compose.single.yml`.
 3. If entity tables need repair after a bad merge/write during the bad window, run the `docs/21` §6.5
    `replay` procedure next.
 **Verification:** same checks as 10.1's verification step, against the restored tag.

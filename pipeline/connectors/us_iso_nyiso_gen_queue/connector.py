@@ -21,6 +21,7 @@ import pandas as pd
 
 from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, RawSnapshot
+from pipeline.connectors.dedupe import split_key
 from pipeline.connectors.iso_queue import normalize_iso_rows, queue_rows
 
 URL = "https://www.nyiso.com/documents/20142/1407078/NYISO-Interconnection-Queue.xlsx"
@@ -31,6 +32,12 @@ class Connector(BaseConnector):
     kind: ClassVar[Kind] = "proposal"
     ext: ClassVar[str] = "xlsx"
     status_key: ClassVar[str] = "nyiso"
+    #: A row that leaves the workbook is announced as `delisted` (owner, 2026-10-10), never as a
+    #: withdrawal: withdrawn and in-service projects have sheets of their own, so a project that
+    #: disappears altogether left for a reason the workbook does not give. `removal_meaning` stays
+    #: `unknown` (base contract).
+    announce_removals: ClassVar[bool] = True
+    register_name: ClassVar[str | None] = "NYISO"
     dedupe_strategy: ClassVar[Literal["hold", "suffix"]] = "suffix"
     key_source_columns: ClassVar[tuple[str, ...]] = (
         "Queue ID",
@@ -39,6 +46,15 @@ class Connector(BaseConnector):
         "Capacity (MW)",
         "Generation Type",
     )
+
+    @classmethod
+    def project_root(cls, record_key: str) -> str:
+        """The queue position without the content suffix a repeated position carries (`0031#h...`;
+        `pipeline/connectors/dedupe.py`). When one of Astoria Energy's two phases under 0031 leaves
+        the workbook, the other is still listed and the suffix shifts, so the old key is a re-key,
+        not a departure. A letter is part of the position, not a suffix: 0225 (Ithaca Transmission)
+        and 0225A (SII Rotterdam Junction) are different projects (workbook of 2026-10-09)."""
+        return split_key(record_key)[0]
 
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()

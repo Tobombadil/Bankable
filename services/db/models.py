@@ -127,9 +127,10 @@ ASSET_EVENT_TYPES = (
 )
 #: `event.event_type` for a row that is no longer in its source's file, from a source that does not
 #: declare that a disappearance means withdrawal (`pipeline.connectors.base.Connector.removal_meaning`;
-#: docs/21 §7.3; docs/51 §2.7 item 1). Its `after` carries `{"removal_meaning": ...}`. Written with
-#: `published_at`/`public_at` NULL, as every non-public event is (`admin_edit` redactions,
-#: match events of a withheld rule set), and named in `NON_PUBLIC_EVENT_TYPES` below.
+#: docs/21 §7.3; docs/51 §2.7 item 1) and does not announce removals (`DELISTED_EVENT_TYPE` below:
+#: EIA-860M and every source but the four queues). Its `after` carries `{"removal_meaning": ...}`.
+#: Written with `published_at`/`public_at` NULL, as every non-public event is (`admin_edit`
+#: redactions, match events of a withheld rule set), and named in `NON_PUBLIC_EVENT_TYPES` below.
 REMOVED_FROM_SOURCE_EVENT_TYPE = "removed_from_source"
 #: Event types that no public or paid surface serves, whatever their timestamps say: the event
 #: predicate (`services/api/visibility.py::event_visibility_filter`, which the list, detail, feeds,
@@ -137,6 +138,24 @@ REMOVED_FROM_SOURCE_EVENT_TYPE = "removed_from_source"
 #: exclude them by name, beside the NULL `published_at`/`public_at` they are written with. Admin
 #: reads still show them. No CHECK constraint lists event types, so adding one needs no migration.
 NON_PUBLIC_EVENT_TYPES: frozenset[str] = frozenset({REMOVED_FROM_SOURCE_EVENT_TYPE})
+#: `event.event_type` for a record that is no longer in a full-register queue whose connector
+#: announces removals (`pipeline.connectors.base.Connector.announce_removals`: ERCOT, CAISO, NYISO,
+#: NESO; owner decision 2026-10-10; docs/21 §7.3). Public and alertable like any change event, with
+#: `published_at`/`public_at` set as every public event's are. `after` is
+#: `{"source_id", "register_name", "reason": "not stated"}`, and it reads `DELISTED_WORDING` filled
+#: with the register's display name: never "withdrawn", because the register does not say why a row
+#: left (ERCOT also drops inactive and re-numbered projects). Not in `NON_PUBLIC_EVENT_TYPES`.
+DELISTED_EVENT_TYPE = "delisted"
+#: How a `delisted` event reads on every surface that words it (the record page's history, the
+#: event feeds, alert digests, the API's `reason`): `str.format(register=<display name>)`.
+DELISTED_WORDING = "No longer in {register}'s report (reason not stated)"
+#: `after["reason"]` on a `delisted` event: the register states no reason.
+DELISTED_REASON = "not stated"
+#: Public event types that never become a social draft, whatever map later names them: the social
+#: bridge (`services/social/db_events.py`) refuses them by name, beside `NON_PUBLIC_EVENT_TYPES`.
+#: A departure with no stated reason is a fact a follower should hear, not a post to broadcast
+#: (owner decision 2026-10-10).
+NON_SOCIAL_EVENT_TYPES: frozenset[str] = frozenset({DELISTED_EVENT_TYPE})
 #: `asset_owner.role` (docs/21 §3.23).
 ASSET_OWNER_ROLES = ("owner", "operator")
 
@@ -1929,10 +1948,12 @@ class SiteMember(Base, TimestampMixin):
     table is a derived materialisation rebuilt each resolve tick, like a search index: a row is
     updated in place when its proposal moves and removed when the proposal no longer groups with
     anything (the proposal itself is untouched). `grouping_rule` is the strongest rule among the
-    member's own edges; `grouping_evidence` lists every rule and identifier that carried them
-    (operators only). `relation`/`relation_rule`/`confidence` label the member relative to the
-    site's lead; `basis` holds what those rules read, so a reader who may not see the stored lead
-    gets the same rules re-run over the members they may see."""
+    member's own edges; `grouping_evidence` lists every rule and identifier that carried them, and
+    under `links` the members it shares a rule b-c edge with directly, so the API can recompute a
+    viewer's connectivity without bridging through a hidden member (operators only).
+    `relation`/`relation_rule`/`confidence` label the member relative to the site's lead; `basis`
+    holds what those rules read, so a reader who may not see the stored lead gets the same rules
+    re-run over the members they may see."""
 
     __tablename__ = "site_member"
 
@@ -2001,13 +2022,15 @@ UI_EVENT_NAMES = (
     "map.basemap_failed",  # props: {} — tiles never loaded; the outline fallback was shown
     "auth.registered",  # props: {"layers": "plants"} — layers on the page that linked to /register
     "alert.created",  # props: {}
-    # props: {"page_type": "proposal" | "company" | "asset" | "point"} -- one detail-page view, written
-    # by the public site itself (never a browser), migration 0029 (owner decision 2026-09-30).
+    # props: {"page_type": "proposal" | "company" | "asset" | "point" | "site"} -- one detail-page view,
+    # written by the public site itself (never a browser), migration 0029 (owner decision 2026-09-30).
     "page.viewed",
 )
 #: `page.viewed`'s `page_type` vocabulary: the detail pages whose views are the alert-activation
-#: denominator (docs/00-PLAN.md 2026-09-18 decision 8 and 2026-09-30).
-PAGE_VIEW_TYPES = ("proposal", "company", "asset", "point")
+#: denominator (docs/00-PLAN.md 2026-09-18 decision 8 and 2026-09-30), and the site page (lane S2,
+#: 2026-10-10: the beta is measured by use). Validated at the API (`services/api/ui_events.py`), not
+#: by a CHECK: `props` is JSON and only `name` is constrained, so adding a type needs no migration.
+PAGE_VIEW_TYPES = ("proposal", "company", "asset", "point", "site")
 
 
 class UiEvent(Base):

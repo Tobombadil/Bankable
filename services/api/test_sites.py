@@ -191,6 +191,110 @@ def test_a_pjm_member_is_hidden_from_a_public_caller_and_the_lead_is_theirs(
     assert embed["is_lead"] is True and embed["member_count"] == 3
 
 
+def _bridged(db: Session) -> dict[str, Any]:
+    """Two pairs of one developer's records joined only by a PJM row (restricted: no public tier sees
+    it). A1/A2 and the PJM row share a grid connection point; B1/B2 and the PJM row share an exact
+    location. A and B share nothing directly, so without the PJM row there are two groups."""
+    from services.api.conftest import make_location
+
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    pjm = _pjm(db)
+    dev = make_org(db, "Bridge Renewables LLC")
+    pt = _point(db, src, "Bridge 345kV")
+
+    def at(where: Any) -> Any:
+        return make_location(db, src, lic, geom=where, precision="exact", county_name=None)
+
+    a1 = _member(db, src, "1", "Alder Solar", mw=500, sponsor=dev, point=pt)
+    a2 = _member(db, src, "2", "Alder Storage", mw=100, sponsor=dev, point=pt, technology="storage")
+    b1 = make_visible_proposal(
+        db, src, public_id_suffix="3", sponsor=dev, technology="solar", location=at((-75.0, 40.0))
+    )
+    b2 = make_visible_proposal(
+        db, src, public_id_suffix="4", sponsor=dev, technology="storage", location=at((-75.0, 40.0))
+    )
+    b1.name_canonical, b1.capacity_mw = "Birch Solar", 300
+    b2.name_canonical, b2.capacity_mw = "Birch Storage", 50
+    bridge = make_visible_proposal(
+        db, pjm, public_id_suffix="9", sponsor=dev, technology="solar", location=at((-75.0, 40.0))
+    )
+    bridge.name_canonical, bridge.capacity_mw, bridge.min_reuse_class = (
+        "Gated Bridge Mega",
+        5000,
+        "restricted",
+    )
+    bridge.interconnection_point_id = pt.id
+    db.flush()
+    build.rebuild_sites(db)
+    db.commit()
+    site = db.query(Site).one()
+    return {"site": site, "a1": a1, "a2": a2, "b1": b1, "b2": b2, "bridge": bridge}
+
+
+def test_no_bridging_through_a_gated_record(client: Any, db: Session, spec: dict[str, Any]) -> None:
+    """The gap lane S left: a visible record grouped only through a hidden one appeared in the site.
+    Now each public caller sees only a group its own visible evidence links, with its own lead."""
+    w = _bridged(db)
+    site = w["site"]
+    assert site.member_count == 5 and site.lead_proposal_id == w["bridge"].id
+    body = client.get(f"/v1/sites/{site.public_id}").json()
+    assert_valid(spec, "SiteDetailResponse", body)
+    data = body["data"]
+    # The largest visible group (a tie on size: the stronger lead), and a note that it is partial.
+    assert [m["public_id"] for m in data["members"]] == [w["a1"].public_id, w["a2"].public_id]
+    assert (data["name"], data["member_count"], data["partial"]) == ("Alder Solar", 2, True)
+    assert data["totals"]["active_mw"] == 600.0
+    assert "Birch" not in str(data) and "Gated Bridge" not in str(data)
+    # The other group, by naming one of its members (the proposal page's panel asks this way).
+    other = client.get(f"/v1/sites/{site.public_id}", params={"member": w["b2"].public_id}).json()["data"]
+    assert [m["public_id"] for m in other["members"]] == [w["b1"].public_id, w["b2"].public_id]
+    assert other["members"][1]["relation"] == "co_located" and other["partial"] is True
+    # A hidden member, or a record that is not a member, is the unknown id's 404.
+    for named in (w["bridge"].public_id, "prop_0000000000"):
+        resp = client.get(f"/v1/sites/{site.public_id}", params={"member": named})
+        assert resp.status_code == 404
+    # Each record's embed counts and leads its own group.
+    embed_b = client.get(f"/v1/proposals/{w['b2'].public_id}").json()["data"]["site"]
+    assert (embed_b["member_count"], embed_b["lead"]["public_id"]) == (2, w["b1"].public_id)
+    embed_a = client.get(f"/v1/proposals/{w['a2'].public_id}").json()["data"]["site"]
+    assert (embed_a["member_count"], embed_a["lead"]["public_id"]) == (2, w["a1"].public_id)
+
+
+def test_a_group_of_one_after_the_bridge_is_hidden_has_no_site(client: Any, db: Session) -> None:
+    w = _bridged(db)
+    w["b2"].publish_state = "unpublished"
+    db.commit()
+    assert client.get(f"/v1/proposals/{w['b1'].public_id}").json()["data"]["site"] is None
+    data = client.get(f"/v1/sites/{w['site'].public_id}").json()["data"]
+    assert [m["public_id"] for m in data["members"]] == [w["a1"].public_id, w["a2"].public_id]
+    assert data["partial"] is True  # B1 is visible, and is not listed
+
+
+def test_rows_written_before_links_were_stored_fail_closed(client: Any, db: Session) -> None:
+    """A membership row with no stored links joins others by plant id only while a member is hidden:
+    the connectivity it would need cannot be proven, so it is not assumed (one rebuild fixes it)."""
+    from services.db.models import SiteMember
+
+    w = _bridged(db)
+    for row in db.query(SiteMember):
+        row.grouping_evidence = {k: v for k, v in row.grouping_evidence.items() if k != "links"}
+    db.commit()
+    assert client.get(f"/v1/sites/{w['site'].public_id}").status_code == 404
+    assert client.get(f"/v1/proposals/{w['a1'].public_id}").json()["data"]["site"] is None
+
+
+def test_with_every_member_visible_the_stored_site_is_served_whole(client: Any, db: Session) -> None:
+    w = _bridged(db)
+    w["bridge"].min_reuse_class = "open"
+    for link in w["bridge"].sources:
+        link.source.licence.reuse_class = "open"
+    db.commit()
+    data = client.get(f"/v1/sites/{w['site'].public_id}").json()["data"]
+    assert data["member_count"] == 5 and data["partial"] is False
+    assert data["members"][0]["public_id"] == w["bridge"].public_id
+
+
 def test_a_site_with_one_visible_member_shows_nothing(
     client: Any, db: Session, seeded: dict[str, Any]
 ) -> None:
@@ -238,6 +342,29 @@ def test_the_kill_switch_hides_every_site(
     assert client.get(f"/v1/sites/{seeded['site'].public_id}").status_code == 200
     monkeypatch.delenv(ENV_VAR)
     assert client.get(f"/v1/proposals/{seeded['lead'].public_id}").json()["data"]["site"] is not None
+
+
+def test_the_admin_review_lists_recent_audit_rows_and_flagged_sites(
+    client: Any, db: Session, seeded: dict[str, Any], spec: dict[str, Any]
+) -> None:
+    from tests.conftest import login, make_account, make_user
+
+    assert client.get("/admin/v1/sites/review").status_code == 401
+    site = seeded["site"]
+    site.review_flag = "oversize"
+    operator = make_user(
+        db, make_account(db, entitlement="admin", name="Ops"), email="ops@example.com", role="operator"
+    )
+    db.commit()
+    login(client, db, operator)
+    body = client.get("/admin/v1/sites/review", params={"limit": 5}).json()
+    assert_valid(spec, "AdminSiteReviewResponse", body)
+    (created,) = body["data"]["audit"]
+    assert created["kind"] == "created" and created["site"]["public_id"] == site.public_id
+    assert set(created["detail"]["members"]) == {seeded[k].public_id for k in ("lead", "phase", "storage")}
+    assert [s["public_id"] for s in body["data"]["flagged"]] == [site.public_id]
+    assert body["data"]["flagged"][0]["review_flag"] == "oversize"
+    assert client.get("/admin/v1/sites/review", params={"bogus": "1"}).status_code == 400
 
 
 def test_anchors_link_the_eia_plant_asset_and_its_owner(

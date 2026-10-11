@@ -320,6 +320,20 @@ Every table below also has `created_at timestamptz NOT NULL DEFAULT now()` and, 
 | `merged_into_id` | uuid | Yes | Set when this record was absorbed by another; the row survives (§6.3) | `null` |
 | `search_tsv` | tsvector | No | Generated column over name, sponsor, county, identifiers (US-103) | — |
 
+**Served, never stored (2026-10-10, lane P).** Every proposal row the API serves (list, detail, bulk, nearby, the
+company list) also carries two fields derived at read time from §3.2's links (`services/api/listing.py`). Neither is a
+column:
+
+| Field | Type | Null | Meaning | Example |
+|---|---|---|---|---|
+| `listed` | boolean | No | True while at least one active link the caller's tier may read (source and licence, §8 item 3) has `gone_at` null, so some register still lists the project. False when every such register has dropped it. `lifecycle_state` is then the last status a register stated, not a current one: a removal is not a withdrawal (docs/51 §2.7 item 1). The record is not active pipeline. A link the tier may not read counts neither way. Filter: `listed=true\|false` | `false` |
+| `delisted_at` | timestamptz | Yes | When `listed` is false, the latest `gone_at` among those links (when the last register dropped it); null while listed | `2026-09-15T04:00:00Z` |
+
+`iso` is served as stored. The `iso=` filter and the company pipeline read an ISO/RTO's EIA balancing-authority code
+(`ERCO`, `CISO`, `NYIS`, `ISNE`, `MISO`, `PJM`, `SWPP`; rows loaded from EIA-860M before 2026-09-27) as that ISO's
+token, through the connector's own table (`pipeline/normalize.py::EIA_BA_ISO_TOKENS`; `services/api/grid_operators.py`).
+Stored values are not rewritten.
+
 ### 3.2 `proposal_source` — one source's observation of a proposal
 
 | Field | Type | Null | Meaning | Example |
@@ -374,8 +388,13 @@ polymorphic table because they carry different normalised projections and are in
 ### 3.4 `opportunity_source`
 
 Identical to §3.2 with `opportunity_id uuid NOT NULL` in place of `proposal_id`. Same provenance quartet, same
-`raw` gating, same `active`/`gone_at` semantics. A closed RFP disappearing from an issuer page sets `gone_at` and
-produces a `closed` event only after the DQ partial-file check passes (`docs/20` §12).
+`raw` gating, same `active`/`gone_at` semantics. A notice that disappears from its source's file sets `gone_at` and
+is stored as the non-public `removed_from_source` event carrying the meaning its connector declares (grants.gov
+declares `closed`, §7.3); no `closed` event is written for a disappearance, and the status is not inferred from it.
+A notice is served `closed` once its deadline passes, by the deadline sweep, which writes no event
+(`services/ingest/opportunity_status.py`); the source's next run that still lists it emits the `status_change`
+`open → closed`. Neither event is written until the run that observed it clears its DQ gates, the churn gate
+included (`docs/20` §12; `pipeline/connectors/dq.py`).
 
 ### 3.5 `organization`
 
@@ -1086,9 +1105,22 @@ its own edges (`grouping_rule`) and every rule and identifier behind them (`grou
 | d. — | County, state and country centroids group nothing | A centroid is a region, not a place |
 
 *Name stem* (`evidence.name_stem`): lower-cased, parentheticals dropped, then legal forms, technology and facility
-words, phase words (phase, unit, stage, expansion, repower …), roman numerals, number words after the first word,
-tokens of one or two letters and every token holding a digit removed; fewer than four letters is no stem. "Darden IV
-Solar" and "DARDEN" share `darden`. *Sponsor conflict*: both name a sponsor, the organisations differ (after
+words, phase words (phase, unit, stage, expansion, repower …), roman numerals, suffixed phase markers (below),
+number words after the first word, tokens of one or two letters and every token holding a digit removed; fewer
+than four letters is no stem. "Darden IV Solar" and "DARDEN" share `darden`; "St Gall IIIA" and "St Gall IIIB"
+share `gall`.
+
+*Phase markers* (`evidence.phase_markers`, rule version `2026-10-10.2`, lane S2): the resolver's
+(`pipeline.resolve.phase_tokens`: "Darden II" → `2`, "Phase B" → `B`), plus a numeral with a one-letter suffix
+A–H as one token, Arabic ("2A", "3b") or Roman of two or more letters ("IIA", "IIIB", "VIIIc"), read as `3A` etc.
+Such a token counts after a phase word (phase, ph, unit, stage, block, tranche: "Phase 2a") or as a later word
+followed only by facility and legal words ("St Gall IIIA", "SAN JOAQUIN 2B"). Not read: a lone I/V/X with a letter
+("IA", "VA" are state codes), the words "via", "iva", "vic", "vie", a first word ("2A Solar"), a token inside a name
+("Route 2A Crossing"). On a copy of the e2e store (9,563 live records, 7,212 distinct names; no exact points or
+interconnection points there, so every site groups by EIA plant), 11 names gain a marker and 2 change stem, and no
+site membership or label changes (326 sites, 1,072 members, before and after). On the beta store, St Gall IIIA and
+IIIB move from `same_site` (low) to `phase_of` (high); the beta-store count was not re-measured (its Postgres was
+offline). *Sponsor conflict*: both name a sponsor, the organisations differ (after
 organisation merges), their ultimate GLEIF parents differ, and their name stems neither match nor start with the same
 word of four or more letters ("Fermi America"/"Fermi Nuclear" do not conflict; NextEra/Invenergy do). A sponsor named
 after the project itself ("Cowboy Solar I" sponsoring "Cowboy Solar II") counts as unnamed.
@@ -1143,7 +1175,7 @@ to the cluster holding most of its former members, and is never reused; `GET /v1
 
 | `site` field | Type | Null | Meaning |
 |---|---|---|---|
-| `id`, `public_id` (`site_…`), `slug` | uuid, text, text | No | Stable identity; `slug` is set once from the first lead's name and is not served (the URL is `/sites/{public_id}`) |
+| `id`, `public_id` (`site_…`), `slug` | uuid, text, text | No | Stable identity; `slug` is set once from the first lead's name and is not served (the URL is `/sites/{public_id}`). Lane S2 kept it so: the first lead can be a record no public tier sees (a PJM row), so a slug URL would print a hidden name, and resolving it would answer whether such a name exists; a safe slug needs one built from the public lead with a redirect history |
 | `name_display` | text | No | The stored lead's name at the last build (operators); readers get the name of the lead *they* may see |
 | `lead_proposal_id` | uuid | Yes | FK `proposal`; NULL once retired |
 | `member_count` | int | No | Members at the last build |
@@ -1157,7 +1189,7 @@ to the cluster holding most of its former members, and is never reused; `GET /v1
 | `site_id`, `proposal_id` | uuid | No | FK; `proposal_id` unique (one site per proposal) |
 | `is_lead`, `lead_rank` | bool, int | No | Display order: lead group first, each head followed by its units |
 | `group_key`, `parent_proposal_id` | text, uuid | No, Yes | Plant group; the group head for a unit |
-| `grouping_rule`, `grouping_evidence` | text, jsonb | No | Strongest rule (CHECK) and every rule/identifier behind the member's edges |
+| `grouping_rule`, `grouping_evidence` | text, jsonb | No | Strongest rule (CHECK) and every rule/identifier behind the member's edges; `links` (lane S2): `{partner public_id: strongest rule}` for each member it shares a rule b or c edge with directly. Rule a edges are not stored, and neither is a pair that shares an EIA plant id: the plant ids in both members' `basis` join them. Stored in the existing column, so no migration |
 | `relation`, `relation_rule`, `confidence` | text | No | The label (CHECKs on `relation` and `confidence`) |
 | `basis` | jsonb | No | What the lead and label rules read (capacity, lifecycle, filing date, plant ids, stems, phase markers, families, sponsor key), so the API re-runs the rules over a caller's visible members |
 
@@ -1170,8 +1202,15 @@ table of its own rather than `event` rows, so nothing about a derived grouping c
 **Visibility** (`services/api/sites.py`): every member, count and total is computed per request over the members
 that pass the proposal predicate (§5.4) at the caller's tier, and each row is the served view (`GatedRecord`). When any
 member is hidden, the lead, groups and labels are re-run over the visible members' stored `basis`, so a PJM row or an
-unpublished record never heads or names a site. Fewer than two visible members: no site on that tier (`404`, embed
-`null`). Anchors are served from visible members only, with the asset and owner predicates. **Kill switch:**
+unpublished record never heads or names a site. **No bridging through a hidden record** (lane S2): when any member
+is hidden, connectivity is recomputed over the visible members alone (`rules.connected_groups`: a shared EIA plant
+id in `basis`, or a stored `links` entry between two visible members), and one connected group is served, with its
+own lead and labels: on the proposal embed, the group holding that record; on `GET /v1/sites/{id}`, the largest
+(ties to the stronger lead), or the group holding `?member=<proposal public id>` (the proposal page's panel asks
+this way). `partial: true` says other visible records of the site are not listed; it never says why. A row stored
+before `links` existed joins others by plant id only while a member is hidden (fail closed until the next
+rebuild, which every resolve tick runs). Fewer than two visible members in the group: no site on that tier
+(`404`, embed `null`). Anchors are served from visible members only, with the asset and owner predicates. **Kill switch:**
 `SITES_ENABLED=0` (read at the point of use, `services/sites/switch.py`) hides every site from the API and the web
 without a deploy; the builder keeps running. Owner rule: more than about one site in ten wrong in the 100-record hand
 check turns sites off for the beta.
@@ -1187,9 +1226,50 @@ asset; 762 to an interconnection point. A full rebuild takes 5–7 s on Postgres
 **Limits, recorded.** (1) Darden I–IV are one merged record today (CAISO 1949 plus EIA 69661–69664) and so form no
 site; splitting such merges is the next step after the owner's hand check (docs/51 §2.8; lane S report). After a
 split, the CAISO request (county centroid, a POI) and the EIA plants (exact points, no POI) share no identifier under
-rules a–c, so the request would stand alone unless a rule keeps the resolver's request↔plant evidence. (2) A visible
-member grouped only through a hidden one still appears in the site: the hidden record's fields are never served, but
-the relation it carried is. (3) The labels have no labelled sample; the owner's 100-record hand check is the first.
+rules a–c, so the request would stand alone unless a rule keeps the resolver's request↔plant evidence. (2) Closed by
+lane S2 (above): a visible member grouped only through a hidden one is no longer shown with the others. What remains:
+the groups a hidden member splits keep one site id, so a reader who compares two records' embeds can tell that
+something joins them; closing that needs an identity per visible group. (3) The labels have no labelled sample; the
+owner's 100-record hand check is the first.
+
+**Operators and measurement (lane S2).** `GET /admin/v1/sites/review` and the admin page `/admin/sites` list recent
+`site_audit` rows (kind, site, members involved, time) and every live site flagged `oversize`, each linked to its
+public page. Read only: clearing a flag needs an override the builder honours, since the next pass sets it again.
+Site page views count as `page.viewed` with `page_type = site` (`PAGE_VIEW_TYPES`; validated at the API, no CHECK,
+so no migration). The nightly M-11 audit covers sites (`services/visibility_audit/run.py`, "Sites"): members,
+neighbours, sponsors and anchors of every site where something could be hidden, every proposal's `site` embed
+(detail and bulk), bridging, flagged and retired sites, and a served sample of the API detail, an embed, the site
+page and a member's page with its panel.
+
+**Hand check: regenerate and score** (`services/sites/handcheck.py`, 2026-10-10). The worksheet for the owner's
+check is drawn from one store, **read only**, through the served view at the `public` tier (`served_site`,
+`gated_record`, `visible_source_links`, `member_row`), so it prints nothing the public site does not. Items whose
+sponsor the personal-data pass flagged, or any of whose printed names `services.personal_names` reads as a person's,
+are left out and counted. Public ids are minted per store, so generate it on the beta after seeding, from the
+directory holding the compose files (docs/64 §5), and copy `/opt/infraque/handcheck/<date>-beta/` back to
+`data/eval/handcheck/`:
+
+    mkdir -p /opt/infraque/handcheck && chown 10001 /opt/infraque/handcheck   # the image runs as uid 10001
+    docker compose ... run --rm -v /opt/infraque/handcheck:/out worker \
+      python -m services.sites.handcheck generate --out /out/2026-10-14-beta \
+      --seed 20261014 --posture noncommercial --base-url https://<beta domain>
+    python -m services.sites.handcheck score <filled.xlsx>      # or a directory of its CSVs; --json
+
+The sample: 50 sites and 50 merged records (a live record served with two or more source links). Site strata, the
+first that holds: the 5 largest sites (all checked); sites holding a `same_site` label; then the site's weakest
+grouping rule (`eia_plant`, `exact_point`, `poi_sponsor`, `poi_stem`) × its lowest label confidence. Merged strata,
+the first that holds: several EIA plants in one record; several requests from one register; source names with
+differing phase markers; several generators of one plant; two or more registers. Budgets are shared by the square root
+of each stratum's size, at least 2 each; within a stratum the items with the smallest permanent random numbers
+(SHA-256 of the seed and the item's smallest `source_id:source_record_id` key) are taken, so a seed reproduces the
+sample and another store draws the same items where the two agree. Every row carries those stable keys (a hash where
+the licence withholds the record id) and the EIA plant ids. The scorer counts a site answered No as a grouping error
+unless the problem picked is a missing record, wrong lead or wrong label; it reports the share with a Wilson 95 %
+interval, the stratum-weighted share of all served sites (Wilson at Kish's effective n), and whether the owner's rule
+is crossed on the weighted point estimate (> 10 %: `SITES_ENABLED=0`) and on its lower bound. With 50 sites judged,
+0 wrong gives an interval of 0–7.1 %, 6 or more puts the point estimate above 10 %, 10 or more the lower bound. A
+format reference built from a copy of the 4-source e2e store is in `data/eval/handcheck/2026-10-10-e2e-reference/`
+(that store has no connection points and no merges, so it shows only `eia_plant` sites and an empty merged sheet).
 
 ## 4. Operational entities
 
@@ -1515,7 +1595,7 @@ stateDiagram-v2
   under_construction --> built: in service / commercial operation
   contracted --> built: in service observed without a construction signal
   under_construction --> cancelled: abandoned during construction
-  filed --> withdrawn: request withdrawn or row disappears from the register
+  filed --> withdrawn: the source states the request was withdrawn
   studied --> withdrawn
   permitted --> withdrawn
   contracted --> withdrawn
@@ -1531,9 +1611,10 @@ stateDiagram-v2
 ```
 
 Rules: the state is always the `after` value of the latest `status_change` event, or `unknown` (US-202 AC3, with
-a nightly consistency check). Backward transitions are legal and common — a re-entered queue position is a
-`filed` event, not a data error. Terminal states are absorbing only for the purpose of alerting; a later event
-reopens them.
+a nightly consistency check). A row that disappears from its register moves no state: it is the `delisted` or
+`removed_from_source` event of §7.3, and the record keeps the state its source last stated. Backward transitions
+are legal and common — a re-entered queue position is a `filed` event, not a data error. Terminal states are
+absorbing only for the purpose of alerting; a later event reopens them.
 
 ### 7.2 Opportunity lifecycle
 
@@ -1573,6 +1654,7 @@ terminal state for the many notices that never publish an award (`docs/02` §4 n
 | Matching | `match_added`, `match_removed`, `lead_created` |
 | Publication | `published`, `unpublished`, `gate_cleared`, `licence_reclassified` |
 | Operational | `source_health_changed`, `admin_edit`, `personal_data_redacted`, `key_issued`, `key_revoked` |
+| Register (public, alertable, never drafted for social) | `delisted` |
 | Register (never public) | `removed_from_source` |
 
 **`removed_from_source` (2026-10-10, `docs/51` §2.7 item 1).** A `removed` diff row says only that a record is no
@@ -1581,14 +1663,41 @@ grants.gov notices leave the open-notice search when they close, ERCOT's GIS rep
 inactive or are re-numbered, and a re-keyed NESO row reads as one removal plus one new row. Each source's connector
 declares what a removal means there (`Connector.removal_meaning`: `withdrawn`, `completed`, `closed`, or `unknown`,
 the default). The loader writes a removal as a public `withdrawn` event only for a declared `withdrawn`, and no
-source declares it today. Every other removal is a `removed_from_source` event: `after = {"removal_meaning": ...}`,
-a `reason`, the provenance quartet, and NULL `published_at`/`public_at`. The event predicate (§5.4;
+source declares it today. The four queues that announce removals write `delisted` (below). Every other removal is
+a `removed_from_source` event: `after = {"removal_meaning": ...}`, a `reason`, the provenance quartet, and NULL
+`published_at`/`public_at`. The event predicate (§5.4;
 `services/api/visibility.py`) also excludes the type by name (`services.db.models.NON_PUBLIC_EVENT_TYPES`), so no
 event list, feed, alert, webhook or social draft serves it on any tier, even if its timestamps are later filled.
 Admin reads show it. The link's `gone_at` is still set, as before. A removal never changes the record's lifecycle
-state. This supersedes the "row disappears from the register" label on `filed --> withdrawn` in §7.1 and the
-"Also emitted when a row disappears" note in §7.4. No CHECK constraint lists event types, so the new type needed
-no migration.
+state. §7.1's `filed --> withdrawn` and §7.4's `Withdrawn` row no longer say that a disappearing row is a
+withdrawal (until 2026-10-10 they did). No CHECK constraint lists event types, so the new type needed no
+migration.
+
+**`delisted` (2026-10-10, owner decision).** For a full-register interconnection queue a departure is news a
+follower should hear, even though the register gives no reason. So a connector may also declare
+`Connector.announce_removals`, a publication choice kept separate from what a removal means: ERCOT, CAISO, NYISO and
+NESO declare it, each with the display name record pages print for it (`Connector.register_name`: `ERCOT`,
+`CAISO`, `NYISO`, `NESO`), and their `removal_meaning` stays `unknown`. The loader writes their removals as
+`delisted`: `published_at`/`public_at` set as for every public event; `after = {"source_id", "register_name",
+"reason": "not stated"}`; no `before` and no `changed_keys`, because nothing about the record changed but its presence
+in the file; and `reason` the sentence every surface prints, "No longer in ERCOT's report (reason not stated)"
+(`services.db.models.DELISTED_WORDING`). It never says "withdrawn": ERCOT's report also drops projects that go
+inactive or are re-numbered. A key that disappears while the same project is still in the current frame under
+another key is a re-key, not a departure (`Connector.project_root`: NESO's Project ID before `/<stage>` or `#<n>`,
+so VPI Immingham's unstaged rows becoming stages 2 and 3 are not announced; NYISO's queue position before its
+`#h…` content suffix; ERCOT and CAISO the key itself, because a split ERCOT project gets unrelated INRs and a CAISO
+letter suffix names a different project). The loader stores it as `removed_from_source` with
+`after.project_root` and a reason saying so. It flows wherever a public event flows: `GET /v1/events` and event
+detail (`headline` is "<record>: <sentence>"), `/v1/meta/vocabularies`, a record's history (the record page
+prints the sentence), "Recent changes at this point" (a departure frees queue space there), `/feeds/events.*`,
+the private saved-search feed (its items now say what changed, as the public feed does), alert evaluation (a
+followed record, a followed sponsor, any saved search) and webhooks (as `event.published`). It is kept out of
+social drafts by name (`services.db.models.NON_SOCIAL_EVENT_TYPES`, read by `services/social/db_events.py`), and
+the CRM lead-signal mapping has no entry for it. A source that states a meaning (`withdrawn`, `completed`, `closed`)
+is never announced as "reason not stated": `withdrawn` stays `withdrawn`, the others stay `removed_from_source`.
+EIA-860M does not announce: a unit leaving the Planned sheet may have started operating. `gone_at` and the
+lifecycle state behave exactly as for `removed_from_source`. A run that re-keys its register is held by the churn
+gate (`pipeline/connectors/dq.py`) before any event is written, so a re-key never announces a whole queue as gone.
 
 ### 7.4 Source status → lifecycle mapping
 
@@ -1599,7 +1708,7 @@ admin panel can show them. The seed for the ISO queues:
 |---|---|---|
 | `ACTIVE`, `Active`, `In Progress` | `filed`, promoted to `studied` when a study document or milestone field is present | Most queue rows sit here |
 | `COMPLETED`, `Completed`, `In Service` | `built` | gridstatus normalises the ISO variants |
-| `WITHDRAWN`, `Withdrawn` | `withdrawn` | Also emitted when a row disappears (`docs/20` §3.3) |
+| `WITHDRAWN`, `Withdrawn` | `withdrawn` | Only from a stated status. A row that disappears is not a withdrawal: it is `delisted` or `removed_from_source` (§7.3) and leaves the state as last stated |
 | `SUSPENDED`, `On Hold` | `filed` with `status_raw` preserved | No separate state; the raw value is shown |
 | blank / null | `unknown` | 216 SPP rows (`docs/01` §3.3); raises a DQ warning, not an error |
 | Anything unmapped | `unknown` + DQ vocabulary-drift warning | Never silently coerced |

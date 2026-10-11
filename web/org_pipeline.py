@@ -1,22 +1,27 @@
 """A company's pipeline at a glance, for the top of `/organizations/{ident}` (owner, 2026-10-10:
 the beta's first job is "check a developer's or owner's pipeline with a source for every claim").
 
-Built only from what `GET /v1/organizations/{id}/proposals` already serves for the page's
-ownership scope: each proposal's `lifecycle_state`, `technology`, `iso`, `kind`, `capacity_mw`,
-`sponsor` and `provenance`. Nothing is estimated and the API is not asked for anything new; where a
-figure would need the API to aggregate (a count beyond the pages read), the summary says it is
-partial rather than extrapolating.
+Built from one read, `GET /v1/organizations/{id}/pipeline` at the page's ownership scope (lane P,
+2026-10-10). It replaced paging `/v1/organizations/{id}/proposals` (up to 5 x 200 rows, "partial"
+beyond that): the API now counts and sums over every record, so the summary is never partial and
+nothing here estimates or extrapolates.
 
-Every count links to `/proposals` filtered to the same rows: the sponsors behind the rows as
-`sponsor_id` (one id, or the group's ids when the page covers subsidiaries; `sponsor_id` matches
-exact organisations, `services/api/records.py::visible_organization_ids`), plus the status group,
-technology, ISO or source. The status table counts every status, and its links name the states
-outright; the technology and ISO tables count the active pipeline only (announced, in process,
-contracted), which is the list's default view, so their links need no status at all.
+Every count links to `/proposals` filtered to the same rows. The sponsor part of each link is the
+API's own `list_query` (`sponsor_id`, plus `sponsor_scope` when the page covers subsidiaries), and
+each bucket adds the filter the API documents for it, so each count is the total its link opens:
 
-Capacity is summed only where adding it means something: generation and storage. A data centre's
-MW is demand, a line's is transfer capability, and a CO2 well has none, so those records are
-counted, not summed, and the page says how many.
+- the status table's active groups (announced, in process, contracted) count only records some
+  register still lists (`listed=true`); the records every register has dropped, whose last stated
+  status is active, are their own row, "No longer listed" (`listed=false`); built, withdrawn and
+  unknown count every record in those states;
+- the technology and grid-operator tables cover the active pipeline (active states and listed),
+  which is the list's default view plus `listed=true`; a grid operator is one name however the
+  register spelt it (`iso=ERCOT` also opens EIA-860M's `ERCO` rows);
+- each register links with `source_id` over every status.
+
+Capacity is the API's sum over generation and storage; a data centre's MW is demand, a line's is
+transfer capability, and a CO2 well has none, so those records are counted, not summed, and the
+page says how many.
 """
 
 from __future__ import annotations
@@ -36,13 +41,9 @@ from web.viewmodels import (
     source_label,
 )
 
-#: Rows per call (the API's `Limit` maximum) and calls per page view. 1,000 proposals covers every
-#: sponsor in the current store (the largest sponsors 157 on the 2026-10-10 e2e load); past it the
-#: summary says it is partial.
-PAGE_SIZE = 200
-MAX_PAGES = 5
-#: Kinds whose `capacity_mw` is not generating or storage capacity, so it is never added to it.
-NOT_SUMMED_KINDS = frozenset({"load", "transmission", "pipeline", "lng", "ccs", "hydrogen"})
+#: Rows the page reads for its Proposals section (it prints `ORG_PROPOSALS_LISTED` of them); the
+#: pipeline summary does not read rows at all.
+PAGE_SIZE = 100
 #: The status chip family of each status group (docs/31 §1.2), for the icon beside its name.
 STATUS_GROUP_FAMILY = {
     "announced": "neutral",
@@ -52,11 +53,16 @@ STATUS_GROUP_FAMILY = {
     "withdrawn": "danger",
     "unknown": "neutral",
 }
+#: The status groups whose records are active pipeline: counted only while a register lists them.
+ACTIVE_GROUPS = frozenset(
+    key for key, _label, states in PROPOSAL_STATUS_GROUPS if set(states) <= set(ACTIVE_PROPOSAL_STATES)
+)
+NOT_LISTED_LABEL = "No longer listed"
 
 
 @dataclass
 class ProposalPages:
-    """The raw proposal rows read for one company page, and whether that is all of them."""
+    """The first page of proposal rows read for one company page's list section."""
 
     rows: list[dict[str, Any]] = field(default_factory=list)
     complete: bool = True
@@ -64,198 +70,165 @@ class ProposalPages:
 
 
 def fetch_proposals(api: ApiClient, public_id: str, params: Mapping[str, Any]) -> ProposalPages:
-    """Every proposal the organisation (at the page's scope) sponsors, up to `MAX_PAGES` pages. A
-    failed first call leaves the section empty, as before; a failed later call keeps what was read
-    and marks the result partial."""
+    """The most recently changed `PAGE_SIZE` proposals the organisation (at the page's scope)
+    sponsors, for the list section. `complete` is whether that is all of them. A failed call leaves
+    the section empty, as before."""
     pages = ProposalPages()
-    cursor: str | None = None
-    for page_number in range(MAX_PAGES):
-        query: dict[str, Any] = {"limit": PAGE_SIZE, **params}
-        if cursor:
-            query["cursor"] = cursor
-        try:
-            envelope = api.get(f"/v1/organizations/{public_id}/proposals", params=query)
-        except ApiError:
-            pages.failed = page_number == 0
-            pages.complete = False
-            return pages
-        data = envelope.get("data")
-        pages.rows.extend(dict(row) for row in data or [] if isinstance(row, Mapping))
-        page = envelope.get("page")
-        page = page if isinstance(page, Mapping) else {}
-        cursor = page.get("next_cursor") if page.get("has_more") else None
-        if not cursor:
-            return pages
-    pages.complete = False
+    try:
+        envelope = api.get(f"/v1/organizations/{public_id}/proposals", params={"limit": PAGE_SIZE, **params})
+    except ApiError:
+        pages.failed = True
+        pages.complete = False
+        return pages
+    pages.rows = [dict(row) for row in envelope.get("data") or [] if isinstance(row, Mapping)]
+    page = envelope.get("page")
+    pages.complete = not (isinstance(page, Mapping) and page.get("has_more"))
     return pages
 
 
-def _number(value: Any) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
+def fetch_pipeline(api: ApiClient, public_id: str, params: Mapping[str, Any]) -> dict[str, Any] | None:
+    """`GET /v1/organizations/{id}/pipeline` at the page's scope (`params` carries `scope` when it
+    is not `self`), or `None` when it cannot be read: the section is then left out."""
     try:
-        return float(value)
+        envelope = api.get(f"/v1/organizations/{public_id}/pipeline", params=dict(params))
+    except ApiError:
+        return None
+    data = envelope.get("data")
+    return dict(data) if isinstance(data, Mapping) else None
+
+
+def _list_href(list_query: Sequence[tuple[str, str]], *pairs: tuple[str, str]) -> str:
+    return "/proposals?" + urlencode([*list_query, *pairs])
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(value or 0)
     except (TypeError, ValueError):
-        return None
+        return 0
 
 
-def _sponsor_id(row: Mapping[str, Any]) -> str | None:
-    sponsor = row.get("sponsor")
-    if isinstance(sponsor, Mapping) and sponsor.get("public_id"):
-        return str(sponsor["public_id"])
-    return None
-
-
-def _list_href(sponsor_csv: str | None, *pairs: tuple[str, str]) -> str | None:
-    if not sponsor_csv:
-        return None
-    return "/proposals?" + urlencode([("sponsor_id", sponsor_csv), *pairs])
-
-
-@dataclass
-class _Tally:
-    count: int = 0
-    mw: float = 0.0
-    mw_rows: int = 0
-
-    def add(self, row: Mapping[str, Any]) -> None:
-        self.count += 1
-        if row.get("kind") in NOT_SUMMED_KINDS:
-            return
-        mw = _number(row.get("capacity_mw"))
-        if mw is not None:
-            self.mw += mw
-            self.mw_rows += 1
-
-    def as_row(self, label: str, href: str | None) -> dict[str, Any]:
-        return {
-            "label": label,
-            "count": self.count,
-            "mw": round(self.mw, 1) if self.mw_rows else None,
-            "href": href,
-        }
-
-
-def _ranked(tallies: Mapping[str | None, _Tally]) -> list[tuple[str | None, _Tally]]:
-    """Largest capacity first, then most records; the "not stated" bucket last."""
-    return sorted(
-        tallies.items(),
-        key=lambda item: (item[0] is None, -(item[1].mw if item[1].mw_rows else -1), -item[1].count),
-    )
-
-
-def pipeline_summary(
-    rows: Sequence[Mapping[str, Any]], *, complete: bool = True, group: bool = False
-) -> dict[str, Any] | None:
-    """The pipeline block's context, or `None` when the company sponsors no proposal at this scope.
-
-    `rows` are `GET /v1/organizations/{id}/proposals` entities as served. `complete` is whether
-    they are all of them (`fetch_proposals`); `group` whether the page covers more than one
-    organisation (it changes only the wording)."""
-    if not rows:
-        return None
-    sponsor_ids = [_sponsor_id(row) for row in rows]
-    # Links only when every row names its sponsor: otherwise the filtered list would hold fewer rows
-    # than the count beside the link.
-    distinct = sorted({s for s in sponsor_ids if s})
-    sponsor_csv = ",".join(distinct) if distinct and all(sponsor_ids) else None
-
-    by_status: dict[str, _Tally] = {key: _Tally() for key, _label, _states in PROPOSAL_STATUS_GROUPS}
-    state_group = {state: key for key, _label, states in PROPOSAL_STATUS_GROUPS for state in states}
-    active = _Tally()
-    by_technology: dict[str | None, _Tally] = {}
-    by_iso: dict[str | None, _Tally] = {}
-    not_summed: dict[str, int] = {}
-    no_capacity = 0
-    sources: dict[str, dict[str, Any]] = {}
-    total = _Tally()
-
-    for row in rows:
-        state = str(row.get("lifecycle_state") or "unknown")
-        by_status[state_group.get(state, "unknown")].add(row)
-        total.add(row)
-        kind = row.get("kind")
-        if kind in NOT_SUMMED_KINDS:
-            not_summed[str(kind)] = not_summed.get(str(kind), 0) + 1
-        elif _number(row.get("capacity_mw")) is None:
-            no_capacity += 1
-        if state in ACTIVE_PROPOSAL_STATES:
-            active.add(row)
-            by_technology.setdefault(row.get("technology") or None, _Tally()).add(row)
-            by_iso.setdefault(row.get("iso") or None, _Tally()).add(row)
-        for prov in _provenance(row):
-            sid = str(prov.get("source_id") or "")
-            if not sid:
-                continue
-            entry = sources.setdefault(
-                sid,
-                {
-                    "source_id": sid,
-                    "name": source_label(sid) or prov.get("source_name") or sid,
-                    "ids": set(),
-                    "retrieved_at": None,
-                },
-            )
-            entry["ids"].add(row.get("public_id") or id(row))
-            retrieved = prov.get("retrieved_at")
-            if retrieved and (entry["retrieved_at"] is None or str(retrieved) > str(entry["retrieved_at"])):
-                entry["retrieved_at"] = str(retrieved)
-
-    all_states = ("lifecycle_state", ",".join(ALL_PROPOSAL_LIFECYCLE_STATES))
-    status_rows = [
-        {
-            **by_status[key].as_row(label, _list_href(sponsor_csv, ("lifecycle_state", ",".join(states)))),
-            "family": STATUS_GROUP_FAMILY[key],
-        }
-        for key, label, states in PROPOSAL_STATUS_GROUPS
-        if by_status[key].count
-    ]
-    technology_rows = [
-        tally.as_row(
-            str(technology_label(token) or token) if token else "Not stated",
-            _list_href(sponsor_csv, ("technology", token)) if token else None,
-        )
-        for token, tally in _ranked(by_technology)
-    ]
-    iso_rows = [
-        tally.as_row(
-            str(iso_label(token) or token) if token else "None stated",
-            _list_href(sponsor_csv, ("iso", token)) if token else None,
-        )
-        for token, tally in _ranked(by_iso)
-    ]
-    source_rows = sorted(
-        (
-            {
-                "name": entry["name"],
-                "count": len(entry["ids"]),
-                "retrieved_at": entry["retrieved_at"],
-                "href": _list_href(sponsor_csv, ("source_id", sid), all_states),
-            }
-            for sid, entry in sources.items()
-        ),
-        key=lambda s: (-s["count"], s["name"]),
-    )
+def _tally(raw: Any) -> dict[str, Any]:
+    """An API `PipelineTally` as the three numbers the template reads."""
+    raw = raw if isinstance(raw, Mapping) else {}
+    mw = raw.get("capacity_mw")
     return {
-        "group": group,
-        "complete": complete,
-        "total": total.as_row("All statuses", _list_href(sponsor_csv, all_states)),
-        "active": active.as_row("Active pipeline", _list_href(sponsor_csv)),
-        "by_status": status_rows,
-        "by_technology": technology_rows,
-        "by_iso": iso_rows,
-        "sources": source_rows,
-        "not_summed": [
-            {"kind": kind, "label": str(proposal_kind_label(kind) or kind), "count": count}
-            for kind, count in sorted(not_summed.items())
-        ],
-        "no_capacity": no_capacity,
-        "linked": sponsor_csv is not None,
+        "count": _int(raw.get("records")),
+        "mw": round(float(mw), 1) if isinstance(mw, int | float) and not isinstance(mw, bool) else None,
+        "capacity_records": _int(raw.get("capacity_records")),
+        "not_summed_records": _int(raw.get("not_summed_records")),
     }
 
 
-def _provenance(row: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
-    raw = row.get("provenance")
-    if not isinstance(raw, list):
-        return ()
-    return (p for p in raw if isinstance(p, Mapping))
+def _merge(tallies: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    out = {"count": 0, "mw": None, "capacity_records": 0, "not_summed_records": 0}
+    for t in tallies:
+        out["count"] += t["count"]
+        out["capacity_records"] += t["capacity_records"]
+        out["not_summed_records"] += t["not_summed_records"]
+        if t["mw"] is not None:
+            out["mw"] = round((out["mw"] or 0.0) + t["mw"], 1)
+    return out
+
+
+def _row(label: str, tally: Mapping[str, Any], href: str | None, **extra: Any) -> dict[str, Any]:
+    return {"label": label, "count": tally["count"], "mw": tally["mw"], "href": href, **extra}
+
+
+def pipeline_summary(aggregate: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The pipeline block's context from the API's aggregate, or `None` when there is none or the
+    company sponsors no proposal at this scope."""
+    if not aggregate:
+        return None
+    totals = _tally(aggregate.get("totals"))
+    if not totals["count"]:
+        return None
+    raw_query = aggregate.get("list_query")
+    list_query = [
+        (key, str(raw_query[key]))
+        for key in ("sponsor_id", "sponsor_scope")
+        if isinstance(raw_query, Mapping) and raw_query.get(key)
+    ]
+    if not list_query:
+        return None
+    scope = aggregate.get("scope")
+    group = _int(scope.get("organizations") if isinstance(scope, Mapping) else 1) > 1
+    active_states = [str(s) for s in aggregate.get("active_states") or ACTIVE_PROPOSAL_STATES]
+    listed = ("listed", "true")
+    all_states = ("lifecycle_state", ",".join(ALL_PROPOSAL_LIFECYCLE_STATES))
+
+    by_state: dict[str, dict[bool, dict[str, Any]]] = {}
+    for entry in aggregate.get("by_lifecycle_state") or []:
+        if isinstance(entry, Mapping) and entry.get("lifecycle_state"):
+            by_state[str(entry["lifecycle_state"])] = {
+                True: _tally(entry.get("listed")),
+                False: _tally(entry.get("not_listed")),
+            }
+    not_listed = _tally(aggregate.get("not_listed"))
+    status_rows: list[dict[str, Any]] = []
+    for key, label, states in PROPOSAL_STATUS_GROUPS:
+        active_group = key in ACTIVE_GROUPS
+        parts = [
+            by_state[s][flag]
+            for s in states
+            if s in by_state
+            for flag in ((True,) if active_group else (True, False))
+        ]
+        tally = _merge(parts)
+        if tally["count"]:
+            pairs = [("lifecycle_state", ",".join(states)), *([listed] if active_group else [])]
+            status_rows.append(
+                _row(label, tally, _list_href(list_query, *pairs), family=STATUS_GROUP_FAMILY[key])
+            )
+        if key == "contracted" and not_listed["count"]:
+            # After the last active group: the records whose last stated status is active and that
+            # no register lists any more.
+            href = _list_href(list_query, ("lifecycle_state", ",".join(active_states)), ("listed", "false"))
+            status_rows.append(_row(NOT_LISTED_LABEL, not_listed, href, family="neutral", not_listed=True))
+
+    def ranked(entries: Any, key: str, label_of: Any, empty: str) -> list[dict[str, Any]]:
+        rows = []
+        for entry in entries or []:
+            if not isinstance(entry, Mapping):
+                continue
+            token = entry.get(key)
+            href = _list_href(list_query, (key, str(token)), listed) if token else None
+            rows.append(_row(str(label_of(token) or token) if token else empty, _tally(entry), href))
+        return rows
+
+    sources = [
+        {
+            "name": source_label(str(s["source_id"])) or s.get("name") or s["source_id"],
+            "count": _int(s.get("records")),
+            "retrieved_at": s.get("retrieved_at_max"),
+            "href": _list_href(list_query, ("source_id", str(s["source_id"])), all_states),
+        }
+        for s in aggregate.get("sources") or []
+        if isinstance(s, Mapping) and s.get("source_id")
+    ]
+    not_summed = [
+        {
+            "kind": str(k["kind"]),
+            "label": str(proposal_kind_label(k["kind"]) or k["kind"]),
+            "count": _int(k["records"]),
+        }
+        for k in aggregate.get("not_summed_by_kind") or []
+        if isinstance(k, Mapping) and k.get("kind")
+    ]
+    return {
+        "group": group,
+        "total": _row("All statuses", totals, _list_href(list_query, all_states)),
+        "active": _row("Active pipeline", _tally(aggregate.get("active")), _list_href(list_query, listed)),
+        "not_listed": _row(
+            NOT_LISTED_LABEL,
+            not_listed,
+            _list_href(list_query, ("lifecycle_state", ",".join(active_states)), ("listed", "false")),
+        ),
+        "by_status": status_rows,
+        "by_technology": ranked(aggregate.get("by_technology"), "technology", technology_label, "Not stated"),
+        "by_iso": ranked(aggregate.get("by_iso"), "iso", iso_label, "None stated"),
+        "sources": sources,
+        "not_summed": not_summed,
+        "no_capacity": max(totals["count"] - totals["capacity_records"] - totals["not_summed_records"], 0),
+        "linked": True,
+    }

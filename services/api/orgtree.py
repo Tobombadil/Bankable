@@ -60,11 +60,12 @@ descent). The legacy boolean is still accepted and still means what it meant: se
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import Integer, Select, literal_column, or_, select
 from sqlalchemy.orm import Session
 
 from services.api.errors import validation_error
@@ -304,3 +305,60 @@ def scope_from_request(request: Request, *, default: str = "self") -> str:
 def scope_ids(db: Session, org: Organization, scope: str) -> list[Any]:
     """`org_scope(...).ids` for a caller that needs only the ids."""
     return org_scope(db, org, scope).ids
+
+
+def scope_param(raw: str | None, name: str, instance: str) -> str:
+    """A scope token from a query parameter (`sponsor_scope`): one of `SCOPES`, `self` when absent
+    or empty; anything else is a `400 validation_error` naming the parameter."""
+    if not raw:
+        return "self"
+    value = raw.strip().lower()
+    if value not in SCOPES:
+        raise validation_error(name, f"{name} must be one of {', '.join(SCOPES)}", instance)
+    return value
+
+
+def scope_ids_select(refs: Sequence[str], scope: str) -> Select[Any]:
+    """SQL twin of `org_scope`, for a filter that names organisations by public id or slug
+    (`GET /v1/proposals?sponsor_id=...&sponsor_scope=...`, 2026-10-10 lane P): the ids of every
+    visible organisation `refs` names, plus, under `children`, its direct subsidiaries and, under
+    `all`, its whole descent to `MAX_DEPTH` levels -- the walk `org_scope` makes, with the same
+    rules at every step (a merged-away or hidden organisation is not entered, so nothing below a
+    hidden subsidiary is either; a cycle is visited once).
+
+    One recursive CTE instead of `org_scope`'s query per level, because a list filter is a
+    statement, built before any session runs it (the map, export and feed paths build the same
+    one). `UNION` rather than `UNION ALL` keeps a cycle finite: a node revisited at a deeper level is
+    a new `(id, depth)` row only until `MAX_DEPTH` stops the recursion. The one rule not mirrored
+    is `MAX_SCOPE_ORGS`, which truncates `org_scope` at 500 organisations and here does not: the
+    widest tree in the store spans 18 (module docstring), and a list that kept a truncated group
+    would disagree with its own sponsor filter. `services/api/test_orgtree.py` asserts the two
+    walks give the same ids on the same trees.
+
+    A root's visibility is `visible_organization_ids`' rule (by id or slug, the organisation arm of
+    the predicate); merged roots are not refused, as `sponsor_id=` never refused them."""
+    # Integer constants, not bound parameters: Postgres types a recursive CTE's columns from the
+    # non-recursive term and refuses a recursive term of another type, which a driver-typed parameter
+    # (`smallint` against `depth + 1`'s `integer`) could produce. SQLite does not care.
+    zero, one = literal_column("0", Integer), literal_column("1", Integer)
+    roots = select(Organization.id.label("id"), zero.label("depth")).where(
+        or_(Organization.public_id.in_(refs), Organization.slug.in_(refs)),
+        *organization_visibility_filter(),
+    )
+    if scope not in SCOPES:  # pragma: no cover - callers validate first (`scope_param`)
+        raise ValueError(f"unknown scope {scope!r}")
+    if scope == "self":
+        return select(roots.subquery().c.id)
+    max_levels = 1 if scope == "children" else MAX_DEPTH
+    tree = roots.cte("org_scope_tree", recursive=True)
+    step = (
+        select(Organization.id, (tree.c.depth + one).label("depth"))
+        .join(tree, Organization.parent_org_id == tree.c.id)
+        .where(
+            tree.c.depth < max_levels,
+            Organization.merged_into_id.is_(None),
+            *organization_visibility_filter(),
+        )
+    )
+    tree = tree.union(step)
+    return select(tree.c.id)

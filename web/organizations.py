@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from web.api_client import ApiClient, ApiError, ApiNotFound
-from web.org_pipeline import ProposalPages, fetch_proposals, pipeline_summary
+from web.org_pipeline import ProposalPages, fetch_pipeline, fetch_proposals, pipeline_summary
 from web.ownership import (
     DEFAULT_SCOPE,
     GROUP_MAP_MAX_ASSETS,
@@ -502,9 +502,12 @@ class _OrgFetch:
     scope_meta: Mapping[str, Any]
     assets: list[dict[str, Any]] = field(default_factory=list)
     proposals: list[dict[str, Any]] = field(default_factory=list)
-    #: Every proposal read for the pipeline summary (`web/org_pipeline.py`), as served; `proposals`
-    #: above is the first `ORG_PROPOSALS_LISTED` of them, flattened for the list section.
+    #: The most recently changed proposals at this scope (`web/org_pipeline.py::fetch_proposals`);
+    #: `proposals` above is the first `ORG_PROPOSALS_LISTED` of them, flattened for the list section.
     proposal_pages: ProposalPages = field(default_factory=ProposalPages)
+    #: `GET /v1/organizations/{id}/pipeline` at this scope: the pipeline summary's counts, over every
+    #: record (`None` when it could not be read).
+    pipeline: dict[str, Any] | None = None
     opportunities: list[dict[str, Any]] = field(default_factory=list)
     technology_vocabulary: list[str] = field(default_factory=list)
 
@@ -557,8 +560,9 @@ def _organization_fetch(api: ApiClient, request: Request, entity: dict[str, Any]
             fetch.scope_meta = raw_scope
     except ApiError:
         fetch.assets = []
-    # Every proposal at this scope (paged, `web/org_pipeline.py::fetch_proposals`) feeds the
-    # pipeline summary; the list section still prints the first `ORG_PROPOSALS_LISTED`.
+    # The pipeline summary is the API's aggregate over every record at this scope (one read); the
+    # list section prints the first `ORG_PROPOSALS_LISTED` of the most recently changed.
+    fetch.pipeline = fetch_pipeline(api, public_id, api_params) if public_id else None
     fetch.proposal_pages = fetch_proposals(api, public_id, api_params) if public_id else ProposalPages()
     fetch.proposals = [flatten_proposal(e) for e in fetch.proposal_pages.rows[:ORG_PROPOSALS_LISTED]]
     try:
@@ -576,6 +580,13 @@ def _organization_fetch(api: ApiClient, request: Request, entity: dict[str, Any]
     except (ApiError, KeyError, TypeError):
         fetch.technology_vocabulary = []
     return fetch
+
+
+def _pipeline_total(fetch: _OrgFetch) -> int:
+    totals = (fetch.pipeline or {}).get("totals")
+    if isinstance(totals, Mapping):
+        return _count_or(totals.get("records"), len(fetch.proposal_pages.rows))
+    return len(fetch.proposal_pages.rows)
 
 
 @dataclass
@@ -831,13 +842,10 @@ def _organization_render(
             "proposals": fetch.proposals,
             # The company's pipeline by status, technology and ISO, each count a link to the list
             # (owner, 2026-10-10: "show me their pipeline"); `None` when it sponsors nothing here.
-            "pipeline": pipeline_summary(
-                fetch.proposal_pages.rows,
-                complete=fetch.proposal_pages.complete,
-                group=_count_or(fetch.scope_meta.get("organizations"), 1) > 1,
-            ),
-            "proposals_total": len(fetch.proposal_pages.rows),
-            "proposals_complete": fetch.proposal_pages.complete,
+            "pipeline": pipeline_summary(fetch.pipeline),
+            # How many the list section is a part of: the aggregate's total when it was read.
+            "proposals_total": _pipeline_total(fetch),
+            "proposals_complete": fetch.pipeline is not None or fetch.proposal_pages.complete,
             "opportunities": fetch.opportunities,
             "provenance_rows": provenance_panel_rows(api, compose.provenance) if compose.provenance else [],
             "provenance_note": compose.provenance_note,

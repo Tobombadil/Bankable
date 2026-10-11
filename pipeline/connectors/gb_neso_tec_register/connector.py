@@ -81,6 +81,12 @@ class Connector(BaseConnector):
     ext: ClassVar[str] = "csv"
     honour_robots: ClassVar[bool] = False  # CKAN API + signed object-storage URL
     status_key: ClassVar[str] = "neso_tec"
+    #: A project that leaves the register is announced as `delisted` (owner, 2026-10-10), never as
+    #: a withdrawal: the register states no reason for a departure. A row whose project is still
+    #: listed under another key (unstaged to staged, `project_root`) is a re-key and is not
+    #: announced. `removal_meaning` stays `unknown` (base contract).
+    announce_removals: ClassVar[bool] = True
+    register_name: ClassVar[str | None] = "NESO"
     status_map_path: ClassVar[pathlib.Path | None] = pathlib.Path(__file__).with_name("status_map.yaml")
     dq_required_fields: ClassVar[tuple[str, ...]] = (
         "name_canonical",
@@ -104,6 +110,14 @@ class Connector(BaseConnector):
         "Customer Name",
         "Project Number",
     )
+
+    @classmethod
+    def project_root(cls, record_key: str) -> str:
+        """The Project ID: the key before any `/<stage>` or `#<n>` (module docstring). A project
+        whose rows move from unstaged (`pid#1`, `pid#2`) to staged (`pid/2`, `pid/3`), as VPI
+        Immingham's did between the 2026-09-11 and 2026-10-10 registers, is still listed, so its
+        old keys are not announced as gone."""
+        return re.split(r"[/#]", record_key, maxsplit=1)[0]
 
     def restate_capacity(self, df: pd.DataFrame) -> pd.Series | None:
         """`capacity_mw` of a stored frame recomputed from each row's own `raw` (base contract)."""

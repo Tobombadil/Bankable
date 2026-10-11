@@ -218,6 +218,53 @@ def test_components_are_transitive_and_keep_each_members_strongest_rule() -> Non
     assert first.evidence_of[1]["eia_plant_id"] == ["69661"]
 
 
+def test_components_keep_each_members_direct_links_but_not_plant_edges() -> None:
+    """Rule b-c edges are kept per member with the strongest rule between the pair; rule a edges are
+    not (the shared plant id is in both members' basis)."""
+    edges = [
+        Edge(0, 1, "poi_stem"),
+        Edge(0, 1, "exact_point_sponsor"),
+        Edge(1, 2, "eia_plant", {"eia_plant_id": "69661"}),
+        Edge(2, 3, "poi_sponsor"),
+    ]
+    (comp,) = rules.components(4, edges)
+    assert comp.links_of == {
+        0: {1: "exact_point_sponsor"},
+        1: {0: "exact_point_sponsor"},
+        2: {3: "poi_sponsor"},
+        3: {2: "poi_sponsor"},
+    }
+
+
+def test_connected_groups_never_bridge_through_a_member_outside_the_set() -> None:
+    """A1-A2-H-B1-B2: H is hidden. Over the visible four, A and B fall apart; the larger group, then
+    the group with the stronger lead, comes first."""
+    links = {
+        "A1": ["A2", "H"],
+        "A2": ["A1", "H"],
+        "H": ["A1", "A2", "B1", "B2"],
+        "B1": ["H", "B2"],
+        "B2": ["H", "B1"],
+    }
+    visible = [b("A1", 500), b("A2", 100), b("B1", 300), b("B2", 50)]
+    groups = rules.connected_groups(visible, links)
+    assert [[m.public_id for m in g] for g in groups] == [["A1", "A2"], ["B1", "B2"]]
+    with_hidden = rules.connected_groups([*visible, b("H", 5000)], links)
+    assert [len(g) for g in with_hidden] == [5]
+
+
+def test_connected_groups_join_by_a_shared_plant_and_fail_closed_without_links() -> None:
+    """Generators of one plant stay together without any link; a row with no stored links (written
+    before links were stored) is joined by its plant ids only, never assumed connected."""
+    units = [b("U1", plant_ids=("69798",)), b("U2", plant_ids=("69798",)), b("X", 10)]
+    groups = rules.connected_groups(units, {"U1": None, "U2": None, "X": None})
+    assert [[m.public_id for m in g] for g in groups] == [["U1", "U2"], ["X"]]
+    # A merged record holding two plants joins them only while it is visible.
+    bridge = [b("P", plant_ids=("1",)), b("Q", plant_ids=("2",)), b("M", plant_ids=("1", "2"))]
+    assert [len(g) for g in rules.connected_groups(bridge, {})] == [3]
+    assert [len(g) for g in rules.connected_groups(bridge[:2], {})] == [1, 1]
+
+
 def test_components_do_not_depend_on_edge_order() -> None:
     edges = [Edge(4, 2, "poi_sponsor"), Edge(0, 4, "eia_plant"), Edge(1, 3, "poi_stem")]
     assert [c.members for c in rules.components(5, edges)] == [

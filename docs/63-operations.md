@@ -99,7 +99,7 @@ Email-provider delivery time is on top and outside the platform's control.
 | Process liveness | Compose healthchecks on `api` (`GET /v1/health`) and `web` (`GET /health`): `interval: 15s`, `timeout: 5s`, `retries: 5`, `start_period: 15s`; `restart: unless-stopped` (`infra/compose/docker-compose.yml`). Since 2026-10-10 `/v1/health` is 503 when the database check fails, so a database outage now fails the api healthcheck; before, it answered 200 | a process that exits is restarted by Docker; an **unhealthy** container is marked so within ≈ 75–100 s and **not restarted** (Docker restarts on exit only; the earlier row said otherwise) | configured, never observed in production |
 | Deploy health gate | `deploy.sh` waits up to 180 s for every replica healthy and `/v1/health` answering, else auto-rollback once (`docs/60` §10.1). With the database down, the gate now fails instead of passing | a bad deploy self-reverts within ≈ 3 min of the health wait starting | proven against shims only (`infra/test_scripts.py`) |
 | Stalled jobs | `retry_stalled_jobs` every 10 min retries a job whose worker stopped beating 600 s ago (or fails it after 3 attempts), freeing its lock; workers get 300 s to finish on stop; worker sessions have `statement_timeout` 10 min, `lock_timeout` 5 min (`docs/60` §6.4) | a job left `doing` by a dead worker is recovered within ≈ 10–20 min | tested on Procrastinate's in-memory connector; the query run read-only on the rehearsal store found its two stuck jobs (2026-10-10) |
-| External uptime check | none exists (`docs/60` §7: UptimeRobot or Grafana synthetic, "alerts on 2 consecutive failures") | — | not operable |
+| External uptime check | UptimeRobot free plan, every 5 minutes: a keyword monitor on `api.{DOMAIN}/v1/health` (`"status":"ok"`, sent as `GET`; the free HTTP monitor sends `HEAD`, which the API answers 405) and an HTTP monitor on `{DOMAIN}/health`, alerting the owner's email (`docs/64` §2 step 7) | an outage is noticed within ≈ 5–10 min | not operable until the owner creates the monitors |
 | Monthly availability | — | **no figure offered**; a single VM per role with no failover cannot promise one, and there is no monitor to measure it | target only |
 | API latency | measured 2026-09-13 on the full 10,409-row load, SQLite, in-process: list page 0.127 s, geo 0.35–0.53 s, detail ≈ 0.02 s; plants geo warm pan 11–37 ms (`docs/00-PLAN.md` 2026-09-13, 2026-09-15) | E-16 p95 budgets are targets until Postgres numbers exist | measured (sandbox) |
 | Rate limits per hour (`services/api/ratelimit.py` `TIER_LIMITS`, `WINDOW_SECONDS = 3600`) | public 60 · free account 300 · pro 600 · api 6,000 · admin 1,200 | in-memory token bucket; resets on process restart | configured, tested (`tests/test_api_pro_ratelimit.py`) |
@@ -437,6 +437,9 @@ Written for one person. Times are estimates, not measurements. Until the first d
 4. Nightly M-11 audit result = 0 (once the job exists; in build 2026-09-26). Any other number is S1: unpublish
    first, then everything else.
 5. Cost log (US-909) — empty until `services/modelgw` exists; skip.
+6. Content security policy reports: `docker compose ... logs --since 24h web | grep csp_directive`. While
+   `CSP_MODE=report`, a day with no line other than browser extensions counts towards the switch to `enforce`
+   (`docs/64` §5). Under `enforce`, any line is a page that broke for someone: open that page.
 
 ### 7.2 Weekly, Monday (≈ 60 minutes)
 
@@ -528,3 +531,4 @@ Stated so that nothing above is read as running.
 | 2026-10-10 | §2.4, §5.2, §7.3 item 8, §8, §9: the DA-10 retention job is built (`retention_tick`, `services/retention`, `docs/60` §6.3); OP-5 resolved; OP-7 to OP-9 added |
 | 2026-10-10 | §2.3, §2.4, §8: `/v1/health` is 503 with the database down; Docker does not restart an unhealthy container (the liveness row said it did); stalled-job recovery and worker statement limits; a dump before every migration; the alerting and uptime rows say what exists and what the owner must create (`docs/60` §6.4, §7; `docs/64` §2) |
 | 2026-10-10 | §2.5 and §8: members delete their own account in-app (`DELETE /v1/me`, the operator's erasure); the open item narrows to cancelling a personal account's subscription by hand. Admin "revoke sessions" exists (`docs/26` §7) |
+| 2026-10-10 | §7.1 item 6: the daily look at content security policy reports (`/csp-report`, `docs/60` §2; when to switch `CSP_MODE`, `docs/64` §5). The uptime check is a keyword monitor on the API, because UptimeRobot's free HTTP monitor sends `HEAD` (`docs/64` §2) |

@@ -9,6 +9,7 @@
   {{ m.status_chip(record.lifecycle_state, record.lifecycle_family, record.status_raw) }}
   {{ m.slip_note(record.slip) }}
 </div>
+{% if not_listed %}<p class="attribution-line" id="not-listed">No longer listed in any register{% if not_listed.since %} since <time datetime="{{ not_listed.since }}">{{ not_listed.since | display_date }}</time>{% endif %}.</p>{% endif %}
 {{ m.as_filed(record.name) }}
 {{ m.delayed_banner(delayed) }}
 

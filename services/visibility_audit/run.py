@@ -81,6 +81,27 @@ pages are requested only where the `web` package is importable (`served.web_page
 image ships none. Bulk needs an API key, so its embed is checked on the store pass only. Breach
 rows carry public ids and field names, never a point's name or a megawatt figure.
 
+**Sites** (lane S2, 2026-10-10; docs/21 §3.25). A site is a parent over proposals, some of which a
+caller may not see, so it is one more way a gated or restricted record could be reached. The store
+pass restates each site's public members (the proposal invariants above, without the predicate) and
+the groups their own stored evidence connects (`restated_groups`: a shared EIA plant id or a stored
+link between two public members). Every site where something could be hidden -- a member that is
+not public, a sponsor organisation that is not, a member's interconnection point that holds a
+proposal that is not or whose register is gated, an anchored asset or owner that is not -- is
+rendered through the builders `GET /v1/sites/{id}` calls, every group a public caller could be
+served, and checked (`site_page_offences`): no member, neighbour, sponsor or anchor that is not
+public (`site_member_printed`, `site_neighbour_printed`, `site_sponsor_printed`,
+`site_anchor_printed:<kind>`), no group of one, and no group whose members only a hidden member
+links (`site_bridge_printed`). Each public member's `site` embed, as the proposal detail and the bulk
+stream render it, must name a public lead and count no more members than its restated group holds
+(`site_embed_printed:<surface>:<why>`). Flagged, retired and switched-off sites must serve nothing
+(`site_hidden_printed`). A site whose members are all public, with clean points and anchors, cannot
+print a hidden row and is not rendered: that keeps the pass to the sites that matter. The served pass
+requests, for up to `SITE_SERVED_SAMPLE` sites holding a hidden member, the API detail, one public
+member's embed, the site's web page and that member's web page (which carries the "At this site"
+panel), none of which may name a hidden member (`site_*_served`); and for up to as many flagged sites,
+the API detail and the web page, which must be the unknown id's 404 (`site_hidden_served`).
+
 `m11` is the total number of breaches from both passes. The result is persisted **without a new
 table**: one append-only `event` row (docs/21 §3.10; subject type `source`, the closest existing
 vocabulary entry for a platform-wide publication check; `event_type = visibility_audit`;
@@ -104,6 +125,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import itertools
 import json
 import logging
 import os
@@ -111,7 +133,8 @@ import re
 import secrets
 import sys
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections import Counter, defaultdict
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -138,6 +161,8 @@ from services.db.models import (
     OrganizationAlias,
     Proposal,
     ProposalSource,
+    Site,
+    SiteMember,
     Source,
 )
 from services.db.session import get_engine, get_sessionmaker, session_scope
@@ -149,6 +174,7 @@ from services.posture import (
     publishable_reuse_classes,
 )
 from services.resolve import survivorship
+from services.sites.switch import sites_enabled
 
 logger = logging.getLogger("services.visibility_audit")
 
@@ -178,6 +204,7 @@ SURFACES: tuple[str, ...] = (
     "assets",
     "source_links",
     "interconnection_points",
+    "sites",
 )
 #: Subject types an event may be served for (`event_visibility_filter`'s subject join).
 _EVENT_SUBJECTS = ("proposal", "opportunity")
@@ -1317,6 +1344,352 @@ def _audit_point_embeds(
     return breaches
 
 
+# ===================================================================================== sites (S2)
+SITES = "sites"
+#: Sites the served pass requests per group: servable sites that hold a member that is not public,
+#: and sites flagged for review. A probed site costs two API requests (its detail, one member's
+#: embed) and two web pages (the site page, that member's page with its "At this site" panel); a
+#: flagged one costs one of each. Every request speaks as the site's service identity, unmetered.
+SITE_SERVED_SAMPLE = 5
+
+
+@dataclass
+class _SiteFacts:
+    """What the store pass established about sites, for the served pass. In memory only."""
+
+    #: Public ids of the proposals any public page may print, restated without the predicate.
+    clean: frozenset[str]
+    #: Member public id -> its EIA plant ids, and -> the members its stored links name.
+    plants: dict[str, frozenset[str]]
+    links: dict[str, frozenset[str]]
+    #: Site public id -> its members as (public id, slug): those not clean, and those clean.
+    hidden_members: dict[str, list[tuple[str, str]]]
+    clean_members: dict[str, list[tuple[str, str]]]
+    #: Servable sites holding a member that is not clean, by public id: what the served pass probes.
+    probe: list[str]
+    #: Sites no page may serve, `(public id, why)`.
+    hidden: list[tuple[str, str]]
+    #: Public member public id -> the size of its group over public members, restated (0 when no
+    #: page may show it a site: a group of one, or a site that must serve nothing).
+    expected: dict[str, int]
+    #: Anchors a page may print (asset and point public ids), and organisations it may not.
+    clean_assets: frozenset[str] = frozenset()
+    clean_points: frozenset[str] = frozenset()
+    hidden_orgs: frozenset[str] = frozenset()
+
+
+def _stored_partners(evidence: Mapping[str, Any] | None) -> frozenset[str]:
+    links = (evidence or {}).get("links")
+    return frozenset(str(k) for k in links) if isinstance(links, dict | list) else frozenset()
+
+
+def restated_groups(
+    members: Iterable[str], plants: Mapping[str, frozenset[str]], links: Mapping[str, frozenset[str]]
+) -> dict[str, str]:
+    """`member -> group root` over `members` alone: two are joined when they share an EIA plant id or
+    a stored link between the two names the other. Restated here (a walk over the pairs), not taken
+    from `services/sites/rules.py`, so a regression there cannot hide itself."""
+    pool = set(members)
+    near: dict[str, set[str]] = {m: set() for m in pool}
+    holders: dict[str, list[str]] = defaultdict(list)
+    for m in sorted(pool):
+        for other in links.get(m, frozenset()):
+            if other in pool and other != m:
+                near[m].add(other)
+                near[other].add(m)
+        for plant in plants.get(m, frozenset()):
+            holders[plant].append(m)
+    for group in holders.values():
+        for a, b in itertools.pairwise(group):
+            near[a].add(b)
+            near[b].add(a)
+    root: dict[str, str] = {}
+    for start in sorted(pool):
+        if start in root:
+            continue
+        stack = [start]
+        root[start] = start
+        while stack:
+            for nxt in near[stack.pop()]:
+                if nxt not in root:
+                    root[nxt] = start
+                    stack.append(nxt)
+    return root
+
+
+def site_page_offences(data: Mapping[str, Any], facts: _SiteFacts) -> list[str]:
+    """Why one served site (`GET /v1/sites/{id}`'s `data`, or the store pass's render of it)
+    breaches: a member, neighbour, sponsor or anchor that is not public, a group of fewer than two,
+    or members that only a hidden member links (`site_bridge_printed`). Empty when it does not."""
+    out: list[str] = []
+    rows = list(data.get("members") or [])
+    members = [str(m.get("public_id")) for m in rows]
+    if len(members) < 2:
+        out.append("site_singleton_printed")
+    if any(m not in facts.clean for m in members):
+        out.append("site_member_printed:not_visible")
+    clean = [m for m in members if m in facts.clean]
+    if len(set(restated_groups(clean, facts.plants, facts.links).values())) > 1:
+        out.append("site_bridge_printed:linked_only_through_a_hidden_member")
+    neighbours = data.get("shares_interconnection_point") or []
+    if any(str(n.get("public_id")) not in facts.clean for n in neighbours):
+        out.append("site_neighbour_printed:not_visible")
+    sponsors = [*(m.get("sponsor") for m in rows), *(data.get("sponsors") or [])]
+    if any(s and s.get("public_id") in facts.hidden_orgs for s in sponsors):
+        out.append("site_sponsor_printed:not_visible")
+    anchors = data.get("anchors") or {}
+    plants = {p for m in clean for p in facts.plants.get(m, frozenset())}
+    if not {str(p) for p in anchors.get("eia_plant_ids") or []} <= plants:
+        out.append("site_anchor_printed:eia_plant_id")
+    assets = anchors.get("assets") or []
+    if any(str(a.get("public_id")) not in facts.clean_assets for a in assets):
+        out.append("site_anchor_printed:asset")
+    owners = [(o.get("organization") or {}).get("public_id") for a in assets for o in a.get("owners") or []]
+    if any(o in facts.hidden_orgs for o in owners):
+        out.append("site_anchor_printed:owner")
+    if any(
+        str(pt.get("public_id")) not in facts.clean_points
+        for pt in anchors.get("interconnection_points") or []
+    ):
+        out.append("site_anchor_printed:point")
+    return out
+
+
+def site_embed_offence(embed: Mapping[str, Any] | None, allowed: int, facts: _SiteFacts) -> str | None:
+    """Why a proposal's `site` embed breaches, or `None`: its lead is not public, or it counts more
+    members than the record's group over public members holds (`allowed`; 0 when no public page may
+    show the record a site), which is what a bridge through a hidden member or a site that must not be
+    served looks like."""
+    if not embed:
+        return None
+    if str((embed.get("lead") or {}).get("public_id")) not in facts.clean:
+        return "lead_not_visible"
+    count = int(embed.get("member_count") or 0)
+    if count > allowed:
+        return "member_count_over_visible_group" if allowed else "site_not_servable"
+    return None
+
+
+def _audit_sites(
+    db: Session,
+    *,
+    gated_src: Mapping[str, str],
+    gated_lic: Mapping[str, str],
+    publishable: tuple[str, ...],
+    now: dt.datetime,
+) -> tuple[int, list[Breach], _SiteFacts | None]:
+    """The store half of the site checks (module docstring). Every site is restated from the store:
+    its members that are public (the proposals invariants, without the predicate) and the groups
+    their own stored evidence connects. Sites where something may be hidden -- a member that is not
+    public, a sponsor organisation that is not, a neighbour at a member's point that is not, an
+    anchored asset or point on a gated register -- are rendered through the builders the surfaces
+    call (`services/api/sites.py`: the detail and the proposal and bulk embeds) and compared. A site
+    whose members are all public, with clean neighbours and anchors, cannot print a hidden row and
+    is not rendered. Flagged and retired sites must serve nothing."""
+    from services.api import sites as sites_api
+
+    site_rows = list(db.scalars(select(Site)).all())
+    if not site_rows:
+        return 0, [], None
+    link = aliased(ProposalSource)
+    clean_link = [link.proposal_id == Proposal.id, link.active.is_(True)]
+    if gated_src:
+        clean_link.append(link.source_id.not_in(list(gated_src)))
+    clean_ids = {
+        row[0]: row[1]
+        for row in db.execute(
+            select(Proposal.id, Proposal.public_id).where(
+                Proposal.publish_state == "public",
+                Proposal.public_at.is_not(None),
+                Proposal.public_at <= now,
+                Proposal.min_reuse_class.in_(publishable),
+                exists(select(link.id).where(*clean_link)),
+            )
+        ).all()
+    }
+    clean_public = frozenset(clean_ids.values())
+    _hidden_org_rows, hidden_orgs = _hidden_organization_ids(db)
+    hidden_org_ids = set(_hidden_org_rows)
+
+    by_site: dict[uuid.UUID, list[Any]] = defaultdict(list)
+    plants: dict[str, frozenset[str]] = {}
+    links: dict[str, frozenset[str]] = {}
+    for row in db.execute(
+        select(
+            SiteMember.site_id,
+            SiteMember.basis,
+            SiteMember.grouping_evidence,
+            Proposal.id,
+            Proposal.public_id,
+            Proposal.slug,
+            Proposal.interconnection_point_id,
+            Proposal.sponsor_org_id,
+        ).join(Proposal, Proposal.id == SiteMember.proposal_id)
+    ).all():
+        by_site[row.site_id].append(row)
+        plants[row.public_id] = frozenset(str(p) for p in (row.basis or {}).get("plant_ids") or ())
+        links[row.public_id] = _stored_partners(row.grouping_evidence)
+
+    # Points at members: whether their register is gated, and whether any proposal at them is not
+    # public (a neighbour the detail could list).
+    point_ids = sorted(
+        {r.interconnection_point_id for rs in by_site.values() for r in rs if r.interconnection_point_id},
+        key=str,
+    )
+    point_public: dict[uuid.UUID, str] = {}
+    gated_points: set[uuid.UUID] = set()
+    risky_points: set[uuid.UUID] = set()
+    for chunk in _chunks(point_ids):
+        for pid, pub, source_id, licence_id in db.execute(
+            select(
+                InterconnectionPoint.id,
+                InterconnectionPoint.public_id,
+                InterconnectionPoint.source_id,
+                InterconnectionPoint.licence_id,
+            ).where(InterconnectionPoint.id.in_(chunk))
+        ).all():
+            point_public[pid] = pub
+            if source_id in gated_src or licence_id in gated_lic:
+                gated_points.add(pid)
+        for point_id, prop_id in db.execute(
+            select(Proposal.interconnection_point_id, Proposal.id).where(
+                Proposal.interconnection_point_id.in_(chunk)
+            )
+        ).all():
+            if prop_id not in clean_ids:
+                risky_points.add(point_id)
+    risky_points |= gated_points
+    clean_points = frozenset(pub for pid, pub in point_public.items() if pid not in gated_points)
+
+    # Anchored assets and their owners: gated register or licence, or an owner that is not public.
+    asset_ids: set[uuid.UUID] = set()
+    for site in site_rows:
+        for value in ((site.anchors or {}).get("assets") or {}).values():
+            try:
+                asset_ids.add(uuid.UUID(str(value)))
+            except ValueError:
+                continue
+    asset_public: dict[uuid.UUID, str] = {}
+    gated_assets: set[uuid.UUID] = set()
+    risky_assets: set[uuid.UUID] = set()
+    for chunk in _chunks(sorted(asset_ids, key=str)):
+        for aid, pub, source_id, licence_id in db.execute(
+            select(Asset.id, Asset.public_id, Asset.source_id, Asset.licence_id).where(Asset.id.in_(chunk))
+        ).all():
+            asset_public[aid] = pub
+            if source_id in gated_src or licence_id in gated_lic:
+                gated_assets.add(aid)
+        for aid, org_id, source_id, licence_id in db.execute(
+            select(
+                AssetOwner.asset_id, AssetOwner.organization_id, AssetOwner.source_id, AssetOwner.licence_id
+            ).where(AssetOwner.asset_id.in_(chunk))
+        ).all():
+            if org_id in hidden_org_ids or source_id in gated_src or licence_id in gated_lic:
+                risky_assets.add(aid)
+    risky_assets |= gated_assets
+    clean_assets = frozenset(pub for aid, pub in asset_public.items() if aid not in gated_assets)
+
+    breaches: list[Breach] = []
+    shown = 0
+    probe: list[str] = []
+    hidden: list[tuple[str, str]] = []
+    hidden_members: dict[str, list[tuple[str, str]]] = {}
+    clean_members: dict[str, list[tuple[str, str]]] = {}
+    expected: dict[str, int] = {}  # member public id -> its public group's size (0: no site)
+    render: list[Site] = []
+    enabled = sites_enabled()
+    for site in sorted(site_rows, key=lambda s: s.public_id):
+        rows = by_site.get(site.id, [])
+        public_rows = [r for r in rows if r.id in clean_ids]
+        servable = enabled and site.retired_at is None and site.review_flag is None
+        roots = restated_groups([r.public_id for r in public_rows], plants, links)
+        sizes = Counter(roots.values())
+        for r in public_rows:
+            size = sizes[roots[r.public_id]] if servable else 0
+            expected[r.public_id] = size if size >= 2 else 0
+        if not servable:
+            if site.retired_at is None:
+                hidden.append((site.public_id, site.review_flag or "kill_switch"))
+            if sites_api.served_groups(db, site, "public", with_sources=False):
+                why = "retired" if site.retired_at is not None else (site.review_flag or "kill_switch")
+                breaches.append(Breach(SITES, site.public_id, None, f"site_hidden_printed:{why}"))
+            continue
+        if any(n >= 2 for n in sizes.values()):
+            shown += 1
+        assets_here = {
+            uuid.UUID(str(v)) for v in ((site.anchors or {}).get("assets") or {}).values() if _is_uuid(v)
+        }
+        risky = (
+            len(public_rows) < len(rows)
+            or any(r.sponsor_org_id in hidden_org_ids for r in rows)
+            or any(r.interconnection_point_id in risky_points for r in rows)
+            or bool(assets_here & risky_assets)
+        )
+        if not risky:
+            continue
+        render.append(site)
+        hidden_members[site.public_id] = [(r.public_id, r.slug) for r in rows if r.id not in clean_ids]
+        clean_members[site.public_id] = [(r.public_id, r.slug) for r in public_rows]
+        if hidden_members[site.public_id]:
+            probe.append(site.public_id)
+
+    facts = _SiteFacts(
+        clean=clean_public,
+        plants=plants,
+        links=links,
+        hidden_members=hidden_members,
+        clean_members=clean_members,
+        probe=probe,
+        hidden=hidden,
+        expected=expected,
+        clean_assets=clean_assets,
+        clean_points=clean_points,
+        hidden_orgs=hidden_orgs,
+    )
+    # The detail, through the builders `GET /v1/sites/{id}` calls: every group a public caller could
+    # be served (the largest by default, any other through `?member=`).
+    for site in render:
+        for group in sites_api.served_groups(db, site, "public"):
+            data, _rows = sites_api.serialize_site(db, group, "public")
+            for reason in site_page_offences(data, facts):
+                breaches.append(Breach(SITES, site.public_id, None, reason))
+    # The embeds, as the proposal detail and the bulk stream render them, for every public member of
+    # a rendered site or of a site that must serve nothing (flagged; switched off).
+    wanted = {pub for s in render for pub, _slug in clean_members.get(s.public_id, [])}
+    for site in site_rows:
+        if site.retired_at is None and (site.review_flag is not None or not enabled):
+            wanted.update(r.public_id for r in by_site.get(site.id, []))
+    embed_ids = sorted((cid for cid, pub in clean_ids.items() if pub in wanted), key=str)
+    for chunk in _chunks(embed_ids):
+        proposals = list(
+            db.scalars(select(Proposal).where(Proposal.id.in_(chunk)).order_by(Proposal.public_id)).all()
+        )
+        for surface, link_ok in (("proposal_embed", None), ("bulk_embed", _api_redistributable)):
+            embeds = sites_api.proposal_site_embeds(db, proposals, "public", link_ok=link_ok)
+            for proposal in proposals:
+                offence = site_embed_offence(
+                    embeds.get(proposal.id), expected.get(proposal.public_id, 0), facts
+                )
+                if offence:
+                    breaches.append(
+                        Breach(SITES, proposal.public_id, None, f"site_embed_printed:{surface}:{offence}")
+                    )
+    return shown, breaches, facts
+
+
+def _api_redistributable(source: Source) -> bool:
+    """The bulk stream's link rule (`services/api/bulk.py::_api_redistributable`), restated."""
+    return bool(source.licence.allows_api_redistribution)
+
+
+def _is_uuid(value: Any) -> bool:
+    try:
+        uuid.UUID(str(value))
+    except ValueError:
+        return False
+    return True
+
+
 def _hidden_candidates(db: Session, gated_src: Mapping[str, str], *, limit: int) -> list[_Candidate]:
     """Rows that must be hidden whatever the predicate says, for the served pass: taken-down and
     pending records, records whose *only* active evidence is gated (a mixed-provenance record is
@@ -1421,6 +1794,11 @@ def audit_store(
     )
     counts[POINTS]["shown"] = shown
     breaches.extend(found)
+    shown, found, site_facts = _audit_sites(
+        db, gated_src=gated_src, gated_lic=gated_lic, publishable=publishable, now=now
+    )
+    counts[SITES]["shown"] = shown
+    breaches.extend(found)
     withheld = withheld_names(db)
     hidden = _hidden_organization_ids(db) if not withheld.empty else ([], frozenset[str]())
     found, name_probes = _audit_asset_operator_names(db, now=now, withheld=withheld, hidden=hidden)
@@ -1456,6 +1834,7 @@ def audit_store(
         "_hidden_org_ids": hidden[1],
         "_name_probes": name_probes,  # in-memory only
         "_points": point_facts,  # in-memory only: expected totals are never persisted
+        "_sites": site_facts,  # in-memory only: member lists and slugs for the served pass
         "_field_facts": {f.public_id: f for f in field_facts_list},  # in-memory only: stored values
     }
 
@@ -1510,6 +1889,12 @@ def _detail_path(surface: str, pid: str) -> str | None:
         # A point breach is about the point's own page; an embed breach about the proposal's.
         if pid.startswith("poi_"):
             return f"/v1/interconnection-points/{pid}"
+        if pid.startswith("prop_"):
+            return f"/v1/proposals/{pid}"
+    if surface == SITES:
+        # The same split: a site's own page, or a proposal's `site` embed.
+        if pid.startswith("site_"):
+            return f"/v1/sites/{pid}"
         if pid.startswith("prop_"):
             return f"/v1/proposals/{pid}"
     return None
@@ -1589,6 +1974,8 @@ def served_pass(
                 leak = bool(_served_name_paths(response.json().get("data") or {}, result, breach.public_id))
             if leak and breach.surface == POINTS:
                 leak = _point_breach_served(breach, response.json().get("data") or {}, result)
+            if leak and breach.surface == SITES:
+                leak = _site_breach_served(breach, response.json().get("data") or {}, result)
             if leak and breach.reason.startswith("field_from_gated_source:"):
                 # The record is rightly served; the leak is the field in it.
                 facts = result["_field_facts"][breach.public_id]
@@ -1637,6 +2024,7 @@ def served_pass(
         leaks += _served_field_checks(client, result, already, checks, sample=sample)
         leaks += _served_name_checks(client, result, already, checks, sample=sample)
         leaks += _served_point_checks(client, result, already, checks, sample=sample)
+        leaks += _served_site_checks(client, result, already, checks, sample=sample)
     # A status that is neither "served" (200) nor "hidden" (404) — a 429 from the public tier's
     # hourly budget, a 5xx — proves nothing either way; it is counted so a run whose served pass
     # was starved cannot read as a clean one.
@@ -2019,6 +2407,130 @@ def _served_point_checks(
                     reason,
                     "web_detail",
                 )
+    return leaks
+
+
+def _site_breach_served(breach: Breach, data: Mapping[str, Any], result: Mapping[str, Any]) -> bool:
+    """Whether a sampled store-pass site breach is on the served page too: the site page (its
+    largest group) or the proposal's `site` embed still prints what the store pass found."""
+    facts: _SiteFacts | None = result.get("_sites")
+    if facts is None:
+        return True
+    if breach.public_id.startswith("prop_"):
+        # A bulk-only offence cannot be confirmed anonymously: the detail's embed is the probe.
+        return site_embed_offence(data.get("site"), _allowed(facts, breach.public_id), facts) is not None
+    if breach.reason.startswith("site_hidden_printed:"):
+        return True
+    return bool(site_page_offences(data, facts))
+
+
+def _allowed(facts: _SiteFacts, member: str) -> int:
+    """The size of `member`'s group over public members of a servable site, restated (0: no site)."""
+    return facts.expected.get(member, 0)
+
+
+def _hidden_in_page(html: str, hidden: list[tuple[str, str]]) -> bool:
+    """Whether a page names a member no public page may print: its public id, or a link to its
+    record page."""
+    return any(pub in html or f'/proposals/{slug}"' in html for pub, slug in hidden)
+
+
+def _served_site_checks(
+    client: Any,
+    result: dict[str, Any],
+    already: set[tuple[str, str]],
+    checks: list[dict[str, Any]],
+    *,
+    sample: int,
+) -> int:
+    """The served half of the site checks: for a sample of servable sites that hold a member that is
+    not public, the API detail (`site_page_offences`), one public member's `site` embed, the site's
+    web page and that member's web page (neither may name a hidden member); for a sample of flagged
+    sites, the API detail and the web page must answer the unknown id's 404. Returns the number of
+    leaks; each is also a breach. Spends no request when the store holds no site."""
+    facts: _SiteFacts | None = result.get("_sites")
+    size = min(sample, SITE_SERVED_SAMPLE)
+    if facts is None or size <= 0:
+        return 0
+    breaches: list[Breach] = result["_breaches"]
+    leaks = 0
+
+    def record(kind: str, pub: str, path: str, status: int, reason: str | None, why: str) -> None:
+        nonlocal leaks
+        if status not in (200, 404):
+            reason = None  # inconclusive, counted by `served_pass`, never a breach
+        checks.append(
+            {
+                "kind": kind,
+                "surface": SITES,
+                "public_id": pub,
+                "path": path,
+                "status": status,
+                "leak": reason is not None,
+                "why": why,
+            }
+        )
+        if reason is not None:
+            leaks += 1
+            breaches.append(Breach(SITES, pub, None, reason, status, True))
+            result["counts"][SITES]["breaches"] += 1
+
+    probes = [pub for pub in facts.probe if (SITES, pub) not in already][:size]
+    flagged = [(pub, why) for pub, why in facts.hidden if (SITES, pub) not in already][:size]
+    if not probes and not flagged:
+        return 0
+    with site_client() as site:
+        if site is not None or "_web_pages" not in result:
+            result["_web_pages"] = "checked" if site is not None else "unavailable"
+        for pub in probes:
+            path = f"/v1/sites/{pub}"
+            response = client.get(path)
+            data = (response.json().get("data") or {}) if response.status_code == 200 else {}
+            offences = site_page_offences(data, facts) if data else []
+            reason = offences[0].replace("_printed", "_served", 1) if offences else None
+            record("site_members", pub, path, response.status_code, reason, "detail")
+            members = facts.clean_members.get(pub) or []
+            if not members:
+                continue
+            member, slug = members[0]
+            path = f"/v1/proposals/{member}"
+            response = client.get(path)
+            embed = (response.json().get("data") or {}).get("site") if response.status_code == 200 else None
+            offence = site_embed_offence(embed, _allowed(facts, member), facts)
+            record(
+                "site_members",
+                member,
+                path,
+                response.status_code,
+                f"site_embed_served:proposal_embed:{offence}" if offence else None,
+                "proposal_embed",
+            )
+            if site is None:
+                continue
+            hidden = facts.hidden_members.get(pub) or []
+            page = site.get(f"/sites/{pub}")
+            reason = (
+                "site_member_served:web_detail"
+                if page.status_code == 200 and _hidden_in_page(page.text, hidden)
+                else None
+            )
+            record("site_members", pub, f"/sites/{pub}", page.status_code, reason, "web_detail")
+            page = site.get(f"/proposals/{slug}")
+            reason = (
+                "site_member_served:web_panel"
+                if page.status_code == 200 and _hidden_in_page(page.text, hidden)
+                else None
+            )
+            record("site_members", member, f"/proposals/{slug}", page.status_code, reason, "web_panel")
+        for pub, why in flagged:
+            path = f"/v1/sites/{pub}"
+            response = client.get(path)
+            reason = f"site_hidden_served:{why}" if response.status_code == 200 else None
+            record("must_be_hidden", pub, path, response.status_code, reason, why)
+            if site is not None:
+                page = site.get(f"/sites/{pub}")
+                reason = f"site_hidden_served:web_detail:{why}" if page.status_code == 200 else None
+                record("must_be_hidden", pub, f"/sites/{pub}", page.status_code, reason, why)
     return leaks
 
 

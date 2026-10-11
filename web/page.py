@@ -177,6 +177,10 @@ PROPOSAL_PASSTHROUGH_FILTERS = (
     "state",
     "source_id",
     "sponsor_id",
+    # 2026-10-10 (lane P): a company's group (`sponsor_scope=all` beside one `sponsor_id`) and whether
+    # a register still lists the record (`listed`), the filters a company page's pipeline links carry.
+    "sponsor_scope",
+    "listed",
     "storage_mwh[gte]",
     "first_seen[from]",
     "first_seen[to]",

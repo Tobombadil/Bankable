@@ -98,8 +98,15 @@ directly, which removes the need for any alias table.
   gates 3 and 5): it is a roll-up over `digest_items`, not a single-source, single-fact post, and
   its own §3.3 template has no `Source:` clause. Every other gate still applies.
 - **Never-posted default-deny**: any `event_type` not in `POSTABLE_EVENT_TYPES` earns no post on
-  any channel, including a `pipeline/diff.py` `removed` row (ambiguous — could mean withdrawn,
-  cancelled, or a source hiccup — so it is never guessed into a post).
+  any channel. A row that leaves its source's file is never posted, whatever it is stored as
+  (2026-10-10): the loader no longer stores a `removed` diff row as `withdrawn`. It stores it as the
+  non-public `removed_from_source` (`docs/21` §7.3), or, for the four queues whose connectors announce
+  removals (ERCOT, CAISO, NYISO, NESO), as the public `delisted` event, "No longer in ERCOT's report
+  (reason not stated)". `delisted` reaches the feeds, alerts and webhooks but never a draft:
+  `db_events.social_event_from_db` refuses `services.db.models.NON_SOCIAL_EVENT_TYPES` by name, beside
+  `NON_PUBLIC_EVENT_TYPES`, so a later entry in its type maps cannot draft it
+  (`tests/test_delisted_is_public_and_never_drafted.py`). The `pipeline/diff.py` adapter still drops
+  `removed` rows.
 - **RFP/award/funding org and title fields are effectively required**, not omittable, once an
   event reaches that template: the fact line is meaningless without `issuer_org`/
   `solicitation_title`/`awardee_org`. `channels_for_event` already requires `awardee_org` for

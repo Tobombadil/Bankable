@@ -18,7 +18,7 @@
 {%- if site %}
 <section class="site-panel" aria-labelledby="site-panel-heading">
   <h2 id="site-panel-heading">At this site</h2>
-  <p class="attribution-line">One of {{ site.member_count }} records at <a href="{{ site.href }}">{{ site.name }}</a>, grouped by {{ site.groupings | join(', ') if site.groupings else 'shared identifiers' }}. The lead is the largest active filing. Each record keeps its own page.</p>
+  <p class="attribution-line">One of {{ site.member_count }} records at <a href="{{ site.href }}">{{ site.name }}</a>, grouped by {{ site.groupings | join(', ') if site.groupings else 'shared identifiers' }}. The lead is the largest active filing. Each record keeps its own page.{% if site.partial %} Other records at this site are not linked to these by anything shown here.{% endif %}</p>
   <div class="table-scroll">
   <table class="record-table">
     <caption class="visually-hidden">Records at this site: the lead first; each plant's units follow it; every other record with its relationship to the lead.</caption>

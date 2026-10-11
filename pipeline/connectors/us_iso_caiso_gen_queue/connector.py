@@ -27,6 +27,15 @@ class Connector(BaseConnector):
     kind: ClassVar[Kind] = "proposal"
     ext: ClassVar[str] = "xlsx"
     status_key: ClassVar[str] = "caiso"
+    #: A row that leaves the report is announced as `delisted` (owner, 2026-10-10), never as a
+    #: withdrawal: the report keeps withdrawn projects on its own Withdrawn sheet, so a project that
+    #: disappears altogether left for a reason the report does not give. `removal_meaning` stays
+    #: `unknown` (base contract).
+    announce_removals: ClassVar[bool] = True
+    register_name: ClassVar[str | None] = "CAISO"
+    #: `project_root` is the base default, the queue position itself: a letter suffix names a
+    #: different project, not a phase (2026-10-09 report: position 643 carries 47 differently named
+    #: projects, 643A ARCO Solar Station to 643Z Alta 14), so stripping it would hide real departures.
     key_source_columns: ClassVar[tuple[str, ...]] = (
         "Queue ID",
         "Project Name",

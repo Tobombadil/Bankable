@@ -1,0 +1,60 @@
+{% extends "admin/base.html" %}
+{% block title %}Sites — Admin{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/admin-ops.css">{% endblock %}
+{% block content %}
+<h1>Sites</h1>
+{% include "admin/_notice.html" %}
+<p>What the site pass did on recent rebuilds, and sites flagged for review. Read-only. A site links to its public page, which shows what a reader sees; a flagged site is not served, so its page answers 404 until the rule or data that made it is fixed.</p>
+
+<h2>Flagged for review</h2>
+{% if flagged %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <caption class="visually-hidden">Sites flagged for review, which readers are not served</caption>
+    <thead><tr><th scope="col">Site</th><th scope="col">Stored lead name</th><th scope="col">Flag</th><th scope="col" class="num">Members</th><th scope="col">Last built</th></tr></thead>
+    <tbody>
+      {% for s in flagged %}
+      <tr>
+        <td class="mono"><a href="/sites/{{ s.public_id }}">{{ s.public_id }}</a></td>
+        <td>{{ s.name }}</td>
+        <td>{{ s.review_flag }}</td>
+        <td class="num">{{ s.member_count }}</td>
+        <td class="mono">{{ s.built_at or "--" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="admin-empty">No site is flagged.</p>
+{% endif %}
+
+<h2>Recent changes</h2>
+<form class="admin-toolbar" method="get" action="/admin/sites">
+  <div class="field">
+    <label for="f-limit">Rows</label>
+    <input id="f-limit" type="number" name="limit" min="1" max="200" value="{{ limit }}">
+  </div>
+  <button class="admin-button" type="submit">Show</button>
+</form>
+{% if audit %}
+<div class="admin-table-wrap">
+  <table class="admin-table">
+    <caption class="visually-hidden">Site audit rows, newest first: what each rebuild did to a site, the records and sites involved, and when</caption>
+    <thead><tr><th scope="col">Recorded</th><th scope="col">Change</th><th scope="col">Site</th><th scope="col">Involved</th></tr></thead>
+    <tbody>
+      {% for a in audit %}
+      <tr>
+        <td class="mono">{{ a.recorded_at }}</td>
+        <td>{{ a.kind_label }}</td>
+        <td><a class="mono" href="/sites/{{ a.site.public_id }}">{{ a.site.public_id }}</a> <span class="admin-muted">{{ a.site.name }}{% if a.site.retired %} (retired){% endif %}{% if a.site.review_flag %} ({{ a.site.review_flag }}){% endif %}</span></td>
+        <td class="mono">{{ a.involved or "--" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="admin-empty">No site changes recorded.</p>
+{% endif %}
+{% endblock %}

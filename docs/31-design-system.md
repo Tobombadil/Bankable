@@ -127,7 +127,7 @@ class and operator; click opens the §5.8 drawer with the asset's fields (rows p
 carries the value). Point types share the plant square's opacity (0.7) and label rule (z9+).
 
 **Legend.** One group per type, shown only while its checkbox is on (`data-legend-type`), so the legend names
-exactly what is drawn. The pipeline group carries the two line samples (solid, dashed) with their words. The
+exactly what is drawn (placement on the map and the compact state with a layer on: §5.17). The pipeline group carries the two line samples (solid, dashed) with their words. The
 ethanol and RNG groups carry a one-line muted note (`.legend__note`) saying which rows are *not* points: EIA
 capacity-table plants placed at state grade and AgSTAR digesters placed at county grade never render as points
 (`/v1/assets/geo` omits them; there is no region feature for assets) and live on the asset, company and search
@@ -205,6 +205,13 @@ focus moving to the first new row) rather than a bottom sheet. Collapse keys on 
 paint, so a page without scripts stays fully open. Measured: the 400×800 home page went from 13,866 px to
 3,377 px tall and the map from 1,658 px to 471 px down.
 
+**As built at 720–1079px on the map page (2026-10-10, lane F):** the map's filter bar is the same "Filters (N
+active)" disclosure as below 720px (`styles.css`: the toggle that controls `#map-filters` and
+`.filter-bar--map[data-collapse]`, keyed on `.js`); list pages keep their bar open at these widths, and the site
+navigation is unchanged. The in-view list sits under the map, not over it as the table above says. Map top, e2e
+store with the dev-preview label: 634 → 554 px at 1024×768, 741 → 661 px at 768×1024, 761 → 680 px at 720×900
+(`docs/30` §5.1).
+
 No fixed width wider than the viewport at any breakpoint; only tables, the map canvas, and code blocks may
 scroll horizontally, each inside its own `overflow-x` container — the page body never scrolls horizontally
 (D-32).
@@ -218,9 +225,18 @@ scroll horizontally, each inside its own `overflow-x` container — the page bod
   (`web/formatting.py`): `mw` (thousands separators, one decimal at most, no trailing `.0`: `4,800`, `1,150.5`),
   `thousands` (counts: `1,844`), `display_date` (`11 Sep 2026`; `Sep 2026` for a year-month), `rfc3339` (admin
   timestamps to the second, `2026-10-07T18:23:12Z`, never microseconds). `map.js` mirrors `mw` and `display_date`
-  (`fmtMW`, `fmtDate`). ISO dates stay in `datetime` attributes and admin screens only. Not yet converted: the
-  proposal page's field grid (capacity and storage rows) and the retired-plant rows in the map's in-view list,
-  both held back to merge cleanly with PR #64, which edits those lines.
+  (`fmtMW`, `fmtDate`). ISO dates stay in `datetime` attributes and admin screens only. The proposal page's field
+  grid prints through `mw` since 2026-10-10 (lane H).
+  **`map.js` capacity, as built 2026-10-10 (lane F).** One formatter, `fmtMWNumber` (`fmtMW` adds " MW"), between
+  two marker comments. It rounds as Python's `round(x, 1)` does: the exact binary value to the nearest tenth, and
+  the only exact ties (x.25, x.75) to the even tenth. The `toLocaleString` it replaces rounded the shortest decimal
+  half up (2.25: "2.3" on the map, "2.2" on the page; −0.04: "-0"). Every capacity `map.js` prints goes through it:
+  the proposal, asset and retired-plant rows of the in-view list (the retired rows printed `toFixed(1)`,
+  "4800.0 MW"), both cluster tooltips (whole MW in the browser's locale before), the drawer's capacity and
+  per-technology rows, and the RNG rated capacity. `web/test_formatting.py` runs the marked block in node
+  against `mw` over a fixed table and 1,715 seeded values: 0 differ (the three old paths differed on 196, 1,567
+  and 1,452). Without node, it checks that the only " MW" in `map.js` is `fmtMW`'s. Not converted (not MW): the
+  drawer's other quantities (MMgal/yr, MMscf/d, cu ft/day; `fmtNumber`) still use the browser's locale.
 - **Dates** — absolute date shown always (`11 Sep 2026`), relative shown alongside where it aids scanning
   (`11 Sep 2026 (12 days ago)`); timestamps in API/admin contexts are RFC 3339 UTC in Plex Mono (`docs/23` §1).
 - **Capacity units** — `capacity_mw` and `storage_mwh` render with their unit suffix in the header only, values
@@ -301,8 +317,8 @@ any tier, so the rendered string is `"Every record and every change event is pub
 ingested. Alerts and API in Pro."` + link. The delayed wording — `"Public data is {lag_days} days delayed (as
 of {data_as_of}). Live in Pro."` — stays in the component keyed on `lag_days` from the API envelope, so the
 page states what the predicate does rather than a constant, and would tell the truth if a delay ever returned.
-Fixed position: page header on lists/map, record header on detail, top of digest email, RSS `<title>`, CSV
-header block.
+Fixed position: page header on lists, record header on detail, top of digest email, RSS `<title>`, CSV
+header block. The map page has no notice block since 2026-10-10 (below).
 **States:** public tier (shown, non-dismissible, live wording); Pro/API tier (not rendered); the
 record-specific "Updated N days ago on the live tier" variant (US-201 AC4) is retired with the delay.
 **Freshness (2026-10-07, expert review: interconnection finding 9, large-load finding 8).** "No delay" is not "up to
@@ -319,6 +335,12 @@ read is cached per process for 10 minutes and refreshed in the background (it co
 **Gap for the API lane:** `/v1/sources` returns `last_success_at: null` for every source on file loads, and
 `/v1/health` `data_as_of` is the request time; the pages use `/v1/coverage`, which falls back to the newest
 `retrieved_at` per source.
+**On the map page (as built 2026-10-10, lane H; `docs/30` §5.1).** `/` opens with its statement of value, not a
+notice. How current the sources are is said once, by the masthead link ("N of M sources behind their fetch
+schedule", to `/methodology#vintage`). The map page keeps that link below 720px (`.masthead--keep`, the edition
+stamp `.masthead__ref` hidden), where every other page drops the masthead. List and record pages keep the notice in
+their header. The dev-preview label (`preview_banner`) still shows on `/`. The place the notice held now goes to
+the filters, one status row and the map with its key drawn on it (§5.17).
 **Rule satisfied:** D-3, D-28, US-604 AC1.
 
 ### 5.5 Table with sticky header and density toggle
@@ -376,7 +398,8 @@ to compute); at-400px (collapses to a single "Filters" button opening a full-hei
 combination (e.g., `capacity_mw[gte] > capacity_mw[lte]`) shown as inline validation text, not a silent no-op.
 **As built (2026-10-07):** at 400px the bar is an in-place "Filters (N active)" disclosure, not a full-height sheet
 (see §3); an impossible range is `aria-invalid` inline validation, server-rendered and live, and the API is not
-called.
+called. **2026-10-10 (lane F):** the map page's bar is that disclosure up to 1079px; list bars collapse only below
+720px (§3). Open, it ends with "Show the map", which closes it and returns focus to "Filters"; Escape does the same.
 **Status control (2026-10-07, audit UX-1).** The `lifecycle_state` chips are one "Status: {summary}" disclosure on
 both bars (`_macros.html` `status_filter`), with six checkboxes in the legend's words and order: Announced, In
 process, Contracted, Built or operating, Withdrawn or cancelled, Status unknown. **Default set:** the first three,
@@ -470,6 +493,36 @@ Apply filters, Clear all, Details, admin `.admin-button`); **quiet** — text on
 toggles and map controls (Menu, Filters, Map/List, zoom) keep their neutral bordered look as controls, not actions.
 Before: six treatments, including upper-case outlined copper, filled navy with underlined link text in admin, and
 filled ink on the report form.
+
+### 5.17 Map key (added 2026-10-10, as built: placement lane H, compact state lane F)
+
+**Anatomy:** `.map-key` (`#map-key`), its own row in the map frame's overlay (`.map-overlay`) under the zoom and
+region controls, top left, where the national view has ocean rather than the dense Northeast. One
+`.map-key__panel` on the page ground (`--bg`, so each legend hue keeps the contrast measured for it on `--bg`),
+`--border`, `--radius-2`, `--shadow-1`. Inside, in order: the proposal status key (`#lifecycle-legend`, a labelled
+group; map.js hides a family row with nothing drawn), the region row while regions are drawn, the existing-asset
+key (`#plants-legend`, one group per checked type, §1.6) and the retired-plant key (`#retired-legend`, §1.6), each
+while its layer is on. "Key" (`#map-key-toggle`, `.map-controls--key`, `aria-expanded`) hides and shows the panel.
+Without scripts it is not shown and the key stays open.
+**States:**
+- *No layer, from 720px:* a 17rem panel, one item per line, full words (`.legend__long`), as tall as its content
+  up to `calc(70vh - 2.25rem - var(--space-8))`. At 1440×900 on the e2e store it is 272×276px.
+- *No layer, below 720px:* a strip at most 9rem tall with short words (`.legend__short`, "In process"). The full
+  words and the notes are visually hidden but still read.
+- *A layer on (compact):* map.js `syncKeyCompact` sets `.map-key--compact` while the existing-asset or retired key
+  shows, and removes it with the last layer. The status key is the strip at every width. Each layer's key is a
+  native disclosure, open on arrival: `details.map-key__section`, `summary.map-key__section-name` ("Existing
+  assets", "Retired & retiring plants"; its triangle kept, 1.5rem tall), body `.map-key__section-body`. Groups
+  flow in rows. From 720px the panel stops at `max-height: 15rem` and scrolls inside. It is then a tab stop
+  (`tabindex="0"`; the panel is a group named "Map key" in every state), so a keyboard can scroll it. A
+  `clip-path` inset to the panel and its shadow stops a scrolling panel painting a copy of its background below
+  itself. That artifact was seen in headless Chromium, before this change too, and has not been checked on a
+  GPU-composited browser.
+  At 1440×900 the compact panel is 272×240px, or 196px with both sections closed.
+- *Hidden:* "Key" pressed, `aria-expanded="false"`.
+No new tokens; the classes above are the additions. Measurements and the axe runs: `docs/30` §5.1.
+**Rule satisfied:** D-5 (shape and words with every hue), D-10, D-14; SC 2.1.1 (the scrolling panel is
+reachable), SC 2.5.8, SC 4.1.2.
 
 ## 6. Empty, loading and error states — cross-component rule
 
@@ -591,3 +644,7 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
   §5.2 grouped sources, §5.3 lists and search, §5.9 status control and its default set, §5.16 Button, §7 input focus
   (frontend-developer, lane L5, design audit UX-1, UX-4, UX-5, UX-8, UX-11, UX-15, UX-16, UX-17, UX-19); §5.4
   freshness-derived stamp, masthead and footer (same lane, expert review 2026-10-07).
+- 2026-10-10 — as built (frontend-developer, lane F): §3 and §5.9 the map page's filter bar is a disclosure up to
+  1079px; §4 `map.js` capacity through one formatter matching `mw`; §5.4 the map page's tier notice as lane H
+  built it (lateness once, in the masthead); §5.17 the map key added (lane H's placement, the compact state with
+  a layer on). No new tokens.

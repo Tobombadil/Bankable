@@ -30,11 +30,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import QueryParams
 from starlette.types import Scope
 
+from services.environment import is_dev_environment
 from web.api_client import ApiClient, ApiError, ApiNotFound, VisitorIpMiddleware
 from web.auth import router as auth_router
 from web.empty_state import empty_result_facets, range_error
 from web.head_requests import HeadAsGetMiddleware
 from web.labels import PLANT_FAMILY_LABELS
+from web.list_subject import list_subject, subject_hidden_fields
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
     ASSET_TYPE_LABELS,
@@ -133,7 +135,16 @@ HOME_MAP_ASSET_TYPES: list[tuple[str, str, bool]] = [
 
 logger = logging.getLogger("web.app")
 
-app = FastAPI(title="Infraque -- public site")
+# FastAPI's own `/docs`, `/redoc` and `/openapi.json` describe the site's HTML routes, which no one
+# reads as an API; nothing links them, and the two pages load scripts and fonts the site's content
+# security policy refuses (docs/60 §2). Development only. `app.openapi()` itself still works.
+_FRAMEWORK_DOCS = is_dev_environment()
+app = FastAPI(
+    title="Infraque -- public site",
+    docs_url="/docs" if _FRAMEWORK_DOCS else None,
+    redoc_url="/redoc" if _FRAMEWORK_DOCS else None,
+    openapi_url="/openapi.json" if _FRAMEWORK_DOCS else None,
+)
 # Every server-side API call carries the visitor's address (web/api_client.py; devops audit F1).
 app.add_middleware(VisitorIpMiddleware)
 # `HEAD` on every `GET` route, page and static alike, with the `GET`'s status and headers and no
@@ -235,6 +246,11 @@ from web.submit import router as submit_router  # noqa: E402
 
 app.include_router(submit_router)
 
+# docs/60 §2: Content-Security-Policy violation reports, the policy's `report-uri` and `report-to`.
+from web.csp_reports import router as csp_reports_router  # noqa: E402
+
+app.include_router(csp_reports_router)
+
 # Sprint 3 item 3: the admin panel shell (operator guard, chrome) — page routers for each nav
 # group are mounted below it as they land.
 from web.admin.shell import NotAnOperator, not_an_operator_handler  # noqa: E402
@@ -254,10 +270,12 @@ app.include_router(admin_posts_router)
 from web.admin.engagement import router as admin_engagement_router  # noqa: E402
 from web.admin.ops import router as admin_ops_router  # noqa: E402
 from web.admin.people import router as admin_people_router  # noqa: E402
+from web.admin.sites import router as admin_sites_router  # noqa: E402
 
 app.include_router(admin_people_router)
 app.include_router(admin_ops_router)
 app.include_router(admin_engagement_router)
+app.include_router(admin_sites_router)
 
 
 #: docs/50 §3.2 web bullet ("no Open Graph or structured data") and docs/00-PLAN.md 2026-09-19
@@ -470,7 +488,9 @@ def home_map(request: Request) -> HTMLResponse:
             "feed_alternate": {"title": "Proposals (RSS)", "href": feed_href("proposal", qp)},
             "iso_gap_notes": uncovered_iso_notes(qp.get("iso"), coverage_data(request, api)),
             "filters": dict(qp),
-            "save_alert_href": save_alert_href("proposal", qp, origin="map"),
+            "save_alert_href": None
+            if _alert_cannot_watch(qp)
+            else save_alert_href("proposal", qp, origin="map"),
             # The view switch's List link before map.js runs (it rewrites it with every change).
             "list_href": list_view_href(qp),
             "breakdown": breakdown,
@@ -639,6 +659,13 @@ async def ui_events_proxy(request: Request) -> JSONResponse:
     return JSONResponse({}, status_code=202)
 
 
+def _alert_cannot_watch(qp: QueryParams) -> bool:
+    """Whether the view uses a list filter a saved search cannot carry yet: `listed`, or a
+    `sponsor_scope` wider than the default `self` (`services/api/records.py::PROPOSAL_VIEW_FILTERS`;
+    the alert matcher does not evaluate them)."""
+    return bool(qp.get("listed")) or (qp.get("sponsor_scope") or "self").strip().lower() != "self"
+
+
 @app.get("/proposals", response_class=HTMLResponse)
 def proposals_list(request: Request) -> HTMLResponse:
     api = get_api(request)
@@ -690,8 +717,15 @@ def proposals_list(request: Request) -> HTMLResponse:
         "next_cursor": envelope["page"]["next_cursor"],
         "prev_cursor": envelope["page"]["prev_cursor"],
         "querystring": querystring_without(qp, "cursor"),
-        "save_alert_href": save_alert_href("proposal", qp),
+        # No "save as alert" for a view an alert cannot watch yet (records.PROPOSAL_VIEW_FILTERS):
+        # an alert without the filter would watch more, or other, proposals than the list shows.
+        "save_alert_href": None if _alert_cannot_watch(qp) else save_alert_href("proposal", qp),
         "delayed": delayed_notice(request, "proposal"),
+        # What the list is about (one company, its group, or one connection point), named in the
+        # heading with a link back to its page; the filter form keeps it (web/list_subject.py). Not
+        # read for an htmx swap, which replaces the rows and leaves the heading as it is.
+        "subject": None if is_htmx(request) else list_subject(api, qp, envelope["data"]),
+        "subject_fields": subject_hidden_fields(qp),
         "technology_options": _technology_options(vocab),
         "kind_options": _proposal_kind_options(vocab),
         "sources_phrase": proposal_sources_phrase(),
@@ -779,6 +813,14 @@ def _survivor_slug(api: ApiClient, collection: str, segment: str) -> str | None:
     return slug if isinstance(slug, str) and slug and slug != segment else None
 
 
+def _not_listed(entity: Mapping[str, Any]) -> dict[str, Any] | None:
+    """`{"since": <delisted_at or None>}` when the API says no register lists the record any more
+    (`listed: false`), else `None`; a response without the field is read as listed."""
+    if entity.get("listed") is not False:
+        return None
+    return {"since": entity.get("delisted_at")}
+
+
 @app.get("/proposals/{slug}", response_class=HTMLResponse)
 def proposal_detail(request: Request, slug: str) -> Response:
     api = get_api(request)
@@ -797,6 +839,8 @@ def proposal_detail(request: Request, slug: str) -> Response:
         "proposal_detail.html",
         {
             "record": record,
+            # No register lists it any more (API `listed: false`): the status is the last one stated.
+            "not_listed": _not_listed(entity),
             "history": proposal_history(api, record),
             "provenance_rows": attach_select_basis(record, provenance_panel_rows(api, record["provenance"])),
             "connection": connection,

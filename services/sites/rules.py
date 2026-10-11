@@ -22,6 +22,12 @@ exists to calibrate one (docs/51 §2.8 item 6).
 
 **Stable ids** (`inherit`): a rebuilt cluster takes the id of the existing site it shares the most
 members with (ties: the oldest site); a site no cluster takes is retired, never reused.
+
+**Connectivity a viewer may see** (`connected_groups`): a site is connected through all its members,
+some of which a caller may not see. Over the visible members only, two are connected when they
+share an EIA plant id (rule a's identifier, in each member's `Basis`) or one stored link (rules b-c,
+`Component.links_of`) joins them directly; a member grouped only through a hidden one falls apart
+from the rest, so no relation a hidden record carried is served.
 """
 
 from __future__ import annotations
@@ -33,7 +39,13 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
 #: Version of the rules below, stored on every site so a rule change is visible in the data.
-RULE_VERSION = "2026-10-10.1"
+#: `.2` (lane S2): phase markers with a letter suffix ("IIIA", "2A", "Phase 3b"), and every
+#: membership stores its direct links (`LINKS_KEY`) so a viewer's connectivity can be recomputed.
+RULE_VERSION = "2026-10-10.2"
+#: `site_member.grouping_evidence[LINKS_KEY]`: `{partner public_id: strongest rule}` for each
+#: member this one shares a rule b-c edge with directly. Rule a edges are not stored: a shared EIA
+#: plant id is in both members' `basis`, so a pair that shares one is never stored either.
+LINKS_KEY = "links"
 
 #: Grouping rules, strongest first; a member stores the first of these among its own edges.
 GROUPING_RULES: tuple[str, ...] = (
@@ -370,27 +382,37 @@ class UnionFind:
 @dataclass
 class Component:
     """One cluster: member indexes (ascending), each member's strongest rule and the rules and
-    identifiers over all its edges."""
+    identifiers over all its edges, and each member's direct partners under rules b-c with the
+    strongest rule between the two (`links_of`; rule a's partners follow from the plant ids)."""
 
     members: list[int]
     rule_of: dict[int, str]
     evidence_of: dict[int, dict[str, Any]]
+    links_of: dict[int, dict[int, str]] = field(default_factory=dict)
 
     @property
     def rules(self) -> set[str]:
         return set(self.rule_of.values())
 
 
+def _stronger(a: str | None, b: str) -> str:
+    return b if a is None or GROUPING_RULES.index(b) < GROUPING_RULES.index(a) else a
+
+
 def components(n: int, edges: Iterable[Edge]) -> list[Component]:
     """Connected components of size >= 2, ordered by their smallest member index."""
     uf = UnionFind(n)
     per_member: dict[int, list[Edge]] = defaultdict(list)
+    links: dict[int, dict[int, str]] = defaultdict(dict)
     for e in edges:
         if e.a == e.b:
             continue
         uf.union(e.a, e.b)
         per_member[e.a].append(e)
         per_member[e.b].append(e)
+        if e.rule != "eia_plant":
+            links[e.a][e.b] = _stronger(links[e.a].get(e.b), e.rule)
+            links[e.b][e.a] = _stronger(links[e.b].get(e.a), e.rule)
     groups: dict[int, list[int]] = defaultdict(list)
     for i in per_member:
         groups[uf.find(i)].append(i)
@@ -415,8 +437,39 @@ def components(n: int, edges: Iterable[Edge]) -> list[Component]:
                 if key != "rules" and isinstance(value, list):
                     ev[key] = sorted(value, key=str)
             evidence_of[i] = ev
-        out.append(Component(members, rule_of, evidence_of))
+        out.append(Component(members, rule_of, evidence_of, {i: dict(links.get(i, {})) for i in members}))
     return out
+
+
+def connected_groups(
+    members: Sequence[Basis], links: Mapping[str, Iterable[str] | None]
+) -> list[list[Basis]]:
+    """`members` (the members a caller may see) split into the groups their own evidence connects
+    (module docstring): two are connected when they share an EIA plant id or `links[a]` names `b`
+    (or `links[b]` names `a`). A link to anyone outside `members` connects nothing, so a member
+    grouped only through a hidden record ends up apart, possibly alone. A member with no stored
+    links (`None`: a row written before links were stored) is joined by its plant ids only: the
+    connectivity it would need cannot be proven, so it is not assumed.
+
+    Returned largest group first; ties by the group's lead (`lead_order_key`), so the order is
+    total. Each group keeps the input order of its members."""
+    index = {m.public_id: i for i, m in enumerate(members)}
+    uf = UnionFind(len(members))
+    first: dict[str, int] = {}
+    for i, m in enumerate(members):
+        for plant in m.plant_ids:
+            if plant in first:
+                uf.union(first[plant], i)
+            else:
+                first[plant] = i
+        for partner in links.get(m.public_id) or ():
+            j = index.get(partner)
+            if j is not None:
+                uf.union(i, j)
+    groups: dict[int, list[Basis]] = defaultdict(list)
+    for i, m in enumerate(members):
+        groups[uf.find(i)].append(m)
+    return sorted(groups.values(), key=lambda g: (-len(g), lead_order_key(rank(g)[0])))
 
 
 def effective_size(plant_ids: Sequence[Iterable[str]]) -> int:

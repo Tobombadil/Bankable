@@ -1458,3 +1458,80 @@ a.button-secondary:visited { color: var(--link); }
 .site-panel__list { margin: var(--space-2) 0 0; padding-left: var(--space-4); }
 .site-panel__list li { margin-bottom: var(--space-1); }
 .record-table tr.site-row--unit td:first-child { padding-left: var(--space-5); }
+
+/* ---------- 2026-10-10 lane F: the compact map key, and the map's filter bar at 720-1079px ----------
+   (docs/31 §5.4 "Map key" and §5.9 as built; measured in docs/30 §5.1.) */
+
+/* Each layer's key is a section that closes (home_map.html `.map-key__section`, a native
+   disclosure: keyboard and screen reader for free). The summary keeps its triangle and the group
+   names' muted weight; 1.5rem tall, the SC 2.5.8 target. */
+.map-key__section { flex: 1 1 100%; min-width: 0; }
+.map-key__section > summary {
+  cursor: pointer; min-height: 1.5rem; font-weight: 600; color: var(--text-muted);
+}
+.map-key__section[open] > summary { margin-bottom: var(--space-1); }
+.map-key__section-body { display: flex; flex-direction: column; gap: var(--space-2); }
+/* With the existing-asset or retired layer on (map.js `syncKeyCompact`): before, the panel grew
+   to the map's foot at 1440x900 (272x554px, 23% of the canvas, Seattle to San Diego under it).
+   Now the status key is the narrow layout's strip of short words (the full words stay for screen
+   readers), groups flow in rows, and from 720px the panel stops at 15rem and scrolls inside, so
+   it covers less than the no-layer key. Without a layer none of this applies. */
+.map-key--compact .legend__short { display: inline; }
+/* A scrolling panel painted a panel-sized copy of its background below itself (headless Chromium
+   141, also before this change wherever the panel scrolled, e.g. 400px with a layer on; not
+   checked on a GPU-composited browser). Clipping to the panel and its 1px shadow removes it. */
+.map-key--compact .map-key__panel { clip-path: inset(-3px -3px -4px -3px round var(--radius-2)); }
+.map-key--compact .legend__long, .map-key--compact .legend__detail,
+.map-key--compact .legend--lifecycle > .legend__note {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+@media (min-width: 720px) {
+  .map-key--compact .map-key__panel { max-height: 15rem; }
+  .map-key--compact .legend--lifecycle, .map-key--compact .legend__group {
+    flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3);
+  }
+  .map-key--compact .legend__group-name { flex-basis: 100%; }
+}
+
+/* The map's filter bar at 720-1079px (designer D-3): two rows of filters put the map's top at
+   634px of 768 at 1024x768 and 761px of 900 at 720x900. It is the "Filters (N active)"
+   disclosure the narrow layout already uses (site.js), for the map page only: the list pages keep
+   their bar open at these widths. The toggle is the one controlling `#map-filters`. */
+@media (min-width: 720px) and (max-width: 1079px) {
+  .js .filter-toggle[aria-controls="map-filters"] { display: inline-flex; align-items: center; margin: 0 0 var(--space-3); }
+  .js .filter-bar--map[data-collapse]:not(.is-open) { display: none; }
+  .js .filter-bar--map[data-collapse].is-open .filter-bar__done { display: inline-flex; align-items: center; }
+}
+
+/* Style attributes moved into classes (2026-10-10, docs/60 §2), so the content security policy needs no
+   'unsafe-inline' for styles. Same values as the attributes they replace. Where the element already
+   names its family or type in a data attribute the rule keys on that, so the template only drops its
+   `style`; the plant swatches, the two retired-plant marks and the company pipeline's status icon
+   take a class. `.svg-sprite` is base.html's icon sprite. */
+.svg-sprite { display: none; }
+.legend__item[data-legend-family="neutral"], .pipeline-table__status--neutral { color: var(--family-neutral-text); }
+.legend__item[data-legend-family="progress"], .pipeline-table__status--progress { color: var(--family-progress-text); }
+.legend__item[data-legend-family="committed"], .pipeline-table__status--committed { color: var(--family-committed-text); }
+.legend__item[data-legend-family="success"], .pipeline-table__status--success { color: var(--family-success-text); }
+.legend__item[data-legend-family="danger"], .pipeline-table__status--danger { color: var(--family-danger-text); }
+.legend__item--plant-solar { color: var(--plant-solar); }
+.legend__item--plant-wind { color: var(--plant-wind); }
+.legend__item--plant-gas { color: var(--plant-gas); }
+.legend__item--plant-oil { color: var(--plant-oil); }
+.legend__item--plant-coal { color: var(--plant-coal); }
+.legend__item--plant-nuclear { color: var(--plant-nuclear); }
+.legend__item--plant-hydro { color: var(--plant-hydro); }
+.legend__item--plant-storage { color: var(--plant-storage); }
+.legend__item--plant-biomass { color: var(--plant-biomass); }
+.legend__item--plant-geothermal { color: var(--plant-geothermal); }
+.legend__item--plant-other { color: var(--plant-other); }
+.legend__group[data-legend-type="gas_pipeline"] { color: var(--asset-gas-pipeline); }
+.legend__group[data-legend-type="gas_processing_plant"] { color: var(--asset-gas-processing); }
+.legend__group[data-legend-type="gas_storage"] { color: var(--asset-gas-storage); }
+.legend__group[data-legend-type="lng_terminal"] { color: var(--asset-lng-terminal); }
+.legend__group[data-legend-type="ethanol_plant"] { color: var(--asset-ethanol); }
+.legend__group[data-legend-type="rng_project"] { color: var(--asset-rng); }
+.legend__group[data-legend-type="transmission_line"] { color: var(--asset-transmission); }
+.legend__item[data-legend-mark="retired-cluster"], .legend__item--retired { color: var(--asset-retired); }
+.legend__item--retiring { color: var(--asset-retiring); }

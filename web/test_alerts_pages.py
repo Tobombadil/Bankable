@@ -158,6 +158,19 @@ def test_the_map_links_to_save_its_view(web_client: TestClient, noncommercial: N
     assert parse_qs(urlsplit(href).query) == {"entity": ["proposal"], "origin": ["map"], "kind": ["load"]}
 
 
+def test_the_map_offers_no_alert_for_a_view_an_alert_cannot_watch(
+    web_client: TestClient, noncommercial: None
+) -> None:
+    """`sponsor_scope` and `listed` are list filters the alert matcher does not evaluate yet, so the
+    map (like the list) offers no "Save this search as an alert" for them, rather than a form the
+    API then refuses."""
+    for query in ("sponsor_id=org_x&sponsor_scope=all", "listed=false"):
+        page = web_client.get(f"/?{query}")
+        assert page.status_code == 200, query
+        assert 'id="mf-save-alert"' not in page.text, query
+    assert 'id="mf-save-alert"' in web_client.get("/?sponsor_id=org_x&sponsor_scope=self").text
+
+
 def test_save_list_pause_resume_and_delete(web_client: TestClient, noncommercial: None) -> None:
     _register(web_client)
     empty = web_client.get("/alerts")

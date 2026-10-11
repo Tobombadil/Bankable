@@ -356,3 +356,74 @@ def test_a_parent_share_percentage_round_trips_when_a_source_states_one(client, 
     db.commit()
     data = client.get(f"/v1/organizations/{child.public_id}").json()["data"]
     assert data["parent_edge"]["share_pct"] == 30.0
+
+
+# ------------------------------------------------------------------ the SQL twin (lane P, 2026-10-10)
+def _twin(db, refs: list[str], scope: str) -> set:
+    from services.api.orgtree import scope_ids_select
+
+    return set(db.scalars(scope_ids_select(refs, scope)).all())
+
+
+def test_the_sql_walk_selects_exactly_what_org_scope_gathers(db):
+    """`scope_ids_select` is what `GET /v1/proposals?sponsor_id=&sponsor_scope=` filters on and
+    `org_scope` what the pipeline's `scope` block reports: on a tree with a hidden subsidiary (and a
+    child below it), a merged-away subsidiary, a second level and a cycle, both give the same ids at
+    every scope, by public id or by slug."""
+    root, mid, leaf = _chain(db, ["Twin Holdings", "Twin Midco", "Twin Leaf"])
+    hidden = make_org(db, "Twin Hidden Sub")
+    hidden.parent_org_id = root.id
+    hidden.publish_state = "unpublished"
+    below_hidden = make_org(db, "Twin Below Hidden")
+    below_hidden.parent_org_id = hidden.id
+    merged = make_org(db, "Twin Merged Sub")
+    merged.parent_org_id = mid.id
+    merged.merged_into_id = leaf.id
+    below_leaf = make_org(db, "Twin Below Leaf")
+    below_leaf.parent_org_id = leaf.id
+    # A cycle through the root (a single parent column can only close one through the subject):
+    # the leaf is named as the root's parent, so the walk comes back to the root at level 3.
+    root.parent_org_id = leaf.id
+    db.commit()
+
+    for scope in ("self", "children", "all"):
+        expected = set(org_scope(db, root, scope).ids)
+        assert _twin(db, [root.public_id], scope) == expected, scope
+        assert _twin(db, [root.slug], scope) == expected, scope
+    assert org_scope(db, root, "all").cycle_detected
+    assert _twin(db, [root.public_id], "all") == {root.id, mid.id, leaf.id, below_leaf.id}
+    assert hidden.id not in _twin(db, [root.public_id], "all")
+    assert below_hidden.id not in _twin(db, [root.public_id], "all")
+    # A hidden organisation named directly selects nothing, as `sponsor_id=` always answered.
+    assert _twin(db, [hidden.public_id], "all") == set()
+
+
+def test_the_sql_walk_stops_at_the_same_depth(db):
+    chain = _chain(db, [f"Deep Twin {i}" for i in range(MAX_DEPTH + 3)])
+    db.commit()
+    expected = set(org_scope(db, chain[0], "all").ids)
+    assert len(expected) == MAX_DEPTH + 1
+    assert _twin(db, [chain[0].public_id], "all") == expected
+
+
+def test_several_roots_are_the_union_of_their_groups(db):
+    a_root, a_child = _chain(db, ["Union A", "Union A Sub"])
+    b_root, b_child = _chain(db, ["Union B", "Union B Sub"])
+    db.commit()
+    assert _twin(db, [a_root.public_id, b_root.slug], "children") == {
+        a_root.id,
+        a_child.id,
+        b_root.id,
+        b_child.id,
+    }
+
+
+def test_scope_param_reads_the_vocabulary_and_refuses_anything_else():
+    from services.api.orgtree import scope_param
+
+    assert scope_param(None, "sponsor_scope", "/v1/proposals") == "self"
+    assert scope_param("", "sponsor_scope", "/v1/proposals") == "self"
+    assert scope_param("ALL", "sponsor_scope", "/v1/proposals") == "all"
+    with pytest.raises(ProblemError) as exc:
+        scope_param("group", "sponsor_scope", "/v1/proposals")
+    assert exc.value.errors[0]["field"] == "sponsor_scope"

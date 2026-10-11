@@ -76,15 +76,50 @@ _EXPANSION = re.compile(
 #: Fewer letters than this is not a stem ("ab", "sun").
 MIN_STEM_LETTERS = 4
 
+#: A phase number with a letter suffix (lane S2, 2026-10-10): Arabic ("2A", "3b") or a Roman numeral
+#: of two or more letters ("IIA", "IIIB", "IVc"), then one letter A-H, as one token. A lone Roman "I",
+#: "V" or "X" with a letter is left alone: "IA", "VA", "ID" are state codes far more often than phases.
+_SUFFIXED = re.compile(r"^(?:(?P<arabic>\d{1,3})|(?P<roman>viii|vii|vi|iv|ix|iii|ii))(?P<letter>[a-h])$")
+_ROMAN_VALUE = {"ii": 2, "iii": 3, "iv": 4, "vi": 6, "vii": 7, "viii": 8, "ix": 9}
+#: Words a Roman-plus-letter token also spells, never read as a phase ("Via Verde", "Iva", "Vic").
+_SUFFIXED_WORDS = frozenset({"via", "iva", "vic", "vie"})
+#: A suffixed token counts after one of these ("Phase 2A", "Unit 3b") ...
+_SUFFIX_LEADS = frozenset({"phase", "ph", "unit", "stage", "block", "tranche"})
+#: ... or when it is not the first word and only these follow it ("St Gall IIIA", "Darden 2A Solar
+#: LLC"), so a token inside a name ("Route 2A Crossing", "Solar Via Roma") is not a marker.
+_SUFFIX_TAIL = _FACILITY | _LEGAL
+
+
+def _suffixed_markers(words: Sequence[str]) -> dict[int, str]:
+    """`{word index: marker}` for the suffixed phase markers in `words` (lower-cased tokens):
+    "iiia" -> "3A", "2a" -> "2A". Read only after a phase word, or as a later word followed by
+    nothing but facility and legal words (the constants above)."""
+    out: dict[int, str] = {}
+    for k, word in enumerate(words):
+        m = _SUFFIXED.match(word)
+        if m is None or word in _SUFFIXED_WORDS:
+            continue
+        led = k > 0 and words[k - 1] in _SUFFIX_LEADS
+        tail = k > 0 and all(w in _SUFFIX_TAIL for w in words[k + 1 :])
+        if not (led or tail):
+            continue
+        number = int(m.group("arabic")) if m.group("arabic") else _ROMAN_VALUE[m.group("roman")]
+        out[k] = f"{number}{m.group('letter').upper()}"
+    return out
+
 
 def name_stem(name: str | None) -> str | None:
-    """The identity-bearing words of a project or organisation name (module docstring)."""
+    """The identity-bearing words of a project or organisation name (module docstring). A suffixed
+    phase marker ("IIIA") is dropped like a plain Roman numeral, so "St Gall IIIA" and "St Gall
+    IIIB" share `gall`."""
     if not name:
         return None
     text = _PARENTHETICAL.sub(" ", str(name).lower()).replace("&", " and ")
+    words = _TOKEN.findall(text)
+    markers = _suffixed_markers(words)
     kept: list[str] = []
-    for k, token in enumerate(_TOKEN.findall(text)):
-        if len(token) <= 2 or any(ch.isdigit() for ch in token):
+    for k, token in enumerate(words):
+        if len(token) <= 2 or any(ch.isdigit() for ch in token) or k in markers:
             continue
         if token in _LEGAL or token in _FACILITY or token in _PHASE_WORDS or token in _ROMAN:
             continue
@@ -96,9 +131,14 @@ def name_stem(name: str | None) -> str | None:
 
 
 def phase_markers(name: str | None) -> tuple[str, ...]:
-    """Phase / unit markers the resolver reads in a name (`pipeline.resolve.phase_tokens`):
-    "Darden II Solar" -> ("2",), "Solar Phase B" -> ("B",), "Darden" -> ()."""
-    return tuple(sorted(str(t) for t in phase_tokens(name)))
+    """Phase / unit markers in a name: those the resolver reads (`pipeline.resolve.phase_tokens`:
+    "Darden II Solar" -> ("2",), "Solar Phase B" -> ("B",)) and a number with a letter suffix
+    (`_suffixed_markers`: "St Gall IIIA" -> ("3A",), "Keys Hollow Phase 2a" -> ("2A",)).
+    "Darden" -> ()."""
+    found = {str(t) for t in phase_tokens(name)}
+    if name:
+        found.update(_suffixed_markers(_TOKEN.findall(str(name).lower())).values())
+    return tuple(sorted(found))
 
 
 def has_expansion_marker(name: str | None) -> bool:

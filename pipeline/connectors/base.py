@@ -361,9 +361,23 @@ class Connector:
     #: `completed` where it leaves only on reaching operation; `closed` where it leaves only when
     #: the notice closes; `unknown` (the default) everywhere else. The loader publishes a removal
     #: as `withdrawn` for the first value alone; every other removal is stored as a non-public
-    #: `removed_from_source` event carrying this value (`services/ingest/loader.py`). An
-    #: incremental source never emits `removed`, so the value is moot there.
+    #: `removed_from_source` event carrying this value (`services/ingest/loader.py`), unless the
+    #: connector announces removals (below). An incremental source never emits `removed`, so the
+    #: value is moot there.
     removal_meaning: ClassVar[RemovalMeaning] = "unknown"
+    #: Whether a removal at this source is announced publicly (owner decision 2026-10-10). This is a
+    #: publication choice, not a statement of what a removal means: `removal_meaning` stays what the
+    #: source says. When True and the meaning is `unknown`, the loader writes the public, alertable
+    #: `delisted` event, worded "No longer in <register_name>'s report (reason not stated)" and kept
+    #: out of social drafts; it never says "withdrawn". Set on the full-register interconnection
+    #: queues only (ERCOT, CAISO, NYISO, NESO), where leaving the register is queue news whatever
+    #: the reason. EIA-860M keeps the non-public `removed_from_source`: a unit that leaves its
+    #: Planned sheet may have started operating, so even "no longer in the report" would mislead.
+    announce_removals: ClassVar[bool] = False
+    #: The register's display name in that sentence, the short name record pages print for the
+    #: source ("ERCOT"). Required where `announce_removals` is True. A removal is announced only
+    #: when no row of the current frame belongs to the same project (`project_root`).
+    register_name: ClassVar[str | None] = None
     #: key of this source in its status_map.yaml `sources:` block
     status_key: ClassVar[str] = ""
     #: per-connector status map (docs/04 DA-5); None = pipeline/status_map.yaml
@@ -401,6 +415,18 @@ class Connector:
         self.watermark: dt.datetime | None = None
         #: The run's clock (the runner sets it when a caller fixes `now`); `fetch` reads `self.now()`.
         self.clock: Callable[[], dt.datetime] = utcnow
+
+    # ------------------------------------------------------------------ identity
+    @classmethod
+    def project_root(cls, record_key: str) -> str:
+        """The project a record key belongs to. `record_key` is the record id without its
+        `<source_id>:` prefix, which is also the stored link key. Where one project can be listed
+        under several keys (NESO's `<pid>/<stage>` and `<pid>#<n>`, NYISO's `#h...` suffix on a
+        repeated queue position), a key that disappears while another key of the same project is
+        still listed is a re-key, not a departure, and the loader never announces it
+        (`services/ingest/loader.py`; lane E2 follow-up, 2026-10-10). Default: the key itself, for a
+        source with no such convention. Must be a pure function of the key."""
+        return record_key
 
     # ------------------------------------------------------------------ versions
     @classmethod

@@ -32,7 +32,8 @@ the site.
 **Admin is on `admin.{DOMAIN}` only** (2026-10-10). The site and API hosts answer 404 for `/admin`,
 `/admin/*` and `/admin/v1/*`, after the login. The operator's URL is `https://admin.{DOMAIN}/admin`, as
 before; `https://{DOMAIN}/admin` no longer works. Every host also sends HSTS, `nosniff`, a referrer
-policy, `frame-ancestors 'none'` and a report-only CSP (`docs/60` §2).
+policy and a content security policy, report-only by default (`CSP_MODE`, §5; `docs/60` §2). `/csp-report`, where
+browsers send violation reports, is outside the login like the health checks.
 
 **Sizing.** The Compose limits sum to 4.25 GB (Postgres 1, api 1, web 0.75, scheduler 0.25,
 worker 1, Caddy 0.25). The measured api peak is 606–638 MB (`docs/60` §2). That fits the `cx32`
@@ -44,17 +45,48 @@ That is about 15–35 USD a month before email, against 80–170 USD for the thr
 
 ## 2. Owner actions, in order
 
-1. **Hetzner Cloud project:** an API token (`HCLOUD_TOKEN`) and the operator's SSH public key. Set
-   `ssh_source_cidrs` in `terraform.tfvars` to the operator's address (it defaults to anyone, key auth
-   only). If Cloudflare will proxy the site, set `web_source_cidrs = ["cloudflare"]` once the records are
-   proxied, and not before: the origin then answers Cloudflare's edge only (`docs/60` §2).
-2. **Domain and DNS:** `A` records for the apex, `admin.`, `api.` and `www.` pointing at the VM. With
-   Cloudflare in front (`cloudflare_zone_id` set), the gated answers are `private, no-store`, so
-   the edge caches none of them.
-3. **Cloudflare R2:** the backup bucket (`R2_*`) and the basemap tiles (`MAP_TILE_URL`, `docs/40` §2.7).
-4. **A GHCR read token** while the packages are private (`GHCR_USER`, `GHCR_READ_TOKEN`).
-5. **The production age key and secrets file** (`infra/sops/README.md`), from
-   `infra/sops/secrets.example.plain.yaml`, plus these beta values:
+The coordinator's recommendations, which the owner accepted on 2026-10-10. Allow under an hour. Each step names
+what to create and where its value goes:
+- **secret** values go only into the encrypted secrets file (`infra/sops/README.md`), never into chat or the
+  repository;
+- **config** values may go in the file in the clear.
+
+- [ ] **1. Hetzner Cloud (10 min).**
+  - Create a project and an API token with read and write access. Set it as `HCLOUD_TOKEN` in the shell that runs
+    `tofu`.
+  - Put the operator's SSH public key in `infra/terraform/terraform.tfvars` as `ssh_public_key`.
+- [ ] **2. Limit SSH to your address (2 min).**
+  - On the machine you deploy from, run `curl -4 https://ifconfig.me`. It prints your public IPv4 address.
+  - In `terraform.tfvars`, set `ssh_source_cidrs = ["<that address>/32"]`.
+  - If `curl -6 https://ifconfig.me` also prints an address, add that address's /64 to the list as well.
+  - Until you do this, keep the default: anyone may connect, with key authentication only.
+  - The rule is applied through the Hetzner API, not over SSH. So if your address changes (home connections
+    do), edit the value and run `tofu apply` again, from anywhere.
+  - Do not set `web_source_cidrs = ["cloudflare"]` until the DNS records are proxied (`docs/60` §2).
+- [ ] **3. Domain and DNS (5 min).** Create `A` records for the apex, `admin.`, `api.` and `www.`, pointing at the
+  VM. With Cloudflare in front (`cloudflare_zone_id` set), the gated answers are `private, no-store`, so the edge
+  caches none of them.
+- [ ] **4. Cloudflare R2 for the backups (10 min).** Every deploy dumps the database there before migrating, so R2
+  must work before the first deploy (§3).
+  - **The bucket.** Let `tofu apply` create it: set `cloudflare_account_id` in `terraform.tfvars` and
+    `CLOUDFLARE_API_TOKEN` (DNS edit and R2 edit) in the shell. It is then named
+    `infraque-object-storage-production` (`tofu output r2_bucket_name`). Or create one bucket by hand in the
+    Cloudflare dashboard under R2.
+  - **The token.** Under R2, create an API token with object read and write permission, limited to that one
+    bucket. The secret is shown once.
+  - **The four values `infra/scripts/backup.sh` reads:**
+    - `R2_ACCOUNT_ID` (config): the account id shown on the R2 page;
+    - `R2_BUCKET` (config): the bucket name;
+    - `R2_ACCESS_KEY_ID` (secret);
+    - `R2_SECRET_ACCESS_KEY` (secret).
+
+  It uploads to `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` under `postgres/`. The basemap tiles live in a
+  second bucket (`MAP_TILE_URL`, `docs/40` §2.7), as before.
+- [ ] **5. A GHCR read token (2 min)** while the packages are private: `GHCR_USER` and `GHCR_READ_TOKEN`, in the
+  shell that runs `deploy.sh`.
+- [ ] **6. The production age key and secrets file (8 min)** (`infra/sops/README.md`), from
+  `infra/sops/secrets.example.plain.yaml`. Add the R2 values from step 4, `SENTRY_DSN` from step 8, and these beta
+  values:
 
    ```
    POSTGRES_PASSWORD=<openssl rand -hex 24>
@@ -63,19 +95,41 @@ That is about 15–35 USD a month before email, against 80–170 USD for the thr
    SITE_ACCESS=basic
    SITE_ACCESS_USER=<one shared user name>
    SITE_ACCESS_HASH=<caddy hash-password --plaintext '<password>' | base64 -w0>
+   CSP_MODE=report
    ```
 
-   The hash is base64-encoded so that no `$` reaches Compose's interpolation. `deploy.sh` refuses a
-   raw bcrypt hash, a missing user and any `SITE_ACCESS` other than `open` or `basic`. Caddy itself
-   refuses to start on an empty or misspelt value.
-6. **An external uptime check** (2026-10-10). Nothing else turns an outage into an alert, because Docker
-   does not restart an unhealthy container (`docs/60` §7). Use a free UptimeRobot account or Grafana Cloud
-   synthetic monitoring. Check `https://api.{DOMAIN}/v1/health` (outside the gate) every 5 minutes, expect
-   200, alert the owner's email after 2 failures. It answers 503 when the database is down. Add
-   `https://{DOMAIN}/health` the same way.
-7. **A Sentry project** (free tier) for error reports. Put its DSN in the secrets file as `SENTRY_DSN`
-   (optional in `infra/sops/secrets.example.plain.yaml`). Every process reads it at start
-   (`infra/observability.py`) and reports nothing without it.
+  - The hash is base64-encoded so that no `$` reaches Compose's interpolation.
+  - `deploy.sh` refuses a raw bcrypt hash, a missing user, any `SITE_ACCESS` other than `open` or `basic`, and any
+    `CSP_MODE` other than `report` or `enforce`. Caddy itself refuses to start on an empty or misspelt value of
+    either.
+  - `CSP_MODE=report` is also the default when the line is absent. §5 says when to switch.
+- [ ] **7. Uptime alerts: UptimeRobot, free plan (10 min).** Nothing else turns an outage into an alert: Docker does
+  not restart an unhealthy container (`docs/60` §7).
+  - Sign up, and check that the alert contact is the owner's email.
+  - Create two monitors, each with a 5-minute interval (the free plan's interval):
+
+    | Monitor | Type | URL | Down when |
+    |---|---|---|---|
+    | API | **Keyword** | `https://api.{DOMAIN}/v1/health` | the keyword `"status":"ok"` is not present |
+    | Site | HTTP(s) | `https://{DOMAIN}/health` | it does not answer 2xx |
+
+  - **Why the API monitor is a keyword monitor.** The free plan's HTTP(s) monitors send `HEAD` requests and cannot
+    be switched to `GET` (method selection is a paid feature:
+    https://uptimerobot.com/blog/introducing-http-method-selection-headgetpostputpatchdelete). The API answers
+    `HEAD /v1/health` with 405. Keyword monitors send `GET`. When the database is down, the API answers 503 with
+    `"status":"degraded"`, which the keyword check catches. The site's `/health` answers `HEAD`.
+  - **No login needed.** The beta gate exempts `/health` and `/v1/health` on every host (Caddyfile `gate_basic`;
+    proved through real Caddy by `infra/test_caddyfile.py`).
+  - Once `web_source_cidrs = ["cloudflare"]` is set, the probes still work, because they use the public host names
+    and reach the VM through Cloudflare.
+- [ ] **8. Errors: Sentry, free Developer plan (10 min).**
+  - Create one project for Python. All services report to it, each tagged with its service name.
+  - Copy the project's DSN (in the project settings, under client keys) into the secrets file as `SENTRY_DSN`
+    (secret).
+  - Every process reads it at start (`infra/observability.py`). Without it, nothing is reported. The release is the
+    image tag; personal data sending is off.
+- [ ] **9. After the first deploy (2 min).** Check that both monitors read "up", and that a report reaches the CSP
+  endpoint from Chrome (§5).
 
 ## 3. Deploy and seed
 
@@ -205,7 +259,38 @@ Rehearse once against the real VM with the gate on before inviting anyone.
 - **Stopping or redeploying** waits up to 5 minutes for the worker's running jobs
   (`stop_grace_period`). A job still running then is killed. Within about 20 minutes it is retried, or
   failed if it has run 3 times, and its lock is freed either way.
-- **Rollback:** `SINGLE_HOST=1 infra/scripts/rollback.sh production <previous tag>`.
+- **Rollback:** `SINGLE_HOST=1 infra/scripts/rollback.sh production <previous tag>`. To undo a reversible migration
+  as well, add `--downgrade-migration`. It reads the previous image's migration head, stops the worker and the
+  scheduler, dumps the database, and downgrades in the newer image. Add `--from <newer tag>` if an automatic
+  rollback has already run (`docs/60` §10.2).
+- **The content security policy (`CSP_MODE`).** The beta opens in `report` mode, so a violation is only reported:
+  `docker compose ... logs web | grep csp_directive` lists one line per report, giving the directive, the blocked
+  origin, the page's route and the mode.
+  - **Once, right after the first deploy, check that Chrome's reports arrive.** Chrome sends them through the
+    Reporting API and then ignores the older `report-uri`. That delivery could not be shown in the sandbox
+    (`docs/60` §2).
+    1. Open any page in Chrome, signed in through the gate.
+    2. In the DevTools console, run
+       `document.head.appendChild(Object.assign(document.createElement("script"), {src: "https://example.invalid/x.js"}))`.
+    3. Within about two minutes, DevTools' Application panel should show a report with status "Success" under
+       Reporting API, and the web log should have a `script-src-elem` line for `https://example.invalid`.
+    4. If neither appears, delete `; report-to csp` from the policy line in `infra/compose/Caddyfile` and deploy
+       again. Chrome then reports through `report-uri`, which the browser test proves.
+  - **Switch to enforcing once both of these hold:**
+    1. the check above has passed;
+    2. there have been **7 consecutive beta days with no report** other than browser extensions
+       (`csp_blocked` such as `chrome-extension:`) and the test violation.
+
+    To switch, set `CSP_MODE=enforce` in the secrets file and redeploy the same tag: only Caddy's headers change.
+  - **Reset the count whenever a deploy changes `web/templates`, `web/static` or `web/assets.py`.** For example,
+    applying the style-attribute patch for `home_map.html` and `_org_pipeline.html`, which also removes
+    `style-src-attr` from the policy.
+  - **To go back**, set `CSP_MODE=report` and redeploy. Under `enforce`, reports keep arriving, marked `enforce`.
+    Any report there is a page that broke for someone: open that page and fix it, or go back to `report`.
+- **A store-wide pass that outlived its timeout** keeps the database's store-pass lock until it finishes. Passes
+  queued in the meantime log `skipped: previous pass still running` and do nothing (`docs/60` §6.4). The next
+  load or the 04:37 resolve tick runs the chain again. A skipped `context_load` needs
+  `bootstrap context` by hand.
 - **Matches** are recomputed after every resolve pass (`match_tick`, incremental), so at least daily
   after the 04:37 resolve tick.
 - **Context layers** are rebuilt on the 3rd of each month at 02:43 UTC (`context_build`, then
@@ -260,16 +345,26 @@ Closed on 2026-10-10 (`docs/51` §2.4, §2.9; `docs/60` §2, §6.4, §7):
 - **A dump precedes every migration.**
 - **Security headers** on every host: HSTS, nosniff, referrer policy and `frame-ancestors 'none'`; a
   report-only CSP.
+
+Closed later on 2026-10-10 (lane O2; `docs/60` §2, §6.4, §10.2):
+- **The CSP can be enforced.** Reports reach `/csp-report` and are logged without URLs or addresses. `CSP_MODE`
+  switches modes without editing the Caddyfile. In Chromium, the enforced policy blocks nothing on the public or
+  admin pages. `'unsafe-inline'` is gone except `style-src-attr`, which two templates owned by other work still
+  need. FastAPI's `/docs` and `/redoc` are off outside development.
+- **A timed-out store-wide pass keeps the store** until its thread ends (an advisory lock held by the work).
+- **`--downgrade-migration` works.** It downgrades in the newer image, to the previous image's head.
 - **Admin is off the public hosts.**
 - **The firewall sources are variables** (`ssh_source_cidrs`, `web_source_cidrs`).
 
 Still open:
-- **Nothing alerts a human yet.** The uptime check and the Sentry project (§2 items 6 and 7) are the
-  owner's to create; until then a failure is visible only to whoever looks.
-- **The CSP only reports.** There is no report endpoint, so violations show in a browser console only.
-  Enforcing it needs that endpoint and the inline `style` attributes moved into classes (`docs/60` §2).
-- **A timed-out in-process job releases its lock while its thread runs on** (`docs/60` §6.4). This is
-  bounded, not fixed.
+- **Nothing alerts a human until §2 steps 7 and 8 are done.** Until then, a failure is visible only to whoever
+  looks.
+- **The CSP reports by default.** It is enforced only after the §5 checks. Whether Chrome delivers reports
+  through `report-to` is unverified until the §5 check runs on the real host. Two templates still carry `style`
+  attributes (`home_map.html`, `partials/_org_pipeline.html`); their classes are in `styles.css` and the
+  coordinator holds the patch.
+- **`/docs/api` links the API's `/redoc`,** which now answers 404 in staging and production. The page should link
+  `/openapi.json` alone, or the committed `api/openapi.yaml` once it is served (`docs/51` §4).
 - **PHMSA pipeline features do not build here.** archive.org reset the connection on every attempt,
   by hand and in the scheduled build. On a server it is one failed builder in the build log, and
   the other features still load.

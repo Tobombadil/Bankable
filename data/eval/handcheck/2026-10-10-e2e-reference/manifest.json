@@ -1,0 +1,46 @@
+{
+ "generated_at": "2026-10-10T19:50:11+00:00",
+ "store": "a copy of the 4-source e2e store (web/.data/e2e-test.db, EIA-860M and the CAISO, ERCOT and NYISO queues) with sites built on the copy",
+ "seed": 20261014,
+ "tier": "public",
+ "platform_posture": "noncommercial",
+ "site_rule_version": "2026-10-10.1",
+ "command": "python -m services.sites.handcheck generate --database-url <url> --out data/eval/handcheck/2026-10-10-e2e-reference --seed 20261014 --tier public --posture noncommercial",
+ "sites": {
+  "frame": 325,
+  "sample": 50,
+  "excluded": {
+   "a printed name may be a natural person's": 1
+  }
+ },
+ "merged_records": {
+  "frame": 0,
+  "sample": 0,
+  "excluded": {}
+ },
+ "strata": [
+  {
+   "sheet": "Sites",
+   "stratum": "largest",
+   "population": 5,
+   "sample": 5,
+   "selection": "all"
+  },
+  {
+   "sheet": "Sites",
+   "stratum": "eia_plant/high",
+   "population": 320,
+   "sample": 45,
+   "selection": "permanent random numbers"
+  }
+ ],
+ "files": {
+  "handcheck.xlsx": "2c44eb4eed683ebf235ee4f17311fcf1c9e26eb355c09918ba5011250a6888c9",
+  "merged_links.csv": "ca9c6201548d094633bb161b5da561576bc27576cc4115540f09d64f4f25e922",
+  "merged_records.csv": "fb09ed2a85bafe54cfc4c7304043bf01f16cbd6c628297c53149d57b47940317",
+  "site_members.csv": "ac370346ad1bab33d6dc7747af09e7550ef8f85be4333a33a40330be23647d01",
+  "sites.csv": "4dd4d10bbc91b36ec7b5439933702749e1a6f0a3f8a75ee72ae8de75fbf38361",
+  "strata.csv": "190d149128a6bcda335999a46db3695bac0d23ff5b3e5aa98035a136ae9927e3"
+ },
+ "recalculated": "handcheck.xlsx recalculated once with LibreOffice after generation so formula results are cached (0 formula errors)"
+}

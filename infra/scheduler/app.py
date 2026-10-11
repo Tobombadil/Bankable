@@ -36,10 +36,11 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
 Overlap guards: `run_connector` and `load_source` share the per-source Procrastinate `lock`
 (`cadence.execution_lock_for`), so one source is never fetched and loaded at the same moment;
 `resolve_tick`/`enrich_tick`/`match_tick`/`context_load` carry a `queueing_lock` (one queued at a
-time) and a shared `lock` (never two store-wide passes at once). Failures: `run_connector` retries only
-`TransientConnectorFailure` (network, 5xx, crash, timeout) with exponential backoff and
-dead-letters on the fifth attempt; a block, a corrupt payload or a gate refusal is recorded once
-and left for the next tick (`FETCH_RETRY` below; `infra/scheduler/jobs.py`).
+time) and a shared `lock` (never two store-wide passes at once), and their work holds a Postgres
+advisory lock that outlives a timed-out job (`_store_pass`, `jobs.run_store_pass`). Failures:
+`run_connector` retries only `TransientConnectorFailure` (network, 5xx, crash, timeout) with
+exponential backoff and dead-letters on the fifth attempt; a block, a corrupt payload or a gate
+refusal is recorded once and left for the next tick (`FETCH_RETRY` below; `infra/scheduler/jobs.py`).
 
 On the "singleton" requirement: Procrastinate's periodic deferrer dedupes at the database level —
 "the database will keep us from deferring the same task for the same scheduled time multiple
@@ -383,22 +384,27 @@ def _run_with_timeout(fn: Callable[[], dict[str, Any]], *, timeout_s: int) -> di
     worker slot forever; a queueing_lock, not this timeout, is what stops a *second* tick from
     piling on).
 
-    **The lock does not follow the abandoned thread (docs/51 §2.4 item 3; recorded 2026-10-10, not
-    fixed).** When the timeout fires, the job fails and Procrastinate releases its `lock`, while the
-    abandoned thread keeps running and writing. For the store-wide passes (`lock="resolve"`:
-    resolve, enrich, match, context_load) the next pass can then start beside it, which the lock
-    exists to prevent. What bounds it today: each timeout is well above the pass's measured run
-    (resolve 43 s against 3,600 s, context_load 190 s against 3,600 s on the rehearsal store,
-    docs/64 §4), and the worker engine's `statement_timeout` (`jobs.WORKER_STATEMENT_TIMEOUT_MS`)
-    ends any one statement the thread is stuck in, so only a thread looping over many statements
-    outlives its job. The fix is a lock held by the work rather than by the job row, for example a
-    session-level `pg_advisory_lock` the thread takes on its own connection and the next pass
-    waits for; it is not cheap enough for the beta and needs a Postgres test."""
+    **The job's lock does not follow the abandoned thread, so the work holds its own (2026-10-10).**
+    When the timeout fires, the job fails and Procrastinate releases its `lock`, while the abandoned
+    thread keeps running and writing (docs/51 §2.4 item 3). For the store-wide passes
+    (`lock="resolve"`: resolve, enrich, match, context_load) the next pass could then start beside
+    it, which the lock exists to prevent. Those four therefore run through `_store_pass`, whose work
+    holds a session-level Postgres advisory lock on a connection of its own for as long as the work
+    runs, abandoned or not (`jobs.run_store_pass`); a pass that finds it taken ends as "skipped:
+    previous pass still running". Other in-process jobs keep only the job lock: each is a single
+    idempotent unit whose next tick is its retry. The worker engine's `statement_timeout`
+    (`jobs.WORKER_STATEMENT_TIMEOUT_MS`) still ends any one statement an abandoned thread is stuck in."""
     pool = ThreadPoolExecutor(max_workers=1)
     try:
         return pool.submit(fn).result(timeout=timeout_s)
     finally:
         pool.shutdown(wait=False)
+
+
+def _store_pass(name: str, work: Callable[[], dict[str, Any]], *, timeout_s: int) -> dict[str, Any]:
+    """A store-wide pass under the timeout, holding the store-pass advisory lock inside the thread
+    that runs it (`jobs.run_store_pass`), so the lock lasts as long as the work, not the job."""
+    return _run_with_timeout(lambda: jobs.run_store_pass(name, work), timeout_s=timeout_s)
 
 
 @app.task(name="alert_tick", queue="alert", retry=0, queueing_lock="alert_tick")
@@ -594,7 +600,9 @@ def release_queueing_lock_for(run_id: str) -> str:
 def resolve_tick() -> dict[str, Any]:
     """Store-wide resolution (docs/20 §3.5) through the entry points `services/resolve/report.py`
     already uses; body in `infra/scheduler/jobs.py`. Chains to `enrich_tick`."""
-    report = _run_with_timeout(jobs.resolve_tick_job, timeout_s=RESOLVE_TIMEOUT_S)
+    report = _store_pass("resolve_tick", jobs.resolve_tick_job, timeout_s=RESOLVE_TIMEOUT_S)
+    if report.get("skipped") == jobs.STORE_WIDE_BUSY:  # the next load or tick_resolve re-chains
+        return report
     try:
         enrich_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
@@ -606,7 +614,9 @@ def resolve_tick() -> dict[str, Any]:
 def enrich_tick() -> dict[str, Any]:
     """Enrichment (docs/20 §3.6): the geocode backfill today; body in `infra/scheduler/jobs.py`.
     Chains to `match_tick`."""
-    report = _run_with_timeout(jobs.enrich_tick_job, timeout_s=ENRICH_TIMEOUT_S)
+    report = _store_pass("enrich_tick", jobs.enrich_tick_job, timeout_s=ENRICH_TIMEOUT_S)
+    if report.get("skipped") == jobs.STORE_WIDE_BUSY:
+        return report
     try:
         match_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
@@ -620,7 +630,7 @@ def match_tick() -> dict[str, Any]:
     matches: loads, merges, enrichment. Under the store-wide lock, so it never reads a cluster a
     resolve pass is merging. `retry=0`: the next resolve chain (at the latest the daily
     `tick_resolve`) is the retry. Body in `infra/scheduler/jobs.py`."""
-    return _run_with_timeout(jobs.match_tick_job, timeout_s=MATCH_TIMEOUT_S)
+    return _store_pass("match_tick", jobs.match_tick_job, timeout_s=MATCH_TIMEOUT_S)
 
 
 @app.task(name="context_build", queue="fetch", retry=0, queueing_lock="context_build", lock="context_build")
@@ -647,7 +657,7 @@ def context_load() -> dict[str, Any]:
     lock, because it writes organisations a resolve pass may be merging; retried on the same
     database conflicts with a concurrent load as `load_source` (`LOAD_RETRY`): every step is
     idempotent. Body in `infra/scheduler/jobs.py`."""
-    return _run_with_timeout(jobs.context_load_job, timeout_s=CONTEXT_LOAD_TIMEOUT_S)
+    return _store_pass("context_load", jobs.context_load_job, timeout_s=CONTEXT_LOAD_TIMEOUT_S)
 
 
 #: The 3rd of the month, 02:43 UTC: after the monthly bucket's EIA-860M fetch (the 1st) and the

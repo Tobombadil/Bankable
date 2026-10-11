@@ -34,7 +34,14 @@ from sqlalchemy.orm import Session
 from services.api.common import WEB_HOST, ensure_aware
 from services.api.serialize import source_credit
 from services.api.visibility import gated_opportunity, gated_proposal, organization_visible
-from services.db.models import NON_PUBLIC_EVENT_TYPES, Event, Opportunity, Proposal, Source
+from services.db.models import (
+    NON_PUBLIC_EVENT_TYPES,
+    NON_SOCIAL_EVENT_TYPES,
+    Event,
+    Opportunity,
+    Proposal,
+    Source,
+)
 from services.social.editorial import SocialEvent
 
 
@@ -49,6 +56,8 @@ class SubjectNotFoundError(LookupError):
 #: `contracted`, `built` as *event types* in their own right, rather than values folded into a
 #: `status_change` event's `before`/`after`) is not in that list and is default-deny here, matching
 #: the brief's "anything else -> None" instruction literally rather than extending it.
+#: `delisted` (a record no longer in a queue's report, reason not stated) is deliberately absent from
+#: both maps, and `social_event_from_db` refuses it by name too (`NON_SOCIAL_EVENT_TYPES`).
 _PROPOSAL_EVENT_TYPE_MAP: dict[str, str] = {
     "created": "proposal.new",
     "status_change": "proposal.status_changed",
@@ -296,6 +305,11 @@ def social_event_from_db(db: Session, event: Event) -> SocialEvent | None:
         # `removed_from_source` (a row that left its source's file, not a withdrawal; docs/51 §2.7
         # item 1) is never a post. The maps below already default-deny it and the worker's
         # `published_at` gate refuses it; this says so by name, so a later map entry cannot.
+        return None
+    if event.event_type in NON_SOCIAL_EVENT_TYPES:
+        # `delisted` ("No longer in ERCOT's report (reason not stated)") is public and alertable but
+        # never a post (owner decision 2026-10-10). It passes every hard gate the worker applies, so
+        # this by-name refusal, not the maps' default-deny, is what keeps it out of drafts.
         return None
     event_type = _map_event_type(event.subject_type, event.event_type)
     if event_type is None:

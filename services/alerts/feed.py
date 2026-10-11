@@ -23,6 +23,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, select
 from sqlalchemy.orm import Session
 
+from services.alerts.evaluate import describe_change
 from services.alerts.visibility import event_with_visible_subject_filter
 from services.api.common import WEB_HOST
 from services.api.feeds import event_provenance, link_provenance
@@ -150,14 +151,17 @@ def _opportunity_feed_item(o: Opportunity, entitlement: str) -> dict[str, Any]:
 
 
 def _event_feed_item(e: Event) -> dict[str, Any]:
+    """What changed, in words (`describe_change`, as the public event feed and the alert emails say
+    it): `proposal: status filed → studied`, `proposal: No longer in ERCOT's report (reason not
+    stated)`. Until 2026-10-10 the item printed the bare type (`proposal: status_change`)."""
     return {
-        "title": f"{e.subject_type}: {e.event_type}",
+        "title": f"{e.subject_type}: {describe_change(e)}",
         "url": WEB_HOST,
         "guid": str(e.id),
         "pub_date": e.published_at or e.observed_at,
         "creator": source_credit(e.source) if e.source else "the platform",
         "categories": [e.event_type, e.subject_type],
-        "description": f"{e.subject_type}: {e.event_type}",
+        "description": f"{e.subject_type}: {describe_change(e)}",
         "platform_ext": {
             "event_type": e.event_type,
             "subject": {"public_id": str(e.subject_id), "name": e.subject_type, "url": WEB_HOST},

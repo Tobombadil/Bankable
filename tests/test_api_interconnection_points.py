@@ -701,3 +701,33 @@ def test_recent_point_changes_batches_and_caps_per_point(db: Session, world: dic
 
     assert [len(got[p.id]) for p in (bearkat, tap, caiso_pt, joslin)] == [2, 1, 1, 0]
     assert recent_point_changes(db, [], "public") == {}
+
+
+def test_recent_changes_list_a_departure_from_the_register(
+    client: TestClient, db: Session, world: dict[str, Any]
+) -> None:
+    """A project no longer in its register's report (`delisted`, docs/21 §7.3) frees queue space at
+    the point, so "Recent changes at this point" lists it, headlined with its own sentence."""
+    props = world["props"]
+    ercot = world["sources"][0]
+    gone = _change(
+        db,
+        props["b3"],
+        ercot,
+        "delisted",
+        days_ago=2,
+        after={"source_id": ercot.id, "register_name": "ERCOT", "reason": "not stated"},
+    )
+    gone.reason = "No longer in ERCOT's report (reason not stated)"
+    db.commit()
+
+    body = _get(client, f"/v1/interconnection-points/{_point(db, props['b1']).public_id}").json()
+
+    assert_valid("InterconnectionPointDetailResponse", body)
+    changes = body["data"]["recent_changes"]
+    assert [c["id"] for c in changes] == [public_id("evt", gone.id)]
+    assert changes[0]["event_type"] == "delisted"
+    assert (
+        changes[0]["headline"]
+        == f"{props['b3'].name_canonical}: No longer in ERCOT's report (reason not stated)"
+    )

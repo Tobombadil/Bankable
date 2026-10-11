@@ -284,15 +284,33 @@
     return list.length ? list.join(", ") : null;
   }
 
-  // `null` for an absent value, never "0": `Number(null)` and `Number("")` are both 0, so without
-  // the guard an absent field rendered a real-looking zero (found driving the drawer, 2026-09-19 --
-  // the "None" gate means no row at all, not a zero).
+  // ---- fmtMWNumber: begin (web/test_formatting.py runs this block in node) ----
   // A capacity as the server prints it (web/formatting.py `mw`, docs/31 §4; UX-8): thousands
-  // separators, at most one decimal, no trailing ".0" -- "4,800 MW", never "4800.0 MW".
-  function fmtMW(value) {
+  // separators, at most one decimal, no trailing ".0" -- "4,800", "1,150.5", never "4800.0". It
+  // rounds as Python's round(x, 1) does: the exact binary value to the nearest tenth, and a true
+  // tie (only x.25 and x.75 are exact ties) to the even tenth, so 2.25 prints "2.2" and 0.35
+  // (stored as 0.34999...) "0.3". Intl's toLocaleString rounds the shortest decimal half up ("2.3",
+  // "0.4"), which is how this file disagreed with the server before. Text that is not a number
+  // prints as itself, as on the server.
+  var MW_NUMBER = /^\s*[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?\s*$/i;
+  function fmtMWNumber(value) {
+    if (value == null) return "";
+    if (typeof value === "boolean") return value ? "True" : "False";
+    if (typeof value !== "number" && !MW_NUMBER.test(String(value))) return String(value);
     var n = Number(value);
-    return n.toLocaleString("en-US", { maximumFractionDigits: 1, minimumFractionDigits: 0 }) + " MW";
+    if (n !== n) return "nan";
+    if (!isFinite(n)) return n > 0 ? "inf" : "-inf";
+    var a = Math.abs(n);
+    var text;
+    if (Number.isInteger(a * 4) && !Number.isInteger(a * 2)) text = Math.floor(a) + (a % 1 === 0.25 ? ".2" : ".8");
+    else if (a >= 1e21) text = BigInt(a).toString(); // toFixed answers in exponent form from 1e21
+    else text = a.toFixed(1).replace(/\.0$/, "");
+    var parts = text.split(".");
+    text = parts[0].replace(/\B(?=(\d{3})+$)/g, ",") + (parts.length > 1 ? "." + parts[1] : "");
+    return n < 0 && text !== "0" ? "-" + text : text;
   }
+  // ---- fmtMWNumber: end ----
+  function fmtMW(value) { return fmtMWNumber(value) + " MW"; }
   // An ISO date as the server prints it (web/formatting.py `display_date`, docs/31 §4): "13 Sep 2026".
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   function fmtDate(value) {
@@ -300,6 +318,9 @@
     if (!m || Number(m[2]) < 1 || Number(m[2]) > 12) return String(value || "");
     return Number(m[3]) + " " + MONTHS[Number(m[2]) - 1] + " " + m[1];
   }
+  // `null` for an absent value, never "0": `Number(null)` and `Number("")` are both 0, so without
+  // the guard an absent field rendered a real-looking zero (found driving the drawer, 2026-09-19 --
+  // the "None" gate means no row at all, not a zero).
   function fmtNumber(value, digits) {
     if (value == null || value === "") return null;
     var n = Number(value);
@@ -348,7 +369,8 @@
       var projectType = attrOf(p, ["lfg_energy_project_type", "project_type"]) || (digester ? null : p.technology_raw);
       add("Project type", projectType ? String(projectType) : null);
       add("Technology", rngTechLabel(p.technology));
-      add("Rated capacity", quantity(attrOf(p, ["rated_mw", "capacity_mw"]), "MW"), true);
+      var rated = attrOf(p, ["rated_mw", "capacity_mw"]);
+      add("Rated capacity", fmtNumber(rated, 1) == null ? null : fmtMW(rated), true);
       var flow = attrOf(p, ["lfg_flow_to_project_mmscfd"]);
       if (flow == null && unit === "mmscfd") flow = p.capacity_value;
       add("LFG flow to project", quantity(flow, "MMscf/d", 3), true);
@@ -1223,8 +1245,42 @@
       var open = mapKeyToggle.getAttribute("aria-expanded") !== "true";
       mapKeyToggle.setAttribute("aria-expanded", open ? "true" : "false");
       mapKey.hidden = !open;
+      if (open && typeof syncKeyFocusable === "function") syncKeyFocusable();
     });
   }
+  // With the existing-asset or retired-plant layer on, the key is compact, so it no longer grows
+  // over the West Coast (it reached the map's foot at 1440x900): the status key becomes the strip of
+  // short words the narrow layout uses, each layer's key is a section that closes, and the panel
+  // stops at 15rem and scrolls inside (styles.css `.map-key--compact`). The panel (a group named
+  // "Map key" in home_map.html) is then a tab stop, so a keyboard can scroll it (axe
+  // `scrollable-region-focusable` failed on it with a layer on). Without a layer the key is as before.
+  var mapKeyPanel = mapKey ? mapKey.querySelector(".map-key__panel") : null;
+  function syncKeyCompact() {
+    if (!mapKey || !mapKeyPanel) return;
+    var compact = !plantsLegend.hidden || !retiredLegend.hidden;
+    mapKey.classList.toggle("map-key--compact", compact);
+    syncKeyFocusable();
+  }
+  // A panel that scrolls is a tab stop, so a keyboard can scroll it (axe
+  // `scrollable-region-focusable`): always the compact key, and the plain key whenever its content is
+  // taller than its max-height, as in a short window (axe's CI browser is 800x600). A panel that does
+  // not scroll adds no tab stop. Run at load, on resize, when the key opens and when its rows change.
+  function syncKeyFocusable() {
+    if (!mapKey || !mapKeyPanel) return;
+    var scrolls = mapKeyPanel.scrollHeight > mapKeyPanel.clientHeight + 1;
+    if (mapKey.classList.contains("map-key--compact") || scrolls) mapKeyPanel.setAttribute("tabindex", "0");
+    else mapKeyPanel.removeAttribute("tabindex");
+  }
+  // A ResizeObserver reports once after the first layout (fonts and styles in place) and again
+  // whenever the panel or a section in it changes size; resize and load are the fallbacks.
+  if (mapKeyPanel && typeof ResizeObserver === "function") {
+    var keyObserver = new ResizeObserver(function () { syncKeyFocusable(); });
+    keyObserver.observe(mapKeyPanel);
+    Array.prototype.forEach.call(mapKeyPanel.children, function (child) { keyObserver.observe(child); });
+  }
+  syncKeyFocusable();
+  window.addEventListener("resize", syncKeyFocusable);
+  window.addEventListener("load", syncKeyFocusable);
 
   // Designer D-2: the status key lists only the families the filters can draw.
   var lifecycleLegendItems = Array.prototype.slice.call(document.querySelectorAll("[data-legend-family]"));
@@ -1232,6 +1288,7 @@
     var present = {};
     Object.keys(counts).forEach(function (state) { if (Number(counts[state]) > 0) present[familyOf(state)] = true; });
     lifecycleLegendItems.forEach(function (item) { item.hidden = !present[item.getAttribute("data-legend-family")]; });
+    syncKeyFocusable();
   }
   function plural(n, noun) { return fmtCount(n) + " " + noun + (n === 1 || /more$/.test(noun) ? "" : "s"); }
   function fmtCount(n) { return Number(n || 0).toLocaleString("en-US"); }
@@ -1440,7 +1497,7 @@
         var meta = document.createElement("span");
         meta.className = "meta";
         meta.textContent = [
-          p.capacity_mw ? Number(p.capacity_mw).toFixed(1) + " MW" : null,
+          p.capacity_mw ? fmtMW(p.capacity_mw) : null,
           PLANT_FAMILY_NAME[plantFamilyOf(p.technology)] || null,
           retirementPhrase(p),
           p.state_code || null
@@ -1893,7 +1950,7 @@
       .setLngLat(f.geometry.coordinates)
       .setHTML(
         "<strong>" + esc(plural(Number(p.count) || 0, "retired or retiring plant")) + "</strong>" +
-        (mw ? "<br>Nameplate " + Math.round(mw).toLocaleString() + " MW" : "") +
+        (mw ? "<br>Nameplate " + fmtMW(mw) : "") +
         "<br>Click to zoom in"
       )
       .addTo(map);
@@ -1905,6 +1962,7 @@
     });
     retiredLegend.hidden = !on;
     retiredLegend.setAttribute("aria-hidden", on ? "false" : "true");
+    syncKeyCompact();
   }
 
   function setPlantsLayerVisible(on) {
@@ -1918,6 +1976,7 @@
     Array.prototype.forEach.call(plantsLegend.querySelectorAll("[data-legend-type]"), function (group) {
       group.hidden = picked.indexOf(group.getAttribute("data-legend-type")) === -1;
     });
+    syncKeyCompact();
   }
 
   map.on("load", function () {
@@ -2035,7 +2094,7 @@
       .setLngLat(f.geometry.coordinates)
       .setHTML(
         "<strong>" + Number(p.count || 0) + " proposals</strong><br>" + lines.join(" &middot; ") +
-        (p.capacity_mw_sum ? "<br>Capacity sum: " + Math.round(p.capacity_mw_sum).toLocaleString() + " MW" : "")
+        (p.capacity_mw_sum ? "<br>Capacity sum: " + fmtMW(p.capacity_mw_sum) : "")
       )
       .addTo(map);
   }
@@ -2129,7 +2188,7 @@
     writeFilters(filters);
     syncAssetControls();
     if (map.getLayer("plant-points")) setPlantsLayerVisible(on);
-    else { plantsLegend.hidden = !on; }
+    else { plantsLegend.hidden = !on; plantsLegend.setAttribute("aria-hidden", on ? "false" : "true"); syncKeyCompact(); }
     sendUiEvent("map.layer_toggled", { layer: "plants", on: on });
     if (on) refetchAssets();
     render();
@@ -2139,7 +2198,7 @@
     setLayerOn("retired", on);
     writeFilters(filters);
     if (map.getLayer("retired-points")) setRetiredLayerVisible(on);
-    else { retiredLegend.hidden = !on; }
+    else { retiredLegend.hidden = !on; retiredLegend.setAttribute("aria-hidden", on ? "false" : "true"); syncKeyCompact(); }
     sendUiEvent("map.layer_toggled", { layer: "retired", on: on });
     if (on) refetchRetired();
     render();
