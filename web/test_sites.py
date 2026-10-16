@@ -57,7 +57,7 @@ def _row(
     return {
         "public_id": pid,
         "slug": pid.lower(),
-        "url": f"https://infraque.com/proposals/{pid.lower()}",
+        "url": f"https://inframation.io/proposals/{pid.lower()}",
         "name_canonical": name,
         "kind": "generation",
         "technology": tech,
@@ -71,7 +71,7 @@ def _row(
             "slug": "fermi-america",
             "name_canonical": "Fermi America",
             "type": "developer",
-            "url": "https://infraque.com/organizations/fermi-america",
+            "url": "https://inframation.io/organizations/fermi-america",
             "personal_data": False,
         },
         "provenance": [PROV],
@@ -140,12 +140,12 @@ def _site(extra_units: int = 0) -> dict[str, Any]:
     )
     neighbour["interconnection_point"] = {
         "public_id": "poi_1",
-        "url": "https://infraque.com/interconnection-points/poi_1",
+        "url": "https://inframation.io/interconnection-points/poi_1",
         "name": "Midway 500kV",
     }
     return {
         "public_id": SITE_ID,
-        "url": f"https://infraque.com/sites/{SITE_ID}",
+        "url": f"https://inframation.io/sites/{SITE_ID}",
         "name": "Project Matador Nuclear",
         "rule_version": "2026-10-10.1",
         "member_count": len(members),
@@ -156,12 +156,12 @@ def _site(extra_units: int = 0) -> dict[str, Any]:
         "sponsors": [{**members[0]["sponsor"], "member_count": len(members)}],
         "anchors": {
             "eia_plant_ids": ["69798", "69799"],
-            "interconnection_points": [{"public_id": "poi_1", "url": "https://infraque.com/interconnection-points/poi_1", "name": "Midway 500kV"}],  # noqa: E501
+            "interconnection_points": [{"public_id": "poi_1", "url": "https://inframation.io/interconnection-points/poi_1", "name": "Midway 500kV"}],  # noqa: E501
             "assets": [
                 {
-                    "public_id": "asset_1", "slug": "riverton-us-ks", "url": "https://infraque.com/assets/riverton-us-ks",
+                    "public_id": "asset_1", "slug": "riverton-us-ks", "url": "https://inframation.io/assets/riverton-us-ks",
                     "asset_type": "power_plant", "name": "Riverton", "eia_plant_id": "69799",
-                    "owners": [{"organization": {"public_id": "org_LU", "slug": "liberty", "name_canonical": "Liberty Utilities Co", "url": "https://infraque.com/organizations/liberty"}, "role": "owner"}],  # noqa: E501
+                    "owners": [{"organization": {"public_id": "org_LU", "slug": "liberty", "name_canonical": "Liberty Utilities Co", "url": "https://inframation.io/organizations/liberty"}, "role": "owner"}],  # noqa: E501
                 }
             ],
         },
@@ -188,7 +188,7 @@ PROPOSAL: dict[str, Any] = {
 }
 EMBED = {
     "public_id": SITE_ID,
-    "url": f"https://infraque.com/sites/{SITE_ID}",
+    "url": f"https://inframation.io/sites/{SITE_ID}",
     "name": "Project Matador Nuclear",
     "member_count": 4,
     "is_lead": False,
@@ -200,7 +200,7 @@ EMBED = {
     "lead": {
         "public_id": "PROP_N1",
         "slug": "prop_n1",
-        "url": "https://infraque.com/proposals/prop_n1",
+        "url": "https://inframation.io/proposals/prop_n1",
         "name_canonical": "Project Matador Nuclear",
     },
 }

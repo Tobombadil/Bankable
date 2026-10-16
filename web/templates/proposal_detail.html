@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}{{ record.name | readable_name }} — Infraque{% endblock %}
+{% block title %}{{ record.name | readable_name }} — Inframation{% endblock %}
 {% block meta_description %}{{ record.name }}: {{ record.kind_label if record.technology == record.kind else (record.technology_label or record.kind_label) }} proposal, {{ (record.capacity_mw | mw) ~ ' MW, ' if record.capacity_mw }}{{ record.county ~ ', ' if record.county }}{{ record.state or record.jurisdiction or '' }}.{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/proposals">Proposals</a> / {{ record.name | readable_name }}</nav>

@@ -1,0 +1,857 @@
+# Curated parent links for the developer and utility groups most active in the US and GB queues
+# (docs/22 §24; source id `curated.organization_parents` in data/sources.yaml section K, the same source
+# `parents.yaml` writes under). Loaded by `services/ingest/organizations.py::load_group_parents`
+# (`python -m services.ingest.organizations groups`), which every context load runs
+# (`services/ingest/context_layers.py::load_organization_graph`). The file is committed with the code and
+# every image copies `data/vendored`, so a server seeded with no local data root loads it too.
+#
+# Why it exists. A developer files under many legal names: NextEra under 13 organisation records, none
+# linked to a parent, so `/organizations/nextera-energy-inc` showed no proposals at all (measured
+# 2026-10-11). Each row here links one of those records to the group's parent; the company page then reads
+# the group (`scope=all`, its default) and names the subsidiary that filed each proposal.
+#
+# THE EVIDENCE RULE. Precision over recall: a wrong parent is a false claim on a public record.
+#   1. Name. The child's registered name carries one of the parent's own names (`parent_names`: legal,
+#      trading or former names of the parent itself), as whole words. `Engie` is not in
+#      `DENGIE MARSHES WIND FARM LIMITED`; `Constellation` is in `HIGH CONSTELLATION WINDFARM LIMITED`,
+#      which is why rule 2 is also required.
+#   2. The parent's own public evidence confirms the link. One of:
+#        sec_ex21      the parent's latest 10-K Exhibit 21 on EDGAR (or Exhibit 8, its 20-F counterpart).
+#                      `quote` is the row that names the child. A child the exhibit names passes even when
+#                      its name does not carry the parent's (Xcel's Public Service Company of Colorado).
+#        gleif         a GLEIF Level 2 record whose parent is the parent (CC0). `lei` is the child's LEI.
+#        company_site  the parent's own published document: an annual report's subsidiary list, or a page
+#                      that names the child's project. `quote` is the passage.
+#   3. Where the parent publishes a COMPLETE subsidiary list (AES and NRG Exhibit 21, SSE's annual report
+#      A3.1.1, RWE's HGB list of shareholdings), the child must be on it. A name that carries the parent's
+#      but is missing from a complete list is declined: it was sold, renamed or dissolved.
+#   4. Where the parent lists only principal subsidiaries (NextEra's Exhibit 21 names five and states that
+#      NextEra Energy Resources "includes 2,323 subsidiaries that operate in the United States"), a group
+#      operating, holding or development company whose name carries the parent's may rest on that
+#      statement. A PROJECT company never may: a developer sells projects with their companies, so
+#      `LIGHTSOURCE SPV 204 LIMITED` or a `Flat Hill Solar LLC` is linked only when a document names it or
+#      its project.
+#   `services/ingest/test_group_parents.py` enforces 1 and 2 on every row (the precision guard), and the loader
+#   refuses to load a file in which any row fails them.
+#
+# Every edge is one hop to the group parent whose document was read, as in `parents.yaml`; intermediate
+# holding companies are not created. No `as_of` (an Exhibit 21 dates the list, not the start of the
+# ownership) and no share: `organization.parent_share_pct` stays NULL even where a list states 51 %.
+#
+# Schema:
+#   groups:
+#     - parent          the parent's name; reuses the organisation `org_key` already resolves it to
+#       parent_country  ISO 3166-1 alpha-2, used only if the loader has to create the parent
+#       parent_names    the parent's own names: the guard's tokens
+#       note            what the parent's evidence says, and what was declined and why
+#       children:
+#         - name          the child organisation, matched by `org_key` over names and aliases
+#           evidence      sec_ex21 | gleif | company_site
+#           source_url    the document
+#           retrieved_at  when it was read (UTC)
+#           quote         the passage that names the child (optional for a group statement)
+#           lei           the child's LEI (gleif only)
+#           note          optional
+#
+# Retrieval. EDGAR with a declared User-Agent (SEC fair access), GLEIF's public API, and the companies'
+# own sites, robots.txt honoured. No private aggregator was read. Sites behind a bot challenge (orsted.com,
+# bp.com, the EDF registration document) were not read and those groups are not here (docs/22 §24.4).
+
+groups:
+  # --------------------------------------------------------------------------------------------- US, SEC
+  - parent: NextEra Energy, Inc.
+    parent_country: US
+    parent_names: [NextEra]
+    note: >-
+      Exhibit 21 to the 10-K for 2025 (filed 2026-02-13) lists five principal subsidiaries and states, of
+      NextEra Energy Resources, LLC: "Includes 2,323 subsidiaries that operate in the United States and 140
+      subsidiaries that operate in foreign countries in the same line of business". The group companies below
+      whose names carry NextEra rest on that statement (rule 4). Declined: NextEra Energy Partners LP (GLEIF
+      reports it NON_CONSOLIDATING; NextEra deconsolidated it); FPL Energy, LLC (NextEra Energy Resources'
+      former name: the same entity, not a subsidiary, and no document stating the rename was read).
+    children:
+      - name: Florida Power & Light Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/37634/000075330826000015/nee-q42025xex21.htm
+        retrieved_at: '2026-10-15T22:09:03Z'
+        quote: 1. Florida Power & Light Company (100%-owned) Florida
+      - name: NextEra Energy Resources, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/37634/000075330826000015/nee-q42025xex21.htm
+        retrieved_at: '2026-10-15T22:09:03Z'
+        quote: 3. NextEra Energy Resources, LLC (a)(b) Delaware
+      - name: NextEra Energy Interconnection Holdings, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/37634/000075330826000015/nee-q42025xex21.htm
+        retrieved_at: '2026-10-15T22:09:03Z'
+        note: Group holding company for queue positions; rule 4.
+      - name: NextEra Energy Resources Interconnection Holdings, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/37634/000075330826000015/nee-q42025xex21.htm
+        retrieved_at: '2026-10-15T22:09:03Z'
+        note: Group holding company for queue positions; rule 4.
+      - name: NextEra Energy Resources - ERCOT
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/37634/000075330826000015/nee-q42025xex21.htm
+        retrieved_at: '2026-10-15T22:09:03Z'
+        note: The ERCOT register's spelling of NextEra Energy Resources' Texas business; rule 4.
+      - name: NextEra Energy Transmission NY, Inc.
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/37634/000075330826000015/nee-q42025xex21.htm
+        retrieved_at: '2026-10-15T22:09:03Z'
+        note: Transmission developer; rule 4.
+      - name: NextEra Energy Transmission
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/37634/000075330826000015/nee-q42025xex21.htm
+        retrieved_at: '2026-10-15T22:09:03Z'
+        note: Transmission developer; rule 4.
+      - name: Nextera
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/37634/000075330826000015/nee-q42025xex21.htm
+        retrieved_at: '2026-10-15T22:09:03Z'
+        note: >-
+          The ERCOT register names only the brand (wind repowers: Horse Hollow, Callahan Divide, Capricorn,
+          Indian Mesa). The filer is a NextEra company; which one, the register does not say.
+
+  - parent: Entergy Corporation
+    parent_country: US
+    parent_names: [Entergy]
+    note: >-
+      Exhibit 21 to the 10-K for 2025 (filed 2026-02-19) is a complete list. Declined: Entergy Power Gen.
+      Corp. (not on it).
+    children:
+      - name: Entergy Louisiana LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/7323/000006598426000174/a10kex-212025.htm
+        retrieved_at: '2026-10-15T22:09:53Z'
+        quote: Entergy Louisiana, LLC Texas
+      - name: Entergy Mississippi LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/7323/000006598426000174/a10kex-212025.htm
+        retrieved_at: '2026-10-15T22:09:53Z'
+        quote: Entergy Mississippi, LLC Texas
+      - name: Entergy Arkansas LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/7323/000006598426000174/a10kex-212025.htm
+        retrieved_at: '2026-10-15T22:09:53Z'
+        quote: Entergy Arkansas, LLC Texas
+      - name: Entergy Texas Inc.
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/7323/000006598426000174/a10kex-212025.htm
+        retrieved_at: '2026-10-15T22:09:53Z'
+        quote: Entergy Texas, Inc. Texas
+      - name: Entergy New Orleans, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/7323/000006598426000174/a10kex-212025.htm
+        retrieved_at: '2026-10-15T22:09:53Z'
+        quote: Entergy New Orleans, LLC Texas
+      - name: Entergy Nuclear Operations, Inc.
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/7323/000006598426000174/a10kex-212025.htm
+        retrieved_at: '2026-10-15T22:09:53Z'
+        quote: Entergy Nuclear Operations, Inc. Delaware
+
+  - parent: The AES Corporation
+    parent_country: US
+    parent_names: [AES]
+    note: >-
+      Exhibit 21.1 to the 10-K for 2025 (filed 2026-03-02) is a complete list (about 1 MB). Declined, not on
+      it: AES DE DEVCO NC LLC, AES Keystone Wind, LLC, AES Long Island, LLC, AES NY Wind, LLC, AES Somerset,
+      LLC and AES Somerset 2, LLC (AES sold its New York coal plants in 2012).
+    children:
+      - name: AES Clean Energy
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-15T22:09:56Z'
+        note: >-
+          The registers' spelling of the business; the exhibit lists "AES Clean Energy Development, LLC
+          Delaware", "AES Clean Energy Services, LLC" and three more AES Clean Energy companies.
+      - name: AES Distributed Energy
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-15T22:09:56Z'
+        note: The registers' spelling of the business; the exhibit lists "AES Distributed Holdings, LLC Delaware".
+      - name: AES Bainbridge, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-15T22:09:56Z'
+        quote: AES Bainbridge, LLC Delaware
+      - name: AES Energy Storage, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-15T22:09:56Z'
+        quote: AES Energy Storage, LLC Delaware
+
+  - parent: Duke Energy Corporation
+    parent_country: US
+    parent_names: [Duke Energy]
+    note: >-
+      Exhibit 21 to the 10-K for 2025 (filed 2026-02-26). Declined: Duke Energy Renewables Solar, LLC (Duke
+      sold its commercial renewables business in 2023; not on the list).
+    children:
+      - name: Duke Energy Carolinas, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/17797/000132616026000014/duk-20251231x10kxexx21.htm
+        retrieved_at: '2026-10-15T22:10:00Z'
+        quote: Duke Energy Carolinas, LLC (North Carolina)
+      - name: Duke Energy Progress - (NC)
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/17797/000132616026000014/duk-20251231x10kxexx21.htm
+        retrieved_at: '2026-10-15T22:10:00Z'
+        quote: Duke Energy Progress, LLC (North Carolina)
+      - name: Duke Energy Florida, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/17797/000132616026000014/duk-20251231x10kxexx21.htm
+        retrieved_at: '2026-10-15T22:10:00Z'
+        quote: Duke Energy Florida, LLC (Florida)
+
+  - parent: DTE Energy Company
+    parent_country: US
+    parent_names: [DTE Energy]
+    note: >-
+      Exhibit 21.1 to the 10-K for 2025 (filed 2026-02-17). Declined: the bare string "DTE" on two EPA
+      Class VI wells in Indiana; nothing read ties it to DTE Energy.
+    children:
+      - name: DTE Electric Company
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/28385/000093634026000054/a20251231ex211-subsidiaries.htm
+        retrieved_at: '2026-10-15T22:10:07Z'
+        quote: 1. DTE Electric Company Michigan
+
+  - parent: Xcel Energy Inc.
+    parent_country: US
+    parent_names: [Xcel]
+    note: >-
+      Exhibit 21.01 to the 10-K for 2025 (filed 2026-02-25). None of the three names carries Xcel's, so each
+      passes on its quoted row. Excelsior Energy Center, LLC and Excelerate Energy, LLC are other companies.
+    children:
+      - name: Public Service Co of Colorado
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/72903/000007290326000009/xcelex2101q42025.htm
+        retrieved_at: '2026-10-15T22:10:11Z'
+        quote: Public Service Company of Colorado Colorado Electric and gas utility
+      - name: Northern States Power Co - Minnesota
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/72903/000007290326000009/xcelex2101q42025.htm
+        retrieved_at: '2026-10-15T22:10:11Z'
+        quote: Northern States Power Company (a Minnesota corporation) Minnesota Electric and gas utility
+      - name: Southwestern Public Service Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/72903/000007290326000009/xcelex2101q42025.htm
+        retrieved_at: '2026-10-15T22:10:11Z'
+        quote: Southwestern Public Service Company New Mexico Electric utility
+
+  - parent: NRG Energy, Inc.
+    parent_country: US
+    parent_names: [NRG]
+    note: >-
+      Exhibit 21.1 to the 10-K for 2025 (filed 2026-02-24) is a complete list. Declined, not on it: NRG
+      Astoria Storage LLC, NRG Arthur Kill Storage LLC.
+    children:
+      - name: NRG Greens Bayou 6 LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1013871/000101387126000004/exhibit211q42025.htm
+        retrieved_at: '2026-10-15T22:10:14Z'
+        quote: NRG Greens Bayou 6 LLC Delaware
+      - name: NRG Prairie Energy Center LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1013871/000101387126000004/exhibit211q42025.htm
+        retrieved_at: '2026-10-15T22:10:14Z'
+        quote: NRG Prairie Energy Center LLC Delaware
+      - name: NRG Wolf Bone Energy Center LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1013871/000101387126000004/exhibit211q42025.htm
+        retrieved_at: '2026-10-15T22:10:14Z'
+        quote: NRG Wolf Bone Energy Center LLC Delaware
+      - name: NRG Berrians East Development, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1013871/000101387126000004/exhibit211q42025.htm
+        retrieved_at: '2026-10-15T22:10:14Z'
+        quote: NRG Berrians East Development LLC Delaware
+      - name: NRG/ Berrians I GT Power, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1013871/000101387126000004/exhibit211q42025.htm
+        retrieved_at: '2026-10-15T22:10:14Z'
+        quote: Berrians I Gas Turbine Power LLC Delaware
+        note: The NYISO spelling abbreviates "Gas Turbine".
+
+  - parent: Vistra Corp.
+    parent_country: US
+    parent_names: [Vistra]
+    note: Exhibit 21.1 to the 10-K for 2025 (filed 2026-02-27).
+    children:
+      - name: Luminant Generation Company LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1692819/000169281926000006/vistra-20251231xex211.htm
+        retrieved_at: '2026-10-15T22:10:18Z'
+        quote: 22 Luminant Generation Company LLC Texas
+      - name: Vistra Operations Company, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1692819/000169281926000006/vistra-20251231xex211.htm
+        retrieved_at: '2026-10-15T22:10:18Z'
+        quote: 29 Vistra Operations Company LLC Delaware
+
+  - parent: Constellation Energy Corporation
+    parent_country: US
+    parent_names: [Constellation Energy, Constellation]
+    note: >-
+      Exhibit 21.1 to the 10-K for 2025 (filed 2026-02-24) lists the Calpine companies acquired with
+      Calpine. Declined: HIGH CONSTELLATION WINDFARM LIMITED (a GB wind farm; the name is a coincidence);
+      Calpine Corp (an EIA owner string; "Calpine Corporation" is not on the list).
+    children:
+      - name: Constellation South Texas, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1168165/000186827526000032/ceg-20251231x10kxexh211.htm
+        retrieved_at: '2026-10-15T22:10:21Z'
+        quote: Constellation South Texas LLC Texas
+      - name: Calpine California CCUS Holdings
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1168165/000186827526000032/ceg-20251231x10kxexh211.htm
+        retrieved_at: '2026-10-15T22:10:21Z'
+        quote: Calpine California CCUS Holdings, LLC Delaware
+      - name: Calpine Eastern Corporation
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1168165/000186827526000032/ceg-20251231x10kxexh211.htm
+        retrieved_at: '2026-10-15T22:10:21Z'
+        quote: Calpine Eastern Corporation Delaware
+      - name: Calpine Mid Atlantic Development, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1168165/000186827526000032/ceg-20251231x10kxexh211.htm
+        retrieved_at: '2026-10-15T22:10:21Z'
+        quote: Calpine Mid-Atlantic Development, LLC Delaware
+      - name: Calpine Energy Services
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1168165/000186827526000032/ceg-20251231x10kxexh211.htm
+        retrieved_at: '2026-10-15T22:10:21Z'
+        quote: Calpine Energy Services, L.P. Delaware
+      - name: Constellation
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1168165/000186827526000032/ceg-20251231x10kxexh211.htm
+        retrieved_at: '2026-10-15T22:10:21Z'
+        note: >-
+          NYISO names only the brand, on the Ginna uprate; the exhibit lists "Constellation Energy
+          Generation, LLC" and "Constellation Nuclear, LLC", the group's nuclear operators.
+
+  - parent: Avangrid, Inc.
+    parent_country: US
+    parent_names: [Avangrid]
+    note: >-
+      Avangrid was taken private by Iberdrola in December 2024; its last Exhibit 21 is to the 10-K for 2023
+      (filed 2024-02-22). Avangrid Power, LLC postdates it and rests on GLEIF. Declined: Iberdrola USA
+      (Avangrid's own former name, the parent itself rather than a subsidiary).
+    children:
+      - name: Avangrid Power LLC
+        evidence: gleif
+        lei: AH2OTHU2TT1C21ROXH10
+        source_url: https://api.gleif.org/api/v1/lei-records/AH2OTHU2TT1C21ROXH10/direct-parent
+        retrieved_at: '2026-10-15T22:12:22Z'
+        quote: 'AVANGRID POWER, LLC (AH2OTHU2TT1C21ROXH10): direct and ultimate parent AVANGRID, INC. (549300OX0Q38NLSKPB49)'
+      - name: Avangrid Renewables
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1634997/000163499724000031/agr-ex211_2023.htm
+        retrieved_at: '2026-10-15T22:10:37Z'
+        quote: Avangrid Renewables, LLC (3)
+      - name: Avangrid Networks, Inc.
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1634997/000163499724000031/agr-ex211_2023.htm
+        retrieved_at: '2026-10-15T22:10:37Z'
+        quote: Avangrid Networks, Inc. (1)*
+
+  - parent: American Electric Power Company, Inc.
+    parent_country: US
+    parent_names: [American Electric Power, AEP]
+    note: >-
+      Exhibit 21 to the 10-K for 2025 (filed 2026-02-12). Declined: AEP Resources Service Corp. (not on the
+      list, and "AEP" alone is an acronym other companies use).
+    children:
+      - name: Public Service Co of Oklahoma
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/4904/000000490426000013/ex2120254q.htm
+        retrieved_at: '2026-10-15T22:10:29Z'
+        quote: Public Service Company of Oklahoma Oklahoma
+      - name: Southwestern Electric Power Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/4904/000000490426000013/ex2120254q.htm
+        retrieved_at: '2026-10-15T22:10:29Z'
+        quote: Southwestern Electric Power Company Delaware
+
+  - parent: Berkshire Hathaway Energy Company
+    parent_country: US
+    parent_names: [Berkshire Hathaway Energy]
+    note: >-
+      Exhibit 21.1 to Berkshire Hathaway Energy's 10-K for 2025 (filed 2026-03-02). Declined: SIERRA PACIFIC
+      INDUSTRIES (a timber company; the name is a coincidence).
+    children:
+      - name: PacifiCorp
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/71180/000108131626000003/bhe123125ex211.htm
+        retrieved_at: '2026-10-15T22:10:33Z'
+        quote: PacifiCorp Oregon
+      - name: MidAmerican Energy Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/71180/000108131626000003/bhe123125ex211.htm
+        retrieved_at: '2026-10-15T22:10:33Z'
+        quote: MidAmerican Energy Company Iowa
+      - name: Sierra Pacific Power Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/71180/000108131626000003/bhe123125ex211.htm
+        retrieved_at: '2026-10-15T22:10:33Z'
+        quote: Sierra Pacific Power Company Nevada
+
+  - parent: The Southern Company
+    parent_country: US
+    parent_names: [Southern Company]
+    note: Exhibit 21-A to the 10-K for 2025 (filed 2026-02-19).
+    children:
+      - name: Georgia Power Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/3153/000009212226000006/ex21-aq42025xsubsidiarieso.htm
+        retrieved_at: '2026-10-16T01:23:40Z'
+        quote: Georgia Power Company
+      - name: Southern Power Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/3153/000009212226000006/ex21-aq42025xsubsidiarieso.htm
+        retrieved_at: '2026-10-16T01:23:40Z'
+        quote: Southern Power Company
+      - name: Mississippi Power / Southern Company
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/3153/000009212226000006/ex21-aq42025xsubsidiarieso.htm
+        retrieved_at: '2026-10-16T01:23:40Z'
+        quote: Mississippi Power Company
+        note: A NYISO-style joint spelling naming both the subsidiary and the parent.
+
+  - parent: Black Hills Corporation
+    parent_country: US
+    parent_names: [Black Hills]
+    note: Exhibit 21 to the 10-K for 2025 (filed 2026-02-11).
+    children:
+      - name: Black Hills Power, Inc.
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1130464/000119312526046028/bkh-ex21.htm
+        retrieved_at: '2026-10-16T01:23:37Z'
+        quote: Black Hills Power, Inc. *
+      - name: Black Hills Service Company LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1130464/000119312526046028/bkh-ex21.htm
+        retrieved_at: '2026-10-16T01:23:37Z'
+        quote: Black Hills Service Company, LLC *
+
+  - parent: NiSource Inc.
+    parent_country: US
+    parent_names: [NiSource]
+    note: Exhibit 21 to the 10-K for 2025 (filed 2026-02-11).
+    children:
+      - name: Northern Indiana Pub Serv Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1111711/000111171126000027/ni-ex21x20251231.htm
+        retrieved_at: '2026-10-16T01:23:46Z'
+        quote: Northern Indiana Public Service Company LLC* Indiana
+
+  - parent: Fermi America
+    parent_country: US
+    parent_names: [Fermi America, Fermi]
+    note: >-
+      Fermi Inc. trades as Fermi America (its Exhibit 21.1 is headed "Fermi America"); Exhibit 21.1 to the
+      10-K for 2025 (filed 2026-03-30). The parent is the existing Fermi America organisation, which already
+      sponsors the campus's other records.
+    children:
+      - name: Fermi Nuclear
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/2071778/000207177826000010/frmi-20251231x10kxex211.htm
+        retrieved_at: '2026-10-15T22:23:27Z'
+        quote: Fermi Nuclear LLC Texas
+
+  - parent: Clenera, LLC
+    parent_country: US
+    parent_names: [Clenera]
+    note: >-
+      Exhibit 8.1 (list of subsidiaries) to Enlight Renewable Energy Ltd.'s 20-F for 2025 (filed
+      2026-03-30), the 20-F counterpart of an Exhibit 21: it lists both "Clenera, LLC" and "Clenera DevCo,
+      LLC". The parent is Clenera, the brand the queues use, not Enlight.
+    children:
+      - name: Clenera DevCo LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/1922641/000117891326001828/exhibit_8-1.htm
+        retrieved_at: '2026-10-16T01:23:33Z'
+        quote: Clenera DevCo, LLC
+
+  # ------------------------------------------------------------------------------ annual reports, GLEIF, sites
+  - parent: SSE plc
+    parent_country: GB
+    parent_names: [SSE]
+    note: >-
+      SSE plc Annual Report 2026, A3.1.1 "Subsidiary undertakings": "Details of the Group's subsidiary
+      undertakings at 31 March are as follows", a complete list (Companies Act). Declined: SSE UTILITY
+      SOLUTIONS LIMITED (not on it).
+    children:
+      - name: SSE GENERATION LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Generation Limited B 100.0
+      - name: SSE DE SOLAR HOLDCO LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE DE Solar Holdco Limited B 100.0
+      - name: SSE Renewables Services (UK) Limited
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Renewables Services (UK) Limited F 100.0
+      - name: SSE RENEWABLES SOLAR & BATTERY HOLDINGS LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Renewables Solar & Battery Holdings B 100.0
+      - name: SSE THERMAL GENERATION (SCOTLAND) LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Thermal Generation (Scotland) Limited A 100.0
+      - name: SSE BATTERY MONK FRYSTON LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Battery Monk Fryston Limited B 100.0
+      - name: SSE COTTERED SOLAR LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Cottered Solar Limited B 100.0
+      - name: SSE DAINES BESS LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Daines BESS Limited B 100.0
+      - name: SSE EGGBOROUGH LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Eggborough Limited B 100.0
+      - name: SSE ENTERPRISE LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Enterprise Limited B 100.0
+      - name: SSE FIDDLERS FERRY BATTERY LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Fiddlers Ferry Battery Limited B 100.0
+      - name: SSE FERRYBRIDGE BATTERY LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Ferrybridge Battery Limited B 100.0
+      - name: SSE Newchurch Solar Limited
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Newchurch Solar Limited B 100.0
+      - name: SSE RENEWABLES OFFSHORE WINDFARM HOLDINGS LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Renewables Offshore Windfarm Holdings A 100.0
+      - name: SSE RENEWABLES WIND FARMS (UK) LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Renewables Wind Farms (UK) Limited A 100.0
+      - name: SSE SOUTHERY SOLAR LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Southery Solar Limited B 100.0
+      - name: SSE STAYTHORPE POWER LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Staythorpe Power Limited B 100.0
+      - name: SSE TODDLEBURN LIMITED
+        evidence: company_site
+        source_url: https://www.sse.com/media/gugb5kyl/sse_ar26_interactive_18mb.pdf
+        retrieved_at: '2026-10-15T22:20:27Z'
+        quote: SSE Toddleburn Limited
+
+  - parent: RWE Aktiengesellschaft
+    parent_country: DE
+    parent_names: [RWE]
+    note: >-
+      RWE Annual Report 2025, 3.7 "List of shareholdings as per Sec. 285 No. 11 and No. 11a and Sec. 313
+      Para. 2 ... of HGB as of 31 December 2025", a complete list. Six GB children are also GLEIF Level 2
+      children of "RWE Aktiengesellschaft" (529900GB7KCA94ACC940), whose legal name this parent carries.
+      Where the list shows 51 % (the Dogger Bank South and Humber companies) the link records control, not a
+      share. Declined, not on the list: RWE Renewables Development, LLC; RWE COGEN UK (HYTHE) LIMITED.
+    children:
+      - name: RWE Renewables UK Solar and Storage Limited
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Renewables UK Solar and Storage Limited, Swindon/United Kingdom 100
+      - name: RWE Renewables UK Onshore Wind Limited
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Renewables UK Onshore Wind Limited, Swindon/United Kingdom 100
+      - name: RWE Clean Energy Development, LLC
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Clean Energy Development, LLC, Wilmington/USA 100
+      - name: RWE Clean Energy
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Clean Energy, LLC, Wilmington/USA 100
+        note: The report adds that RWE Clean Energy was "renamed as of 1 March 2026" RWE Americas.
+      - name: RWE Generation UK Plc
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Generation UK plc, Swindon/United Kingdom 100
+      - name: RWE Solar Development
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Solar Development, LLC, Wilmington/USA 100
+      - name: RWE Solar Developement, LLC
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Solar Development, LLC, Wilmington/USA 100
+        note: The register misspells "Development"; the same company.
+      - name: RWE Offshore Wind
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        note: The GB register's name for RWE's offshore wind division, which the report names as a segment.
+      - name: RWE Renewables
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        note: The registers' name for RWE's renewables business before it became RWE Clean Energy in the US.
+      - name: RWE RENEWABLES UK DOGGER BANK SOUTH (WEST) LIMITED
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Renewables UK Dogger Bank South (West) Limited, Swindon/United Kingdom 51
+      - name: RWE Renewables UK Dogger Bank South (East) Limited
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Renewables UK Dogger Bank South (East) Limited, Swindon/United Kingdom 51
+      - name: RWE RENEWABLES UK SWINDON LIMITED
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Renewables UK Swindon Limited, Swindon/United Kingdom 100
+      - name: RWE MARKINCH LIMITED
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Markinch Limited, Swindon/United Kingdom 100
+      - name: RWE RENEWABLES UK HUMBER WIND LIMITED
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Renewables UK Humber Wind Limited, Swindon/United Kingdom 51
+      - name: RWE RENEWABLES UK ROBIN RIGG EAST LIMITED
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Renewables UK Robin Rigg East Limited, Swindon/United Kingdom 100
+      - name: RWE RENEWABLES UK ROBIN RIGG WEST LIMITED
+        evidence: company_site
+        source_url: https://www.rwe.com/-/media/RWE/documents/05-investor-relations/finanzkalendar-und-veroeffentlichungen/2025-GJ/RWE-Annual-Report-2025.pdf
+        retrieved_at: '2026-10-15T22:21:19Z'
+        quote: RWE Renewables UK Robin Rigg West Limited, Swindon/United Kingdom 100
+
+  - parent: Lightsource BP Renewable Energy Investments Limited
+    parent_country: GB
+    parent_names: [Lightsource]
+    note: >-
+      bp's 20-F for 2025 (filed 2026-03-06) lists "Lightsource BP Renewable Energy Investments Limited 100
+      England & Wales Onshore renewables" among its significant subsidiaries
+      (https://www.sec.gov/Archives/edgar/data/313807/000031380726000006/bp-20251231.htm, read
+      2026-10-15T22:22:35Z), and lightsourcebp.com's footer names that company. The same 20-F says
+      Lightsource bp runs a "develop-to-sell business" and that "certain assets in the US were transferred
+      from Lightsource bp into a new joint venture ... equity accounted for by bp", so: the UK development
+      company is linked, and a project company only where Lightsource bp's own UK projects page names its
+      project. Declined: Lightsource Renewable Energy Asset Management, LLC and Lightsource Renewable Energy
+      Development LLC (US, inside or beside that joint venture, which nothing read separates);
+      LIGHTSOURCE SPV 204 LIMITED (Mon Solar Farm and Mountain Fen are not on the projects page).
+    children:
+      - name: Lightsource Renewable UK Development Limited
+        evidence: company_site
+        source_url: https://lightsourcebp.com/uk/projects/
+        retrieved_at: '2026-10-16T01:23:05Z'
+        note: The UK development company; its projects (Lightsource Bramford, Lightsource Enderby, ...) are Lightsource bp's.
+      - name: LIGHTSOURCE SPV 214 LIMITED
+        evidence: company_site
+        source_url: https://lightsourcebp.com/uk/projects/
+        retrieved_at: '2026-10-16T01:23:05Z'
+        quote: Afon Ddaw solar and energy storage project
+      - name: LIGHTSOURCE SPV 192 LIMITED
+        evidence: company_site
+        source_url: https://lightsourcebp.com/uk/projects/
+        retrieved_at: '2026-10-16T01:23:05Z'
+        quote: Plas Power solar and energy storage project
+      - name: LIGHTSOURCE SPV 191 LIMITED
+        evidence: company_site
+        source_url: https://lightsourcebp.com/uk/projects/
+        retrieved_at: '2026-10-16T01:23:05Z'
+        quote: Pentir Energy Storage Project
+        note: NESO lists the company's project as "Fferm Solar Pentir".
+
+  - parent: Statkraft AS
+    parent_country: 'NO'
+    parent_names: [Statkraft]
+    note: >-
+      Statkraft UK Ltd rests on GLEIF; the others on Statkraft UK's own page, which names each child's
+      project ("Loch na Cathrach - Pumped Storage Hydro", "Achrugan Wind Farm", "Rheidol hydropower plant")
+      or business ("green hydrogen").
+    children:
+      - name: Statkraft UK Ltd
+        evidence: gleif
+        lei: 52990070UEBY4Q63V638
+        source_url: https://api.gleif.org/api/v1/lei-records/52990070UEBY4Q63V638/direct-parent
+        retrieved_at: '2026-10-15T22:19:37Z'
+        quote: 'STATKRAFT UK LTD (52990070UEBY4Q63V638): direct and ultimate parent STATKRAFT AS (529900TH4OAW7WYG1777)'
+      - name: STATKRAFT HIGHLANDS PSH LIMITED
+        evidence: company_site
+        source_url: https://www.statkraft.co.uk/about-statkraft-uk/
+        retrieved_at: '2026-10-16T01:24:54Z'
+        quote: Loch na Cathrach - Pumped Storage Hydro
+      - name: Statkraft Windco 1 Limited
+        evidence: company_site
+        source_url: https://www.statkraft.co.uk/about-statkraft-uk/
+        retrieved_at: '2026-10-16T01:24:54Z'
+        quote: Achrugan Wind Farm
+      - name: STATKRAFT HYDROGEN UK HOLDING LIMITED
+        evidence: company_site
+        source_url: https://www.statkraft.co.uk/about-statkraft-uk/
+        retrieved_at: '2026-10-16T01:24:54Z'
+        quote: The UK pipeline includes solar, wind and Greener Grid activities, green hydrogen and hydropower
+      - name: STATKRAFT ENERGY LTD.
+        evidence: company_site
+        source_url: https://www.statkraft.co.uk/about-statkraft-uk/
+        retrieved_at: '2026-10-16T01:24:54Z'
+        quote: Rheidol hydropower plant
+        note: NESO lists the company's station as "Cwm Rheidol".
+
+  - parent: Zenobe Energy Limited
+    parent_country: GB
+    parent_names: [Zenobe]
+    note: >-
+      Zenobe's own battery-project page names the sites. Declined: ZENOBE STALYBRIDGE LIMITED and ZENOBE
+      WISHAW LIMITED (their sites are not on the pages read).
+    children:
+      - name: ZENOBE BLACKHILLOCK LIMITED
+        evidence: company_site
+        source_url: https://www.zenobe.com/battery-project-development/
+        retrieved_at: '2026-10-16T01:22:17Z'
+        quote: Blackhillock 300MW Battery Energy Storage System
+      - name: Zenobe Coalburn Limited
+        evidence: company_site
+        source_url: https://www.zenobe.com/battery-project-development/
+        retrieved_at: '2026-10-16T01:22:17Z'
+        quote: Coalburn, South Lanarkshire 200MW Battery Energy Storage System
+      - name: ZENOBE ECCLES LIMITED
+        evidence: company_site
+        source_url: https://www.zenobe.com/battery-project-development/
+        retrieved_at: '2026-10-16T01:22:17Z'
+        quote: Eccles, Scottish Borders 400MW Battery Energy Storage System
+      - name: ZENOBE KILMARNOCK SOUTH LIMITED
+        evidence: company_site
+        source_url: https://www.zenobe.com/battery-project-development/
+        retrieved_at: '2026-10-16T01:22:17Z'
+        quote: Kilmarnock South Battery Energy Storage System
+      - name: ZENOBE CAPENHURST LIMITED
+        evidence: company_site
+        source_url: https://www.zenobe.com/
+        retrieved_at: '2026-10-16T01:22:04Z'
+        quote: 'Capenhurst 100MW battery: a world first'
+
+  - parent: Invenergy LLC
+    parent_country: US
+    parent_names: [Invenergy]
+    note: >-
+      Private; no subsidiary list is published. Every child is a group operating or development company
+      whose name carries Invenergy's (rule 4), not a project company: Invenergy's own pages describe
+      "Invenergy Services" operating its fleet and its UK projects ("United Kingdom", "Scotland").
+    children:
+      - name: Invenergy Services LLC
+        evidence: company_site
+        source_url: https://invenergy.com/services/overview
+        retrieved_at: '2026-10-16T01:22:42Z'
+        quote: Invenergy Services employees operating and maintaining energy centers
+      - name: Invenergy Development UK Ltd
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Energy Transition Development LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Storage Development LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Solar Development LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Solar Development North America LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Solar Project Development LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Wind Development LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Wind Development North America LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Wind, LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy NY, LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Thermal Devel., LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+      - name: Invenergy Transmission LLC
+        evidence: company_site
+        source_url: https://invenergy.com/projects/our-projects
+        retrieved_at: '2026-10-16T01:22:42Z'
+
+  - parent: ENGIE North America
+    parent_country: US
+    parent_names: [ENGIE]
+    note: >-
+      The parent is ENGIE's US arm, the existing ENGIE North America organisation, not ENGIE SA: no ENGIE
+      SA document naming these companies was read. Its own site describes the businesses ("Solar & Solar +
+      Storage (Distributed)"). Declined: ENGIE Solidago Solar LLC (a project company its pages do not name);
+      DENGIE MARSHES WIND FARM LIMITED (another company).
+    children:
+      - name: ENGIE IR Holdings LLC
+        evidence: company_site
+        source_url: https://www.engie-na.com/
+        retrieved_at: '2026-10-16T01:22:53Z'
+        note: Group holding company (Infinity Renewables), rule 4.
+      - name: ENGIE Distributed Renewables Development LLC
+        evidence: company_site
+        source_url: https://www.engie-na.com/
+        retrieved_at: '2026-10-16T01:22:53Z'
+        quote: Solar & Solar + Storage (Distributed)

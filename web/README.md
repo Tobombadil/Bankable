@@ -487,9 +487,9 @@ development environment (`services/environment.py`; since 2026-10-11 a deployed 
 key never returns the link), `POST /v1/auth/register` and `POST /v1/auth/resend-verification`
 include a `dev_verification_url`
 field alongside the normal response — the exact URL that went into the (unsent) email body. The
-API builds it from `services.api.common.WEB_HOST`, which is still the literal `infraque.com`
-placeholder (docs/00-PLAN.md: product name not chosen yet) and therefore not a navigable link on
-whatever host this site is actually served from; `web/auth.py`'s `/account/resend` handler runs it
+API builds it from `services.api.common.WEB_HOST`, the fixed product host `https://inframation.io`,
+and therefore not a navigable link on whatever host this site is actually served from in
+development or on staging; `web/auth.py`'s `/account/resend` handler runs it
 through `web/viewmodels.py::web_relative_url` — the exact same fix already applied to every
 API-supplied `url` field the map renders — before putting it in the page, labelled "development
 only, no email provider configured". This key is documented in `api/fragments/auth.yaml` as present

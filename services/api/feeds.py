@@ -10,7 +10,7 @@ Attribution on every item (CLAUDE.md: every stored record carries `source_id`, `
 `provenance_quartet` is the shape every other surface uses). The JSON Feed carries it as
 `_platform.provenance`; before 2026-09-27 that list was always empty. The RSS item carries it as:
 
-  * one `<infraque:provenance>` element per source, in the namespace `PROVENANCE_NS`, with
+  * one `<inframation:provenance>` element per source, in the namespace `PROVENANCE_NS`, with
     `source_id`, `source_name`, `source_url`, `retrieved_at`, `licence` (the licence id),
     `reuse_class` and `attribution` children. RSS 2.0 allows any element "defined in a namespace"
     (RSS 2.0 specification, "Extending RSS"). RSS's own `<source url="...">` is not used: it names
@@ -37,8 +37,13 @@ from services.db.models import Event, OpportunitySource, ProposalSource
 from services.ingest.lag import Kind
 
 #: XML namespace of the per-item provenance element in RSS. A fixed identifier, not a URL anyone
-#: needs to fetch (XML namespaces are names); versioned so a later shape change can take `/2`.
-PROVENANCE_NS = "https://infraque.com/ns/feed-provenance/1"
+#: needs to fetch (XML namespaces are names); versioned so a later shape change can take `/2`. On
+#: the product domain since 2026-10-16 (Inframation): a namespace is a name the product should own,
+#: and the earlier placeholder domain was never registered.
+PROVENANCE_NS = "https://inframation.io/ns/feed-provenance/1"
+#: The prefix the feed binds `PROVENANCE_NS` to. A reader that resolves namespaces matches on the URI,
+#: not on this.
+PROVENANCE_PREFIX = "inframation"
 _PROVENANCE_FIELDS = (
     ("source_id", "source_id"),
     ("source_name", "source_name"),
@@ -119,7 +124,7 @@ def render_rss(
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/"'
-        f' xmlns:infraque="{PROVENANCE_NS}">',
+        f' xmlns:{PROVENANCE_PREFIX}="{PROVENANCE_NS}">',
         "<channel>",
         f"<title>{escape(title)}</title>",
         f"<link>{escape(channel_link)}</link>",
@@ -139,11 +144,12 @@ def render_rss(
         for row in it.get("platform_ext", {}).get("provenance") or []:
             if row.get("source_url"):
                 parts.append(f"<dc:source>{escape(str(row['source_url']))}</dc:source>")
-            parts.append("<infraque:provenance>")
+            parts.append(f"<{PROVENANCE_PREFIX}:provenance>")
             for element, key in _PROVENANCE_FIELDS:
                 if row.get(key) is not None:
-                    parts.append(f"<infraque:{element}>{escape(str(row[key]))}</infraque:{element}>")
-            parts.append("</infraque:provenance>")
+                    tag = f"{PROVENANCE_PREFIX}:{element}"
+                    parts.append(f"<{tag}>{escape(str(row[key]))}</{tag}>")
+            parts.append(f"</{PROVENANCE_PREFIX}:provenance>")
         parts.append("</item>")
     parts.append("</channel>")
     parts.append("</rss>")

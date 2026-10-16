@@ -1,0 +1,248 @@
+name: deploy-beta
+
+# The one-server private beta (docs/64), deployed from a GitHub-hosted runner, which can reach the
+# server over SSH where a sandbox cannot. The owner creates the accounts once and fills the GitHub
+# Environment `production` (docs/64 §2, "One-click route"); after that this workflow is triggered by
+# hand or through the API (workflow_dispatch) with one of four actions:
+#
+#   deploy     OpenTofu (state in the R2 bucket beta-tfstate): one Hetzner VM, the DNS records for
+#              DOMAIN, the backup and tiles buckets, generated secrets; the tiles custom domain; the
+#              env file; infra/scripts/deploy.sh with SINGLE_HOST=1; health checks. The basemap is
+#              built in its own job when it is missing, and its failure does not fail the deploy.
+#   seed       the docs/64 §3 no-local-data seed: queues the fetches and returns; a unit on the host
+#              queues the context build once they are loaded.
+#   preflight  the GO / NO-GO table, in the run summary. NO-GO does not fail the job (email is
+#              knowingly absent in v1); a preflight that cannot run does.
+#   status     read-only: services, image tag, queue depths, the seed's progress.
+#
+# Every action first checks every input (job `inputs`) and stops red, listing what is missing in the
+# run summary, before any cloud API is called: `status` is the safe way to check the inputs.
+# The domain is read only from the variable DOMAIN, which must equal the tag's
+# services.api.common.DOMAIN (preflight check 10). The steps live in infra/ci/beta.sh, the decisions
+# in infra/ci/beta.py (both tested by infra/ci/test_beta.py; this file by
+# infra/test_deploy_beta_workflow.py). Actions are pinned by commit SHA; OpenTofu and go-pmtiles
+# are pinned and checksummed in beta.sh. No step traces its commands; values from the state are masked.
+# No model identifiers appear anywhere in this file or its output (CLAUDE.md, docs/04 E-15).
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "deploy | seed | preflight | status (status changes nothing)"
+        type: choice
+        options: [deploy, seed, preflight, status]
+        default: status
+        required: true
+      tag:
+        description: "Image tag: sha-<7-character sha> or a v* tag. Empty: sha-<7> of the commit this run uses."
+        type: string
+        default: ""
+        required: false
+
+permissions:
+  contents: read
+  packages: read # GHCR: the deploy checks the tag's images and logs the server in with this run's token
+
+concurrency:
+  group: deploy-beta-production # one run at a time against the one server and its state
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ACTION: ${{ inputs.action }}
+  # The AWS CLI against R2 (https://developers.cloudflare.com/r2/examples/aws/aws-cli/).
+  AWS_DEFAULT_REGION: auto
+  AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+  AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+
+jobs:
+  inputs:
+    name: inputs present and consistent (no cloud API)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: production
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      product_name: ${{ steps.check.outputs.product_name }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0 # the tag's commit, whose services/api/common.py DOMAIN must match
+          persist-credentials: false
+      - id: check
+        name: check every secret and variable in the production Environment
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SITE_ACCESS_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD }}
+          DOMAIN: ${{ vars.DOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          SITE_ACCESS_USER: ${{ vars.SITE_ACCESS_USER }}
+          SENDER_POSTAL_ADDRESS: ${{ vars.SENDER_POSTAL_ADDRESS }}
+          SENDER_LEGAL_NAME: ${{ vars.SENDER_LEGAL_NAME }}
+          PRODUCT_CONTACT_EMAIL: ${{ vars.PRODUCT_CONTACT_EMAIL }}
+          PRODUCT_NAME: ${{ vars.PRODUCT_NAME }}
+        run: infra/ci/beta.sh check-inputs
+
+  infra:
+    name: infrastructure (OpenTofu, tiles domain)
+    needs: inputs
+    if: inputs.action == 'deploy'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    outputs:
+      basemap: ${{ steps.tiles.outputs.basemap }}
+      tiles_bucket: ${{ steps.tiles.outputs.tiles_bucket }}
+    env:
+      TAG: ${{ needs.inputs.outputs.tag }}
+      DOMAIN: ${{ vars.DOMAIN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: the tag's images exist in GHCR
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: infra/ci/beta.sh images
+      - name: install OpenTofu (pinned, checksummed)
+        run: infra/ci/beta.sh install-tofu
+      - name: tofu init (state in R2)
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: infra/ci/beta.sh tofu-init
+      - name: tofu plan, refuse any deletion, apply
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: infra/ci/beta.sh tofu-apply
+      - id: tiles
+        name: tiles bucket custom domain and CORS; is basemap.pmtiles there?
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: infra/ci/beta.sh tiles
+      - name: remove the state outputs and plan from the runner
+        if: always()
+        run: infra/ci/beta.sh cleanup
+
+  basemap:
+    name: basemap.pmtiles (only when missing; never fails the deploy)
+    needs: infra
+    if: needs.infra.outputs.basemap == 'missing'
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: install go-pmtiles (pinned, checksummed)
+        run: infra/ci/beta.sh install-pmtiles
+      - name: build and upload (infra/scripts/build_basemap.sh)
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+          R2_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_TILES_BUCKET: ${{ needs.infra.outputs.tiles_bucket }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: infra/ci/beta.sh basemap
+
+  host:
+    name: ${{ inputs.action }} on the server
+    needs: [inputs, infra]
+    # After the infra job for a deploy; straight after the inputs check for the other actions.
+    if: >-
+      !cancelled() && needs.inputs.result == 'success' &&
+      (needs.infra.result == 'success' || (needs.infra.result == 'skipped' && inputs.action != 'deploy'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+    env:
+      TAG: ${{ needs.inputs.outputs.tag }}
+      DOMAIN: ${{ vars.DOMAIN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: install OpenTofu (pinned, checksummed)
+        run: infra/ci/beta.sh install-tofu
+      - name: tofu init (state in R2)
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: infra/ci/beta.sh tofu-init
+      - name: read the server and its key from the state (every secret masked first)
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: infra/ci/beta.sh outputs
+      - name: wait for SSH and the end of cloud-init
+        run: infra/ci/beta.sh wait-host
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        if: inputs.action == 'deploy'
+        with:
+          python-version: "3.11"
+      - name: render the env file (0600, from the state and the Environment)
+        if: inputs.action == 'deploy'
+        env:
+          SITE_ACCESS_PASSWORD: ${{ secrets.SITE_ACCESS_PASSWORD }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SITE_ACCESS_USER: ${{ vars.SITE_ACCESS_USER }}
+          SENDER_POSTAL_ADDRESS: ${{ vars.SENDER_POSTAL_ADDRESS }}
+          SENDER_LEGAL_NAME: ${{ vars.SENDER_LEGAL_NAME }}
+          PRODUCT_CONTACT_EMAIL: ${{ vars.PRODUCT_CONTACT_EMAIL }}
+          PRODUCT_NAME: ${{ needs.inputs.outputs.product_name }}
+        run: infra/ci/beta.sh render-env
+      - name: deploy (infra/scripts/deploy.sh production, SINGLE_HOST=1)
+        if: inputs.action == 'deploy'
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: infra/ci/beta.sh deploy
+      - name: health checks; URLs to the summary
+        if: inputs.action == 'deploy'
+        env:
+          SITE_ACCESS_USER: ${{ vars.SITE_ACCESS_USER }}
+        run: infra/ci/beta.sh health
+
+      - name: seed (queue the fetches; the context build follows on the host)
+        if: inputs.action == 'seed'
+        run: infra/ci/beta.sh seed
+      - name: preflight (GO / NO-GO table in the summary)
+        if: inputs.action == 'preflight'
+        run: infra/ci/beta.sh preflight
+      - name: status (read-only)
+        if: inputs.action == 'status'
+        run: infra/ci/beta.sh status
+
+      - name: log the server out of GHCR
+        if: always() && inputs.action == 'deploy'
+        run: infra/ci/beta.sh ghcr-logout
+      - name: keep the server's SSH host key for the next run
+        if: always()
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: infra/ci/beta.sh known-hosts-save
+      - name: remove the key, the env file and the state outputs from the runner
+        if: always()
+        run: infra/ci/beta.sh cleanup

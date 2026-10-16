@@ -48,7 +48,7 @@ ONE_CLICK_POST_VALUE = "List-Unsubscribe=One-Click"
 
 
 def product_name() -> str:
-    return os.environ.get("PRODUCT_NAME", "").strip() or "Infraque"
+    return os.environ.get("PRODUCT_NAME", "").strip() or "Inframation"
 
 
 class SenderIdentityMissing(RuntimeError):

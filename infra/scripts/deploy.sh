@@ -28,6 +28,9 @@
 # marks `required`; devops audit 2026-09-30 F3): a missing DOMAIN took Caddy down and a missing
 # PLATFORM_POSTURE changed what was published, with no error. The environment argument is written
 # into the shipped env file as ENVIRONMENT, so staging no longer reports itself as production.
+# DEPLOY_ENV_FILE (2026-10-15) takes those values from a plaintext dotenv on this machine instead of
+# decrypting the sops file: the GitHub Actions beta deploy (.github/workflows/deploy-beta.yml) renders
+# one from the OpenTofu state and its Environment. Every check below runs on it unchanged.
 set -Eeuo pipefail # -E: the ERR trap below must fire inside functions too
 
 usage() {
@@ -41,8 +44,10 @@ Usage: deploy.sh <environment> [image-tag]
 Required environment variables:
   APP_HOST, WORKER_HOSTS (space-separated), BROWSER_WORKER_HOST   — from 'tofu output' (infra/terraform)
                     (APP_HOST alone with SINGLE_HOST=1)
-  SOPS_AGE_KEY      the environment's private age key (see infra/sops/README.md)
+  SOPS_AGE_KEY      the environment's private age key (see infra/sops/README.md), unless DEPLOY_ENV_FILE
 Optional:
+  DEPLOY_ENV_FILE   a plaintext dotenv on this machine, used instead of infra/sops/secrets.<env>.enc.yaml
+                    (no sops, no SOPS_AGE_KEY); readable by its owner only (chmod 600). The same checks apply.
   SINGLE_HOST=1     one VM runs everything, its own Postgres included (compose.single.yml, docs/64)
   SSH_USER          (default: root, matching the docker-ce marketplace image)
   DEPLOY_REF        git ref whose infra/compose files are shipped (default: the working tree)
@@ -76,7 +81,17 @@ else
   : "${WORKER_HOSTS:?set WORKER_HOSTS (space-separated tofu output worker_ipv4s)}"
   : "${BROWSER_WORKER_HOST:?set BROWSER_WORKER_HOST (tofu output browser_worker_ipv4)}"
 fi
-: "${SOPS_AGE_KEY:?set SOPS_AGE_KEY to the private age key contents for this environment}"
+deploy_env_file="${DEPLOY_ENV_FILE:-}"
+if [[ -n "$deploy_env_file" ]]; then
+  [[ -f "$deploy_env_file" && -r "$deploy_env_file" ]] || { echo "DEPLOY_ENV_FILE=${deploy_env_file} is not a readable file" >&2; exit 1; }
+  # Plaintext secrets: refuse a file its group or anyone else may read (`ls -l` mode, GNU and BSD alike).
+  # shellcheck disable=SC2012 # one named file; ls -l's mode column is the portable read
+  [[ "$(ls -ln "$deploy_env_file" | cut -c5-10)" == "------" ]] \
+    || { echo "DEPLOY_ENV_FILE=${deploy_env_file} is readable by others: chmod 600 it" >&2; exit 1; }
+  deploy_env_file="$(cd "$(dirname "$deploy_env_file")" && pwd)/$(basename "$deploy_env_file")"
+else
+  : "${SOPS_AGE_KEY:?set SOPS_AGE_KEY to the private age key contents for this environment (or DEPLOY_ENV_FILE)}"
+fi
 ssh_user="${SSH_USER:-root}"
 remote_dir="/opt/infraque"
 env_file="${remote_dir}/secrets/.env"
@@ -113,7 +128,14 @@ commit="$(git rev-parse --short "${deploy_ref:-HEAD}" 2>/dev/null || echo unknow
 # sops converts the YAML secrets file to KEY=VALUE lines: that is what `--env-file`, `env_file:`
 # and the systemd backup unit's EnvironmentFile all read. Held in memory only (never written
 # locally) and piped to each host below, exactly as the per-host `sops -d | ssh` pipe did before.
-secrets_dotenv="$(SOPS_AGE_KEY="$SOPS_AGE_KEY" sops -d --input-type yaml --output-type dotenv "infra/sops/secrets.${environment}.enc.yaml")"
+# With DEPLOY_ENV_FILE those lines are read from that file instead; nothing else differs.
+if [[ -n "$deploy_env_file" ]]; then
+  secrets_source="DEPLOY_ENV_FILE ${deploy_env_file}"
+  secrets_dotenv="$(cat "$deploy_env_file")"
+else
+  secrets_source="infra/sops/secrets.${environment}.enc.yaml"
+  secrets_dotenv="$(SOPS_AGE_KEY="$SOPS_AGE_KEY" sops -d --input-type yaml --output-type dotenv "$secrets_source")"
+fi
 dotenv_value() { # <KEY>: the last assignment of KEY in the decrypted secrets, quotes stripped
   local line
   line="$(grep -E "^${1}=" <<<"$secrets_dotenv" | tail -n 1 || true)"
@@ -123,7 +145,7 @@ dotenv_value() { # <KEY>: the last assignment of KEY in the decrypted secrets, q
 }
 refuse() { echo "[deploy $environment] refusing to deploy: $*" >&2; exit 1; }
 if [[ -z "$(dotenv_value API_INTERNAL_TOKEN)" ]]; then
-  echo "[deploy $environment] refusing to deploy: API_INTERNAL_TOKEN is empty or missing in infra/sops/secrets.${environment}.enc.yaml." >&2
+  echo "[deploy $environment] refusing to deploy: API_INTERNAL_TOKEN is empty or missing in ${secrets_source}." >&2
   echo "[deploy $environment] web shares the anonymous 60/hour API bucket without it and starts failing after a few page views (docs/60 §11 item 9)." >&2
   exit 1
 fi
@@ -139,7 +161,7 @@ missing=()
 for key in "${REQUIRED_KEYS[@]}"; do
   [[ -n "$(dotenv_value "$key")" ]] || missing+=("$key")
 done
-(( ${#missing[@]} == 0 )) || refuse "empty or missing in infra/sops/secrets.${environment}.enc.yaml: ${missing[*]} (infra/sops/secrets.example.plain.yaml lists every key)"
+(( ${#missing[@]} == 0 )) || refuse "empty or missing in ${secrets_source}: ${missing[*]} (infra/sops/secrets.example.plain.yaml lists every key)"
 case "$(dotenv_value PLATFORM_POSTURE)" in
   commercial|noncommercial) ;;
   *) refuse "PLATFORM_POSTURE must be commercial or noncommercial, not '$(dotenv_value PLATFORM_POSTURE)' (docs/60 §5.1)" ;;
@@ -176,7 +198,7 @@ case "$(dotenv_value CSP_MODE)" in
 esac
 declared_environment="$(dotenv_value ENVIRONMENT)"
 if [[ -n "$declared_environment" && "$declared_environment" != "$environment" ]]; then
-  refuse "infra/sops/secrets.${environment}.enc.yaml says ENVIRONMENT=${declared_environment}"
+  refuse "${secrets_source} says ENVIRONMENT=${declared_environment}"
 fi
 # The environment is the argument, not something the secrets file can get wrong: one ENVIRONMENT
 # line, last, is what compose.prod.yml interpolates and every container receives.

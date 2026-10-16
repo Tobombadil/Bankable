@@ -424,7 +424,7 @@ class _Throttled:
     text = ""
 
     def json(self) -> dict[str, Any]:
-        return {"type": "https://api.infraque.com/problems/rate_limited", "status": 429}
+        return {"type": "https://api.inframation.io/problems/rate_limited", "status": 429}
 
 
 def test_a_throttled_response_is_inconclusive_never_a_leak(

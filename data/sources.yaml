@@ -2486,7 +2486,7 @@ sources:
   publication: raw_ok
   attribution: "Source: The World Bank, Procurement Notices, licensed under CC BY 4.0"
   licence_url: "https://creativecommons.org/licenses/by/4.0/"
-  changes_statement: "Modified by Infraque: notices mapped to the platform's opportunity fields (status, dates, amounts normalised); not endorsed by the World Bank."
+  changes_statement: "Modified by Inframation: notices mapped to the platform's opportunity fields (status, dates, amounts normalised); not endorsed by the World Bank."
   tier: 1
   effort: S
   probe: {method: GET, url: "https://search.worldbank.org/api/v2/procnotices?format=json&rows=2"}
@@ -2507,7 +2507,7 @@ sources:
   publication: raw_ok
   attribution: "Source: The World Bank, Projects & Operations, licensed under CC BY 4.0"
   licence_url: "https://creativecommons.org/licenses/by/4.0/"
-  changes_statement: "Modified by Infraque: projects mapped to the platform's record fields; not endorsed by the World Bank."
+  changes_statement: "Modified by Inframation: projects mapped to the platform's record fields; not endorsed by the World Bank."
   tier: 2
   effort: S
 
@@ -2942,16 +2942,16 @@ sources:
     to the probe on 2026-09-18; the Atlas layer carries the same terminals with coordinates.
 
 - id: curated.organization_parents
-  name: Curated organisation parent links (interim for GLEIF Level 2) — data/vendored/organizations/parents.yaml
-  jurisdiction: US
+  name: Curated organisation parent links (interim for GLEIF Level 2) — data/vendored/organizations/parents.yaml and developer_parents.yaml
+  jurisdiction: global
   category: registry
-  operator: Infraque (curated from the companies' own published statements)
+  operator: Inframation (curated from the companies' own published statements)
   url: file:///data/vendored/organizations/parents.yaml
   access: bulk_file
   auth: none
   format: yaml (child_pattern, parent, source_url, retrieved_at, note; optional as_of, the date the source states the relationship began)
   cadence: continuous
-  license: 'curated by Infraque from the companies'' own published statements; each row cites its URL'
+  license: 'curated by Inframation from the companies'' own published statements; each row cites its URL'
   reuse: open
   publication: raw_ok
   tier: 2
@@ -2963,18 +2963,21 @@ sources:
     these rows for every organisation with an LEI once that loader exists; rows stay only where GLEIF has no
     record. Cheyenne Connector appears in Tallgrass's statement but not in the 202001 Atlas layer, so it has
     no rule yet (a rule with nothing to match would be noise).
+    Since 2026-10-16 also developer_parents.yaml: 117 edges for 24 US, GB, DE and NO developer and utility
+    groups, each from the parent's own document (10-K Exhibit 21, GLEIF, an annual-report subsidiary list or
+    a project page), quoted where the document names the child (docs/22 §24).
 
 - id: curated.organization_aliases
   name: Curated organisation alias rules (renames and short forms no key can reach) — data/vendored/organizations/aliases.yaml
   jurisdiction: US
   category: registry
-  operator: Infraque (curated from SEC EDGAR submissions metadata and company filings)
+  operator: Inframation (curated from SEC EDGAR submissions metadata and company filings)
   url: file:///data/vendored/organizations/aliases.yaml
   access: bulk_file
   auth: none
   format: yaml (alias, canonical, source_url, retrieved_at, note)
   cadence: continuous
-  license: 'curated by Infraque from public filings; each row cites the filing URL it was read from'
+  license: 'curated by Inframation from public filings; each row cites the filing URL it was read from'
   reuse: open
   publication: raw_ok
   tier: 2
@@ -2992,13 +2995,13 @@ sources:
   name: Curated organisation merges (one legal entity loaded as two rows) — data/vendored/organizations/merges.yaml
   jurisdiction: US
   category: registry
-  operator: Infraque (curated from SEC EDGAR filings and the companies' own published statements)
+  operator: Inframation (curated from SEC EDGAR filings and the companies' own published statements)
   url: file:///data/vendored/organizations/merges.yaml
   access: bulk_file
   auth: none
   format: yaml (absorb, into, rationale, source_url, retrieved_at)
   cadence: continuous
-  license: 'curated by Infraque from public filings and company statements; each rule cites the document URL it was read from and quotes the passage in its rationale'
+  license: 'curated by Inframation from public filings and company statements; each rule cites the document URL it was read from and quotes the passage in its rationale'
   reuse: open
   publication: raw_ok
   tier: 2
@@ -3362,7 +3365,7 @@ sources:
   publication: raw_ok
   attribution: "Yin, Nait Belaid & Heleno (2026), Lawrence Berkeley National Laboratory, OEDI, CC BY 4.0: A Harmonized Geospatial Dataset of U.S. Transmission Lines: Linking FERC Form 1 and HIFLD, 1994-2024"
   licence_url: "https://creativecommons.org/licenses/by/4.0/"
-  changes_statement: "Modified by Infraque: HIFLD-side fields only, names re-cased, coordinates rounded."
+  changes_statement: "Modified by Inframation: HIFLD-side fields only, names re-cased, coordinates rounded."
   tier: 2
   effort: S
   probe: {method: GET}

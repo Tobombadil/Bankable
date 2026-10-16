@@ -157,7 +157,7 @@ def test_privacy_page_renders_the_required_sections(web_client: TestClient) -> N
         "California residents",
     ):
         assert heading in body, heading
-    assert "privacy@infraque.com" in body
+    assert "privacy@inframation.io" in body
     assert "Last updated" in body
 
 

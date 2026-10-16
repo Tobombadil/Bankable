@@ -21,7 +21,7 @@ provider "cloudflare" {
 locals {
   name_prefix = "infraque-${var.environment}"
   common_labels = {
-    project     = "infraque" # placeholder name, docs/00-PLAN.md D6
+    project     = "infraque" # infraque: internal codename, not the product name (2026-10-16)
     environment = var.environment
     managed_by  = "opentofu"
   }
@@ -41,8 +41,15 @@ locals {
 
 resource "hcloud_ssh_key" "operator" {
   name       = "${local.name_prefix}-operator"
-  public_key = var.ssh_public_key
+  public_key = local.operator_public_key # var.ssh_public_key, or the generated deploy key (generated.tf)
   labels     = local.common_labels
+
+  lifecycle {
+    precondition {
+      condition     = local.operator_public_key != ""
+      error_message = "Set ssh_public_key, or generate_secrets = true for the generated deploy key (generated.tf)."
+    }
+  }
 }
 
 # One private network so Postgres-bound and inter-VM traffic (queue polling, admin-to-API) never

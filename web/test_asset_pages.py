@@ -2098,5 +2098,5 @@ def test_asset_name_filed_in_capitals_reads_in_a_readable_case_with_the_filed_na
     )
     body = web_client.get("/assets/roscoe-wind-farm-tx").text
     assert "<h1>Roscoe Wind Farm</h1>" in body
-    assert "<title>Roscoe Wind Farm — Infraque</title>" in body
+    assert "<title>Roscoe Wind Farm — Inframation</title>" in body
     assert body.count('As filed: <span class="as-filed__name">ROSCOE WIND FARM</span>') == 1

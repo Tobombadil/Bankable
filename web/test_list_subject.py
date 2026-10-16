@@ -146,8 +146,8 @@ def test_a_companys_group_list_names_it_and_links_back(client: TestClient) -> No
     body = client.get(f"/proposals?sponsor_id={ORG_ID}&sponsor_scope=all&listed=true").text
     assert _h1(body) == "Proposals sponsored by Cypress Creek Renewables LLC and its subsidiaries"
     assert (
-        "<title>Proposals sponsored by Cypress Creek Renewables LLC and its subsidiaries — Infraque</title>"
-        in body
+        "<title>Proposals sponsored by Cypress Creek Renewables LLC and its subsidiaries"
+        " — Inframation</title>" in body
     )
     assert (
         '<p>Company page: <a href="/organizations/cypress-creek">Cypress Creek Renewables LLC</a></p>' in body
@@ -178,7 +178,7 @@ def test_an_unreadable_company_leaves_the_list_as_it_was(client: TestClient) -> 
     _install([_row(1)])  # the organisation call answers 404
     body = client.get(f"/proposals?sponsor_id={ORG_ID}").text
     assert _h1(body) == "Proposals"
-    assert "<title>Proposals — Infraque</title>" in body
+    assert "<title>Proposals — Inframation</title>" in body
 
 
 def test_a_connection_points_list_names_it_from_its_own_rows(client: TestClient) -> None:

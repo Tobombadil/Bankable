@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}{{ record.name | readable_name }} — Infraque{% endblock %}
+{% block title %}{{ record.name | readable_name }} — Inframation{% endblock %}
 {#- `descriptor` before the raw type: an organisation whose stored `type` is `other` would
     otherwise describe itself to a search engine as "Tallgrass Energy: other". -#}
 {% block meta_description %}{{ record.name }}{% if descriptor %}: {{ descriptor | lower }}{% elif record.type and record.type != 'other' %}: {{ record.type | organization_type_label | lower }}{% endif %}{% if summary_parts %}. {{ summary_parts | join('; ') }}{% endif %}{% if record.jurisdiction %} ({{ record.jurisdiction }}){% endif %}.{% endblock %}
@@ -193,7 +193,9 @@
 
 <section aria-label="Proposals">
   {{ m.section_heading("3.", "Proposals") }}
-  {% if group_view and group_view.is_group %}<p class="attribution-line">Sponsored by any company in this group; each row names its sponsor where the register gives one.</p>{% endif %}
+  {# A parent's list is its group's: `proposals_group` is the scope reaching a subsidiary
+     (web/organizations.py::_proposals_span_group), not whether more than one company holds assets. #}
+  {% if proposals_group %}<p class="attribution-line" id="proposals-group">Including subsidiaries: sponsored by this company or a company it owns. Each row names the company that filed it, as the register prints it.</p>{% endif %}
   {% if proposals %}
   {% if proposals_total > proposals | length %}<p class="attribution-line" id="proposals-shown">The <span class="tnum">{{ proposals | length }}</span> most recently changed of <span class="tnum">{{ proposals_total | thousands }}</span>{% if not proposals_complete %} or more{% endif %}{% if pipeline and pipeline.total.href %}; <a href="{{ pipeline.total.href }}">all of them in the list</a>{% endif %}.</p>{% endif %}
   <ul class="in-view-list">
@@ -204,14 +206,14 @@
         {%- if r.technology %}{% set _ = parts.append(r.technology | technology_label) %}{% endif -%}
         {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
         {%- if r.capacity_mw %}{% set _ = parts.append((r.capacity_mw | mw) ~ ' MW') %}{% endif -%}
-        {%- if group_view and group_view.is_group and r.sponsor %}{% set _ = parts.append(r.sponsor) %}{% endif -%}
         {{ parts | join(' · ') }}
+        {%- if proposals_group and r.sponsor %}{{ ' · ' if parts }}<span class="proposal-filer">{% if r.sponsor_slug and r.sponsor_public_id != record.public_id %}<a href="/organizations/{{ r.sponsor_slug }}">{{ r.sponsor }}</a>{% else %}{{ r.sponsor }}{% endif %}</span>{% endif %}
       </span>
     </li>
     {% endfor %}
   </ul>
   {% else %}
-  <p>No proposals sponsored by this company.</p>
+  <p>No proposals sponsored by this company{% if proposals_group %} or a company it owns{% endif %}.</p>
   {% endif %}
 </section>
 

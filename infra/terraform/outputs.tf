@@ -3,6 +3,11 @@ output "app_ipv4" {
   value       = hcloud_server.app.ipv4_address
 }
 
+output "app_server_type" {
+  description = "The app VM's server type. The GitHub Actions beta deploy passes it back as app_server_type on every later run, so a type Hetzner retires or a cheaper one it adds never rescales a running server."
+  value       = hcloud_server.app.server_type
+}
+
 output "worker_ipv4s" {
   description = "Public IPv4s of the worker VM(s)."
   value       = hcloud_server.worker[*].ipv4_address

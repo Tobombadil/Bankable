@@ -5,11 +5,11 @@
 map model, motion, banned patterns) are the design inputs this doc builds screens against.
 **Inputs:** `CLAUDE.md`; `.claude/agents/product-designer.md`; `docs/10-prd-mvp.md` §4 (US-101…US-1003);
 `docs/23-api-spec-outline.md` §3–§4; `docs/21-data-model.md` §8.
-**Product name used in this doc:** Infraque (placeholder, `docs/12-naming-shortlist.md`).
+**Product name used in this doc:** Inframation (owner, 2026-10-16; `docs/12-naming-shortlist.md` §12).
 
 ## 1. Three surfaces, one grammar
 
-D-16 fixes the shape: Public (`infraque.com`, no key), Pro (same host, entitlement-gated routes),
+D-16 fixes the shape: Public (`inframation.io`, no key), Pro (same host, entitlement-gated routes),
 Admin (`admin.` host, role `operator`/`owner`). D-4 and D-17 fix the rule governing every screen below: one filter
 vocabulary, one URL grammar (`docs/23` §7), shared across list, map and feed, on every tier — a tier changes what
 a query returns, never its shape. Primary nav is identical across public and Pro. ~~**Proposals · Opportunities ·
@@ -95,7 +95,7 @@ is the identical URL a public visitor sees, with `lag_days = 0` in the envelope 
 
 ```mermaid
 flowchart TD
-  AH["admin.infraque.com / — source health (US-904)"] --> SRC["/sources/{id} (US-904,905)"]
+  AH["admin.inframation.io / — source health (US-904)"] --> SRC["/sources/{id} (US-904,905)"]
   AH --> RUNS["/source-runs (DQ, snapshots)"]
   SRC --> GATE["publish-state + gate clearance (US-905, legal role)"]
   AH --> REC["/records — proposals/opportunities/orgs edit+merge (US-905,202)"]
@@ -519,7 +519,7 @@ Grid and breakpoints per `docs/30` §5 (400/720/1080/1440px, D-32).
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│ Infraque        Proposals · Opportunities · Map · Feed · Alerts      │ nav, identical all tiers
+│ Inframation     Proposals · Opportunities · Map · Feed · Alerts      │ nav, identical all tiers
 │ D-3 banner: "Every record and change event live. Alerts and API in Pro" │ fixed, public tier only
 │ Filter bar: kind▾ technology▾ lifecycle▾ jurisdiction▾ capacity– –     │ D-19 tokens, URL-bound (D-17)
 │ View: [Map] List Feed              1,834 in view                       │
@@ -666,7 +666,7 @@ filed. The name as filed is printed once under the H1 ("As filed: TRENT WIND FAR
 JSON-LD, search, URLs and every other field keep the register's spelling. Grid connection point names are left as
 filed (bus names such as `W_LOMA_ALTA_138` read worse cased). The proposal page's capacity and storage rows and its
 meta description print through `mw` ("3,200", not "3200.0"). Every `<title>` separates page and site with a spaced em
-dash ("Pricing — Infraque"), the dash the site's prose already uses, instead of " -- ".
+dash ("Pricing — Inframation"), the dash the site's prose already uses, instead of " -- ".
 
 ### 5.3 Opportunity list (`/opportunities`)
 

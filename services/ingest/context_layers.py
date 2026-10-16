@@ -171,10 +171,11 @@ def apply_features(session: Session, data_root: pathlib.Path) -> None:
 def load_organization_graph(session: Session, data_dir: pathlib.Path) -> None:
     """The ownership graph's organisation layer (docs/22 §17), after every asset, edge, owner-share
     and curated-parent load because it reads what they created: GLEIF Level 2 parent links, then the
-    curated alias file, then the curated merge file. A missing parquet or an unreadable YAML is one
-    log line each. GLEIF runs after the curated parents and wins where it has a record;
-    `services/ingest/midstream.py::load_parents` defers to it on a later re-run, so the order here
-    is a preference, not a correctness requirement."""
+    curated alias file, then the curated merge file, then the curated developer and utility groups
+    (docs/22 §24). A missing parquet or an unreadable YAML is one log line each. GLEIF runs after
+    the curated parents and wins where it has a record; `services/ingest/midstream.py::load_parents`
+    and `organizations.load_group_parents` both defer to it, so the order here is a preference, not
+    a correctness requirement."""
     parquet_path = context_dir(data_dir) / GLEIF_PARENTS_FILE
     if not parquet_path.exists():
         log.info("organisation graph: %s not found, skipping GLEIF parents", parquet_path)
@@ -195,6 +196,17 @@ def load_organization_graph(session: Session, data_dir: pathlib.Path) -> None:
         log.info("organisation graph: curated merge file unusable (%s), skipping", exc)
     else:
         log.info("organisation graph: curated merges applied (%s)", merges.as_report())
+    # The developer and utility groups (data/vendored/organizations/developer_parents.yaml, docs/22
+    # §24) after the merges, so each edge lands on the surviving row. Here rather than beside
+    # `load_parents` because this step runs on every load, with or without the midstream files: a
+    # store holding only the queue registers (a server seeded by `bootstrap fetch` before its
+    # context build, docs/64 §3) still gets its sponsors' groups. The file ships in every image.
+    try:
+        groups = organizations.load_group_parents(session)
+    except (FileNotFoundError, ValueError) as exc:
+        log.info("organisation graph: curated group parents unusable (%s), skipping", exc)
+    else:
+        log.info("organisation graph: curated group parents applied (%s)", groups.as_report())
 
 
 def _load_ethanol_plants(session: Session, data_dir: pathlib.Path) -> bool:

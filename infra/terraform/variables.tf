@@ -21,9 +21,9 @@ variable "hcloud_region" {
 }
 
 variable "domain" {
-  description = "Placeholder root domain (infraque.com in docs until the owner names the product, docs/04 §0.6)."
+  description = "Root domain: inframation.io in staging and production (owner, 2026-10-16; docs/04 §0.6). The default is a non-routable placeholder for dev and CI plans."
   type        = string
-  default     = "example-infraque.test"
+  default     = "example-inframation.test"
 }
 
 variable "cloudflare_zone_id" {
@@ -61,6 +61,12 @@ variable "web_source_cidrs" {
     condition     = length(var.web_source_cidrs) > 0 && alltrue([for c in var.web_source_cidrs : c == "cloudflare" || can(cidrhost(c, 0))])
     error_message = "web_source_cidrs entries must be CIDRs or the word \"cloudflare\"."
   }
+}
+
+variable "dns_proxied" {
+  description = "Whether the four records in dns.tf go through Cloudflare's proxy (orange cloud). Default true, as before. The one-server beta's GitHub Actions deploy (docs/64 §2) sets false: the records then point straight at the VM, so Caddy's certificate challenge and the deploy's health checks reach it without Cloudflare's SSL mode in between, and web_source_cidrs must stay open (not [\"cloudflare\"]) until this is true again."
+  type        = bool
+  default     = true
 }
 
 variable "app_server_type" {

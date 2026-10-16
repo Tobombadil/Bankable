@@ -39,7 +39,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from services.api.client_ip import client_ip_prefix, is_internal_request, rate_limit_address
-from services.api.common import DOMAIN
+from services.api.common import DOMAIN, WEB_HOST
 from services.api.deps import get_db
 from services.api.errors import ProblemError
 from services.db.models import Account, ApiKey, User, UserSession
@@ -264,7 +264,7 @@ def send_verification_email(email_port: EmailPort, user: User, *, token: str) ->
     return email_port.send(
         to=user.email or "",
         subject="Verify your email",
-        body=f"Confirm your account: https://infraque.com/verify?token={token}",
+        body=f"Confirm your account: {WEB_HOST}/verify?token={token}",
     )
 
 

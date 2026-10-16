@@ -622,11 +622,11 @@ throughout, which is the same design the EU AI Act requires. **Confidence: moder
 
 ### 6.5 The disclosure texts the product uses
 
-Recorded as a decision. The operator named in every text is the product, **Infraque**, not the owner's
+Recorded as a decision. The operator named in every text is the product, **Inframation**, not the owner's
 other company: the 2026-09-18 audit found the shipped constant still read "Bankable (bankablehq.com)",
 and a disclosure that names the wrong operator is itself a false statement about who runs the account
 (§6.1, §6.3). `services/social/editorial.py` renders these from the environment — `PRODUCT_NAME`
-(default `Infraque`), `PRODUCT_URL` (default the site host in `services/api/common.py`),
+(default `Inframation`), `PRODUCT_URL` (default the site host in `services/api/common.py`),
 `PRODUCT_CONTACT_EMAIL` (default `hello@` on that domain) — so a rename is a deploy-time setting, not
 a code change. The email footer's legal name and postal address come from `SENDER_LEGAL_NAME` and
 `SENDER_POSTAL_ADDRESS` (`services/alerts/mail.py`); no send leaves production while either is unset
@@ -634,12 +634,12 @@ a code change. The email footer's legal name and postal address come from `SENDE
 
 | Surface | Text |
 |---|---|
-| Automated social account (X, Bluesky, any) — bio and per-post disclosure | Two variants, one per platform posture (`PLATFORM_POSTURE`, docs/26 §1), chosen by the posture the process applies (2026-10-07, audit L-9: the single text said "commercial in nature" while `/v1/health`, `/about` and `/pricing` state the noncommercial posture). *Noncommercial:* "Automated feed run by Infraque (infraque.com). Posts are generated from public records; the platform operates under a noncommercial posture. Not monitored for replies — contact: hello@infraque.com." *Commercial:* "Automated feed run by Infraque (infraque.com). Posts are generated from public records and are commercial in nature. Not monitored for replies — contact: hello@infraque.com." Whether the entity may hold the noncommercial status stays counsel item 15 (§7, docs/13-legal-data-rights.md). |
+| Automated social account (X, Bluesky, any) — bio and per-post disclosure | Two variants, one per platform posture (`PLATFORM_POSTURE`, docs/26 §1), chosen by the posture the process applies (2026-10-07, audit L-9: the single text said "commercial in nature" while `/v1/health`, `/about` and `/pricing` state the noncommercial posture). *Noncommercial:* "Automated feed run by Inframation (inframation.io). Posts are generated from public records; the platform operates under a noncommercial posture. Not monitored for replies — contact: hello@inframation.io." *Commercial:* "Automated feed run by Inframation (inframation.io). Posts are generated from public records and are commercial in nature. Not monitored for replies — contact: hello@inframation.io." Whether the entity may hold the noncommercial status stays counsel item 15 (§7, docs/13-legal-data-rights.md). |
 | Automated social account — display name | contains "(automated)" or "feed" |
 | Auto-published item without human review | trailing line "Auto-generated summary from [source]; not human-reviewed." Appended to the body by the drafting worker on every auto-published post (2026-10-07, audit L-8), which happens only for a (channel, event type) pair the owner enabled after docs/32 §4.6 graduation, never on LinkedIn. |
 | Human-reviewed published item | editor of record recorded in the CMS; no on-item AI disclosure required; site-wide editorial policy page states that drafting uses AI and a named editor reviews |
-| On-site chat/assistant | first message: "I'm Infraque's AI assistant, not a human. …" and a persistent label; disclosure repeated on request |
-| Alert/digest email — footer (every send) | "You are receiving this because you subscribed at infraque.com. Data derived from public sources cited above; see each item's source and licence." + the delayed-data notice for the reader's tier + one-click unsubscribe link + "Sent by Infraque <alerts@infraque.com> on behalf of {SENDER_LEGAL_NAME}, {SENDER_POSTAL_ADDRESS}". Headers: `List-Unsubscribe` (mailto + https), `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058). |
+| On-site chat/assistant | first message: "I'm Inframation's AI assistant, not a human. …" and a persistent label; disclosure repeated on request |
+| Alert/digest email — footer (every send) | "You are receiving this because you subscribed at inframation.io. Data derived from public sources cited above; see each item's source and licence." + the delayed-data notice for the reader's tier + one-click unsubscribe link + "Sent by Inframation <alerts@inframation.io> on behalf of {SENDER_LEGAL_NAME}, {SENDER_POSTAL_ADDRESS}". Headers: `List-Unsubscribe` (mailto + https), `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058). |
 | Human-sent email drafted with AI | no AI disclosure required (human sender, human review); the sender's real name and the statements in §7.2 |
 
 ---

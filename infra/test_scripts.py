@@ -864,3 +864,145 @@ def test_seed_refuses_a_data_root_with_nothing_to_ship(
         result = run("seed_single_host.sh", str(root), env=env)
         expect(result.returncode != 0, f"{root}: {result.stdout}")
     expect(calls(log) == [], "nothing may reach the host")
+
+
+# ---------------------------------------------------------------- DEPLOY_ENV_FILE (2026-10-15)
+# The GitHub Actions beta deploy (.github/workflows/deploy-beta.yml) hands deploy.sh a plaintext
+# dotenv instead of the sops file. Whatever the sops path refuses, that path must refuse too, before
+# any host is touched; and it must never need sops or an age key.
+
+#: A sops shim that fails the test if it is ever run.
+SOPS_FORBIDDEN = '#!/usr/bin/env bash\nprintf \'sops %s\\n\' "$*" >> "$FAKE_LOG"\nexit 97\n'
+
+
+def shim_dotenv(variant: dict[str, str]) -> str:
+    """Exactly what SOPS_SHIM prints for the same FAKE_TOKEN / FAKE_OMIT / FAKE_EXTRA."""
+    lines = [f"API_INTERNAL_TOKEN={variant.get('FAKE_TOKEN', 'fake-internal-token-not-a-secret')}"]
+    omit = variant.get("FAKE_OMIT", "").split()
+    lines += [f"{k}={v}" for k, v in REQUIRED_FAKES.items() if k not in omit]
+    if variant.get("FAKE_EXTRA"):
+        lines.append(variant["FAKE_EXTRA"])
+    return "\n".join(lines) + "\n"
+
+
+def env_file_run(
+    env: dict[str, str], tmp_path: pathlib.Path, variant: dict[str, str], *args: str
+) -> subprocess.CompletedProcess[str]:
+    dotenv = tmp_path / "beta.env"
+    dotenv.write_text(shim_dotenv(variant))
+    dotenv.chmod(0o600)
+    write_shim(pathlib.Path(env["PATH"].split(":")[0]), "sops", SOPS_FORBIDDEN)
+    file_env = {k: v for k, v in env.items() if k != "SOPS_AGE_KEY"} | {"DEPLOY_ENV_FILE": str(dotenv)}
+    for key in ("SINGLE_HOST", "WORKER_HOSTS", "BROWSER_WORKER_HOST"):
+        if key in variant:
+            file_env[key] = variant[key]
+    if variant.get("SINGLE_HOST"):
+        file_env = {k: v for k, v in file_env.items() if k not in ("WORKER_HOSTS", "BROWSER_WORKER_HOST")}
+    return run("deploy.sh", *args, env=file_env)
+
+
+#: Every refusal the sops-path tests above prove, as (variant, environment, message).
+REFUSALS = [
+    ({"FAKE_TOKEN": ""}, "production", "API_INTERNAL_TOKEN is empty or missing"),
+    ({"FAKE_OMIT": "DOMAIN"}, "production", "DOMAIN"),
+    ({"FAKE_EXTRA": "MAP_TILE_URL="}, "production", "MAP_TILE_URL"),
+    ({"FAKE_OMIT": "SENDER_LEGAL_NAME"}, "production", "SENDER_LEGAL_NAME"),
+    ({"FAKE_EXTRA": "PLATFORM_POSTURE=Commercial "}, "staging", "PLATFORM_POSTURE must be commercial"),
+    ({"FAKE_EXTRA": "SNAPSHOT_STORE=local"}, "staging", "SNAPSHOT_STORE must be s3"),
+    ({"FAKE_EXTRA": "ENVIRONMENT=production"}, "staging", "says ENVIRONMENT=production"),
+    ({"FAKE_EXTRA": "SITE_ACCESS=basic\nSITE_ACCESS_USER=beta"}, "staging", "SITE_ACCESS_HASH"),
+    (
+        {"FAKE_EXTRA": "SITE_ACCESS=basic\nSITE_ACCESS_USER=beta\nSITE_ACCESS_HASH=$2a$14$raw"},
+        "staging",
+        "SITE_ACCESS_HASH",
+    ),
+    ({"FAKE_EXTRA": f"SITE_ACCESS=basic\nSITE_ACCESS_HASH={FAKE_GATE_HASH}"}, "staging", "SITE_ACCESS_USER"),
+    ({"FAKE_EXTRA": "SITE_ACCESS=private"}, "staging", "SITE_ACCESS must be open or basic"),
+    ({"FAKE_EXTRA": "CSP_MODE=Enforce"}, "staging", "CSP_MODE must be report or enforce"),
+    (
+        {
+            "FAKE_EXTRA": SINGLE_HOST_EXTRA.replace(
+                "POSTGRES_PASSWORD=fake-db-password", "POSTGRES_PASSWORD="
+            ),
+            "SINGLE_HOST": "1",
+        },
+        "production",
+        "POSTGRES_PASSWORD",
+    ),
+    (
+        {
+            "FAKE_EXTRA": SINGLE_HOST_EXTRA.replace("@postgres:5432", "@db.example.test:5432"),
+            "SINGLE_HOST": "1",
+        },
+        "production",
+        "DATABASE_URL",
+    ),
+    (
+        {
+            "FAKE_EXTRA": SINGLE_HOST_EXTRA.replace("SNAPSHOT_STORE=local", "SNAPSHOT_STORE=ftp"),
+            "SINGLE_HOST": "1",
+        },
+        "production",
+        "SNAPSHOT_STORE",
+    ),
+]
+
+
+@pytest.mark.parametrize(("variant", "environment", "message"), REFUSALS)
+def test_an_env_file_is_refused_wherever_the_sops_file_is(
+    shims: tuple[pathlib.Path, dict[str, str]],
+    tmp_path: pathlib.Path,
+    variant: dict[str, str],
+    environment: str,
+    message: str,
+) -> None:
+    log, env = shims
+    sops_env = env | {k: v for k, v in variant.items() if k.startswith("FAKE_")}
+    if variant.get("SINGLE_HOST"):
+        sops_env = _single(env, variant["FAKE_EXTRA"])
+    by_sops = run("deploy.sh", environment, "sha-abc1234", env=sops_env)
+    expect(by_sops.returncode != 0 and message in by_sops.stderr, f"sops path: {by_sops.stderr}")
+    log.write_text("")
+    by_file = env_file_run(env, tmp_path, variant, environment, "sha-abc1234")
+    expect(by_file.returncode != 0 and message in by_file.stderr, f"DEPLOY_ENV_FILE path: {by_file.stderr}")
+    expect(".enc.yaml" not in by_file.stderr, f"the refusal must not blame the sops file: {by_file.stderr}")
+    lines = calls(log)
+    expect(not any(ln.startswith(("ssh ", "scp ", "sops ")) for ln in lines), f"no host and no sops: {lines}")
+
+
+def test_an_env_file_deploys_without_sops_or_an_age_key(
+    shims: tuple[pathlib.Path, dict[str, str]], tmp_path: pathlib.Path
+) -> None:
+    log, env = shims
+    shipped = tmp_path / "shipped.env"
+    variant = {"FAKE_EXTRA": SINGLE_HOST_EXTRA + "\n" + GATE_EXTRA, "SINGLE_HOST": "1"}
+    result = env_file_run(
+        env | {"FAKE_SECRETS": str(shipped)}, tmp_path, variant, "production", "sha-beta123"
+    )
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    lines = calls(log)
+    expect(not any(ln.startswith("sops ") for ln in lines), "sops must not run")
+    text = shipped.read_text()
+    expect(text.endswith("ENVIRONMENT=production\n") and text.count("ENVIRONMENT=") == 1, text)
+    expect("DOMAIN=example.test" in text and "SITE_ACCESS=basic" in text, "the file travels unchanged")
+    expect(any("up -d --no-build scheduler" in ln for ln in lines), "the deploy runs to the end")
+
+
+def test_an_env_file_others_can_read_or_a_missing_one_is_refused(
+    shims: tuple[pathlib.Path, dict[str, str]], tmp_path: pathlib.Path
+) -> None:
+    log, env = shims
+    dotenv = tmp_path / "beta.env"
+    dotenv.write_text(shim_dotenv({}))
+    base = {k: v for k, v in env.items() if k != "SOPS_AGE_KEY"}
+    for mode, message in ((0o644, "readable by others"), (0o640, "readable by others")):
+        dotenv.chmod(mode)
+        result = run("deploy.sh", "staging", "sha-x", env=base | {"DEPLOY_ENV_FILE": str(dotenv)})
+        expect(result.returncode != 0 and message in result.stderr, result.stderr)
+    result = run(
+        "deploy.sh", "staging", "sha-x", env=base | {"DEPLOY_ENV_FILE": str(tmp_path / "absent.env")}
+    )
+    expect(result.returncode != 0 and "not a readable file" in result.stderr, result.stderr)
+    result = run("deploy.sh", "staging", "sha-x", env=base)
+    expect(result.returncode != 0 and "SOPS_AGE_KEY" in result.stderr, "the sops path still needs its key")
+    expect(not any(ln.startswith(("ssh ", "scp ", "sops ")) for ln in calls(log)), "nothing ran")

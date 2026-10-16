@@ -383,6 +383,7 @@ jobs:
       postgres:
         image: postgis/postgis:16-3.4
         env:
+          # infraque: internal codename, not the product name (2026-10-16)
           POSTGRES_DB: infraque_ci
           POSTGRES_USER: infraque
           POSTGRES_PASSWORD: infraque-ci-only

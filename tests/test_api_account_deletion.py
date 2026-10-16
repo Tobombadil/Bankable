@@ -139,7 +139,7 @@ def _webhook(db: Session, user: User) -> WebhookEndpoint:
         public_id="",
         account_id=user.account_id,
         created_by_user_id=user.id,
-        url="https://hooks.example.com/infraque",
+        url="https://hooks.example.com/inframation",
         types=["event.published"],
         secret="s" * 43,
     )

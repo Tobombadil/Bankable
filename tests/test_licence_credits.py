@@ -132,7 +132,7 @@ def test_every_served_surface_carries_the_neso_statement_verbatim(
     assert (summary["attribution_text"], summary["licence_url"]) == (NESO, NESO_LICENCE)
 
     rss = client.get("/feeds/proposals.rss").text
-    assert f"<infraque:attribution>{NESO}</infraque:attribution>" in rss
+    assert f"<inframation:attribution>{NESO}</inframation:attribution>" in rss
     assert f"<dc:creator>{NESO}</dc:creator>" in rss
     assert "Source: National Energy System Operator" not in rss
 
@@ -182,12 +182,12 @@ def test_cc_by_credits_carry_their_licence_link_and_statement_of_changes(registr
         "Yin, Nait Belaid & Heleno (2026), Lawrence Berkeley National Laboratory, OEDI, CC BY 4.0"
     )
     assert lbnl.credit_text.endswith(
-        "Modified by Infraque: HIFLD-side fields only, names re-cased, coordinates rounded."
+        "Modified by Inframation: HIFLD-side fields only, names re-cased, coordinates rounded."
     )
     assert lbnl.licence_url == "https://creativecommons.org/licenses/by/4.0/"
     world_bank = registry.sources["mdb.worldbank.procnotices"]
     assert world_bank.credit_text is not None and "CC BY 4.0" in world_bank.credit_text
-    assert "Modified by Infraque" in world_bank.credit_text
+    assert "Modified by Inframation" in world_bank.credit_text
     assert world_bank.licence_url == "https://creativecommons.org/licenses/by/4.0/"
 
 

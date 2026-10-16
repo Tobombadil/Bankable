@@ -73,3 +73,53 @@ def test_the_cloudflare_ranges_come_from_the_caddyfile_and_are_public() -> None:
         expect(not network.is_private and network.prefixlen >= 8, f"{cidr} is not an edge range")
     # Both regexes take the first match: a comment quoting the directive would be read instead.
     expect(CADDYFILE.read_text().count("trusted_proxies static") == 1, "one trusted_proxies line, no copies")
+
+
+# ---------------------------------------------------------------- the GitHub Actions beta deploy (2026-10-15)
+def test_generated_secrets_are_off_unless_the_beta_workflow_asks() -> None:
+    """generated.tf plans nothing by default, so a local `tofu apply` is unchanged: every resource is
+    counted or iterated on `generate_secrets`, whose default is false; its outputs are sensitive."""
+    generated = (TERRAFORM / "generated.tf").read_text()
+    block = re.search(r'variable "generate_secrets" \{(.*?)\n\}', generated, re.S)
+    expect(
+        block is not None and "default     = false" in block.group(1), "generate_secrets defaults to false"
+    )
+    for kind, name in re.findall(r'resource "(\w+)" "(\w+)" \{', generated):
+        body = generated.split(f'resource "{kind}" "{name}" {{', 1)[1].split("\n}", 1)[0]
+        expect("var.generate_secrets ?" in body, f"{kind}.{name} is not conditional on generate_secrets")
+    for name in ("generated_secrets", "deploy_ssh_private_key"):
+        body = generated.split(f'output "{name}" {{', 1)[1].split("\n}", 1)[0]
+        expect("sensitive   = true" in body, f"{name} must be sensitive")
+    expect(
+        "special  = false" in generated,
+        "letters and digits only: DATABASE_URL carries the password unescaped",
+    )
+    main = (TERRAFORM / "main.tf").read_text()
+    expect(
+        "public_key = local.operator_public_key" in main, "the operator key is the generated one when asked"
+    )
+
+
+def test_dns_stays_proxied_by_default() -> None:
+    variables = (TERRAFORM / "variables.tf").read_text()
+    block = re.search(r'variable "dns_proxied" \{(.*?)\n\}', variables, re.S)
+    expect(block is not None and "default     = true" in block.group(1), "dns_proxied defaults to true")
+    dns = (TERRAFORM / "dns.tf").read_text()
+    expect(dns.count("proxied = var.dns_proxied") == 4 and "proxied = true" not in dns, dns)
+
+
+def test_cloud_init_installs_no_apt_package_ubuntu_24_04_lacks() -> None:
+    """The docker-ce image is Ubuntu 24.04, which has no `awscli` package; one unknown package fails
+    the whole apt install, pg_dump included, and every deploy's pre-migration dump with it."""
+    import yaml
+
+    app = yaml.safe_load((TERRAFORM / "cloud-init" / "app.yaml").read_text())
+    expect("awscli" not in app["packages"] and "postgresql-client-16" in app["packages"], app["packages"])
+    expect(
+        any("pip install" in c and "awscli==" in c and "/usr/local/bin/aws" in c for c in app["runcmd"]),
+        app["runcmd"],
+    )
+    unit = app["write_files"][0]["content"]
+    expect(
+        "AWS_DEFAULT_REGION=auto" in unit and "AWS_REQUEST_CHECKSUM_CALCULATION=when_required" in unit, unit
+    )

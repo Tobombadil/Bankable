@@ -466,7 +466,7 @@ def test_the_form_meets_the_structural_rules_without_a_browser(web_client: TestC
     body = web_client.get("/feedback", params={"from": "/proposals"}).text
 
     assert body.count("<h1>") == 1 and '<html lang="en">' in body
-    assert "<title>Tell us what you were trying to do — Infraque</title>" in body
+    assert "<title>Tell us what you were trying to do — Inframation</title>" in body
     assert 'name="robots" content="noindex, nofollow"' in body
     assert "style=" not in body
     ids = re.findall(r'\bid="([^"]+)"', body)

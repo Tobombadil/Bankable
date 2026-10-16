@@ -12,8 +12,8 @@ resource "cloudflare_record" "app" {
   name    = var.environment == "production" ? "@" : var.environment
   content = hcloud_server.app.ipv4_address
   type    = "A"
-  proxied = true # edge CDN/WAF in front of the app VM (docs/20 §2 edge tier)
-  ttl     = 1    # ignored when proxied
+  proxied = var.dns_proxied # edge CDN/WAF in front of the app VM (docs/20 §2 edge tier)
+  ttl     = 1               # automatic (Cloudflare's 300 s when not proxied)
 }
 
 resource "cloudflare_record" "www" {
@@ -22,7 +22,7 @@ resource "cloudflare_record" "www" {
   name    = "www"
   content = var.domain
   type    = "CNAME"
-  proxied = true
+  proxied = var.dns_proxied
   ttl     = 1
 }
 
@@ -32,7 +32,7 @@ resource "cloudflare_record" "admin" {
   name    = var.environment == "production" ? "admin" : "admin-${var.environment}"
   content = hcloud_server.app.ipv4_address
   type    = "A"
-  proxied = true # Cloudflare Access can be layered on this hostname later (docs/20 §7 [A-10])
+  proxied = var.dns_proxied # Cloudflare Access can be layered on this hostname later (docs/20 §7 [A-10])
   ttl     = 1
 }
 
@@ -46,6 +46,6 @@ resource "cloudflare_record" "api" {
   name    = var.environment == "production" ? "api" : "api-${var.environment}"
   content = hcloud_server.app.ipv4_address
   type    = "A"
-  proxied = true
+  proxied = var.dns_proxied
   ttl     = 1
 }

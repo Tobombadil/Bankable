@@ -32,7 +32,7 @@ _BASE = {
     "source_url": "https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx",
     "retrieved_at": RETRIEVED_AT,
     "reuse_class": "attribution",
-    "page_url": "https://infraque.com/proposals/caiso:1",
+    "page_url": "https://inframation.io/proposals/caiso:1",
     "subject_id": "caiso:1",
 }
 
@@ -197,9 +197,9 @@ def test_disclosure_names_the_product_not_the_old_company(monkeypatch):
     for channel, text in texts.items():
         assert "Bankable" not in text, channel
         assert "bankablehq" not in text, channel
-    assert texts["bluesky"].startswith("Automated feed run by Infraque (infraque.com).")
-    assert "contact: hello@infraque.com" in texts["x"]
-    assert "Infraque's pipeline" in texts["linkedin"]
+    assert texts["bluesky"].startswith("Automated feed run by Inframation (inframation.io).")
+    assert "contact: hello@inframation.io" in texts["x"]
+    assert "Inframation's pipeline" in texts["linkedin"]
     assert editorial.DISCLOSURE_TEXT["bluesky"] == texts["bluesky"]
     assert "x" in editorial.DISCLOSURE_TEXT
 

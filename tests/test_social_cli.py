@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from services.api.common import WEB_HOST
 from services.social.__main__ import build_parser, main
 from services.social.queue import ReviewQueue
 
@@ -108,7 +109,7 @@ class TestDraftCommand:
         assert {d.channel for d in drafts} == {"bluesky", "x", "linkedin"}
         assert all(d.subject_id == "caiso:1" for d in drafts)
         for d in drafts:
-            assert "infraque.com" in d.link_url  # placeholder hostname convention preserved verbatim
+            assert d.link_url.startswith(f"{WEB_HOST}/proposals/")  # the product host, services.api.common
 
     def test_draft_is_idempotent_on_rerun(
         self,

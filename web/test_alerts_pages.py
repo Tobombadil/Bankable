@@ -176,7 +176,7 @@ def test_save_list_pause_resume_and_delete(web_client: TestClient, noncommercial
     empty = web_client.get("/alerts")
     assert "No alerts yet." in empty.text
     assert '0</span> of <span class="tnum">10</span> alerts used' in empty.text
-    assert "Free while Infraque operates as a noncommercial service" in empty.text
+    assert "Free while Inframation operates as a noncommercial service" in empty.text
 
     new = web_client.get("/alerts/new?entity=proposal&technology=bess_li_ion&jurisdiction=US-TX")
     assert "Proposals this alert watches" in new.text

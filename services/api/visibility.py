@@ -425,7 +425,7 @@ def organization_visibility_filter(
     take down an organisation that source alone named (docs/21 §8 item 3: its existence is itself
     a disclosure of the register's contents), so the row is visible only when one of these holds:
 
-    - it is a curated issuer (`is_curated_issuer`: Infraque's own statement, not a register's);
+    - it is a curated issuer (`is_curated_issuer`: Inframation's own statement, not a register's);
     - it has no alias row at all (nothing recorded to gate on: hand-made and legacy rows);
     - at least one alias came from a source `entitlement` may read (`source_permits` and
       `licence_permits`, the two clauses `visible_source_link_filter` applies).

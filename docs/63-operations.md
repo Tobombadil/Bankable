@@ -140,7 +140,7 @@ Email-provider delivery time is on top and outside the platform's control.
 
 | Channel | Who reads it | For |
 |---|---|---|
-| Support mailbox on the product domain (`infraque.com` — **not yet registered**, `docs/00-PLAN.md` owner actions) | owner | account, billing (inactive under `noncommercial`), data questions, corrections |
+| Support mailbox on the product domain (`inframation.io` — **not yet registered**, `docs/00-PLAN.md` owner actions) | owner | account, billing (inactive under `noncommercial`), data questions, corrections |
 | In-product report (`POST /v1/reports` → `report` task) | owner via the admin task queue (`web/admin/tasks.py`) | wrong fact, wrong merge, takedown, personal-data request |
 | Intake forms (`intake_proposal`, `intake_opportunity` tasks) | owner | user-submitted records; human review before anything publishes (US-1002) |
 | Social replies and DMs | owner; drafts from the review queue, sent by a human (`docs/32` §5) | never automated |
@@ -333,7 +333,7 @@ repo has carried it as an open action past its own stated timing. Where the repo
 | MISO terms read in a browser | R-02 | `docs/13` §7 item 2 |
 | SPP written-authorisation request | R-03 | `docs/40` §2.1 |
 | Counsel brief (15 items doc A §7, 11 items doc B §11); the three launch blockers first | R-05 | PLAN 2026-09-18 decision 4 |
-| Register `infraque.com` (and `infraqueue.com`, typo variants counsel suggests) | every sender address and handle | PLAN 2026-09-15 |
+| Register `inframation.io` (and the typo variants counsel suggests) | every sender address and handle | PLAN 2026-10-16; `docs/12` §12 |
 | Free API keys: EIA v2, SAM.gov, NRC ADAMS, regulations.gov | tier-2 connectors | PLAN "Immediate next actions" |
 | LinkedIn Marketing Developer Platform application (2–8 weeks) | LinkedIn API posting | `docs/32` §1.4 |
 | Bluesky account; X developer project; email provider | first post | `docs/32` §2 |

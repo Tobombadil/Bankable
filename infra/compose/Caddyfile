@@ -4,7 +4,7 @@
 #
 # Two environment variables, both required (compose.prod.yml refuses to render without them and
 # `caddy adapt` fails on either missing, so a bad env file stops here, not at the first request):
-#   DOMAIN       the registered apex, e.g. infraque.com (the same value in staging and production)
+#   DOMAIN       the registered apex, e.g. inframation.io (the same value in staging and production)
 #   ENVIRONMENT  staging | production; picks the host set below, which matches the Cloudflare
 #                records in infra/terraform/dns.tf:
 #                  production  {DOMAIN}          admin.{DOMAIN}          api.{DOMAIN}          www.{DOMAIN} -> apex

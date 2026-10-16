@@ -473,3 +473,82 @@ current documents the same evening; this file, the decisions log and the changel
 history. Before the name is final: counsel's knock-out search in classes 9, 35 and 42; registration of
 infraque.com and infraqueue.com (both free at 22:00 UTC) plus the typo variants counsel suggests; and a wordmark
 brief in `docs/31` that makes the "-que" ending read as "cue", the one weakness the owner accepted with open eyes.
+
+
+## 12. Round five (2026-10-15): a plain name
+
+**Brief changed by the owner (2026-10-15):** "a simple intuitive name that maps to the product". Asked for
+candidates, the owner answered "grid or power pipeline is good". On 2026-10-16 the owner chose a different name,
+recorded below under the decision. This section keeps the checks of both days.
+
+**Why Infraque was replaced:**
+- the criterion is now "simple, intuitive, maps to the product", which a coined name meets only with explanation;
+- Infraque fails principle 2 in both directions: a listener cannot spell it, and a reader cannot say it. English
+  readers say "in-FRAK" for a final "-que" (§11), which in an energy market sounds like "fracking";
+- "pipeline" is the deal teams' own word, and job 1 in the beta is checking a developer's pipeline
+  (`docs/65` §(c), "Job 1: pipeline").
+
+**Method (coordinator's checks, 2026-10-15):**
+- `.com`: Verisign RDAP (`https://rdap.verisign.com/com/v1/domain/NAME.com`); 404 means unregistered. Control:
+  google.com → 200.
+- `.io`, `.co`, `.energy`: Google DNS-over-HTTPS NS lookups (`https://dns.google/resolve?name=NAME.io&type=NS`);
+  NXDOMAIN means the name is not delegated. Controls: gridstatus.io and cleanview.co → NOERROR; a nonsense name →
+  NXDOMAIN. rdap.org's bootstrap gave false 404s for the registered controls (as in §3), so DNS was used instead.
+  NXDOMAIN is strong evidence that a name is free, not proof: a registered but undelegated name also answers
+  NXDOMAIN.
+- An HTTPS fetch of each taken `.com`, to tell a parked domain from a live product.
+- Web searches for a live company or product with the name.
+
+**Results:**
+
+| Candidate | .com | .io / .co / .energy | Company or product found |
+|---|---|---|---|
+| Grid Pipeline | registered, serves nothing | NXDOMAIN on all three | none |
+| Power Pipeline | listed for sale as a "premium domain" | .io and .energy NXDOMAIN | none. GEM, Enerdata and Cornwall Insight use "pipeline" generically |
+| Proposed Power | unregistered (RDAP 404 and NXDOMAIN) | — | none |
+| Infraqueue / Infraque | both still unregistered | — | — |
+
+Of 70 coined or compound `.com`s checked, 59 were registered.
+
+**The trade-off of a descriptive name, stated plainly:**
+- a descriptive name is a weak trademark;
+- it competes with generic search results for its own words;
+- Grid Pipeline also breaks principle 5's corollary: the "Grid-" shelf holds Grid Status, GridTracker and
+  GridUnity, all in the competitor set (§1). Round four found "Pipeline" claimed as a software mark (§11);
+- counsel's USPTO knock-out search was needed before any brand spend.
+
+The coordinator chose Grid Pipeline on 2026-10-15. It was applied only on a working branch and never shipped.
+
+**Decision (owner, 2026-10-16): Inframation at inframation.io.** The facts the owner decided on:
+- **Prior use in this market.** "Inframation" was ION Analytics' infrastructure-investment news service
+  ([Talking Biz News, 2021](https://talkingbiznews.com/biz-news-help-wanted/inframation-seeks-a-private-infrastructure-investing-reporter/)).
+  ION now publishes as Infralogic. The owner reports the rebrand. The coordinator found Infralogic on ION pages
+  from 2023 and 2026, but no dated rebrand notice.
+- **A live US mark in another field.** INFRAMATION, Reg. No. 2553306, registered 2002 and renewed, covers
+  infrared-thermography conferences. inframation.com redirects to the Infrared Training Center.
+- **Domain.** inframation.io was NXDOMAIN on 2026-10-16.
+
+**Assessment against §1 (inference, moderate confidence):**
+- Principles 1, 2 and 4 are met better than Infraque met them: one word, said as spelt, and "infra" plus
+  "information" says what the product is.
+- Principle 5's "Grid-" problem does not arise.
+- Principle 6 is the open risk. ION's Inframation served exactly this audience: the beta's testers are deal and
+  portfolio teams at infrastructure investors (`docs/65`). Some of them will have read it. That is a confusion
+  risk, and a legal one if ION still holds registrations or used the name recently.
+- The US mark is in a distant class of goods and services (thermography conferences). It is still a live
+  registration of the identical word, so counsel's search must cover it.
+
+**Before brand spend** (wordmark, handles, paid search, printed material), a lawyer checks:
+- UKIPO and EUIPO for ION's INFRAMATION registrations;
+- the date ION stopped using the name. Under US law, nonuse for 3 consecutive years is prima facie evidence of
+  abandonment ([15 U.S.C. §1127](https://www.law.cornell.edu/uscode/text/15/1127)), so the rebrand date decides
+  whether ION's US rights can still be presumed alive;
+- the USPTO knock-out search in classes 9, 35 and 42, including Reg. No. 2553306.
+
+Grid Pipeline, Power Pipeline and Proposed Power stay above as the considered alternatives.
+
+Applied to code, templates, spec, infrastructure and current documents on 2026-10-16. `infraque` survives only as
+an internal codename where renaming would break a deploy or a store: environment variables, `/opt/infraque` host
+paths, the Postgres database and user, the Compose project, R2 bucket names, systemd units, cloud-init files and a
+migration's setting name. This file, the decisions log, the changelog and dated notes keep the earlier names as
+history.

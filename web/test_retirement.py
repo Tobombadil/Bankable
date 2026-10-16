@@ -147,7 +147,7 @@ GRID = {
             {
                 "public_id": "asset_01LINE",
                 "slug": "rockport-jefferson-765",
-                "url": "https://infraque.com/assets/rockport-jefferson-765",
+                "url": "https://inframation.io/assets/rockport-jefferson-765",
                 "name": "Rockport - Jefferson",
                 "voltage_kv": 765.0,
                 "distance_km": 0.4,
@@ -156,7 +156,7 @@ GRID = {
         "interconnection_points": [
             {
                 "public_id": "poi_01RP",
-                "url": "https://infraque.com/interconnection-points/poi_01RP",
+                "url": "https://inframation.io/interconnection-points/poi_01RP",
                 "name": "Rockport 765kV",
                 "iso": "MISO",
                 "kind": "substation",

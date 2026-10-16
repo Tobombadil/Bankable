@@ -45,6 +45,80 @@ That is about 15–35 USD a month before email, against 80–170 USD for the thr
 
 ## 2. Owner actions, in order
 
+### One-click route (GitHub Actions)
+
+Added 2026-10-15. The owner creates three accounts and pastes their values into GitHub once. The coordinator
+then runs `.github/workflows/deploy-beta.yml` on GitHub's own machines, which can reach the server over SSH.
+Nothing is installed locally: no OpenTofu, sops, age, Caddy or SSH key. Allow about 40 minutes of work, plus up
+to a day if the domain's nameservers have to move (step A).
+
+Email (Resend), Sentry and UptimeRobot are not part of this first version. Email is a dry run, no error reaches
+anyone, and preflight check 9 reads FAIL until manual steps 7 to 9 below are done. Secret values go only into
+GitHub's secret fields: never into chat, an email or the repository.
+
+- [ ] **A. The domain on Cloudflare (10 min).**
+  - Register `<your domain>` in the Cloudflare dashboard under **Domain Registration > Register Domains**. Its
+    zone then exists on Cloudflare already.
+  - **If Cloudflare does not sell that ending** (for example `.io`), register it elsewhere. Then, in Cloudflare,
+    choose **Add a domain**, enter `<your domain>`, pick the **Free** plan, and at your registrar replace the
+    nameservers with the two Cloudflare shows. Continue once the domain's Overview page says **Active**.
+  - The domain's **Overview** page shows, in its **API** box, the **Zone ID** and the **Account ID**.
+- [ ] **B. R2 storage and the state bucket (5 min).**
+  - Open **R2 Object Storage** in the left menu and enable it. Cloudflare asks for a payment method; the beta
+    costs about 3 to 6 USD a month there (§1).
+  - **Create bucket**, named exactly `beta-tfstate`, location Automatic. It holds OpenTofu's state, which
+    includes the generated passwords and the server's SSH key: never make it public.
+- [ ] **C. The R2 storage token (3 min).** On the R2 Object Storage overview page, **Manage API tokens >
+  Create Account API token**: permission **Object Read & Write**, **Apply to all buckets in this account**, no
+  expiry. Copy the **Access Key ID** and the **Secret Access Key**; the secret is shown once.
+- [ ] **D. The Cloudflare API token (3 min).** **My Profile > API Tokens > Create Token > Create Custom Token**:
+  - three permission rows: **Zone · DNS · Edit**, **Zone · Zone · Read**, **Account · Workers R2 Storage ·
+    Edit**;
+  - Zone Resources **Include · Specific zone · `<your domain>`**; Account Resources **Include · your account**.
+- [ ] **E. Hetzner Cloud (10 min).** Sign up at https://console.hetzner.com and verify the account. Create a
+  project (any name). In it, **Security > API tokens > Generate API token**, permission **Read & Write**. Create
+  no server and no SSH key: the workflow makes both.
+- [ ] **F. The GitHub Environment (10 min).** In the repository, **Settings > Environments > `production`**
+  (create it if it is not there). Add each value under **Environment secrets** or **Environment variables**,
+  named exactly as here:
+
+  | Name | Kind | Value |
+  |---|---|---|
+  | `HCLOUD_TOKEN` | secret | step E |
+  | `CLOUDFLARE_API_TOKEN` | secret | step D |
+  | `R2_ACCESS_KEY_ID` | secret | step C, Access Key ID |
+  | `R2_SECRET_ACCESS_KEY` | secret | step C, Secret Access Key |
+  | `SITE_ACCESS_PASSWORD` | secret | the testers' shared password, 12 characters or more and at most 72 bytes. The workflow hashes it. Give it to testers out of band |
+  | `DOMAIN` | variable | `<your domain>`: lowercase, without `https://`. It must equal `services.api.common.DOMAIN` in the code being deployed, or the run stops (preflight check 10's rule) |
+  | `CLOUDFLARE_ACCOUNT_ID` | variable | step A, Account ID |
+  | `CLOUDFLARE_ZONE_ID` | variable | step A, Zone ID |
+  | `SITE_ACCESS_USER` | variable | the shared user name: letters, digits, `.`, `_`, `@` or `-` |
+  | `SENDER_POSTAL_ADDRESS` | variable | the legal sender's real postal address, on one line (manual step 9 says why) |
+  | `SENDER_LEGAL_NAME` | variable, optional | default: Compass International Trading Group LLC (decided 2026-09-18) |
+  | `PRODUCT_CONTACT_EMAIL` | variable, optional | default: `hello@<your domain>` |
+  | `PRODUCT_NAME` | variable, optional | default: the product name in the code |
+- [ ] **G. Tell the coordinator.** The coordinator runs the workflow with `deploy`, then `seed`, then
+  `preflight`, checking with `status` in between. Each run's summary page says what it did. A run with a missing
+  or malformed value stops before it touches any account and lists every value to fix.
+
+**What the first `deploy` creates.** It creates:
+- one Hetzner VM in Ashburn, the cheapest type offered there with 4 vCPU and 8 GB, with Hetzner's backups;
+- two R2 buckets: `beta-object-storage-production` for the nightly database dumps, and
+  `beta-object-storage-tiles-production` for the map;
+- the `A` and `CNAME` records for `<your domain>`, `admin.`, `api.` and `www.`, not proxied for now (so
+  `web_source_cidrs` stays open), and `tiles.<your domain>` on the tiles bucket;
+- the database password, the session secret, the internal token, the audit pepper and the server's SSH key,
+  generated once and kept in the `beta-tfstate` state.
+
+Later runs reuse all of it, and a plan that would delete or replace any of it is refused. A separate job of the
+first run builds the map's basemap (about 3.9 GB); the site works while it builds.
+
+**The trade-off.** The generated secrets live in the state, in the private bucket `beta-tfstate`, which the R2
+token above can read. Whoever holds that token, or may run the workflow, can read them. That is the same set of
+people who can already read the deployed env file through the workflow.
+
+### Manual route (the alternative)
+
 The coordinator's recommendations, which the owner accepted on 2026-10-10. Allow about 75 minutes of work, plus
 waiting time for DNS: **start step 9 (email) first**, because its domain check can take up to 72 hours. Each step
 names what to create and where its value goes:
@@ -132,12 +206,12 @@ names what to create and where its value goes:
 - [ ] **9. Email: Resend (15 min, then up to 72 hours of DNS; start this first).** Without it the beta cannot
   verify a sign-up, reset a password or send an alert. Nothing fails loudly: with no key, every email is a dry run
   that goes nowhere (`services/api/auth.py` `ResendEmailAdapter`).
-  - **The domain is fixed in code.** Every email's links and From address are built from `infraque.com`
-    (`services/api/common.py` `DOMAIN`: From `alerts@infraque.com`, reply-to `hello@infraque.com`). So `DOMAIN` in
-    the secrets file must be `infraque.com`, and that is the domain to verify. The preflight (§3) fails if they
+  - **The domain is fixed in code.** Every email's links and From address are built from `inframation.io`
+    (`services/api/common.py` `DOMAIN`: From `alerts@inframation.io`, reply-to `hello@inframation.io`). So `DOMAIN` in
+    the secrets file must be `inframation.io`, and that is the domain to verify. The preflight (§3) fails if they
     differ.
-  - **Verify the domain.** Create a Resend account, add `infraque.com` under Domains, and copy the DKIM and SPF
-    records it generates (`TXT`, plus `MX` for the return path, which defaults to `send.infraque.com`) into
+  - **Verify the domain.** Create a Resend account, add `inframation.io` under Domains, and copy the DKIM and SPF
+    records it generates (`TXT`, plus `MX` for the return path, which defaults to `send.inframation.io`) into
     Cloudflare exactly as shown, with the proxy **off** (grey cloud). Resend says most domains verify within 15
     minutes and DNS can take up to 72 hours (https://resend.com/docs/add-a-domain). Cloudflare specifics:
     https://resend.com/docs/knowledge-base/cloudflare.
@@ -150,7 +224,7 @@ names what to create and where its value goes:
     Routing on the apex (free). The one-click unsubscribe works over HTTPS without it; replies and mailed
     unsubscribes bounce without it.
   - **The three values:**
-    - `RESEND_API_KEY` (secret): an API key with sending access only, limited to `infraque.com` (`docs/32` §2.4);
+    - `RESEND_API_KEY` (secret): an API key with sending access only, limited to `inframation.io` (`docs/32` §2.4);
     - `SENDER_LEGAL_NAME` (config): the legal sender, decided 2026-09-18 as Compass International Trading Group
       LLC (`docs/00-PLAN.md` open question 3);
     - `SENDER_POSTAL_ADDRESS` (config): a real postal address where that entity receives mail. A street address,
@@ -224,7 +298,7 @@ measured in the sandbox):
    replace the number with a line without one (lane U's alternative, docs/30 §5.1) and record it.
 3. Generate the 100-item hand-check worksheet from this store
    (`data/eval/handcheck/2026-10-10-e2e-reference/README.md` gives the command) before the owner's
-   check on 14–15 October.
+   check (planned for 14–15 October; it now follows the first deploy).
 
 **Run the preflight; invite testers only on GO** (2026-10-11, `infra/scheduler/preflight.py`). Once the
 seed's jobs have finished, on the host:
@@ -487,7 +561,10 @@ Still open:
 ## 8. Assumptions
 
 - **[A-64-1]** The `cx32` type is offered in the chosen Hetzner location. `docs/60` §4 assumes it
-  for `ash`; check it in the console before `tofu apply`.
+  for `ash`; check it in the console before `tofu apply`. **Found 2026-10-15: it is not.** Hetzner stopped
+  selling `cx32` on 1 January 2026 (https://docs.hetzner.cloud/changelog). The one-click route picks the type
+  from Hetzner's API instead, the cheapest with 4 vCPU and 8 GB offered in `ash`, and keeps it. The manual route
+  must set `app_server_type` in `terraform.tfvars`.
 - **[A-64-2]** One shared login is enough access control for an invited beta. It identifies no
   tester; per-tester accounts are the site's own sign-in once the gate opens.
 - **[A-64-3]** Data loss up to the last nightly dump is acceptable for the beta. The store is

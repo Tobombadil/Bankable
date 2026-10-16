@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>{% block title %}Admin — Infraque{% endblock %}</title>
+<title>{% block title %}Admin — Inframation{% endblock %}</title>
 {#- The public site's first-paint fonts (base.html): without them admin pages rendered in the
     fallback faces for the whole view (audit 2026-10-07 UX-16). -#}
 <link rel="preload" href="/static/fonts/IBMPlexSans-Regular-Latin1.woff2" as="font" type="font/woff2" crossorigin>
@@ -18,7 +18,7 @@
 <a class="skip-link" href="#main">Skip to main content</a>
 <header class="admin-header">
   <div class="admin-header__bar">
-    <a class="wordmark" href="/admin/sources">Infraque <span class="admin-header__tag">admin</span></a>
+    <a class="wordmark" href="/admin/sources">Inframation <span class="admin-header__tag">admin</span></a>
     <nav class="admin-nav" aria-label="Admin sections">
       {% for href, label, key in ADMIN_NAV %}
       <a href="{{ href }}"{% if key == nav_key %} aria-current="page"{% endif %}>{{ label }}</a>

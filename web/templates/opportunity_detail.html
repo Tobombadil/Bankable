@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}{{ record.title | readable_name }} — Infraque{% endblock %}
+{% block title %}{{ record.title | readable_name }} — Inframation{% endblock %}
 {% block meta_description %}{{ record.title }}: {{ record.kind_label }} from {{ record.issuer or 'issuer unstated' }}, due {{ record.due_at | display_date if record.due_at else 'unstated' }}.{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/opportunities">Opportunities</a> / {{ record.title | readable_name }}</nav>

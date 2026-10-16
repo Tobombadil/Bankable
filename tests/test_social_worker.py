@@ -243,7 +243,7 @@ def test_auto_publish_needs_the_owner_switch_a_named_event_type_and_graduation(
         ChannelConfig(
             channel="bluesky",
             auto_publish=True,
-            disclosure_label="Automated feed run by Infraque (infraque.com).",
+            disclosure_label="Automated feed run by Inframation (inframation.io).",
             auto_publish_event_types=["proposal.new"],
         )
     )
@@ -252,7 +252,7 @@ def test_auto_publish_needs_the_owner_switch_a_named_event_type_and_graduation(
         ChannelConfig(
             channel="x",
             auto_publish=True,
-            disclosure_label="Automated feed run by Infraque (infraque.com).",
+            disclosure_label="Automated feed run by Inframation (inframation.io).",
             auto_publish_event_types=["proposal.withdrawn"],
         )
     )
@@ -294,7 +294,7 @@ def test_a_wrong_fact_rejection_revokes_auto_publish(
         ChannelConfig(
             channel="bluesky",
             auto_publish=True,
-            disclosure_label="Automated feed run by Infraque (infraque.com).",
+            disclosure_label="Automated feed run by Inframation (inframation.io).",
             auto_publish_event_types=["proposal.new"],
         )
     )

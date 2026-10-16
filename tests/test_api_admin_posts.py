@@ -296,7 +296,7 @@ def test_admin_update_post_does_not_require_the_account_disclosure_in_the_body(c
     audit F5). Link and credit stay mandatory."""
     operator = _make_operator(db)
     _proposal, event = _seed_event(db)
-    post = _make_post(db, event, disclosure_label="Automated feed run by Infraque (infraque.com).")
+    post = _make_post(db, event, disclosure_label="Automated feed run by Inframation (inframation.io).")
     db.commit()
     login(client, db, operator)
     resp = client.patch(

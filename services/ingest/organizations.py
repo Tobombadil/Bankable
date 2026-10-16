@@ -2,8 +2,8 @@
 merge file (docs/21 §3.5, §3.6, §3.23; docs/22 §17, §20.5) -> `organization.parent_org_id` /
 `organization_alias` / reversible `merged` events.
 
-Three loaders, all idempotent, all one pass over the tables they touch. `load_merges` is described
-at its definition; the other two follow.
+Four loaders, all idempotent, all one pass over the tables they touch. `load_merges` and
+`load_group_parents` are described at their definitions; the other two follow.
 
 **`load_gleif_parents(session, df)`** applies the parquet `pipeline/context/gleif.py` writes
 (`global.gleif.lei`, CC0) and sets, for every organisation it can match, `parent_org_id`,
@@ -71,7 +71,9 @@ import json
 import logging
 import os
 import pathlib
+import re
 import time
+import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
@@ -107,12 +109,18 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = pathlib.Path("web/.data/dev.db")
 DEFAULT_ALIASES_PATH = ROOT / "data" / "vendored" / "organizations" / "aliases.yaml"
 DEFAULT_MERGES_PATH = ROOT / "data" / "vendored" / "organizations" / "merges.yaml"
+#: Committed with the code and copied into every image (`COPY data/vendored`), so a server seeded
+#: with no local data root still loads it (docs/64 §3).
+DEFAULT_GROUP_PARENTS_PATH = ROOT / "data" / "vendored" / "organizations" / "developer_parents.yaml"
 #: Under the connector data root (`INFRAQUE_DATA_DIR`, else data/), where `pipeline.context.gleif` writes it.
 DEFAULT_GLEIF_PARQUET = DATA_DIR / "normalized" / "context" / "global.gleif.lei.parents.parquet"
 
 GLEIF_SOURCE_ID = "global.gleif.lei"
 ALIASES_SOURCE_ID = "curated.organization_aliases"
 MERGES_SOURCE_ID = "curated.organization_merges"
+#: The group file writes under the same source as `parents.yaml` (`services/ingest/midstream.py`):
+#: both are parent edges a human read off a company's own published statement.
+PARENTS_SOURCE_ID = "curated.organization_parents"
 
 #: Direct beats ultimate for `parent_org_id` (module docstring); the order is the preference.
 RELATIONSHIP_PREFERENCE: tuple[str, ...] = (
@@ -707,6 +715,267 @@ def load_merges(
     return result
 
 
+# ------------------------------------------------------------------------ curated group parents
+#: Evidence a group edge may rest on (`developer_parents.yaml` header): the parent's 10-K Exhibit 21
+#: on EDGAR, a GLEIF Level 2 relationship record, or the parent's own web page.
+GROUP_EVIDENCE_KINDS: frozenset[str] = frozenset({"sec_ex21", "gleif", "company_site"})
+#: Where an Exhibit 21 lives. An edge that quotes an Exhibit 21 row must cite a document here.
+SEC_ARCHIVES_PREFIX = "https://www.sec.gov/Archives/edgar/data/"
+
+
+def _fold(text: str) -> str:
+    """Lower-case, `&` as `and`, every run of other punctuation one space: the form the precision
+    guard compares names in. Not `org_key` -- the guard asks whether a word is *in* a name, and
+    `org_key` keeps the legal-form-free name whole rather than as words."""
+    folded = unicodedata.normalize("NFKD", text).casefold().replace("&", " and ")
+    return " " + " ".join(re.sub(r"[^0-9a-z]+", " ", folded).split()) + " "
+
+
+def name_carries_token(name: str, tokens: tuple[str, ...]) -> bool:
+    """True when `name` contains one of `tokens` as whole words (`NextEra` is in `NextEra Energy
+    Resources - ERCOT`; `Engie` is not in `DENGIE MARSHES WIND FARM LIMITED`)."""
+    folded = _fold(name)
+    return any(_fold(token) in folded for token in tokens if _fold(token).strip())
+
+
+@dataclass(frozen=True)
+class GroupChild:
+    """One curated child -> parent edge in `developer_parents.yaml`."""
+
+    #: The organisation to link, matched by `org_key` over `name_canonical` and every alias.
+    name: str
+    evidence: str
+    source_url: str
+    retrieved_at: str
+    #: The passage of the cited document that names this child (an Exhibit 21 row, a row of an
+    #: annual report's subsidiary list, a sentence of the parent's page), verbatim. On a `sec_ex21`
+    #: edge it is what lets a child whose name carries none of the parent's names pass the guard.
+    quote: str = ""
+    #: The child's LEI, for a `gleif` edge.
+    lei: str = ""
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class GroupRule:
+    """A parent and the children the file links to it."""
+
+    parent: str
+    #: ISO 3166-1 alpha-2, written to `organization.country` if the loader has to create the parent.
+    parent_country: str
+    #: The parent's own names (legal, trading, former): the precision guard's tokens.
+    parent_names: tuple[str, ...]
+    children: tuple[GroupChild, ...]
+    note: str = ""
+
+
+def group_edge_problems(rule: GroupRule, child: GroupChild) -> list[str]:
+    """Why one edge may not be loaded, or `[]`. Provenance first (every edge cites a document and
+    the time it was read, under a known kind of evidence), then the precision guard: the child's
+    name carries one of the parent's own names, or the edge quotes the Exhibit 21 row in which the
+    parent names the child. A project company whose name carries neither -- `Flat Hill Solar LLC`
+    -- cannot pass, which is the point: it is never linked by guess."""
+    problems: list[str] = []
+    if child.evidence not in GROUP_EVIDENCE_KINDS:
+        problems.append(f"evidence {child.evidence!r} is not one of {sorted(GROUP_EVIDENCE_KINDS)}")
+    if not child.source_url.startswith("https://"):
+        problems.append("source_url is not an https URL")
+    try:
+        pd.Timestamp(child.retrieved_at)
+    except (TypeError, ValueError):
+        problems.append(f"retrieved_at {child.retrieved_at!r} is not a timestamp")
+    if child.evidence == "gleif" and not child.lei:
+        problems.append("a gleif edge names the child's LEI")
+    if child.evidence == "sec_ex21" and not child.source_url.startswith(SEC_ARCHIVES_PREFIX):
+        problems.append(f"a sec_ex21 edge cites an exhibit under {SEC_ARCHIVES_PREFIX}")
+    names_parent = name_carries_token(child.name, rule.parent_names)
+    quotes_ex21 = child.evidence == "sec_ex21" and bool(child.quote)
+    if not (names_parent or quotes_ex21):
+        problems.append(
+            f"{child.name!r} carries none of {list(rule.parent_names)} and quotes no Exhibit 21 row"
+        )
+    return problems
+
+
+def _text_field(row: dict[str, Any], key: str) -> str:
+    return " ".join(str(row.get(key) or "").split())
+
+
+def read_group_rules(path: pathlib.Path = DEFAULT_GROUP_PARENTS_PATH) -> list[GroupRule]:
+    """Parse and check the whole file before anything is written: a missing field, an unknown
+    evidence kind or an edge the precision guard refuses raises, naming the row."""
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    rows = payload.get("groups") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise ValueError(f"{path}: expected a top-level `groups:` list")
+    rules: list[GroupRule] = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"{path}: group {i} is not a mapping")
+        missing = [k for k in ("parent", "parent_country", "parent_names", "children") if not row.get(k)]
+        if missing:
+            raise ValueError(f"{path}: group {i} lacks {missing}")
+        children: list[GroupChild] = []
+        for j, crow in enumerate(row["children"]):
+            if not isinstance(crow, dict):
+                raise ValueError(f"{path}: group {i} child {j} is not a mapping")
+            lacks = [k for k in ("name", "evidence", "source_url", "retrieved_at") if not crow.get(k)]
+            if lacks:
+                raise ValueError(f"{path}: group {i} ({row['parent']}) child {j} lacks {lacks}")
+            children.append(
+                GroupChild(
+                    name=_text_field(crow, "name"),
+                    evidence=_text_field(crow, "evidence"),
+                    source_url=_text_field(crow, "source_url"),
+                    retrieved_at=_text_field(crow, "retrieved_at"),
+                    quote=_text_field(crow, "quote"),
+                    lei=_text_field(crow, "lei"),
+                    note=_text_field(crow, "note"),
+                )
+            )
+        rule = GroupRule(
+            parent=_text_field(row, "parent"),
+            parent_country=_text_field(row, "parent_country").upper(),
+            parent_names=tuple(_text_field({"n": n}, "n") for n in row["parent_names"]),
+            children=tuple(children),
+            note=_text_field(row, "note"),
+        )
+        if len(rule.parent_country) != 2:
+            raise ValueError(f"{path}: group {i} ({rule.parent}) parent_country is not a two-letter code")
+        for child in rule.children:
+            problems = group_edge_problems(rule, child)
+            if problems:
+                raise ValueError(f"{path}: {child.name} -> {rule.parent}: {'; '.join(problems)}")
+        rules.append(rule)
+    return rules
+
+
+@dataclass
+class GroupParentsLoadResult:
+    groups: int = 0
+    edges: int = 0
+    parents_created: int = 0
+    parents_matched: int = 0
+    children_linked: int = 0
+    children_unchanged: int = 0
+    children_deferred_to_gleif: int = 0
+    self_parent_skipped: int = 0
+    #: Edges whose child is not loaded in this store yet: inert, re-applied on the next run.
+    children_not_loaded: list[str] = field(default_factory=list)
+    #: Groups none of whose children is loaded; no parent organisation is created for them.
+    groups_without_children: list[str] = field(default_factory=list)
+    linked: dict[str, list[str]] = field(default_factory=dict)
+
+    def as_report(self) -> dict[str, object]:
+        return {
+            "groups": self.groups,
+            "edges": self.edges,
+            "parents_created": self.parents_created,
+            "parents_matched": self.parents_matched,
+            "children_linked": self.children_linked,
+            "children_unchanged": self.children_unchanged,
+            "children_deferred_to_gleif": self.children_deferred_to_gleif,
+            "self_parent_skipped": self.self_parent_skipped,
+            "children_not_loaded": len(self.children_not_loaded),
+            "groups_without_children": list(self.groups_without_children),
+            "linked": {k: len(v) for k, v in sorted(self.linked.items())},
+        }
+
+
+def _group_parent(
+    session: Session,
+    index: dict[str, list[Organization]],
+    rule: GroupRule,
+    *,
+    source: Source,
+    now: dt.datetime,
+    source_url: str,
+) -> tuple[Organization, bool]:
+    """The organisation `rule.parent` keys to, else a new one carrying the rule's country (not the
+    `US` every other loader hard-codes: RWE, SSE and EDF are not American). Called only once a child
+    has matched, so a group with nothing loaded leaves no empty organisation behind."""
+    org, created = _get_or_create_org(
+        session,
+        index,
+        rule.parent,
+        source=source,
+        now=now,
+        source_url=source_url,
+        alias_kind="filing_spelling",
+    )
+    if created:
+        org.country = rule.parent_country
+    return org, created
+
+
+def load_group_parents(
+    session: Session, path: pathlib.Path = DEFAULT_GROUP_PARENTS_PATH, *, manifest_version: str = ""
+) -> GroupParentsLoadResult:
+    """Apply `data/vendored/organizations/developer_parents.yaml`: for every edge whose child is
+    loaded, set `parent_org_id` to the group's parent and `parent_source_id` to
+    `curated.organization_parents`, the source the companion `parents.yaml` already writes under
+    (`services/ingest/midstream.py::load_parents`). Idempotent; never overwrites a GLEIF Level 2
+    link (`children_deferred_to_gleif`, the same rule `load_parents` follows); never writes
+    `parent_as_of` (an Exhibit 21 dates the list, not the start of the ownership) or a share."""
+    rules = read_group_rules(path)
+    registry = Registry()
+    source = upsert_licence_and_source(
+        session, registry.get(PARENTS_SOURCE_ID), manifest_version or registry.version
+    )
+    result = GroupParentsLoadResult(groups=len(rules), edges=sum(len(r.children) for r in rules))
+    index = org_key_multimap(session)
+    now = utcnow()
+    for rule in rules:
+        matches: list[tuple[GroupChild, Organization]] = []
+        for child in rule.children:
+            orgs = index.get(org_key(child.name)) or []
+            if not orgs:
+                result.children_not_loaded.append(f"{child.name} -> {rule.parent}")
+            matches.extend((child, org) for org in orgs)
+        if not matches:
+            result.groups_without_children.append(rule.parent)
+            continue
+        first = matches[0][0]
+        parent, created = _group_parent(
+            session,
+            index,
+            rule,
+            source=source,
+            now=_row_retrieved_at({"retrieved_at": first.retrieved_at}) or now,
+            source_url=first.source_url,
+        )
+        if created:
+            result.parents_created += 1
+        else:
+            result.parents_matched += 1
+        seen: set[Any] = set()
+        for _child, org in matches:
+            if org.id in seen:
+                continue
+            seen.add(org.id)
+            if org.id == parent.id:
+                result.self_parent_skipped += 1
+                continue
+            if org.parent_source_id == GLEIF_SOURCE_ID:
+                result.children_deferred_to_gleif += 1
+                continue
+            if (
+                org.parent_org_id == parent.id
+                and org.parent_source_id == source.id
+                and org.parent_as_of is None
+            ):
+                result.children_unchanged += 1
+                continue
+            org.parent_org_id = parent.id
+            org.parent_source_id = source.id
+            org.parent_as_of = None
+            org.last_changed = now
+            result.children_linked += 1
+            result.linked.setdefault(parent.name_canonical, []).append(org.name_canonical)
+    session.commit()
+    return result
+
+
 # ---------------------------------------------------------------------------------------- CLI
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -717,7 +986,9 @@ def main(argv: list[str] | None = None) -> None:
     aliases.add_argument("--path", type=pathlib.Path, default=DEFAULT_ALIASES_PATH)
     merges = sub.add_parser("merges", help="reversible organisation merges from the curated YAML")
     merges.add_argument("--path", type=pathlib.Path, default=DEFAULT_MERGES_PATH)
-    for p in (parents, aliases, merges):
+    groups = sub.add_parser("groups", help="developer and utility group parents from the curated YAML")
+    groups.add_argument("--path", type=pathlib.Path, default=DEFAULT_GROUP_PARENTS_PATH)
+    for p in (parents, aliases, merges, groups):
         p.add_argument("--db", type=pathlib.Path, default=DEFAULT_DB_PATH)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -737,6 +1008,8 @@ def main(argv: list[str] | None = None) -> None:
             report = load_gleif_parents_parquet(session, args.parquet).as_report()
         elif args.command == "aliases":
             report = load_aliases(session, args.path).as_report()
+        elif args.command == "groups":
+            report = load_group_parents(session, args.path).as_report()
         else:
             report = load_merges(session, args.path).as_report()
     finally:
